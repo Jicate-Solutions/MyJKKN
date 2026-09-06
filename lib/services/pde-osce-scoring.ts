@@ -10,7 +10,10 @@
 //
 // What it does:
 //   1. Loads the rubric (per-domain weights) from `pde_assessments.rubric` —
-//      falls back to a 5-domain default if the row is missing rubric data.
+//      falls back to a rubric DERIVED from the questions the assessment asks
+//      (grouped by `metadata.osce_domain`) when the row carries none, so every
+//      question is covered whether the case has 4, 7, 8 or more. See
+//      deriveFallbackRubric.
 //   2. For each domain, builds a prompt from the policy-defined scoring
 //      template + relevant Q answers and ground truth, calls the AI provider
 //      configured by `clinical_reasoning.ai.provider` + `clinical_reasoning.ai.model`,
@@ -79,6 +82,13 @@ export interface PdeQuestion {
   question_text: string;
   ground_truth: string;
   key_concepts: string[];
+  /**
+   * OSCE domain this question belongs to, from
+   * `pde_assessment_questions.metadata.osce_domain`. Drives the derived rubric
+   * when the assessment carries no authored one — which, on production, is
+   * every case (all `pde_assessments.rubric` are NULL).
+   */
+  osce_domain?: string | null;
 }
 
 export interface PdeAnswer {
@@ -96,46 +106,126 @@ export interface ScoreAttemptArgs {
 }
 
 // ----------------------------------------------------------------------------
-// Defaults (used when assessment.rubric is null/empty)
+// Fallback rubric (used when assessment.rubric is null/empty)
+//
+// This used to be a fixed five-domain list whose q_numbers were hard-coded to
+// [1], [2,3], [2], [3], [4] — Q1 to Q4 only, 25 marks total. Every live case
+// asks SEVEN or EIGHT questions and every production assessment has a NULL
+// rubric, so Q5 onward were claimed by no domain: they contributed nothing to
+// the numerator AND nothing to the denominator. A learner answering them
+// flawlessly gained exactly zero, and "score over every question" was true only
+// of the first four.
+//
+// The fallback is now DERIVED from the questions the assessment actually asks,
+// grouped by `metadata.osce_domain` (every live question carries one), so it
+// covers 7 questions, 8 questions, or 30 without another edit. Each question
+// carries equal weight, which is the literal reading of the Director decision
+// that a skipped question counts as zero.
 // ----------------------------------------------------------------------------
 
-const FALLBACK_RUBRIC: RubricDomain[] = [
-  {
-    key: 'clinical_findings',
-    label: 'Clinical Findings Identification',
-    description: 'Recognizing key signs/symptoms from history and examination',
-    max_score: 5,
-    q_numbers: [1],
+/** Marks every question contributes to its domain's max_score. */
+export const QUESTION_WEIGHT = 5;
+
+/** Domain used when a case tags nothing, so the whole case is still scored. */
+const GENERAL_DOMAIN_KEY = 'general_clinical_reasoning';
+
+/**
+ * Labels + examiner-facing descriptions for the canonical OSCE domains
+ * (`OsceDomain` in types/pde-clinical-reasoning.ts). A domain key outside this
+ * list is still scored — only its wording is derived from the key.
+ */
+const OSCE_DOMAIN_LIBRARY: Record<string, { label: string; description: string }> = {
+  data_gathering: {
+    label: 'Data Gathering',
+    description:
+      'Eliciting the history and recognising the key signs and findings on examination',
   },
-  {
-    key: 'differential_diagnosis',
-    label: 'Differential Diagnosis',
-    description: 'Logical listing of differential diagnoses with reasons',
-    max_score: 5,
-    q_numbers: [2, 3],
+  hypothesis_generation: {
+    label: 'Hypothesis Generation',
+    description:
+      'Building and justifying a differential, and reasoning towards a provisional diagnosis',
   },
-  {
-    key: 'diagnostic_reasoning',
-    label: 'Diagnostic Reasoning',
-    description: 'Justification of provisional diagnosis based on findings',
-    max_score: 5,
-    q_numbers: [2],
-  },
-  {
-    key: 'investigation_judgement',
-    label: 'Investigation Judgement',
-    description: 'Appropriateness of investigations chosen and rationale',
-    max_score: 5,
-    q_numbers: [3],
-  },
-  {
-    key: 'management_planning',
+  management_planning: {
     label: 'Management Planning',
-    description: 'Comprehensive management plan with reasoning',
-    max_score: 5,
-    q_numbers: [4],
+    description:
+      'Choosing appropriate investigations and a complete, well-reasoned management plan',
   },
-];
+  patient_communication: {
+    label: 'Patient Communication',
+    description:
+      'Explaining findings, options and consent in language the patient can act on',
+  },
+  professionalism: {
+    label: 'Professionalism',
+    description:
+      'Ethical, safe and accountable conduct, including referral and record-keeping',
+  },
+  [GENERAL_DOMAIN_KEY]: {
+    label: 'Overall Clinical Reasoning',
+    description: 'Overall quality of clinical reasoning across the whole case',
+  },
+};
+
+/** 'Patient Communication ' -> 'patient_communication'; junk -> null. */
+function normaliseDomainKey(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const key = raw.trim().toLowerCase().replace(/[\s-]+/g, '_');
+  return key.length > 0 ? key : null;
+}
+
+/** 'oral_medicine' -> 'Oral Medicine' — wording for an unrecognised domain. */
+function humaniseDomainKey(key: string): string {
+  return key
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .trim();
+}
+
+/**
+ * Build a rubric that covers EVERY question the assessment asks.
+ *
+ * Grouping rule:
+ *   - questions tagged with `osce_domain` group under that domain;
+ *   - an untagged question in a partly-tagged case joins the general domain
+ *     rather than going unscored (a metadata gap is the author's, never the
+ *     learner's, so it must not silently cost marks);
+ *   - a case that tags nothing is scored as one general domain.
+ *
+ * Every question carries QUESTION_WEIGHT, so a domain's max_score is
+ * proportional to how many questions it owns and the case total is
+ * QUESTION_WEIGHT x (number of questions). Coverage is total by construction:
+ * this path can never leave a question claimed by no domain.
+ */
+export function deriveFallbackRubric(questions: PdeQuestion[]): RubricDomain[] {
+  if (questions.length === 0) return [];
+
+  // Insertion order = the order the assessment asks its questions, so the
+  // domain list reads in the same order the learner met them.
+  const groups = new Map<string, number[]>();
+  for (const q of questions) {
+    const key = normaliseDomainKey(q.osce_domain) ?? GENERAL_DOMAIN_KEY;
+    const existing = groups.get(key);
+    if (existing) existing.push(q.q_number);
+    else groups.set(key, [q.q_number]);
+  }
+
+  const out: RubricDomain[] = [];
+  for (const [key, qNumbers] of groups) {
+    // Dedupe before weighting: two rows resolving to the same q_number must not
+    // charge the denominator twice.
+    const unique = [...new Set(qNumbers)].sort((a, b) => a - b);
+    const known = OSCE_DOMAIN_LIBRARY[key];
+    const label = known?.label ?? humaniseDomainKey(key);
+    out.push({
+      key,
+      label,
+      description: known?.description ?? `Questions this case groups under ${label}`,
+      max_score: QUESTION_WEIGHT * unique.length,
+      q_numbers: unique,
+    });
+  }
+  return out;
+}
 
 const DEFAULT_SCORING_TEMPLATE = `You are an OSCE rubric examiner for dental clinical reasoning. Score the student on the following domain on a 1-5 Likert scale.
 
@@ -346,8 +436,81 @@ export function parseRubricFromAssessment(raw: unknown): RubricDomain[] {
   return out;
 }
 
-export function loadFallbackRubric(): RubricDomain[] {
-  return [...FALLBACK_RUBRIC];
+// `loadFallbackRubric()` was removed with the hard-coded Q1-Q4 rubric it
+// returned. Use `deriveFallbackRubric(questions)` — it covers every question
+// the assessment asks, so no call site can reintroduce a fixed q_number list.
+
+// ----------------------------------------------------------------------------
+// Stored-answer reader — `pde_submissions.answers` holds TWO shapes
+// ----------------------------------------------------------------------------
+
+export interface StoredAnswers {
+  /** The raw answer envelopes, however deeply the write-back wrapped them. */
+  items: unknown[];
+  /** Envelopes mapped to the scoring shape. */
+  answers: PdeAnswer[];
+  /** The rubric score already committed for this submission, if any. */
+  osceScore: OsceScore | null;
+}
+
+/**
+ * Map stored envelopes to PdeAnswer. Supports the current shape
+ * ({ q_number, student_answer }) and the legacy one ({ answer_text } /
+ * { answer }); a row without a q_number falls back to its position.
+ */
+function mapAnswerEnvelopes(items: unknown[]): PdeAnswer[] {
+  const out: PdeAnswer[] = [];
+  items.forEach((item, idx) => {
+    if (!item || typeof item !== 'object') return;
+    const o = item as Record<string, unknown>;
+    const q_number = typeof o.q_number === 'number' ? o.q_number : idx + 1;
+    const text =
+      typeof o.student_answer === 'string'
+        ? o.student_answer
+        : typeof o.answer_text === 'string'
+          ? o.answer_text
+          : typeof o.answer === 'string'
+            ? o.answer
+            : '';
+    out.push({ q_number, student_answer: text });
+  });
+  return out;
+}
+
+/**
+ * Read `pde_submissions.answers` through BOTH shapes it can hold:
+ *   - pre-scoring:  [{ q_number, student_answer }, ...]
+ *   - post-scoring: { items: [...], osce_score: OsceScore }
+ *
+ * Same semantics the summary page already uses. Reading only the array shape
+ * meant that after the first successful scoring the object shape yielded an
+ * EMPTY answer list, so a repeat POST scored every domain blank and wrote
+ * final_score = 0 over a committed pass, nesting `items` one level deeper each
+ * time. The loop unwraps any nesting an earlier repeat POST created, so such a
+ * row heals instead of staying unreadable.
+ */
+export function readStoredAnswers(raw: unknown): StoredAnswers {
+  let cursor: unknown = raw;
+  let osceScore: OsceScore | null = null;
+  let items: unknown[] = [];
+
+  for (let depth = 0; depth < 8; depth += 1) {
+    if (Array.isArray(cursor)) {
+      items = cursor;
+      break;
+    }
+    if (!cursor || typeof cursor !== 'object') break;
+    const o = cursor as Record<string, unknown>;
+    // Outermost score wins — the most recently committed one, and the same one
+    // the summary page displays.
+    if (osceScore === null && o.osce_score && typeof o.osce_score === 'object') {
+      osceScore = o.osce_score as OsceScore;
+    }
+    if (!('items' in o)) break;
+    cursor = o.items;
+  }
+
+  return { items, answers: mapAnswerEnvelopes(items), osceScore };
 }
 
 // ----------------------------------------------------------------------------
@@ -725,10 +888,12 @@ async function scoreAttemptViaMaxLane(
 
 export async function scoreAttempt(args: ScoreAttemptArgs): Promise<OsceScore> {
   const { supabase, caseTitle, questions, answers } = args;
+  // No authored rubric on the assessment -> derive one that covers every
+  // question this case asks, not a fixed Q1-Q4 list.
   const rubric =
     args.rubricDomains && args.rubricDomains.length > 0
       ? args.rubricDomains
-      : FALLBACK_RUBRIC;
+      : deriveFallbackRubric(questions);
 
   // Fix the denominator BEFORE any AI call: every question the assessment asks
   // (that the rubric claims) is in the total, answered or not.

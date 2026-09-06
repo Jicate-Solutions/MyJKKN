@@ -335,6 +335,26 @@ export interface ConsultantLeadAttribution {
   // Relationships (optional populated)
   consultant?: { id: string; name: string; code: string | null };
   institution?: { id: string; name: string } | null;
+
+  // A referral reaches its learner by ONE OF TWO paths, depending on which
+  // sync wrote it (see referral_source):
+  //
+  //   'auto_sync_lead'    → admission_id is set   → lead → lead.learner_profile
+  //   'auto_sync_learner' → admission_id is NULL  → learner_profile (this field)
+  //
+  // Roughly half of all attributions are the second kind, so anything that
+  // reads only `lead` renders those rows blank. Always resolve through
+  // ConsultantService.resolveReferralLearner() rather than reaching into
+  // either path directly.
+  learner_profile?: {
+    id: string;
+    first_name: string | null;
+    last_name: string | null;
+    lifecycle_status: string;
+    program?: { id: string; program_name: string } | null;
+    admission_year?: { id: string; admission_year_name: string } | null;
+  } | null;
+
   lead?: {
     id: string;
     full_name: string;
@@ -344,8 +364,34 @@ export interface ConsultantLeadAttribution {
     program_id?: string | null;
     program?: { id: string; program_name: string } | null;
     // Learner admission workflow status (enquiry → enquiry_submitted → reserved → account → admitted …)
-    learner_profile?: { id: string; lifecycle_status: string } | null;
+    learner_profile?: {
+      id: string;
+      lifecycle_status: string;
+      admission_year?: { id: string; admission_year_name: string } | null;
+    } | null;
   };
+}
+
+/**
+ * A referral row with its learner resolved across both attribution paths.
+ * `lifecycle_status` is null only when the referral genuinely has no learner
+ * profile on either path — that, and only that, is a real "Not Enquired".
+ */
+export interface ResolvedReferralLearner {
+  learner_profile_id: string | null;
+  name: string | null;
+  program_name: string | null;
+  lifecycle_status: string | null;
+  /**
+   * The learner's admission year (e.g. "2025-2026"), null when the referral has
+   * no learner profile on either path.
+   *
+   * This — not the attribution's created_at — is the only meaningful year for a
+   * referral: the referral sync bulk-created every existing attribution row, so
+   * created_at collapses all of them onto a single date.
+   */
+  admission_year_id: string | null;
+  admission_year_name: string | null;
 }
 
 export interface CreateLeadAttributionInput {
@@ -358,6 +404,9 @@ export interface CreateLeadAttributionInput {
 }
 
 export interface LeadAttributionFilters {
+  /** Intake year. Resolved across BOTH learner paths in SQL — see
+   *  fn_referral_attribution_page. Omit for every year. */
+  admission_year?: number | null;
   institution_id?: string;
   consultant_id?: string;
   lead_id?: string;
@@ -370,6 +419,16 @@ export interface LeadAttributionFilters {
   limit?: number;
   sort_by?: string;
   sort_order?: 'asc' | 'desc';
+  /**
+   * Fetch every matching attribution instead of a single page.
+   *
+   * Needed by the consultant detail Referrals tab: its filters and stat cards
+   * key off the learner's lifecycle_status, which is a COALESCE across two
+   * embed paths and therefore cannot be expressed as a PostgREST filter — the
+   * complete set has to be in hand to bucket it. Pages internally in 1000-row
+   * ranges so it is never silently truncated by PostgREST's row cap.
+   */
+  fetch_all?: boolean;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

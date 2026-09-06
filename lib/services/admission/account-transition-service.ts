@@ -14,7 +14,55 @@ import { logActivityForCurrentUser, AdmissionFeesActivityTemplates }
  * SECURITY DEFINER context — keeping audit trail honest about who did the
  * action).
  */
+/**
+ * One row of the pre-transition bill preview — one INSTALMENT, not one fee.
+ * A fee split 30/30/40 contributes three rows sharing a category_id.
+ */
+export interface AccountBillPreviewRow {
+  sort_order: number;
+  category_id: string | null;
+  category_name: string | null;
+  item_amount: number;
+  /** false = Campus Living / TMS owns this fee; no bill is raised here. */
+  is_billable: boolean;
+  owner_module: 'admission' | 'campus_living' | 'tms';
+  instalment_no: number | null;
+  instalment_count: number | null;
+  instalment_amount: number | null;
+  /** Effective share of the fee, derived from the amount the engine produced. */
+  share_percent: number | null;
+  due_date: string | null;
+  /** Lifecycle status settling THIS instalment promotes the learner to. */
+  promotes_to_status_code: string | null;
+  matched_source: 'item_schedule' | 'item_single' | 'plan' | 'default' | null;
+}
+
 export class AccountTransitionService {
+  /**
+   * The exact bills transitionToAccount would raise, without raising them.
+   *
+   * Reads through admission_preview_account_bills, which runs the SAME split
+   * engine and the SAME skip rule as generation — so the dialog cannot promise
+   * something different from what commits. Writes nothing: the underlying fee
+   * resolution is the pure compute variant, so cancelling the dialog leaves no
+   * fee_items snapshot behind.
+   *
+   * Due dates anchored on an offset are computed from TODAY. Previewing on one
+   * day and confirming on the next shifts them by a day — which is correct, and
+   * why the preview is fetched fresh each time the dialog opens.
+   */
+  static async previewBills(learnerId: string): Promise<AccountBillPreviewRow[]> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase.rpc('admission_preview_account_bills', {
+      p_learner_id: learnerId,
+    });
+    // Surfaced, never swallowed: an empty preview and a failed preview must not
+    // look the same to the admin, because one of them means "confirming will be
+    // rejected" and the other means "we could not tell".
+    if (error) throw error;
+    return (data ?? []) as AccountBillPreviewRow[];
+  }
+
   static async transitionToAccount(payload: AccountTransitionPayload & {
     /** Optional per-Confirm session UUID. When provided, the RPC dedupes
      *  on it — rapid double-clicks pass the same key and the RPC returns

@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": true, "skipLibCheck": true },
+  "include": [
+    "next-env.d.ts",
+    "lib/cron/run-log.ts",
+    "app/api/cron/cron-failure-alerts/**/*.ts",
+    "app/api/cron/ai-routine-dispatcher/**/*.ts",
+    "app/api/cron/aipulse-domain-starter-notify/**/*.ts",
+    "__tests__/lib/cron/run-log.test.ts"
+  ]
+}

@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Receipt, X, Loader2 } from 'lucide-react';
+import { ReceiptIndianRupee, X, Loader2 } from 'lucide-react';
 import {
   useOnboardingLearners,
   useBulkGenerateBills,
@@ -309,7 +309,7 @@ export function OnboardingDataTable() {
                   </>
                 ) : (
                   <>
-                    <Receipt className="h-4 w-4 mr-1" />
+                    <ReceiptIndianRupee className="h-4 w-4 mr-1" />
                     Generate Bills
                     {selectedWithoutBills.length > 0 && ` (${selectedWithoutBills.length})`}
                   </>

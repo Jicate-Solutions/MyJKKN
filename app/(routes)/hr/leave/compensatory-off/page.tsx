@@ -19,6 +19,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
 
+import { CancelRequestAction } from '../_components/cancel-request-action';
+import { useWithdrawCompOffClaim } from '@/hooks/hr/use-comp-off';
 import { TimeOffShell } from '../_components/time-off-shell';
 import { PeriodFilter, allTimePeriod, type PeriodRange } from '../_components/period-filter';
 import { RequestTable, RequestRow, StatusBadge } from '../_components/request-table';
@@ -59,6 +61,7 @@ export default function CompensatoryOffPage() {
   const [period, setPeriod] = useState<PeriodRange>(allTimePeriod());
   const [applyOpen, setApplyOpen] = useState(false);
   const [claimOpen, setClaimOpen] = useState(false);
+  const withdrawClaim = useWithdrawCompOffClaim();
 
   const { data, isLoading, refetch, isFetching } = useMyApplications(
     ctx.employeeId || undefined
@@ -133,6 +136,7 @@ export default function CompensatoryOffPage() {
               { key: 'days', label: 'Days', align: 'right' },
               { key: 'source', label: 'Source' },
               { key: 'status', label: 'Status' },
+              { key: 'actions', label: '', align: 'right' },
             ]}
             isLoading={balanceLoading}
             isEmpty={credits.length === 0}
@@ -169,6 +173,19 @@ export default function CompensatoryOffPage() {
                     >
                       {COMP_OFF_STATUS_LABELS[c.effective_status]}
                     </span>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {/* Only a claim nobody has decided yet. An approved credit is
+                        spendable balance, and hcoc_withdraw_own_pending refuses
+                        it anyway. */}
+                    {c.status === 'pending' && (
+                      <CancelRequestAction
+                        what="this comp off claim"
+                        detail={`Worked ${fmtDate(c.worked_date)} · ${formatDays(c.credit_days)} day(s)`}
+                        disabled={withdrawClaim.isPending}
+                        onConfirm={() => withdrawClaim.mutateAsync(c.id)}
+                      />
+                    )}
                   </TableCell>
                 </RequestRow>
               );

@@ -14,6 +14,7 @@
 // anonymous visitor holding a legitimate link.
 
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { createClient as createAnonOrService } from '@supabase/supabase-js';
 import { createClient as createSessionClient } from '@/lib/supabase/server';
 import { CalendarClock, CalendarDays, MapPin, Ticket } from 'lucide-react';
@@ -30,6 +31,31 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * which this page collects.
  */
 const HAS_OWN_PUBLIC_PAGE = new Set(['sports_tournament', 'marathon']);
+
+/**
+ * School of Influence registers through /events/[id]/apply, NOT this page.
+ *
+ * Kept out of HAS_OWN_PUBLIC_PAGE on purpose. That set's answer is "ask the
+ * organizer for the correct link", which is the right answer when this page
+ * cannot know where somebody should have gone. Here it DOES know — the apply
+ * door is one route away — so sending a would-be applicant off to find a human
+ * would be withholding the one fact they need.
+ *
+ * WHY THIS GUARD EXISTS AT ALL (2026-08-17). All 17 people who signed up for
+ * "JKKN School of Influencer" arrived here instead of the apply page. This page
+ * accepted every one of them and wrote `source = 'event_self'`, while every
+ * School of Influence screen reads `source = 'soi_apply'` — so seventeen real
+ * applications sat in the table, healthy and invisible, until they were
+ * restamped by migration 20260817060000. Closing this door is the durable half
+ * of that repair: the backfill fixed the rows that existed, this stops the next
+ * seventeen being created the same way.
+ *
+ * The apply route lives inside the authenticated (routes) group, which is not a
+ * limitation to work around — it is the point. An application must be tied to
+ * the account of the person making it (spec §7 S4), which is why the copy below
+ * asks for a sign-in rather than collecting a name and an email here.
+ */
+const APPLIES_THROUGH_SOI_DOOR = 'school_of_influence';
 
 export async function generateMetadata(): Promise<Metadata> {
   return {
@@ -85,6 +111,31 @@ export default async function PublicEventRegisterPage({
         title="Wrong registration link"
         msg="This event registers through its own page. Ask the organizer for the correct link."
       />
+    );
+  }
+
+  // Checked BEFORE the registration-window branches below, so an applicant who
+  // arrives on the wrong link is sent to the right one whatever the window is
+  // doing — a "registration closed" notice on a page that was never the right
+  // page would send them away believing the programme had shut.
+  if ((ev.event_type as string) === APPLIES_THROUGH_SOI_DOOR) {
+    return (
+      <main className="mx-auto max-w-xl px-4 py-16 text-center">
+        <Ticket className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
+        <h1 className="text-xl font-semibold">Apply on the programme page</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          {ev.name} takes applications on its own page, where a coordinator
+          reviews each one and places you in a batch. Sign in with your JKKN
+          account to apply — an application is recorded against you, so it
+          cannot be filled in on somebody else&apos;s behalf.
+        </p>
+        <Link
+          href={`/events/${ev.id}/apply`}
+          className="mt-6 inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
+        >
+          Go to the application page
+        </Link>
+      </main>
     );
   }
 

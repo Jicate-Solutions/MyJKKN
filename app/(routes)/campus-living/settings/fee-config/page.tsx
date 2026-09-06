@@ -37,8 +37,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CategoryFeesSection } from './_components/category-fees-section';
 import { PackageFeesSection } from './_components/package-fees-section';
 import { UpgradeFeesSection } from './_components/upgrade-fees-section';
+import { RoomSharingSection } from './_components/room-sharing-section';
 
-const FEE_CONFIG_TABS = ['category', 'upgrade', 'package'] as const;
+const FEE_CONFIG_TABS = ['category', 'upgrade', 'package', 'sharing'] as const;
 
 function FeeConfigPageInner() {
   const { permissions, isSuperAdmin } = usePermissions();
@@ -115,6 +116,7 @@ function FeeConfigPageInner() {
               <TabsTrigger value="category">Category Fees</TabsTrigger>
               <TabsTrigger value="upgrade">Upgrade Fees</TabsTrigger>
               <TabsTrigger value="package">Package Fees</TabsTrigger>
+              <TabsTrigger value="sharing">Room Sharing</TabsTrigger>
             </TabsList>
             <TabsContent value="category">
               <CategoryFeesSection hostelYearId={effectiveYearId} canEdit={canEdit} />
@@ -124,6 +126,12 @@ function FeeConfigPageInner() {
             </TabsContent>
             <TabsContent value="package">
               <PackageFeesSection hostelYearId={effectiveYearId} canEdit={canEdit} />
+            </TabsContent>
+            {/* Deadlines and scope are global, not per hostel year — a settle
+                window is measured in days from a learner's arrival, not against
+                the year the page's selector is showing. */}
+            <TabsContent value="sharing">
+              <RoomSharingSection canEdit={canEdit} />
             </TabsContent>
           </Tabs>
         ) : null}

@@ -39,6 +39,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { LearnerExportDialog } from './learner-export-dialog';
 import type { ProfilesSearchParams } from './data-table-schema';
+import { lifecycleFilterForTab, type LifecycleTabValue } from './lifecycle-status';
 
 const SORT_OPTIONS = [
   { value: 'first_name_asc',   label: 'Name (A → Z)',        sortBy: 'first_name',  sortOrder: 'asc'  },
@@ -55,7 +56,9 @@ interface ProfilesTableServerProps {
     limit: number;
     total_pages: number;
   };
-  statusFilter?: 'all' | 'active' | 'inactive' | 'exited';
+  // Derived from LIFECYCLE_TABS rather than re-listed: this union was a
+  // hand-maintained copy that silently went stale the moment a tab was added.
+  statusFilter?: LifecycleTabValue;
 }
 
 /**
@@ -92,10 +95,13 @@ export function ProfilesTableServer({
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // 'all' is a TAB value, not a lifecycle_status enum label. The export dialog
-  // feeds this straight into `.eq('lifecycle_status', …)`, where 'all' would
-  // raise 22P02 and export nothing — so it becomes "no status filter" here.
-  const exportStatusFilter = statusFilter === 'all' ? undefined : statusFilter;
+  // 'all' is a TAB value, not a lifecycle_status enum label — fed straight into
+  // `.eq('lifecycle_status', …)` it would raise 22P02 and export nothing.
+  //
+  // It maps to the five statuses the page lists, NOT to "no status filter":
+  // exporting from "All Statuses" used to pull graduated / enquiry / rejected
+  // learners that the table on screen had never shown.
+  const exportStatusFilter = lifecycleFilterForTab(statusFilter ?? 'all');
 
   const currentFilters: ProfilesSearchParams = {
     page: Number(searchParams.get('page')) || 1,
@@ -107,10 +113,16 @@ export function ProfilesTableServer({
     semester_id: searchParams.get('semester_id') || undefined,
     section_id: searchParams.get('section_id') || undefined,
     academic_year_id: searchParams.get('academic_year_id') || undefined,
+    admission_year: Number(searchParams.get('admission_year')) || undefined,
     gender: searchParams.get('gender') || undefined,
     lifecycle_status: searchParams.get('lifecycle_status') || undefined,
     is_profile_complete: searchParams.get('is_profile_complete') || undefined,
     search: searchParams.get('search') || undefined,
+    // Carried alongside `search` so the export can reproduce the exact query
+    // the table ran, not just the same search term.
+    search_case_sensitive: searchParams.get('search_case_sensitive') || undefined,
+    search_exact_match: searchParams.get('search_exact_match') || undefined,
+    search_fields: searchParams.get('search_fields') || undefined,
   };
 
   // Permission check - Super admin has full access, others need 'learners.delete' permission

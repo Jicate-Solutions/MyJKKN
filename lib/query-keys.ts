@@ -308,6 +308,14 @@ export const academicKeys = {
 
     templates: (institutionId: string) =>
       [...academicKeys.questionPapers.all, 'templates', institutionId] as const
+  },
+
+  // Question-wise CIA mark entry (/academic/mark-entry)
+  markEntry: {
+    all: ['academic', 'mark-entry'] as const,
+
+    paper: (filters?: Record<string, unknown>) =>
+      [...academicKeys.markEntry.all, 'paper', filters] as const
   }
 };
 
@@ -385,6 +393,14 @@ export const solutionsHubKeys = {
       [...solutionsHubKeys.clients.all, 'detail', id] as const,
     industries: () =>
       [...solutionsHubKeys.clients.all, 'industries'] as const,
+  },
+
+  proposals: {
+    all: ['solutions-hub', 'proposals'] as const,
+    list: (filters?: Record<string, unknown>) =>
+      [...solutionsHubKeys.proposals.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...solutionsHubKeys.proposals.all, 'detail', id] as const,
   },
 
   phases: {

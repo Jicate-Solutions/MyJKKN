@@ -7,7 +7,7 @@
  */
 
 import Link from 'next/link';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -17,94 +17,46 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { BeatLoader } from 'react-spinners';
-import { UsersRound, AlertCircle, Download } from 'lucide-react';
-import toast from 'react-hot-toast';
+import { UsersRound, AlertCircle } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useHREmployees, fetchHREmployeesForExport } from '@/hooks/hr/use-employees';
-import { ExportService } from '@/lib/services/export-service';
-import { getErrorMessage } from '@/lib/utils';
 import {
   HREmployeesFilters,
   type HREmployeeFilterState,
 } from './_components/hr-employees-filters';
-import { HREmployeesTable } from './_components/hr-employees-table';
-import type { HRPersonView } from '@/types/hr';
-
-const PAGE_SIZE = 25;
-
-const EXPORT_HEADERS: Record<string, string> = {
-  employee_code: 'Employee Code',
-  first_name: 'First Name',
-  last_name: 'Last Name',
-  email: 'Email',
-  phone: 'Phone',
-  designation_name: 'Designation',
-  cadre_name: 'Cadre',
-  organization_name: 'Organization',
-  institution_name: 'Institution',
-  department_name: 'Department',
-  is_active: 'Active',
-};
+import { HREmployeesDataTable } from './_components/hr-employees-data-table';
 
 export default function HREmployeeDirectoryPage() {
   const { isLoading: permsLoading, isSuperAdmin, canAccess } = usePermissions();
-  const [filterState, setFilterState] = useState<HREmployeeFilterState>({ search: '', is_active: true });
-  const [page, setPage] = useState(1);
-  const [exporting, setExporting] = useState(false);
+  const [filterState, setFilterState] = useState<HREmployeeFilterState>({ is_active: true });
 
   const canView = isSuperAdmin || canAccess('hr.employees', 'view');
-  const canExport = isSuperAdmin || canAccess('hr.employees', 'export');
 
-  const apiFilters = {
-    search: filterState.search || undefined,
-    institution_id: filterState.institution_id,
-    department_id: filterState.department_id,
-    is_active: filterState.is_active,
-    page,
-    pageSize: PAGE_SIZE,
-  };
+  /**
+   * Only the filters the DataTable's own toolbar does NOT own. Search lives in
+   * the toolbar now; keeping a second box here would have meant two inputs
+   * over one list, each ignorant of the other.
+   */
+  const tableFilters = useMemo(
+    () => ({
+      institution_id: filterState.institution_id,
+      department_id: filterState.department_id,
+      is_active: filterState.is_active,
+    }),
+    [filterState.institution_id, filterState.department_id, filterState.is_active]
+  );
 
-  const { data, isLoading, error } = useHREmployees(apiFilters, !permsLoading && canView);
+  // The table holds its own page/search state and re-runs fetchDataFn when
+  // refetchKey changes — that is how an external filter reaches it.
+  const [refetchKey, setRefetchKey] = useState(0);
 
   const handleFilterChange = useCallback((patch: Partial<HREmployeeFilterState>) => {
     setFilterState((prev) => ({ ...prev, ...patch }));
-    setPage(1);
+    setRefetchKey((k) => k + 1);
   }, []);
-
-  const handleExport = useCallback(async () => {
-    setExporting(true);
-    try {
-      const rows: HRPersonView[] = await fetchHREmployeesForExport({
-        search: filterState.search || undefined,
-        institution_id: filterState.institution_id,
-        department_id: filterState.department_id,
-        is_active: filterState.is_active,
-      });
-      const flat = rows.map((r) => ({
-        employee_code: r.employee_code ?? '',
-        first_name: r.first_name,
-        last_name: r.last_name ?? '',
-        email: r.email ?? '',
-        phone: r.phone ?? '',
-        designation_name: r.designation_name ?? '',
-        cadre_name: r.cadre_name ?? '',
-        organization_name: r.organization_name ?? '',
-        institution_name: r.institution_name ?? '',
-        department_name: r.department_name ?? '',
-        is_active: r.is_active ? 'Yes' : 'No',
-      }));
-      ExportService.exportToExcel(flat, EXPORT_HEADERS as any, 'hr-employees', 'Employees');
-      toast.success(`Exported ${flat.length} employees`);
-    } catch (e) {
-      toast.error(getErrorMessage(e) || 'Export failed');
-    } finally {
-      setExporting(false);
-    }
-  }, [filterState]);
 
   if (permsLoading) {
     return (
@@ -150,17 +102,12 @@ export default function HREmployeeDirectoryPage() {
               Employee Directory
             </h1>
             <p className="text-sm text-muted-foreground">
-              All staff across the HR module
-              {data ? ` — ${data.metadata.total} total` : ' — loading...'}
+              Staff in HR-managed employment categories
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {canExport && (
-              <Button variant="outline" size="sm" onClick={handleExport} disabled={exporting}>
-                <Download className="mr-2 h-4 w-4" />
-                {exporting ? 'Exporting…' : 'Export'}
-              </Button>
-            )}
+            {/* Export moved INTO the table toolbar, which exports every row
+                matching the current search and filters rather than the page. */}
             <Button asChild variant="outline" size="sm">
               <Link href="/staff/list">Full Staff Management</Link>
             </Button>
@@ -173,37 +120,9 @@ export default function HREmployeeDirectoryPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader><CardTitle>Employees</CardTitle></CardHeader>
-          <CardContent>
-            {isLoading && <div className="flex justify-center py-8"><BeatLoader color="#3b82f6" /></div>}
-            {error && (
-              <div className="flex items-center gap-2 text-red-600 py-4">
-                <AlertCircle className="h-4 w-4" />
-                <span>Failed to load: {getErrorMessage(error)}</span>
-              </div>
-            )}
-            {data && data.data.length === 0 && (
-              <div className="text-center py-12 text-muted-foreground">
-                <UsersRound className="h-10 w-10 mx-auto opacity-40 mb-3" />
-                <p className="font-medium">No employees match these filters.</p>
-              </div>
-            )}
-            {data && data.data.length > 0 && <HREmployeesTable rows={data.data} />}
-
-            {data && data.metadata.totalPages > 1 && (
-              <div className="flex justify-between items-center pt-4">
-                <span className="text-xs text-muted-foreground">
-                  Page {data.metadata.page} of {data.metadata.totalPages}
-                </span>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>Previous</Button>
-                  <Button variant="outline" size="sm" disabled={page >= data.metadata.totalPages} onClick={() => setPage((p) => p + 1)}>Next</Button>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        {/* The table owns its own search, sorting, paging, column visibility
+            and export — see hr-employees-data-table.tsx. */}
+        <HREmployeesDataTable filters={tableFilters} refetchKey={refetchKey} />
       </div>
     </ContentLayout>
   );

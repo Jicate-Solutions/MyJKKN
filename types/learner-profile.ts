@@ -580,6 +580,16 @@ export interface EnrollmentDto {
  */
 export interface LearnerProfileFilters {
   search?: string;
+  /**
+   * The advanced-search modifiers the Learners Profiles list puts in the URL.
+   * They belong beside `search` because the export dialog reuses this filter
+   * type to reproduce the table's result set — forwarding the term without its
+   * modifiers made a case-sensitive or exact-match search export more rows
+   * than the table displayed.
+   */
+  search_case_sensitive?: boolean;
+  search_exact_match?: boolean;
+  search_fields?: string[];
   first_name?: string;
   last_name?: string;
   application_id?: string;
@@ -599,6 +609,12 @@ export interface LearnerProfileFilters {
   semester_id?: string;
   section_id?: string;
   academic_year_id?: string;
+  /**
+   * Calendar admission year (e.g. 2026), NOT an admission_years row id.
+   * Resolved to the matching row ids by resolveAdmissionYearIds() so it spans
+   * every institution in scope — see lib/utils/admission-year-filter.ts.
+   */
+  admission_year?: number;
   regulation_id?: string;
   batch_id?: string;
 
@@ -607,7 +623,14 @@ export interface LearnerProfileFilters {
   religion?: string;
   community_category_id?: string | null;
   entry_type?: string;
+  /**
+   * @deprecated Names the RETIRED learners_profiles.accommodation_type TEXT
+   * column and is not read by getLearnerProfiles — setting it filters nothing.
+   * Use accommodation_type_id.
+   */
   accommodation_type?: string;
+  /** accommodation_types.id — the FK rows are actually stored against. */
+  accommodation_type_id?: string;
 
   // Date ranges
   created_from?: Date;

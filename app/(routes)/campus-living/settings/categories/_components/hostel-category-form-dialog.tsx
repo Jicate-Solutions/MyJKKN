@@ -34,7 +34,11 @@ import { Loader2 } from 'lucide-react';
 import { useHostelCategories } from '@/hooks/campus-living/use-hostel-categories';
 import { toast } from 'react-hot-toast';
 import type { HostelCategory } from '@/types/hostel-categories';
-import { HOSTEL_CATEGORY_TYPE_LABELS, ALLOCATION_MODE_LABELS } from '@/types/hostel-categories';
+import {
+  HOSTEL_CATEGORY_TYPE_LABELS,
+  ALLOCATION_MODE_LABELS,
+  HOSTEL_CATEGORY_TIER_LABELS,
+} from '@/types/hostel-categories';
 
 const formSchema = z.object({
   name: z
@@ -62,6 +66,7 @@ const formSchema = z.object({
     .min(1, 'Must be 1–60 days')
     .max(60, 'Must be 1–60 days'),
   upgrades_enabled: z.boolean(),
+  tier_key: z.enum(['standard', 'premium', 'premium_plus']),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -94,6 +99,7 @@ export function HostelCategoryFormDialog({
       upgrade_threshold_pct: '',
       upgrade_hold_days: 5,
       upgrades_enabled: false,
+      tier_key: 'standard',
     },
   });
 
@@ -113,6 +119,7 @@ export function HostelCategoryFormDialog({
             ? ''
             : String(category.upgrade_threshold_pct),
         upgrade_hold_days: category.upgrade_hold_days ?? 5,
+        tier_key: category.tier_key ?? 'standard',
       });
     } else {
       form.reset({
@@ -125,6 +132,7 @@ export function HostelCategoryFormDialog({
         upgrade_threshold_pct: '',
         upgrade_hold_days: 5,
         upgrades_enabled: false,
+        tier_key: 'standard',
       });
     }
   }, [open, mode, category, form]);
@@ -257,6 +265,37 @@ export function HostelCategoryFormDialog({
                   <p className='text-xs text-muted-foreground'>
                     Auto = batch alphabetical allocation (warden-approved). Manual =
                     learner self-selects the room in My Hostel.
+                  </p>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='tier_key'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Entitlement Tier</FormLabel>
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder='Select tier' />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {Object.entries(HOSTEL_CATEGORY_TIER_LABELS).map(([value, label]) => (
+                        <SelectItem key={value} value={value}>
+                          {label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className='text-xs text-muted-foreground'>
+                    Which premium features residents of this category get. Room
+                    Cleaning slot booking reads this: Standard categories keep the
+                    regular block cleaning rounds only. Changing it takes effect on
+                    the resident&apos;s next page load.
                   </p>
                   <FormMessage />
                 </FormItem>

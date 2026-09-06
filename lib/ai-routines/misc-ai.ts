@@ -2,6 +2,23 @@ import { type AIRoutine } from './types';
 // Populated 2026-07-01 from the parallel discovery swarm (deep-read of jicate/main).
 export const MISC_AI_ROUTINES: AIRoutine[] = [
   {
+    "id": "super-admin-daily-digest",
+    "name": "Super Admin Daily Digest",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 08:30 IST (editable via dispatcher)",
+    "cronExpr": "3 3 * * * (retired from vercel.json 2026-08-11)",
+    "triggerPath": "/api/dashboard/cron/super-admin-digest",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Rules-based SQL digest (fn_generate_super_admin_daily_digest); the route resolves no model.",
+    "whatItDoes": "Builds the once-a-day super-admin / Director digest work item from the platform's own counters. Revived 2026-08-10 by migration 20260816040000 after being dead since 2026-05-08.",
+    "configKnobs": "None in code. Day/time now editable at /admin/ai-routines (ai_routine_schedules row 'super-admin-daily-digest').",
+    "sideEffects": "WRITES a dashboard work item + notification fan-out to super admins. Idempotent per user per day via its idempotency key.",
+    "safeToManualTrigger": false,
+    "notes": "MOVED off vercel.json 2026-08-11 to free a cron slot: the file had hit Vercel's hard 100-cron limit (101 entries) and EVERY production build was failing schema validation. Fires via the AI-routine dispatcher instead \u2014 same endpoint, same CRON_SECRET, only the clock moved. Auth: this route accepts Authorization: Bearer ONLY (no ?secret= fallback), which is exactly what the dispatcher sends. TIMEZONE: vercel.json crons are UTC, ai_routine_schedules.minute_of_day is IST (fn_ai_routine_claim_due uses now() AT TIME ZONE 'Asia/Kolkata'), so 03:03 UTC = 08:33 IST = minute_of_day 513, which floors to the 08:30 IST slot. Naively copying 3:03 as minute_of_day 183 would have moved the Director's digest 5.5 hours."
+  },
+  {
     "id": "social-engagement-nudges",
     "name": "Department IG Engagement Nudges",
     "category": "misc-ai",
@@ -417,5 +434,69 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "sideEffects": "WRITES in-app notifications (notifications + user_notifications fan-out) only, each carrying an expires_at of the term end date so an unattended warning ages out of the bell instead of accumulating. Changes NO committee, roster row or permission, and revokes nobody's access — no term_end cut-off exists in the database today, so this warning is currently the only thing that would tell anyone the date is coming. No email, WhatsApp or push.",
     "safeToManualTrigger": false,
     "notes": "Rules-based, no LLM. All logic is in the SECURITY DEFINER RPC fn_accreditation_committee_term_warnings (migration 20260809103200, service_role only). Fires via the AI-routine dispatcher (ai_routine_schedules row 'committee-term-reminders' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron, which is already at its 100-entry ceiling. Auth: CRON_SECRET (Bearer or ?secret=). Idempotent on notifications.idempotency_key keyed by (member, term_end, threshold, audience), so each warning is sent exactly ONCE EVER rather than once per day — an extended term produces new keys and is warned again. Marked unsafe-to-manual because a run delivers notifications naming real people to real cluster officers. Every real term today ends 2027-03-31, so the honest nightly answer is 'nothing due' — the response therefore always reports `examined` alongside `candidates`, and `unreachable` when a warning had nobody who could act, because a quiet zero must not be mistakable for a quiet failure."
+  },
+  {
+    "id": "solutions-director-digest",
+    "name": "Solutions Hub — Weekly Director Digest",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Weekly · Monday 08:07 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/solutions-director-digest",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Rules-based SQL digest over Solutions Hub + Projects tables; the route resolves no model.",
+    "whatItDoes": "The hub reports itself every Monday morning: one in-app digest to the Director and Mohanraj V with the pipeline by stage, client-linked delivery (task rollups + overdue milestones via the Solutions↔Projects bridge), clients quiet more than 14 days, payment totals and last week's communication count. The card links to /solutions/digest, which renders the SAME shared compute (lib/solutions/digest.ts), so the notification and the page can never disagree.",
+    "configKnobs": "QUIET_CLIENT_DAYS=14 (lib/solutions/digest.ts). Recipients resolved from profiles BY EMAIL at runtime (director@jkkn.ac.in, mohanraj_v@jkkn.ac.in) — never a hardcoded uuid. Day/time editable at /admin/ai-routines (ai_routine_schedules row 'solutions-director-digest'). No model, no LLM.",
+    "sideEffects": "WRITES one in-app notification (notifications + user_notifications fan-out) to the two recipients, expiring just past the next edition (8 days) per the 2026-08-10 notification-expiry ruling. Reads sh_prospects, sh_client_communications, sh_payments, projects, project_tasks, project_milestones — and sh_proposals defensively (that table ships from a parallel lane; until it exists the section reports 'not yet available' rather than failing).",
+    "safeToManualTrigger": false,
+    "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'solutions-director-digest', seeded by migration 20260826110000 — Monday, minute_of_day 487 = 08:07 IST, deliberately off the :00/:30 marks; the dispatcher's 15-minute claim slot fires it in the 08:00–08:15 window), NOT a raw vercel.json cron — `crons` sits at the hard 100-entry plan cap. Auth: CRON_SECRET (Bearer or ?secret=). Idempotent per IST week (idempotency key embeds the Monday date), so a re-fire in the same week reports skipped rather than double-sending. Marked unsafe-to-manual because a run delivers a real notification to real leadership. Fails LOUD (500) when the recipient lookup returns nobody — a digest silently fanned out to zero people must land in last_status, not pass as green."
+  },
+  {
+    "id": "solutions-client-touch-nudge",
+    "name": "Solutions Hub — Quiet-Client Touch Nudge",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 09:23 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/solutions-client-touch-nudge",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Rules-based quiet-window sweep over sh_client_communications; the route resolves no model.",
+    "whatItDoes": "When an active client with an active client-linked delivery project has had no logged communication for more than 14 days, one in-app nudge goes to Mohanraj V (resolved from profiles by email) naming the client, how long the silence has lasted, and which delivery is underway. One nudge per quiet EPISODE — the idempotency key embeds the episode's start, so a still-quiet client is not re-nudged daily, and any new logged communication naturally resets the clock and the key.",
+    "configKnobs": "QUIET_CLIENT_DAYS=14 (lib/solutions/digest.ts). Recipient resolved at runtime by email mohanraj_v@jkkn.ac.in — the circulated 18f56a8d… id is a team-member record id from a different table, not a profiles.id, and hardcoding it would deliver to nobody silently. Day/time editable at /admin/ai-routines. No model, no LLM.",
+    "sideEffects": "WRITES in-app notifications (notifications + user_notifications fan-out) to one recipient, each expiring after one more quiet cycle (14 days). Reads sh_clients, sh_client_communications, projects (+ statuses/tasks/milestones via the shared digest compute) and its OWN ai_routine_schedules row. Sends nothing and says so when its schedule row is missing.",
+    "safeToManualTrigger": false,
+    "notes": "Rules-based, no LLM. BACKLOG FLOOR (memory feedback_a_time_window_rule_judges_the_backlog): the quiet clock is clamped at this routine's own ai_routine_schedules row's created_at — quiet_since = GREATEST(latest communication_date, floor) — so tick one never judges silence that predates the rule's existence; the floor is echoed in every response as a self-check, and a missing schedule row nudges NOBODY (explicit floorMissing, never silent). Fires via the AI-routine dispatcher (ai_routine_schedules row 'solutions-client-touch-nudge', seeded by migration 20260826110000 — daily, minute_of_day 563 = 09:23 IST, deliberately off the :00/:30 marks; fires in the 09:15–09:30 slot), NOT a raw vercel.json cron (hard 100-entry cap). Auth: CRON_SECRET (Bearer or ?secret=). Marked unsafe-to-manual because a run delivers real nudges naming real clients; re-running is safe (per-episode idempotency surfaces repeats as duplicates). Fails LOUD (500) when the recipient profile cannot be resolved."
+  },
+  {
+    "id": "meetings-auto-close",
+    "name": "Meetings — 7-day auto-close of unmarked meetings",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 06:15 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/meetings-auto-close",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "One rules-based SQL UPDATE (fn_meetings_auto_close_unmarked); the route resolves no model.",
+    "whatItDoes": "Director decision 2026-08-08: a meeting nobody said anything about closes itself as 'completed' 7 days after it ended. Until this shipped, meeting_bookings had carried 'completed' and 'no_show' in its status CHECK since June with NOTHING ever writing either — production on 2026-08-13 held 74 bookings, 52 confirmed, 22 cancelled, and zero of both.",
+    "configKnobs": "AUTO_CLOSE_AFTER_DAYS = 7 (the Director decision) in the route; passed to fn_meetings_auto_close_unmarked(p_days). Day/time editable at /admin/ai-routines (ai_routine_schedules row 'meetings-auto-close').",
+    "sideEffects": "DB writes only: sets status='completed', outcome_marked_at=now(), outcome_marked_by='system' on confirmed bookings that ended more than 7 days ago. Sends NOTHING — no email, no notification. A booking the host already marked is not 'confirmed' and is never touched, so its outcome_marked_by='host' stamp survives.",
+    "safeToManualTrigger": true,
+    "notes": "Rules-based, no LLM. All logic is in the SECURITY DEFINER RPC fn_meetings_auto_close_unmarked (migration 20260831010000, service_role only — REVOKEd from anon, authenticated, PUBLIC). Fires via the AI-routine dispatcher, NOT a raw vercel.json cron: that file has a HARD 100-cron cap and the 101st entry fails EVERY production build with a schema error while the old build keeps serving 200s. Auth: CRON_SECRET (Bearer or ?secret=). IDEMPOTENT BY CONSTRUCTION rather than by a guard column — the predicate is status='confirmed' and the UPDATE's own effect is to leave that set, so a second run in the same minute closes 0. TIMEZONE: minute_of_day 380 = 06:20 IST, which fn_ai_routine_claim_due floors to the 06:15 IST slot; it is NOT a UTC value. DORMANT until migration 20260831010000 is applied (Director-gated) — the route returns 503 with the migration number rather than a bare 500 so a dispatcher record cannot be mistaken for a code fault. FIRST RUN IS A BACKFILL: every past-dated confirmed booking is already older than 7 days, so the first successful run closes roughly two dozen historical meetings at once, all stamped 'system' — visibly an assumption, not an observation."
+  },
+  {
+    "id": "soi-weekly-quiet-digest",
+    "name": "School of Influence — Weekly Quiet-Member Summary",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Woken daily · 08:45 IST; SENDS on the day set by soi.digest.weekday (default Monday)",
+    "triggerPath": "/api/cron/soi-weekly-quiet-digest",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Rules-based summary of an existing SQL evaluator; the route resolves no model.",
+    "whatItDoes": "The inactivity engine records who it WOULD remind, pause or remove and takes no action — but a dry-run log nobody reads fails the same way an inert engine does, which is how SF100 sat four months unnoticed. Once a week this sends each coordinator one plain-English summary of who has gone quiet, with a link to the screen that lists the verdicts. It says explicitly that nothing has been done to anybody. When nobody has gone quiet — or when there is no batch or nobody has joined one yet — it sends that news instead of sending nothing, so a quiet week can never be mistaken for a job that stopped.",
+    "configKnobs": "⚠ THE SEND DAY IS NOT SET HERE. This row is woken DAILY on purpose; the day it actually sends is the platform_policies row soi.digest.weekday (School of Influence settings screen), and setting this dispatcher row to one day would silently stop it. soi.digest.enabled turns the summary off; soi.digest.include_from ('nudge' | 'pause' | 'remove') decides how far down the ladder somebody has to be before they are named. Every verdict and threshold comes from fn_soi_inactivity_core, so this can never disagree with the lifecycle screen. Never reads or writes soi.inactivity.enabled.",
+    "sideEffects": "WRITES in-app notifications (notifications + user_notifications fan-out) to holders of cohort.manage plus super admins/admins. Requests NO acknowledgement. Changes NO membership, sends no reminder to a member, pauses and removes nobody — the route has no action path. No external messages (no email/WhatsApp/push).",
+    "safeToManualTrigger": false,
+    "notes": "Rules-based, no LLM. Reads through the SECURITY DEFINER RPC fn_soi_weekly_quiet_digest (service_role only; revoked from anon, PUBLIC and authenticated). Fires via the AI-routine dispatcher (ai_routine_schedules row 'soi-weekly-quiet-digest'), NOT a raw vercel.json cron, which is at its 100-entry ceiling. Auth: CRON_SECRET (Bearer or ?secret=); ?ignore_weekday=1 sends outside the configured day for a deliberate manual run. Marked unsafe-to-manual because a run delivers real notifications; re-running is safe — notifications.idempotency_key is keyed on the week, so a second run for the same week delivers nothing new. A member with no learner record can have no attendance mark and is reported as attendance-not-trackable, never as quiet; the RPC aborts rather than compose a summary that says otherwise."
   }
 ];

@@ -86,8 +86,13 @@ function annualize(amount: number, frequency: string | null | undefined): number
  * Build the pure FeeComputeInput primitives for one room + category in a hostel
  * year. Mirrors δ's quoteUpfrontFee fetch logic (per-bed rate × capacity, AC via
  * the effective-amenities view, live active-occupant count). Read-only.
+ *
+ * EXPORTED 2026-08-09 so the empty-bed notice service can reuse it instead of
+ * adding a THIRD copy of this fetch (δ's quoteUpfrontFee holds the second).
+ * It takes the client as an argument, so a service-role caller works unchanged.
+ * Behaviour is untouched.
  */
-async function buildFeeContext(
+export async function buildFeeContext(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: any,
   roomId: string,

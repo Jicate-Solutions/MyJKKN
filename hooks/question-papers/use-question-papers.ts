@@ -3,12 +3,17 @@ import { toast } from 'sonner';
 import { IaPaperService } from '@/lib/services/question-papers/ia-paper-service';
 import { academicKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
+import { PaperSaveError } from '@/types/ia-question-paper';
 import type {
   GeneratePapersDto,
   IaQuestionPaperDetail,
   QuestionPaperListFilters,
   SavePaperDto,
 } from '@/types/ia-question-paper';
+
+/** Query key for one course's CO master. */
+const courseOutcomeKey = (courseId: string) =>
+  [...academicKeys.questionPapers.all, 'course-outcomes', courseId] as const;
 
 /** List generated question papers for the current filter selection. */
 export function useQuestionPapers(filters: QuestionPaperListFilters, enabled = true) {
@@ -91,11 +96,35 @@ export function useGeneratePapers() {
   });
 }
 
-/** Save questions / status transition / paper meta. */
+/**
+ * Save questions / status transition / paper meta.
+ *
+ * Handles COE's mass-clear guard inline: a save that would take 3+ questions from
+ * authored to empty is refused with 409 WOULD_CLEAR rather than silently wiping
+ * them. That is almost always a stale tab or a bad merge, so we surface COE's own
+ * sentence (which names the questions) and only retry when the author confirms
+ * they meant it. One or two cleared questions is plausible hand-editing and passes
+ * without a prompt.
+ */
 export function useSavePaper(paperId: string | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (dto: SavePaperDto) => IaPaperService.savePaper(paperId!, dto),
+    mutationFn: async (dto: SavePaperDto) => {
+      try {
+        return await IaPaperService.savePaper(paperId!, dto);
+      } catch (e) {
+        if (
+          e instanceof PaperSaveError &&
+          e.code === 'WOULD_CLEAR' &&
+          !dto.allow_clear &&
+          typeof window !== 'undefined' &&
+          window.confirm(e.message)
+        ) {
+          return IaPaperService.savePaper(paperId!, { ...dto, allow_clear: true });
+        }
+        throw e;
+      }
+    },
     onSuccess: (updated) => {
       // MERGE into the detail cache — the save response carries questions/status/
       // updated_at but NOT template_parts/course_outcomes (GET-only), so a full
@@ -108,13 +137,69 @@ export function useSavePaper(paperId: string | undefined) {
       queryClient.invalidateQueries({ queryKey: academicKeys.questionPapers.list() });
     },
     onError: (e: Error) => {
-      // Optimistic-guard conflict: tell the user to reload; keep their edits.
-      if (/conflict/i.test(e.message)) {
-        toast.error('This paper was changed elsewhere. Reload before saving again.');
+      const code = e instanceof PaperSaveError ? e.code : undefined;
+      if (code === 'CONFLICT') {
+        // Never destroy the author's edits over a conflict — tell them to reopen
+        // the paper so they re-enter against the current version deliberately.
+        toast.error('Not saved — paper changed elsewhere', {
+          description:
+            'Reopen this paper to get the latest version, then re-enter your changes.',
+        });
+      } else if (code === 'WOULD_CLEAR') {
+        // Reached only when the author declined the confirm — nothing was written.
+        toast.info('Nothing was saved — your authored questions are untouched.');
+      } else if (code === 'INCOMPLETE' || code === 'SUB_MARKS') {
+        // The UI runs the same pure validators, so this is the stale-tab path.
+        toast.error('Paper is not ready', { description: e.message });
       } else {
         toast.error(e.message);
       }
     },
+  });
+}
+
+// ── Course outcomes master ─────────────────────────────────────────────────
+
+/**
+ * COs for a course. Kept separate from the paper detail so adding one refreshes
+ * the dropdowns WITHOUT refetching the paper — a paper refetch would push a new
+ * `questions` array into the cache mid-authoring.
+ */
+export function useCourseOutcomes(courseId: string | undefined) {
+  return useQuery({
+    queryKey: courseOutcomeKey(courseId ?? ''),
+    queryFn: () => IaPaperService.listCourseOutcomes(courseId!),
+    enabled: !!courseId,
+    ...QUERY_CONFIG.SEMI_STABLE_DATA,
+  });
+}
+
+export function useAddCourseOutcomes() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Parameters<typeof IaPaperService.addCourseOutcomes>[0]) =>
+      IaPaperService.addCourseOutcomes(body),
+    onSuccess: (_data, body) => {
+      toast.success(
+        body.outcomes?.length
+          ? `Added ${body.outcomes.length} course outcomes`
+          : `Added ${body.co_code}`
+      );
+      queryClient.invalidateQueries({ queryKey: courseOutcomeKey(body.course_id) });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+export function useDeleteCourseOutcome() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id }: { id: string; courseId: string }) =>
+      IaPaperService.deleteCourseOutcome(id),
+    onSuccess: (_data, { courseId }) => {
+      queryClient.invalidateQueries({ queryKey: courseOutcomeKey(courseId) });
+    },
+    onError: (e: Error) => toast.error(e.message),
   });
 }
 
