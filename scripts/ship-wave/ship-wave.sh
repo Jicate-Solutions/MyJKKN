@@ -79,6 +79,7 @@ while [[ $# -gt 0 ]]; do
     --ratify) POLICY_RATIFY="${2:-}"; shift;;
     --unguard) UNGUARD="${2:-}"; shift;;
     --unfreeze) rm -f "$FREEZE"; echo "freeze cleared"; exit 0;;
+    --if-changed) IF_CHANGED=1;;   # standing run: skip when no PR / approval / freeze changed since the last run (≤12h)
     *) echo "unknown arg: $1"; exit 2;;
   esac; shift
 done
@@ -126,6 +127,10 @@ if [ -n "${LEDGER_REPORT:-}" ]; then ledger_report; exit 0; fi
 if [ -n "${POLICY_SHOW:-}" ]; then policy_show; exit 0; fi
 if [ -n "${POLICY_RATIFY:-}" ]; then policy_ratify "$POLICY_RATIFY"; exit $?; fi
 if [ -n "${UNGUARD:-}" ]; then guard_remove "$UNGUARD"; exit 0; fi
+
+# ── pacing (Director 2026-09-06 21:20): a standing run that finds nothing changed is skipped, and three
+# skipped runs in a row print the NEEDS-YOU list once instead of a fourth identical receipt ─────────────
+if [ -n "${IF_CHANGED:-}" ] && [ "$MODE" = "go" ] && unchanged_since_last_run; then exit 0; fi
 
 # ── single-flight: two ship waves merging at once would race main ─────────────
 if ! mkdir "$LOCK" 2>/dev/null; then
@@ -276,9 +281,14 @@ dispatch_clusters() {  # $1=plan.json $2=run dir → prints DISPATCHED lines; ec
       fi
       # a helper that concluded SUPERSEDED / UNRESOLVABLE leaves "W12-VERDICT: …" in its PR comment — that PR is the
       # Director's to close or fix by hand; sending another tab burns quota on a settled question (#3179, 3 tabs, 14:30)
-      local human="" pr; for pr in $cprs; do
+      local human="" retry_hint="" pr; for pr in $cprs; do
         v=$(gh pr view "${pr#\#}" --repo "$REPO" --json comments -q '[.comments[].body | capture("W12-VERDICT: (?<v>[A-Z]+)")?.v] | last // ""' 2>/dev/null)
-        case "$v" in SUPERSEDED|UNRESOLVABLE) human="$human $pr($v)";; esac
+        case "$v" in
+          # Lane C (Director 2026-09-06 21:20): an UNRESOLVABLE verdict ≥24h old earns ONE fresh tab, with the old
+          # verdict as a hint. lane_retry_allowed() is once-only per PR ($STATE/retried/<n>); after that, the nudge.
+          UNRESOLVABLE) if lane_retry_allowed "$pr"; then retry_hint="$retry_hint $pr"; lane_retry_mark "$pr"; say "  retry $pr — UNRESOLVABLE verdict is >${LANE_TTL_H}h old; one fresh tab (never again)"; else human="$human $pr($v)"; fi;;
+          SUPERSEDED) human="$human $pr($v)";;
+        esac
       done
       # Director 2026-09-06: an UNRESOLVABLE PR gets ONE polite rebase nudge to its author and is NEVER
       # closed by the loop — only its author knows which side of the overlapping logic is right. The mark
@@ -323,6 +333,7 @@ Could you rebase onto \`jicate/main\` and resolve it? The ship wave will pick th
     printf '%s\t%s\t%s\t%s\n' "" "$LOCAL" "$(date -u +%FT%TZ)" "JKKNKB" > "$_CFG/v5-tab-sessions/$u8"   # sid filled by the tab's own hooks
     printf '%s @ %s\n' "$nm" "$LOCAL" > "$_CFG/v5-tab-names/$u8"
     local prompt="First invoke the /myjkkn-chain skill and take its CONFLICT LANE — every rule of that skill applies to you. You own ONE job: make these conflicted MyJKKN PRs mergeable again — $cprs (all touch $ckey). Repo Jicate-Solutions/MyJKKN, production remote 'jicate', branch 'main'. For EACH PR, in ONE Bash call: cd $LOCAL && git fetch jicate main && git fetch jicate <headRefName> && git worktree add $LOCAL/.claude/worktrees/ship-<n> <headRefName> ; then inside that worktree rebase onto jicate/main, resolve every conflict keeping BOTH sides' intent (never drop the other author's change; if the file is a shared registry/list, keep every entry; supabase/SQL_FILE_INDEX.md is APPEND-ONLY — on conflict keep BOTH sides, every entry survives, never drop a row), run the repo's typecheck and the scoped unit tests, force-push with --force-with-lease to the PR branch, and leave a PR comment summarising what conflicted and how you resolved it. NEVER merge, never push to main, never touch any database. The local checkout at $LOCAL is far behind production — only trust jicate/main and the worktree. When every PR shows mergeStateStatus CLEAN (gh pr view <n> --json mergeStateStatus), or one is genuinely unresolvable, finish with ONE summary: per PR → CLEAN / still DIRTY + why. For every PR you could NOT make CLEAN, your PR comment MUST end with one line exactly of the form 'W12-VERDICT: SUPERSEDED' (main already contains it) or 'W12-VERDICT: UNRESOLVABLE' (real overlapping logic, needs its author) — the wave reads that line and stops sending tabs. Then run /remote-control so the Director can see you from the phone."
+    [ -n "${retry_hint:-}" ] && prompt="$prompt HINT: a previous helper tab already tried${retry_hint} and answered UNRESOLVABLE — read its PR comment first, then try a different resolution (for a registry/list keep every entry of both sides; for overlapping logic prefer main's version and re-apply the PR's intent on top). If you also conclude UNRESOLVABLE, say so with the same verdict line; the wave will ask the author and not send a third tab."
     printf '%s' "$prompt" > "$2/prompt-$slug.txt"
     $T -f "$_CFG/tmux-obsidian.conf" new-session -d -s "$sname" -c "$LOCAL" \
       "bash -c 'export PATH=\"/opt/homebrew/bin:/usr/local/bin:\$HOME/.local/bin:\$PATH\" OBS_TAB_UUID=\"$uuid\" OBS_TAB_VAULT=\"JKKNKB\" CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX=\"JKKNKB $u8\"; \"$CLAUDE\" --name \"$nm\" \"\$(cat \"$2/prompt-$slug.txt\")\"; exec /opt/homebrew/bin/bash -i'"
@@ -344,6 +355,10 @@ Could you rebase onto \`jicate/main\` and resolve it? The ship wave will pick th
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/apply-migrations.sh"
 # shellcheck source=scripts/ship-wave/rebase-remaining.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/rebase-remaining.sh"
+# unblock lanes (Director 2026-09-06 21:20, by interview): stale heads → merge main; red checks → merge main then a
+# CI-fix tab; one retry for an old UNRESOLVABLE verdict; --if-changed pacing. cause-class → bounded action, ledgered.
+# shellcheck source=scripts/ship-wave/unblock-lanes.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/unblock-lanes.sh"
 
 run_once() {
   local ts; ts=$(date '+%Y%m%d-%H%M%S')
@@ -399,9 +414,15 @@ run_once() {
   c_ready=$(python3 -c "import json;print(json.load(open('$run/plan.json'))['counts']['ready'])")
   c_conf=$(python3 -c "import json;print(json.load(open('$run/plan.json'))['counts']['conflicted'])")
 
+  # ── 1b. unblock lanes: act on the buckets the sweep used to only report ────
+  # (2026-09-06: 30 hours of identical 2-hourly runs — 15 red on an advisory check, 8 heads whose required
+  # checks never ran, 4 parked conflicts. Nothing in the loop touched them. Now each has a bounded lane.)
+  DISPATCHED=0
+  if [ -z "$frozen" ] && [ -z "${FINAL_DEPLOY:-}" ]; then unblock_lanes "$run"; fi
+
   # ── 2. conflict clusters → one fleet tab each ──────────────────────────────
   say; say "--- 2. conflicts: [helper tabs alive: $(alive_helpers)/$HELPER_CAP] dispatch ≤$MAX_DISPATCH fleet tabs (one per cluster; a new tab only when the previous one has finished) ---"
-  DISPATCHED=0
+  # DISPATCHED carries over from 1b: a CI-fix tab and a conflict tab share the per-round cap
   if [ "$MODE" = "go" ] && [ "$MAX_DISPATCH" -gt 0 ]; then dispatch_clusters "$run/plan.json" "$run"
   else say "  (plan mode / --max-dispatch 0 — nothing dispatched)"; fi
 
