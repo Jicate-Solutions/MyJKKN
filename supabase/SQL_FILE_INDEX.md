@@ -3475,3 +3475,42 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Ships with an apply-time `DO` assert on the END STATE only, never on "did I change a row": it verifies the two dependency functions exist (`to_regprocedure`, not `::regprocedure`, which RAISEs on a missing object), that both new functions are `SECURITY DEFINER`, that `anon` **cannot** execute either and `authenticated` **can**, and that no surviving policy row still disagrees with the behaviour. No `BEGIN;`/`COMMIT;` of its own, so a Mgmt-API `BEGIN … ROLLBACK` stays a genuine dry run.
 
 | `20261019050000_loop_audits_allow_drill_layer.sql` | 2026-09-06 | loop_audits.layer CHECK gains `drill` — fire-drill evidence rows (APPLIED live 2026-09-06 + ledgered before this PR; file catches the repo up) |
+### Cohort Coordinators — one appointment record for every cohort (2026-08-02)
+- **No migration ships with this PR — deliberately.** The substrate it was written
+  against (`public.cohort_coordinators`, `public.cohort_coordinator_events`, their
+  indexes/RLS/`updated_at` trigger, `fn_is_cohort_coordinator`, the four
+  appoint/remove/reinstate/overview RPCs and the `AFTER UPDATE OF is_active`
+  departure trigger on `profiles`) reached production **out of band before
+  2026-08-08** and is baselined in
+  `supabase/migrations/20260816020001_programme_coordinator_authz.sql`, whose header
+  records the live verification and whose body `ALTER TABLE
+  public.cohort_coordinators` — it alters, it does not create, which is only
+  possible because the table already existed.
+- That baseline then `CREATE OR REPLACE`d `fn_cohort_coordinator_appoint`,
+  `fn_cohort_coordinator_remove` and `fn_cohort_coordinators_overview` with the
+  **widened D1 authorizer** (admins, the COO and the programme's own owner, plus
+  the one-hop `may_appoint_others` rule), and `20260823010000_soi_coordinator_accept_path.sql`
+  builds further on it. This PR originally carried
+  `20260809100000_cohort_coordinators_console.sql`, holding the ORIGINAL
+  super-admin-only bodies of those same three functions. Shipping it would have
+  re-declared live objects and, if ever applied, silently reverted that widening —
+  the exact failure `scripts/ci/check-migration-rename-applied.mjs` exists to stop.
+  It also collided on version `20260809100000` with
+  `20260809100000_iqac_foundations_programme_scope_and_snapshot.sql` on main.
+- **What the console needs is therefore already live.** No RPC signature changed
+  in the baseline, so the four RPCs this PR's service calls are the ones production
+  exposes. The file's full text (including its Decision-1 rationale for a dedicated
+  table over `cohort_memberships.role`) remains in git history at commit
+  `8c239d1c5d`, path `supabase/migrations/20260809100000_cohort_coordinators_console.sql`.
+- **Design record kept from that file, because it is still the reason the schema
+  looks like this:** `cohort_coordinators.cohort_id` is NULLABLE — NULL means
+  programme-wide over that `kind` (covering cohorts created later), set means pinned
+  to one cohort; that single nullable column is the whole per-cohort mechanism.
+  `cohort_memberships.role` was rejected for it because `cohort_id` there is NOT
+  NULL (no programme-wide row is expressible, and foundations/cdc/trainer have zero
+  cohorts to hang one on), its UNIQUE (cohort_id, member_type, member_ref) makes
+  "member AND coordinator" unrepresentable, and a coordinator row would enter School
+  of Influence's D10 claim-key namespace and could block a real learner membership.
+  Removal on departure is a soft remove with a `cohort_coordinator_events` row
+  recording `evidence_field='profiles.is_active'`, reversible via
+  `fn_cohort_coordinator_reinstate`.
