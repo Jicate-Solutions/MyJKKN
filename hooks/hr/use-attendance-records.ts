@@ -32,6 +32,7 @@ const EXCEPTIONS_KEY = 'hr-attendance-exceptions';
 const MONTHS_KEY = 'hr-attendance-months';
 const TIME_OFF_KEY = 'hr-attendance-time-off';
 const PERIOD_KEY = 'hr-attendance-period';
+const HOLIDAYS_KEY = 'hr-attendance-holidays';
 
 /**
  * Invalidate everything the My Attendance log and calendar read.
@@ -46,9 +47,24 @@ const PERIOD_KEY = 'hr-attendance-period';
  * the viewer happens to have open, and React Query matches partial keys.
  */
 export function invalidateAttendanceViews(qc: QueryClient) {
-  for (const key of [KEY, EXCEPTIONS_KEY, MONTHS_KEY, TIME_OFF_KEY, PERIOD_KEY]) {
+  for (const key of [KEY, EXCEPTIONS_KEY, MONTHS_KEY, TIME_OFF_KEY, PERIOD_KEY, HOLIDAYS_KEY]) {
     qc.invalidateQueries({ queryKey: [key] });
   }
+}
+
+/**
+ * Holiday names for the month, keyed by date, so a HOLIDAY day can say WHICH
+ * holiday. Keyed on the institution, not the staff member: the calendar scopes
+ * holidays per institution and every staff member there shares them.
+ */
+export function useHolidayNames(institutionId: string | null, month: MonthKey) {
+  const supabase = createClientSupabaseClient();
+  return useQuery({
+    queryKey: [HOLIDAYS_KEY, institutionId, month],
+    queryFn: () =>
+      AttendanceRecordService.holidayNames(supabase, { institutionId: institutionId!, month }),
+    enabled: Boolean(institutionId),
+  });
 }
 
 /** Raw records for one staff member in one month. */
@@ -183,6 +199,32 @@ export function useAttendanceMonthsWithData(staffId: string | null) {
   });
 }
 
+/**
+ * What the page is entitled to SAY about the month close — `period` alone
+ * cannot carry it.
+ *
+ * A bare null conflates three different facts, and the page rendered nothing
+ * for all three, so a month HR has never closed looked identical to a month
+ * still loading:
+ *
+ *   'unresolved'  Nothing is imported for this month, so no institution could
+ *                 be resolved and the period query never ran. Nothing is known
+ *                 about the close — saying "not closed" here would be a claim
+ *                 the page cannot support.
+ *   'unknown'     The read has not completed, or failed. Same silence.
+ *   'not_created' The read SUCCEEDED and found no row. A period row is only
+ *                 ever written by fn_hr_lock_attendance_period, so this means
+ *                 exactly one thing: this month has never been closed.
+ *   'open'        A row exists and is not locked.
+ *   'closed'      Locked. The day counts are frozen.
+ */
+export type AttendancePeriodResolution =
+  | 'unresolved'
+  | 'unknown'
+  | 'not_created'
+  | 'open'
+  | 'closed';
+
 export interface AttendanceMonthView {
   /** Every day of the month, newest first — for the log. */
   logDays: AttendanceDay[];
@@ -196,6 +238,8 @@ export interface AttendanceMonthView {
   isEmptyMonth: boolean;
   /** Null until the month has a record to resolve an institution from. */
   period: AttendancePeriodState | null;
+  /** Which of those nulls this is. Read this, not `period`, to render state. */
+  periodResolution: AttendancePeriodResolution;
   refresh: () => void;
 }
 
@@ -220,6 +264,9 @@ export function useAttendanceMonthView(
     [records.data],
   );
   const period = useAttendancePeriod(institutionId, month);
+  // Decorative, so it is NOT part of isLoading: the month renders as soon as the
+  // records land and the holiday names fill in when they arrive.
+  const holidays = useHolidayNames(institutionId, month);
 
   const logDays = useMemo(
     () =>
@@ -228,8 +275,9 @@ export function useAttendanceMonthView(
         records: records.data ?? [],
         exceptions: exceptions.data ?? [],
         requests: timeOff.data ?? [],
+        holidays: holidays.data,
       }).reverse(),
-    [month, records.data, exceptions.data, timeOff.data],
+    [month, records.data, exceptions.data, timeOff.data, holidays.data],
   );
 
   const weeks = useMemo(
@@ -240,13 +288,27 @@ export function useAttendanceMonthView(
           records: records.data ?? [],
           exceptions: exceptions.data ?? [],
           requests: timeOff.data ?? [],
+          holidays: holidays.data,
           padWeeks: true,
         }),
       ),
-    [month, records.data, exceptions.data, timeOff.data],
+    [month, records.data, exceptions.data, timeOff.data, holidays.data],
   );
 
   const summary = useMemo(() => summariseDays(logDays), [logDays]);
+
+  // ORDER MATTERS. The period query is `enabled: Boolean(institutionId)`, and a
+  // disabled query in React Query reports isPending forever — so the absence of
+  // an institution has to be tested BEFORE anything about the query's state.
+  const periodResolution: AttendancePeriodResolution = !institutionId
+    ? 'unresolved'
+    : !period.isSuccess
+      ? 'unknown'
+      : !period.data
+        ? 'not_created'
+        : period.data.status === 'locked'
+          ? 'closed'
+          : 'open';
 
   return {
     logDays,
@@ -257,11 +319,13 @@ export function useAttendanceMonthView(
     error: (records.error ?? exceptions.error) as Error | null,
     isEmptyMonth: !records.isLoading && (records.data?.length ?? 0) === 0,
     period: period.data ?? null,
+    periodResolution,
     refresh: () => {
       qc.invalidateQueries({ queryKey: [KEY, staffId, month] });
       qc.invalidateQueries({ queryKey: [EXCEPTIONS_KEY, staffId, month] });
       qc.invalidateQueries({ queryKey: [TIME_OFF_KEY, staffId, month] });
       qc.invalidateQueries({ queryKey: [PERIOD_KEY, institutionId, month] });
+      qc.invalidateQueries({ queryKey: [HOLIDAYS_KEY, institutionId, month] });
     },
   };
 }

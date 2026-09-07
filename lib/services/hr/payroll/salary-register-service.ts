@@ -43,6 +43,9 @@ import { TdsSlabService } from '@/lib/services/hr/payroll/tds-slab-service';
 import type {
   HRSalaryRegisterLine,
   HRSalaryRegisterRun,
+  SalaryClosePreview,
+  SalaryClosePreviewExclusion,
+  SalaryClosePreviewRow,
   SalaryRegisterExclusionReason,
   SalaryRegisterPeriodDependency,
   SalaryRegisterPreflight,
@@ -70,6 +73,35 @@ function num(v: unknown): number {
 }
 
 /** Money is stored numeric(12,2); keep every computed figure at 2dp. */
+/** The identity columns every preview row carries, payable or excluded. */
+function baseRow(m: RosterMember) {
+  return {
+    staff_id: m.staff_id,
+    employee_code: m.employee_code,
+    staff_name: m.staff_name,
+    designation: m.designation,
+    department_name: m.department_name,
+  };
+}
+
+/**
+ * A stable digest of the figures a preview showed.
+ *
+ * Not a security hash — a change detector. The close compares it against a
+ * freshly computed preview and refuses if they differ, so approving a month and
+ * then closing it after somebody imported more biometric data cannot silently
+ * freeze numbers nobody verified. Sorted by staff so row order cannot flip it.
+ */
+function fingerprintOf(rows: SalaryClosePreviewRow[]): string {
+  const body = rows
+    .map((r) => [r.staff_id, r.working_days, r.paid_days, r.unpaid_days, r.net_pay].join(':'))
+    .sort()
+    .join('|');
+  let h = 5381;
+  for (let i = 0; i < body.length; i++) h = ((h * 33) ^ body.charCodeAt(i)) >>> 0;
+  return `${rows.length}-${h.toString(36)}`;
+}
+
 function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
@@ -162,6 +194,40 @@ export interface AttendanceSummaryRow {
   payable_days: number;
   leave_by_type: Record<string, number>;
   unprocessed_days: number;
+  /**
+   * Days the resolver expected this person to work in the month, pattern-aware
+   * (2026-09-04). NULL on months closed before the column existed.
+   */
+  scheduled_days: number | null;
+  /**
+   * The work pattern held on any day of the month. When set, the day rate
+   * divides by scheduled_days — the person's own week — instead of the
+   * institution standard. See registerBasisFor.
+   */
+  work_pattern_id: string | null;
+}
+
+/**
+ * The divisor for one register line.
+ *
+ * A person on a work pattern (a 3-day or 5-day week at an institution that
+ * otherwise runs six) is paid on THEIR scheduled days, not the institution's
+ * month standard — dividing a Tue/Wed/Thu person's salary by 26 would charge
+ * them ~13 unpaid days every month. Everyone else keeps the period basis.
+ *
+ * scheduled_days is the resolver's full-month expectation, NOT the person's
+ * recorded working days, for the same reason the institution basis is used for
+ * everyone else: a mid-month joiner is unpaid for the days before they joined,
+ * not paid a full month for half of one.
+ */
+export function registerBasisFor(
+  summary: Pick<AttendanceSummaryRow, 'scheduled_days' | 'work_pattern_id'>,
+  periodBasis: number,
+): number {
+  if (summary.work_pattern_id && (summary.scheduled_days ?? 0) > 0) {
+    return summary.scheduled_days as number;
+  }
+  return periodBasis;
 }
 
 /** The computed half of a register row — everything that is not identity. */
@@ -390,6 +456,8 @@ export class SalaryRegisterService {
       .from('hr_organizations')
       .select('id, name, institution_id, is_payroll_entity')
       .eq('id', hrOrganizationId)
+      // Null for an excluded institution — no salary register is produced.
+      .eq('included_in_hr', true)
       .maybeSingle();
 
     if (orgErr) throw new Error(`Failed to load the paying institution: ${getErrorMessage(orgErr)}`);
@@ -637,7 +705,7 @@ export class SalaryRegisterService {
       for (const ids of chunk(staffIds)) {
         const { data, error } = await (supabase as any)
           .from('hr_attendance_period_summaries')
-          .select('period_id, staff_id, present_days, half_days, leave_days, on_duty_days, comp_off_days, lop_days, payable_days, leave_by_type, unprocessed_days')
+          .select('period_id, staff_id, present_days, half_days, leave_days, on_duty_days, comp_off_days, lop_days, payable_days, leave_by_type, unprocessed_days, scheduled_days, work_pattern_id')
           .in('period_id', lockedPeriodIds)
           .in('staff_id', ids);
 
@@ -655,6 +723,8 @@ export class SalaryRegisterService {
             payable_days: num(s.payable_days),
             leave_by_type: (s.leave_by_type ?? {}) as Record<string, number>,
             unprocessed_days: num(s.unprocessed_days),
+            scheduled_days: s.scheduled_days == null ? null : num(s.scheduled_days),
+            work_pattern_id: (s.work_pattern_id as string | null) ?? null,
           });
         }
       }
@@ -700,6 +770,128 @@ export class SalaryRegisterService {
    * named with its count and the institution it belongs to. A bare "not ready"
    * would send HR looking in the wrong module.
    */
+  /**
+   * What the salary register WILL say if this month is closed now.
+   *
+   * The month-close screen shows this so HR can verify pay before freezing
+   * attendance. It writes nothing: the per-staff day counts come from
+   * fn_hr_attendance_period_projection, which is the SAME SQL the close runs to
+   * populate hr_attendance_period_summaries. Preview and closed month therefore
+   * cannot disagree -- that is the whole reason the computation was lifted out
+   * of fn_hr_compute_attendance_period_summary rather than reimplemented here.
+   *
+   * Money is computed by computeRegisterLine, the same pure function generate()
+   * uses, for the same reason.
+   *
+   * Deliberately does NOT consult ctx.dependencies. Those exist to stop a
+   * register being ISSUED against a moving month; this preview is what you look
+   * at precisely because the month is still open.
+   */
+  static async previewForClose(
+    supabase: SupabaseClient,
+    input: SalaryRegisterInput,
+  ): Promise<SalaryClosePreview> {
+    const ctx = await SalaryRegisterService.loadContext(supabase, input);
+    const { year, month } = input;
+
+    const { data, error } = await (supabase as any).rpc(
+      'fn_hr_attendance_period_projection',
+      { p_institution_id: ctx.institutionId, p_year: year, p_month: month },
+    );
+    if (error) throw error;
+
+    const rows = (data ?? []) as Array<Record<string, unknown>>;
+    const projected = new Map<string, AttendanceSummaryRow>();
+    for (const r of rows) {
+      projected.set(r.staff_id as string, {
+        period_id: '',
+        present_days: Number(r.present_days ?? 0),
+        half_days: Number(r.half_days ?? 0),
+        leave_days: Number(r.leave_days ?? 0),
+        on_duty_days: Number(r.on_duty_days ?? 0),
+        comp_off_days: Number(r.comp_off_days ?? 0),
+        lop_days: Number(r.lop_days ?? 0),
+        payable_days: Number(r.payable_days ?? 0),
+        leave_by_type: (r.leave_by_type ?? {}) as Record<string, number>,
+        unprocessed_days: Number(r.unprocessed_days ?? 0),
+        scheduled_days: r.scheduled_days === null ? null : Number(r.scheduled_days),
+        work_pattern_id: (r.work_pattern_id ?? null) as string | null,
+      });
+    }
+
+    // The month standard, derived exactly as the close derives it: the largest
+    // working_days across the projection is what it writes into
+    // hr_attendance_periods.working_days_count.
+    const periodBasis = rows.reduce(
+      (max, r) => Math.max(max, Number(r.working_days ?? 0)),
+      0,
+    );
+
+    const payable: SalaryClosePreviewRow[] = [];
+    const excluded: SalaryClosePreviewExclusion[] = [];
+
+    for (const member of ctx.roster) {
+      const salary = ctx.salaryByStaff.get(member.staff_id);
+      const summary = projected.get(member.staff_id);
+
+      // Order matters: report the FIRST thing that has to be fixed. A person
+      // with neither a salary nor attendance is a salary problem first.
+      if (salary === undefined) {
+        excluded.push({ ...baseRow(member), reason: 'no_salary_recorded' });
+        continue;
+      }
+      if (salary <= 0) {
+        excluded.push({ ...baseRow(member), reason: 'salary_is_zero' });
+        continue;
+      }
+      if (!summary) {
+        excluded.push({ ...baseRow(member), reason: 'no_attendance_summary' });
+        continue;
+      }
+
+      const statutory = ctx.statutoryByStaff.get(member.staff_id);
+      const figures = computeRegisterLine({
+        monthlyGross: salary,
+        workingDaysBasis: registerBasisFor(summary, periodBasis),
+        epfAmount: statutory?.epf,
+        esiAmount: statutory?.esi,
+        allowance: statutory?.allowance,
+        tdsAmount: statutory?.tds,
+        summary,
+      });
+
+      payable.push({
+        ...baseRow(member),
+        working_days: figures.business_working_days,
+        paid_days: figures.paid_days,
+        unpaid_days: figures.unpaid_leave_days,
+        on_duty_days: figures.on_duty_days,
+        monthly_gross: salary,
+        net_pay: figures.net_pay,
+        unprocessed_days: summary.unprocessed_days,
+      });
+    }
+
+    payable.sort((a, b) => (a.employee_code ?? '').localeCompare(b.employee_code ?? ''));
+    excluded.sort((a, b) => (a.employee_code ?? '').localeCompare(b.employee_code ?? ''));
+
+    return {
+      organisation_name: ctx.organisationName,
+      institution_id: ctx.institutionId,
+      year,
+      month,
+      period_basis: periodBasis,
+      payable,
+      excluded,
+      roster_count: ctx.roster.length,
+      total_net_pay: round2(payable.reduce((t, r) => t + r.net_pay, 0)),
+      unprocessed_days: payable.reduce((t, r) => t + r.unprocessed_days, 0),
+      // What the close will freeze. Compared again at close time so a preview
+      // that has gone stale cannot be confirmed -- see the close page.
+      fingerprint: fingerprintOf(payable),
+    };
+  }
+
   static async preflight(
     supabase: SupabaseClient,
     input: SalaryRegisterInput,
@@ -888,6 +1080,29 @@ export class SalaryRegisterService {
     const ctx = await SalaryRegisterService.loadContext(supabase, input);
     const runBasis = pre.working_days_basis as number;
 
+    // Names for the Remarks column of anyone paid on their own week. One query
+    // for the whole run; an unreadable name only blanks the remark.
+    const patternIds = Array.from(
+      new Set(
+        Array.from(ctx.summaryByStaff.values())
+          .map((s) => s.work_pattern_id)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    );
+    const patternNameById = new Map<string, string>();
+    if (patternIds.length > 0) {
+      const { data: patterns, error: patternErr } = await (supabase as any)
+        .from('hr_work_patterns')
+        .select('id, name')
+        .in('id', patternIds);
+      if (patternErr) {
+        throw new Error(`Failed to load work pattern names: ${getErrorMessage(patternErr)}`);
+      }
+      for (const p of (patterns ?? []) as Array<{ id: string; name: string }>) {
+        patternNameById.set(p.id, p.name);
+      }
+    }
+
     /**
      * Working days per SOURCE MONTH, so each person is measured against the
      * calendar they actually worked.
@@ -958,15 +1173,21 @@ export class SalaryRegisterService {
           adjustment_amount: 0,
           is_included: false,
           exclusion_reason: reason,
+          // Same key set as an included row — see the batch-shape note above.
+          remarks: null,
         });
         continue;
       }
 
       const s = summary as AttendanceSummaryRow;
       const statutory = ctx.statutoryByStaff.get(member.staff_id);
+      // A person on a work pattern is measured against THEIR week (see
+      // registerBasisFor); everyone else against the source month's standard.
+      const basis = registerBasisFor(s, workingDaysByPeriod.get(s.period_id) || runBasis);
+      const patternName = s.work_pattern_id ? patternNameById.get(s.work_pattern_id) : undefined;
       const figures = computeRegisterLine({
         monthlyGross: salary as number,
-        workingDaysBasis: workingDaysByPeriod.get(s.period_id) || runBasis,
+        workingDaysBasis: basis,
         epfAmount: statutory?.epf ?? 0,
         esiAmount: statutory?.esi ?? 0,
         allowance: statutory?.allowance ?? 0,
@@ -982,6 +1203,9 @@ export class SalaryRegisterService {
       lines.push({
         ...base,
         ...figures,
+        // The register HR reads has no other place to say WHY this row's
+        // Business Working Days differs from the rest of the sheet.
+        remarks: s.work_pattern_id ? `Work pattern: ${patternName ?? 'yes'}` : null,
         adjustment_amount: 0,
         is_included: true,
         exclusion_reason: null,

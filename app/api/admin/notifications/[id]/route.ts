@@ -2,6 +2,11 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse, connection } from 'next/server';
 import { withAuth } from '@/lib/auth/with-auth';
+import {
+  getTargetedUserIds,
+  TARGET_NAME_PREVIEW_LIMIT,
+  type NotificationTargeting
+} from '@/lib/notifications/target-audience';
 
 export const GET = withAuth(async (request, auth, context) => {
   await connection();
@@ -72,7 +77,7 @@ export const GET = withAuth(async (request, auth, context) => {
       category?: string;
       sent_at?: string;
       expires_at?: string;
-      targeting: Record<string, string | null>;
+      targeting: NotificationTargeting;
       created_by: string;
       created_at: string;
       creator: { full_name?: string; email?: string } | null;
@@ -123,6 +128,42 @@ export const GET = withAuth(async (request, auth, context) => {
             const progData = data as { program_name: string } | null;
             if (progData)
               (targetingWithNames as any).program_name = progData.program_name;
+          })
+      );
+    }
+
+    // Person-targeted sends name profile ids in `targeting` and set none of the
+    // structural keys above, so the detail page had nothing to show and said
+    // 'All Users'. Resolve the handful of names the label actually displays.
+    //
+    // This deliberately does NOT scale with the recipient list: only the first
+    // TARGET_NAME_PREVIEW_LIMIT ids are fetched, and the total shown alongside
+    // them is the id array's length — never a count query. The largest live
+    // list is 273 recipients; this still reads 2 profile rows.
+    const targetedUserIds = getTargetedUserIds(notificationData.targeting);
+    if (targetedUserIds.length > 0) {
+      const previewIds = targetedUserIds.slice(0, TARGET_NAME_PREVIEW_LIMIT);
+      promises.push(
+        supabase
+          .from('profiles')
+          .select('id, full_name, email')
+          .in('id', previewIds)
+          .then(({ data }) => {
+            const rows = (data || []) as Array<{
+              id: string;
+              full_name?: string | null;
+              email?: string | null;
+            }>;
+            const byId = new Map(rows.map((row) => [row.id, row]));
+            // Map back over previewIds: .in() does not guarantee row order, and
+            // the names must line up with the ids they were resolved from.
+            (targetingWithNames as NotificationTargeting).user_names =
+              previewIds
+                .map((userId) => {
+                  const row = byId.get(userId);
+                  return row?.full_name?.trim() || row?.email?.trim() || '';
+                })
+                .filter((name) => name.length > 0);
           })
       );
     }

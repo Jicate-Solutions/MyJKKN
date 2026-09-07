@@ -145,7 +145,26 @@ export function InstallPromptBanner() {
     <div
       role="dialog"
       aria-label="Install MyJKKN"
-      className="fixed bottom-4 left-4 right-4 md:bottom-6 md:right-6 md:left-auto md:max-w-sm bg-background border shadow-lg rounded-lg p-3 z-50"
+      // The bottom nav is `lg:hidden`, so the desktop offset has to wait for
+      // `lg` — at `md` the nav is still on screen.
+      //
+      // Two insets, both only below `lg`:
+      //
+      // `right-20` (80px), not `right-4`: the floating FAB column occupies
+      // right-4 and is 48px wide (16px..64px from the right edge), with the
+      // 56px echo bubble reaching 72px. A full-bleed banner put the red
+      // bug-reporter FAB directly on top of the "Not now" button. 80px clears
+      // the widest of them by 8px.
+      //
+      // `bottom-nav-safe-2`, not `bottom-nav-safe`: the platform Help FAB
+      // (components/guide/platform-guide-fab.tsx) is left-4 at nav-safe and
+      // z-40, and both are mounted globally in app/layout.tsx — a banner at
+      // nav-safe covered it completely and made Help unclickable until the
+      // banner was dismissed. Slot 2 clears its ~44px pill by 20px.
+      //
+      // At `lg` the nav, the FAB column and the mobile Help FAB position are
+      // all gone, so both insets lift.
+      className="fixed bottom-nav-safe-2 lg:bottom-6 left-4 right-20 md:left-auto md:max-w-sm lg:right-6 bg-background border shadow-lg rounded-lg p-3 z-50"
     >
       <div className="flex items-start gap-3">
         <div className="flex-1 min-w-0">

@@ -139,7 +139,9 @@ export function PushSubscribeButton({
       const res = await fetch('/api/dashboard/push-subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subscription: sub.toJSON() })
+        // `deliberate` is what clears a previous opt-out. It is set here, on a
+        // button the person pressed, and nowhere that runs on a page load.
+        body: JSON.stringify({ subscription: sub.toJSON(), deliberate: true })
       });
       const body = await res.json();
       if (!res.ok || !body.ok) throw new Error(body.error ?? 'subscribe_failed');

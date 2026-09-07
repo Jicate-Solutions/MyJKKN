@@ -195,6 +195,12 @@ const PUBLIC_PATHS_SET = new Set([
   '/terms', // Terms of Use — public, required for Meta App Review
   '/data-deletion', // Data Deletion instructions — public, required for Meta App Review
   '/meet', // Universal Booking directory — public, no login (U4)
+  '/programmes', // Public programme catalogue — the page that answers "what is on
+  //                offer?" for somebody who was never sent a link. Lives under
+  //                app/(public)/programmes/. Being in that route group is NOT what
+  //                makes a page reachable — this allowlist is, and '/verify/' and
+  //                '/r/' below each shipped 307ing to login by omitting it. Caught
+  //                here before merge by fetching the URL with no session.
   '/employers/submit', // CDC employer self-submit vacancy form — public, no login
   '/api/admission/leads/refer', // Agent referral API
   '/api/admission/leads/inbound' // Inbound webhook API

@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type {
   HRLeaveApplication,
+  HRLeaveApplicationDetail,
   HRLeaveApplicationWithType,
   HRLeaveApplicationInsert,
   HRLeaveBalanceWithType,
@@ -79,7 +80,9 @@ export function useApplication(applicationId: string | undefined) {
     queryFn: async () => {
       const res = await fetch(`${BASE}/applications/${applicationId}`);
       if (!res.ok) throw new Error(`Application fetch failed: ${res.status}`);
-      return ((await res.json()).data) as HRLeaveApplication;
+      // The route adds chain_names — the resolved people/role names the
+      // browser cannot look up itself. See LeaveChainNames.
+      return ((await res.json()).data) as HRLeaveApplicationDetail;
     },
     enabled: !!applicationId,
   });

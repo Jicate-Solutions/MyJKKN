@@ -18,11 +18,18 @@
  * Anyone can score their own attempt (RLS on pde_submissions limits visibility
  * to the learner themselves + faculty + admin).
  *
- * Body shape:
- *   { submissionId: string }   (the only required input — everything else
- *                                resolved from the submission row)
+ * Scoring is idempotent by default: a submission that already carries a rubric
+ * score is returned untouched (`already_scored: true`). Pass `rescore: true` to
+ * deliberately score it again. Without that guard a repeat POST overwrote a
+ * committed pass with 0.
  *
- * Response: { osce_score: OsceScore, evidence_created: boolean }
+ * Body shape:
+ *   { submissionId: string, rescore?: boolean }
+ *     (submissionId is the only required input — everything else is resolved
+ *      from the submission row)
+ *
+ * Response: { osce_score: OsceScore, passed: boolean, evidence_created: boolean,
+ *             already_scored: boolean, warnings: {...} }
  *
  * Spec: specs/aicbl-as-pde-clinical-reasoning-2026-05-21.md (Agent E, step 3-6)
  */
@@ -37,14 +44,23 @@ import {
 import {
   scoreAttempt,
   parseRubricFromAssessment,
-  loadFallbackRubric,
+  deriveFallbackRubric,
+  readStoredAnswers,
   type PdeQuestion,
-  type PdeAnswer,
   type OsceScore,
 } from '@/lib/services/pde-osce-scoring';
+import {
+  finalizeAiuTrailsForSubmission,
+  AIU_SURFACE_PDE_CLINICAL_COACH,
+} from '@/lib/services/aiu/prompt-trail-service';
 
 interface RequestBody {
   submissionId: string;
+  /**
+   * Deliberately score an already-scored submission again. Without it a repeat
+   * POST is a no-op that returns the stored score — see unwrapStoredAnswers.
+   */
+  rescore?: boolean;
 }
 
 // ----------------------------------------------------------------------------
@@ -91,6 +107,17 @@ async function getPassingThresholdPct(
   }
 }
 
+/**
+ * Plain-English note when the authored rubric does not claim every question.
+ * Those questions are scored by nothing, which is a rubric-authoring gap the
+ * caller must be able to see rather than infer from a suspiciously low total.
+ */
+function coverageWarning(uncovered: number[] | undefined): string | null {
+  if (!uncovered || uncovered.length === 0) return null;
+  const list = uncovered.map((n) => `Q${n}`).join(', ');
+  return `${list} ${uncovered.length === 1 ? 'is' : 'are'} claimed by no rubric domain and contributed nothing to this score. Fix the rubric on the assessment.`;
+}
+
 // ----------------------------------------------------------------------------
 // POST
 // ----------------------------------------------------------------------------
@@ -125,7 +152,7 @@ export async function POST(request: NextRequest) {
   const { data: submission, error: subErr } = await supabase
     .from('pde_submissions')
     .select(
-      'id, assessment_id, learner_id, attempt_number, answers, final_score',
+      'id, assessment_id, learner_id, attempt_number, answers, final_score, passed',
     )
     .eq('id', body.submissionId)
     .maybeSingle();
@@ -134,6 +161,27 @@ export async function POST(request: NextRequest) {
       { error: 'Submission not found' },
       { status: 404 },
     );
+  }
+
+  // ---- Re-entry guard ------------------------------------------------------
+  // Scoring is destructive: it overwrites final_score / passed. A repeat POST
+  // (double click, client retry, StrictMode double-invoke) must not silently
+  // replace a committed pass. Default is an idempotent no-op returning the
+  // stored score; `rescore: true` is the deliberate opt-in to score again.
+  const stored = readStoredAnswers(submission.answers);
+  if (stored.osceScore && !body.rescore) {
+    return NextResponse.json({
+      osce_score: stored.osceScore,
+      passed: submission.passed === true,
+      evidence_created: false,
+      already_scored: true,
+      warnings: {
+        learner_capability_error: null,
+        evidence_error: null,
+        uncovered_q_numbers: stored.osceScore.uncovered_q_numbers ?? [],
+        rubric_coverage: coverageWarning(stored.osceScore.uncovered_q_numbers),
+      },
+    });
   }
 
   const { data: assessment, error: aErr } = await supabase
@@ -183,36 +231,23 @@ export async function POST(request: NextRequest) {
       question_text: q.question_text,
       ground_truth: q.correct_answer ?? '',
       key_concepts: keyConcepts,
+      // Drives the derived rubric when the assessment has no authored one.
+      osce_domain:
+        typeof meta.osce_domain === 'string' ? meta.osce_domain : null,
     };
   });
 
-  // Parse answers from submission.answers — supports two shapes:
-  //   (1) [{ q_number, student_answer }, ...]
-  //   (2) [{ question_id, answer_text }, ...] (legacy)
-  const answersRaw = (submission.answers ?? []) as unknown;
-  const answers: PdeAnswer[] = Array.isArray(answersRaw)
-    ? answersRaw
-        .map((a, idx) => {
-          if (!a || typeof a !== 'object') return null;
-          const o = a as Record<string, unknown>;
-          const qNumber =
-            typeof o.q_number === 'number' ? o.q_number : idx + 1;
-          const studentAnswer =
-            typeof o.student_answer === 'string'
-              ? o.student_answer
-              : typeof o.answer_text === 'string'
-                ? o.answer_text
-                : typeof o.answer === 'string'
-                  ? o.answer
-                  : '';
-          return { q_number: qNumber, student_answer: studentAnswer };
-        })
-        .filter((x): x is PdeAnswer => x !== null)
-    : [];
+  // Answers were normalised out of both stored shapes above (readStoredAnswers).
+  const answerItems = stored.items;
+  const answers = stored.answers;
 
-  // ---- Rubric: from assessment.rubric or fallback -------------------------
+  // ---- Rubric: from assessment.rubric or derived from the questions -------
+  // Every production assessment has rubric = NULL, so the derived path is the
+  // one that actually runs. It covers every question the case asks; the old
+  // hard-coded fallback stopped at Q4 while every case asks 7 or 8.
   const parsed = parseRubricFromAssessment(assessment.rubric);
-  const rubricDomains = parsed.length > 0 ? parsed : loadFallbackRubric();
+  const rubricDomains =
+    parsed.length > 0 ? parsed : deriveFallbackRubric(questions);
 
   // ---- Score --------------------------------------------------------------
   let osce: OsceScore;
@@ -261,8 +296,11 @@ export async function POST(request: NextRequest) {
       final_score: osce.percentage,
       passed,
       completed_at: new Date().toISOString(),
+      // Always the NORMALISED envelope list, never whatever shape was read.
+      // Writing the previous wrapper back in here is what nested `items` one
+      // level deeper on every repeat POST.
       answers: {
-        items: answersRaw,
+        items: answerItems,
         osce_score: osce,
       } as unknown,
     })
@@ -287,6 +325,25 @@ export async function POST(request: NextRequest) {
       { status: 500 },
     );
   }
+
+  // ---- AIU evidence trail: close open trails with the final answers -------
+  // The learner's final answers are now stored; close every still-open AIU
+  // trail from this attempt's coach exchanges (learner_final + the
+  // changed-or-accepted flag). Service-role matches the trust boundary the
+  // score write above already uses — ownership was proven by the
+  // session-scoped submission read — and lets a faculty re-run still close
+  // the LEARNER's trails. Best-effort: the service swallows its own errors,
+  // so scoring never fails because the trail table is missing or busy.
+  await finalizeAiuTrailsForSubmission(svc, {
+    learnerId: submission.learner_id as string,
+    surface: AIU_SURFACE_PDE_CLINICAL_COACH,
+    assessmentId: submission.assessment_id as string,
+    // `answersRaw` was a local alias for this same value; main's rescore
+    // refactor replaced it with readStoredAnswers(submission.answers), so the
+    // raw column is read directly here. Same payload, same shapes.
+    answersRaw: submission.answers ?? [],
+    submissionId: submission.id as string,
+  });
 
   // ---- Side effect 2: upsert pde_learner_capabilities (keep max) ----------
   // Look up the clinical_reasoning capability_id once (could also seed via env)
@@ -440,13 +497,26 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // A question no rubric domain claims is scored by nothing. Surface it on the
+  // response AND in the server log — it is an authoring gap on the assessment,
+  // invisible in the score itself.
+  const rubricCoverage = coverageWarning(osce.uncovered_q_numbers);
+  if (rubricCoverage) {
+    console.warn(
+      `[pde/clinical-reasoning] assessment ${submission.assessment_id}: ${rubricCoverage}`,
+    );
+  }
+
   return NextResponse.json({
     osce_score: osce,
     passed,
     evidence_created: evidenceCreated,
+    already_scored: false,
     warnings: {
       learner_capability_error: learnerCapErrorMsg,
       evidence_error: evidenceErrorMsg,
+      uncovered_q_numbers: osce.uncovered_q_numbers ?? [],
+      rubric_coverage: rubricCoverage,
     },
   });
 }

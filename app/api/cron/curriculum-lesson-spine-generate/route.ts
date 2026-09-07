@@ -171,7 +171,7 @@ Keep both brief kinds SHORT (2-4 sentences of "text") — they are prompts for t
 // A course's BoS-fixed taxonomy (bos_regulation_taxonomies.taxonomy_type). The generator
 // branches on this: 'finks' → Fink-primary prompt; 'blooms' → Bloom-primary prompt. A course
 // whose regulation has NO taxonomy fixed is skipped-and-flagged, never defaulted to Fink.
-type Taxonomy = 'finks' | 'blooms';
+type Taxonomy = 'finks' | 'blooms' | 'jkkn_advanced';
 
 type CourseRow = {
   course_id: string;
@@ -210,7 +210,9 @@ type LessonOut = {
 /** Resolve a batch-context's taxonomy, defaulting legacy in-flight jobs (submitted before
  *  this change carried no taxonomy) to 'finks' — the behaviour they were generated under. */
 function ctxTaxonomy(ctx: { taxonomy?: unknown }): Taxonomy {
-  return ctx?.taxonomy === 'blooms' ? 'blooms' : 'finks';
+  if (ctx?.taxonomy === 'blooms') return 'blooms';
+  if (ctx?.taxonomy === 'jkkn_advanced') return 'jkkn_advanced';
+  return 'finks';
 }
 type BriefOut = { unit_label?: string; title?: string; text?: string; co_ref?: string[] };
 type ParsedSpine = { lessons?: LessonOut[]; concept_briefs?: BriefOut[]; capstone_brief?: BriefOut | null };
@@ -288,11 +290,17 @@ Generate the lesson-spine JSON for this course now.`;
   return prompt;
 }
 
-// Pick the system prompt for a course's BoS-fixed taxonomy: 'blooms' → Bloom-primary,
-// otherwise Fink-primary. Kept as a helper so the app cron and the Mac twin select
-// the prompt identically (PROMPT/PARSE LOCKSTEP).
+// Pick the system prompt for a course's BoS-fixed taxonomy: 'blooms' and
+// 'jkkn_advanced' → Bloom-primary, 'finks' → Fink-primary. Kept as a helper so the
+// app cron and the Mac twin select the prompt identically (PROMPT/PARSE LOCKSTEP).
+//
+// JABT routes to the Bloom prompt because its primary tag lives in
+// `primary_bloom_level`. That yields K1-K6 only — the added half (A1-A5) is authored
+// by faculty, not generated, so a generated spine can never satisfy the coverage rule
+// on its own. Without this arm, a JABT course silently got Fink dimensions instead.
 function systemForTaxonomy(taxonomy: Taxonomy, emitBriefs: boolean): string {
-  const base = taxonomy === 'blooms' ? BLOOM_SYSTEM_PROMPT : SYSTEM_PROMPT;
+  const base =
+    taxonomy === 'blooms' || taxonomy === 'jkkn_advanced' ? BLOOM_SYSTEM_PROMPT : SYSTEM_PROMPT;
   return emitBriefs ? `${base}\n${BRIEFS_ADDENDUM}` : base;
 }
 
@@ -897,12 +905,17 @@ export async function GET(request: NextRequest) {
           dedupeKey: req.dedupeKey ?? dedupeKey(gctx.course_id),
         });
         if (r.ok) enqueued++;
-        else if (r.reason === 'in_flight') skipped++;
         else {
-          console.warn(
-            `[cron/curriculum-lesson-spine-generate] jobs-lane enqueue failed (${r.reason}): ${r.error ?? ''}`,
-          );
-          skipped++;
+          // r is the failure branch here; name it explicitly (project tsconfig does
+          // not narrow the union's else-branch, so read the reason off a typed alias).
+          const fail = r as { ok: false; reason: string; error?: string };
+          if (fail.reason === 'in_flight') skipped++;
+          else {
+            console.warn(
+              `[cron/curriculum-lesson-spine-generate] jobs-lane enqueue failed (${fail.reason}): ${fail.error ?? ''}`,
+            );
+            skipped++;
+          }
         }
       }
     } else if (aiAvailable && requests.length > 0) {

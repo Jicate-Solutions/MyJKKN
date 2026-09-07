@@ -124,6 +124,7 @@ export function MyBillsAnalytics({
           icon={<ReceiptText className='h-4 w-4' />}
           label='Total paid'
           value={inr(totalPaid)}
+          sub={`${receipts.length} ${receipts.length === 1 ? 'receipt' : 'receipts'}`}
         />
         <StatTile
           icon={<Wallet className='h-4 w-4' />}

@@ -235,6 +235,40 @@ export function buildChain({ flow, rungsAbove = [] }: BuildChainInput): LeaveApp
 }
 
 /**
+ * Which step actually GRANTS the approval.
+ *
+ * Every other step reviews and forwards: satisfying one advances current_step
+ * and nothing else. Only this step's approval may move the application to
+ * 'approved' — the rule fn_hr_leave_final_step_approved() enforces in the
+ * database, so a client that gets this wrong is refused rather than obeyed.
+ *
+ * WHY NOT `chain.length - 1`. That is what approveApplication used to compute,
+ * and it happens to agree today only because the flow editor hardcodes
+ * `step_type: i === steps.length - 1 ? 'final' : 'review'`. The moment a flow is
+ * edited through any other route — the API, a migration, a future editor that
+ * lets an admin pick — position and intent diverge, and the positional answer
+ * silently approves on a step whose configuration says "reviews".
+ *
+ * The LAST step marked final wins, and an unmarked chain falls back to its last
+ * step. Both rules exist to guarantee termination: a chain that no step can
+ * finalise would leave every request pending for ever, which is worse than
+ * approving one step early. 1,124 of the 1,220 live chains predate step_type
+ * and rely on that fallback.
+ */
+export function finalStepIndex(chain: LeaveApprovalStep[]): number {
+  if (chain.length === 0) return -1;
+  for (let i = chain.length - 1; i >= 0; i--) {
+    if (chain[i]?.step_type === 'final') return i;
+  }
+  return chain.length - 1;
+}
+
+/** Is the step at `idx` the one that grants the approval? */
+export function isFinalStep(chain: LeaveApprovalStep[], idx: number): boolean {
+  return idx >= 0 && idx === finalStepIndex(chain);
+}
+
+/**
  * Has this step collected enough approvals to advance?
  *
  * 'any'  — one approval, which is what every chain in production means today.

@@ -184,6 +184,18 @@ export function BottomNavMoreMenu({
       <SheetContent
         side="bottom"
         className="h-[88vh] rounded-t-3xl flex flex-col z-[90] p-0 [&>button]:hidden"
+        // The drawer is menu chrome, not readable content: a slow drag over
+        // the header, the tiles or the favourites strip used to start an iOS
+        // text selection and raise the Copy / Proofread menu instead of
+        // scrolling the list. The drawer renders in a portal, so it cannot
+        // inherit this from the nav and has to set it itself. Written as
+        // inline style because this project has no autoprefixer and older iOS
+        // Safari only honours the -webkit- form.
+        style={{
+          WebkitUserSelect: 'none',
+          userSelect: 'none',
+          WebkitTouchCallout: 'none'
+        }}
       >
         <SheetHeader className="px-4 pt-3 pb-2 flex-shrink-0 flex flex-row items-center justify-between space-y-0">
           {drillGroup ? (

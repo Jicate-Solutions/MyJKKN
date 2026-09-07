@@ -151,7 +151,7 @@ function PartnersContent() {
           <CardTitle className="flex items-center gap-2">
             <Handshake className="h-5 w-5" /> Program Partners
           </CardTitle>
-          <PermissionGuard module="schools_network.partners" action="manage">
+          <PermissionGuard module="schools_network.partners" action="manage" fallback={null}>
             <Link href="/admission/schools-network/partners/new">
               <Button size="sm">
                 <Plus className="h-4 w-4 mr-2" /> Add Partner
@@ -170,7 +170,7 @@ function PartnersContent() {
                 Add a CSR partner, grant, corporate sponsor, or government foundation
                 that funds or co-delivers your school programs.
               </p>
-              <PermissionGuard module="schools_network.partners" action="manage">
+              <PermissionGuard module="schools_network.partners" action="manage" fallback={null}>
                 <Link href="/admission/schools-network/partners/new">
                   <Button>
                     <Plus className="h-4 w-4 mr-2" /> Add the first partner

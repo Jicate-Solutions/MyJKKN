@@ -166,7 +166,11 @@ export async function POST(request: NextRequest) {
     const uniqueInstNames = [...new Set(rawRows.map((r) => r.institutionName))];
     const { data: instRows } = await supabase
       .from('institutions')
-      .select('id, name')
+      // An excluded institution deliberately fails to resolve, so an import
+      // row naming one is rejected rather than quietly creating HR records
+      // for an institution that is out of the module.
+      .select('id, name, hr_organizations!inner(included_in_hr)')
+      .eq('hr_organizations.included_in_hr', true)
       .in('name', uniqueInstNames);
 
     const instMap: Record<string, string> = {};

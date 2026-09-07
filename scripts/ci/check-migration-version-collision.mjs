@@ -26,7 +26,7 @@
  *   the Supabase CLI keys on. Reading it as a fixed 14-digit timestamp looks
  *   right and is wrong here, in both directions, and both are live on main:
  *
- *     · SHORT FORM. 522 of the 2,177 migrations use `YYYYMMDD_name.sql` with no
+ *     · SHORT FORM. 444 of the 2,767 migrations use `YYYYMMDD_name.sql` with no
  *       time component, and the convention is still in use. Sixteen files share
  *       the bare version `20260725` — the single largest collision in the repo,
  *       and a 14-digit rule cannot see it at all. Fifteen of those sixteen are
@@ -37,28 +37,50 @@
  *       `...007a` tokens and are genuinely DISTINCT from the plain
  *       `...000008` / `...100007` files. Truncating to 14 digits invents a
  *       collision that does not exist — that mistake is what produced the "194
- *       duplicate groups" figure this guard was first specified against; the
- *       real, strict figure for 14-digit versions is 192.
+ *       duplicate groups" figure this guard was first specified against.
  *
- *       CAREFUL WITH THE HEADLINE NUMBER. `--all` reports 283 groups, but only
- *       192 of those are genuine 14-digit version collisions. The other 91 are
- *       legacy files that carry NO 14-digit version at all — `fix_*.sql`,
- *       `rls_*.sql`, `scf_*.sql`, `induction_*.sql`, and 8-digit date prefixes
- *       like `20260725_*` — where the leading token is grouped as if it were a
- *       version. They are not collisions and 283 must not be quoted as if they
- *       were. Verified on jicate/main 2026-08-01: 2,201 migration files, 192
- *       true duplicate version groups, 91 spurious, 283 reported total.
+ *       CAREFUL WITH THE HEADLINE NUMBER — AND WITH THE OLD CORRECTION TO IT.
+ *       This block previously said `--all`'s total was inflated because "8-digit
+ *       date prefixes like `20260725_*`" were "not collisions". That was wrong,
+ *       and it contradicted the SHORT FORM bullet three lines above, which
+ *       correctly calls the sixteen-file `20260725` group the largest collision
+ *       in the repo. Both guards key on the token before the FIRST underscore
+ *       because that is what the Supabase CLI keys `schema_migrations.version`
+ *       on — so `20260725` is a version, and two files carrying it collide
+ *       exactly as two files carrying a 14-digit token do. Only tokens that are
+ *       not dates at all (`fix_*`, `rls_*`, `scf_*`, `induction_*`, `optimize_*`,
+ *       `pde_*`) are a grouping artefact.
+ *
+ *       Recounted on jicate/main at commit 1dacf18d (2026-09-03), top-level
+ *       supabase/migrations/*.sql — `--all` computes these live, so re-run it
+ *       rather than trusting this comment:
+ *
+ *           2,767 migration files
+ *             355 duplicate groups reported by `--all`, holding 995 files
+ *             349 of those are REAL duplicate versions (261 fourteen-digit +
+ *                 88 eight-digit), holding 981 files
+ *             632 of those 981 can never own a ledger row and are skipped on
+ *                 apply — one file per group wins, every other file loses
+ *               6 groups (14 files) are the non-date grouping artefact above
+ *
+ *       The full per-version census, and what a cleanup would cost, is in
+ *       docs/architecture/2026-09-03-MIGRATION-duplicate-version-backlog.md.
  *
  * ┌──────────────────────────────────────────────────────────────────────────┐
  * │ 🛑 THE BASELINE — READ THIS BEFORE "FIXING" THIS GUARD INTO A FULL SCAN. │
  * └──────────────────────────────────────────────────────────────────────────┘
- *   Duplicate versions here are ENDEMIC, not a one-off. Counted on jicate/main
- *   at commit 134d1caf (2026-08-01), top-level supabase/migrations/*.sql:
+ *   Duplicate versions here are ENDEMIC, not a one-off, and the backlog is
+ *   GROWING. Counted on jicate/main at commit 134d1caf (2026-08-01) and again at
+ *   1dacf18d (2026-09-03), top-level supabase/migrations/*.sql:
  *
- *       2,177 migration files
- *         283 leading tokens carried by 2 or more files (192 are real versions)
- *         830 files (38%) sitting inside one of those groups
- *          16 files on the worst single version, `20260725`
+ *                                          2026-08-01   2026-09-03
+ *       migration files                         2,177        2,767
+ *       leading tokens held by 2+ files           283          355
+ *       files inside one of those groups          830          995
+ *       files on the worst version, `20260725`     16           16
+ *
+ *   One month, +590 files and +72 duplicate groups. Nothing in CI was stopping
+ *   the backlog from growing until this guard landed; nothing shrinks it now.
  *
  *   A guard that flags every duplicate in the repo would therefore fail EVERY
  *   pull request from its first run, including PRs that touch no SQL at all. It
@@ -95,7 +117,8 @@
  *
  *   A finding is raised only when an ADDED file shares its version with some
  *   other file in the post-merge set. Versions the PR did not touch are never
- *   enumerated, so all 283 pre-existing groups pass in silence (192 real + 91 spurious).
+ *   enumerated, so all 355 pre-existing groups pass in silence (349 real versions
+ *   + 6 non-date grouping artefacts).
  *
  * LIMITATION, stated plainly because it is the same shape as the original bug:
  *   Two PRs open at the same time, each adding the same brand-new version, both
@@ -117,14 +140,15 @@
  *     Recursing into them (the obvious `git ls-files supabase/migrations/`) is a
  *     false-positive source, not a thoroughness win.
  *   - Naming conventions are NOT policed. This guard fails collisions, nothing
- *     else. A deliberate no-op on filename shape is the point: 522 live files use
- *     the short `YYYYMMDD_` form and 2 use a lettered suffix, so any style rule
- *     added here would red PRs against established, working precedent.
+ *     else. A deliberate no-op on filename shape is the point: 444 live files use
+ *     the short `YYYYMMDD_` form, 2 use a lettered suffix and 76 carry no version
+ *     token at all, so any style rule added here would red PRs against
+ *     established, working precedent.
  *
  * Usage:
  *   node scripts/ci/check-migration-version-collision.mjs                  # PR-scoped (auto-base)
  *   node scripts/ci/check-migration-version-collision.mjs --base jicate/main
- *   node scripts/ci/check-migration-version-collision.mjs --all            # audit the backlog (283 tokens; 192 real versions)
+ *   node scripts/ci/check-migration-version-collision.mjs --all            # audit the backlog (355 tokens; 349 real versions) — regenerates the census in docs/architecture/2026-09-03-MIGRATION-duplicate-version-backlog.md
  *   node scripts/ci/check-migration-version-collision.mjs --verbose
  *
  * Auto-base (no --base, no BASE_REF env): prefer `jicate/main` when the `jicate`

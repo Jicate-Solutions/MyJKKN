@@ -289,7 +289,7 @@ export class SoiBatchService {
     const sourceEventId = (input.sourceEventId ?? '').trim();
     if (!sourceEventId) {
       const err = new Error(
-        'A School of Influence batch must name the event it belongs to ' +
+        'A School of Influencer batch must name the event it belongs to ' +
           '(sourceEventId). The event is the programme’s front door, and the ' +
           'batch is keyed to it.'
       );
@@ -514,7 +514,7 @@ export class SoiBatchService {
       const allowed = await this.callerCanTransfer(toCohortId);
       if (!allowed) {
         const err = new Error(
-          'Only a coordinator can move someone between School of Influence ' +
+          'Only a coordinator can move someone between School of Influencer ' +
             'batches. Ask a programme coordinator (or an administrator) to make ' +
             `this change — it needs the "${SOI_TRANSFER_PERMISSION}" permission.`
         );

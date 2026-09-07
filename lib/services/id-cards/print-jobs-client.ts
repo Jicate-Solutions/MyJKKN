@@ -6,8 +6,7 @@
 //   • fetchIdCardTemplates()          — template picker options (session RLS)
 //   • resolveProfileIdForLearner()    — learners_profiles.id → profiles.id
 //   • resolveProfileIdsForLearners()  — batch variant for bulk printing
-//   • resolveAccountsForLearners()    — batch variant incl. avatar_url (the
-//     photo-fallback signal for the batch-print "skip no-photo" policy)
+//   • resolveAccountsForLearners()    — batch variant returning the account id
 //   • resolveProfileIdByEmail()       — team-member fallback (profiles.email)
 //   • enqueuePrintJob()               — POST /api/id-cards/jobs, mapped outcomes
 //   • getLastTemplateId()/setLastTemplateId() — localStorage memory of the
@@ -85,18 +84,16 @@ const RESOLVE_CHUNK_SIZE = 100;
 export interface LearnerAccountInfo {
   /** profiles.id — the account the print job is enqueued against. */
   profileId: string;
-  /**
-   * profiles.avatar_url — the LAST link in the render engine's photo fallback
-   * chain (learners_profiles photo → avatar_url, see lib/id-cards/render-data).
-   * Exposed so callers can predict whether a card will render with a real
-   * photo or fall back to the initials box.
-   */
-  avatarUrl: string | null;
 }
+
+// profiles.avatar_url used to ride along here as the last link of the render
+// engine's photo fallback chain, so callers could predict an initials box.
+// Removed 2026-09-03: an account avatar no longer qualifies a card at all
+// (Guard 3), so fetching it told callers nothing and invited the old rule back.
 
 /**
  * Batch account resolution: map learners_profiles.id → account info
- * (profiles.id + avatar_url), chunked to stay within URL limits at cohort
+ * (profiles.id), chunked to stay within URL limits at cohort
  * scale (freshers batch / whole class).
  * Learners without an account are simply absent from the returned map.
  */
@@ -111,16 +108,13 @@ export async function resolveAccountsForLearners(
     const chunk = learnerIds.slice(i, i + RESOLVE_CHUNK_SIZE);
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, learner_id, avatar_url')
+      .select('id, learner_id')
       .in('learner_id', chunk);
 
     if (error) throw error;
     for (const row of data ?? []) {
       if (row.learner_id) {
-        map.set(row.learner_id, {
-          profileId: row.id,
-          avatarUrl: row.avatar_url ?? null
-        });
+        map.set(row.learner_id, { profileId: row.id });
       }
     }
   }

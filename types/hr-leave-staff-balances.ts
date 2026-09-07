@@ -33,6 +33,19 @@ export interface HRStaffBalanceCell {
   entitled: number;
   used: number;
   carried: number;
+  /**
+   * Days actually accrued so far this year. Equal to `entitled` for any type
+   * that is not accrual_type='monthly'; for Casual Leave, which accrues one a
+   * month from June, it is the figure that matters — `entitled` reads 12 all
+   * year while only `accrued` has been earned.
+   *
+   * Read this, never `entitled`, when showing what someone may spend. The
+   * staff-facing apply drawer has always used it; the admin grid did not until
+   * 20260905120100, so the two screens disagreed about the same person.
+   */
+  accrued: number;
+  /** Days locked up by requests awaiting a decision. Already netted off `available`. */
+  pending: number;
   available: number;
   source: HRLeaveEntitlementSource;
   /**
@@ -42,6 +55,111 @@ export interface HRStaffBalanceCell {
    * permanently negative. This is the flag the generator exists to clear.
    */
   has_row: boolean;
+}
+
+/**
+ * One request (or the opening adjustment) that drew on a given month's credit.
+ *
+ * `days` is the overlap with THAT month's bucket, not the request's length: a
+ * two-day request spanning the June/July boundary appears under both months
+ * with one day each.
+ */
+export interface HRLeaveLedgerDraw {
+  /** Null for the opening adjustment, which has no application behind it. */
+  id: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  /**
+   * 'manual' is an admin-recorded month entry — real taken leave with no
+   * application behind it. 'opening_adjustment' is the residue of `used` that
+   * nothing yet explains, and is what a reclassify entry converts into 'manual'.
+   */
+  status: 'approved' | 'pending' | 'escalated' | 'manual' | 'opening_adjustment';
+  days: number;
+}
+
+/**
+ * How a month entry treats the year total, `hr_leave_balances.used`.
+ *
+ *   add        — the leave happened and was never captured. `used` goes UP.
+ *   reclassify — the days are already inside `used` (legacy backfill, or an
+ *                earlier Adjust correction) and merely sit in the wrong months.
+ *                `used` does not move.
+ *
+ * Picking the wrong one corrupts the balance in opposite directions, so the UI
+ * must make the choice explicit rather than defaulting silently.
+ */
+export type HRLeaveMonthEntryMode = 'add' | 'reclassify' | 'clear';
+
+export interface HRLeaveMonthEntryPayload {
+  employee_id: string;
+  leave_type_id: string;
+  hr_academic_year_id: string;
+  /** First of the month, ISO date. */
+  month_start: string;
+  /**
+   * The TOTAL days for the month, not an increment — it overrides what approved
+   * applications in that month say. Zero is a real value ("this month was
+   * nothing"); pass null with mode 'clear' to remove the override instead.
+   */
+  days: number | null;
+  mode: HRLeaveMonthEntryMode;
+  reason: string;
+}
+
+/**
+ * One month of `fn_hr_leave_monthly_ledger`.
+ *
+ * TWO VIEWS SHARE EACH ROW AND MUST NOT BE CONFLATED:
+ *
+ *   * The TIME ledger — accrued_days, opening_days, taken_in_month,
+ *     pending_in_month, closing_days. Row = a calendar month. closing_days is
+ *     what carries into the next month and reconciles to the cell's
+ *     `available` at the current month.
+ *   * The BUCKET attribution — consumed_days, reserved_days, drawn_by. Row =
+ *     that month's credit, wherever it was eventually spent. June can show
+ *     consumed_days 1 with taken_in_month 0: its day went unused, carried
+ *     forward, and was spent by a July request.
+ *
+ * That difference is the whole point of the screen, so label the two column
+ * groups distinctly rather than interleaving them.
+ */
+export interface HRLeaveMonthlyLedgerRow {
+  /** First day of the month, ISO date. */
+  month_start: string;
+  accrued_days: number;
+  opening_days: number;
+  consumed_days: number;
+  reserved_days: number;
+  /** Negative means more was spent by this month than had accrued by then. */
+  closing_days: number;
+  /** Includes `manual_days` — an admin-recorded day IS leave taken that month. */
+  taken_in_month: number;
+  pending_in_month: number;
+  /**
+   * The admin-set total for this month. Meaningful only when `is_overridden`;
+   * zero otherwise. When overridden this IS `taken_in_month` — an override
+   * replaces the month's approved applications rather than adding to them.
+   */
+  manual_days: number;
+  /** True when an admin has set this month's total by hand. */
+  is_overridden: boolean;
+  /**
+   * What the month's approved applications come to, reported even when
+   * overridden — so the UI can say "1.5 of these days come from approved
+   * requests" and the admin can see what they are overriding rather than
+   * silently burying it.
+   */
+  applications_days: number;
+  /**
+   * Consumption sitting in hr_leave_balances.used that neither an application
+   * nor a month entry explains — the June 2026 legacy backfill, or a correction
+   * typed into the Adjust dialog. Constant across every row, drawn from the
+   * earliest months. Reclassifying a month converts part of this into
+   * `manual_days`, and it is also the cap the RPC enforces on reclassify.
+   */
+  opening_adjustment: number;
+  drawn_by: HRLeaveLedgerDraw[];
 }
 
 /**
@@ -64,6 +182,17 @@ export interface HRStaffBalanceStoType {
   limit_period: string | null;
   total_minutes: number | null;
   max_requests: number | null;
+  /**
+   * The window the column header names, resolved from the TYPE's own
+   * limit_period. Short Time Off does not carry forward, so "45m left of 2h" is
+   * meaningless without saying of which month.
+   *
+   * A per-cell window can still differ, because an hr_leave_type_assignments row
+   * may override limit_period for one person or department — the cell's own
+   * period_start/period_end remain authoritative for that staff member.
+   */
+  period_start: string | null;
+  period_end: string | null;
 }
 
 /**
@@ -93,8 +222,20 @@ export interface HRStaffBalanceStoCell {
   max_requests: number | null;
   min_minutes: number | null;
   max_minutes: number | null;
+  /** Committed requests: approved AND undecided. */
   requests_used: number;
+  /** Committed minutes: approved AND undecided. */
   minutes_used: number;
+  /**
+   * The undecided part of the two figures above — already subtracted from
+   * minutes_left, because the database treats a pending request as spent.
+   *
+   * Broken out because it dominates: September 2026 carried 29 pending
+   * Permission requests against 7 approved, so a merged "used" figure reads as
+   * approved time when it is mostly nothing of the sort.
+   */
+  requests_pending: number;
+  minutes_pending: number;
   /** Null unless limit_mode is 'total_duration'. */
   minutes_left: number | null;
   /** Null unless limit_mode is 'request_count'. */

@@ -392,11 +392,15 @@ Return ONLY valid JSON (no markdown, no code fences, no commentary) matching exa
 }
 CRITICAL: sequence_no must be a single strictly-increasing integer across the WHOLE spine (unit 2's first lesson continues after unit 1's last), so the spine has one unambiguous teaching order.`;
 
-// Course taxonomy branch (mirrors the bulk cron / Mac twin). 'finks'|'blooms', or null →
-// the caller skips-and-flags (never defaults to Fink).
-type RegenTaxonomy = 'finks' | 'blooms';
+// Course taxonomy branch (mirrors the bulk cron / Mac twin). 'finks'|'blooms'|
+// 'jkkn_advanced', or null → the caller skips-and-flags (never defaults to Fink).
+// JABT takes the Bloom prompt: its primary tag lives in `primary_bloom_level`.
+type RegenTaxonomy = 'finks' | 'blooms' | 'jkkn_advanced';
 function regenSystemForTaxonomy(taxonomy: RegenTaxonomy, emitBriefs: boolean): string {
-  const base = taxonomy === 'blooms' ? REGEN_BLOOM_SYSTEM_PROMPT : REGEN_SYSTEM_PROMPT;
+  const base =
+    taxonomy === 'blooms' || taxonomy === 'jkkn_advanced'
+      ? REGEN_BLOOM_SYSTEM_PROMPT
+      : REGEN_SYSTEM_PROMPT;
   return emitBriefs ? `${base}\n${REGEN_BRIEFS_ADDENDUM}` : base;
 }
 

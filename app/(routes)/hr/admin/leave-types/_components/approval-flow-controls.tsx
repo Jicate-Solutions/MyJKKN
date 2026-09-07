@@ -30,6 +30,7 @@ import type {
 } from '@/types/hr-leave-types';
 
 import { ApproverPersonPicker } from './approver-person-picker';
+import { RolePicker } from './role-picker';
 
 interface Props {
   stepSource: LeaveFlowStepSource;
@@ -122,31 +123,18 @@ export function ApprovalFlowControls({
           <div className="mt-2 grid gap-3 sm:grid-cols-2">
             <div>
               <Label className="text-xs">A role</Label>
-              <Select
-                value={fallbackRole || '__none'}
-                onValueChange={(v) =>
-                  onFallbackChange({
-                    role: v === '__none' ? '' : v,
-                    userId: null,
-                    name: null,
-                  })
-                }
-              >
-                <SelectTrigger className="mt-1">
-                  <SelectValue placeholder="No role" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none">No role</SelectItem>
-                  {(roles ?? []).map((r) => (
-                    <SelectItem key={r.role_key} value={r.role_key}>
-                      {r.role_name}
-                      <span className="ml-2 text-xs text-muted-foreground">
-                        {r.user_count} {r.user_count === 1 ? 'person' : 'people'}
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {/* A role and a named person are alternatives, so choosing either
+                  clears the other — including "No role", which is how you get
+                  back to neither. */}
+              <RolePicker
+                roles={roles}
+                value={fallbackRole}
+                onChange={(v) => onFallbackChange({ role: v, userId: null, name: null })}
+                placeholder="No role"
+                clearLabel="No role"
+                className="mt-1"
+                aria-label="Fallback approver role"
+              />
             </div>
             <div>
               <Label className="text-xs">…or one named person</Label>

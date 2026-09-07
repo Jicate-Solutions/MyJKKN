@@ -21,6 +21,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as webpush from 'web-push';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { isPushOptedOut } from '@/lib/push/opt-out';
 
 // Configure web-push with VAPID details once on module load.
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
@@ -145,6 +146,26 @@ export async function POST(req: NextRequest) {
         { ok: false, error: 'notification_not_found' },
         { status: 404 }
       );
+    }
+
+    // --- Has this person asked to be left alone? ---
+    // Read with a SERVICE-ROLE client on purpose, even when the caller is an
+    // admin's own session: RLS on push_notification_preferences only exposes the
+    // caller's own row, so a session-authenticated re-send would read nothing
+    // for the RECIPIENT and conclude "no preference recorded" — a silent leak
+    // through the one path that is not already service-role.
+    //
+    // is_active on the subscription cannot carry this answer: unsubscribing
+    // destroys the browser endpoint, so the next page load mints a NEW row that
+    // is is_active=true and passes the filter below perfectly.
+    if (await isPushOptedOut(createServiceRoleClient(), un.user_id)) {
+      return NextResponse.json({
+        ok: true,
+        sent: 0,
+        failed: 0,
+        deactivated: 0,
+        reason: 'user_opted_out'
+      });
     }
 
     // --- Fetch active subscriptions for that user ---

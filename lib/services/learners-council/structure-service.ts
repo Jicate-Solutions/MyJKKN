@@ -348,7 +348,73 @@ export class LCStructureService {
   }
 
   /**
-   * Assign a member to a position for a given term
+   * How many people are actively holding a seat, and who they are.
+   *
+   * A "seat" is one (term, position) pair. Used to refuse an assignment that
+   * would give a position more active holders than lc_positions.max_holders
+   * allows — see assignMember().
+   */
+  private static async getSeatOccupancy(termId: string, positionId: string): Promise<{
+    title: string;
+    maxHolders: number;
+    holders: { user_id: string; name: string }[];
+  }> {
+    // maybeSingle, not single: a position that is missing or invisible must not
+    // take the whole feature down. The insert path never needed SELECT rights
+    // on lc_positions before this check existed, and .single() would turn a
+    // PGRST116 into "Failed to check the position: JSON object requested..."
+    // on EVERY assignment. Fall back to a one-holder seat — strictest sane
+    // default — and let the unique index remain the real backstop.
+    const { data: position, error: positionError } = await this.supabase
+      .from('lc_positions')
+      .select('title, max_holders')
+      .eq('id', positionId)
+      .maybeSingle();
+
+    if (positionError) {
+      console.warn('[lc/structure] Could not read position for occupancy check:', positionError);
+    }
+
+    const { data: sitting, error: sittingError } = await this.supabase
+      .from('lc_members')
+      .select('user_id, user:profiles(full_name)')
+      .eq('term_id', termId)
+      .eq('position_id', positionId)
+      .eq('status', 'active');
+
+    if (sittingError) {
+      console.error('[lc/structure] Error reading current holders:', sittingError);
+      throw new Error(`Failed to check the current holders: ${sittingError.message}`);
+    }
+
+    return {
+      title: position?.title ?? 'This position',
+      // max_holders is nullable (DEFAULT 1) and carries no CHECK constraint, so
+      // 0 and negatives are storable — the positions UI coerces via
+      // `parseInt(x) || 1`, but an import or a direct write does not. Treat
+      // unset as a single-holder seat, and floor at 1 so a 0 cannot make every
+      // assignment fail with "already has all 0 of its holders ()".
+      maxHolders: Math.max(1, position?.max_holders ?? 1),
+      holders: (sitting ?? []).map((row) => {
+        const r = row as unknown as { user_id: string; user?: { full_name?: string | null } | null };
+        return { user_id: r.user_id, name: r.user?.full_name?.trim() || 'someone already on the council' };
+      })
+    };
+  }
+
+  /**
+   * Assign a member to a position for a given term.
+   *
+   * Refuses to give a seat more active holders than the position allows. This
+   * has to be checked explicitly: the only relevant database constraint,
+   * lc_members_unique_position (term_id, position_id, user_id), has user_id in
+   * the key, so a DIFFERENT learner assigned to an already-filled seat has a
+   * distinct key and inserts cleanly. Without this check the council silently
+   * ends up with two active Presidents and the screens show only one.
+   *
+   * The intended order of work is unaffected: retire the outgoing officer
+   * (status -> inactive/graduated/removed) and the seat frees immediately,
+   * because only 'active' rows count as holders.
    */
   static async assignMember(data: {
     term_id: string;
@@ -357,6 +423,30 @@ export class LCStructureService {
     institution_id: string;
     appointment_notes?: string;
   }): Promise<LCMember> {
+    const seat = await this.getSeatOccupancy(data.term_id, data.position_id);
+
+    if (seat.holders.length >= seat.maxHolders) {
+      const alreadyThisPerson = seat.holders.some((h) => h.user_id === data.user_id);
+      const names = seat.holders.map((h) => h.name).join(', ');
+
+      if (alreadyThisPerson) {
+        // Name only the duplicate. Interpolating the full holder list here
+        // would read "A, B already holds President" on a multi-holder seat —
+        // naming people who are not the duplicate, with a singular verb.
+        const duplicate = seat.holders.find((h) => h.user_id === data.user_id);
+        throw new Error(`${duplicate?.name ?? 'This learner'} already holds ${seat.title} for this term.`);
+      }
+      if (seat.maxHolders === 1) {
+        throw new Error(
+          `${seat.title} is already held by ${names}. End their term first, then assign the new holder.`
+        );
+      }
+      throw new Error(
+        `${seat.title} already has all ${seat.maxHolders} of its holders (${names}). ` +
+          `End one of their terms first, then assign the new holder.`
+      );
+    }
+
     const { data: member, error } = await this.supabase
       .from('lc_members')
       .insert({
@@ -374,6 +464,26 @@ export class LCStructureService {
 
     if (error) {
       console.error('[lc/structure] Error assigning member:', error);
+      // The occupancy check above reads through RLS. lc_members' SELECT policy
+      // is USING (true) for authenticated today, so it sees every holder and
+      // wins the race in practice — but if that policy is ever narrowed, or two
+      // assignments land at once, the database index refuses the insert
+      // instead. Translate that raw constraint violation into the same plain
+      // English rather than leaking "duplicate key value violates ...".
+      if (error.code === '23505') {
+        if (error.message.includes('lc_members_one_active_holder_per_seat')) {
+          // Deliberately does not promise what max_holders says: the index
+          // enforces exactly one active holder regardless of how the position
+          // is configured, so a seat set to 2 holders is refused here even
+          // though the check above allowed it. Say what actually happened.
+          throw new Error(
+            `${seat.title} already has an active holder for this term — a seat can hold only one active person at a time. End their term first, then assign the new holder.`
+          );
+        }
+        if (error.message.includes('lc_members_unique_position')) {
+          throw new Error(`This learner has already been assigned to ${seat.title} for this term.`);
+        }
+      }
       throw new Error(`Failed to assign member: ${error.message}`);
     }
 
@@ -399,6 +509,44 @@ export class LCStructureService {
       updateData.ended_at = new Date().toISOString();
     }
 
+    // ...and clear it when coming back, or a reinstated holder is active while
+    // still carrying the timestamp of the day they left. Any report that reads
+    // `ended_at IS NOT NULL` as "retired" would then contradict `status`.
+    if (status === 'active') {
+      updateData.ended_at = null;
+    }
+
+    // Bringing someone BACK to active is the other way a seat can end up with
+    // two holders: reinstating a retired officer, or returning an on_leave
+    // holder while a stand-in is sitting active. Same rule as assignMember --
+    // refuse with the sitting holder's name rather than letting the unique
+    // index answer with a raw constraint violation.
+    let seatForMessage: { title: string } | null = null;
+    if (status === 'active') {
+      const { data: current, error: currentError } = await this.supabase
+        .from('lc_members')
+        .select('term_id, position_id, status')
+        .eq('id', id)
+        .single();
+
+      if (currentError) {
+        console.error('[lc/structure] Error reading member before reactivation:', currentError);
+        throw new Error(`Failed to read this member: ${currentError.message}`);
+      }
+
+      const row = current as unknown as { term_id: string; position_id: string; status: string | null };
+      if (row.status !== 'active') {
+        const seat = await this.getSeatOccupancy(row.term_id, row.position_id);
+        seatForMessage = { title: seat.title };
+        if (seat.holders.length >= seat.maxHolders) {
+          const names = seat.holders.map((h) => h.name).join(', ');
+          throw new Error(
+            `${seat.title} is already held by ${names}. End their term first, then set this member back to Active.`
+          );
+        }
+      }
+    }
+
     const { data: member, error } = await this.supabase
       .from('lc_members')
       .update(updateData)
@@ -413,6 +561,12 @@ export class LCStructureService {
 
     if (error) {
       console.error('[lc/structure] Error updating member status:', error);
+      if (error.code === '23505' && error.message.includes('lc_members_one_active_holder_per_seat')) {
+        const title = seatForMessage?.title ?? 'That position';
+        throw new Error(
+          `${title} already has an active holder for this term — a seat can hold only one active person at a time. End their term first, then set this member back to Active.`
+        );
+      }
       throw new Error(`Failed to update member status: ${error.message}`);
     }
 

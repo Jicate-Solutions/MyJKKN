@@ -2897,30 +2897,77 @@ BEGIN
 END;
 $$;
 
--- Check orphaned profiles (Updated: 2025-01-27 - Use profiles table only)
+-- Check orphaned profiles
+-- Updated: 2026-08-15 - The stub returned WHERE 1 = 0 and always answered zero.
+-- Now a real query, discriminated so the 269 healthy pre-registered rows awaiting
+-- a first sign-in are never confused with the 959 whose email already resolves to a
+-- DIFFERENT auth id. has_signed_in separates the dormant rows (which the
+-- /auth/callback email-migration path heals on first Google sign-in) from rows where
+-- someone has already authenticated and was not healed. Detection only — nothing is
+-- repaired here. See supabase/migrations/20260815091500_profile_identity_link_detector.sql
 CREATE OR REPLACE FUNCTION public.check_orphaned_profiles()
-RETURNS TABLE(
-    profile_id uuid,
-    profile_email text,
-    profile_role text,
-    created_at timestamptz
+RETURNS TABLE (
+    profile_id          uuid,
+    profile_email       text,
+    profile_role        text,
+    created_at          timestamptz,
+    link_state          text,
+    linked_auth_user_id uuid,
+    has_signed_in       boolean,
+    last_sign_in_at     timestamptz,
+    is_pre_registered   boolean,
+    is_active           boolean,
+    heal_blocked_reason text
 )
 LANGUAGE plpgsql
-SECURITY INVOKER
+STABLE
+SECURITY DEFINER
+SET search_path = public
 AS $$
 BEGIN
-    -- Since we can't access auth.users table, return empty result set
-    -- This function is kept for compatibility but will return no rows
+    IF NOT (public.is_super_admin() OR public.is_admin()) THEN
+        RAISE EXCEPTION 'check_orphaned_profiles: administrator access required';
+    END IF;
+
     RETURN QUERY
     SELECT
         p.id,
-        p.email,
-        p.role,
-        p.created_at
-    FROM profiles p
-    WHERE 1 = 0; -- Always returns empty set since we can't check auth.users
+        p.email::text,
+        p.role::text,
+        p.created_at,
+        CASE WHEN au.id IS NULL THEN 'awaiting_first_signin' ELSE 'broken_link' END,
+        au.id,
+        (au.last_sign_in_at IS NOT NULL),
+        au.last_sign_in_at,
+        COALESCE(p.is_pre_registered, false),
+        COALESCE(p.is_active, false),
+        CASE
+            WHEN au.id IS NULL THEN NULL
+            WHEN EXISTS (SELECT 1 FROM public.profiles px WHERE px.id = au.id)
+                THEN 'profile_exists_at_auth_id'
+            WHEN p.email::text <> au.email::text
+                THEN 'email_case_mismatch'
+            ELSE NULL
+        END
+    FROM public.profiles p
+    LEFT JOIN auth.users own
+      ON own.id = p.id
+    LEFT JOIN LATERAL (
+        SELECT u.id, u.email, u.last_sign_in_at
+        FROM auth.users u
+        WHERE lower(u.email::text) = lower(p.email::text)
+          AND u.deleted_at IS NULL
+        ORDER BY u.last_sign_in_at DESC NULLS LAST, u.created_at
+        LIMIT 1
+    ) au ON true
+    WHERE own.id IS NULL
+      AND p.email IS NOT NULL
+    ORDER BY (au.last_sign_in_at IS NOT NULL) DESC, au.last_sign_in_at DESC NULLS LAST;
 END;
 $$;
+
+REVOKE EXECUTE ON FUNCTION public.check_orphaned_profiles() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.check_orphaned_profiles() TO authenticated;
 
 -- Create missing profiles (Updated: 2025-01-27 - Use profiles table only)
 CREATE OR REPLACE FUNCTION public.create_missing_profiles()
@@ -15255,6 +15302,29 @@ BEGIN
 END;
 $function$;
 
+-- ─── fn_cl_roster_statuses ────────────────────────────────────────────────
+-- Added 2026-09-05 (migration 20260905102440_cl_roster_widen_reserved_admitted).
+-- Single source of truth for "who counts as a Campus Living resident".
+--
+-- The `lifecycle_status = 'active'` predicate had been copy-pasted across six
+-- independent sites (v_learner_hostelites, fn_hostel_unallocated_candidates,
+-- the fn_auto_allocate_* family, the hostel fee-category bulk/preview pair, and
+-- a client-side filter in hostel-allocation-service.ts). Widening only one of
+-- them produced a half-working roster: rows visible in Residents but absent
+-- from Unallocated and from every auto-allocation run.
+--
+-- IMMUTABLE + a constant body means the planner inlines it, so there is no
+-- per-row cost even inside the 15-join v_learner_hostelites.
+-- Mirrored in TypeScript as CL_ROSTER_STATUSES
+-- (lib/services/campus-living/roster-statuses.ts) -- the two must agree.
+CREATE OR REPLACE FUNCTION public.fn_cl_roster_statuses()
+RETURNS text[]
+LANGUAGE sql
+IMMUTABLE
+PARALLEL SAFE
+SET search_path TO 'public'
+AS $$ SELECT ARRAY['active','reserved','admitted']::text[] $$;
+
 CREATE OR REPLACE FUNCTION public.fn_auto_allocate_classic(
   p_block_id uuid,
   p_hostel_year_id uuid,
@@ -15302,9 +15372,9 @@ BEGIN
     LEFT JOIN LATERAL (SELECT array_agg(category_id) AS cats FROM fn_hostel_learner_room_categories(lp.id)) room_elig ON true
     LEFT JOIN LATERAL (SELECT array_agg(category_id) AS cats FROM fn_hostel_learner_mess_categories(lp.id)) mess_elig ON true
     WHERE lp.accommodation_type_id IN (SELECT id FROM accommodation_types WHERE code = 'hostel')
-      -- Only ACTIVE learners may be allocated a bed. Keep in lockstep with
-      -- fn_auto_allocate_candidates so preview == generate.
-      AND lp.lifecycle_status = 'active'
+      -- Campus Living roster cohort (active + reserved + admitted since
+      -- 2026-09-05). Never inline a literal here -- keep in lockstep with fn_cl_roster_statuses() so preview == generate.
+      AND lp.lifecycle_status::text = ANY (public.fn_cl_roster_statuses())
       AND room_elig.cats IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM hostel_allocations a WHERE a.learner_id=p.id AND a.status IN ('active','pending_approval'))
       AND (p_institution_id IS NULL OR lp.institution_id = p_institution_id)
@@ -15403,9 +15473,9 @@ AS $function$
     LEFT JOIN LATERAL (SELECT array_agg(category_id) AS cats FROM fn_hostel_learner_room_categories(lp.id)) room_elig ON true
     LEFT JOIN LATERAL (SELECT array_agg(category_id) AS cats FROM fn_hostel_learner_mess_categories(lp.id)) mess_elig ON true
     WHERE lp.accommodation_type_id IN (SELECT id FROM accommodation_types WHERE code = 'hostel')
-      -- Only ACTIVE learners may be allocated a bed. Mirrors
-      -- fn_hostel_unallocated_candidates (manual picker) and v_learner_hostelites.
-      AND lp.lifecycle_status = 'active'
+      -- Campus Living roster cohort (active + reserved + admitted since
+      -- 2026-09-05). Mirrors fn_hostel_unallocated_candidates (manual picker) and v_learner_hostelites.
+      AND lp.lifecycle_status::text = ANY (public.fn_cl_roster_statuses())
       AND lp.institution_id IN (SELECT institution_id FROM hostel_block_institutions WHERE block_id = p_block_id)
       AND (p_institution_id IS NULL OR lp.institution_id = p_institution_id)
       AND (p_program_id     IS NULL OR lp.program_id     = p_program_id)
@@ -15582,9 +15652,9 @@ AS $function$
     CROSS JOIN blk
     LEFT JOIN profiles gp ON gp.learner_id = lp.id
     WHERE lp.accommodation_type_id IN (SELECT id FROM accommodation_types WHERE code='hostel')
-      -- Only ACTIVE learners may be allocated a bed. Keep in lockstep with
-      -- fn_auto_allocate_candidates / fn_auto_allocate_classic.
-      AND lp.lifecycle_status = 'active'
+      -- Campus Living roster cohort (active + reserved + admitted since
+      -- 2026-09-05). Keep in lockstep with fn_auto_allocate_candidates / fn_auto_allocate_classic.
+      AND lp.lifecycle_status::text = ANY (public.fn_cl_roster_statuses())
       AND lp.institution_id IN (SELECT institution_id FROM hostel_block_institutions WHERE block_id=p_block_id)
       -- Gender-scope to the block, mirroring fn_auto_allocate_candidates. NULL /
       -- blank gender is kept so data-incomplete learners still surface (and so
@@ -17401,100 +17471,6 @@ REVOKE EXECUTE ON FUNCTION public.fn_cl_expire_upgrade_holds() FROM anon, authen
 
 NOTIFY pgrst, 'reload schema';
 
--- 20260611180000: housekeeping schedule -> task generation ---------------------
--- Dueness rule anchored on the schedule's creation date (IST). daily: every
--- day; weekly/biweekly: every 7/14 days; monthly/quarterly/half_yearly/yearly:
--- same day-of-month (clamped to month end) every 1/3/6/12 months.
-CREATE OR REPLACE FUNCTION public.fn_housekeeping_schedule_due(
-  p_frequency text, p_anchor date, p_date date
-)
-RETURNS boolean
-LANGUAGE plpgsql IMMUTABLE AS $$
-DECLARE
-  v_months_apart int;
-  v_dom int;
-BEGIN
-  IF p_date < p_anchor THEN RETURN false; END IF;
-  CASE p_frequency
-    WHEN 'daily' THEN RETURN true;
-    WHEN 'weekly' THEN RETURN (p_date - p_anchor) % 7 = 0;
-    WHEN 'biweekly' THEN RETURN (p_date - p_anchor) % 14 = 0;
-    WHEN 'monthly', 'quarterly', 'half_yearly', 'yearly' THEN
-      v_months_apart := (EXTRACT(YEAR FROM p_date)::int * 12 + EXTRACT(MONTH FROM p_date)::int)
-                      - (EXTRACT(YEAR FROM p_anchor)::int * 12 + EXTRACT(MONTH FROM p_anchor)::int);
-      IF v_months_apart % (CASE p_frequency
-                             WHEN 'monthly' THEN 1
-                             WHEN 'quarterly' THEN 3
-                             WHEN 'half_yearly' THEN 6
-                             ELSE 12 END) <> 0 THEN
-        RETURN false;
-      END IF;
-      v_dom := LEAST(
-        EXTRACT(DAY FROM p_anchor)::int,
-        EXTRACT(DAY FROM (date_trunc('month', p_date) + interval '1 month - 1 day'))::int
-      );
-      RETURN EXTRACT(DAY FROM p_date)::int = v_dom;
-    ELSE
-      RETURN false;
-  END CASE;
-END $$;
-
--- Idempotent day generator (cron /api/cron/campus-living/housekeeping-task-generator,
--- daily 00:05 IST). Backed by uq_cleaning_task_schedule_date.
-CREATE OR REPLACE FUNCTION public.fn_housekeeping_generate_tasks(p_date date DEFAULT NULL)
-RETURNS integer
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
-DECLARE
-  v_date date := COALESCE(p_date, (now() AT TIME ZONE 'Asia/Kolkata')::date);
-  v_count int;
-BEGIN
-  INSERT INTO hostel_cleaning_tasks (
-    institution_id, schedule_id, block_id, floor_number, date,
-    cleaning_type, assigned_staff, status
-  )
-  SELECT s.institution_id, s.id, s.block_id, s.floor_number, v_date,
-         s.cleaning_type, s.assigned_staff, 'scheduled'
-  FROM hostel_cleaning_schedules s
-  WHERE s.is_active
-    AND fn_housekeeping_schedule_due(
-          s.frequency::text,
-          (s.created_at AT TIME ZONE 'Asia/Kolkata')::date,
-          v_date)
-  ON CONFLICT (schedule_id, date) WHERE schedule_id IS NOT NULL DO NOTHING;
-  GET DIAGNOSTICS v_count = ROW_COUNT;
-  RETURN v_count;
-END $$;
-
-REVOKE EXECUTE ON FUNCTION public.fn_housekeeping_generate_tasks(date) FROM anon, authenticated, PUBLIC;
-
--- Seed today's task immediately when a due schedule is created
--- (trigger trg_cleaning_schedule_seed_task in 04_triggers.sql).
-CREATE OR REPLACE FUNCTION public._on_cleaning_schedule_seed_task()
-RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
-DECLARE
-  v_today date := (now() AT TIME ZONE 'Asia/Kolkata')::date;
-BEGIN
-  BEGIN
-    IF NEW.is_active AND fn_housekeeping_schedule_due(
-         NEW.frequency::text,
-         (NEW.created_at AT TIME ZONE 'Asia/Kolkata')::date,
-         v_today) THEN
-      INSERT INTO hostel_cleaning_tasks (
-        institution_id, schedule_id, block_id, floor_number, date,
-        cleaning_type, assigned_staff, status
-      ) VALUES (
-        NEW.institution_id, NEW.id, NEW.block_id, NEW.floor_number, v_today,
-        NEW.cleaning_type, NEW.assigned_staff, 'scheduled'
-      )
-      ON CONFLICT (schedule_id, date) WHERE schedule_id IS NOT NULL DO NOTHING;
-    END IF;
-  EXCEPTION WHEN OTHERS THEN
-    RAISE WARNING '_on_cleaning_schedule_seed_task: %', SQLERRM;
-  END;
-  RETURN NEW;
-END $$;
-
 -- 20260611190000: learner room/mess categories are allocation-derived ----------
 -- Fires when a hostel allocation becomes ACTIVE (trigger in 04_triggers.sql):
 -- room category = allocated room's category; mess category = first eligible
@@ -17678,7 +17654,7 @@ BEGIN
     FROM learners_profiles lp
     JOIN accommodation_types acc ON acc.id = lp.accommodation_type_id
     WHERE acc.code = 'hostel'
-      AND lp.lifecycle_status = 'active'
+      AND lp.lifecycle_status::text = ANY (public.fn_cl_roster_statuses())
       AND (p_institution IS NULL OR lp.institution_id = p_institution)
       AND EXISTS (
         SELECT 1
@@ -18402,7 +18378,7 @@ BEGIN
     LEFT JOIN institutions i ON i.id = lp.institution_id
     LEFT JOIN programs p ON p.id = lp.program_id
     LEFT JOIN quotas q ON q.id = lp.quota_id
-    WHERE lp.lifecycle_status = 'active'
+    WHERE lp.lifecycle_status::text = ANY (public.fn_cl_roster_statuses())
       AND (p_institution IS NULL OR lp.institution_id = p_institution)
     ORDER BY i.name, p.program_name, lname
   LOOP
@@ -18542,7 +18518,7 @@ BEGIN
     LEFT JOIN programs p ON p.id = lp.program_id
     LEFT JOIN semesters s ON s.id = lp.semester_id
     LEFT JOIN quotas q ON q.id = lp.quota_id
-    WHERE lp.lifecycle_status = 'active'
+    WHERE lp.lifecycle_status::text = ANY (public.fn_cl_roster_statuses())
       AND (p_institution IS NULL OR lp.institution_id = p_institution)
     ORDER BY i.name, p.program_name, lname
   LOOP
@@ -26016,9 +25992,10 @@ AS $function$
     LEFT JOIN LATERAL (SELECT array_agg(category_id) AS cats FROM fn_hostel_learner_room_categories(lp.id)) room_elig ON true
     LEFT JOIN LATERAL (SELECT array_agg(category_id) AS cats FROM fn_hostel_learner_mess_categories(lp.id)) mess_elig ON true
     WHERE lp.accommodation_type_id IN (SELECT id FROM accommodation_types WHERE code = 'hostel')
-      -- Only ACTIVE learners may be allocated a bed. Mirrors
+      -- Campus Living roster cohort (fn_cl_roster_statuses: active + reserved +
+      -- admitted since 2026-09-05). Mirrors
       -- fn_hostel_unallocated_candidates (manual picker) and v_learner_hostelites.
-      AND lp.lifecycle_status = 'active'
+      AND lp.lifecycle_status::text = ANY (public.fn_cl_roster_statuses())
       AND lp.institution_id IN (SELECT institution_id FROM hostel_block_institutions WHERE block_id = p_block_id)
       AND (p_institution_id IS NULL OR lp.institution_id = p_institution_id)
       AND (p_program_id     IS NULL OR lp.program_id     = p_program_id)
@@ -26235,7 +26212,7 @@ BEGIN
     LEFT JOIN programs p ON p.id = lp.program_id
     LEFT JOIN semesters s ON s.id = lp.semester_id
     LEFT JOIN quotas q ON q.id = lp.quota_id
-    WHERE lp.lifecycle_status = 'active'
+    WHERE lp.lifecycle_status::text = ANY (public.fn_cl_roster_statuses())
       AND (p_institution IS NULL OR lp.institution_id = p_institution)
     ORDER BY i.name, p.program_name, lname
   LOOP
@@ -26642,9 +26619,10 @@ AS $function$
     FROM learners_profiles lp
     LEFT JOIN profiles gp ON gp.learner_id = lp.id
     WHERE lp.accommodation_type_id IN (SELECT id FROM accommodation_types WHERE code='hostel')
-      -- Only ACTIVE learners may be allocated a bed. Keep in lockstep with
+      -- Campus Living roster cohort (fn_cl_roster_statuses: active + reserved +
+      -- admitted since 2026-09-05). Keep in lockstep with
       -- fn_auto_allocate_candidates / fn_auto_allocate_classic.
-      AND lp.lifecycle_status = 'active'
+      AND lp.lifecycle_status::text = ANY (public.fn_cl_roster_statuses())
       AND lp.institution_id IN (
             SELECT bi.institution_id FROM hostel_block_institutions bi
             WHERE bi.block_id IN (SELECT id FROM blocks))
@@ -26715,7 +26693,7 @@ AS $function$
     LEFT JOIN LATERAL (SELECT array_agg(category_id) AS cats FROM fn_hostel_learner_room_categories(lp.id)) room_elig ON true
     LEFT JOIN LATERAL (SELECT array_agg(category_id) AS cats FROM fn_hostel_learner_mess_categories(lp.id)) mess_elig ON true
     WHERE lp.accommodation_type_id IN (SELECT id FROM accommodation_types WHERE code = 'hostel')
-      AND lp.lifecycle_status = 'active'
+      AND lp.lifecycle_status::text = ANY (public.fn_cl_roster_statuses())
       AND lp.institution_id IN (
             SELECT bi.institution_id FROM hostel_block_institutions bi
             WHERE bi.block_id IN (SELECT id FROM blocks))
@@ -26975,7 +26953,7 @@ BEGIN
         AND lp.semester_id = ANY(r.semester_ids)
     ) sem_fill ON true
     WHERE lp.accommodation_type_id IN (SELECT id FROM accommodation_types WHERE code = 'hostel')
-      AND lp.lifecycle_status = 'active'
+      AND lp.lifecycle_status::text = ANY (public.fn_cl_roster_statuses())
       AND room_elig.cats IS NOT NULL
       AND prim.is_primary IS NOT NULL
       -- Cohort-level gender filter, mirroring fn_auto_allocate_candidates so
@@ -27114,7 +27092,7 @@ AS $function$
     FROM learners_profiles lp
     LEFT JOIN profiles gp ON gp.learner_id = lp.id
     WHERE lp.accommodation_type_id IN (SELECT id FROM accommodation_types WHERE code = 'hostel')
-      AND lp.lifecycle_status = 'active'
+      AND lp.lifecycle_status::text = ANY (public.fn_cl_roster_statuses())
       AND lp.institution_id IN (
             SELECT bi.institution_id FROM hostel_block_institutions bi
             WHERE bi.block_id IN (SELECT id FROM blocks))
@@ -27404,7 +27382,7 @@ BEGIN
         AND lp.semester_id = ANY(r.semester_ids)
     ) sem_fill ON true
     WHERE lp.accommodation_type_id IN (SELECT id FROM accommodation_types WHERE code = 'hostel')
-      AND lp.lifecycle_status = 'active'
+      AND lp.lifecycle_status::text = ANY (public.fn_cl_roster_statuses())
       AND room_elig.cats IS NOT NULL
       AND prim.is_primary IS NOT NULL
       AND (p.gender IS NULL OR btrim(p.gender) = ''
@@ -27515,34 +27493,18 @@ GRANT  EXECUTE ON FUNCTION public.fn_auto_allocate_classic(text, uuid, boolean, 
 -- to remove here.
 -- =====================================================================
 
-CREATE OR REPLACE FUNCTION public.fn_resolve_shift_timing(
-  p_staff_id uuid,
-  p_date     date
-)
-RETURNS TABLE (
-  timing_id uuid,
-  institution_id uuid,
-  staff_scope text,
-  employment_category_id uuid,
-  day_of_week smallint,
-  is_working_day boolean,
-  first_half_start time,
-  first_half_end time,
-  second_half_start time,
-  second_half_end time,
-  grace_minutes integer,
-  grace_deadline time,
-  matched_by text
-)
-LANGUAGE plpgsql
-STABLE
-SECURITY DEFINER
-SET search_path = public
-AS $$
+CREATE OR REPLACE FUNCTION public.fn_resolve_shift_timing(p_staff_id uuid, p_date date)
+ RETURNS TABLE(timing_id uuid, institution_id uuid, staff_scope text, employment_category_id uuid, applicable_gender text, day_of_week smallint, is_working_day boolean, first_half_start time without time zone, first_half_end time without time zone, second_half_start time without time zone, second_half_end time without time zone, grace_minutes integer, grace_deadline time without time zone, matched_by text)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
 DECLARE
   v_institution_id uuid;
   v_category_id    uuid;
   v_is_teaching    boolean;
+  v_gender         text;
+  v_pattern_id     uuid;
   v_dow            smallint;
   v_second_sat     boolean;
 BEGIN
@@ -27560,18 +27522,16 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
 
-  SELECT s.institution_id, s.category_id, ec.is_teaching
-    INTO v_institution_id, v_category_id, v_is_teaching
+  SELECT s.institution_id, s.category_id, ec.is_teaching, s.gender
+    INTO v_institution_id, v_category_id, v_is_teaching, v_gender
   FROM public.staff s
   JOIN public.employment_categories ec ON ec.id = s.category_id
   WHERE s.id = p_staff_id;
 
-  IF v_institution_id IS NULL THEN
-    RETURN;
-  END IF;
+  IF v_institution_id IS NULL THEN RETURN; END IF;
 
-  v_dow := EXTRACT(ISODOW FROM p_date)::smallint;
-  -- Nth Saturday of a month = ceil(day_of_month / 7). The 2nd falls on days 8..14.
+  v_pattern_id := public.fn_staff_work_pattern_id(p_staff_id, p_date);
+  v_dow        := EXTRACT(ISODOW FROM p_date)::smallint;
   v_second_sat := (v_dow = 6 AND EXTRACT(DAY FROM p_date) BETWEEN 8 AND 14);
 
   RETURN QUERY
@@ -27580,6 +27540,7 @@ BEGIN
     t.institution_id,
     t.staff_scope,
     t.employment_category_id,
+    t.applicable_gender,
     t.day_of_week,
     CASE WHEN (v_second_sat AND t.second_saturday_holiday) THEN false ELSE t.is_working_day END,
     CASE WHEN (v_second_sat AND t.second_saturday_holiday) THEN NULL ELSE t.first_half_start  END,
@@ -27587,26 +27548,17 @@ BEGIN
     CASE WHEN (v_second_sat AND t.second_saturday_holiday) THEN NULL ELSE t.second_half_start END,
     CASE WHEN (v_second_sat AND t.second_saturday_holiday) THEN NULL ELSE t.second_half_end   END,
     t.grace_minutes,
+    -- The FIRST SESSION of the day: the morning when there is one, the lone
+    -- afternoon on a second-half-only day. Grace applies to whichever it is.
     CASE WHEN (v_second_sat AND t.second_saturday_holiday) OR NOT t.is_working_day THEN NULL
-         ELSE (t.first_half_start + make_interval(mins => t.grace_minutes))::time END,
+         ELSE (COALESCE(t.first_half_start, t.second_half_start)
+               + make_interval(mins => t.grace_minutes))::time END,
     CASE WHEN (v_second_sat AND t.second_saturday_holiday) THEN 'second_saturday_holiday'
          ELSE t.staff_scope END
-  FROM public.hr_shift_timings t
-  WHERE t.institution_id = v_institution_id
-    AND t.day_of_week    = v_dow
-    AND t.is_active
-    AND t.effective_from <= p_date
-    AND (t.effective_until IS NULL OR t.effective_until > p_date)
-    AND (
-         (t.staff_scope = 'category'     AND t.employment_category_id = v_category_id)
-      OR (t.staff_scope = 'teaching'     AND v_is_teaching)
-      OR (t.staff_scope = 'non_teaching' AND NOT v_is_teaching)
-    )
-  ORDER BY CASE t.staff_scope WHEN 'category' THEN 0 ELSE 1 END,  -- most specific wins
-           t.effective_from DESC
-  LIMIT 1;
+  FROM public.fn_shift_timing_pick(
+         v_institution_id, v_category_id, v_is_teaching, v_gender, v_dow, p_date, v_pattern_id) t;
 END;
-$$;
+$function$;
 
 COMMENT ON FUNCTION public.fn_resolve_shift_timing(uuid, date) IS
   'Resolve the applicable hr_shift_timings row for a staff member on a date. Most-specific-wins (category > teaching/non_teaching), effective-dated, and folds in the second-Saturday rule. Self-authorizing.';
@@ -27624,23 +27576,12 @@ GRANT EXECUTE ON FUNCTION public.fn_resolve_shift_timing(uuid, date) TO authenti
 -- non-teaching, both schools are 100% teaching — so the UI must be able to
 -- tell "correctly empty" from "misconfigured".
 -- ---------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.fn_shift_timing_coverage(
-  p_institution_id uuid,
-  p_date           date
-)
-RETURNS TABLE (
-  employment_category_id uuid,
-  category_name text,
-  is_teaching boolean,
-  staff_count bigint,
-  resolved_timing_id uuid,
-  resolved_via text
-)
-LANGUAGE plpgsql
-STABLE
-SECURITY DEFINER
-SET search_path = public
-AS $$
+CREATE OR REPLACE FUNCTION public.fn_shift_timing_coverage(p_institution_id uuid, p_date date)
+ RETURNS TABLE(employment_category_id uuid, category_name text, is_teaching boolean, staff_gender text, staff_count bigint, resolved_timing_id uuid, resolved_via text, resolved_gender text)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
 DECLARE
   v_dow smallint;
 BEGIN
@@ -27662,34 +27603,21 @@ BEGIN
     SELECT ec.id AS cat_id,
            ec.category_name AS cat_name,
            ec.is_teaching AS cat_is_teaching,
+           s.gender AS cat_gender,
            count(s.id) AS cat_staff_count
     FROM public.staff s
     JOIN public.employment_categories ec ON ec.id = s.category_id
     WHERE s.institution_id = p_institution_id
-    GROUP BY ec.id, ec.category_name, ec.is_teaching
+    GROUP BY ec.id, ec.category_name, ec.is_teaching, s.gender
   )
-  SELECT c.cat_id, c.cat_name, c.cat_is_teaching, c.cat_staff_count, t.id, t.staff_scope
+  SELECT c.cat_id, c.cat_name, c.cat_is_teaching, c.cat_gender, c.cat_staff_count,
+         t.id, t.staff_scope, t.applicable_gender
   FROM cats c
-  LEFT JOIN LATERAL (
-    SELECT tt.id, tt.staff_scope
-    FROM public.hr_shift_timings tt
-    WHERE tt.institution_id = p_institution_id
-      AND tt.day_of_week    = v_dow
-      AND tt.is_active
-      AND tt.effective_from <= p_date
-      AND (tt.effective_until IS NULL OR tt.effective_until > p_date)
-      AND (
-           (tt.staff_scope = 'category'     AND tt.employment_category_id = c.cat_id)
-        OR (tt.staff_scope = 'teaching'     AND c.cat_is_teaching)
-        OR (tt.staff_scope = 'non_teaching' AND NOT c.cat_is_teaching)
-      )
-    ORDER BY CASE tt.staff_scope WHEN 'category' THEN 0 ELSE 1 END,
-             tt.effective_from DESC
-    LIMIT 1
-  ) t ON true
-  ORDER BY c.cat_staff_count DESC, c.cat_name;
+  LEFT JOIN LATERAL public.fn_shift_timing_pick(
+    p_institution_id, c.cat_id, c.cat_is_teaching, c.cat_gender, v_dow, p_date) t ON true
+  ORDER BY c.cat_staff_count DESC, c.cat_name, c.cat_gender;
 END;
-$$;
+$function$;
 
 COMMENT ON FUNCTION public.fn_shift_timing_coverage(uuid, date) IS
   'Per-employment-category shift timing coverage for an institution on a date. NULL resolved_timing_id = staff with no timing. Self-authorizing.';
@@ -27697,19 +27625,21 @@ COMMENT ON FUNCTION public.fn_shift_timing_coverage(uuid, date) IS
 REVOKE ALL ON FUNCTION public.fn_shift_timing_coverage(uuid, date) FROM anon;
 GRANT EXECUTE ON FUNCTION public.fn_shift_timing_coverage(uuid, date) TO authenticated;
 
-CREATE OR REPLACE FUNCTION public.fn_save_shift_timing_week(
+DROP FUNCTION IF EXISTS public.fn_save_shift_timing_week(uuid, text, uuid, date, jsonb, text, uuid);
+
+CREATE FUNCTION public.fn_save_shift_timing_week(
   p_institution_id         uuid,
   p_staff_scope            text,
   p_employment_category_id uuid,
   p_effective_from         date,
-  p_days                   jsonb
+  p_days                   jsonb,
+  p_applicable_gender      text DEFAULT 'all'
 )
 RETURNS integer
 LANGUAGE plpgsql
-VOLATILE
 SECURITY DEFINER
-SET search_path = public
-AS $fn$
+SET search_path TO 'public'
+AS $function$
 DECLARE
   v_day      record;
   v_current  public.hr_shift_timings%ROWTYPE;
@@ -27728,6 +27658,10 @@ BEGIN
 
   IF p_staff_scope NOT IN ('teaching','non_teaching','category') THEN
     RAISE EXCEPTION 'Invalid staff_scope: %', p_staff_scope USING ERRCODE = '22023';
+  END IF;
+
+  IF p_applicable_gender NOT IN ('all','male','female','bigender') THEN
+    RAISE EXCEPTION 'Invalid applicable_gender: %', p_applicable_gender USING ERRCODE = '22023';
   END IF;
 
   IF (p_staff_scope = 'category') <> (p_employment_category_id IS NOT NULL) THEN
@@ -27752,6 +27686,7 @@ BEGIN
     FROM public.hr_shift_timings t
     WHERE t.institution_id = p_institution_id
       AND t.staff_scope    = p_staff_scope
+      AND t.applicable_gender = p_applicable_gender
       AND t.day_of_week    = v_day.day_of_week
       AND t.employment_category_id IS NOT DISTINCT FROM p_employment_category_id
       AND t.effective_until IS NULL
@@ -27759,13 +27694,13 @@ BEGIN
 
     IF NOT FOUND THEN
       INSERT INTO public.hr_shift_timings (
-        institution_id, staff_scope, employment_category_id, day_of_week,
+        institution_id, staff_scope, employment_category_id, applicable_gender, day_of_week,
         is_working_day, first_half_start, first_half_end,
         second_half_start, second_half_end,
         grace_minutes, second_saturday_holiday, effective_from,
         created_by, updated_by
       ) VALUES (
-        p_institution_id, p_staff_scope, p_employment_category_id, v_day.day_of_week,
+        p_institution_id, p_staff_scope, p_employment_category_id, p_applicable_gender, v_day.day_of_week,
         v_day.is_working_day, v_day.first_half_start, v_day.first_half_end,
         v_day.second_half_start, v_day.second_half_end,
         COALESCE(v_day.grace_minutes, 0), COALESCE(v_day.second_saturday_holiday, false),
@@ -27773,37 +27708,24 @@ BEGIN
       );
 
     ELSIF p_effective_from <= v_current.effective_from THEN
-      -- Correction. Reworked 2026-08-10 (migration 20260810091000): this branch
-      -- used to overwrite the live row and KEEP its effective_from, silently
-      -- discarding the caller's earlier date. Once a save had superseded, the
-      -- closed row was unreachable from the UI and history could never be
-      -- corrected — three attendance incidents in two days each needed a
-      -- hand-written migration to repair.
-
-      -- 1. Retire whatever started inside the span we are about to claim.
-      --    is_active = false, never DELETE: the row records what the rule used
-      --    to say, and the partial unique index ignores inactive rows. Leaving
-      --    them active would put two rows over the same date, with the
-      --    resolver's `ORDER BY effective_from DESC LIMIT 1` picking arbitrarily.
       UPDATE public.hr_shift_timings h
          SET is_active  = false,
              updated_by = v_actor
        WHERE h.institution_id = p_institution_id
          AND h.staff_scope    = p_staff_scope
+         AND h.applicable_gender = p_applicable_gender
          AND h.day_of_week    = v_day.day_of_week
          AND h.employment_category_id IS NOT DISTINCT FROM p_employment_category_id
          AND h.id <> v_current.id
          AND h.is_active
          AND h.effective_from >= p_effective_from;
 
-      -- 2. A row that predates the span keeps its earlier life, clipped to end
-      --    where the correction begins. effective_from < p_effective_from, so
-      --    hr_shift_timings_effective_chk (until > from) still holds.
       UPDATE public.hr_shift_timings h
          SET effective_until = p_effective_from,
              updated_by      = v_actor
        WHERE h.institution_id = p_institution_id
          AND h.staff_scope    = p_staff_scope
+         AND h.applicable_gender = p_applicable_gender
          AND h.day_of_week    = v_day.day_of_week
          AND h.employment_category_id IS NOT DISTINCT FROM p_employment_category_id
          AND h.id <> v_current.id
@@ -27811,7 +27733,6 @@ BEGIN
          AND h.effective_from < p_effective_from
          AND (h.effective_until IS NULL OR h.effective_until > p_effective_from);
 
-      -- 3. The live row takes the new values and really does start here.
       UPDATE public.hr_shift_timings
          SET is_working_day          = v_day.is_working_day,
              first_half_start        = v_day.first_half_start,
@@ -27825,21 +27746,19 @@ BEGIN
        WHERE id = v_current.id;
 
     ELSE
-      -- Scheduled change: close the live row, then insert its successor.
-      -- Order matters — the partial unique index forbids two live rows.
       UPDATE public.hr_shift_timings
          SET effective_until = p_effective_from,
              updated_by      = v_actor
        WHERE id = v_current.id;
 
       INSERT INTO public.hr_shift_timings (
-        institution_id, staff_scope, employment_category_id, day_of_week,
+        institution_id, staff_scope, employment_category_id, applicable_gender, day_of_week,
         is_working_day, first_half_start, first_half_end,
         second_half_start, second_half_end,
         grace_minutes, second_saturday_holiday, effective_from,
         created_by, updated_by
       ) VALUES (
-        p_institution_id, p_staff_scope, p_employment_category_id, v_day.day_of_week,
+        p_institution_id, p_staff_scope, p_employment_category_id, p_applicable_gender, v_day.day_of_week,
         v_day.is_working_day, v_day.first_half_start, v_day.first_half_end,
         v_day.second_half_start, v_day.second_half_end,
         COALESCE(v_day.grace_minutes, 0), COALESCE(v_day.second_saturday_holiday, false),
@@ -27852,13 +27771,10 @@ BEGIN
 
   RETURN v_written;
 END;
-$fn$;
+$function$;
 
-COMMENT ON FUNCTION public.fn_save_shift_timing_week(uuid, text, uuid, date, jsonb) IS
-  'Atomically write a full week of hr_shift_timings for one (institution, scope, category). An effective_from at or before the live row CORRECTS history: overlapping earlier rows are retired or clipped and the live row moves back to that date, so already-imported attendance can be recomputed against it. A later effective_from SCHEDULES: the live rows close and successors are inserted, leaving history judged by the rule that was in force. Self-authorizing on hr.shift_timings.manage.';
-
-REVOKE ALL ON FUNCTION public.fn_save_shift_timing_week(uuid, text, uuid, date, jsonb) FROM anon;
-GRANT EXECUTE ON FUNCTION public.fn_save_shift_timing_week(uuid, text, uuid, date, jsonb) TO authenticated;
+COMMENT ON FUNCTION public.fn_save_shift_timing_week(uuid, text, uuid, date, jsonb, text) IS
+  'Save one scope''s week (teaching / non_teaching / category × gender) effective from a date. Closes the previous rows at that date, or rewrites them when backdating.';
 
 -- ============================================================================
 -- Updated: 2026-08-15 (migration 20260815020000_reservation_is_move_in.sql)
@@ -33372,7 +33288,7 @@ AS $function$
     FROM learners_profiles lp
     LEFT JOIN profiles gp ON gp.learner_id = lp.id
     WHERE lp.accommodation_type_id IN (SELECT id FROM accommodation_types WHERE code = 'hostel')
-      AND lp.lifecycle_status = 'active'
+      AND lp.lifecycle_status::text = ANY (public.fn_cl_roster_statuses())
       AND lp.institution_id IN (
             SELECT bi.institution_id FROM hostel_block_institutions bi
             WHERE bi.block_id IN (SELECT id FROM blocks))
@@ -33779,7 +33695,7 @@ BEGIN
         AND lp.semester_id = ANY(r.semester_ids)
     ) sem_fill ON true
     WHERE lp.accommodation_type_id IN (SELECT id FROM accommodation_types WHERE code = 'hostel')
-      AND lp.lifecycle_status = 'active'
+      AND lp.lifecycle_status::text = ANY (public.fn_cl_roster_statuses())
       AND room_elig.cats IS NOT NULL
       AND prim.is_primary IS NOT NULL
       AND (COALESCE(NULLIF(btrim(p.gender), ''), NULLIF(btrim(lp.gender), '')) IS NULL
@@ -34034,7 +33950,7 @@ AS $function$
     WHERE lp.accommodation_type_id IN (
             SELECT id FROM accommodation_types WHERE code = 'hostel'
           )
-      AND lp.lifecycle_status = 'active'
+      AND lp.lifecycle_status::text = ANY (public.fn_cl_roster_statuses())
       AND (p_institution_id IS NULL OR lp.institution_id = p_institution_id)
       AND NOT EXISTS (
         SELECT 1
@@ -34180,7 +34096,7 @@ AS $function$
     FROM learners_profiles lp
     LEFT JOIN profiles gp ON gp.learner_id = lp.id
     WHERE lp.accommodation_type_id IN (SELECT id FROM accommodation_types WHERE code='hostel')
-      AND lp.lifecycle_status = 'active'
+      AND lp.lifecycle_status::text = ANY (public.fn_cl_roster_statuses())
       AND lp.institution_id IN (
             SELECT bi.institution_id FROM hostel_block_institutions bi
             WHERE bi.block_id IN (SELECT id FROM blocks))
@@ -34282,7 +34198,7 @@ AS $function$
     FROM learners_profiles lp
     LEFT JOIN profiles gp ON gp.learner_id = lp.id
     WHERE lp.accommodation_type_id IN (SELECT id FROM accommodation_types WHERE code = 'hostel')
-      AND lp.lifecycle_status = 'active'
+      AND lp.lifecycle_status::text = ANY (public.fn_cl_roster_statuses())
       AND lp.institution_id IN (
             SELECT bi.institution_id FROM hostel_block_institutions bi
             WHERE bi.block_id IN (SELECT id FROM blocks))
@@ -35586,7 +35502,7 @@ BEGIN
     JOIN profiles p ON p.learner_id = lp.id
     JOIN institutions inst_t ON inst_t.id = lp.institution_id
     WHERE lp.accommodation_type_id IN (SELECT id FROM accommodation_types WHERE code = 'hostel')
-      AND lp.lifecycle_status = 'active'
+      AND lp.lifecycle_status::text = ANY (public.fn_cl_roster_statuses())
       AND (COALESCE(NULLIF(btrim(p.gender), ''), NULLIF(btrim(lp.gender), '')) IS NULL
            OR (p_hostel_type = 'boys'
                AND lower(btrim(COALESCE(NULLIF(btrim(p.gender), ''), lp.gender))) IN ('male','m'))
@@ -35947,7 +35863,7 @@ AS $function$
     FROM learners_profiles lp
     LEFT JOIN profiles gp ON gp.learner_id = lp.id
     WHERE lp.accommodation_type_id IN (SELECT id FROM accommodation_types WHERE code = 'hostel')
-      AND lp.lifecycle_status = 'active'
+      AND lp.lifecycle_status::text = ANY (public.fn_cl_roster_statuses())
       AND (p_institution_id IS NULL OR lp.institution_id = p_institution_id)
       AND (p_program_id     IS NULL OR lp.program_id     = p_program_id)
       AND (p_semester_id    IS NULL OR lp.semester_id    = p_semester_id)
@@ -38753,7 +38669,7 @@ AS $function$
     FROM learners_profiles lp
     LEFT JOIN profiles gp ON gp.learner_id = lp.id
     WHERE lp.accommodation_type_id IN (SELECT id FROM accommodation_types WHERE code = 'hostel')
-      AND lp.lifecycle_status = 'active'
+      AND lp.lifecycle_status::text = ANY (public.fn_cl_roster_statuses())
       AND (p_institution_id IS NULL OR lp.institution_id = p_institution_id)
       AND (p_program_id     IS NULL OR lp.program_id     = p_program_id)
       AND (p_semester_id    IS NULL OR lp.semester_id    = p_semester_id)
@@ -46855,58 +46771,44 @@ COMMENT ON FUNCTION public.hr_leave_approval_queue() IS
 -- Returns NULL — not false — when nothing is configured, so the caller can tell
 -- "no rule" apart from "rest day" and pick its own fallback.
 CREATE OR REPLACE FUNCTION public.hr_is_working_day(p_staff_id uuid, p_date date)
-RETURNS boolean
-LANGUAGE plpgsql
-STABLE
-SECURITY DEFINER
-SET search_path TO 'public'
-AS $fn$
+ RETURNS boolean
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
 DECLARE
   v_institution_id uuid;
   v_category_id    uuid;
   v_is_teaching    boolean;
+  v_gender         text;
+  v_pattern_id     uuid;
   v_dow            smallint;
   v_second_sat     boolean;
   v_working        boolean;
 BEGIN
-  IF p_staff_id IS NULL OR p_date IS NULL THEN
-    RETURN NULL;
-  END IF;
+  IF p_staff_id IS NULL OR p_date IS NULL THEN RETURN NULL; END IF;
 
-  SELECT s.institution_id, s.category_id, ec.is_teaching
-    INTO v_institution_id, v_category_id, v_is_teaching
+  SELECT s.institution_id, s.category_id, ec.is_teaching, s.gender
+    INTO v_institution_id, v_category_id, v_is_teaching, v_gender
   FROM public.staff s
   JOIN public.employment_categories ec ON ec.id = s.category_id
   WHERE s.id = p_staff_id;
 
-  IF v_institution_id IS NULL THEN
-    RETURN NULL;
-  END IF;
+  IF v_institution_id IS NULL THEN RETURN NULL; END IF;
 
+  v_pattern_id := public.fn_staff_work_pattern_id(p_staff_id, p_date);
   v_dow        := EXTRACT(ISODOW FROM p_date)::smallint;
   v_second_sat := (v_dow = 6 AND EXTRACT(DAY FROM p_date) BETWEEN 8 AND 14);
 
   SELECT CASE WHEN (v_second_sat AND t.second_saturday_holiday) THEN false
               ELSE t.is_working_day END
     INTO v_working
-  FROM public.hr_shift_timings t
-  WHERE t.institution_id = v_institution_id
-    AND t.day_of_week    = v_dow
-    AND t.is_active
-    AND t.effective_from <= p_date
-    AND (t.effective_until IS NULL OR t.effective_until > p_date)
-    AND (
-         (t.staff_scope = 'category'     AND t.employment_category_id = v_category_id)
-      OR (t.staff_scope = 'teaching'     AND v_is_teaching)
-      OR (t.staff_scope = 'non_teaching' AND NOT v_is_teaching)
-    )
-  ORDER BY CASE t.staff_scope WHEN 'category' THEN 0 ELSE 1 END,
-           t.effective_from DESC
-  LIMIT 1;
+  FROM public.fn_shift_timing_pick(
+         v_institution_id, v_category_id, v_is_teaching, v_gender, v_dow, p_date, v_pattern_id) t;
 
-  RETURN v_working;  -- NULL when no timing row matched
+  RETURN v_working;
 END;
-$fn$;
+$function$;
 
 REVOKE ALL ON FUNCTION public.hr_is_working_day(uuid, date) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.hr_is_working_day(uuid, date) TO authenticated, service_role;
@@ -47661,42 +47563,31 @@ COMMENT ON COLUMN public.hr_attendance_records.excused_by_application_ids IS
 -- working-hours calendar for one date. No punches, no verdicts, nothing about
 -- the person beyond which shift pattern applies to them.
 CREATE OR REPLACE FUNCTION public.fn_shift_window(p_staff_id uuid, p_date date)
-RETURNS TABLE (
-  timing_id          uuid,
-  is_working_day     boolean,
-  first_half_start   time without time zone,
-  first_half_end     time without time zone,
-  second_half_start  time without time zone,
-  second_half_end    time without time zone,
-  grace_minutes      integer,
-  matched_by         text
-)
-LANGUAGE plpgsql
-STABLE
-SECURITY DEFINER
-SET search_path TO 'public'
-AS $fn$
+ RETURNS TABLE(timing_id uuid, is_working_day boolean, first_half_start time without time zone, first_half_end time without time zone, second_half_start time without time zone, second_half_end time without time zone, grace_minutes integer, matched_by text)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
 DECLARE
   v_institution_id uuid;
   v_category_id    uuid;
   v_is_teaching    boolean;
+  v_gender         text;
+  v_pattern_id     uuid;
   v_dow            smallint;
   v_second_sat     boolean;
 BEGIN
-  IF p_staff_id IS NULL OR p_date IS NULL THEN
-    RETURN;
-  END IF;
+  IF p_staff_id IS NULL OR p_date IS NULL THEN RETURN; END IF;
 
-  SELECT s.institution_id, s.category_id, ec.is_teaching
-    INTO v_institution_id, v_category_id, v_is_teaching
+  SELECT s.institution_id, s.category_id, ec.is_teaching, s.gender
+    INTO v_institution_id, v_category_id, v_is_teaching, v_gender
   FROM public.staff s
   JOIN public.employment_categories ec ON ec.id = s.category_id
   WHERE s.id = p_staff_id;
 
-  IF v_institution_id IS NULL THEN
-    RETURN;
-  END IF;
+  IF v_institution_id IS NULL THEN RETURN; END IF;
 
+  v_pattern_id := public.fn_staff_work_pattern_id(p_staff_id, p_date);
   v_dow        := EXTRACT(ISODOW FROM p_date)::smallint;
   v_second_sat := (v_dow = 6 AND EXTRACT(DAY FROM p_date) BETWEEN 8 AND 14);
 
@@ -47711,22 +47602,10 @@ BEGIN
     t.grace_minutes,
     CASE WHEN (v_second_sat AND t.second_saturday_holiday) THEN 'second_saturday_holiday'
          ELSE t.staff_scope END
-  FROM public.hr_shift_timings t
-  WHERE t.institution_id = v_institution_id
-    AND t.day_of_week    = v_dow
-    AND t.is_active
-    AND t.effective_from <= p_date
-    AND (t.effective_until IS NULL OR t.effective_until > p_date)
-    AND (
-         (t.staff_scope = 'category'     AND t.employment_category_id = v_category_id)
-      OR (t.staff_scope = 'teaching'     AND v_is_teaching)
-      OR (t.staff_scope = 'non_teaching' AND NOT v_is_teaching)
-    )
-  ORDER BY CASE t.staff_scope WHEN 'category' THEN 0 ELSE 1 END,
-           t.effective_from DESC
-  LIMIT 1;
+  FROM public.fn_shift_timing_pick(
+         v_institution_id, v_category_id, v_is_teaching, v_gender, v_dow, p_date, v_pattern_id) t;
 END;
-$fn$;
+$function$;
 
 REVOKE ALL ON FUNCTION public.fn_shift_window(uuid, date) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_shift_window(uuid, date) TO authenticated, service_role;
@@ -48920,13 +48799,11 @@ GRANT EXECUTE ON FUNCTION public.hr_staff_bank_directory() TO authenticated, ser
 -- different way (calendar minus Sundays minus holidays) and is wrong for this
 -- organisation, where Saturday is a working day at all 14 institutions.
 
-CREATE OR REPLACE FUNCTION public.fn_hr_compute_attendance_period_summary(
-  p_period_id uuid
-)
-RETURNS integer
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path TO 'public'
+CREATE OR REPLACE FUNCTION public.fn_hr_compute_attendance_period_summary(p_period_id uuid)
+ RETURNS integer
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
 AS $function$
 DECLARE
   v_period public.hr_attendance_periods;
@@ -49058,6 +48935,55 @@ BEGIN
   LEFT JOIN req_agg r ON r.employee_id = a.employee_id;
 
   GET DIAGNOSTICS v_rows = ROW_COUNT;
+
+  -- Scheduled days and the pattern held, per person. See the section header.
+  WITH staff_in AS (
+    SELECT ps.staff_id, s.institution_id, s.category_id, ec.is_teaching, s.gender
+      FROM public.hr_attendance_period_summaries ps
+      JOIN public.staff s ON s.id = ps.staff_id
+      JOIN public.employment_categories ec ON ec.id = s.category_id
+     WHERE ps.period_id = p_period_id
+  ),
+  hol AS (
+    SELECT h.holiday_date
+      FROM public.fn_hr_calendar_holiday_dates(v_period.institution_id, v_start, v_end) h
+  ),
+  days AS (
+    SELECT gs::date AS d FROM generate_series(v_start, v_end, interval '1 day') gs
+  ),
+  sched AS (
+    SELECT si.staff_id,
+           count(*) FILTER (
+             WHERE COALESCE(
+                     CASE WHEN (EXTRACT(ISODOW FROM dd.d) = 6
+                                AND EXTRACT(DAY FROM dd.d) BETWEEN 8 AND 14
+                                AND t.second_saturday_holiday) THEN false
+                          ELSE t.is_working_day END,
+                     false)
+               AND NOT EXISTS (SELECT 1 FROM hol h WHERE h.holiday_date = dd.d)
+           ) AS scheduled
+      FROM staff_in si
+      CROSS JOIN days dd
+      LEFT JOIN LATERAL public.fn_shift_timing_pick(
+        si.institution_id, si.category_id, si.is_teaching, si.gender,
+        EXTRACT(ISODOW FROM dd.d)::smallint, dd.d,
+        public.fn_staff_work_pattern_id(si.staff_id, dd.d)) t ON true
+     GROUP BY si.staff_id
+  ),
+  pat AS (
+    SELECT DISTINCT ON (a.staff_id) a.staff_id, a.work_pattern_id
+      FROM public.hr_staff_work_pattern_assignments a
+     WHERE a.effective_from <= v_end
+       AND (a.effective_until IS NULL OR a.effective_until > v_start)
+     ORDER BY a.staff_id, a.effective_from DESC
+  )
+  UPDATE public.hr_attendance_period_summaries ps
+     SET scheduled_days  = sc.scheduled::numeric(5,1),
+         work_pattern_id = pat.work_pattern_id
+    FROM sched sc
+    LEFT JOIN pat ON pat.staff_id = sc.staff_id
+   WHERE ps.period_id = p_period_id
+     AND ps.staff_id  = sc.staff_id;
 
   UPDATE public.hr_attendance_periods
      SET staff_count = v_rows,
@@ -51656,24 +51582,30 @@ SET search_path TO 'public'
 AS $function$
 DECLARE
     v_legacy            boolean;
+    v_snapshot          jsonb;
     v_structure_id      uuid;
     v_resolved          jsonb;
     v_base_items        jsonb;
     v_global_deltas_sum numeric(15,2) := 0;
     v_year              int := COALESCE(public.fn_learner_year_of_study(p_learner_id), 1);
 BEGIN
-    SELECT legacy_fee_mode INTO v_legacy
+    SELECT legacy_fee_mode, fee_items INTO v_legacy, v_snapshot
       FROM public.learners_profiles WHERE id = p_learner_id;
 
     IF NOT FOUND THEN
         RAISE EXCEPTION 'learner_not_found: %', p_learner_id USING ERRCODE = 'P0002';
     END IF;
 
-    -- Legacy learners keep whatever snapshot they already carry; the matrix is
-    -- not consulted for them.
-    IF v_legacy = true THEN
-        RETURN COALESCE((SELECT fee_items FROM public.learners_profiles WHERE id = p_learner_id),
-                        '[]'::jsonb);
+    -- A legacy learner WITH a snapshot keeps it; the matrix is not consulted.
+    -- A legacy learner with an EMPTY snapshot falls through to the matrix,
+    -- which is exactly what admission_account_transition_with_bills does on
+    -- Confirm (20260523140000): it flips legacy_fee_mode and resolves. Until
+    -- 20260904 this branch returned '[]' for that case, so the preview said
+    -- "no fee structure resolves" for a learner the commit would have billed.
+    IF v_legacy = true
+       AND v_snapshot IS NOT NULL
+       AND jsonb_array_length(v_snapshot) > 0 THEN
+        RETURN v_snapshot;
     END IF;
 
     v_structure_id := public.admission_match_fee_structure_for_learner(p_learner_id);
@@ -51751,7 +51683,7 @@ END;
 $function$;
 
 COMMENT ON FUNCTION public.admission_compute_fee_items_for_learner(uuid) IS
-  'Pure fee-item resolution for a learner — computes, never writes. The persisting wrapper is admission_resolve_fee_items_for_lead. Split out so the account-transition preview can show the real numbers without leaving a fee_items snapshot behind on a dialog the admin then cancels.';
+  'Pure fee-item resolution for a learner — computes, never writes. The persisting wrapper is admission_resolve_fee_items_for_lead. A legacy learner with a non-empty snapshot returns it as is; a legacy learner with an empty snapshot falls through to the matrix, mirroring the auto-resolve in admission_account_transition_with_bills so the preview equals the commit.';
 
 REVOKE ALL ON FUNCTION public.admission_compute_fee_items_for_learner(uuid) FROM PUBLIC, anon;
 
@@ -55281,6 +55213,7 @@ COMMENT ON FUNCTION public.hr_leave_approval_queue() IS
 -- in the same migration. No other feature reads this resolver.
 -- Canonical body: supabase/migrations/20260827130000_housekeeping_premium_room_and_allocation_required.sql
 -- =====================================================
+-- (Removed 2026-09-07: the housekeeping module was rebuilt; see migration 20260907090000.)
 
 -- =============================================================================
 -- Mirrored from supabase/migrations/20260827190000_hr_regularization_stamp_trigger.sql
@@ -57852,3 +57785,3085 @@ GRANT EXECUTE ON FUNCTION public.fn_can_manage_event_feedback(uuid) TO authentic
 
 REVOKE ALL ON FUNCTION public.fn_event_feedback_form_open(uuid) FROM anon, PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fn_event_feedback_form_open(uuid) TO authenticated;
+
+-- ============================================================================
+-- 2026-09-03 — fn_leave_step_admits: CASE-guard the hr.leave.approve org build
+-- Migration: 20260903130000_hr_leave_step_admits_case_guard.sql
+-- Supersedes the fn_leave_step_admits definition earlier in this file. The
+-- queue timed out (8s) for role-step approvers because fn_my_hr_organization_ids()
+-- ran per row; CASE makes it lazy. See the migration header for the numbers.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.fn_leave_step_admits(
+  p_step jsonb,
+  p_uid uuid,
+  p_hr_organization_id uuid
+) RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $function$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.fn_leave_step_approvers(p_step) e
+    WHERE p_uid IS NOT NULL
+      AND (
+        -- Pinned: an explicit naming, reachable from any institution.
+        e.approver_user_id = p_uid
+        OR (
+          e.approver_role IS NOT NULL
+          AND EXISTS (
+            SELECT 1
+            FROM public.user_roles ur
+            JOIN public.custom_roles cr ON cr.id = ur.role_id
+            WHERE ur.user_id = p_uid
+              AND cr.role_key = e.approver_role
+              AND cr.is_active
+          )
+          AND (
+            public.is_super_admin()
+            -- CASE, not AND. AND carries no evaluation-order guarantee, and
+            -- this array build (3.7 ms) was running once per row for callers
+            -- who do not hold the key. See the header.
+            OR CASE
+                 WHEN public.user_has_permission('hr.leave.approve')
+                 THEN p_hr_organization_id = ANY (
+                        COALESCE(public.fn_my_hr_organization_ids(), ARRAY[]::uuid[]))
+                 ELSE false
+               END
+            OR p_hr_organization_id = ANY (
+                 COALESCE(public.fn_my_designated_hr_org_ids(), ARRAY[]::uuid[]))
+          )
+        )
+      )
+  );
+$function$;
+
+-- =====================================================================
+-- Work patterns — functions referenced by hr_shift_timings but never
+-- mirrored into this file before 2026-09-04 (pre-existing gap; the
+-- bodies below are each function's current, complete definition as of
+-- this migration, not a diff against the missing history)
+-- Source: 20260904120000_hr_work_patterns.sql
+-- =====================================================================
+
+CREATE OR REPLACE FUNCTION public.fn_shift_timing_pick(
+  p_institution_id  uuid,
+  p_category_id     uuid,
+  p_is_teaching     boolean,
+  p_gender          text,
+  p_dow             smallint,
+  p_date            date,
+  p_work_pattern_id uuid DEFAULT NULL
+)
+RETURNS SETOF public.hr_shift_timings
+LANGUAGE sql
+STABLE
+AS $function$
+  -- `t` is the TABLE alias on purpose: a CTE's whole-row reference is an
+  -- anonymous record and cannot unify with the composite the CASE needs.
+  SELECT (x.row_out).*
+  FROM (
+    SELECT CASE
+             WHEN p_work_pattern_id IS NOT NULL
+                  AND m.days IS NOT NULL
+                  AND NOT (p_dow = ANY (m.days))
+             THEN jsonb_populate_record(
+                    t,
+                    '{"is_working_day": false, "first_half_start": null, "first_half_end": null, "second_half_start": null, "second_half_end": null}'::jsonb)
+             ELSE t
+           END AS row_out
+    FROM public.hr_shift_timings t
+    CROSS JOIN (SELECT public.fn_work_pattern_days(p_work_pattern_id, p_date) AS days) m
+    WHERE t.institution_id = p_institution_id
+      AND t.day_of_week    = p_dow
+      AND t.is_active
+      AND t.effective_from <= p_date
+      AND (t.effective_until IS NULL OR t.effective_until > p_date)
+      AND (
+           (t.staff_scope = 'category'     AND t.employment_category_id = p_category_id)
+        OR (t.staff_scope = 'teaching'     AND p_is_teaching)
+        OR (t.staff_scope = 'non_teaching' AND NOT p_is_teaching)
+      )
+      AND (
+           t.applicable_gender = 'all'
+        OR t.applicable_gender = lower(btrim(COALESCE(p_gender, '')))
+      )
+    ORDER BY
+      CASE t.staff_scope WHEN 'category' THEN 0 ELSE 1 END,
+      CASE WHEN t.applicable_gender = 'all' THEN 1 ELSE 0 END,
+      t.effective_from DESC
+    LIMIT 1
+  ) x;
+$function$;
+
+COMMENT ON FUNCTION public.fn_shift_timing_pick(uuid, uuid, boolean, text, smallint, date, uuid) IS
+  'The single shift-timing resolution predicate. Most specific wins: scope first (category over teaching/non_teaching), then gender (an exact match over ''all''), then the latest effective_from. A held work pattern then switches the day OFF when its weekday is not in the pattern''s days; it never adds a day. Every reader must go through this.';
+
+CREATE OR REPLACE FUNCTION public.fn_resolve_shift_timings_bulk(p_staff_ids uuid[], p_from date, p_to date)
+ RETURNS TABLE(staff_id uuid, work_date date, timing_id uuid, is_working_day boolean, first_half_start time without time zone, first_half_end time without time zone, second_half_start time without time zone, second_half_end time without time zone, grace_minutes integer, matched_by text)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF NOT (
+       public.is_super_admin()
+    OR public.is_admin()
+    OR public.user_has_permission('hr.shift_timings.view')
+    OR public.user_has_permission('hr.attendance.override')
+  ) THEN
+    RAISE EXCEPTION 'Not authorized to resolve shift timings'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF p_to < p_from THEN
+    RAISE EXCEPTION 'p_to must not be earlier than p_from' USING ERRCODE = '22023';
+  END IF;
+
+  IF (p_to - p_from) > 400 THEN
+    RAISE EXCEPTION 'Date range too wide (% days); resolve at most 400 days at a time', (p_to - p_from)
+      USING ERRCODE = '22023';
+  END IF;
+
+  RETURN QUERY
+  WITH s AS (
+    SELECT st.id, st.institution_id, st.category_id, ec.is_teaching, st.gender
+    FROM public.staff st
+    JOIN public.employment_categories ec ON ec.id = st.category_id
+    WHERE st.id = ANY(p_staff_ids)
+  ), d AS (
+    SELECT gs::date AS wd FROM generate_series(p_from, p_to, interval '1 day') gs
+  )
+  SELECT
+    s.id,
+    d.wd,
+    t.id,
+    CASE WHEN t.id IS NULL THEN NULL
+         WHEN (EXTRACT(ISODOW FROM d.wd) = 6
+               AND EXTRACT(DAY FROM d.wd) BETWEEN 8 AND 14
+               AND t.second_saturday_holiday) THEN false
+         ELSE t.is_working_day END,
+    CASE WHEN (EXTRACT(ISODOW FROM d.wd) = 6
+               AND EXTRACT(DAY FROM d.wd) BETWEEN 8 AND 14
+               AND t.second_saturday_holiday) THEN NULL ELSE t.first_half_start  END,
+    CASE WHEN (EXTRACT(ISODOW FROM d.wd) = 6
+               AND EXTRACT(DAY FROM d.wd) BETWEEN 8 AND 14
+               AND t.second_saturday_holiday) THEN NULL ELSE t.first_half_end    END,
+    CASE WHEN (EXTRACT(ISODOW FROM d.wd) = 6
+               AND EXTRACT(DAY FROM d.wd) BETWEEN 8 AND 14
+               AND t.second_saturday_holiday) THEN NULL ELSE t.second_half_start END,
+    CASE WHEN (EXTRACT(ISODOW FROM d.wd) = 6
+               AND EXTRACT(DAY FROM d.wd) BETWEEN 8 AND 14
+               AND t.second_saturday_holiday) THEN NULL ELSE t.second_half_end   END,
+    t.grace_minutes,
+    CASE WHEN t.id IS NULL THEN NULL
+         WHEN (EXTRACT(ISODOW FROM d.wd) = 6
+               AND EXTRACT(DAY FROM d.wd) BETWEEN 8 AND 14
+               AND t.second_saturday_holiday) THEN 'second_saturday_holiday'
+         ELSE t.staff_scope END
+  FROM s
+  CROSS JOIN d
+  LEFT JOIN LATERAL public.fn_shift_timing_pick(
+    s.institution_id, s.category_id, s.is_teaching, s.gender,
+    EXTRACT(ISODOW FROM d.wd)::smallint, d.wd,
+    public.fn_staff_work_pattern_id(s.id, d.wd)) t ON true;
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.generate_hr_leave_balances(p_hr_org_id uuid, p_hr_academic_year_id uuid, p_dry_run boolean DEFAULT false)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE
+  v_created   integer := 0;
+  v_skipped   integer := 0;
+  v_fallback  jsonb   := '[]'::jsonb;
+  v_inst_id   uuid;
+  v_prior_ay  uuid;
+  v_start     date;
+  v_end       date;
+  v_on        date;
+  r           record;
+BEGIN
+  IF NOT public.user_has_permission('hr.leave.balance.manage') THEN
+    RAISE EXCEPTION 'Insufficient permission: hr.leave.balance.manage required';
+  END IF;
+
+  SELECT institution_id INTO v_inst_id FROM public.hr_organizations WHERE id = p_hr_org_id;
+  IF v_inst_id IS NULL THEN
+    RAISE EXCEPTION 'Unknown hr_organization_id %', p_hr_org_id;
+  END IF;
+
+  IF NOT public.role_has_institution_access(v_inst_id) THEN
+    RAISE EXCEPTION 'Access denied: you do not have access to institution %', v_inst_id;
+  END IF;
+
+  SELECT start_date, end_date INTO v_start, v_end FROM public.hr_academic_years WHERE id = p_hr_academic_year_id;
+  IF v_start IS NULL THEN
+    RAISE EXCEPTION 'Unknown hr_academic_year_id %', p_hr_academic_year_id;
+  END IF;
+
+  -- The day the pattern is read on: today, clamped into the year — the same
+  -- convention hr_leave_balance_staff_detail uses for its STO window.
+  v_on := LEAST(GREATEST(CURRENT_DATE, v_start), v_end);
+
+  -- Group-wide years, so the prior year is simply the previous one -- no
+  -- institution term, and no risk of picking another college's row.
+  SELECT id INTO v_prior_ay
+  FROM public.hr_academic_years
+  WHERE end_date < v_start
+  ORDER BY end_date DESC
+  LIMIT 1;
+
+  FOR r IN
+    SELECT
+      s.id  AS staff_id,
+      s.staff_id AS staff_code,
+      s.first_name,
+      s.last_name,
+      d.cadre_id,
+      t.id  AS leave_type_id,
+      t.default_entitled_days,
+      t.allow_carry_forward,
+      t.max_carry_forward_days,
+      e.entitled_days AS cadre_entitled,
+      asg.n           AS assignment_count,
+      m.entitled_days AS assigned_entitled,
+      m.scope_kind    AS assigned_scope,
+      wp.entitled_days AS pattern_entitled
+    FROM public.staff s
+    CROSS JOIN public.hr_leave_types t
+    LEFT JOIN public.hr_staff_details d ON d.staff_id = s.id
+    LEFT JOIN public.hr_leave_type_entitlements e
+           ON e.leave_type_id = t.id AND e.cadre_id = d.cadre_id
+    LEFT JOIN LATERAL (
+      SELECT count(*) AS n
+      FROM public.hr_leave_type_assignments a
+      WHERE a.leave_type_id = t.id AND a.is_active
+    ) asg ON true
+    LEFT JOIN LATERAL (
+      SELECT a.entitled_days, a.scope_kind
+      FROM public.hr_leave_type_assignments a
+      WHERE a.leave_type_id = t.id
+        AND a.is_active
+        AND (
+             (a.scope_kind = 'staff'        AND a.staff_id      = s.id)
+          OR (a.scope_kind = 'department'   AND a.department_id = s.department_id)
+          OR (a.scope_kind = 'organization')
+        )
+      ORDER BY CASE a.scope_kind
+                 WHEN 'staff' THEN 1 WHEN 'department' THEN 2 ELSE 3 END
+      LIMIT 1
+    ) m ON true
+    LEFT JOIN LATERAL (
+      SELECT pe.entitled_days
+      FROM public.hr_staff_work_pattern_assignments a
+      JOIN public.hr_work_pattern_leave_entitlements pe
+        ON pe.work_pattern_id = a.work_pattern_id AND pe.leave_type_id = t.id
+      WHERE a.staff_id = s.id
+        AND a.effective_from <= v_on
+        AND (a.effective_until IS NULL OR a.effective_until > v_on)
+      ORDER BY a.effective_from DESC
+      LIMIT 1
+    ) wp ON true
+    WHERE s.institution_id = v_inst_id
+      AND s.is_active
+      AND t.hr_organization_id = p_hr_org_id
+      AND t.is_active
+      -- The eligibility gate. A type with assignments applies only to the
+      -- people they name; the pattern step must not resurrect anyone else.
+      AND (asg.n = 0 OR m.scope_kind IS NOT NULL)
+      AND (t.applicable_cadre_ids IS NULL OR d.cadre_id = ANY(t.applicable_cadre_ids))
+      AND (
+        t.applicable_gender = 'all'
+        OR lower(coalesce(s.gender, '')) = t.applicable_gender
+      )
+  LOOP
+    DECLARE
+      v_entitled numeric;
+      v_carried  numeric := 0;
+      v_written  boolean := false;
+    BEGIN
+      -- IS NOT NULL, not COALESCE-truthiness: an override of 0 is a real
+      -- decision ("eligible, but no days"), not an absent one.
+      --
+      -- A staff-level assignment is the most specific statement about one
+      -- person and beats the pattern; the pattern beats the department- and
+      -- organization-wide ones, the cadre figure and the type default.
+      v_entitled := CASE
+        WHEN r.assigned_scope = 'staff' AND r.assigned_entitled IS NOT NULL THEN r.assigned_entitled
+        WHEN r.pattern_entitled IS NOT NULL                                  THEN r.pattern_entitled
+        WHEN r.assigned_entitled IS NOT NULL                                 THEN r.assigned_entitled
+        WHEN r.cadre_entitled    IS NOT NULL                                 THEN r.cadre_entitled
+        ELSE r.default_entitled_days
+      END;
+
+      IF r.allow_carry_forward AND v_prior_ay IS NOT NULL THEN
+        SELECT GREATEST(0, (b.entitled + b.carried_forward - b.used))
+          INTO v_carried
+        FROM public.hr_leave_balances b
+        WHERE b.employee_id         = r.staff_id
+          AND b.leave_type_id       = r.leave_type_id
+          AND b.hr_academic_year_id = v_prior_ay;
+
+        v_carried := COALESCE(v_carried, 0);
+        IF r.max_carry_forward_days IS NOT NULL THEN
+          v_carried := LEAST(v_carried, r.max_carry_forward_days);
+        END IF;
+      END IF;
+
+      IF p_dry_run THEN
+        IF EXISTS (
+          SELECT 1 FROM public.hr_leave_balances b
+          WHERE b.employee_id         = r.staff_id
+            AND b.leave_type_id       = r.leave_type_id
+            AND b.hr_academic_year_id = p_hr_academic_year_id
+        ) THEN
+          v_skipped := v_skipped + 1;
+        ELSE
+          v_created := v_created + 1;
+          v_written := true;
+        END IF;
+      ELSE
+        INSERT INTO public.hr_leave_balances (
+          employee_id, leave_type_id, hr_academic_year_id, hr_organization_id,
+          entitled, used, carried_forward
+        ) VALUES (
+          r.staff_id, r.leave_type_id, p_hr_academic_year_id, p_hr_org_id,
+          v_entitled, 0, v_carried
+        )
+        ON CONFLICT (employee_id, leave_type_id, hr_academic_year_id) DO NOTHING;
+
+        IF FOUND THEN
+          v_created := v_created + 1;
+          v_written := true;
+        ELSE
+          v_skipped := v_skipped + 1;
+        END IF;
+      END IF;
+
+      IF v_written
+         AND r.assigned_entitled IS NULL
+         AND r.pattern_entitled IS NULL
+         AND r.cadre_entitled IS NULL THEN
+        v_fallback := v_fallback || jsonb_build_object(
+          'staff_code', r.staff_code,
+          'name', trim(coalesce(r.first_name,'') || ' ' || coalesce(r.last_name,'')),
+          'reason', CASE WHEN r.cadre_id IS NULL
+                         THEN 'no cadre assigned'
+                         ELSE 'no entitlement row for cadre' END
+        );
+      END IF;
+    END;
+  END LOOP;
+
+  RETURN jsonb_build_object(
+    'dry_run',        p_dry_run,
+    'created',        v_created,
+    'skipped',        v_skipped,
+    'prior_year_id',  v_prior_ay,
+    'fallback_count', jsonb_array_length(v_fallback),
+    'fallback',       v_fallback
+  );
+END
+$function$;
+
+
+-- =====================================================================
+-- Work patterns (2026-09-04)
+-- Source: 20260904120000_hr_work_patterns.sql
+-- =====================================================================
+
+CREATE OR REPLACE FUNCTION public.fn_staff_work_pattern_id(p_staff_id uuid, p_date date)
+RETURNS uuid
+LANGUAGE sql
+STABLE
+AS $function$
+  SELECT a.work_pattern_id
+  FROM public.hr_staff_work_pattern_assignments a
+  WHERE a.staff_id = p_staff_id
+    AND a.effective_from <= p_date
+    AND (a.effective_until IS NULL OR a.effective_until > p_date)
+  ORDER BY a.effective_from DESC
+  LIMIT 1;
+$function$;
+
+COMMENT ON FUNCTION public.fn_staff_work_pattern_id(uuid, date) IS
+  'The work pattern a staff member holds on a date, or NULL. Ignores the pattern''s is_active on purpose: history must keep resolving as it was recorded.';
+
+CREATE OR REPLACE FUNCTION public.fn_hr_assign_work_pattern(
+  p_staff_ids       uuid[],
+  p_work_pattern_id uuid,
+  p_effective_from  date,
+  p_notes           text DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_actor        uuid := auth.uid();
+  v_removing     boolean := (p_work_pattern_id IS NULL);
+  v_pattern      public.hr_work_patterns%ROWTYPE;
+  v_sid          uuid;
+  v_staff        record;
+  v_prev_pattern uuid;
+  v_prev_name    text;
+  v_changes      jsonb;
+  v_rows         jsonb := '[]'::jsonb;
+  r              record;
+BEGIN
+  IF p_effective_from IS NULL THEN
+    RAISE EXCEPTION 'An effective date is required' USING ERRCODE = '22023';
+  END IF;
+  IF p_staff_ids IS NULL OR cardinality(p_staff_ids) = 0 THEN
+    RAISE EXCEPTION 'No staff selected' USING ERRCODE = '22023';
+  END IF;
+
+  IF NOT v_removing THEN
+    SELECT * INTO v_pattern FROM public.hr_work_patterns WHERE id = p_work_pattern_id;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'Work pattern % not found', p_work_pattern_id USING ERRCODE = 'P0002';
+    END IF;
+    IF NOT v_pattern.is_active THEN
+      RAISE EXCEPTION 'Work pattern "%" is inactive', v_pattern.name USING ERRCODE = '22023';
+    END IF;
+
+    IF NOT (
+         public.is_super_admin()
+      OR public.is_admin()
+      OR (public.user_has_permission('hr.shift_timings.manage')
+          AND public.role_has_institution_access(v_pattern.institution_id))
+    ) THEN
+      RAISE EXCEPTION 'Not authorized to assign work patterns at this institution'
+        USING ERRCODE = '42501';
+    END IF;
+
+    -- The mask does nothing for a date the pattern has no days for, which
+    -- would silently give the member the full institution week. Refuse here.
+    IF public.fn_work_pattern_days(p_work_pattern_id, p_effective_from) IS NULL THEN
+      RAISE EXCEPTION 'Work pattern "%" has no working days in force on %. Save the pattern''s working days first.',
+        v_pattern.name, to_char(p_effective_from, 'DD Mon YYYY')
+        USING ERRCODE = '22023';
+    END IF;
+  END IF;
+
+  FOREACH v_sid IN ARRAY p_staff_ids LOOP
+    SELECT s.id,
+           s.staff_id AS staff_code,
+           btrim(coalesce(s.first_name, '') || ' ' || coalesce(s.last_name, '')) AS name,
+           s.institution_id
+      INTO v_staff
+      FROM public.staff s
+     WHERE s.id = v_sid;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'Staff member % not found', v_sid USING ERRCODE = 'P0002';
+    END IF;
+
+    -- Per row, not once: a uuid[] would otherwise be a bulk cross-institution write.
+    IF NOT v_removing AND v_staff.institution_id <> v_pattern.institution_id THEN
+      RAISE EXCEPTION '% (%) works at a different institution from the work pattern',
+        v_staff.name, coalesce(v_staff.staff_code, '?') USING ERRCODE = '22023';
+    END IF;
+    IF v_removing AND NOT (
+         public.is_super_admin()
+      OR public.is_admin()
+      OR (public.user_has_permission('hr.shift_timings.manage')
+          AND public.role_has_institution_access(v_staff.institution_id))
+    ) THEN
+      RAISE EXCEPTION 'Not authorized to change work patterns at this institution'
+        USING ERRCODE = '42501';
+    END IF;
+
+    SELECT a.work_pattern_id, p.name
+      INTO v_prev_pattern, v_prev_name
+      FROM public.hr_staff_work_pattern_assignments a
+      JOIN public.hr_work_patterns p ON p.id = a.work_pattern_id
+     WHERE a.staff_id = v_sid
+       AND a.effective_from <= p_effective_from
+       AND (a.effective_until IS NULL OR a.effective_until > p_effective_from)
+     ORDER BY a.effective_from DESC
+     LIMIT 1;
+    IF NOT FOUND THEN
+      v_prev_pattern := NULL;
+      v_prev_name    := NULL;
+    END IF;
+
+    DELETE FROM public.hr_staff_work_pattern_assignments
+     WHERE staff_id = v_sid
+       AND effective_from >= p_effective_from;
+
+    UPDATE public.hr_staff_work_pattern_assignments
+       SET effective_until = p_effective_from,
+           updated_by      = v_actor
+     WHERE staff_id = v_sid
+       AND effective_from < p_effective_from
+       AND (effective_until IS NULL OR effective_until > p_effective_from);
+
+    IF NOT v_removing THEN
+      INSERT INTO public.hr_staff_work_pattern_assignments (
+        staff_id, work_pattern_id, institution_id, effective_from, notes, created_by, updated_by
+      ) VALUES (
+        v_sid, p_work_pattern_id, v_pattern.institution_id, p_effective_from, p_notes, v_actor, v_actor
+      );
+    END IF;
+
+    -- Resync open balances: every leave type the NEW or the PREVIOUS pattern
+    -- speaks for. UPDATE only — generate_hr_leave_balances inserts ON CONFLICT
+    -- DO NOTHING and would skip a row created here for ever.
+    v_changes := '[]'::jsonb;
+    FOR r IN
+      WITH touched AS (
+        SELECT e.leave_type_id FROM public.hr_work_pattern_leave_entitlements e
+         WHERE e.work_pattern_id = p_work_pattern_id
+        UNION
+        SELECT e.leave_type_id FROM public.hr_work_pattern_leave_entitlements e
+         WHERE e.work_pattern_id = v_prev_pattern
+      )
+      SELECT b.employee_id, b.leave_type_id, b.hr_academic_year_id,
+             t.leave_type_code, y.year_name,
+             COALESCE(o.entitled_days, b.entitled, t.default_entitled_days)   AS before_eff,
+             ne.entitled_days                                                  AS new_raw,
+             COALESCE(o.entitled_days, ne.entitled_days, t.default_entitled_days) AS after_eff,
+             (o.id IS NOT NULL)                                                AS overridden
+        FROM public.hr_leave_balances b
+        JOIN touched tp ON tp.leave_type_id = b.leave_type_id
+        JOIN public.hr_leave_types t ON t.id = b.leave_type_id
+        JOIN public.hr_academic_years y ON y.id = b.hr_academic_year_id
+        LEFT JOIN public.hr_leave_entitlement_overrides o
+               ON o.employee_id = b.employee_id
+              AND o.leave_type_id = b.leave_type_id
+              AND o.hr_academic_year_id = b.hr_academic_year_id
+        LEFT JOIN public.hr_work_pattern_leave_entitlements ne
+               ON ne.work_pattern_id = p_work_pattern_id
+              AND ne.leave_type_id = b.leave_type_id
+       WHERE b.employee_id = v_sid
+         AND t.request_category = 'leave'
+         AND y.frozen_at IS NULL
+         AND y.end_date >= p_effective_from
+       ORDER BY y.start_date, t.display_order
+    LOOP
+      UPDATE public.hr_leave_balances
+         SET entitled   = r.new_raw,
+             updated_at = now()
+       WHERE employee_id         = r.employee_id
+         AND leave_type_id       = r.leave_type_id
+         AND hr_academic_year_id = r.hr_academic_year_id;
+
+      v_changes := v_changes || jsonb_build_object(
+        'leave_type_code', r.leave_type_code,
+        'year_name',       r.year_name,
+        'from',            r.before_eff,
+        'to',              r.after_eff,
+        'overridden',      r.overridden
+      );
+    END LOOP;
+
+    v_rows := v_rows || jsonb_build_object(
+      'staff_id',         v_sid,
+      'staff_code',       v_staff.staff_code,
+      'name',             v_staff.name,
+      'previous_pattern', v_prev_name,
+      'changes',          v_changes
+    );
+  END LOOP;
+
+  RETURN jsonb_build_object(
+    'pattern_id',     p_work_pattern_id,
+    'pattern_name',   CASE WHEN v_removing THEN NULL ELSE v_pattern.name END,
+    'effective_from', p_effective_from,
+    'removed',        v_removing,
+    'staff_count',    cardinality(p_staff_ids),
+    'staff',          v_rows
+  );
+END;
+$function$;
+
+COMMENT ON FUNCTION public.fn_hr_assign_work_pattern(uuid[], uuid, date, text) IS
+  'Put staff on a work pattern (NULL pattern = take them off) from a date, and resync their open leave balances to the pattern''s figures (update-only; used days kept). Returns per-staff before/after per leave type.';
+
+CREATE OR REPLACE FUNCTION public.trg_wpa_stamp_institution()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_pattern_inst uuid;
+  v_staff_inst   uuid;
+BEGIN
+  SELECT institution_id INTO v_pattern_inst FROM public.hr_work_patterns WHERE id = NEW.work_pattern_id;
+  SELECT institution_id INTO v_staff_inst   FROM public.staff            WHERE id = NEW.staff_id;
+
+  IF v_pattern_inst IS NULL THEN
+    RAISE EXCEPTION 'Work pattern % not found', NEW.work_pattern_id USING ERRCODE = 'P0002';
+  END IF;
+  IF v_staff_inst IS DISTINCT FROM v_pattern_inst THEN
+    RAISE EXCEPTION 'Staff member works at a different institution from the work pattern'
+      USING ERRCODE = '23514';
+  END IF;
+
+  NEW.institution_id := v_pattern_inst;
+  RETURN NEW;
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.trg_wple_same_institution()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_pattern_inst uuid;
+  v_type_inst    uuid;
+  v_category     text;
+BEGIN
+  SELECT p.institution_id INTO v_pattern_inst
+    FROM public.hr_work_patterns p WHERE p.id = NEW.work_pattern_id;
+
+  SELECT o.institution_id, t.request_category INTO v_type_inst, v_category
+    FROM public.hr_leave_types t
+    JOIN public.hr_organizations o ON o.id = t.hr_organization_id
+   WHERE t.id = NEW.leave_type_id;
+
+  IF v_type_inst IS NULL THEN
+    RAISE EXCEPTION 'Leave type % not found', NEW.leave_type_id USING ERRCODE = 'P0002';
+  END IF;
+  IF v_type_inst IS DISTINCT FROM v_pattern_inst THEN
+    RAISE EXCEPTION 'Leave type belongs to a different institution from the work pattern'
+      USING ERRCODE = '23514';
+  END IF;
+  IF v_category IS DISTINCT FROM 'leave' THEN
+    RAISE EXCEPTION 'Only day-based leave types can carry a work-pattern entitlement (this one is %)', v_category
+      USING ERRCODE = '23514';
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.trg_wp_guard_deactivate()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_live integer;
+BEGIN
+  IF OLD.is_active AND NOT NEW.is_active THEN
+    SELECT count(*) INTO v_live
+      FROM public.hr_staff_work_pattern_assignments a
+     WHERE a.work_pattern_id = NEW.id
+       AND (a.effective_until IS NULL OR a.effective_until > CURRENT_DATE);
+    IF v_live > 0 THEN
+      RAISE EXCEPTION '% staff member(s) are still on this work pattern. Remove them before deactivating it.', v_live
+        USING ERRCODE = '23503';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_staff_work_pattern_id(uuid, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_staff_work_pattern_id(uuid, date) TO authenticated, service_role;
+
+REVOKE ALL ON FUNCTION public.fn_shift_timing_pick(uuid, uuid, boolean, text, smallint, date, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_shift_timing_pick(uuid, uuid, boolean, text, smallint, date, uuid) TO authenticated, service_role;
+
+REVOKE ALL ON FUNCTION public.fn_save_shift_timing_week(uuid, text, uuid, date, jsonb, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_save_shift_timing_week(uuid, text, uuid, date, jsonb, text) TO authenticated;
+
+REVOKE ALL ON FUNCTION public.fn_hr_assign_work_pattern(uuid[], uuid, date, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_hr_assign_work_pattern(uuid[], uuid, date, text) TO authenticated;
+
+
+-- ============================================================================
+-- Work patterns — delete (2026-09-04, 20260904150000_hr_work_pattern_delete.sql)
+-- ============================================================================
+
+-- Delete a work pattern that nobody has ever held.
+--
+-- WHY AN RPC. hr_shift_timings' DELETE policy is is_admin()-only, so an HR
+-- Admin (who may create patterns and save their weeks) could never remove the
+-- week rows from the client — the delete would half-succeed and leave seven
+-- orphaned timing rows behind a RESTRICT foreign key. One DEFINER function
+-- does the whole thing or none of it.
+--
+-- WHY ONLY NEVER-HELD PATTERNS. The resolvers read a pattern's rows per date:
+-- fn_staff_work_pattern_id finds the (possibly ended) assignment, and
+-- fn_shift_timing_pick then matches ONLY that pattern's rows. Deleting a
+-- pattern someone once held would make every recompute of those months resolve
+-- to nothing — the attendance that was correct when recorded is rewritten as
+-- "no shift window". The foreign keys already refuse that; this function turns
+-- the refusal into a sentence and points at Deactivate, which is the
+-- history-preserving way to retire a pattern.
+
+CREATE OR REPLACE FUNCTION public.fn_hr_delete_work_pattern(p_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_pattern public.hr_work_patterns%ROWTYPE;
+  v_held    integer;
+  v_weeks   integer;
+BEGIN
+  SELECT * INTO v_pattern FROM public.hr_work_patterns WHERE id = p_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Work pattern % not found', p_id USING ERRCODE = 'P0002';
+  END IF;
+
+  IF NOT (
+       public.is_super_admin()
+    OR public.is_admin()
+    OR (public.user_has_permission('hr.shift_timings.manage')
+        AND public.role_has_institution_access(v_pattern.institution_id))
+  ) THEN
+    RAISE EXCEPTION 'Not authorized to delete work patterns at this institution'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- ANY assignment, live or ended: history is what is being protected.
+  SELECT count(DISTINCT a.staff_id) INTO v_held
+    FROM public.hr_staff_work_pattern_assignments a
+   WHERE a.work_pattern_id = p_id;
+
+  IF v_held > 0 THEN
+    RAISE EXCEPTION '"%" has been held by % staff member(s). Their attendance history resolves through it, so it cannot be deleted. Remove any current members and deactivate it instead.',
+      v_pattern.name, v_held
+      USING ERRCODE = '23503';
+  END IF;
+
+  SELECT count(*) INTO v_weeks FROM public.hr_work_pattern_weeks WHERE work_pattern_id = p_id;
+
+  -- Days and entitlements cascade from the pattern row.
+  DELETE FROM public.hr_work_patterns WHERE id = p_id;
+
+  RETURN jsonb_build_object(
+    'deleted',       true,
+    'name',          v_pattern.name,
+    'weeks_removed', v_weeks
+  );
+END;
+$function$;
+
+COMMENT ON FUNCTION public.fn_hr_delete_work_pattern(uuid) IS
+  'Delete a work pattern (its week rows and leave figures with it) only if no staff member has ever been assigned to it; otherwise refuses and points at deactivation.';
+
+REVOKE ALL ON FUNCTION public.fn_hr_delete_work_pattern(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_hr_delete_work_pattern(uuid) TO authenticated;
+
+-- ============================================================================
+-- Work patterns — days only (2026-09-04, 20260904190000_hr_work_patterns_days_only.sql)
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public.fn_work_pattern_days(p_pattern_id uuid, p_date date)
+RETURNS smallint[]
+LANGUAGE sql
+STABLE
+AS $function$
+  SELECT w.working_days
+  FROM public.hr_work_pattern_weeks w
+  WHERE w.work_pattern_id = p_pattern_id
+    AND w.effective_from <= p_date
+    AND (w.effective_until IS NULL OR w.effective_until > p_date)
+  ORDER BY w.effective_from DESC
+  LIMIT 1;
+$function$;
+
+COMMENT ON FUNCTION public.fn_work_pattern_days(uuid, date) IS
+  'The working weekdays (ISO 1..7) a work pattern is in force for on a date, or NULL.';
+
+CREATE OR REPLACE FUNCTION public.fn_hr_set_work_pattern_days(
+  p_pattern_id     uuid,
+  p_working_days   smallint[],
+  p_effective_from date,
+  p_notes          text DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_pattern    public.hr_work_patterns%ROWTYPE;
+  v_actor      uuid := auth.uid();
+  v_days       smallint[];
+  v_current    public.hr_work_pattern_weeks%ROWTYPE;
+  v_superseded boolean := false;
+BEGIN
+  SELECT * INTO v_pattern FROM public.hr_work_patterns WHERE id = p_pattern_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Work pattern % not found', p_pattern_id USING ERRCODE = 'P0002';
+  END IF;
+
+  IF NOT (
+       public.is_super_admin()
+    OR public.is_admin()
+    OR (public.user_has_permission('hr.shift_timings.manage')
+        AND public.role_has_institution_access(v_pattern.institution_id))
+  ) THEN
+    RAISE EXCEPTION 'Not authorized to configure work patterns at this institution'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF p_effective_from IS NULL THEN
+    RAISE EXCEPTION 'An effective date is required' USING ERRCODE = '22023';
+  END IF;
+
+  SELECT array_agg(DISTINCT d ORDER BY d) INTO v_days
+    FROM unnest(COALESCE(p_working_days, ARRAY[]::smallint[])) AS d
+   WHERE d BETWEEN 1 AND 7;
+  IF v_days IS NULL OR cardinality(v_days) = 0 THEN
+    RAISE EXCEPTION 'Pick at least one working day' USING ERRCODE = '22023';
+  END IF;
+
+  SELECT * INTO v_current
+    FROM public.hr_work_pattern_weeks
+   WHERE work_pattern_id = p_pattern_id
+     AND effective_until IS NULL
+   ORDER BY effective_from DESC
+   LIMIT 1;
+
+  IF NOT FOUND THEN
+    INSERT INTO public.hr_work_pattern_weeks (
+      work_pattern_id, working_days, effective_from, notes, created_by, updated_by
+    ) VALUES (
+      p_pattern_id, v_days, p_effective_from, p_notes, v_actor, v_actor
+    );
+
+  ELSIF p_effective_from <= v_current.effective_from THEN
+    DELETE FROM public.hr_work_pattern_weeks
+     WHERE work_pattern_id = p_pattern_id
+       AND id <> v_current.id
+       AND effective_from >= p_effective_from;
+
+    UPDATE public.hr_work_pattern_weeks
+       SET effective_until = p_effective_from,
+           updated_by      = v_actor
+     WHERE work_pattern_id = p_pattern_id
+       AND id <> v_current.id
+       AND effective_from < p_effective_from
+       AND (effective_until IS NULL OR effective_until > p_effective_from);
+
+    UPDATE public.hr_work_pattern_weeks
+       SET working_days   = v_days,
+           effective_from = p_effective_from,
+           notes          = p_notes,
+           updated_by     = v_actor
+     WHERE id = v_current.id;
+
+  ELSE
+    UPDATE public.hr_work_pattern_weeks
+       SET effective_until = p_effective_from,
+           updated_by      = v_actor
+     WHERE id = v_current.id;
+
+    INSERT INTO public.hr_work_pattern_weeks (
+      work_pattern_id, working_days, effective_from, notes, created_by, updated_by
+    ) VALUES (
+      p_pattern_id, v_days, p_effective_from, p_notes, v_actor, v_actor
+    );
+    v_superseded := true;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'pattern_id',     p_pattern_id,
+    'working_days',   to_jsonb(v_days),
+    'effective_from', p_effective_from,
+    'superseded',     v_superseded
+  );
+END;
+$function$;
+
+COMMENT ON FUNCTION public.fn_hr_set_work_pattern_days(uuid, smallint[], date, text) IS
+  'Set a work pattern''s working weekdays (ISO 1..7) effective from a date. Closes the previous days row at that date, or rewrites it when backdating — the same rule as saving a shift-timing week.';
+
+REVOKE ALL ON FUNCTION public.fn_work_pattern_days(uuid, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_work_pattern_days(uuid, date) TO authenticated, service_role;
+
+REVOKE ALL ON FUNCTION public.fn_hr_set_work_pattern_days(uuid, smallint[], date, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_hr_set_work_pattern_days(uuid, smallint[], date, text) TO authenticated;
+
+-- Mirrored from supabase/migrations/20260905120000_hr_leave_approval_queue_documents.sql
+-- Approval queue returns the supporting documents, so the queue can show them.
+--
+-- The Approvals table had no way to know a request carried a medical
+-- certificate: hr_leave_approval_queue() returned 34 columns and documents was
+-- not one of them, so the only route to the evidence was open the row menu ->
+-- View -> wait for a SECOND fetch (/hr/leave/applications/[id]) to come back.
+-- 102 of the 816 open requests carry a document; an approver clearing a queue
+-- had to open every row to find out which.
+--
+-- The column is free here. The queue already selects from hr_leave_applications
+-- as `a` -- documents is one more column off a row that is already being read,
+-- not a join, a subquery or a second scan. That is exactly why this belongs in
+-- the RPC and not in a companion query: a client-side .in('id', ...) over
+-- hr_leave_applications runs under RLS, and hla_select is the policy that put
+-- this queue into 57014 statement timeouts for 94 HODs in September.
+--
+-- COALESCE because the column is nullable (default '[]'), and a null would make
+-- the client test `documents.length` on nothing.
+--
+-- Adding a column to a RETURNS TABLE function requires DROP; CREATE OR REPLACE
+-- cannot change the return type. Everything below the signature is the body
+-- CURRENTLY DEPLOYED (pg_get_functiondef, 2026-09-05 -- which carries the
+-- v_key / fn_is_designated_leave_approver widening from
+-- 20260903_* that the 20260829 file on disk predates) apart from the new final
+-- column.
+--
+-- GRANTS ARE NOT AUTOMATIC AFTER A DROP. Dropping a function drops its ACL, and
+-- the recreated one inherits the default EXECUTE-to-PUBLIC instead. The 0829
+-- migration dropped without re-granting, which is why proacl currently reads
+-- `{=X/postgres,...}` -- PUBLIC, and therefore anon, holds EXECUTE on the leave
+-- approval queue. Harmless in practice (the body returns immediately on a null
+-- auth.uid() and raises 42501 without hr_can_approve_leave()), but it is not
+-- what the original migration intended. Restored below.
+
+DROP FUNCTION IF EXISTS public.hr_leave_approval_queue();
+
+CREATE FUNCTION public.hr_leave_approval_queue()
+ RETURNS TABLE(id uuid, employee_id uuid, staff_name text, staff_code text, institution_id uuid, institution_name text, hr_organization_id uuid, hr_organization_name text, leave_type_id uuid, leave_type_name text, leave_type_code text, request_category text, start_date date, end_date date, start_time time without time zone, end_time time without time zone, duration_type text, duration_minutes integer, total_days numeric, reason text, is_emergency boolean, status text, created_at timestamp with time zone, applied_by uuid, applied_by_name text, applied_on_behalf boolean, final_approver_id uuid, final_approver_name text, final_decided_at timestamp with time zone, rejection_reason text, is_own boolean, can_decide boolean, waiting_on_me boolean, biometric_gap_from date, documents jsonb)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE
+  v_uid  uuid := auth.uid();
+  v_sa   boolean;
+  v_orgs uuid[];
+  v_mine uuid[];
+  v_key  boolean;
+BEGIN
+  IF v_uid IS NULL THEN RETURN; END IF;
+
+  IF NOT public.hr_can_approve_leave() THEN
+    RAISE EXCEPTION 'You do not have permission to approve leave' USING ERRCODE = '42501';
+  END IF;
+
+  v_sa   := public.is_super_admin();
+  v_orgs := COALESCE(public.fn_my_hr_organization_ids(), ARRAY[]::uuid[]);
+  v_mine := COALESCE(public.fn_my_staff_ids(), ARRAY[]::uuid[]);
+  v_key  := public.user_has_permission('hr.leave.approve');
+
+  RETURN QUERY
+  SELECT
+    a.id, a.employee_id,
+    NULLIF(btrim(concat_ws(' ', s.first_name, s.last_name)), '')::text,
+    NULLIF(btrim(s.staff_id), '')::text,
+    s.institution_id, i.name::text,
+    a.hr_organization_id, o.name::text,
+    a.leave_type_id, lt.leave_type_name::text, lt.leave_type_code::text,
+    COALESCE(lt.request_category, 'leave')::text,
+    a.start_date, a.end_date, a.start_time, a.end_time,
+    a.duration_type::text, a.duration_minutes, a.total_days,
+    a.reason, a.is_emergency, a.status::text, a.created_at, a.applied_by,
+    COALESCE(NULLIF(btrim(p.full_name), ''), p.email)::text,
+    (a.applied_by IS DISTINCT FROM s.profile_id),
+    a.final_approver_id,
+    COALESCE(NULLIF(btrim(fp.full_name), ''), fp.email)::text,
+    a.final_decided_at, a.rejection_reason,
+    (a.employee_id = ANY (v_mine)) AS is_own,
+    (a.status IN ('pending','escalated') AND (v_sa OR a.employee_id <> ALL (v_mine))) AS can_decide,
+    (
+      a.status IN ('pending', 'escalated')
+      AND (v_sa OR a.employee_id <> ALL (v_mine))
+      AND (
+        st.step IS NULL
+        OR NOT EXISTS (
+          SELECT 1
+          FROM public.fn_leave_step_approvers(st.step) e
+          LEFT JOIN public.custom_roles cr ON cr.role_key = e.approver_role AND cr.is_active
+          WHERE e.approver_user_id IS NOT NULL OR cr.role_key IS NOT NULL
+        )
+        OR public.fn_leave_step_admits(st.step, v_uid, a.hr_organization_id)
+      )
+    ) AS waiting_on_me,
+    CASE
+      WHEN a.status IN ('pending', 'escalated')
+        THEN public.fn_hr_leave_biometric_gap(a.employee_id, a.leave_type_id, a.start_date, a.end_date)
+      ELSE NULL
+    END AS biometric_gap_from,
+    COALESCE(a.documents, '[]'::jsonb) AS documents
+  FROM public.hr_leave_applications a
+  LEFT JOIN public.hr_leave_types   lt ON lt.id = a.leave_type_id
+  LEFT JOIN public.staff            s  ON s.id  = a.employee_id
+  LEFT JOIN public.institutions     i  ON i.id  = s.institution_id
+  LEFT JOIN public.hr_organizations o  ON o.id  = a.hr_organization_id
+  LEFT JOIN public.profiles         p  ON p.id  = a.applied_by
+  LEFT JOIN public.profiles         fp ON fp.id = a.final_approver_id
+  CROSS JOIN LATERAL (SELECT a.approval_chain -> a.current_step AS step) st
+  WHERE (
+      a.status IN ('pending', 'escalated')
+      OR a.final_decided_at >= now() - interval '12 months'
+      OR (a.status IN ('withdrawn','cancelled') AND a.updated_at >= now() - interval '12 months')
+    )
+    AND (
+      v_sa
+      OR (v_key AND a.hr_organization_id = ANY (v_orgs))
+      OR public.fn_is_designated_leave_approver(a.id)
+    )
+  ORDER BY a.created_at DESC;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.hr_leave_approval_queue() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.hr_leave_approval_queue() TO authenticated;
+
+COMMENT ON FUNCTION public.hr_leave_approval_queue() IS
+  'Leave/STO approval queue for the caller. documents is the raw '
+  'hr_leave_applications.documents array so the queue can show a viewer '
+  'without a second fetch per row.';
+
+-- Mirrored from supabase/migrations/20260905160000_hr_one_request_per_day.sql
+-- (the one-time cleanup DO block lives only in the migration).
+
+-- and a comp-off insert for one employee cannot race past each other.
+
+-- ---------------------------------------------------------------------------
+-- 1. The predicate
+-- ---------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION public.fn_hr_day_occupancy_clash(
+  p_employee_id       uuid,
+  p_from              date,
+  p_to                date,
+  p_exclude_leave_id  uuid DEFAULT NULL,
+  p_exclude_credit_id uuid DEFAULT NULL
+)
+RETURNS text
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE
+  v_leave  record;
+  v_credit record;
+BEGIN
+  -- A caller with nothing to check is not a clash. Returning NULL rather than
+  -- raising keeps the drawer's read-only wrapper honest on a half-filled form.
+  IF p_employee_id IS NULL OR p_from IS NULL OR p_to IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  -- DEFINER, so this sees every category regardless of what the caller may
+  -- read. A staff member cannot select another person's rows, and an approver
+  -- filing on someone's behalf may not hold staff.view -- either way the answer
+  -- has to be the same one the trigger will act on.
+  SELECT lt.leave_type_name AS label,
+         a.start_date, a.end_date, a.start_time, a.end_time, a.status
+    INTO v_leave
+  FROM public.hr_leave_applications a
+  LEFT JOIN public.hr_leave_types lt ON lt.id = a.leave_type_id
+  WHERE a.employee_id = p_employee_id
+    AND a.status IN ('pending', 'approved', 'escalated')
+    AND (p_exclude_leave_id IS NULL OR a.id IS DISTINCT FROM p_exclude_leave_id)
+    -- Half-open range intersection. A multi-day leave occupies every day it
+    -- spans, so one shared day is enough to refuse.
+    AND a.start_date <= p_to
+    AND p_from       <= a.end_date
+  ORDER BY a.start_date
+  LIMIT 1;
+
+  IF FOUND THEN
+    RETURN format('%s %s (%s)',
+      COALESCE(v_leave.label, 'a request'),
+      CASE
+        WHEN v_leave.start_time IS NOT NULL AND v_leave.end_time IS NOT NULL
+          THEN format('on %s, %s-%s',
+                 to_char(v_leave.start_date, 'DD/MM/YYYY'),
+                 to_char(v_leave.start_time, 'HH24:MI'),
+                 to_char(v_leave.end_time,   'HH24:MI'))
+        WHEN v_leave.start_date = v_leave.end_date
+          THEN format('on %s', to_char(v_leave.start_date, 'DD/MM/YYYY'))
+        ELSE format('from %s to %s',
+                 to_char(v_leave.start_date, 'DD/MM/YYYY'),
+                 to_char(v_leave.end_date,   'DD/MM/YYYY'))
+      END,
+      v_leave.status);
+  END IF;
+
+  -- Comp-off claims have no 'escalated': hcoc goes pending -> approved or
+  -- withdrawn. Listing a status that cannot occur would read as though it can.
+  SELECT c.worked_date, c.status
+    INTO v_credit
+  FROM public.hr_comp_off_credits c
+  WHERE c.employee_id = p_employee_id
+    AND c.status IN ('pending', 'approved')
+    AND (p_exclude_credit_id IS NULL OR c.id IS DISTINCT FROM p_exclude_credit_id)
+    AND c.worked_date BETWEEN p_from AND p_to
+  ORDER BY c.worked_date
+  LIMIT 1;
+
+  IF FOUND THEN
+    RETURN format('a compensatory off claim on %s (%s)',
+      to_char(v_credit.worked_date, 'DD/MM/YYYY'), v_credit.status);
+  END IF;
+
+  RETURN NULL;
+END $function$;
+
+REVOKE ALL ON FUNCTION public.fn_hr_day_occupancy_clash(uuid, date, date, uuid, uuid)
+  FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_hr_day_occupancy_clash(uuid, date, date, uuid, uuid)
+  TO authenticated, service_role;
+
+COMMENT ON FUNCTION public.fn_hr_day_occupancy_clash(uuid, date, date, uuid, uuid) IS
+  'NULL when the employee has no live leave / short time off / comp-off claim touching [p_from, p_to], else a human description of the first clash. THE body behind both day-occupancy triggers.';
+
+-- ---------------------------------------------------------------------------
+-- 2. Read-only wrapper for the apply drawers
+-- ---------------------------------------------------------------------------
+--
+-- The drawers used to compute a clash client-side from the caller's own
+-- application list, which (a) filtered to request_category='leave', exactly
+-- mirroring the bug this migration fixes, and (b) reads a list the route caps
+-- at 50 rows. Asking the SAME predicate the trigger asks means the warning and
+-- the refusal cannot disagree.
+
+CREATE OR REPLACE FUNCTION public.fn_hr_day_occupancy_check(
+  p_employee_id uuid,
+  p_from        date,
+  p_to          date
+)
+RETURNS text
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $function$
+BEGIN
+  -- "Does this person already have something that day" is about their
+  -- whereabouts, so it is answered only for yourself, for a super admin, or for
+  -- someone who already decides leave for others.
+  IF NOT (
+       p_employee_id = ANY (COALESCE(public.fn_my_staff_ids(), ARRAY[]::uuid[]))
+       OR public.is_super_admin()
+       OR public.user_has_permission('hr.leave.approve')
+     ) THEN
+    RETURN NULL;
+  END IF;
+
+  RETURN public.fn_hr_day_occupancy_clash(p_employee_id, p_from, p_to, NULL, NULL);
+END $function$;
+
+REVOKE ALL ON FUNCTION public.fn_hr_day_occupancy_check(uuid, date, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_hr_day_occupancy_check(uuid, date, date) TO authenticated;
+
+COMMENT ON FUNCTION public.fn_hr_day_occupancy_check(uuid, date, date) IS
+  'Drawer-facing wrapper over fn_hr_day_occupancy_clash. Answers for yourself, a super admin, or a leave approver; NULL for anyone else.';
+
+--
+-- Same function name and same trigger name as the leave-only version it
+-- replaces, so nothing that greps for either goes looking for a rename. The
+-- error code stays 23505: comp-off-service.ts and the drawers already branch on
+-- it, and a new code would silently fall through to a raw Postgres message.
+
+CREATE OR REPLACE FUNCTION public.hr_trig_leave_enforce_no_overlap()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE
+  v_clash text;
+BEGIN
+  IF NEW.status NOT IN ('pending', 'approved', 'escalated') THEN
+    RETURN NEW;
+  END IF;
+
+  -- No category filter. The `IF v_category IS DISTINCT FROM 'leave'` that used
+  -- to sit here is exactly why Short Time Off and comp-off were never checked.
+
+  -- Shared with trg_hcoc_day_occupancy: without ONE key, a leave insert and a
+  -- comp-off insert for the same employee could each read a free day and both
+  -- commit.
+  PERFORM pg_advisory_xact_lock(
+    hashtextextended(NEW.employee_id::text || ':day-occupancy', 0)
+  );
+
+  v_clash := public.fn_hr_day_occupancy_clash(
+    NEW.employee_id, NEW.start_date, NEW.end_date, NEW.id, NULL);
+
+  IF v_clash IS NOT NULL THEN
+    RAISE EXCEPTION
+      'Only one request is allowed per day. This clashes with %. Cancel that one first, or pick a different date.',
+      v_clash
+      USING ERRCODE = '23505';
+  END IF;
+
+  RETURN NEW;
+END $function$;
+
+-- duration_type joins the column list: a first_half -> full edit changes which
+-- days the row occupies and used to skip the check entirely.
+
+COMMENT ON FUNCTION public.hr_trig_leave_enforce_no_overlap() IS
+  'One live request per employee per day, across leave, short time off and comp-off claims. Asks fn_hr_day_occupancy_clash.';
+
+-- ---------------------------------------------------------------------------
+-- 5. Arm the same rule on hr_comp_off_credits
+-- ---------------------------------------------------------------------------
+
+
+CREATE OR REPLACE FUNCTION public.hr_trig_comp_off_day_occupancy()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE
+  v_clash text;
+BEGIN
+  IF NEW.status NOT IN ('pending', 'approved') THEN
+    RETURN NEW;
+  END IF;
+
+  PERFORM pg_advisory_xact_lock(
+    hashtextextended(NEW.employee_id::text || ':day-occupancy', 0)
+  );
+
+  v_clash := public.fn_hr_day_occupancy_clash(
+    NEW.employee_id, NEW.worked_date, NEW.worked_date, NULL, NEW.id);
+
+  IF v_clash IS NOT NULL THEN
+    RAISE EXCEPTION
+      'Only one request is allowed per day. This clashes with %. Cancel that one first, or claim a different date.',
+      v_clash
+      USING ERRCODE = '23505';
+  END IF;
+
+  RETURN NEW;
+END $function$;
+
+
+COMMENT ON FUNCTION public.hr_trig_comp_off_day_occupancy() IS
+  'Mirror of trg_hla_leave_overlap on the claims table. Same predicate, same advisory lock, same 23505.';
+
+
+-- Mirrored from supabase/migrations/20260905180000_hr_leave_final_step_approves.sql
+-- ---------------------------------------------------------------------------
+-- 1. Which step grants the approval
+-- ---------------------------------------------------------------------------
+--
+-- Mirrors finalStepIndex() in lib/hr/leave/approval-chain.ts exactly: the LAST
+-- step marked 'final', else the last step. Both fallbacks exist to guarantee
+-- termination -- a chain no step can finalise would leave every request pending
+-- for ever, which is worse than finalising one step early. 1,124 of the 1,220
+-- live chains predate step_type and depend on that fallback.
+--
+-- Returns -1 for an empty chain so callers can tell "no chain" from "step 0".
+
+CREATE OR REPLACE FUNCTION public.fn_hr_leave_final_step_index(p_chain jsonb)
+RETURNS integer
+LANGUAGE sql
+IMMUTABLE
+PARALLEL SAFE
+SET search_path TO 'public', 'extensions'
+AS $function$
+  SELECT COALESCE(
+    (
+      SELECT max(t.ord::int - 1)
+      FROM jsonb_array_elements(COALESCE(p_chain, '[]'::jsonb)) WITH ORDINALITY AS t(step, ord)
+      WHERE t.step ->> 'step_type' = 'final'
+    ),
+    jsonb_array_length(COALESCE(p_chain, '[]'::jsonb)) - 1
+  );
+$function$;
+
+COMMENT ON FUNCTION public.fn_hr_leave_final_step_index(jsonb) IS
+  'Index of the step that grants approval: the last one marked step_type=final, else the last step, -1 for an empty chain. Mirrors finalStepIndex() in lib/hr/leave/approval-chain.ts.';
+
+-- ---------------------------------------------------------------------------
+-- 2. A review step cannot approve the request
+-- ---------------------------------------------------------------------------
+--
+-- The rule is expressed against the ROW BEING WRITTEN rather than against the
+-- caller: whatever client wrote this update, the chain it is committing must
+-- show the final step approved. A reviewer's decision lands on their own step,
+-- so a reviewer simply cannot produce a row that satisfies this.
+
+CREATE OR REPLACE FUNCTION public.hr_trig_leave_final_step_approves()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE
+  v_idx  integer;
+  v_step jsonb;
+BEGIN
+  IF NOT (NEW.status = 'approved' AND COALESCE(OLD.status, '') <> 'approved') THEN
+    RETURN NEW;
+  END IF;
+
+  v_idx := public.fn_hr_leave_final_step_index(NEW.approval_chain);
+
+  IF v_idx < 0 THEN
+    RAISE EXCEPTION
+      'This request has no approval chain, so there is no approver who can grant it.'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  v_step := NEW.approval_chain -> v_idx;
+
+  IF COALESCE(v_step ->> 'status', '') <> 'approved' THEN
+    RAISE EXCEPTION
+      'Only step % grants this request; the earlier steps record a review and pass it on. Approve it from the final step.',
+      v_idx + 1
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  RETURN NEW;
+END $function$;
+
+-- Fires on every UPDATE, not just OF status: a client could otherwise land
+-- 'approved' through a column list this trigger was not watching.
+COMMENT ON FUNCTION public.hr_trig_leave_final_step_approves() IS
+  'Refuses any transition to approved whose chain does not show the FINAL step approved. The database half of the review-vs-approve rule.';
+
+-- ---------------------------------------------------------------------------
+-- 3. May this caller approve now, ahead of the pending reviews?
+-- ---------------------------------------------------------------------------
+--
+-- The final authority may approve at any point rather than waiting for the
+-- reviews below it (decision 2026-09-05). Only Postgres can answer this: a step
+-- routed to a ROLE is matched through user_roles / custom_roles, which an
+-- ordinary member of staff cannot select, so a browser-side answer comes back
+-- empty for exactly the people it is meant to admit -- the silent false
+-- negative this module has already shipped twice.
+
+CREATE OR REPLACE FUNCTION public.fn_hr_leave_can_finalize(p_application_id uuid)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE
+  v_uid uuid := auth.uid();
+  v_app record;
+  v_idx integer;
+BEGIN
+  IF v_uid IS NULL THEN RETURN false; END IF;
+
+  SELECT a.approval_chain, a.current_step, a.status, a.employee_id, a.hr_organization_id
+    INTO v_app
+  FROM public.hr_leave_applications a
+  WHERE a.id = p_application_id;
+
+  IF NOT FOUND OR v_app.status NOT IN ('pending', 'escalated') THEN
+    RETURN false;
+  END IF;
+
+  v_idx := public.fn_hr_leave_final_step_index(v_app.approval_chain);
+  IF v_idx < 0 THEN RETURN false; END IF;
+
+  -- Already at (or past) the final step: this is the ordinary path, not a
+  -- short-circuit, and the current-step gate already answers it.
+  IF v_app.current_step >= v_idx THEN RETURN false; END IF;
+
+  -- Same order as hr_trig_leave_enforce_approver: super admin first, so a
+  -- super admin's own request stays decidable exactly as that trigger allows.
+  IF public.is_super_admin() THEN RETURN true; END IF;
+
+  IF v_app.employee_id = ANY (COALESCE(public.fn_my_staff_ids(), ARRAY[]::uuid[])) THEN
+    RETURN false;
+  END IF;
+
+  RETURN public.fn_leave_step_admits(
+    v_app.approval_chain -> v_idx, v_uid, v_app.hr_organization_id);
+END $function$;
+
+REVOKE ALL ON FUNCTION public.fn_hr_leave_can_finalize(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_hr_leave_can_finalize(uuid) TO authenticated;
+
+COMMENT ON FUNCTION public.fn_hr_leave_can_finalize(uuid) IS
+  'True when the caller is admitted by the chain FINAL step while the request still sits with an earlier reviewer — i.e. they may approve it directly.';
+
+-- ---------------------------------------------------------------------------
+-- 4. Admit the final approver at any step
+-- ---------------------------------------------------------------------------
+--
+-- hr_trig_leave_enforce_approver validated the caller against the CURRENT step
+-- only, so the CAO could not act until the HOD and the Principal had. The final
+-- step's approvers are now admitted at any point; everything else is the
+-- previous body verbatim.
+
+CREATE OR REPLACE FUNCTION public.hr_trig_leave_enforce_approver()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE
+  v_uid uuid := auth.uid();
+  v_step jsonb;
+  v_constraining int;
+  v_matched int;
+  v_labels text;
+  v_deciding boolean;
+  v_final int;
+BEGIN
+  v_deciding := (NEW.status IN ('approved','rejected') AND OLD.status IS DISTINCT FROM NEW.status)
+             OR (COALESCE(NEW.current_step, 0) > COALESCE(OLD.current_step, 0));
+
+  IF NOT v_deciding THEN RETURN NEW; END IF;
+  IF public.is_super_admin() THEN RETURN NEW; END IF;
+  IF v_uid IS NULL THEN RETURN NEW; END IF;
+
+  IF OLD.employee_id IN (SELECT unnest(public.fn_my_staff_ids())) THEN
+    RAISE EXCEPTION 'You cannot decide on your own leave application.';
+  END IF;
+
+  -- THE FINAL AUTHORITY MAY ACT AT ANY POINT. Without this the CAO on step 3
+  -- is refused while the request sits on step 1, and a direct approval is
+  -- impossible. Deliberately checked BEFORE the current-step test so it also
+  -- covers a rejection by the final approver.
+  v_final := public.fn_hr_leave_final_step_index(OLD.approval_chain);
+  IF v_final >= 0
+     AND public.fn_leave_step_admits(
+           OLD.approval_chain -> v_final, v_uid, OLD.hr_organization_id) THEN
+    RETURN NEW;
+  END IF;
+
+  v_step := OLD.approval_chain -> OLD.current_step;
+  IF v_step IS NULL THEN RETURN NEW; END IF;
+
+  WITH entries AS (
+    SELECT
+      (cr.role_key IS NOT NULL OR e.approver_user_id IS NOT NULL) AS constraining,
+      (
+        e.approver_user_id = v_uid
+        OR (cr.role_key IS NOT NULL AND EXISTS (
+              SELECT 1 FROM public.user_roles ur
+              JOIN public.custom_roles cr2 ON cr2.id = ur.role_id
+              WHERE ur.user_id = v_uid AND cr2.role_key = e.approver_role AND cr2.is_active
+            ))
+      ) AS matched,
+      COALESCE(cr.role_name, 'the assigned approver') AS label
+    FROM public.fn_leave_step_approvers(v_step) e
+    LEFT JOIN public.custom_roles cr ON cr.role_key = e.approver_role AND cr.is_active
+  )
+  SELECT count(*) FILTER (WHERE constraining), count(*) FILTER (WHERE matched),
+         string_agg(DISTINCT label, ' or ')
+  INTO v_constraining, v_matched, v_labels
+  FROM entries;
+
+  IF COALESCE(v_constraining, 0) = 0 THEN RETURN NEW; END IF;
+  IF COALESCE(v_matched, 0) > 0 THEN RETURN NEW; END IF;
+
+  RAISE EXCEPTION 'This approval step is reserved for %.', COALESCE(v_labels, 'a different approver');
+END
+$function$;
+
+-- ---------------------------------------------------------------------------
+-- 5. The queue reports the stage
+-- ---------------------------------------------------------------------------
+--
+-- The approvals table could not tell a review step from a final one, so every
+-- row offered "Approve" even when the click only records a review. Three cheap
+-- columns: fn_hr_leave_final_step_index is pure jsonb and reads no tables, so
+-- this adds no per-row role resolution to a query that has already hit the 8 s
+-- statement_timeout once this month. Whether the CALLER may short-circuit is
+-- deliberately NOT computed here -- that needs fn_leave_step_admits per row --
+-- and is asked per request by fn_hr_leave_can_finalize when the sheet opens.
+
+DROP FUNCTION IF EXISTS public.hr_leave_approval_queue();
+
+CREATE FUNCTION public.hr_leave_approval_queue()
+ RETURNS TABLE(id uuid, employee_id uuid, staff_name text, staff_code text, institution_id uuid, institution_name text, hr_organization_id uuid, hr_organization_name text, leave_type_id uuid, leave_type_name text, leave_type_code text, request_category text, start_date date, end_date date, start_time time without time zone, end_time time without time zone, duration_type text, duration_minutes integer, total_days numeric, reason text, is_emergency boolean, status text, created_at timestamp with time zone, applied_by uuid, applied_by_name text, applied_on_behalf boolean, final_approver_id uuid, final_approver_name text, final_decided_at timestamp with time zone, rejection_reason text, is_own boolean, can_decide boolean, waiting_on_me boolean, biometric_gap_from date, documents jsonb, current_step integer, chain_length integer, step_is_final boolean)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE
+  v_uid  uuid := auth.uid();
+  v_sa   boolean;
+  v_orgs uuid[];
+  v_mine uuid[];
+  v_key  boolean;
+BEGIN
+  IF v_uid IS NULL THEN RETURN; END IF;
+
+  IF NOT public.hr_can_approve_leave() THEN
+    RAISE EXCEPTION 'You do not have permission to approve leave' USING ERRCODE = '42501';
+  END IF;
+
+  v_sa   := public.is_super_admin();
+  v_orgs := COALESCE(public.fn_my_hr_organization_ids(), ARRAY[]::uuid[]);
+  v_mine := COALESCE(public.fn_my_staff_ids(), ARRAY[]::uuid[]);
+  v_key  := public.user_has_permission('hr.leave.approve');
+
+  RETURN QUERY
+  SELECT
+    a.id, a.employee_id,
+    NULLIF(btrim(concat_ws(' ', s.first_name, s.last_name)), '')::text,
+    NULLIF(btrim(s.staff_id), '')::text,
+    s.institution_id, i.name::text,
+    a.hr_organization_id, o.name::text,
+    a.leave_type_id, lt.leave_type_name::text, lt.leave_type_code::text,
+    COALESCE(lt.request_category, 'leave')::text,
+    a.start_date, a.end_date, a.start_time, a.end_time,
+    a.duration_type::text, a.duration_minutes, a.total_days,
+    a.reason, a.is_emergency, a.status::text, a.created_at, a.applied_by,
+    COALESCE(NULLIF(btrim(p.full_name), ''), p.email)::text,
+    (a.applied_by IS DISTINCT FROM s.profile_id),
+    a.final_approver_id,
+    COALESCE(NULLIF(btrim(fp.full_name), ''), fp.email)::text,
+    a.final_decided_at, a.rejection_reason,
+    (a.employee_id = ANY (v_mine)) AS is_own,
+    (a.status IN ('pending','escalated') AND (v_sa OR a.employee_id <> ALL (v_mine))) AS can_decide,
+    (
+      a.status IN ('pending', 'escalated')
+      AND (v_sa OR a.employee_id <> ALL (v_mine))
+      AND (
+        st.step IS NULL
+        OR NOT EXISTS (
+          SELECT 1
+          FROM public.fn_leave_step_approvers(st.step) e
+          LEFT JOIN public.custom_roles cr ON cr.role_key = e.approver_role AND cr.is_active
+          WHERE e.approver_user_id IS NOT NULL OR cr.role_key IS NOT NULL
+        )
+        OR public.fn_leave_step_admits(st.step, v_uid, a.hr_organization_id)
+      )
+    ) AS waiting_on_me,
+    CASE
+      WHEN a.status IN ('pending', 'escalated')
+        THEN public.fn_hr_leave_biometric_gap(a.employee_id, a.leave_type_id, a.start_date, a.end_date)
+      ELSE NULL
+    END AS biometric_gap_from,
+    COALESCE(a.documents, '[]'::jsonb) AS documents,
+    a.current_step,
+    jsonb_array_length(COALESCE(a.approval_chain, '[]'::jsonb)) AS chain_length,
+    (a.current_step = public.fn_hr_leave_final_step_index(a.approval_chain)) AS step_is_final
+  FROM public.hr_leave_applications a
+  LEFT JOIN public.hr_leave_types   lt ON lt.id = a.leave_type_id
+  LEFT JOIN public.staff            s  ON s.id  = a.employee_id
+  LEFT JOIN public.institutions     i  ON i.id  = s.institution_id
+  LEFT JOIN public.hr_organizations o  ON o.id  = a.hr_organization_id
+  LEFT JOIN public.profiles         p  ON p.id  = a.applied_by
+  LEFT JOIN public.profiles         fp ON fp.id = a.final_approver_id
+  CROSS JOIN LATERAL (SELECT a.approval_chain -> a.current_step AS step) st
+  WHERE (
+      a.status IN ('pending', 'escalated')
+      OR a.final_decided_at >= now() - interval '12 months'
+      OR (a.status IN ('withdrawn','cancelled') AND a.updated_at >= now() - interval '12 months')
+    )
+    AND (
+      v_sa
+      OR (v_key AND a.hr_organization_id = ANY (v_orgs))
+      OR public.fn_is_designated_leave_approver(a.id)
+    )
+  ORDER BY a.created_at DESC;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.hr_leave_approval_queue() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.hr_leave_approval_queue() TO authenticated;
+
+COMMENT ON FUNCTION public.hr_leave_approval_queue() IS
+  'Leave/STO approval queue for the caller. documents carries the supporting files; current_step / chain_length / step_is_final say whether a decision here reviews or grants.';
+
+
+-- ===========================================================================
+-- 2026-09-06 — AY 2026-27 fee-item schedule resync (migrations 20260906120000 /
+-- 20260906120100 / 20260906120200). Append-latest-wins, per this file's convention.
+-- ===========================================================================
+-- ============================================================================
+-- Extract STAGE A0 (the fee-item promotion rules) out of
+-- evaluate_learner_status_after_payment into its own function.
+--
+-- WHY (2026-09-06): the AY 2026-27 bill resync needs to apply the item rules
+-- WITHOUT running STAGE B's pooled 30% threshold. Measured: running the full
+-- engine after the resync would promote 325 reserved/account learners to
+-- `admitted` in one shot, because splitting a bill into tranches shrinks
+-- "due to date" (avg pct_due_to_date 8.7% -> 57.1%). The explicit
+-- promotes_to_status_code rules name only 14. The operator chose the 14.
+--
+-- Copying STAGE A0 into the resync RPC would leave two implementations of the
+-- same rule that drift the first time either is touched, so it is extracted
+-- here instead and BOTH callers share it.
+--
+-- Behaviour of evaluate_learner_status_after_payment is unchanged: same
+-- signature (CREATE OR REPLACE, never DROP -- a DROP would take the ACL with
+-- it and a re-CREATE silently re-grants EXECUTE to PUBLIC), same STAGE A and
+-- STAGE B, same history metadata shape. The `rpc` key in that metadata is now
+-- fed by p_source so the live path keeps writing the exact string it always
+-- wrote, and a backfill promotion is identifiable afterwards.
+--
+-- search_path is pinned to 'public' rather than '' to match every sibling
+-- function here and to keep the bare `lifecycle_status` / `admission_statuses`
+-- type and table references resolving. Pinned is the security requirement.
+-- ============================================================================
+
+-- ---------------------------------------------------------------------------
+-- STAGE A0, standalone.
+--
+-- Promotes the learner to the HIGHEST-sort_order status that every one of its
+-- naming rows has settled, and only forward (sort_order > current). Naming
+-- rows come from two places:
+--   * billing_bill_instalments.promotes_to_status_code  (split fee items)
+--   * admission_fee_structure_items.promotes_to_status_code, for bills with
+--     no tranches at all (single fee items) -- which is why the bill must
+--     carry fee_structure_item_id for this half to see anything.
+--
+-- No-ops unless the learner is currently 'account' or 'reserved'. Cannot reach
+-- a gates_login status. Cannot demote. Those three properties are what make it
+-- safe to run over a whole cohort.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_learner_status_apply_item_rules(
+  p_learner_id uuid,
+  p_source     text DEFAULT 'evaluate_learner_status_after_payment'
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_current_status lifecycle_status;
+  v_current_sort   integer;
+  v_paid_pct       numeric;
+  v_rule_target    text;
+  v_rule_rows      integer := 0;
+  v_rule_settled   integer := 0;
+  v_updated        integer := 0;
+BEGIN
+  SELECT lp.lifecycle_status INTO v_current_status
+  FROM public.learners_profiles lp WHERE lp.id = p_learner_id;
+
+  IF v_current_status IS NULL THEN
+    RETURN jsonb_build_object('learner_id', p_learner_id, 'promoted', false,
+                              'reason', 'not_found');
+  END IF;
+
+  IF v_current_status::text NOT IN ('account', 'reserved') THEN
+    RETURN jsonb_build_object('learner_id', p_learner_id, 'promoted', false,
+      'reason', 'no_op_for_status', 'final_status', v_current_status::text);
+  END IF;
+
+  SELECT COALESCE(v.pct_due_to_date, 0) INTO v_paid_pct
+  FROM public.vw_learner_payment_progress v WHERE v.learner_id = p_learner_id;
+  v_paid_pct := COALESCE(v_paid_pct, 0);
+
+  SELECT s.sort_order INTO v_current_sort
+  FROM public.admission_statuses s
+  WHERE s.scope = 'learner' AND s.code = v_current_status::text
+  LIMIT 1;
+
+  IF v_current_sort IS NULL THEN
+    RETURN jsonb_build_object('learner_id', p_learner_id, 'promoted', false,
+      'reason', 'current_status_not_in_ladder', 'final_status', v_current_status::text);
+  END IF;
+
+  WITH tranche AS (
+    SELECT
+      i.promotes_to_status_code AS target,
+      (LEAST(
+         GREATEST(
+           GREATEST(0, b.final_amount - COALESCE(b.balance_amount, b.final_amount))
+           - COALESCE(SUM(i.amount) OVER (
+               PARTITION BY i.bill_id ORDER BY i.due_date, i.sequence_no
+               ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING), 0),
+           0),
+         i.amount) >= i.amount) AS settled
+    FROM public.billing_bill_instalments i
+    JOIN public.billing_student_bills b ON b.id = i.bill_id
+    WHERE b.student_id = p_learner_id
+      AND b.status::text NOT IN ('cancelled', 'superseded')
+  ),
+  unscheduled AS (
+    SELECT
+      fsi.promotes_to_status_code AS target,
+      (COALESCE(b.status::text = 'paid', false)
+       OR COALESCE(b.balance_amount, b.final_amount) <= 0) AS settled
+    FROM public.billing_student_bills b
+    JOIN public.admission_fee_structure_items fsi ON fsi.id = b.fee_structure_item_id
+    WHERE b.student_id = p_learner_id
+      AND b.status::text NOT IN ('cancelled', 'superseded')
+      AND NOT EXISTS (SELECT 1 FROM public.billing_bill_instalments i WHERE i.bill_id = b.id)
+  ),
+  rule_rows AS (
+    SELECT target, settled FROM tranche      WHERE target IS NOT NULL
+    UNION ALL
+    SELECT target, settled FROM unscheduled  WHERE target IS NOT NULL
+  )
+  SELECT s.code,
+         (SELECT count(*) FROM rule_rows r WHERE r.target = s.code),
+         (SELECT count(*) FROM rule_rows r WHERE r.target = s.code AND r.settled)
+    INTO v_rule_target, v_rule_rows, v_rule_settled
+  FROM public.admission_statuses s
+  WHERE s.scope = 'learner'
+    AND s.is_active = true
+    AND s.gates_login = false
+    AND s.sort_order > v_current_sort
+    AND EXISTS (SELECT 1 FROM rule_rows r WHERE r.target = s.code)
+    AND NOT EXISTS (SELECT 1 FROM rule_rows r WHERE r.target = s.code AND NOT r.settled)
+  ORDER BY s.sort_order DESC
+  LIMIT 1;
+
+  IF v_rule_target IS NULL THEN
+    RETURN jsonb_build_object('learner_id', p_learner_id, 'promoted', false,
+      'reason', 'no_rule_target', 'final_status', v_current_status::text,
+      'paid_pct', v_paid_pct);
+  END IF;
+
+  UPDATE public.learners_profiles
+     SET lifecycle_status = v_rule_target::lifecycle_status
+   WHERE id = p_learner_id
+     AND lifecycle_status::text IN ('account', 'reserved');
+
+  GET DIAGNOSTICS v_updated = ROW_COUNT;
+
+  IF v_updated = 0 THEN
+    -- The caller reported target/rows/settled even when the write lost a race,
+    -- so keep carrying them; only `promoted` says whether anything moved.
+    RETURN jsonb_build_object('learner_id', p_learner_id, 'promoted', false,
+      'reason', 'status_moved_concurrently', 'final_status', v_current_status::text,
+      'item_rule_target', v_rule_target, 'item_rule_rows', v_rule_rows,
+      'item_rule_settled', v_rule_settled);
+  END IF;
+
+  INSERT INTO public.learners_profile_status_history
+    (learner_id, from_status, to_status, reason_code, paid_pct_at_change,
+     threshold_at_change, changed_by, metadata)
+  VALUES
+    (p_learner_id, v_current_status, v_rule_target::lifecycle_status,
+     'auto_item_rule', v_paid_pct, NULL, NULL,
+     jsonb_build_object('rpc', p_source,
+                        'rule', 'bill_instalment_schedule',
+                        'naming_rows', v_rule_rows,
+                        'settled_rows', v_rule_settled));
+
+  RETURN jsonb_build_object(
+    'learner_id',    p_learner_id,
+    'promoted',      true,
+    'from_status',   v_current_status::text,
+    'final_status',  v_rule_target,
+    'item_rule_target',  v_rule_target,
+    'item_rule_rows',    v_rule_rows,
+    'item_rule_settled', v_rule_settled,
+    'paid_pct',      v_paid_pct
+  );
+END;
+$function$;
+
+-- A DROP would have taken the ACL; this is a fresh CREATE, so close the default
+-- PUBLIC grant explicitly before handing EXECUTE to real callers.
+REVOKE ALL ON FUNCTION public.fn_learner_status_apply_item_rules(uuid, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_learner_status_apply_item_rules(uuid, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_learner_status_apply_item_rules(uuid, text) TO service_role;
+
+COMMENT ON FUNCTION public.fn_learner_status_apply_item_rules(uuid, text) IS
+  'STAGE A0 of the learner promotion engine: promotes on settled fee-item rules only. '
+  'Shared by evaluate_learner_status_after_payment and fn_billing_resync_item_schedules '
+  'so the two cannot disagree. Forward-only, never reaches a gates_login status.';
+
+
+-- ---------------------------------------------------------------------------
+-- The engine, with STAGE A0 now delegated. STAGE A and STAGE B are byte-for-byte
+-- what they were; only the A0 block is replaced by the call.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.evaluate_learner_status_after_payment(p_learner_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_current_status        lifecycle_status;
+  v_paid_pct              numeric;
+  v_pct_billed            numeric;
+  v_pct_due               numeric;
+  v_pct_due_cy            numeric;
+  v_basis                 text;
+  v_used_pct              numeric;
+  v_app_paid              boolean;
+  v_universals_paid       boolean;
+  v_gate_bills            integer := 0;
+  v_gate_paid             integer := 0;
+  v_threshold             numeric;
+  v_target_code           text;
+  v_updated               integer := 0;
+  v_universal_target      text;
+  v_promoted_to_universal boolean := false;
+  v_promoted_to_threshold boolean := false;
+  v_rule                  jsonb;
+  v_rule_target           text;
+  v_rule_rows             integer := 0;
+  v_rule_settled          integer := 0;
+  v_promoted_by_rule      boolean := false;
+BEGIN
+  SELECT lp.lifecycle_status INTO v_current_status
+  FROM public.learners_profiles lp WHERE lp.id = p_learner_id;
+
+  IF v_current_status IS NULL THEN
+    RETURN jsonb_build_object('learner_id', p_learner_id, 'updated', false, 'reason', 'not_found');
+  END IF;
+
+  IF v_current_status::text NOT IN ('account', 'reserved') THEN
+    RETURN jsonb_build_object('learner_id', p_learner_id, 'updated', false,
+      'reason', 'no_op_for_status', 'current_status', v_current_status::text);
+  END IF;
+
+  SELECT v.pct_billed_to_date, v.pct_due_to_date, v.pct_due_current_year
+    INTO v_pct_billed, v_pct_due, v_pct_due_cy
+  FROM public.vw_learner_payment_progress v
+  WHERE v.learner_id = p_learner_id;
+  v_pct_billed := COALESCE(v_pct_billed, 0);
+  v_pct_due    := COALESCE(v_pct_due, 0);
+  v_pct_due_cy := COALESCE(v_pct_due_cy, 0);
+  v_paid_pct := v_pct_due;
+
+  -- ═══ STAGE A0 — fee-schedule rules (extracted 2026-09-06) ════════════════
+  v_rule := public.fn_learner_status_apply_item_rules(
+              p_learner_id, 'evaluate_learner_status_after_payment');
+  v_rule_target  := v_rule->>'item_rule_target';
+  v_rule_rows    := COALESCE((v_rule->>'item_rule_rows')::integer, 0);
+  v_rule_settled := COALESCE((v_rule->>'item_rule_settled')::integer, 0);
+
+  IF COALESCE((v_rule->>'promoted')::boolean, false) THEN
+    v_current_status   := (v_rule->>'final_status')::lifecycle_status;
+    v_promoted_by_rule := true;
+  END IF;
+
+  -- ═══ STAGE A — the universal gate (unchanged) ═══════════════════════════
+  SELECT
+    count(*) FILTER (WHERE bc.kind IN ('application_fee','university_fee')),
+    count(*) FILTER (WHERE bc.kind IN ('application_fee','university_fee')
+        AND (b.status::text = 'paid'
+             OR (b.final_amount - COALESCE(b.balance_amount, b.final_amount)) > 0
+             OR (b.final_amount = 0 AND COALESCE(b.balance_amount, 0) = 0))),
+    COALESCE(bool_or(bc.kind = 'application_fee' AND b.status::text = 'paid'), false),
+    COALESCE(bool_and(b.status::text = 'paid') FILTER (WHERE bc.kind = 'university_fee'), false)
+  INTO v_gate_bills, v_gate_paid, v_app_paid, v_universals_paid
+  FROM public.billing_student_bills b
+  JOIN public.billing_categories bc ON bc.id = b.item_category_id
+  WHERE b.student_id = p_learner_id
+    AND b.status::text <> 'superseded';
+
+  IF v_current_status::text = 'account' AND v_gate_bills > 0 AND v_gate_paid = v_gate_bills THEN
+    SELECT s.code INTO v_universal_target
+    FROM public.admission_statuses s
+    WHERE s.scope = 'learner'
+      AND s.is_active = true
+      AND s.auto_promote_when_universal_paid = true
+    LIMIT 1;
+
+    IF v_universal_target IS NOT NULL THEN
+      UPDATE public.learners_profiles
+         SET lifecycle_status = v_universal_target::lifecycle_status
+       WHERE id = p_learner_id
+         AND lifecycle_status::text = 'account';
+
+      GET DIAGNOSTICS v_updated = ROW_COUNT;
+
+      IF v_updated > 0 THEN
+        INSERT INTO public.learners_profile_status_history
+          (learner_id, from_status, to_status, reason_code, paid_pct_at_change,
+           threshold_at_change, changed_by, metadata)
+        VALUES
+          (p_learner_id, 'account'::lifecycle_status, v_universal_target::lifecycle_status,
+           'auto_universal_paid', v_paid_pct, NULL, NULL,
+           jsonb_build_object('rpc', 'evaluate_learner_status_after_payment',
+                              'application_fee_paid', v_app_paid,
+                              'university_fee_paid', v_universals_paid,
+                              'gate_bills', v_gate_bills,
+                              'gate_paid', v_gate_paid,
+                              'gate_rule', 'partial'));
+        v_current_status := v_universal_target::lifecycle_status;
+        v_promoted_to_universal := true;
+      END IF;
+    END IF;
+  END IF;
+
+  -- ═══ STAGE B — the pooled threshold (unchanged) ═════════════════════════
+  IF v_current_status::text IN ('account', 'reserved') THEN
+    SELECT s.code, s.fee_paid_threshold_percent, s.threshold_basis,
+           CASE s.threshold_basis
+             WHEN 'billed_to_date'           THEN v_pct_billed
+             WHEN 'due_to_date_current_year' THEN v_pct_due_cy
+             ELSE                                 v_pct_due
+           END
+      INTO v_target_code, v_threshold, v_basis, v_used_pct
+    FROM public.admission_statuses s
+    WHERE s.scope = 'learner'
+      AND s.is_active = true
+      AND s.fee_paid_threshold_percent IS NOT NULL
+      AND s.gates_login = false
+      AND s.auto_promote_when_universal_paid = false
+      AND (CASE s.threshold_basis
+             WHEN 'billed_to_date'           THEN v_pct_billed
+             WHEN 'due_to_date_current_year' THEN v_pct_due_cy
+             ELSE                                 v_pct_due
+           END) >= s.fee_paid_threshold_percent
+    ORDER BY s.fee_paid_threshold_percent DESC
+    LIMIT 1;
+
+    IF v_target_code IS NOT NULL THEN
+      UPDATE public.learners_profiles
+         SET lifecycle_status = v_target_code::lifecycle_status
+       WHERE id = p_learner_id
+         AND lifecycle_status::text IN ('account', 'reserved');
+
+      GET DIAGNOSTICS v_updated = ROW_COUNT;
+
+      IF v_updated > 0 THEN
+        INSERT INTO public.learners_profile_status_history
+          (learner_id, from_status, to_status, reason_code, paid_pct_at_change,
+           threshold_at_change, changed_by, metadata)
+        VALUES
+          (p_learner_id, v_current_status, v_target_code::lifecycle_status,
+           'auto_threshold', v_used_pct, v_threshold, NULL,
+           jsonb_build_object('rpc', 'evaluate_learner_status_after_payment',
+                              'threshold_basis', v_basis,
+                              'cascaded_from_universal', v_promoted_to_universal,
+                              'cascaded_from_item_rule', v_promoted_by_rule));
+        v_current_status := v_target_code::lifecycle_status;
+        v_promoted_to_threshold := true;
+      END IF;
+    END IF;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'learner_id', p_learner_id,
+    'updated', (v_promoted_by_rule OR v_promoted_to_universal OR v_promoted_to_threshold),
+    'promoted_by_item_rule', v_promoted_by_rule,
+    'promoted_to_universal', v_promoted_to_universal,
+    'promoted_to_threshold', v_promoted_to_threshold,
+    'item_rule_target', v_rule_target,
+    'item_rule_rows', v_rule_rows,
+    'item_rule_settled', v_rule_settled,
+    'final_status', v_current_status::text,
+    'paid_pct', v_paid_pct,
+    'pct_billed_to_date', v_pct_billed,
+    'pct_due_to_date', v_pct_due,
+    'pct_due_current_year', v_pct_due_cy,
+    'threshold_basis', v_basis,
+    'application_fee_paid', v_app_paid,
+    'university_fee_paid', v_universals_paid,
+    'gate_bills', v_gate_bills,
+    'gate_paid', v_gate_paid,
+    'threshold', v_threshold
+  );
+END;
+$function$;
+
+
+-- ============================================================================
+-- fn_billing_resync_item_schedules — reconnect already-generated bills to the
+-- fee-structure item they came from.
+--
+-- WHY (2026-09-06): billing_student_bills.fee_structure_item_id landed on
+-- 2026-08-21 and is the ONLY path from a bill back to its fee item. Every bill
+-- generated before that date has it NULL, and three things read through it:
+--
+--   billing_instalment_split_for_learner()  -> tranches from the item's schedule
+--   bbi_sync_bill_due_date()                -> bill.due_date from the next tranche
+--   fn_learner_status_apply_item_rules()    -> promotes_to_status_code
+--
+-- Measured on AY 2026-27 at the time of writing: 8,344 live bills, 47 stamped,
+-- 13 with tranches — against 426 split items and 895 configured schedule lines.
+-- The configuration was connected to nothing. This RPC connects it, and stays
+-- callable so the next structure edit does not need another migration.
+--
+-- The bill -> item mapping is
+--   admission_match_fee_structure_for_learner(learner)  (the 8-dimension match
+--   the generator itself uses) + billing_category_id
+-- which was verified to yield EXACTLY ONE candidate item per bill across all
+-- 4,727 in-scope rows: 0 ambiguous, 0 conflicting with an existing stamp.
+--
+-- WHAT IT DELIBERATELY DOES NOT DO
+--
+--   * It never touches final_amount, balance_amount or status on the bill.
+--     That is load-bearing: those are the columns
+--     trg_evaluate_status_after_bill_paid and trg_learner_status_on_bill_payment_drop
+--     watch, so leaving them alone keeps promotion entirely under this
+--     function's control instead of firing the full engine 4,700 times.
+--   * It re-shares the bill's OWN final_amount rather than re-pricing from the
+--     item. A learner's bill is what they were told they owe; a structure whose
+--     price has since moved is reported as an amount mismatch, not silently
+--     applied.
+--   * It calls fn_learner_status_apply_item_rules (STAGE A0 only), NOT
+--     evaluate_learner_status_after_payment. Running the full engine after a
+--     resync promotes far more people than the rules name — splitting a bill
+--     shrinks "due to date", so STAGE B's pooled threshold suddenly clears.
+--     Measured on this cohort: 325 learners via the threshold vs 14 named by
+--     the explicit rules. STAGE B keeps working normally on the next real
+--     payment; it is just not driven by a backfill.
+--
+-- Promotion is one-directional by construction and this function adds no way
+-- around that: STAGE A0 acts only on 'account'/'reserved', only targets a
+-- higher sort_order, and afsis_validate_status_target refuses any status with
+-- gates_login = true. Nobody can be demoted and nobody gains portal login.
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public.fn_billing_resync_item_schedules(
+  p_admission_year_ids uuid[],
+  p_institution_ids    uuid[]  DEFAULT NULL,
+  p_dry_run            boolean DEFAULT true,
+  p_apply_status       boolean DEFAULT true,
+  p_replace_existing   boolean DEFAULT false,
+  p_max_due_date       date    DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_scanned              integer := 0;
+  v_conflicts            integer := 0;
+  v_stamped              integer := 0;
+  v_tranche_bills        integer := 0;
+  v_tranches             integer := 0;
+  v_split_did_not_fit    integer := 0;
+  v_skipped_existing     integer := 0;
+  v_due_fixed            integer := 0;
+  v_due_out_of_ay        integer := 0;
+  v_amount_mismatch      integer := 0;
+  v_unresolved_learners  integer := 0;
+  v_status_candidates    integer := 0;
+  v_promoted             integer := 0;
+  v_learner              record;
+  v_res                  jsonb;
+  v_promotions           jsonb := '[]'::jsonb;
+BEGIN
+  -- This is a bulk maintenance action, not a per-request read. Gate it on the
+  -- key that already exists for bulk bill work rather than on the much broader
+  -- billing.schedule.update, which six roles hold.
+  IF NOT (
+    public.is_super_admin()
+    OR public.user_has_permission('billing.schedule.bulk_create')
+    -- The service key already bypasses RLS wholesale, so admitting it here
+    -- grants nothing new and lets a server-side job call this.
+    OR auth.role() = 'service_role'
+    -- A direct superuser session (migration console / maintenance) carries no
+    -- JWT at all, so every check above is false for it. session_user, NOT
+    -- current_user: inside SECURITY DEFINER current_user is the function owner
+    -- and would match unconditionally.
+    OR (auth.role() IS NULL AND session_user IN ('postgres', 'supabase_admin'))
+  ) THEN
+    RAISE EXCEPTION
+      'not_authorized: resyncing fee-item schedules requires billing.schedule.bulk_create'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF p_admission_year_ids IS NULL OR cardinality(p_admission_year_ids) = 0 THEN
+    RAISE EXCEPTION 'p_admission_year_ids is required'
+      USING ERRCODE = '22023',
+            HINT = 'Pass the admission_years.id values to resync. This function never runs unscoped.';
+  END IF;
+
+  -- Thousands of bill UPDATEs, each firing the per-row billing-summary MV
+  -- refresh. Give the batch room; the caller is expected to pass one
+  -- institution at a time anyway.
+  PERFORM set_config('statement_timeout', '600000', true);
+
+  -- ── 1. Resolve the candidate set ────────────────────────────────────────
+  -- fee_source = 'academic' only: transport (TMS) and hostel_category bills are
+  -- generated by other engines and are not described by an admission fee item.
+  DROP TABLE IF EXISTS _resync_scope;
+  DROP TABLE IF EXISTS _resync_tranches;
+
+  CREATE TEMP TABLE _resync_scope ON COMMIT DROP AS
+  SELECT
+    b.id                 AS bill_id,
+    b.student_id,
+    b.institution_id,
+    b.item_category_id,
+    b.final_amount,
+    b.due_date,
+    b.created_at::date   AS gen_date,
+    b.fee_structure_item_id AS cur_item,
+    fsi.id               AS item_id,
+    fsi.schedule_mode,
+    fsi.due_anchor,
+    fsi.due_date         AS item_due,
+    fsi.amount           AS item_amount,
+    (SELECT count(*) FROM public.admission_fee_structure_item_schedules s
+      WHERE s.fee_structure_item_id = fsi.id)        AS line_count,
+    (SELECT count(*) FROM public.billing_bill_instalments i
+      WHERE i.bill_id = b.id)                        AS cur_inst
+  FROM public.billing_student_bills b
+  JOIN public.learners_profiles lp ON lp.id = b.student_id
+  JOIN LATERAL (
+    SELECT public.admission_match_fee_structure_for_learner(lp.id) AS fs_id
+  ) m ON m.fs_id IS NOT NULL
+  -- Exactly one item per (structure, billing_category) — verified across the
+  -- whole 2026-27 cohort. applies_to therefore never has to disambiguate.
+  JOIN public.admission_fee_structure_items fsi
+    ON fsi.fee_structure_id    = m.fs_id
+   AND fsi.billing_category_id = b.item_category_id
+  WHERE lp.admission_year_id = ANY(p_admission_year_ids)
+    AND (p_institution_ids IS NULL OR b.institution_id = ANY(p_institution_ids))
+    AND b.status::text NOT IN ('cancelled', 'superseded')
+    AND b.fee_source = 'academic'
+    AND b.final_amount > 0;
+
+  SELECT count(*) INTO v_scanned FROM _resync_scope;
+
+  -- A bill already pointing at a DIFFERENT item than the matrix now resolves is
+  -- a real disagreement, not something to overwrite silently. Drop it and say so.
+  DELETE FROM _resync_scope WHERE cur_item IS NOT NULL AND cur_item <> item_id;
+  GET DIAGNOSTICS v_conflicts = ROW_COUNT;
+
+  SELECT count(*) INTO v_amount_mismatch
+  FROM _resync_scope WHERE final_amount <> item_amount;
+
+  SELECT count(*) INTO v_skipped_existing
+  FROM _resync_scope WHERE cur_inst > 0 AND NOT p_replace_existing;
+
+  -- Learners in range holding live academic bills that resolve no structure at
+  -- all (missing quota/community, or an institution with no structures — the
+  -- school stream bills from school_fee_plans instead).
+  SELECT count(DISTINCT lp.id) INTO v_unresolved_learners
+  FROM public.learners_profiles lp
+  WHERE lp.admission_year_id = ANY(p_admission_year_ids)
+    AND (p_institution_ids IS NULL OR lp.institution_id = ANY(p_institution_ids))
+    AND public.admission_match_fee_structure_for_learner(lp.id) IS NULL
+    AND EXISTS (
+      SELECT 1 FROM public.billing_student_bills b
+      WHERE b.student_id = lp.id
+        AND b.status::text NOT IN ('cancelled', 'superseded')
+        AND b.fee_source = 'academic');
+
+  -- ── counts that must be known in dry run too ────────────────────────────
+  SELECT count(*) INTO v_due_out_of_ay
+  FROM _resync_scope
+  WHERE schedule_mode = 'single' AND due_anchor = 'fixed_date'
+    AND item_due IS NOT NULL AND item_due IS DISTINCT FROM due_date
+    AND cur_inst = 0
+    AND p_max_due_date IS NOT NULL AND item_due > p_max_due_date;
+
+  SELECT count(*) INTO v_due_fixed
+  FROM _resync_scope
+  WHERE schedule_mode = 'single' AND due_anchor = 'fixed_date'
+    AND item_due IS NOT NULL AND item_due IS DISTINCT FROM due_date
+    AND cur_inst = 0
+    AND (p_max_due_date IS NULL OR item_due <= p_max_due_date);
+
+  -- ── 2. Stamp the link ───────────────────────────────────────────────────
+  IF p_dry_run THEN
+    SELECT count(*) INTO v_stamped FROM _resync_scope WHERE cur_item IS NULL;
+  ELSE
+    UPDATE public.billing_student_bills b
+       SET fee_structure_item_id = s.item_id
+      FROM _resync_scope s
+     WHERE b.id = s.bill_id
+       AND b.fee_structure_item_id IS NULL;
+    GET DIAGNOSTICS v_stamped = ROW_COUNT;
+  END IF;
+
+  -- ── 3. Tranches ─────────────────────────────────────────────────────────
+  -- instalment_count >= 2 is the acceptance test, not schedule_mode alone: a
+  -- schedule whose fixed_amounts do not fit this bill's total makes the
+  -- resolver fall through and return ONE row. Writing that as a single tranche
+  -- would replace the bill's due date with a derived one and gain nothing, so
+  -- those are skipped and reported instead.
+  IF p_replace_existing AND NOT p_dry_run THEN
+    DELETE FROM public.billing_bill_instalments i
+     USING _resync_scope s
+     WHERE i.bill_id = s.bill_id
+       AND s.schedule_mode = 'split' AND s.line_count >= 2;
+  END IF;
+
+  CREATE TEMP TABLE _resync_tranches ON COMMIT DROP AS
+  SELECT s.bill_id, s.item_id,
+         r.instalment_no, r.instalment_count, r.instalment_amount,
+         r.instalment_due_date, r.promotes_to_status_code
+  FROM _resync_scope s
+  CROSS JOIN LATERAL public.billing_instalment_split_for_learner(
+         s.student_id, s.item_category_id, s.final_amount, s.gen_date, s.item_id) r
+  WHERE s.schedule_mode = 'split'
+    AND s.line_count >= 2
+    AND (s.cur_inst = 0 OR p_replace_existing);
+
+  SELECT count(DISTINCT bill_id) INTO v_split_did_not_fit
+  FROM _resync_tranches WHERE instalment_count < 2;
+
+  DELETE FROM _resync_tranches WHERE instalment_count < 2;
+
+  SELECT count(*), count(DISTINCT bill_id) INTO v_tranches, v_tranche_bills
+  FROM _resync_tranches;
+
+  IF NOT p_dry_run THEN
+    -- sequence_no == the schedule line's sequence_no: the resolver walks the
+    -- lines ORDER BY sequence_no and numbers from 1, and sequence_no is unique
+    -- and contiguous from 1 by the write path's own renumbering. That is what
+    -- makes carrying the line's id and label back a safe join.
+    INSERT INTO public.billing_bill_instalments
+      (bill_id, sequence_no, amount, due_date, promotes_to_status_code,
+       fee_structure_item_schedule_id, label)
+    SELECT t.bill_id, t.instalment_no::smallint, t.instalment_amount,
+           t.instalment_due_date, t.promotes_to_status_code,
+           sl.id, sl.label
+    FROM _resync_tranches t
+    LEFT JOIN public.admission_fee_structure_item_schedules sl
+      ON sl.fee_structure_item_id = t.item_id
+     AND sl.sequence_no           = t.instalment_no;
+    -- bill.due_date now follows the next unsettled tranche automatically via
+    -- trg_bbi_sync_due_date; the deferred trg_bbi_validate_sum checks the
+    -- tranche total against final_amount at commit.
+  END IF;
+
+  -- ── 4. Single fixed-date items ──────────────────────────────────────────
+  -- Only bills with no tranches: a scheduled bill's due date is owned by
+  -- bbi_sync_bill_due_date and must not be overwritten here.
+  IF NOT p_dry_run THEN
+    UPDATE public.billing_student_bills b
+       SET due_date = s.item_due
+      FROM _resync_scope s
+     WHERE b.id = s.bill_id
+       AND s.schedule_mode = 'single'
+       AND s.due_anchor    = 'fixed_date'
+       AND s.item_due IS NOT NULL
+       AND s.item_due IS DISTINCT FROM s.due_date
+       AND s.cur_inst = 0
+       AND (p_max_due_date IS NULL OR s.item_due <= p_max_due_date);
+  END IF;
+
+  -- ── 5. Status, on the item rules only ───────────────────────────────────
+  SELECT count(DISTINCT s.student_id) INTO v_status_candidates
+  FROM _resync_scope s
+  JOIN public.learners_profiles lp ON lp.id = s.student_id
+  WHERE lp.lifecycle_status::text IN ('account', 'reserved');
+
+  IF p_apply_status AND NOT p_dry_run THEN
+    FOR v_learner IN
+      SELECT DISTINCT s.student_id AS id
+      FROM _resync_scope s
+      JOIN public.learners_profiles lp ON lp.id = s.student_id
+      WHERE lp.lifecycle_status::text IN ('account', 'reserved')
+    LOOP
+      v_res := public.fn_learner_status_apply_item_rules(
+                 v_learner.id, 'fn_billing_resync_item_schedules');
+      IF COALESCE((v_res->>'promoted')::boolean, false) THEN
+        v_promoted   := v_promoted + 1;
+        v_promotions := v_promotions || jsonb_build_object(
+          'learner_id', v_learner.id,
+          'from',       v_res->>'from_status',
+          'to',         v_res->>'final_status');
+      END IF;
+    END LOOP;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'dry_run',                    p_dry_run,
+    'admission_year_ids',         to_jsonb(p_admission_year_ids),
+    'institution_ids',            to_jsonb(p_institution_ids),
+    'bills_scanned',              v_scanned,
+    'stamped',                    v_stamped,
+    'tranches_created',           v_tranches,
+    'bills_scheduled',            v_tranche_bills,
+    'due_dates_fixed',            v_due_fixed,
+    'skipped_due_dates_out_of_ay', v_due_out_of_ay,
+    'skipped_existing_tranches',  v_skipped_existing,
+    'skipped_split_did_not_fit',  v_split_did_not_fit,
+    'item_conflicts',             v_conflicts,
+    'amount_mismatches',          v_amount_mismatch,
+    'unresolved_learners',        v_unresolved_learners,
+    'status_candidates',          v_status_candidates,
+    'promoted',                   v_promoted,
+    'promotions',                 v_promotions
+  );
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_billing_resync_item_schedules(uuid[], uuid[], boolean, boolean, boolean, date) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_billing_resync_item_schedules(uuid[], uuid[], boolean, boolean, boolean, date) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_billing_resync_item_schedules(uuid[], uuid[], boolean, boolean, boolean, date) TO service_role;
+
+COMMENT ON FUNCTION public.fn_billing_resync_item_schedules(uuid[], uuid[], boolean, boolean, boolean, date) IS
+  'Reconnects already-generated bills to their admission fee-structure item: stamps fee_structure_item_id, '
+  'creates instalment tranches from the item schedule, applies single fixed due dates, and promotes learners '
+  'on the explicit item rules only (never the pooled threshold). Dry-run by default. '
+  'Requires billing.schedule.bulk_create.';
+
+
+-- ============================================================================
+-- fn_learner_status_apply_item_rules is an INTERNAL helper, not an API.
+--
+-- Extracting STAGE A0 in 20260906120000 gave it a PostgREST endpoint of its
+-- own: SECURITY DEFINER + EXECUTE to `authenticated` means any logged-in user
+-- could POST /rpc/fn_learner_status_apply_item_rules for an arbitrary learner
+-- id. It cannot set a status the fee rules do not already justify — it
+-- recomputes everything from the bills — but forcing a promotion evaluation on
+-- someone else's learner record is not something a caller should be able to do,
+-- and the ungated-maintenance-RPC shape is exactly the one this codebase has
+-- been bitten by before.
+--
+-- Both real callers (evaluate_learner_status_after_payment and
+-- fn_billing_resync_item_schedules) are themselves SECURITY DEFINER owned by
+-- postgres, so they execute this as the OWNER. Revoking the `authenticated`
+-- grant closes the endpoint without affecting either of them.
+--
+-- Verified after applying: the engine still promotes through STAGE A0 when
+-- called as an authenticated user.
+-- ============================================================================
+
+REVOKE EXECUTE ON FUNCTION public.fn_learner_status_apply_item_rules(uuid, text) FROM authenticated;
+
+
+-- ============================================================================
+-- admission_preview_account_bills: let bill-creating staff read it too.
+--
+-- WHY (2026-09-06). The New Bill form is gaining a "Load from fee structure"
+-- action that fills the whole form from the learner's structure — every fee
+-- item with its amount, its instalment split, its shares and its due dates.
+-- This RPC already computes exactly that and is the same resolver the
+-- onboarding preview uses, so reusing it keeps ONE answer to "what does this
+-- learner's structure say" instead of a second implementation on the billing
+-- side that could disagree.
+--
+-- Its gate was admission_documents.manage only, which an accounts operator
+-- does not hold — they would get 42501 and the button would appear to do
+-- nothing.
+--
+-- WHY THIS GRANTS NOTHING NEW. The gate now also accepts the keys that already
+-- let a caller price a bill: billing.schedule.create / billing.bills.create are
+-- precisely the keys on billing_get_instalment_split, which returns the SAME
+-- numbers one category at a time. Someone who can create bills for a learner
+-- can already read every value this returns; the only difference is how many
+-- round trips it takes them. The function stays STABLE and read-only.
+--
+-- Nothing else about the function changes: same signature, same body, same
+-- CREATE OR REPLACE (never DROP — that would take the ACL with it and a
+-- re-CREATE silently re-grants EXECUTE to PUBLIC).
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public.admission_preview_account_bills(p_learner_id uuid)
+RETURNS TABLE(
+  sort_order integer, category_id uuid, category_name text, item_amount numeric,
+  is_billable boolean, owner_module text, instalment_no integer,
+  instalment_count integer, instalment_amount numeric, share_percent numeric,
+  due_date date, promotes_to_status_code text, matched_source text
+)
+LANGUAGE plpgsql
+STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_items   jsonb;
+  v_item    jsonb;
+  v_idx     integer := 0;
+  v_cat     uuid;
+  v_amt     numeric;
+  v_item_id uuid;
+  v_kind    text;
+  v_split   record;
+  v_rows    integer;
+  v_anchor  date := CURRENT_DATE;
+  v_default integer;
+BEGIN
+  -- Widened 2026-09-06: the billing keys read the same numbers
+  -- billing_get_instalment_split already exposes to them per category.
+  IF NOT (
+    public.user_has_permission('admission_documents.manage')
+    OR public.user_has_permission('billing.schedule.create')
+    OR public.user_has_permission('billing.bills.create')
+    OR public.is_super_admin()
+    OR public.is_admin()
+  ) THEN
+    RAISE EXCEPTION 'permission_denied: admission_documents.manage or billing.schedule.create required'
+      USING ERRCODE = '42501';
+  END IF;
+
+  v_items := public.admission_compute_fee_items_for_learner(p_learner_id);
+
+  FOR v_item IN SELECT * FROM jsonb_array_elements(COALESCE(v_items, '[]'::jsonb))
+  LOOP
+    v_idx     := v_idx + 1;
+    v_cat     := NULLIF(v_item->>'category_id','')::uuid;
+    v_amt     := COALESCE((v_item->>'amount')::numeric, 0);
+    v_item_id := NULLIF(v_item->>'fee_structure_item_id','')::uuid;
+
+    IF v_amt <= 0 THEN
+      CONTINUE;   -- the generation loop skips these too
+    END IF;
+
+    SELECT bc.kind::text INTO v_kind FROM public.billing_categories bc WHERE bc.id = v_cat;
+
+    IF v_kind IN ('hostel','mess','transport') THEN
+      sort_order              := v_idx;
+      category_id             := v_cat;
+      category_name           := v_item->>'category_name';
+      item_amount             := v_amt;
+      is_billable             := false;
+      owner_module            := CASE WHEN v_kind = 'transport' THEN 'tms' ELSE 'campus_living' END;
+      instalment_no           := NULL;
+      instalment_count        := NULL;
+      instalment_amount       := NULL;
+      share_percent           := NULL;
+      due_date                := NULL;
+      promotes_to_status_code := NULL;
+      matched_source          := NULL;
+      RETURN NEXT;
+      CONTINUE;
+    END IF;
+
+    v_rows := 0;
+    FOR v_split IN
+      SELECT s.* FROM public.billing_instalment_split_for_learner(
+        p_learner_id, v_cat, v_amt, v_anchor, v_item_id) s
+      ORDER BY s.instalment_no
+    LOOP
+      sort_order              := v_idx;
+      category_id             := v_cat;
+      category_name           := v_item->>'category_name';
+      item_amount             := v_amt;
+      is_billable             := true;
+      owner_module            := 'admission';
+      instalment_no           := v_split.instalment_no;
+      instalment_count        := v_split.instalment_count;
+      instalment_amount       := v_split.instalment_amount;
+      -- EFFECTIVE share, derived from the amount the engine actually produced,
+      -- not the configured percentage: the last instalment absorbs rounding, so
+      -- its true share differs slightly from what was typed.
+      share_percent           := CASE WHEN v_amt > 0
+                                      THEN round(v_split.instalment_amount * 100.0 / v_amt, 2)
+                                      ELSE NULL END;
+      due_date                := v_split.instalment_due_date;
+      promotes_to_status_code := v_split.promotes_to_status_code;
+      matched_source          := v_split.matched_source;
+      RETURN NEXT;
+      v_rows := v_rows + 1;
+    END LOOP;
+
+    -- Engine resolved nothing (a legacy snapshot with no structure item behind
+    -- it): one bill on the structure default, or the platform 30.
+    IF v_rows = 0 THEN
+      SELECT fs.default_due_offset_days INTO v_default
+        FROM public.admission_fee_structures fs
+       WHERE fs.id = public.admission_match_fee_structure_for_learner(p_learner_id);
+
+      sort_order              := v_idx;
+      category_id             := v_cat;
+      category_name           := v_item->>'category_name';
+      item_amount             := v_amt;
+      is_billable             := true;
+      owner_module            := 'admission';
+      instalment_no           := 1;
+      instalment_count        := 1;
+      instalment_amount       := v_amt;
+      share_percent           := 100;
+      due_date                := v_anchor + COALESCE(v_default, 30);
+      promotes_to_status_code := NULL;
+      matched_source          := 'default';
+      RETURN NEXT;
+    END IF;
+  END LOOP;
+
+  RETURN;
+END;
+$function$;
+-- Updated: 2026-08-08 — fn_learner_band_academic_fee SUPERSEDES the earlier
+-- definition above. Source: supabase/migrations/20260815050001_zero_fee_learner_
+-- resolves_room_category.sql. APPLIED TO PRODUCTION BY HAND on 2026-08-08 via the
+-- Supabase Management API, Director-approved, before the migration file existed.
+--
+-- One character: `HAVING SUM(b.final_amount) > 0` becomes `>= 0`. A fully-waived
+-- learner's academic bills total Rs.0, so the old HAVING dropped every one of her
+-- rows and the function returned NULL; fn_hostel_learner_room_categories then
+-- exited early and she could NEVER qualify for a hostel room, reading as
+-- 'No room-category eligibility rule' in the waiting queue — which sent people
+-- hunting for a missing rulebook line that was never missing. 11 learners stuck.
+--
+-- A learner with NO bills still returns NULL (the years CTE produces no rows at
+-- all), so 'no fee configured' stays distinguishable from 'fee is zero'. Negative
+-- totals stay excluded. Callers are hostel-allocation functions only — verified
+-- live 2026-08-08: fn_auto_allocate_candidates, fn_explain_allocation,
+-- fn_hostel_learner_room_categories, fn_hostel_learner_mess_categories,
+-- fn_preview_hostel_fee_categories, fn_learner_admission_year_academic_fee. No
+-- billing or fee-charging code reads it: bills 11,898 unchanged, outstanding
+-- unchanged, zero late charges, zero ghost beds. Unresolved room categories
+-- 77 -> 66, ready-to-place 337 -> 348 — exactly those 11 learners, nobody else.
+CREATE OR REPLACE FUNCTION public.fn_learner_band_academic_fee(p_learner_id uuid)
+ RETURNS TABLE(academic_year_id uuid, academic_year_name text, fee numeric)
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  WITH anchor AS (
+    SELECT public.fn_learner_admission_academic_year(p_learner_id) AS ay_id
+  ),
+  years AS (
+    SELECT b.academic_year_id AS ay_id,
+           ay.academic_year_name::text AS ay_name,
+           ay.start_date,
+           SUM(b.final_amount) AS total
+    FROM billing_student_bills b
+    JOIN academic_years ay ON ay.id = b.academic_year_id
+    WHERE b.student_id = p_learner_id
+      AND b.fee_source = 'academic'
+      AND b.status NOT IN ('cancelled','superseded')
+    GROUP BY b.academic_year_id, ay.academic_year_name, ay.start_date
+    HAVING SUM(b.final_amount) >= 0
+  )
+  SELECT y.ay_id, y.ay_name, y.total
+  FROM years y CROSS JOIN anchor a
+  ORDER BY (y.ay_id IS DISTINCT FROM a.ay_id), y.start_date ASC
+  LIMIT 1;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_learner_band_academic_fee(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_learner_band_academic_fee(uuid) TO authenticated, service_role;
+-- Updated: 2026-08-21 - AIU evidence trail immutability guard
+-- (migration 20260922041500_aiu_prompt_trails.sql — FILE ONLY / NOT APPLIED).
+-- Plain trigger fn (NOT SECURITY DEFINER — touches only NEW/OLD). Capture
+-- columns are frozen at insert; learner_final/changed are write-once.
+CREATE OR REPLACE FUNCTION public.tg_aiu_prompt_trails_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+  IF NEW.prompt_sent   IS DISTINCT FROM OLD.prompt_sent
+     OR NEW.ai_output     IS DISTINCT FROM OLD.ai_output
+     OR NEW.learner_input IS DISTINCT FROM OLD.learner_input
+     OR NEW.learner_id    IS DISTINCT FROM OLD.learner_id
+     OR NEW.surface       IS DISTINCT FROM OLD.surface
+     OR NEW.created_at    IS DISTINCT FROM OLD.created_at THEN
+    RAISE EXCEPTION 'aiu_prompt_trails: capture columns are immutable (prompt_sent, ai_output, learner_input, learner_id, surface, created_at)'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  IF OLD.learner_final IS NOT NULL
+     AND NEW.learner_final IS DISTINCT FROM OLD.learner_final THEN
+    RAISE EXCEPTION 'aiu_prompt_trails: learner_final is write-once'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  IF OLD.changed IS NOT NULL
+     AND NEW.changed IS DISTINCT FROM OLD.changed THEN
+    RAISE EXCEPTION 'aiu_prompt_trails: changed is write-once'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  NEW.updated_at := now();
+  RETURN NEW;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.tg_aiu_prompt_trails_guard() FROM anon, PUBLIC;
+
+
+-- ==========================================================================
+-- Campus Living - Housekeeping (rebuilt 2026-09-07)
+-- Migration: 20260907090200_housekeeping_rpcs.sql
+-- ==========================================================================
+
+-- ==========================================================================
+-- fn_cl_housekeeping_slots
+--
+-- The slot grid for one room + one cleaning type + one date.
+-- Slot length is the TYPE's duration, so a 30-minute type yields 30-minute
+-- slots and a 90-minute type yields 90-minute slots from the same window.
+--
+-- Returns jsonb rather than SETOF so a closed day can carry its reason:
+--   {"open": false, "reason": "day_closed", "slots": []}
+--   {"open": true,  "slots": [{slot_start, slot_end, remaining_capacity,
+--                              is_bookable, reason}, ...]}
+-- Learners cannot SELECT hostel_cleaning_availability (warden-only policy),
+-- which is exactly why this function is DEFINER.
+-- ==========================================================================
+CREATE OR REPLACE FUNCTION public.fn_cl_housekeeping_slots(
+  p_room_id uuid,
+  p_type_id uuid,
+  p_date    date
+) RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $fn$
+DECLARE
+  v_uid      uuid := auth.uid();
+  v_block_id uuid;
+  v_duration integer;
+  v_avail    public.hostel_cleaning_availability%ROWTYPE;
+  v_cursor   time;
+  v_slot_end time;
+  v_used     integer;
+  v_slots    jsonb := '[]'::jsonb;
+  v_today    date := (now() AT TIME ZONE 'Asia/Kolkata')::date;
+  v_now_t    time := (now() AT TIME ZONE 'Asia/Kolkata')::time;
+  v_past     boolean;
+BEGIN
+  IF v_uid IS NULL THEN
+    RETURN jsonb_build_object('open', false, 'reason', 'unauthenticated', 'slots', '[]'::jsonb);
+  END IF;
+
+  -- The caller must actually live in this room. Without this check a DEFINER
+  -- function would happily enumerate any room's availability.
+  IF NOT EXISTS (
+    SELECT 1 FROM public.hostel_allocations a
+    WHERE a.room_id = p_room_id
+      AND a.learner_id = v_uid
+      AND a.status::text = ANY (public.fn_cl_roster_statuses())
+  ) AND NOT public.user_has_permission('campus_living.housekeeping.view') THEN
+    RETURN jsonb_build_object('open', false, 'reason', 'not_your_room', 'slots', '[]'::jsonb);
+  END IF;
+
+  SELECT r.block_id INTO v_block_id FROM public.hostel_rooms r WHERE r.id = p_room_id;
+  IF v_block_id IS NULL THEN
+    RETURN jsonb_build_object('open', false, 'reason', 'room_not_found', 'slots', '[]'::jsonb);
+  END IF;
+
+  SELECT t.duration_minutes INTO v_duration
+  FROM public.hostel_cleaning_types t
+  WHERE t.id = p_type_id AND t.is_active;
+  IF v_duration IS NULL THEN
+    RETURN jsonb_build_object('open', false, 'reason', 'type_unavailable', 'slots', '[]'::jsonb);
+  END IF;
+
+  SELECT * INTO v_avail
+  FROM public.hostel_cleaning_availability av
+  WHERE av.block_id = v_block_id
+    AND av.weekday = EXTRACT(DOW FROM p_date)::integer;
+
+  IF NOT FOUND OR NOT v_avail.is_open THEN
+    RETURN jsonb_build_object('open', false, 'reason', 'day_closed', 'slots', '[]'::jsonb);
+  END IF;
+
+  v_cursor := v_avail.window_start;
+  WHILE v_cursor + make_interval(mins => v_duration) <= v_avail.window_end LOOP
+    v_slot_end := v_cursor + make_interval(mins => v_duration);
+
+    -- Parallel cleanings already committed in this block overlapping this slot.
+    SELECT count(*)::integer INTO v_used
+    FROM public.hostel_cleaning_bookings b
+    WHERE b.block_id = v_block_id
+      AND b.booking_date = p_date
+      AND b.status <> 'cancelled'
+      AND b.slot_start < v_slot_end
+      AND b.slot_end   > v_cursor;
+
+    v_past := (p_date < v_today) OR (p_date = v_today AND v_cursor <= v_now_t);
+
+    v_slots := v_slots || jsonb_build_object(
+      'slot_start',         to_char(v_cursor, 'HH24:MI'),
+      'slot_end',           to_char(v_slot_end, 'HH24:MI'),
+      'remaining_capacity', greatest(v_avail.capacity - v_used, 0),
+      'is_bookable',        (v_used < v_avail.capacity) AND NOT v_past,
+      'reason',             CASE
+                              WHEN v_past THEN 'past'
+                              WHEN v_used >= v_avail.capacity THEN 'slot_full'
+                              ELSE NULL
+                            END
+    );
+
+    v_cursor := v_slot_end;
+  END LOOP;
+
+  RETURN jsonb_build_object('open', true, 'slots', v_slots);
+END $fn$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_cl_housekeeping_slots(uuid, uuid, date) FROM PUBLIC, anon;
+GRANT  EXECUTE ON FUNCTION public.fn_cl_housekeeping_slots(uuid, uuid, date) TO authenticated;
+
+-- ==========================================================================
+-- fn_cl_housekeeping_book
+--
+-- The full validation chain, in the order the spec defines. Returns the first
+-- failure rather than collecting them, because the UI shows one message.
+--
+-- The advisory lock narrows the double-book race;
+-- ux_hk_one_live_booking_per_room closes it. Both are needed: the lock gives a
+-- clean error_code for the common case, the index guarantees correctness for
+-- the rest.
+-- ==========================================================================
+CREATE OR REPLACE FUNCTION public.fn_cl_housekeeping_book(
+  p_type_id    uuid,
+  p_date       date,
+  p_slot_start time,
+  p_notes      text DEFAULT NULL
+) RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $fn$
+DECLARE
+  v_uid          uuid := auth.uid();
+  v_alloc        public.hostel_allocations%ROWTYPE;
+  v_type         public.hostel_cleaning_types%ROWTYPE;
+  v_category_id  uuid;
+  v_slot_end     time;
+  v_window_start date;
+  v_used         integer;
+  v_advance_days integer;
+  v_slots        jsonb;
+  v_slot         jsonb;
+  v_ok           boolean := false;
+  v_cost         numeric(12,2);
+  v_booking_id   uuid;
+BEGIN
+  IF v_uid IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'error_code', 'unauthenticated');
+  END IF;
+
+  -- 1. Master kill switch.
+  IF NOT public.fn_get_policy_bool('housekeeping.booking_enabled', true, NULL) THEN
+    RETURN jsonb_build_object('success', false, 'error_code', 'feature_disabled');
+  END IF;
+
+  -- 2. Live allocation. This is the learner's authorisation -- no permission
+  --    key is involved; living in the room IS the right to book for it.
+  SELECT * INTO v_alloc
+  FROM public.hostel_allocations a
+  WHERE a.learner_id = v_uid
+    AND a.status::text = ANY (public.fn_cl_roster_statuses())
+  ORDER BY a.allocation_date DESC NULLS LAST
+  LIMIT 1;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false, 'error_code', 'no_allocation');
+  END IF;
+
+  -- 3. Active type. The catalogue is global, so there is no institution to
+  --    match -- step 4 is what decides whether THIS learner may book it.
+  SELECT * INTO v_type
+  FROM public.hostel_cleaning_types t
+  WHERE t.id = p_type_id
+    AND t.is_active;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false, 'error_code', 'type_unavailable');
+  END IF;
+
+  -- 4. Eligibility by the SEATED room's category (never the billed category,
+  --    and never hostel_allocations.tier_id, which is dead in production).
+  --    An empty junction means nobody can book: it fails closed.
+  SELECT r.category_id INTO v_category_id
+  FROM public.hostel_rooms r WHERE r.id = v_alloc.room_id;
+  IF v_category_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM public.hostel_cleaning_type_categories tc
+    WHERE tc.type_id = p_type_id AND tc.category_id = v_category_id
+  ) THEN
+    RETURN jsonb_build_object('success', false, 'error_code', 'category_not_eligible');
+  END IF;
+
+  -- Serialise same-room bookers before the read-then-write below.
+  PERFORM pg_advisory_xact_lock(hashtext(v_alloc.room_id::text));
+
+  -- 5. Room lock: one live booking per room, any type.
+  IF EXISTS (
+    SELECT 1 FROM public.hostel_cleaning_bookings b
+    WHERE b.room_id = v_alloc.room_id
+      AND b.status IN ('booked','assigned','in_progress','awaiting_feedback')
+  ) THEN
+    RETURN jsonb_build_object('success', false, 'error_code', 'room_locked');
+  END IF;
+
+  -- 6. Quota: per room, per type, rolling window ending on the booking date.
+  v_window_start := CASE v_type.usage_period
+                      WHEN 'day'   THEN p_date
+                      WHEN 'week'  THEN p_date - 6
+                      WHEN 'month' THEN p_date - 29
+                    END;
+  SELECT count(*)::integer INTO v_used
+  FROM public.hostel_cleaning_bookings b
+  WHERE b.room_id = v_alloc.room_id
+    AND b.type_id = p_type_id
+    AND b.status <> 'cancelled'
+    AND b.booking_date BETWEEN v_window_start AND p_date;
+  IF v_used >= v_type.usage_limit_count THEN
+    RETURN jsonb_build_object('success', false, 'error_code', 'quota_exhausted',
+                              'used', v_used, 'allowed', v_type.usage_limit_count);
+  END IF;
+
+  -- 7. Date range.
+  v_advance_days := public.fn_get_policy_int('housekeeping.booking_advance_days', 7, NULL);
+  IF p_date < (now() AT TIME ZONE 'Asia/Kolkata')::date
+     OR p_date > (now() AT TIME ZONE 'Asia/Kolkata')::date + v_advance_days THEN
+    RETURN jsonb_build_object('success', false, 'error_code', 'date_out_of_range');
+  END IF;
+
+  -- 8. The slot must exist in today's grid and still be bookable.
+  v_slots := public.fn_cl_housekeeping_slots(v_alloc.room_id, p_type_id, p_date);
+  IF NOT (v_slots->>'open')::boolean THEN
+    RETURN jsonb_build_object('success', false,
+                              'error_code', COALESCE(v_slots->>'reason', 'day_closed'));
+  END IF;
+  FOR v_slot IN SELECT * FROM jsonb_array_elements(v_slots->'slots') LOOP
+    IF (v_slot->>'slot_start') = to_char(p_slot_start, 'HH24:MI') THEN
+      v_ok := (v_slot->>'is_bookable')::boolean;
+      v_slot_end := (v_slot->>'slot_end')::time;
+    END IF;
+  END LOOP;
+  IF v_slot_end IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'error_code', 'slot_not_found');
+  END IF;
+  IF NOT v_ok THEN
+    RETURN jsonb_build_object('success', false, 'error_code', 'slot_full');
+  END IF;
+
+  -- 9. Snapshot the cost and insert.
+  SELECT COALESCE(sum(e.line_total_inr), 0) INTO v_cost
+  FROM public.hostel_cleaning_type_expenses e WHERE e.type_id = p_type_id;
+
+  INSERT INTO public.hostel_cleaning_bookings (
+    institution_id, block_id, room_id, allocation_id, learner_id, type_id,
+    booking_date, slot_start, slot_end, status,
+    feedback_due_at, type_name, duration_minutes, expected_cost_inr, notes
+  ) VALUES (
+    v_alloc.institution_id, v_alloc.block_id, v_alloc.room_id, v_alloc.id, v_uid, p_type_id,
+    p_date, p_slot_start, v_slot_end, 'booked',
+    (p_date + time '23:59:59') AT TIME ZONE 'Asia/Kolkata',
+    v_type.name, v_type.duration_minutes, v_cost, nullif(btrim(COALESCE(p_notes, '')), '')
+  )
+  RETURNING id INTO v_booking_id;
+
+  RETURN jsonb_build_object('success', true, 'booking_id', v_booking_id,
+                            'slot_end', to_char(v_slot_end, 'HH24:MI'));
+EXCEPTION
+  WHEN unique_violation THEN
+    -- ux_hk_one_live_booking_per_room fired: a roommate won the race.
+    RETURN jsonb_build_object('success', false, 'error_code', 'room_locked');
+END $fn$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_cl_housekeeping_book(uuid, date, time, text) FROM PUBLIC, anon;
+GRANT  EXECUTE ON FUNCTION public.fn_cl_housekeeping_book(uuid, date, time, text) TO authenticated;
+
+-- ==========================================================================
+-- fn_cl_housekeeping_cancel
+--
+-- A learner may cancel only while the booking is still unassigned. Once a
+-- cleaner is assigned, only a warden holding .cancel may do it.
+-- Cancelling releases the room lock and refunds the quota, because the partial
+-- unique index and the quota count both exclude 'cancelled'.
+-- ==========================================================================
+CREATE OR REPLACE FUNCTION public.fn_cl_housekeeping_cancel(
+  p_booking_id uuid,
+  p_reason     text DEFAULT NULL
+) RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $fn$
+DECLARE
+  v_uid       uuid := auth.uid();
+  v_b         public.hostel_cleaning_bookings%ROWTYPE;
+  v_is_warden boolean;
+  v_is_owner  boolean;
+BEGIN
+  IF v_uid IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'error_code', 'unauthenticated');
+  END IF;
+
+  SELECT * INTO v_b FROM public.hostel_cleaning_bookings b WHERE b.id = p_booking_id;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false, 'error_code', 'not_found');
+  END IF;
+
+  IF v_b.status IN ('completed','cancelled') THEN
+    RETURN jsonb_build_object('success', false, 'error_code', 'not_cancellable');
+  END IF;
+
+  v_is_warden := public.user_has_permission('campus_living.housekeeping.cancel')
+                 AND public.role_has_institution_access(v_b.institution_id);
+  v_is_owner  := EXISTS (
+    SELECT 1 FROM public.hostel_allocations a
+    WHERE a.room_id = v_b.room_id
+      AND a.learner_id = v_uid
+      AND a.status::text = ANY (public.fn_cl_roster_statuses())
+  );
+
+  IF v_is_warden THEN
+    NULL;  -- wardens may cancel at any live status
+  ELSIF v_is_owner THEN
+    IF v_b.status <> 'booked' THEN
+      RETURN jsonb_build_object('success', false, 'error_code', 'already_assigned');
+    END IF;
+  ELSE
+    RETURN jsonb_build_object('success', false, 'error_code', 'forbidden');
+  END IF;
+
+  UPDATE public.hostel_cleaning_bookings
+  SET status        = 'cancelled',
+      cancelled_at  = now(),
+      cancelled_by  = v_uid,
+      cancel_reason = nullif(btrim(COALESCE(p_reason, '')), '')
+  WHERE id = p_booking_id;
+
+  RETURN jsonb_build_object('success', true);
+END $fn$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_cl_housekeeping_cancel(uuid, text) FROM PUBLIC, anon;
+GRANT  EXECUTE ON FUNCTION public.fn_cl_housekeeping_cancel(uuid, text) TO authenticated;
+
+-- ==========================================================================
+-- fn_cl_housekeeping_assign
+--
+-- Warden assigns (or clears) a cleaner. Snapshots cleaner_name onto the
+-- booking so learners never need SELECT on hostel_cleaners, which holds phone
+-- numbers -- Postgres RLS is row-level, so exposing the row exposes the PII.
+-- ==========================================================================
+CREATE OR REPLACE FUNCTION public.fn_cl_housekeeping_assign(
+  p_booking_id uuid,
+  p_cleaner_id uuid,
+  p_clear      boolean DEFAULT false
+) RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $fn$
+DECLARE
+  v_uid  uuid := auth.uid();
+  v_b    public.hostel_cleaning_bookings%ROWTYPE;
+  v_name text;
+  v_days integer[];
+BEGIN
+  IF v_uid IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'error_code', 'unauthenticated');
+  END IF;
+
+  SELECT * INTO v_b FROM public.hostel_cleaning_bookings b WHERE b.id = p_booking_id;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false, 'error_code', 'not_found');
+  END IF;
+
+  IF NOT (public.user_has_permission('campus_living.housekeeping.assign')
+          AND public.role_has_institution_access(v_b.institution_id)) THEN
+    RETURN jsonb_build_object('success', false, 'error_code', 'forbidden');
+  END IF;
+
+  IF v_b.status NOT IN ('booked','assigned') THEN
+    RETURN jsonb_build_object('success', false, 'error_code', 'not_assignable');
+  END IF;
+
+  IF p_clear THEN
+    UPDATE public.hostel_cleaning_bookings
+    SET cleaner_id = NULL, cleaner_name = NULL,
+        assigned_at = NULL, assigned_by = NULL,
+        status = 'booked'
+    WHERE id = p_booking_id;
+    RETURN jsonb_build_object('success', true, 'status', 'booked');
+  END IF;
+
+  SELECT c.full_name, c.working_days INTO v_name, v_days
+  FROM public.hostel_cleaners c
+  WHERE c.id = p_cleaner_id
+    AND c.is_active
+    AND c.institution_id = v_b.institution_id;
+  IF v_name IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'error_code', 'cleaner_unavailable');
+  END IF;
+
+  -- The cleaner must actually serve this block and work this weekday.
+  IF NOT EXISTS (
+    SELECT 1 FROM public.hostel_cleaner_blocks cb
+    WHERE cb.cleaner_id = p_cleaner_id AND cb.block_id = v_b.block_id
+  ) THEN
+    RETURN jsonb_build_object('success', false, 'error_code', 'cleaner_wrong_block');
+  END IF;
+
+  IF NOT (EXTRACT(DOW FROM v_b.booking_date)::integer = ANY (v_days)) THEN
+    RETURN jsonb_build_object('success', false, 'error_code', 'cleaner_not_working');
+  END IF;
+
+  UPDATE public.hostel_cleaning_bookings
+  SET cleaner_id = p_cleaner_id, cleaner_name = v_name,
+      assigned_at = now(), assigned_by = v_uid,
+      status = 'assigned'
+  WHERE id = p_booking_id;
+
+  RETURN jsonb_build_object('success', true, 'status', 'assigned', 'cleaner_name', v_name);
+END $fn$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_cl_housekeeping_assign(uuid, uuid, boolean) FROM PUBLIC, anon;
+GRANT  EXECUTE ON FUNCTION public.fn_cl_housekeeping_assign(uuid, uuid, boolean) TO authenticated;
+
+-- ==========================================================================
+-- fn_cl_housekeeping_feedback_holds
+--
+-- Which learners are currently attendance-blocked by unrated cleanings.
+-- Computed live: there is no stored flag and no cron, so nothing can fall out
+-- of sync. The hold starts the day AFTER the booking date and lifts the
+-- instant any roommate rates.
+--
+-- p_institution_id / p_block_id are optional filters (NULL = no filter).
+-- ==========================================================================
+CREATE OR REPLACE FUNCTION public.fn_cl_housekeeping_feedback_holds(
+  p_institution_id uuid DEFAULT NULL,
+  p_block_id       uuid DEFAULT NULL,
+  p_date           date DEFAULT NULL
+) RETURNS TABLE (
+  learner_id   uuid,
+  room_id      uuid,
+  booking_id   uuid,
+  booking_date date,
+  type_name    text
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $fn$
+  SELECT a.learner_id, b.room_id, b.id, b.booking_date, b.type_name
+  FROM public.hostel_cleaning_bookings b
+  JOIN public.hostel_allocations a
+    ON a.room_id = b.room_id
+   AND a.status::text = ANY (public.fn_cl_roster_statuses())
+  WHERE b.status = 'awaiting_feedback'
+    AND b.waived_at IS NULL
+    AND b.booking_date < COALESCE(p_date, (now() AT TIME ZONE 'Asia/Kolkata')::date)
+    AND (p_institution_id IS NULL OR b.institution_id = p_institution_id)
+    AND (p_block_id       IS NULL OR b.block_id       = p_block_id)
+    AND NOT EXISTS (
+      SELECT 1 FROM public.hostel_cleaning_feedback f WHERE f.booking_id = b.id);
+$fn$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_cl_housekeeping_feedback_holds(uuid, uuid, date) FROM PUBLIC, anon;
+GRANT  EXECUTE ON FUNCTION public.fn_cl_housekeeping_feedback_holds(uuid, uuid, date) TO authenticated;
+
+-- ==========================================================================
+-- The attendance gate
+--
+-- hostel_attendance is a hot table (15,822 rows, written in bulk). This
+-- trigger is deliberately a single EXISTS against
+-- idx_hk_bookings_awaiting_feedback, of which only a handful of rows exist at
+-- any moment.
+--
+-- The service layer pre-filters held learners out of bulk marking so one held
+-- learner never fails a whole block's insert. This trigger is the backstop for
+-- every path that bypasses the service -- a UI-only guard on an RLS-writable
+-- table is decorative.
+--
+-- hostel_attendance.learner_id references profiles(id), the same id space as
+-- hostel_allocations.learner_id (verified: 15,822 of 15,822 rows match), so
+-- the comparison below is direct.
+-- ==========================================================================
+CREATE OR REPLACE FUNCTION public.fn_cl_housekeeping_attendance_gate()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $fn$
+DECLARE
+  v_type text;
+  v_when date;
+BEGIN
+  SELECT h.type_name, h.booking_date INTO v_type, v_when
+  FROM public.fn_cl_housekeeping_feedback_holds(NULL, NULL, NEW.date) h
+  WHERE h.learner_id = NEW.learner_id
+  LIMIT 1;
+
+  IF v_type IS NOT NULL THEN
+    RAISE EXCEPTION
+      'Housekeeping feedback pending for this room (% on %). Any roommate can rate the cleaning to release attendance.',
+      v_type, to_char(v_when, 'DD Mon YYYY')
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  RETURN NEW;
+END $fn$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_cl_housekeeping_attendance_gate() FROM PUBLIC, anon;
+

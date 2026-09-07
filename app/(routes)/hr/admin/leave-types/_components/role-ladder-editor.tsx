@@ -30,11 +30,10 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
 import { resolveRungsAbove } from '@/lib/hr/leave/approval-chain';
 import type { LeaveApproverRoleOption, LeaveFlowRunMode } from '@/types/hr-leave-types';
+
+import { RolePicker } from './role-picker';
 
 interface Props {
   ladder: string[];
@@ -127,23 +126,21 @@ export function RoleLadderEditor({ ladder, roles, runMode, onChange }: Props) {
         </div>
 
         <div className="mt-2 flex items-center gap-2">
-          <Select value="" onValueChange={(v) => v && onChange([...ladder, v])}>
-            <SelectTrigger className="w-full sm:w-[280px]">
-              <span className="inline-flex items-center gap-2 text-sm">
-                <Plus className="h-4 w-4" /> Add a rung
-              </span>
-            </SelectTrigger>
-            <SelectContent>
-              {unused.map((r) => (
-                <SelectItem key={r.role_key} value={r.role_key}>
-                  {r.role_name}
-                  <span className="ml-2 text-xs text-muted-foreground">
-                    {r.user_count} {r.user_count === 1 ? 'person' : 'people'}
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {/* Always empty: this field adds a rung rather than holding one, so it
+              falls back to its placeholder the moment the pick lands in the list
+              above. `unused` already excludes the rungs on the ladder, which is
+              also why it can run out — 104 roles means it never will in
+              practice, but an empty dropdown would read as broken. */}
+          <RolePicker
+            roles={unused}
+            value=""
+            onChange={(v) => v && onChange([...ladder, v])}
+            placeholder={unused.length === 0 ? 'Every role is on the ladder' : 'Add a rung'}
+            disabled={unused.length === 0}
+            icon={<Plus className="h-4 w-4 shrink-0" />}
+            className="w-full sm:w-[280px]"
+            aria-label="Add a rung to the ladder"
+          />
         </div>
       </div>
 

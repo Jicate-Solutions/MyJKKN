@@ -14,15 +14,19 @@ import {
   Tooltip,
 } from 'recharts';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useCrossDomainAnalytics } from '@/hooks/campus-living/use-campus-living-analytics';
 import { PreviewBanner } from '../../_components/preview-banner';
 
 export default function CrossDomainAnalyticsPage() {
   const { profile } = useAuth();
+  const { isLoading: permsLoading } = usePermissions();
   const institutionId = profile?.institution_id ?? '';
   const { data, isLoading, error } = useCrossDomainAnalytics(institutionId);
 
-  if (isLoading) {
+  // permsLoading: the query stays disabled until the viewer's scope resolves, and
+  // a disabled query reports isLoading:false (BUG-005831 — see useCampusLivingScope).
+  if (isLoading || permsLoading) {
     return (
       <ContentLayout title="Cross-Domain Analytics">
         <div className="flex items-center justify-center min-h-[400px]">

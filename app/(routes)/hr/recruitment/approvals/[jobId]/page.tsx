@@ -21,7 +21,7 @@ import {
   BarChart3, Briefcase, CalendarClock, FileText, ListChecks, MapPin, StickyNote, Tag, Users,
 } from 'lucide-react';
 import { useJob } from '@/hooks/hr/use-recruitment';
-import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useHrInstitutionsWithAccess } from '@/hooks/hr/use-hr-institutions';
 import {
   JOB_STATUS_LABELS,
   ROLE_CATEGORY_LABELS,
@@ -80,7 +80,7 @@ function ApprovalsJobWorkspaceInner() {
   };
 
   const { data: job, isLoading } = useJob(jobId);
-  const { institutions } = useInstitutionsWithAccess();
+  const { institutions } = useHrInstitutionsWithAccess();
   const institutionName = useMemo(
     () => institutions.find((i) => i.id === job?.institution_id)?.name,
     [institutions, job?.institution_id],
