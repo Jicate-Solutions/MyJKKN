@@ -27,14 +27,27 @@ export interface DepartmentMetrics {
 
 // --- Societal Value Metrics ---
 //
-// THIS AXIS IS NOW MEASURABLE. The comment that used to sit here said there was no
-// `sh_community_engagements` table (42P01) and no `is_pro_bono` / `beneficiaries_count`
-// / `sdg_goals` columns on `sh_solutions` (42703). That was true when it was written on
-// 2026-08-17 and it is false now: `20261013000000_societal_capture_and_activity_clock.sql`
-// created the table and those columns, `20261019000000_societal_approval_and_status_review.sql`
-// gave engagements an approval workflow, and the register has a capture surface on the
-// department detail page. Four permission keys (`solutions.societal.view` / `.record` /
-// `.submit` / `.approve`) are registered in lib/constants/permissions.ts.
+// THIS AXIS IS NOW MEASURABLE, ON BOTH COUNTS. The comment that used to sit here made
+// two claims: that there was no `sh_community_engagements` table (42P01), and that
+// `sh_solutions` carried no `is_pro_bono` / `beneficiaries_count` / `sdg_goals` columns
+// (42703). Both were true when it was written on 2026-08-17 and BOTH ARE FALSE NOW.
+// `20261013000000_societal_capture_and_activity_clock.sql` created the table and the
+// columns, `20261019000000_societal_approval_and_status_review.sql` gave engagements an
+// approval workflow, and the register has a capture surface on the department detail
+// page. Four permission keys (`solutions.societal.view` / `.record` / `.submit` /
+// `.approve`) are registered in lib/constants/permissions.ts.
+//
+// VERIFIED AGAINST PRODUCTION, 2026-09-07, not inferred from the migration files:
+// `information_schema.columns` for `sh_solutions` returns `is_pro_bono boolean`,
+// `beneficiaries_count integer` and `sdg_goals ARRAY`. `is_pro_bono` is populated —
+// 2 of 2 solutions hold a non-NULL value, 0 of them true. So the honest reading of the
+// pro-bono metric today is a MEASURED ZERO: zero pro-bono solutions out of two that
+// exist. That is a fact about JKKN, not a gap in the platform, and it must not be
+// dressed up as "not tracked yet".
+//
+// A CORRECTION THAT COST TWO AGENTS A DAY: this comment is read far more often than the
+// catalog is queried, so a stale assertion in it propagates. Anything claimed here about
+// what does or does not exist should carry the date it was measured and the source.
 //
 // WHAT IS COUNTED, AND WHAT IS NOT.
 //   * Only APPROVED engagements count. A pending entry has been claimed, not verified,
@@ -45,10 +58,21 @@ export interface DepartmentMetrics {
 //     department — so it is reported as a number. `null` is reserved for the case where
 //     the SOURCE itself is unreadable: the table or column is absent in this
 //     environment because the migration has not been applied there.
-//   * `pro_bono_solutions` is reported independently of the other four, because it
-//     reads a different source (`sh_solutions.is_pro_bono`) that can be missing on its
-//     own. If that column answers 42703, that ONE field stays `null` and the rest are
-//     still reported.
+//   * `pro_bono_solutions` is reported independently of the other four, and keeps its
+//     OWN availability verdict, because it reads a different table behind a different
+//     policy: `sh_solutions`, gated by
+//     `sh_has_management_access() OR sh_is_staff() OR sh_is_builder()` — nothing to do
+//     with `solutions.societal.view`. Folding it into the register's verdict would print
+//     "hidden from your role" over a number the reader can see, which is the same class
+//     of untruth as printing a zero they cannot. The 42703 branch is kept as a defensive
+//     fallback for an environment behind on the migration; it does NOT describe
+//     production, where the column exists and is populated.
+//   * `sh_solutions` ALSO carries its own `beneficiaries_count` and `sdg_goals`. They are
+//     deliberately NOT summed into `beneficiaries_reached` / `sdg_goals_addressed`, which
+//     count the engagement register only. Whether a solution's beneficiaries are additive
+//     with an engagement's, or double-count the same people, is a definition nobody has
+//     set — and inventing it here would produce a number colleges are compared by,
+//     decided by nobody. Flagged, not answered.
 //
 // A CAVEAT WORTH STATING. These reads run under the caller's session (withAuth injects
 // a session-scoped client), so RLS applies. A SELECT policy filters rather than raising,
@@ -56,7 +80,11 @@ export interface DepartmentMetrics {
 // and cannot be distinguished from a department that has none. The register panel on the
 // department page says so in words; this service cannot.
 export interface SocietalMetrics {
-  /** `null` when `sh_solutions.is_pro_bono` is absent in this environment. */
+  /**
+   * `null` only when `sh_solutions` could not be read as a measurement — the column is
+   * absent in this environment, or the caller can see no solutions at all. Verified
+   * present and populated in production on 2026-09-07, where the honest value is `0`.
+   */
   pro_bono_solutions: number | null;
   beneficiaries_reached: number;
   community_engagements: number;
@@ -113,7 +141,12 @@ export const SOCIETAL_AVAILABILITY_REASONS: Record<
   unconfirmed: SOCIETAL_METRICS_UNCONFIRMED_REASON,
 };
 
-/** Shown against the pro-bono figure alone when only that column is missing. */
+/**
+ * Shown against the pro-bono figure alone when only that column is missing. This is a
+ * fallback for an environment behind on 20261013000000 — NOT a statement about
+ * production, where `sh_solutions.is_pro_bono` exists and is populated (checked
+ * 2026-09-07).
+ */
 export const PRO_BONO_UNAVAILABLE_REASON =
   'Pro-bono solutions are not counted — sh_solutions has no is_pro_bono column in this environment.';
 
@@ -158,11 +191,17 @@ export interface ParadigmShiftOverview {
     /** `null` = not measured. */
     total_pro_bono: number | null;
     /**
-     * WHY the three societal totals above are `null`, when they are. Without
+     * WHY the two register-derived totals above are `null`, when they are. Without
      * this the caller cannot tell "the register is not installed" from "you are
      * not allowed to see it" — and rendering either as `0` is the fake zero.
      */
     societal_availability: SocietalAvailability;
+    /**
+     * The same question asked separately for `total_pro_bono`, because it comes from
+     * `sh_solutions` behind a different policy. `measured` here with a `0` means
+     * exactly what it says: solutions were readable and none of them are pro-bono.
+     */
+    pro_bono_availability: SocietalAvailability;
   };
 }
 
@@ -380,6 +419,7 @@ export class ParadigmShiftService extends BaseService {
           // see no departments at all. Claiming 'source_unavailable' would blame
           // the environment and claiming 'not_visible' would blame the role.
           societal_availability: 'unconfirmed',
+          pro_bono_availability: 'unconfirmed',
         },
       };
     }
@@ -470,6 +510,18 @@ export class ParadigmShiftService extends BaseService {
         .from('sh_solutions')
         .select('lead_department_id')
         .eq('is_pro_bono', true),
+
+      // THE DENOMINATOR, and the reason the query above can be trusted.
+      //
+      // `is_pro_bono = true` returning no rows is a MEASUREMENT only if there was
+      // something to measure. "0 pro-bono out of 2 readable solutions" is a fact
+      // about JKKN; "0 pro-bono out of 0 readable solutions" is the blocker-3 fake
+      // zero wearing a different mask, and an RLS denial on `sh_solutions` produces
+      // exactly that shape — 200, no rows, no error. A head-only count with no
+      // filter answers "can this caller read this table at all" without needing to
+      // know which of `sh_has_management_access()` / `sh_is_staff()` /
+      // `sh_is_builder()` let them in, and without a second round trip's latency.
+      this.supabase.from('sh_solutions').select('id', { count: 'exact', head: true }),
     ]);
 
     // Extract data with graceful fallback for failed queries
@@ -523,13 +575,39 @@ export class ParadigmShiftService extends BaseService {
             : 'unconfirmed';
 
     const societalReadable = societalAvailability === 'measured';
-    // Pro-bono stays INDEPENDENT of the visibility verdict above, deliberately.
-    // It reads `sh_solutions`, whose SELECT policy is `sh_has_management_access()
-    // OR sh_is_staff() OR sh_is_builder()` — a different gate entirely from
-    // `solutions.societal.view`. Tying it to the register's verdict would print
-    // "hidden from your role" over a number the reader can in fact see, which is
-    // the same class of untruth as printing a zero they cannot.
-    const proBonoReadable = proBonoRows !== null;
+
+    /**
+     * Pro-bono stays INDEPENDENT of the verdict above, deliberately, and gets the
+     * same discipline applied to its own source.
+     *
+     * `sh_solutions` is gated by `sh_has_management_access() OR sh_is_staff() OR
+     * sh_is_builder()` — a different policy from `solutions.societal.view`, so a
+     * reader can easily be allowed one and refused the other. Folding the two
+     * verdicts together would print "hidden from your role" over a number the
+     * reader can see.
+     *
+     * Three outcomes, and the denominator is what separates the last two:
+     *   source_unavailable — the query itself failed (42703 in an environment behind
+     *                        on the migration, 42P01 if the table is gone).
+     *   unconfirmed        — the query succeeded but the caller can read NO solutions
+     *                        at all, so an empty pro-bono result proves nothing.
+     *   measured           — solutions were readable; the count is real, including 0.
+     */
+    const readableSolutionCount: number | null = (() => {
+      const probe = results[10];
+      if (probe.status !== 'fulfilled') return null;
+      if (probe.value.error) return null;
+      return typeof probe.value.count === 'number' ? probe.value.count : null;
+    })();
+
+    const proBonoAvailability: SocietalAvailability =
+      proBonoRows === null
+        ? 'source_unavailable'
+        : (readableSolutionCount ?? 0) > 0
+          ? 'measured'
+          : 'unconfirmed';
+
+    const proBonoReadable = proBonoAvailability === 'measured';
 
     // Per-department societal accumulation, from approved engagements only.
     const societalMap: Record<string, SocietalAccumulator> = {};
@@ -743,6 +821,7 @@ export class ParadigmShiftService extends BaseService {
         ? finalResult.reduce((sum, d) => sum + (d.societal?.pro_bono_solutions ?? 0), 0)
         : null,
       societal_availability: societalAvailability,
+      pro_bono_availability: proBonoAvailability,
     };
 
     return { departments: finalResult, summary };

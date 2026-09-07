@@ -219,21 +219,19 @@ export function OverviewGrid() {
                   availability={societalAvailability}
                 />
                 {/*
-                  Pro-bono carries its OWN verdict. It comes from sh_solutions,
-                  behind a different policy from the engagement register, and is
-                  null only when that one column could not be read — so the
-                  register being invisible must not relabel a number this reader
-                  can see as "hidden from your role".
+                  Pro-bono carries its OWN verdict, computed by the service rather
+                  than inferred here from the shape of the value. It comes from
+                  sh_solutions, behind a different policy from the engagement
+                  register, so the register being invisible must not relabel a
+                  number this reader can see as "hidden from your role" — and a `0`
+                  it reports is a real measurement (0 pro-bono of 2 solutions),
+                  not an absence.
                 */}
                 <SocietalCard
                   icon={HandHeart}
                   label="Pro-Bono Solutions"
                   value={data?.summary.total_pro_bono}
-                  availability={
-                    typeof data?.summary.total_pro_bono === 'number'
-                      ? 'measured'
-                      : 'source_unavailable'
-                  }
+                  availability={data?.summary.pro_bono_availability ?? 'unconfirmed'}
                 />
                 <SocietalCard
                   icon={Globe}
