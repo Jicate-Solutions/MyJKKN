@@ -11,6 +11,10 @@ import {
   type ClinicalReasoningCoachInput,
 } from '@/lib/services/pde-coach-clinical-reasoning';
 import { FeedbackError } from '@/lib/services/pde-coach-errors';
+import {
+  recordAiuTrailDelivery,
+  AIU_SURFACE_PDE_CLINICAL_COACH,
+} from '@/lib/services/aiu/prompt-trail-service';
 
 // GET /api/pde/coach?learnerId=xxx&contextType=xxx&contextId=xxx
 // Returns coach conversation history
@@ -114,7 +118,32 @@ export async function POST(request: NextRequest) {
       };
       try {
         const result = await generateClinicalReasoningFeedback(input);
-        return NextResponse.json(result, { status: 200 });
+
+        // AIU evidence trail — record what the AI produced BEFORE the learner
+        // changes anything (rubric bands AIU-a/b/c are unmarkable without it).
+        // Best-effort: a trail failure never blocks the feedback. The SESSION
+        // client + the table's INSERT policy bind the row to the authenticated
+        // caller (learner_id = auth.uid()), not to the body's learnerId.
+        const { promptSent, ...clientResult } = result;
+        await recordAiuTrailDelivery(supabase, {
+          learnerId: user.id,
+          surface: AIU_SURFACE_PDE_CLINICAL_COACH,
+          promptSent,
+          aiOutput: result.feedback,
+          learnerInput: input.answer,
+          context: {
+            assessment_id: input.assessmentId,
+            question_id: input.questionId,
+            ...(input.learnerId && input.learnerId !== user.id
+              ? { body_learner_id: input.learnerId }
+              : {}),
+          },
+        });
+
+        // promptSent stays server-side: the interpolated template embeds
+        // ground_truth (the answer key), which must never reach the learner —
+        // same leak class 20260723140000_rcltp_answer_key_leak_fix closed.
+        return NextResponse.json(clientResult, { status: 200 });
       } catch (err) {
         if (err instanceof FeedbackError) {
           return NextResponse.json(err.toJSON(), { status: err.status });

@@ -5,6 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   parseDraftOutput,
+  buildDraftPayload,
   parsePayload,
   toDraftRow,
   validateBatch,
@@ -41,6 +42,32 @@ function good(over: Record<string, unknown> = {}) {
     ...over,
   };
 }
+
+describe('buildDraftPayload', () => {
+  // The Max seat runner substitutes ONE slot, {{prompt}}, from payload.prompt,
+  // and validates input_schema keys at the top level. Two production failures
+  // taught this: a flat payload left {{payload}} empty (ai_jobs 1096542b), and
+  // an _ctx-only payload was refused as "missing required input(s)"
+  // (ai_jobs bbbf0cbc). The data must therefore be IN the prompt text.
+  it('puts the run data in prompt, where the runner actually substitutes', () => {
+    const built = buildDraftPayload(physics);
+    expect(typeof built.prompt).toBe('string');
+    const echoed = JSON.parse(built.prompt);
+    expect(echoed).toEqual(physics);
+  });
+
+  it('keeps the fields under _ctx so the collect pass can read them', () => {
+    const built = buildDraftPayload(physics);
+    expect(built._ctx).toEqual(physics);
+    expect(parsePayload(built)).toEqual(physics);
+  });
+
+  it('round-trips a null topic_id (chapter-agnostic English tag sets)', () => {
+    const built = buildDraftPayload({ ...physics, topic_id: null });
+    expect(JSON.parse(built.prompt).topic_id).toBeNull();
+    expect(parsePayload(built)!.topic_id).toBeNull();
+  });
+});
 
 describe('parsePayload', () => {
   // Regression guard, 2026-09-06. The Max-lane seat runner substitutes

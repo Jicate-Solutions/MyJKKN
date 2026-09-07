@@ -309,7 +309,15 @@ export default function AttendanceMarkPage() {
             if (!sectionError && sections) {
               sectionData = sections;
             } else {
+              // Added: BUG-003163 - A URL sectionId that doesn't resolve to a real
+              // `sections` row (stale/deleted section, or one from an unrelated
+              // search context) used to be kept verbatim in `resolvedSectionId`
+              // and sent straight to fn_attendance_roster as the roster scope,
+              // matching zero rows and rendering "No students found" with no
+              // indication of why. Resetting it lets the Priority 2 fallback
+              // (timetable.section_id) or the slot's own section_ids take over.
               logger.error('academic/attendance/mark', 'Failed to fetch section data for URL UUID', sectionError);
+              resolvedSectionId = null;
             }
           } else {
             // It's a name, resolve to UUID

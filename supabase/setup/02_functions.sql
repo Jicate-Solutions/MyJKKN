@@ -2897,30 +2897,77 @@ BEGIN
 END;
 $$;
 
--- Check orphaned profiles (Updated: 2025-01-27 - Use profiles table only)
+-- Check orphaned profiles
+-- Updated: 2026-08-15 - The stub returned WHERE 1 = 0 and always answered zero.
+-- Now a real query, discriminated so the 269 healthy pre-registered rows awaiting
+-- a first sign-in are never confused with the 959 whose email already resolves to a
+-- DIFFERENT auth id. has_signed_in separates the dormant rows (which the
+-- /auth/callback email-migration path heals on first Google sign-in) from rows where
+-- someone has already authenticated and was not healed. Detection only — nothing is
+-- repaired here. See supabase/migrations/20260815091500_profile_identity_link_detector.sql
 CREATE OR REPLACE FUNCTION public.check_orphaned_profiles()
-RETURNS TABLE(
-    profile_id uuid,
-    profile_email text,
-    profile_role text,
-    created_at timestamptz
+RETURNS TABLE (
+    profile_id          uuid,
+    profile_email       text,
+    profile_role        text,
+    created_at          timestamptz,
+    link_state          text,
+    linked_auth_user_id uuid,
+    has_signed_in       boolean,
+    last_sign_in_at     timestamptz,
+    is_pre_registered   boolean,
+    is_active           boolean,
+    heal_blocked_reason text
 )
 LANGUAGE plpgsql
-SECURITY INVOKER
+STABLE
+SECURITY DEFINER
+SET search_path = public
 AS $$
 BEGIN
-    -- Since we can't access auth.users table, return empty result set
-    -- This function is kept for compatibility but will return no rows
+    IF NOT (public.is_super_admin() OR public.is_admin()) THEN
+        RAISE EXCEPTION 'check_orphaned_profiles: administrator access required';
+    END IF;
+
     RETURN QUERY
     SELECT
         p.id,
-        p.email,
-        p.role,
-        p.created_at
-    FROM profiles p
-    WHERE 1 = 0; -- Always returns empty set since we can't check auth.users
+        p.email::text,
+        p.role::text,
+        p.created_at,
+        CASE WHEN au.id IS NULL THEN 'awaiting_first_signin' ELSE 'broken_link' END,
+        au.id,
+        (au.last_sign_in_at IS NOT NULL),
+        au.last_sign_in_at,
+        COALESCE(p.is_pre_registered, false),
+        COALESCE(p.is_active, false),
+        CASE
+            WHEN au.id IS NULL THEN NULL
+            WHEN EXISTS (SELECT 1 FROM public.profiles px WHERE px.id = au.id)
+                THEN 'profile_exists_at_auth_id'
+            WHEN p.email::text <> au.email::text
+                THEN 'email_case_mismatch'
+            ELSE NULL
+        END
+    FROM public.profiles p
+    LEFT JOIN auth.users own
+      ON own.id = p.id
+    LEFT JOIN LATERAL (
+        SELECT u.id, u.email, u.last_sign_in_at
+        FROM auth.users u
+        WHERE lower(u.email::text) = lower(p.email::text)
+          AND u.deleted_at IS NULL
+        ORDER BY u.last_sign_in_at DESC NULLS LAST, u.created_at
+        LIMIT 1
+    ) au ON true
+    WHERE own.id IS NULL
+      AND p.email IS NOT NULL
+    ORDER BY (au.last_sign_in_at IS NOT NULL) DESC, au.last_sign_in_at DESC NULLS LAST;
 END;
 $$;
+
+REVOKE EXECUTE ON FUNCTION public.check_orphaned_profiles() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.check_orphaned_profiles() TO authenticated;
 
 -- Create missing profiles (Updated: 2025-01-27 - Use profiles table only)
 CREATE OR REPLACE FUNCTION public.create_missing_profiles()
@@ -58623,3 +58670,93 @@ COMMENT ON FUNCTION public.fn_hr_delete_work_pattern(uuid) IS
 
 REVOKE ALL ON FUNCTION public.fn_hr_delete_work_pattern(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_hr_delete_work_pattern(uuid) TO authenticated;
+
+-- Updated: 2026-08-08 — fn_learner_band_academic_fee SUPERSEDES the earlier
+-- definition above. Source: supabase/migrations/20260815050001_zero_fee_learner_
+-- resolves_room_category.sql. APPLIED TO PRODUCTION BY HAND on 2026-08-08 via the
+-- Supabase Management API, Director-approved, before the migration file existed.
+--
+-- One character: `HAVING SUM(b.final_amount) > 0` becomes `>= 0`. A fully-waived
+-- learner's academic bills total Rs.0, so the old HAVING dropped every one of her
+-- rows and the function returned NULL; fn_hostel_learner_room_categories then
+-- exited early and she could NEVER qualify for a hostel room, reading as
+-- 'No room-category eligibility rule' in the waiting queue — which sent people
+-- hunting for a missing rulebook line that was never missing. 11 learners stuck.
+--
+-- A learner with NO bills still returns NULL (the years CTE produces no rows at
+-- all), so 'no fee configured' stays distinguishable from 'fee is zero'. Negative
+-- totals stay excluded. Callers are hostel-allocation functions only — verified
+-- live 2026-08-08: fn_auto_allocate_candidates, fn_explain_allocation,
+-- fn_hostel_learner_room_categories, fn_hostel_learner_mess_categories,
+-- fn_preview_hostel_fee_categories, fn_learner_admission_year_academic_fee. No
+-- billing or fee-charging code reads it: bills 11,898 unchanged, outstanding
+-- unchanged, zero late charges, zero ghost beds. Unresolved room categories
+-- 77 -> 66, ready-to-place 337 -> 348 — exactly those 11 learners, nobody else.
+CREATE OR REPLACE FUNCTION public.fn_learner_band_academic_fee(p_learner_id uuid)
+ RETURNS TABLE(academic_year_id uuid, academic_year_name text, fee numeric)
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  WITH anchor AS (
+    SELECT public.fn_learner_admission_academic_year(p_learner_id) AS ay_id
+  ),
+  years AS (
+    SELECT b.academic_year_id AS ay_id,
+           ay.academic_year_name::text AS ay_name,
+           ay.start_date,
+           SUM(b.final_amount) AS total
+    FROM billing_student_bills b
+    JOIN academic_years ay ON ay.id = b.academic_year_id
+    WHERE b.student_id = p_learner_id
+      AND b.fee_source = 'academic'
+      AND b.status NOT IN ('cancelled','superseded')
+    GROUP BY b.academic_year_id, ay.academic_year_name, ay.start_date
+    HAVING SUM(b.final_amount) >= 0
+  )
+  SELECT y.ay_id, y.ay_name, y.total
+  FROM years y CROSS JOIN anchor a
+  ORDER BY (y.ay_id IS DISTINCT FROM a.ay_id), y.start_date ASC
+  LIMIT 1;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_learner_band_academic_fee(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_learner_band_academic_fee(uuid) TO authenticated, service_role;
+-- Updated: 2026-08-21 - AIU evidence trail immutability guard
+-- (migration 20260922041500_aiu_prompt_trails.sql — FILE ONLY / NOT APPLIED).
+-- Plain trigger fn (NOT SECURITY DEFINER — touches only NEW/OLD). Capture
+-- columns are frozen at insert; learner_final/changed are write-once.
+CREATE OR REPLACE FUNCTION public.tg_aiu_prompt_trails_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+  IF NEW.prompt_sent   IS DISTINCT FROM OLD.prompt_sent
+     OR NEW.ai_output     IS DISTINCT FROM OLD.ai_output
+     OR NEW.learner_input IS DISTINCT FROM OLD.learner_input
+     OR NEW.learner_id    IS DISTINCT FROM OLD.learner_id
+     OR NEW.surface       IS DISTINCT FROM OLD.surface
+     OR NEW.created_at    IS DISTINCT FROM OLD.created_at THEN
+    RAISE EXCEPTION 'aiu_prompt_trails: capture columns are immutable (prompt_sent, ai_output, learner_input, learner_id, surface, created_at)'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  IF OLD.learner_final IS NOT NULL
+     AND NEW.learner_final IS DISTINCT FROM OLD.learner_final THEN
+    RAISE EXCEPTION 'aiu_prompt_trails: learner_final is write-once'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  IF OLD.changed IS NOT NULL
+     AND NEW.changed IS DISTINCT FROM OLD.changed THEN
+    RAISE EXCEPTION 'aiu_prompt_trails: changed is write-once'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  NEW.updated_at := now();
+  RETURN NEW;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.tg_aiu_prompt_trails_guard() FROM anon, PUBLIC;
