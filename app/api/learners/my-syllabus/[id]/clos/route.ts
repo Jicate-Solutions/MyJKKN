@@ -31,7 +31,7 @@ export async function GET(
     const result = await getSyllabusCLOs(id);
     if (!result) {
       return NextResponse.json(
-        { error: 'That syllabus is not available to you.' },
+        { error: 'That learning pathway is not available to you.' },
         { status: 404 },
       );
     }

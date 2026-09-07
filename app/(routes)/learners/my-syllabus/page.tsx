@@ -34,37 +34,37 @@ export default async function MySyllabusPage() {
   if (profile?.role !== 'student' || !profile.learner_id) {
     return (
       <div className="p-6">
-        <h1 className="text-2xl font-semibold">My Syllabus</h1>
+        <h1 className="text-2xl font-semibold">My Learning Pathway</h1>
         <p className="mt-3 max-w-prose text-muted-foreground">
           This page is for enrolled learners. Your account is not linked to a
-          learner record, so there is no syllabus to show. If you believe this
-          is wrong, contact your department office.
+          learner record, so there is no learning pathway to show. If you
+          believe this is wrong, contact your department office.
         </p>
       </div>
     );
   }
 
-  let syllabi = [];
+  let pathways = [];
   let loadError: string | null = null;
   try {
-    syllabi = await listApprovedSyllabi();
+    pathways = await listApprovedSyllabi();
   } catch {
-    loadError = 'The syllabus list could not be loaded. Please try again.';
+    loadError = 'The learning pathway list could not be loaded. Please try again.';
   }
 
   return (
     <div className="p-4 sm:p-6">
       <header className="mb-5">
-        <h1 className="text-2xl font-semibold tracking-tight">My Syllabus</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">My Learning Pathway</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Approved syllabi for your institution. Open a course to see what you
-          are expected to be able to do by the end of it.
+          Approved learning pathways for your institution. Open a course to see
+          what you are expected to be able to do by the end of it.
         </p>
       </header>
       {loadError ? (
         <p className="text-sm text-destructive">{loadError}</p>
       ) : (
-        <SyllabusBrowser syllabi={syllabi} />
+        <SyllabusBrowser pathways={pathways} />
       )}
     </div>
   );

@@ -3040,7 +3040,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           // No MENU_PERMISSIONS entry, same as My Marks above: the page gates
           // on profiles.role === 'student' itself and explains when it refuses.
           href: '/learners/my-syllabus',
-          label: 'My Syllabus',
+          label: 'My Learning Pathway',
           active: pathname.startsWith('/learners/my-syllabus'),
           icon: BookOpen,
           submenus: []

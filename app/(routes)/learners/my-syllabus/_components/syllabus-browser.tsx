@@ -23,19 +23,19 @@ type CloState =
   | { status: 'error'; message: string }
   | { status: 'ready'; clos: SyllabusCLO[] };
 
-export function SyllabusBrowser({ syllabi }: { syllabi: BosSyllabusOption[] }) {
+export function SyllabusBrowser({ pathways }: { pathways: BosSyllabusOption[] }) {
   const [query, setQuery] = useState('');
   const [clos, setClos] = useState<Record<string, CloState>>({});
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return syllabi;
-    return syllabi.filter(
+    if (!q) return pathways;
+    return pathways.filter(
       (s) =>
         s.course_name.toLowerCase().includes(q) ||
         s.course_code.toLowerCase().includes(q),
     );
-  }, [syllabi, query]);
+  }, [pathways, query]);
 
   const loadClos = useCallback(
     async (id: string) => {
@@ -62,11 +62,11 @@ export function SyllabusBrowser({ syllabi }: { syllabi: BosSyllabusOption[] }) {
     [clos],
   );
 
-  if (syllabi.length === 0) {
+  if (pathways.length === 0) {
     return (
       <p className="max-w-prose text-sm text-muted-foreground">
-        No approved syllabi have been published for your institution yet. They
-        appear here once the Board of Studies approves them.
+        No approved learning pathways have been published for your institution
+        yet. They appear here once the Board of Studies approves them.
       </p>
     );
   }
@@ -77,12 +77,12 @@ export function SyllabusBrowser({ syllabi }: { syllabi: BosSyllabusOption[] }) {
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Search by course name or code"
-        aria-label="Search syllabi"
+        aria-label="Search learning pathways"
         className="max-w-md"
       />
 
       <p className="text-xs text-muted-foreground">
-        {filtered.length} of {syllabi.length} courses
+        {filtered.length} of {pathways.length} courses
       </p>
 
       {filtered.length === 0 ? (
@@ -118,7 +118,7 @@ export function SyllabusBrowser({ syllabi }: { syllabi: BosSyllabusOption[] }) {
                     <p className="pb-2 text-sm text-destructive">{state.message}</p>
                   ) : state.clos.length === 0 ? (
                     <p className="pb-2 text-sm text-muted-foreground">
-                      This syllabus has no learning outcomes recorded yet.
+                      This learning pathway has no learning outcomes recorded yet.
                     </p>
                   ) : (
                     <ol className="space-y-3 pb-2">
