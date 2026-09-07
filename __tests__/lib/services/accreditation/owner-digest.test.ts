@@ -4,6 +4,7 @@ import {
   activeMetricsForBody,
   buildDigestPreview,
   computeOwnerDigest,
+  confirmedOwnersWithoutConfig,
   isDigestDue,
   metricsWithEvidence,
   nextSubmissionDeadline,
@@ -467,5 +468,139 @@ describe('buildDigestPreview — the exact words, readable before anyone arms it
     const preview = buildDigestPreview(big);
     expect(preview.gapCount).toBe(30);
     expect(preview.body).toContain('...and 10 more.');
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('catalogueSize — the denominator the reader is never told', () => {
+  it('reports how many active metrics the body actually has in the catalogue', () => {
+    const digest = computeOwnerDigest({
+      config: config(),
+      owners: [owner({ id: 'o1' })],
+      metrics: METRICS,
+      evidence: [],
+      submissions: [],
+      now: NOW,
+    });
+    expect(digest.catalogueSize).toBe(3);
+  });
+
+  it('counts the catalogue, not the owner — inactive metrics are excluded', () => {
+    const digest = computeOwnerDigest({
+      config: config(),
+      owners: [owner({ id: 'o1' })],
+      metrics: [...METRICS, metric('9.9.9', { is_active: false })],
+      evidence: [],
+      submissions: [],
+      now: NOW,
+    });
+    expect(digest.catalogueSize).toBe(3);
+  });
+
+  it("counts only this body's metrics", () => {
+    const digest = computeOwnerDigest({
+      config: config(),
+      owners: [owner({ id: 'o1' })],
+      metrics: [...METRICS, metric('P1', { metric_type: 'PCI' })],
+      evidence: [],
+      submissions: [],
+      now: NOW,
+    });
+    expect(digest.catalogueSize).toBe(3);
+  });
+
+  it('a thin catalogue is reported as thin, not as a nearly-finished job', () => {
+    // The live shape that motivated this: PCI holds 2 active metrics, so a
+    // body owner is told "2 awaiting evidence" for a regulator whose real
+    // requirements are nothing like two items long.
+    const digest = computeOwnerDigest({
+      config: config({ body_code: 'PCI' }),
+      owners: [owner({ id: 'o1', body_code: 'PCI' })],
+      metrics: [metric('P1', { metric_type: 'PCI' }), metric('P2', { metric_type: 'PCI' })],
+      evidence: [],
+      submissions: [],
+      now: NOW,
+    });
+    expect(digest.catalogueSize).toBe(2);
+    expect(digest.gaps).toHaveLength(2);
+    expect(buildDigestPreview(digest).body).toContain(
+      "measured against the 2 PCI metric(s) currently in this platform's framework catalogue",
+    );
+  });
+
+  it('states the basis even when the catalogue is well populated', () => {
+    // A caveat that appears only on thin bodies teaches its reader that its
+    // absence is an all-clear.
+    const digest = computeOwnerDigest({
+      config: config(),
+      owners: [owner({ id: 'o1' })],
+      metrics: METRICS,
+      evidence: [],
+      submissions: [],
+      now: NOW,
+    });
+    const body = buildDigestPreview(digest).body;
+    expect(body).toContain("currently in this platform's framework catalogue");
+    expect(body).toContain("not the same thing as NAAC's full published requirements");
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('confirmedOwnersWithoutConfig — the owner the route cannot see', () => {
+  it('reports a confirmed owner with no config row', () => {
+    const result = confirmedOwnersWithoutConfig([owner({ id: 'o1' })], []);
+    expect(result).toEqual([{ userId: ALICE, institutionId: INST, bodyCode: 'NAAC' }]);
+  });
+
+  it('says nothing about an owner a config already covers', () => {
+    expect(confirmedOwnersWithoutConfig([owner({ id: 'o1' })], [config()])).toEqual([]);
+  });
+
+  it('ignores pending and declined owners — those are refused by decision, not by a hole', () => {
+    const rows = [
+      owner({ id: 'o1', assignment_status: 'pending' }),
+      owner({ id: 'o2', assignment_status: 'declined', owner_user_id: BOB }),
+    ];
+    expect(confirmedOwnersWithoutConfig(rows, [])).toEqual([]);
+  });
+
+  it('counts one unreachable person per body, not one per metric they own', () => {
+    const rows = [
+      owner({ id: 'o1', metric_code: '1.1.1' }),
+      owner({ id: 'o2', metric_code: '1.1.2' }),
+      owner({ id: 'o3', metric_code: '3.1.1' }),
+    ];
+    expect(confirmedOwnersWithoutConfig(rows, [])).toHaveLength(1);
+  });
+
+  it('separates the same person at a different institution', () => {
+    const rows = [owner({ id: 'o1' }), owner({ id: 'o2', institution_id: OTHER_INST })];
+    expect(confirmedOwnersWithoutConfig(rows, [config()])).toEqual([
+      { userId: ALICE, institutionId: OTHER_INST, bodyCode: 'NAAC' },
+    ]);
+  });
+
+  it('separates the same person on a different body', () => {
+    const rows = [owner({ id: 'o1' }), owner({ id: 'o2', body_code: 'NIRF' })];
+    expect(confirmedOwnersWithoutConfig(rows, [config()])).toEqual([
+      { userId: ALICE, institutionId: INST, bodyCode: 'NIRF' },
+    ]);
+  });
+
+  it('a config for somebody else does not cover this owner', () => {
+    expect(confirmedOwnersWithoutConfig([owner({ id: 'o1' })], [config({ user_id: BOB })])).toHaveLength(1);
+  });
+
+  it('the live shape today: 14 pending owners produce no unreachable report', () => {
+    // Every one of the 14 recorded 2026-08-13 is still pending, so the hole
+    // this function detects is not yet open. It opens the moment one accepts.
+    const rows = Array.from({ length: 14 }, (_, i) =>
+      owner({ id: `o${i}`, assignment_status: 'pending', owner_user_id: `u-${i}` }),
+    );
+    expect(confirmedOwnersWithoutConfig(rows, [])).toEqual([]);
+
+    const accepted = [...rows];
+    accepted[0] = owner({ id: 'o0', assignment_status: 'confirmed', owner_user_id: 'u-0' });
+    expect(confirmedOwnersWithoutConfig(accepted, [])).toHaveLength(1);
   });
 });

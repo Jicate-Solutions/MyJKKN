@@ -9,12 +9,26 @@
 // It reads rows, computes a preview, and returns the preview as JSON. Arming it
 // is a separate, explicitly-authorised change that has not been made.
 //
-// WHY IT SHIPS INERT
-// This platform sends real email to real people. Two things are not yet true:
-//   · accreditation_metric_owners has 0 rows, so there is nobody to address.
-//   · quality_evidence_mappings has 11,608 rows across 10 bodies, and the
-//     gap counts derived from them have never been checked against a person
-//     who knows the answer.
+// WHY IT SHIPS INERT  (updated 2026-09-07 — the first bullet has changed)
+// This platform sends real email to real people. Two things were not true when
+// this route was written. One of them still is not.
+//   · accreditation_metric_owners had 0 rows. It now has 14, recorded
+//     2026-08-13 — every one of them body-level (metric_code IS NULL) and
+//     every one of them still 'pending' 25 days later. So there is somebody to
+//     address, but nobody who has accepted; shouldSendDigest still refuses all
+//     14, correctly. See app/api/cron/accreditation-owner-invitations.
+//   · STILL UNMET: the gap counts have never been checked against a person who
+//     knows the answer. Verified against production 2026-09-07: the framework
+//     catalogue is thin for seven of ten bodies (NAAC 69 active metrics, NIRF
+//     17, NBA 9 — but AICTE 1, NCTE 1, and DCI/PCI/INC/QS/UGC 2 each), and
+//     quality_evidence_mappings holds rows for only three bodies (NIRF 11,396,
+//     NAAC 261, NBA 46; zero for the other seven). The arithmetic over those
+//     rows is sound — zero orphaned metric codes across all 11,703 evidence
+//     rows — but a PCI owner told "2 metric(s) awaiting evidence" is reading a
+//     true statement about this catalogue and a false one about PCI.
+//     buildDigestPreview now names the basis out loud rather than leaving the
+//     reader to assume the catalogue is complete. That reduces the harm; it
+//     does not discharge the condition, which needs a human.
 // A digest armed before both are true mails staff a confident, wrong list of
 // duties. Nobody reads the second one. The channel is spent, permanently, and
 // no later correctness fixes it.
@@ -44,6 +58,7 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 import {
   buildDigestPreview,
   computeOwnerDigest,
+  confirmedOwnersWithoutConfig,
   isDigestDue,
   shouldSendDigest,
   type DigestConfigRow,
@@ -94,6 +109,21 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const now = new Date();
 
   try {
+    // Read UNFILTERED and before the config check, on purpose. Everything else
+    // this route reads is scoped to the institutions and bodies named in the
+    // config rows — which means that with no config rows, nothing is read and
+    // nobody is reported. An owner who has accepted accountability and is
+    // waiting would be invisible rather than pending. The table is small
+    // (one row per person per body per institution) and paged like the rest.
+    const allOwners = await fetchAllPages<OwnerRow>(
+      () =>
+        (supabase as any)
+          .from('accreditation_metric_owners')
+          .select('id, institution_id, body_code, metric_code, programme_id, owner_user_id, assignment_status, created_at')
+          .order('id', { ascending: true }),
+      'metric owners read (unfiltered)',
+    );
+
     const configs = await fetchAllPages<DigestConfigRow>(
       () =>
         (supabase as any)
@@ -103,6 +133,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           .order('id', { ascending: true }),
       'digest config read',
     );
+
+    const unreachable = confirmedOwnersWithoutConfig(allOwners, configs);
 
     // Nobody has opted in. This is the honest answer today, not a failure:
     // the table is opt-in by construction and has 0 rows.
@@ -116,24 +148,27 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         due: 0,
         would_send: [],
         skipped: [],
-        message: 'No digests to send — no owner has opted in to a digest yet.',
+        // Distinguishes "nobody is owed anything" from "somebody is owed
+        // something and this route has no way to reach them". Those two look
+        // identical in an empty would_send, and only one of them is fine.
+        confirmed_owners_without_config: unreachable,
+        total_owner_rows: allOwners.length,
+        message:
+          unreachable.length > 0
+            ? `No digests to send — but ${unreachable.length} confirmed owner(s) have no digest config row, so they could not be reached even if this route were armed.`
+            : 'No digests to send — no owner has opted in to a digest yet.',
       });
     }
 
     const institutionIds = [...new Set(configs.map((c) => c.institution_id))];
     const bodyCodes = [...new Set(configs.map((c) => c.body_code))];
 
-    const [owners, metrics, evidence, submissions] = await Promise.all([
-      fetchAllPages<OwnerRow>(
-        () =>
-          (supabase as any)
-            .from('accreditation_metric_owners')
-            .select('id, institution_id, body_code, metric_code, programme_id, owner_user_id, assignment_status, created_at')
-            .in('institution_id', institutionIds)
-            .in('body_code', bodyCodes)
-            .order('id', { ascending: true }),
-        'metric owners read',
-      ),
+    // allOwners is a superset of what the old filtered read returned;
+    // resolveMetricOwners filters by institution and body internally, so the
+    // digest arithmetic is unchanged by the wider input.
+    const owners = allOwners;
+
+    const [metrics, evidence, submissions] = await Promise.all([
       fetchAllPages<FrameworkMetric>(
         () =>
           (supabase as any)
@@ -213,6 +248,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       due: dueCount,
       would_send: wouldSend,
       skipped,
+      confirmed_owners_without_config: unreachable,
+      total_owner_rows: allOwners.length,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
