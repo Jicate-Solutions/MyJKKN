@@ -30,9 +30,25 @@ export interface QuestionAssetRef {
   sortOrder?: number | null;
 }
 
+/** Query parameters that MEAN the URL is cryptographically signed over its
+ *  own query string. Appending anything to such a URL breaks the signature —
+ *  AWS SigV4 (`X-Amz-Signature`) signs the canonical query, so a cache-buster
+ *  turns Retry into a guaranteed SECOND failure. Supabase's `createSignedUrl`
+ *  puts the signature in a `token` JWT and ignores unknown params, but there
+ *  is no reason to depend on which flavour Lane D ends up minting: when the
+ *  URL looks signed, retry by remounting the element and leave the URL alone. */
+const SIGNED_URL_PARAM = /[?&](X-Amz-Signature|X-Amz-Credential|Signature|token)=/i;
+
+/** The src for retry number `n`. A cache-buster only where it is safe. */
+export function retrySrc(url: string, n: number): string {
+  if (n === 0 || SIGNED_URL_PARAM.test(url)) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}r=${n}`;
+}
+
 function OneAsset({ asset }: { asset: QuestionAssetRef }) {
-  // Bumped on Retry; it is also the cache-buster, so a retry actually re-asks
-  // rather than re-reading the same failed response out of the browser cache.
+  // Bumped on Retry. It is the React key, so a retry always remounts the
+  // <img> and re-issues the request; it is ALSO a cache-buster, but only on a
+  // URL that is not signed over its query string (see retrySrc).
   const [attempt, setAttempt] = useState(0);
   const [failed, setFailed] = useState(false);
   const description = asset.altText?.trim() || 'No description was recorded for this diagram.';
@@ -71,7 +87,7 @@ function OneAsset({ asset }: { asset: QuestionAssetRef }) {
     // eslint-disable-next-line @next/next/no-img-element
     <img
       key={attempt}
-      src={attempt === 0 ? asset.url : `${asset.url}${asset.url.includes('?') ? '&' : '?'}r=${attempt}`}
+      src={retrySrc(asset.url, attempt)}
       alt={description}
       onError={() => setFailed(true)}
       className="max-h-80 w-auto max-w-full rounded-xl border border-border bg-background"

@@ -26,6 +26,7 @@ let itemRows: Array<Record<string, unknown>> = [];
 let responseRows: Array<Record<string, unknown>> = [];
 let enrolmentRows: Array<Record<string, unknown>> = [];
 let paperItemRows: Array<Record<string, unknown>> = [];
+let flagRows: Array<Record<string, unknown>> = [];
 let insertedAttempts: Array<Record<string, unknown>> = [];
 let rpcCalls: Array<{ fn: string; args: any }> = [];
 let rpcResult: any = { is_correct: false, vault_status: 'active', streak: 0 };
@@ -57,6 +58,9 @@ const POOL_ID = '22222222-2222-4333-8444-555555555555';
 const PAPER_ID = '55555555-2222-4333-8444-555555555555';
 const ATTEMPT_ID = '99999999-8888-4777-8666-555555555555';
 const ITEM_ID = '33333333-2222-4333-8444-555555555555';
+/** A second question on the same sitting, for the ruling-7 cases where the
+ *  grace must be spent by an answer to a DIFFERENT item. */
+const OTHER_ITEM_ID = '44444444-2222-4333-8444-555555555555';
 
 function tableData(table: string): any {
   switch (table) {
@@ -74,6 +78,8 @@ function tableData(table: string): any {
       return enrolmentRows;
     case 'fp_assessment_items':
       return paperItemRows;
+    case 'fp_item_flags':
+      return flagRows;
     case 'exam_definitions':
       return [{ id: EXAM_ID, config_key: 'tn_hsc_physics', display_name: 'Physics', is_active: true }];
     case 'ai_job_types':
@@ -206,6 +212,9 @@ import {
   verifyServedSet,
 } from '@/lib/services/onemark/attempt-server';
 import { pickLanguage } from '@/app/(routes)/foundation/onemark/practice/_components/bilingual';
+import { readLearnerReport } from '@/app/(routes)/foundation/onemark/practice/_components/progress-card';
+import { retrySrc } from '@/app/(routes)/foundation/onemark/practice/_components/question-asset-slot';
+import { persistServedSet, rpcMissing } from '@/lib/services/onemark/attempt-server';
 import { OneMarkPolicyDefaults, OneMarkPolicyKeys } from '@/types/onemark';
 
 function post(body: unknown) {
@@ -248,6 +257,7 @@ beforeEach(() => {
   responseRows = [];
   enrolmentRows = [];
   paperItemRows = [];
+  flagRows = [];
   insertedAttempts = [];
   rpcCalls = [];
   rpcResult = { is_correct: false, vault_status: 'active', streak: 0 };
@@ -970,25 +980,69 @@ describe('ruling 7 — the grace covers the LAST answer only', () => {
 
   it('refuses the SECOND late answer, however soon it arrives', async () => {
     startedLongAgo();
-    // One answer already landed after the deadline: the grace is spent.
+    // One answer to ANOTHER question already landed after the deadline: the
+    // sitting's one grace is spent, so this one is refused.
     responseRows = [
-      { item_id: ITEM_ID, skipped: false, created_at: new Date().toISOString() },
+      { item_id: OTHER_ITEM_ID, skipped: false, created_at: new Date().toISOString() },
+    ];
+    const res = await respond(
+      post({ itemId: ITEM_ID, chosen: 'A', servedToken: served([ITEM_ID, OTHER_ITEM_ID]) }),
+      params(ATTEMPT_ID),
+    );
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.expired).toBe(true);
+    expect(body.reason).toBe('spent');
+  });
+
+  it('refuses a late CHANGE to a question already answered BEFORE the bell', async () => {
+    // The hole this test exists for. fn_onemark_record_response is
+    // `INSERT ... ON CONFLICT (attempt_id, item_id) DO UPDATE SET chosen,
+    // is_correct, time_ms, skipped` (20260918101500:525-532) — created_at is
+    // never touched. So a late re-answer of an item answered while the clock
+    // was still running is an UPDATE whose timestamp stays PRE-deadline: no
+    // created_at test could ever see the grace being spent, and on a 20-mark
+    // paper the learner could revise every answer for the whole window.
+    // Refusing the revision outright is what closes it.
+    startedLongAgo();
+    const beforeTheBell = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    responseRows = [{ item_id: ITEM_ID, skipped: false, created_at: beforeTheBell }];
+    const res = await respond(
+      post({ itemId: ITEM_ID, chosen: 'B', servedToken: served() }),
+      params(ATTEMPT_ID),
+    );
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.expired).toBe(true);
+    expect(body.reason).toBe('revision');
+    // And nothing was written: the RPC was never reached.
+    expect(rpcCalls.some((c) => c.fn === 'fn_onemark_record_response')).toBe(false);
+  });
+
+  it('refuses a late change to a question SKIPPED before the bell too', async () => {
+    // Same UPDATE, same invisible created_at — a pre-deadline skip row is
+    // still a row, so answering it late is a revision, not a last tap.
+    startedLongAgo();
+    responseRows = [
+      { item_id: ITEM_ID, skipped: true, created_at: new Date(Date.now() - 60_000).toISOString() },
     ];
     const res = await respond(
       post({ itemId: ITEM_ID, chosen: 'A', servedToken: served() }),
       params(ATTEMPT_ID),
     );
     expect(res.status).toBe(409);
-    expect((await res.json()).expired).toBe(true);
+    expect((await res.json()).reason).toBe('revision');
   });
 
   it('does not count the auto-submit’s SKIPS as the grace being spent', async () => {
     startedLongAgo();
+    // The auto-submit filed a blank for a DIFFERENT question after the bell.
+    // That is not the learner using their grace.
     responseRows = [
-      { item_id: ITEM_ID, skipped: true, created_at: new Date().toISOString() },
+      { item_id: OTHER_ITEM_ID, skipped: true, created_at: new Date().toISOString() },
     ];
     const res = await respond(
-      post({ itemId: ITEM_ID, chosen: 'A', servedToken: served() }),
+      post({ itemId: ITEM_ID, chosen: 'A', servedToken: served([ITEM_ID, OTHER_ITEM_ID]) }),
       params(ATTEMPT_ID),
     );
     expect(res.status).toBe(200);
@@ -1129,6 +1183,59 @@ describe('ruling 13 — an auto-closed sitting is never reopened', () => {
     expect(res.status).toBe(400);
     expect((await res.json()).error).toMatch(/only valid with mode practice/i);
   });
+
+  /** A learner who sat the closed paper, ready to replay it. */
+  function satTheClosedPaper() {
+    assessmentRow = closedPaper() as any;
+    attemptRow = { id: 'prior', status: 'submitted' };
+    paperItemRows = [{ position: 1, item: LACED_ITEM }];
+  }
+
+  it('DRAWS the paper’s questions as a practice sitting — the happy path', async () => {
+    // The one replay path with a plausible hard failure: the draw embeds
+    // fp_assessment_items -> fp_items!inner and filters on it.is_active, and
+    // 404s if the embed shape or the projection is off. Every other ruling-13
+    // test is a refusal, so nothing proved the draw itself.
+    satTheClosedPaper();
+    const res = await startSitting(post({ mode: 'practice', fromAssessmentId: PAPER_ID }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.mode).toBe('practice');
+    expect(body.replayOfAssessmentId).toBe(PAPER_ID);
+    expect(body.questions).toHaveLength(1);
+    expect(body.questions[0].id).toBe(ITEM_ID);
+    // Still a learner-facing draw: no key, no explanation.
+    expect(body.questions[0]).not.toHaveProperty('answer');
+    expect(body.questions[0]).not.toHaveProperty('explanation');
+  });
+
+  it('applies the open-flag suppression to a replay, like every other draw', async () => {
+    // A question enough learners reported as broken is excluded from a normal
+    // practice sitting. It must not come back just because it was on a paper.
+    satTheClosedPaper();
+    flagRows = [
+      { item_id: ITEM_ID, flagged_by: 'learner-a', status: 'open' },
+      { item_id: ITEM_ID, flagged_by: 'learner-b', status: 'open' },
+    ];
+    const res = await startSitting(post({ mode: 'practice', fromAssessmentId: PAPER_ID }));
+    expect(res.status).toBe(404);
+    expect((await res.json()).error).toMatch(/waiting to be checked/i);
+  });
+
+  it('one report is not enough — the threshold is distinct reporters, not reports', async () => {
+    satTheClosedPaper();
+    flagRows = [{ item_id: ITEM_ID, flagged_by: 'learner-a', status: 'open' }];
+    const res = await startSitting(post({ mode: 'practice', fromAssessmentId: PAPER_ID }));
+    expect(res.status).toBe(200);
+  });
+
+  it('refuses a replay of a DEACTIVATED paper — is_active was read and ignored', async () => {
+    satTheClosedPaper();
+    (assessmentRow as any).is_active = false;
+    const res = await startSitting(post({ mode: 'practice', fromAssessmentId: PAPER_ID }));
+    expect(res.status).toBe(404);
+    expect((await res.json()).error).toMatch(/could not be found/i);
+  });
 });
 
 describe('GET /api/cron/onemark-live-autoclose', () => {
@@ -1155,7 +1262,13 @@ describe('GET /api/cron/onemark-live-autoclose', () => {
     expect(body.elapsed_ms).toBe(0);
   });
 
-  it('is idempotent — the ten-minutes-later run closes nothing and says so', async () => {
+  // NOTE ON WHAT THIS PROVES. Idempotency itself lives in Lane S3's
+  // fn_onemark_close_abandoned_live() — SQL that is not in this PR, is not
+  // applied, and has not been rehearsed against Postgres. What is measured
+  // here is the ROUTE's half of the contract: exactly one RPC call per run
+  // (never a retry loop) and the count reported back unchanged, including the
+  // zero of a run with nothing left to close. The test is named for that.
+  it('calls the sweep exactly once per run and reports its count, zero included', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-07T10:04:00.000Z'));
     closeRpcResult = 2;
@@ -1203,9 +1316,69 @@ describe('GET /api/cron/onemark-live-autoclose', () => {
     expect(res.status).toBe(500);
     expect((await res.json()).ok).toBe(false);
   });
+
+  it('does NOT read a failure INSIDE a deployed sweeper as "not deployed yet"', async () => {
+    // The silent-failure hole. A plpgsql body is free to raise a message
+    // containing "does not exist" about a relation, a column or a policy
+    // target. A bare substring test read that as pending_migration and
+    // answered 200 + closed: 0 for ever, so abandoned live sittings would
+    // never close, cohort sheets would stay wrong, and the only signal would
+    // be a green 200 (CLAUDE.md #27).
+    for (const error of [
+      { message: 'relation "onemark_live_windows" does not exist', code: '42P01' },
+      { message: 'column fp_attempts.closed_by does not exist', code: '42703' },
+      {
+        message:
+          'fn_onemark_close_abandoned_live: policy row onemark.live.auto_close_after_minutes does not exist',
+      },
+    ]) {
+      closeRpcError = error;
+      const res = await autoCloseCron(
+        new NextRequest(
+          'https://jkkn.ai/api/cron/onemark-live-autoclose?secret=cron-test-secret',
+        ) as any,
+      );
+      const body = await res.json();
+      expect(res.status).toBe(500);
+      expect(body.ok).toBe(false);
+      expect(body.pending_migration).toBeUndefined();
+    }
+  });
+
+  it('still answers pending_migration on the two shapes that really mean absent', async () => {
+    for (const error of [
+      // Postgres 42883 by code, with no helpful text at all.
+      { message: 'unknown', code: '42883' },
+      // PostgREST's schema-cache miss by code.
+      { message: 'anything', code: 'PGRST202' },
+      // Postgres' own 42883 phrasing.
+      { message: 'function public.fn_onemark_close_abandoned_live() does not exist' },
+    ]) {
+      closeRpcError = error;
+      const res = await autoCloseCron(
+        new NextRequest(
+          'https://jkkn.ai/api/cron/onemark-live-autoclose?secret=cron-test-secret',
+        ) as any,
+      );
+      const body = await res.json();
+      expect(res.status).toBe(200);
+      expect(body.pending_migration).toBe(true);
+      expect(body.closed).toBe(0);
+    }
+  });
 });
 
 describe('ruling 12 — a spent AI budget queues the free lane, it does not block', () => {
+  // THE ROUTE IS NOT THIS LANE'S. specs/onemark-wave3-2026-09-06.md, '## Lane
+  // G': "Do NOT touch app/api/foundation/onemark/draft/route.ts — it is
+  // complete and validated". Lane L's earlier round had edited it to report a
+  // `budget` field; that edit is reverted and the reporting half of ruling 12
+  // belongs to Lane G, which is the client for this route.
+  //
+  // What remains here is a REGRESSION GUARD on the property ruling 12 actually
+  // asks for, which main already satisfies: the request is enqueued on the ₹0
+  // Max lane unconditionally, so a spent monthly cap can never block it. If a
+  // future change makes the enqueue conditional on a budget read, this fails.
   const draftBody = {
     exam_definition_id: EXAM_ID,
     topic_id: null,
@@ -1214,38 +1387,26 @@ describe('ruling 12 — a spent AI budget queues the free lane, it does not bloc
     bloom_level: 'K1',
   };
 
-  it('answers 202 with the free-lane promise when the month’s budget is spent', async () => {
-    mtdSpend = 5000; // cap reached exactly
+  it('queues on the free Max lane with the month’s cap fully spent', async () => {
+    mtdSpend = 5000; // the cap, reached exactly
     const res = await requestDrafts(post(draftBody));
     const body = await res.json();
     expect(res.status).toBe(202);
     expect(body.ok).toBe(true);
-    expect(body.budget).toBe('exhausted');
-    expect(body.cost_inr).toBe(0);
-    expect(body.runs_within_minutes).toBe(30);
-    expect(body.message).toMatch(/within 30 minutes at no cost/i);
-    // The job really was queued — the cap changes the words, not the outcome.
+    expect(body.lane).toBe('max');
     expect(rpcCalls.some((c) => c.fn === 'fn_ai_enqueue')).toBe(true);
   });
 
-  it('answers 202 the same way with budget to spare', async () => {
+  it('queues the same way with budget to spare — the cap changes nothing', async () => {
     mtdSpend = 12;
     const body = await (await requestDrafts(post(draftBody))).json();
-    expect(body.budget).toBe('available');
-    expect(body.message).toMatch(/within 30 minutes at no cost/i);
-  });
-
-  it('fails open to unknown when the spend ledger cannot be read', async () => {
-    mtdSpend = 'not a number';
-    const body = await (await requestDrafts(post(draftBody))).json();
-    expect(body.budget).toBe('unknown');
     expect(body.ok).toBe(true);
+    expect(body.lane).toBe('max');
   });
 
-  it('treats an absent cap as no cap at all, without touching the ledger', async () => {
-    jobTypeRow.monthly_spend_cap_inr = null;
-    const body = await (await requestDrafts(post(draftBody))).json();
-    expect(body.budget).toBe('available');
+  it('never reads the spend ledger at all — nothing here can be gated on it', async () => {
+    mtdSpend = 999999;
+    await requestDrafts(post(draftBody));
     expect(rpcCalls.some((c) => c.fn === 'fn_ai_feature_mtd_spend')).toBe(false);
   });
 });
@@ -1279,5 +1440,153 @@ describe('ruling 15 — one language on screen, English fallback per item', () =
 
   it('renders nothing at all when the bank has neither', () => {
     expect(pickLanguage('ta', null, null).text).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Lane L item 3 — the "My progress" reader, against BOTH orderings.
+// ---------------------------------------------------------------------------
+// Lane A has not merged, so the card cannot be exercised end to end. What CAN
+// be falsified now is the reader, and the one property tolerance could not
+// cover: newest-first and oldest-first carry identical field names.
+
+describe('readLearnerReport — Lane A’s shape, read without assuming its order', () => {
+  const older = { score: 4, total: 10, submitted_at: '2026-09-01T05:00:00.000Z' };
+  const newer = { score: 9, total: 10, submitted_at: '2026-09-05T05:00:00.000Z' };
+
+  it('puts the newest sitting first when Lane A sends newest-first', () => {
+    const r = readLearnerReport({ sittings: [newer, older] })!;
+    expect(r.ordered).toBe(true);
+    expect(r.sittings[0].score).toBe(9);
+  });
+
+  it('puts the newest sitting first when Lane A sends OLDEST-first', () => {
+    const r = readLearnerReport({ sittings: [older, newer] })!;
+    expect(r.ordered).toBe(true);
+    expect(r.sittings[0].score).toBe(9);
+  });
+
+  it('reads camelCase submittedAt too', () => {
+    const r = readLearnerReport({
+      last_sittings: [
+        { score: 1, total: 10, submittedAt: '2026-09-01T05:00:00.000Z' },
+        { score: 8, total: 10, submittedAt: '2026-09-06T05:00:00.000Z' },
+      ],
+    })!;
+    expect(r.sittings[0].score).toBe(8);
+  });
+
+  it('refuses to claim an order it cannot establish', () => {
+    // No timestamps: "last time" would be a guess, so the card drops the
+    // ordered views rather than render a wrong number.
+    const r = readLearnerReport({ sittings: [{ score: 4, total: 10 }, { score: 9, total: 10 }] })!;
+    expect(r.ordered).toBe(false);
+  });
+
+  it('does not invent sittings for a report that only carries vault state', () => {
+    // The footer used to read "Your last 0 sittings." here.
+    const r = readLearnerReport({ vault: { due: 6 } })!;
+    expect(r.sittings).toHaveLength(0);
+    expect(r.ordered).toBe(false);
+    expect(r.vaultDue).toBe(6);
+  });
+
+  it('renders nothing at all for an empty or absent report', () => {
+    expect(readLearnerReport(null)).toBeNull();
+    expect(readLearnerReport({})).toBeNull();
+    expect(readLearnerReport({ sittings: [] })).toBeNull();
+  });
+
+  it('keeps the last TEN, newest first', () => {
+    const many = Array.from({ length: 14 }, (_, i) => ({
+      score: i,
+      total: 10,
+      submitted_at: new Date(Date.UTC(2026, 8, i + 1)).toISOString(),
+    }));
+    const r = readLearnerReport({ sittings: many })!;
+    expect(r.sittings).toHaveLength(10);
+    expect(r.sittings[0].score).toBe(13);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ruling 11 — Retry must not be a guaranteed second failure.
+// ---------------------------------------------------------------------------
+
+describe('retrySrc — a cache-buster only where it cannot break a signature', () => {
+  it('leaves the URL alone on the first render', () => {
+    expect(retrySrc('https://cdn/x.png', 0)).toBe('https://cdn/x.png');
+  });
+
+  it('cache-busts a plain URL on retry', () => {
+    expect(retrySrc('https://cdn/x.png', 2)).toBe('https://cdn/x.png?r=2');
+    expect(retrySrc('https://cdn/x.png?a=1', 2)).toBe('https://cdn/x.png?a=1&r=2');
+  });
+
+  it('NEVER touches an AWS SigV4 presigned URL — appending would break it', () => {
+    const url =
+      'https://s3.example/x.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=deadbeef';
+    expect(retrySrc(url, 3)).toBe(url);
+  });
+
+  it('leaves a Supabase signed URL alone as well', () => {
+    const url = 'https://p.supabase.co/storage/v1/object/sign/onemark/x.png?token=ey.J.W';
+    expect(retrySrc(url, 1)).toBe(url);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// "not deployed" vs "deployed and broken" — the predicate behind the cron.
+// ---------------------------------------------------------------------------
+
+describe('rpcMissing', () => {
+  const FN = 'fn_onemark_close_abandoned_live';
+
+  it('is true for PostgREST’s schema-cache miss and for SQLSTATE 42883', () => {
+    expect(rpcMissing({ code: 'PGRST202', message: 'x' }, FN)).toBe(true);
+    expect(rpcMissing({ code: '42883', message: 'x' }, FN)).toBe(true);
+    expect(
+      rpcMissing({ message: `Could not find the function public.${FN} in the schema cache` }, FN),
+    ).toBe(true);
+    expect(rpcMissing({ message: `function public.${FN}() does not exist` }, FN)).toBe(true);
+  });
+
+  it('is FALSE for a "does not exist" raised inside a deployed function', () => {
+    expect(rpcMissing({ message: 'relation "x" does not exist', code: '42P01' }, FN)).toBe(false);
+    expect(rpcMissing({ message: 'column a.b does not exist', code: '42703' }, FN)).toBe(false);
+    expect(rpcMissing({ message: `${FN}: cohort % does not exist` }, FN)).toBe(false);
+    expect(rpcMissing({ message: 'deadlock detected' }, FN)).toBe(false);
+  });
+
+  it('is false for a DIFFERENT function’s absence — the name has to match', () => {
+    expect(
+      rpcMissing({ message: 'Could not find the function public.fn_something_else' }, FN),
+    ).toBe(false);
+  });
+
+  it('does not confuse a longer name that starts the same way', () => {
+    expect(
+      rpcMissing({ message: `Could not find the function public.${FN}_v2` }, FN),
+    ).toBe(false);
+  });
+
+  it('is false for no error at all', () => {
+    expect(rpcMissing(null, FN)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// persistServedSet — an empty draw is not a failed write.
+// ---------------------------------------------------------------------------
+
+describe('persistServedSet', () => {
+  it('says nothing_to_write for an empty id list, not failed', async () => {
+    const admin = { from: (t: string) => builder(t) };
+    await expect(persistServedSet(admin, ATTEMPT_ID, [])).resolves.toBe('nothing_to_write');
+    await expect(persistServedSet(admin, ATTEMPT_ID, ['not-a-uuid'])).resolves.toBe(
+      'nothing_to_write',
+    );
+    // …and it never touched the table.
+    expect(updates.filter((u) => u.table === 'fp_attempts')).toHaveLength(0);
   });
 });

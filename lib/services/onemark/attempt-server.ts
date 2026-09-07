@@ -42,9 +42,12 @@ export const ONEMARK_MODES: OneMarkAttemptMode[] = [
  *
  *  RULING 7 — the grace covers the LAST ANSWER ONLY. It is the tap the learner
  *  already had in hand when the clock stopped, arriving late over a slow line;
- *  it is not fifteen extra seconds of paper. `graceAlreadyUsed` below is what
- *  makes that true: once one answer has landed after the deadline, the next
- *  one is refused however soon it comes. */
+ *  it is not fifteen extra seconds of paper. `lateAnswerRefusal` below is what
+ *  makes that true, on two counts: once one answer has landed after the
+ *  deadline the next is refused however soon it comes, AND a late answer to a
+ *  question that already has a response is refused outright, because that
+ *  write is an UPDATE whose created_at never moves and could therefore never
+ *  be seen spending the grace. */
 export const DEADLINE_GRACE_MS = 15_000;
 
 /** Policy key + fallback for the same slack, so the number lives in a config
@@ -384,6 +387,47 @@ export function verifyServedSet(attemptId: string, token: unknown): Set<string> 
 // ---------------------------------------------------------------------------
 
 export const RPC_MISSING = /could not find the function|does not exist/i;
+
+/** Regex-escape a function name before it goes into a pattern. */
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Is THIS error "the function is not deployed", as opposed to "the deployed
+ *  function failed"?
+ *
+ *  The bare `RPC_MISSING` substring test above cannot tell them apart, and the
+ *  difference is the whole alarm. A plpgsql body is free to raise a message
+ *  containing "does not exist" about a relation, a column or a missing row —
+ *  a genuinely BROKEN sweeper — and a caller that reads that as "not deployed
+ *  yet" answers 200 and closes nothing, for ever, silently. That is exactly
+ *  what CLAUDE.md rule #27 forbids.
+ *
+ *  So "absent" is only ever one of three shapes, all of which name the
+ *  function or carry the machine code:
+ *    - PostgREST cannot find it in its schema cache  -> code PGRST202
+ *    - Postgres itself does not have it              -> SQLSTATE 42883
+ *    - the message uses one of those two engines' own phrasings AND names the
+ *      function
+ *  Everything else is a failure and must be reported as one. */
+export function rpcMissing(error: any, fnName: string): boolean {
+  if (!error) return false;
+  const code = typeof error.code === 'string' ? error.code : '';
+  if (code === 'PGRST202' || code === '42883') return true;
+  const message =
+    typeof error === 'string' ? error : typeof error.message === 'string' ? error.message : '';
+  if (!message) return false;
+  const name = escapeRe(fnName);
+  // PostgREST: "Could not find the function public.fn_x(...) in the schema cache"
+  const postgrest = new RegExp(`could not find the function\\s+(public\\.)?${name}\\b`, 'i');
+  // Postgres 42883: "function public.fn_x() does not exist"
+  const postgres = new RegExp(
+    `function\\s+(public\\.)?${name}\\b[^\\n]{0,80}?does not exist`,
+    'i',
+  );
+  return postgrest.test(message) || postgres.test(message);
+}
+
 /** Lane S's fn_onemark_finalize_attempt / fn_onemark_record_response refuse a
  *  closed attempt with "attempt … is submitted, not in_progress (single
  *  submission, decision 19)". Older phrasings kept so a reworded RPC still
@@ -418,8 +462,12 @@ export interface CloseOutcome {
   alreadySubmitted: boolean;
 }
 
-function closeError(message: string, verb: 'Submitting' | 'Answering'): CloseOutcome['error'] {
-  return RPC_MISSING.test(message)
+function closeError(
+  error: any,
+  fnName: string,
+  verb: 'Submitting' | 'Answering',
+): CloseOutcome['error'] {
+  return rpcMissing(error, fnName)
     ? {
         status: 503,
         message: `${verb} is not switched on yet. Please tell whoever runs the programme at your school.`,
@@ -447,7 +495,10 @@ export async function closeSitting(
     if (skipError) {
       const msg = skipError.message ?? '';
       if (ALREADY_SUBMITTED.test(msg)) return { error: null, alreadySubmitted: true };
-      return { error: closeError(msg, 'Submitting'), alreadySubmitted: false };
+      return {
+        error: closeError(skipError, 'fn_onemark_record_response', 'Submitting'),
+        alreadySubmitted: false,
+      };
     }
   }
   const { error: finalError } = await sessionClient.rpc('fn_onemark_finalize_attempt', {
@@ -456,7 +507,10 @@ export async function closeSitting(
   if (finalError) {
     const msg = finalError.message ?? '';
     if (ALREADY_SUBMITTED.test(msg)) return { error: null, alreadySubmitted: true };
-    return { error: closeError(msg, 'Submitting'), alreadySubmitted: false };
+    return {
+      error: closeError(finalError, 'fn_onemark_finalize_attempt', 'Submitting'),
+      alreadySubmitted: false,
+    };
   }
   return { error: null, alreadySubmitted: false };
 }
@@ -482,7 +536,11 @@ export async function closeSitting(
 export const MISSING_COLUMN =
   /column .* does not exist|could not find the .* column|42703/i;
 
-export type ServedSetWrite = 'written' | 'column_missing' | 'failed';
+/** `nothing_to_write` is NOT `failed`: an empty or all-invalid id list means
+ *  the caller drew nothing, which is the caller's problem to report, not a
+ *  write that went wrong. Conflating the two made a clean no-op read as a
+ *  database failure in the reply. */
+export type ServedSetWrite = 'written' | 'column_missing' | 'failed' | 'nothing_to_write';
 
 /** Persist the drawn set on the attempt. Never throws and never fails the
  *  sitting: before S3 is applied the column is absent and the token carries
@@ -493,7 +551,7 @@ export async function persistServedSet(
   itemIds: string[],
 ): Promise<ServedSetWrite> {
   const ids = [...new Set(itemIds)].filter((id) => typeof id === 'string' && UUID_RE.test(id));
-  if (ids.length === 0) return 'failed';
+  if (ids.length === 0) return 'nothing_to_write';
   try {
     // No .select() on purpose: a filtered UPDATE's RETURNING projection is
     // re-filtered by PostgREST, and nothing here needs the row back.
@@ -560,26 +618,56 @@ export async function graceMs(adminClient: any): Promise<number> {
   return seconds * 1000;
 }
 
-/** True when an ANSWER has already been recorded after the deadline on this
- *  attempt — so the one grace this sitting gets is spent (ruling 7). A skip is
- *  not an answer: the auto-submit files blanks as skips after the clock stops
- *  and must never be read as the learner using their grace. */
-export async function graceAlreadyUsed(
+/** Why a late answer is refused, or null when the one grace is still there.
+ *
+ *  'spent'    — an answer has already landed after the deadline on this
+ *               sitting. The one grace is used (ruling 7).
+ *  'revision' — this item ALREADY has a response row, so the write would be an
+ *               UPDATE. That matters twice over. Ruling 7's grace is the tap
+ *               the learner already had in hand for a question they had not
+ *               answered; changing an answer they had already given is a
+ *               second bite, not a late first one. And it would be
+ *               UNOBSERVABLE: fn_onemark_record_response is
+ *               `INSERT ... ON CONFLICT (attempt_id, item_id) DO UPDATE SET
+ *               chosen, is_correct, time_ms, skipped` (20260918101500:525-532)
+ *               and never touches created_at, so the row's timestamp stays
+ *               pre-deadline and no later check could ever see the grace being
+ *               spent. Without this branch a scripted client re-POSTs
+ *               already-answered items and revises the whole paper for the
+ *               length of the window. */
+export type LateAnswerRefusal = 'spent' | 'revision';
+
+/** Whether this particular late ANSWER may use the sitting's one grace.
+ *
+ *  One read, filtered in JS rather than with `.gt()`, because both questions
+ *  are asked of the same handful of rows and because a PostgREST filter the
+ *  caller cannot see is a filter the tests cannot honour. A skip is never an
+ *  answer: the auto-submit files blanks as skips after the clock stops and
+ *  must not be read as the learner spending their grace. */
+export async function lateAnswerRefusal(
   adminClient: any,
   attemptId: string,
+  itemId: string,
   deadlineMs: number,
-): Promise<boolean> {
+): Promise<LateAnswerRefusal | null> {
   try {
     const { data } = await adminClient
       .from('fp_responses')
-      .select('created_at, skipped')
+      .select('item_id, created_at, skipped')
       .eq('attempt_id', attemptId)
-      .gt('created_at', new Date(deadlineMs).toISOString())
-      .limit(50);
+      .limit(500);
     const rows: any[] = Array.isArray(data) ? data : [];
-    return rows.some((r) => r && r.skipped !== true);
+    if (rows.some((r) => r && r.item_id === itemId)) return 'revision';
+    const spent = rows.some((r) => {
+      if (!r || r.skipped === true) return false;
+      const t = new Date(r.created_at).getTime();
+      return Number.isFinite(t) && t > deadlineMs;
+    });
+    return spent ? 'spent' : null;
   } catch {
-    return false;
+    // A read that failed must not hand out a free extra answer either; the
+    // clock has already run out, and refusing is the safe side.
+    return 'spent';
   }
 }
 

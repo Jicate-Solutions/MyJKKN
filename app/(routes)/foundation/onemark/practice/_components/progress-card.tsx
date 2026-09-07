@@ -15,12 +15,25 @@
 // 404 and the card renders nothing at all — no error, no empty box, no
 // "coming soon". The report's field names are read tolerantly (snake_case and
 // camelCase both) because the jsonb shape is Lane A's to settle.
+//
+// ORDER IS THE ONE THING TOLERANCE CANNOT COVER. Newest-first and oldest-first
+// carry identical field names, so a tolerant reader that assumed one would
+// render a WRONG "last time" and a backwards trend rather than nothing. The
+// sittings are therefore sorted here from their own timestamps, and when the
+// timestamps are not all there the ordered views are simply not drawn.
 
 import { useEffect, useState } from 'react';
 import { TrendingUp } from 'lucide-react';
 
 interface LearnerReport {
+  /** NEWEST FIRST, always — see `readLearnerReport`. */
   sittings: Array<{ score: number | null; total: number | null; submittedAt: string | null }>;
+  /** False when the report's sittings carry no usable timestamps, so their
+   *  order cannot be established. The trend strip and the "last time" line are
+   *  then hidden: an unordered strip and a wrong "last time" are worse than no
+   *  strip at all, and the card's whole promise is that it degrades to NOTHING
+   *  rather than to a wrong number. */
+  ordered: boolean;
   vaultDue: number | null;
   weakestUnit: string | null;
 }
@@ -30,18 +43,33 @@ function num(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/** A submittedAt as epoch ms, or null when it is missing or unparseable. */
+function stamp(v: string | null): number | null {
+  if (!v) return null;
+  const t = new Date(v).getTime();
+  return Number.isFinite(t) ? t : null;
+}
+
 /** Lane A's jsonb, read defensively. Anything missing simply does not render. */
 export function readLearnerReport(raw: any): LearnerReport | null {
   if (!raw || typeof raw !== 'object') return null;
   const sittingsRaw = raw.sittings ?? raw.last_sittings ?? raw.lastSittings ?? [];
-  const sittings = (Array.isArray(sittingsRaw) ? sittingsRaw : [])
-    .slice(0, 10)
+  const parsed = (Array.isArray(sittingsRaw) ? sittingsRaw : [])
     .map((s: any) => ({
       score: num(s?.score),
       total: num(s?.total ?? s?.question_count ?? s?.questionCount),
       submittedAt: typeof s?.submitted_at === 'string' ? s.submitted_at : typeof s?.submittedAt === 'string' ? s.submittedAt : null,
     }))
     .filter((s: any) => s.score !== null);
+  // ORDER IS NOT ASSUMED. Lane A has not merged, and "newest first" is a
+  // property no tolerant field-name reader can detect: oldest-first data has
+  // exactly the same shape and would render a WRONG "last time" and a
+  // backwards trend, not nothing. So the order is established HERE, from the
+  // timestamps, and when they are not all there the ordered views are dropped.
+  const ordered = parsed.length > 0 && parsed.every((s) => stamp(s.submittedAt) !== null);
+  const sittings = (
+    ordered ? [...parsed].sort((a, b) => (stamp(b.submittedAt)! - stamp(a.submittedAt)!)) : parsed
+  ).slice(0, 10);
   const vault = raw.vault ?? raw.vault_state ?? raw.vaultState ?? {};
   const vaultDue = num(vault?.due ?? vault?.eligible_now ?? vault?.eligibleNow ?? vault?.active);
   const weakRaw = raw.weakest_unit ?? raw.weakestUnit ?? null;
@@ -56,11 +84,12 @@ export function readLearnerReport(raw: any): LearnerReport | null {
             ? weakRaw.topic_name
             : null;
   if (sittings.length === 0 && vaultDue === null && !weakestUnit) return null;
-  return { sittings, vaultDue, weakestUnit };
+  return { sittings, ordered, vaultDue, weakestUnit };
 }
 
 /** A ten-step bar strip. No chart library for ten numbers. */
 function Trend({ sittings }: { sittings: LearnerReport['sittings'] }) {
+  // `sittings` is newest-first; the strip reads left-to-right in time.
   const points = [...sittings].reverse();
   return (
     <div className="flex items-end gap-1.5" aria-hidden="true">
@@ -104,7 +133,9 @@ export function ProgressCard({ learnerId }: { learnerId: string }) {
 
   if (!report) return null;
 
-  const last = report.sittings[0];
+  // Only when the order was established from timestamps — otherwise sittings[0]
+  // is just "the first one Lane A happened to send".
+  const last = report.ordered ? report.sittings[0] : null;
   const lastLine =
     last && last.score !== null
       ? last.total
@@ -119,7 +150,7 @@ export function ProgressCard({ learnerId }: { learnerId: string }) {
         <h2 className="text-lg font-semibold text-foreground">My progress</h2>
       </div>
       <div className="rounded-2xl bg-card p-5">
-        {report.sittings.length > 0 && (
+        {report.ordered && report.sittings.length > 0 && (
           <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
             <Trend sittings={report.sittings} />
             {lastLine && <p className="text-sm text-muted-foreground">{lastLine}</p>}
@@ -142,8 +173,10 @@ export function ProgressCard({ learnerId }: { learnerId: string }) {
           )}
         </dl>
         <p className="mt-4 text-xs text-muted-foreground">
-          Your last {report.sittings.length} sitting{report.sittings.length === 1 ? '' : 's'}. Answers
-          are never shown here — they are in each sitting&rsquo;s own review.
+          {report.ordered && report.sittings.length > 0
+            ? `Your last ${report.sittings.length} sitting${report.sittings.length === 1 ? '' : 's'}. `
+            : ''}
+          Answers are never shown here &mdash; they are in each sitting&rsquo;s own review.
         </p>
       </div>
     </section>

@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse, connection } from 'next/server';
-import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/supabase/server';
 import { OneMarkExamKeys } from '@/types/onemark';
 import { buildDraftPayload } from '@/lib/services/onemark/draft-contract';
 
@@ -10,11 +10,7 @@ import { buildDraftPayload } from '@/lib/services/onemark/draft-contract';
 //
 // POST /api/foundation/onemark/draft
 //   { exam_definition_id, topic_id | null, tag_keys: string[], count, bloom_level }
-//   -> 202 { ok: true, job_id, lane, cost_inr: 0, budget, runs_within_minutes,
-//            message }
-//
-// RULING 12 — a spent monthly AI budget never blocks a request. The job is
-// enqueued on the ₹0 Max lane either way and the reply says so in plain words.
+//   -> 202 { ok: true, job_id }
 //
 // What this route does NOT do: call a model, or write fp_items. It INSERTs an
 // ai_jobs row (job_type 'onemark.item_draft', lane 'max') through
@@ -39,45 +35,9 @@ const BLOOM_LEVELS = ['K1', 'K2', 'K3', 'K4', 'K5', 'K6'] as const;
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** The collect pass runs at :09 and :39 (vercel.json), so the longest a
- *  queued request ever waits for the free lane to file its drafts is half an
- *  hour. Said in the reply, in minutes, so nobody watches a screen. */
-const FREE_LANE_MAX_WAIT_MINUTES = 30;
-
 interface SchemaField {
   key: string;
   required: boolean;
-}
-
-type BudgetState = 'available' | 'exhausted' | 'unknown';
-
-/** RULING 12 — a spent monthly AI budget must not block a drafting request.
- *
- *  The ₹0 Max lane is what this route queues on, and it spends nothing: the
- *  seat runs the prompt and the collect pass files the drafts. So the budget
- *  never gates the enqueue — but the caller deserves to be TOLD which state
- *  they are in, because "queued" means something different when the paid
- *  inline path is off the table. This read is advisory only and fails open to
- *  'unknown': a ledger hiccup must never turn into a refusal. */
-async function readBudgetState(cap: unknown): Promise<{ state: BudgetState; capInr: number | null; mtdInr: number | null }> {
-  const capInr = typeof cap === 'number' ? cap : cap === null || cap === undefined ? null : Number(cap);
-  if (capInr === null || !Number.isFinite(capInr) || capInr <= 0) {
-    return { state: 'available', capInr: null, mtdInr: null };
-  }
-  try {
-    // fn_ai_feature_mtd_spend is service-role-only by grant; the caller has
-    // already cleared foundation.items.manage above.
-    const admin = createServiceRoleClient() as any;
-    const { data, error } = await admin.rpc('fn_ai_feature_mtd_spend', {
-      p_feature_key: JOB_TYPE,
-    });
-    if (error) return { state: 'unknown', capInr, mtdInr: null };
-    const mtd = typeof data === 'number' ? data : Number(data);
-    if (!Number.isFinite(mtd)) return { state: 'unknown', capInr, mtdInr: null };
-    return { state: mtd >= capInr ? 'exhausted' : 'available', capInr, mtdInr: mtd };
-  } catch {
-    return { state: 'unknown', capInr, mtdInr: null };
-  }
 }
 
 /** The registry stores input_schema either as the house array shape
@@ -134,7 +94,7 @@ export async function POST(request: NextRequest) {
     // only, so an absent read means "not live yet", whatever the cause.
     const { data: jobType } = await (supabase as any)
       .from('ai_job_types')
-      .select('job_type, lane, input_schema, monthly_spend_cap_inr')
+      .select('job_type, lane, input_schema')
       .eq('job_type', JOB_TYPE)
       .maybeSingle();
     if (!jobType) {
@@ -322,26 +282,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // RULING 12 — the same job, the same free lane, whatever the budget says.
-    // The reply names the state so a Senior Learner is never left guessing why
-    // a request "went quiet": queued means queued, and the collect pass files
-    // the drafts within half an hour at no cost either way.
-    const budget = await readBudgetState((jobType as any).monthly_spend_cap_inr);
-    return NextResponse.json(
-      {
-        ok: true,
-        job_id: enq.job_id,
-        lane: LANE,
-        cost_inr: 0,
-        budget: budget.state,
-        runs_within_minutes: FREE_LANE_MAX_WAIT_MINUTES,
-        message:
-          budget.state === 'exhausted'
-            ? `This month's AI budget is spent, so this is queued for the free lane — it runs within ${FREE_LANE_MAX_WAIT_MINUTES} minutes at no cost.`
-            : `Queued — it runs within ${FREE_LANE_MAX_WAIT_MINUTES} minutes at no cost.`,
-      },
-      { status: 202 },
-    );
+    return NextResponse.json({ ok: true, job_id: enq.job_id, lane: LANE }, { status: 202 });
   } catch (err: any) {
     return NextResponse.json(
       { error: err?.message ?? 'Could not queue the drafting job' },

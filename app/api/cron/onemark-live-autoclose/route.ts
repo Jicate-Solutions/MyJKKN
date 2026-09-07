@@ -32,6 +32,16 @@
 // error — a cron that alarms every ten minutes for a fortnight teaches people
 // to ignore it.
 //
+// THAT QUIET BRANCH IS NARROW ON PURPOSE. It is taken only when PostgREST or
+// Postgres says the FUNCTION is absent — code PGRST202 / SQLSTATE 42883, or a
+// message in one of their own phrasings that names this function. It is NOT
+// taken for any error merely containing "does not exist": a deployed sweeper
+// whose body trips over a missing relation, column or policy target would
+// otherwise answer 200 with pending_migration: true for ever, abandoned live
+// sittings would never close, cohort sheets would stay wrong, and the only
+// signal would be a green 200. Every other error is a 500 (CLAUDE.md #27 —
+// a failure state is explicit, never silent).
+//
 // Auth: CRON_SECRET via `Authorization: Bearer <secret>` OR `?secret=`.
 // Created: 2026-09-07 (OneMark Wave 3, Lane L).
 
@@ -41,7 +51,7 @@ export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
-import { RPC_MISSING } from '@/lib/services/onemark/attempt-server';
+import { rpcMissing } from '@/lib/services/onemark/attempt-server';
 
 const CLOSE_RPC = 'fn_onemark_close_abandoned_live';
 
@@ -63,7 +73,7 @@ export async function GET(request: NextRequest) {
 
   if (error) {
     const message = error.message ?? '';
-    if (RPC_MISSING.test(message)) {
+    if (rpcMissing(error, CLOSE_RPC)) {
       return NextResponse.json({
         ok: true,
         closed: 0,
