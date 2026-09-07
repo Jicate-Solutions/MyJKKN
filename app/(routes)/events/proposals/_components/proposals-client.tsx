@@ -154,9 +154,20 @@ export function ProposalsClient({
       return;
     }
 
+    // data.status arrives from PostgREST as a plain string — the generated row
+    // type does not carry the EventProposalStatus union — so it must be narrowed
+    // before it goes back into ProposalRow. The value itself is safe: it is
+    // whatever we just wrote one statement above, and that write is already
+    // typed (`as EventProposalStatus`), so this narrows rather than asserts
+    // something unknown.
     setProposals(prev => prev.map(p =>
       p.id === proposal.id
-        ? { ...p, status: data.status, decision_notes: data.decision_notes, decided_at: data.decided_at }
+        ? {
+            ...p,
+            status: data.status as EventProposalStatus,
+            decision_notes: data.decision_notes,
+            decided_at: data.decided_at,
+          }
         : p,
     ));
     toast.success(action === 'approve' ? 'Proposal approved' : 'Proposal rejected');
