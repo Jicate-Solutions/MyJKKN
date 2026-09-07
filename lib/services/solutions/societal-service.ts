@@ -186,7 +186,13 @@ export type DepartmentActivityReadout =
   /** The department is not registered as a solution department, so no clock exists. */
   | { kind: 'not_a_solution_department' }
   /** The row could not be read from here — claim nothing about it. */
-  | { kind: 'unreadable' };
+  | { kind: 'unreadable' }
+  /**
+   * Nobody asked. A rejection cannot move the clock — the trigger's WHEN clause
+   * is `NEW.approval_status = 'approved'` — so there is nothing to read back,
+   * which is a different fact from having tried and failed.
+   */
+  | { kind: 'not_read' };
 
 /** What `decide()` hands back: the row it changed, and what that changed. */
 export interface EngagementDecisionOutcome {
@@ -567,10 +573,11 @@ export class SocietalService extends BaseService {
     // supposed to do. The trigger runs inside the UPDATE's own transaction, so
     // by the time that statement has returned this read sees the committed
     // result — including the common case where it committed no change at all.
-    const department_activity =
+    // A rejection is not read back because it cannot move anything.
+    const department_activity: DepartmentActivityReadout =
       decision === 'approved'
         ? await this.readDepartmentActivity(engagement.department_id)
-        : ({ kind: 'unreadable' } as const);
+        : { kind: 'not_read' };
 
     return { engagement, department_activity };
   }

@@ -92,7 +92,7 @@ function describeApproval(departmentName: string, activity: DepartmentActivityRe
     );
   }
 
-  if (activity.kind === 'unreadable') {
+  if (activity.kind === 'unreadable' || activity.kind === 'not_read') {
     return "Approved. Its effect on the department's activity clock could not be read back from here.";
   }
 

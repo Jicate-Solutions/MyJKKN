@@ -375,6 +375,11 @@ export class ParadigmShiftService extends BaseService {
           total_beneficiaries: null,
           total_community_engagements: null,
           total_pro_bono: null,
+          // Nothing was measured and nothing was checked: this branch returns
+          // before the visibility probe is even started, because the caller can
+          // see no departments at all. Claiming 'source_unavailable' would blame
+          // the environment and claiming 'not_visible' would blame the role.
+          societal_availability: 'unconfirmed',
         },
       };
     }
@@ -518,10 +523,13 @@ export class ParadigmShiftService extends BaseService {
             : 'unconfirmed';
 
     const societalReadable = societalAvailability === 'measured';
-    // Pro-bono is still independently nullable — its column can be missing while
-    // the register is present — but it can never outlive the visibility check
-    // above, because `sh_solutions` is filtered by the same kind of policy.
-    const proBonoReadable = societalReadable && proBonoRows !== null;
+    // Pro-bono stays INDEPENDENT of the visibility verdict above, deliberately.
+    // It reads `sh_solutions`, whose SELECT policy is `sh_has_management_access()
+    // OR sh_is_staff() OR sh_is_builder()` — a different gate entirely from
+    // `solutions.societal.view`. Tying it to the register's verdict would print
+    // "hidden from your role" over a number the reader can in fact see, which is
+    // the same class of untruth as printing a zero they cannot.
+    const proBonoReadable = proBonoRows !== null;
 
     // Per-department societal accumulation, from approved engagements only.
     const societalMap: Record<string, SocietalAccumulator> = {};
