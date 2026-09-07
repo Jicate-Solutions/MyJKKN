@@ -321,7 +321,9 @@ export function NewPolicyEditor({ policyKey, fields }: NewPolicyEditorProps) {
         new_value: newValue,
         reason: reasonText.trim(),
         edited_by: profile.id,
-      });
+      // Cast at the write boundary: old_value/new_value are parsed JSON
+      // typed Record<string, unknown>, wider than the generated Json.
+      } as never);
       if (auditErr) throw auditErr;
 
       const { data: refetched } = await supabase

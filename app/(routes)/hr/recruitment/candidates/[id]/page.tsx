@@ -253,7 +253,7 @@ export default function CandidateDetailPage() {
         is_counter_offer: proposeIsCounter,
         parent_package_id: proposeIsCounter && proposeParentId ? proposeParentId : null,
         notes: proposeNotes.trim() || null,
-        proposed_by: '', // server fills
+        // proposed_by is set server-side; the insert type Omits it.
       });
       toast.success('Package proposed');
       setProposeOpen(false);

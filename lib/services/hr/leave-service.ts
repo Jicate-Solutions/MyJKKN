@@ -219,7 +219,7 @@ export class LeaveService {
       role_ladder: string[] | null;
       fallback_approver: LeaveApproverEntry | null;
     };
-    const candidates = (flows ?? []) as FlowRow[];
+    const candidates = (flows ?? []) as unknown as FlowRow[];
 
     // Most-specific wins: a flow naming this leave type beats the catch-all.
     // departmentId is accepted for signature stability and future
