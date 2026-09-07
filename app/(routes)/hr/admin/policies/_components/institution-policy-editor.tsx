@@ -202,7 +202,7 @@ export function InstitutionPolicyEditor(props: InstitutionPolicyEditorProps) {
         const { data, error: upErr } = await supabase
           .from('platform_policies')
           .update({
-            value: parsedDraft.value,
+            value: parsedDraft.value as never,
             updated_by: user?.id ?? null,
             updated_at: new Date().toISOString(),
           })
@@ -234,7 +234,7 @@ export function InstitutionPolicyEditor(props: InstitutionPolicyEditorProps) {
             policy_key: policyKey,
             scope_type: 'institution',
             scope_id: selectedInstitutionId,
-            value: parsedDraft.value,
+            value: parsedDraft.value as never,
             description: policyDescription,
             data_type: 'object',
             is_system: false,

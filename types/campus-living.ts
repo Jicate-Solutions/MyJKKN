@@ -4,6 +4,11 @@
 // worked only because `import type` is erased at build time. Creating it
 // here to plug the type-check debt alongside the Hostel Residents rebuild.
 
+// JSON shapes for jsonb writes live in types/json.ts so non-campus-living code
+// (the HR policy editors) can use them without importing from this module.
+export type { JsonValue, JsonObject } from './json';
+import type { JsonObject } from './json';
+
 // ─── Enums (mirrors supabase/migrations/20260222000015_campus_living_enums_and_tables.sql) ───
 
 export type AllocationType = 'fresh' | 'renewal' | 'transfer' | 'temporary';
@@ -110,7 +115,7 @@ export interface CreateHostelAllocationDTO {
   emergency_contact_relation: string;
   medical_conditions?: string | null;
   food_preference?: FoodPreference | null;
-  metadata?: Record<string, unknown>;
+  metadata?: JsonObject;
   // ─── New columns added in hostel-rooms-v2 PR 1 ───
   monthly_fee_at_allocation_inr?: number | null;
   warden_id?: string | null;
@@ -131,7 +136,7 @@ export interface UpdateHostelAllocationDTO {
   emergency_contact_relation?: string;
   medical_conditions?: string | null;
   food_preference?: FoodPreference | null;
-  metadata?: Record<string, unknown>;
+  metadata?: JsonObject;
   // ─── New columns added in hostel-rooms-v2 PR 1 ───
   monthly_fee_at_allocation_inr?: number | null;
   warden_id?: string | null;

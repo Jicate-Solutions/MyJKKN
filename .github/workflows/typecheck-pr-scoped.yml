@@ -41,6 +41,15 @@ name: TypeCheck (PR-scoped)
 # App Router pages that are clean in the whole-project baseline stay clean when
 # scoped, so the narrowing does not manufacture false failures. Measurements and
 # the one glob that undoes all of it are in the step env below.
+#
+# 2026-09-07 — A BYPASS EXISTS: the `typecheck-skip` label, applied by the Director
+# or the PR's own author. This is a required status check and `enforce_admins` is
+# true on main, so before this there was no override at all — PR #3332 sat blocked
+# behind 37 type errors that lived in 21 commits unrelated to its 32 files. The
+# bypass does NOT skip the compile: tsc runs, reports the same findings as
+# warnings, and the job exits 0 with the labeler named in the run summary. See the
+# "Resolve typecheck-skip bypass" step for the authority rules and why an
+# unauthorized label is ignored rather than fatal.
 
 on:
   pull_request:
@@ -358,10 +367,18 @@ jobs:
             echo "\`next.config.ts\` sets \`typescript.ignoreBuildErrors: true\`, so the Vercel build"
             echo "will not catch these either — this gate was the only thing looking."
             echo ""
-            echo "<details><summary>Full verdict</summary>"
+            echo "<details><summary>The errors that were waved through</summary>"
             echo ""
             echo '```'
-            sed -E 's/^::(error|warning)[^:]*:://' /tmp/verdict.txt | head -60
+            # The filter writes the matched diagnostics to <tsc-output>.scoped in
+            # their original `path:LINE:COL - error TSnnnn: message` form. Preferred
+            # over re-parsing the ::annotations::, which drop the path into the
+            # `file=` attribute and would leave the summary listing bare messages.
+            if [ -s /tmp/tsc-output.txt.scoped ]; then
+              head -60 /tmp/tsc-output.txt.scoped
+            else
+              head -60 /tmp/verdict.txt
+            fi
             echo '```'
             echo ""
             echo "</details>"

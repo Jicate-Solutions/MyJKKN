@@ -313,7 +313,10 @@ export function RdPolicyEditor({
       // 1. UPDATE platform_policies row.
       const { error: updateErr } = await supabase
         .from('platform_policies')
-        .update(updates)
+        // Cast at the write boundary: `updates` is a Partial<PolicyRow> whose
+        // jsonb fields are typed Record<string, unknown>, wider than the
+        // generated Json. The values are plain JSON objects at runtime.
+        .update(updates as never)
         .eq('id', currentRow.id);
       if (updateErr) throw updateErr;
 
