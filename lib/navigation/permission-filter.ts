@@ -11,8 +11,32 @@ import type { PageEntry } from './types';
  * student/faculty (not in this set) is unaffected and cannot be over-opened.
  */
 export const ADMIN_BYPASS_ROLES = ['admin', 'super_admin', 'administrator'];
+
+/**
+ * The same mirror, exported, so a feature panel gating itself on permission keys
+ * is not stricter than the RLS policies behind it.
+ *
+ * Every standardised policy in this repo opens with `is_super_admin() OR
+ * is_admin() OR (user_has_permission(...) AND role_has_institution_access(...))`.
+ * A component that checks only `isSuperAdmin || can(key)` therefore refuses users
+ * the database would serve — an `administrator` gets an access-denied panel over
+ * rows they can read. `usePermissions()` cannot close this on its own, because
+ * `user_has_permission()` bypasses ONLY `is_super_admin = true` and knows nothing
+ * about the admin roles.
+ *
+ * Reads `profiles.role`, matching `is_admin()` exactly — it too looks at that one
+ * column and not at `user_roles` — so this grants nothing the database does not
+ * already grant.
+ */
+export function hasDbAdminBypass(
+  userRole: string | null | undefined,
+  isSuperAdmin: boolean
+): boolean {
+  return isSuperAdmin || (!!userRole && ADMIN_BYPASS_ROLES.includes(userRole));
+}
+
 function hasAdminBypass(userRole: string, isSuperAdmin: boolean): boolean {
-  return isSuperAdmin || ADMIN_BYPASS_ROLES.includes(userRole);
+  return hasDbAdminBypass(userRole, isSuperAdmin);
 }
 
 /**
