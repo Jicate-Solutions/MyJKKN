@@ -2614,6 +2614,12 @@ CREATE TRIGGER t_hk_availability_touch BEFORE UPDATE ON public.hostel_cleaning_a
 CREATE TRIGGER t_hk_bookings_touch BEFORE UPDATE ON public.hostel_cleaning_bookings
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
+-- A rated cleaning completes itself. The learner cannot update the bookings
+-- table, so this cannot be done from the client -- see 20260909140000.
+CREATE TRIGGER t_hk_feedback_completes_booking
+AFTER INSERT ON public.hostel_cleaning_feedback
+FOR EACH ROW EXECUTE FUNCTION public.fn_cl_housekeeping_feedback_completes_booking();
+
 
 -- ==========================================================================
 -- Campus Living - Housekeeping (rebuilt 2026-09-07)

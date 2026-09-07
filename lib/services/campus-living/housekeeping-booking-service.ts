@@ -671,15 +671,12 @@ export class HousekeepingBookingService {
         logger.error(LOG, 'Failed to submit feedback', error);
         throw error;
       }
-      const { error: statusErr } = await this.supabase
-        .from('hostel_cleaning_bookings')
-        .update({ status: 'completed' })
-        .eq('id', args.bookingId)
-        .eq('status', 'awaiting_feedback');
-      if (statusErr) {
-        logger.error(LOG, 'Failed to complete booking after feedback', statusErr);
-        throw statusErr;
-      }
+      // The booking is moved to 'completed' by t_hk_feedback_completes_booking,
+      // NOT from here. This used to run the UPDATE itself and it silently did
+      // nothing: a learner has no update policy on hostel_cleaning_bookings, RLS
+      // filtered the statement to zero rows, and PostgREST reports that as
+      // success. The booking stayed awaiting_feedback, which kept the room
+      // locked out of booking anything else. See migration 20260909140000.
     } catch (error) {
       logger.error(LOG, `Unexpected error in submitFeedback: ${getErrorMessage(error)}`, error);
       throw error;
