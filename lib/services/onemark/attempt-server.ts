@@ -386,6 +386,13 @@ export function verifyServedSet(attemptId: string, token: unknown): Set<string> 
 // auto-close in the attempts route.
 // ---------------------------------------------------------------------------
 
+/** @deprecated DO NOT TEST AN ERROR WITH THIS. Use `rpcMissing(error, fnName)`.
+ *
+ *  It matches any message containing "does not exist", including one a
+ *  DEPLOYED function raises about a relation, a column or a missing row — so a
+ *  caller using it reads a broken RPC as an absent one and reports success.
+ *  Kept exported only so a sibling lane's unmerged branch still compiles; it
+ *  has no callers left in this repo and should be deleted with the HMAC token. */
 export const RPC_MISSING = /could not find the function|does not exist/i;
 
 /** Regex-escape a function name before it goes into a pattern. */
