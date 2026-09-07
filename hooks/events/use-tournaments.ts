@@ -96,7 +96,7 @@ export function useUpdateTournament() {
       // trigger, in this PR's own migration.
       if (/already carries institutional number/i.test(error.message)) {
         toast.error(
-          "A tournament's host institution is fixed once it has an institutional event number. Reopen the dialog, leave Host Institution unchanged, and save your other edits.",
+          "A tournament's host institution can only be changed while it is still a draft. Reopen the dialog, leave Host Institution as it was, and save your other edits — then ask a system administrator if it genuinely has to move.",
         );
         return;
       }

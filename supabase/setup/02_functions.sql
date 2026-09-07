@@ -61306,22 +61306,71 @@ BEGIN
       NEW.event_number_seq := OLD.event_number_seq;
     END IF;
 
-    -- A number belongs to the college that issued it. Moving a numbered event
-    -- to another college carries its number into a counter that knows nothing
-    -- about it; that college's next genuine create then collides on
-    -- uq_events_institution_number and keeps colliding. Renumbering on the move
-    -- was rejected as the alternative: it would silently change a number that
-    -- has already been quoted in letters and minutes, which is the very thing
-    -- the freeze above exists to prevent. So the move is REFUSED while a number
-    -- is held. An event that genuinely changes college is an owner-level
-    -- repair: disable this trigger, clear both halves, re-enable, and the next
-    -- stamp issues a fresh number in the receiving college.
-    IF NEW.institution_id IS DISTINCT FROM OLD.institution_id
-       AND OLD.event_number_seq IS NOT NULL THEN
-      RAISE EXCEPTION
-        'events: event % already carries institutional number % issued by college %. Changing its college would re-home that number and desync the counter of the receiving college.',
-        OLD.id, OLD.event_number, OLD.institution_id
-        USING ERRCODE = '23514';
+    -- ── A COLLEGE CHANGE ────────────────────────────────────────────────────
+    -- Director decision (2026-09-07): permitted while the event is still a
+    -- DRAFT, refused once it has left draft. The freeze exists to protect a
+    -- number that has been quoted in a circular, a brochure or in minutes, and
+    -- a draft event has not been announced, so nothing can be quoting it yet.
+    --
+    -- `draft` is the real gate: public.events.status is NOT NULL DEFAULT
+    -- 'draft' over ('draft','planning','preparation','execution','live',
+    -- 'post_event','archived','cancelled'), and there is no published_at
+    -- column. The pre-existing `events_public_read` policy already treats
+    -- draft as off the public surface. The test is OLD.status — the state the
+    -- event was in when the move was asked for. Publishing and moving in one
+    -- statement is therefore allowed, and correctly so: the number that
+    -- reaches the public is the destination college's.
+    --
+    -- Note this branch is reached only when the value actually CHANGES.
+    -- `UPDATE OF institution_id` fires whenever the column is named in SET even
+    -- if the value is identical, and edit-tournament-dialog.tsx sends
+    -- institution_id on EVERY save, so the IS DISTINCT FROM test is what keeps
+    -- an ordinary same-college save free.
+    IF NEW.institution_id IS DISTINCT FROM OLD.institution_id THEN
+      IF OLD.status IS DISTINCT FROM 'draft' THEN
+        RAISE EXCEPTION
+          'events: event % already carries institutional number % issued by college %, and is no longer a draft (status %). Changing its college would re-home that number and desync the counter of the receiving college.',
+          OLD.id, OLD.event_number, OLD.institution_id, OLD.status
+          USING ERRCODE = '23514',
+                HINT = 'Only a draft event can change college. Once it leaves draft the number is fixed; moving it needs a database change by a system administrator.';
+      END IF;
+
+      -- Permitted. RE-ALLOCATE from the DESTINATION college's counter rather
+      -- than carrying the old number across. A number issued under college A is
+      -- wrong in college B, and carrying it is precisely the desync the freeze
+      -- exists to prevent.
+      --
+      -- WHY RE-ALLOCATE AND NOT CLEAR THE HALVES: clearing has no working path.
+      -- The stamp only runs on INSERT, so there is no later event to re-issue a
+      -- number, and the freeze below restores OLD in the same statement, so the
+      -- halves cannot even be set to NULL from SQL. Clearing would leave the row
+      -- permanently unnumbered and break this migration's own end-state
+      -- invariant that every event carries a number.
+      --
+      -- The year is re-resolved against the DESTINATION college, because
+      -- academic_years is per-college and the two colleges need not share term
+      -- dates.
+      --
+      -- THE SOURCE COLLEGE'S COUNTER IS DELIBERATELY NOT TOUCHED. last_seq
+      -- never goes backwards; the vacated sequence simply becomes a gap in the
+      -- source college, exactly like a deleted event. Returning it would mean
+      -- lowering last_seq, which the event_number_counters COMMENT warns
+      -- against: it would hand out a number that is already on another event
+      -- unless the vacated one happened to be the highest.
+      v_year := public.fn_event_academic_year_start(
+        NEW.institution_id,
+        COALESCE(
+          NEW.event_date,
+          (NEW.start_date AT TIME ZONE 'Asia/Kolkata')::date,
+          OLD.event_date,
+          (OLD.start_date AT TIME ZONE 'Asia/Kolkata')::date,
+          CURRENT_DATE
+        )
+      );
+
+      NEW.event_number_year := v_year;
+      NEW.event_number_seq  := public.fn_events_allocate_number(NEW.institution_id, v_year);
+      RETURN NEW;
     END IF;
 
     RETURN NEW;
