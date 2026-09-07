@@ -1203,6 +1203,7 @@ export async function assembleCardData(
   // learners_profiles.institution_id, then the account's profiles.institution_id,
   // and only then the template's institution_id — so a template picked for the
   // wrong college can never relabel a student's card.
+  let institutionName: string | null = null;
   let institutionEmail: string | null = null;
   let institutionPhone: string | null = null;
   let institutionAddress: string | null = null;
