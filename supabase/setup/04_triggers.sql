@@ -2643,3 +2643,21 @@ CREATE TRIGGER trg_b_induction_require_session_started
   BEFORE INSERT OR UPDATE ON public.event_session_feedback
   FOR EACH ROW
   EXECUTE FUNCTION public.trg_induction_require_session_started();
+
+-- ============================================================================
+-- Events · institutional event number + target-class tenant guard
+-- Updated: 2026-09-07 — see supabase/migrations/20261114000000_events_institutional_number_and_target_classes.sql
+-- ============================================================================
+
+-- UPDATE OF <cols> so an ordinary event edit does not pay for this trigger; it
+-- fires only when somebody tries to write the number itself, and then freezes it.
+DROP TRIGGER IF EXISTS trg_events_stamp_event_number ON public.events;
+CREATE TRIGGER trg_events_stamp_event_number
+  BEFORE INSERT OR UPDATE OF event_number_year, event_number_seq ON public.events
+  FOR EACH ROW EXECUTE FUNCTION public.fn_events_stamp_event_number();
+
+DROP TRIGGER IF EXISTS trg_event_target_classes_scope ON public.event_target_classes;
+CREATE TRIGGER trg_event_target_classes_scope
+  BEFORE INSERT OR UPDATE ON public.event_target_classes
+  FOR EACH ROW EXECUTE FUNCTION public.fn_event_target_class_scope();
+
