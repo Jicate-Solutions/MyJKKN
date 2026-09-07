@@ -4,11 +4,13 @@
  *
  * Mirrors supabase/migrations/20260904120000_hr_work_patterns.sql.
  *
- * A work pattern is an institution-scoped, named working week (which weekdays,
- * which hours) with its own days-per-leave-type. Its hours are ordinary
- * hr_shift_timings rows with staff_scope = 'work_pattern'; who is on it is an
- * effective-dated assignment. For an assigned person the pattern is EXCLUSIVE:
- * the resolver reads its rows or nothing, never the institution week.
+ * A work pattern is an institution-scoped, named set of WORKING DAYS with its
+ * own days-per-leave-type. Hours are never here: a member keeps the hours of
+ * their ordinary Shift Timings row (teaching / non-teaching / category /
+ * gender), and the pattern switches OFF the weekdays it does not work. It can
+ * remove days, never add one the institution's week does not work. The days
+ * are effective-dated (hr_work_pattern_weeks), like shift weeks are, so a
+ * later change cannot rewrite months already judged.
  */
 
 import type { IsoDayOfWeek } from '@/types/hr-shift-timings';
@@ -72,15 +74,34 @@ export interface HRStaffWorkPatternAssignment {
   notes: string | null;
 }
 
-/** A pattern as listed: its row plus what the week, members and figures look like. */
+/** One effective-dated row of a pattern's working days. */
+export interface HRWorkPatternWeek {
+  id: string;
+  work_pattern_id: string;
+  /** ISO weekdays 1=Mon .. 7=Sun, sorted. */
+  working_days: IsoDayOfWeek[];
+  effective_from: string;
+  /** Exclusive. */
+  effective_until: string | null;
+  notes: string | null;
+}
+
+/** fn_hr_set_work_pattern_days */
+export interface SetWorkPatternDaysResult {
+  pattern_id: string;
+  working_days: IsoDayOfWeek[];
+  effective_from: string;
+  /** True when a previous days row was closed at the date (a future change). */
+  superseded: boolean;
+}
+
+/** A pattern as listed: its row plus what the days, members and figures look like. */
 export interface WorkPatternSummary extends HRWorkPattern {
   /** For the "All institutions" listing; null only if the join was unreadable. */
   institution_name: string | null;
-  /** From the week in force on `asOf`; empty when no week has been saved yet. */
+  /** From the days row in force on `asOf`; empty when none has been saved yet. */
   working_days: IsoDayOfWeek[];
-  first_half_start: string | null;
-  second_half_end: string | null;
-  week_effective_from: string | null;
+  days_effective_from: string | null;
   member_count: number;
   entitlements: Array<{ leave_type_code: string; entitled_days: number }>;
 }
@@ -144,7 +165,7 @@ export interface AssignWorkPatternStaffResult {
 export interface DeleteWorkPatternResult {
   deleted: true;
   name: string;
-  week_rows_removed: number;
+  weeks_removed: number;
 }
 
 export interface AssignWorkPatternResult {

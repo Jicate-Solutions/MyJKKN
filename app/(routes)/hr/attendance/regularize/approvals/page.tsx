@@ -32,7 +32,7 @@ import {
 
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
-import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useHrInstitutionsWithAccess } from '@/hooks/hr/use-hr-institutions';
 import { usePendingRegularizations } from '@/hooks/hr/use-regularization';
 import type {
   RegularizationRequest,
@@ -131,7 +131,7 @@ export default function RegularizationApprovalsPage() {
    * rows are unioned in so a request whose institution sits outside that list
    * can never become unreachable by filtering.
    */
-  const { institutions: accessibleInstitutions } = useInstitutionsWithAccess();
+  const { institutions: accessibleInstitutions } = useHrInstitutionsWithAccess();
 
   const institutions = useMemo(() => {
     const m = new Map<string, string>();

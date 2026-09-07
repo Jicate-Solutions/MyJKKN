@@ -230,7 +230,6 @@ export default function MyAttendancePage() {
                 <AttendanceLogTab
                   days={logDays}
                   isLoading={isLoading}
-                  canRegularize={canRegularizeSelf && !viewingOther}
                 />
               </TabsContent>
 

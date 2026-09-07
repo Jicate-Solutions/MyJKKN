@@ -39,7 +39,6 @@ export { CampusLivingSettings } from './campus-living-settings';
 export { CampusLivingReports } from './campus-living-reports';
 export { CampusLivingAccessLog } from './campus-living-access-log';
 
-// ── Daily Operations (laundry, housekeeping, health) ────────────────
+// ── Daily Operations (laundry, health) ──────────────────────────────
 export { LaundryService } from './laundry-service';
-export { HousekeepingService } from './housekeeping-service';
 export { HealthService } from './health-service';

@@ -175,6 +175,17 @@ export function ApprovalChainTimeline({ app }: { app: HRLeaveApplicationDetail }
                 <Minus className="h-3 w-3" /> No decision yet
               </p>
             )}
+
+            {/* A step the final approver jumped. It is 'skipped', never
+                'approved' — nobody should read this chain later and think the
+                HOD signed something they never saw. */}
+            {state === 'skipped' && step.skipped_reason && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                {step.skipped_reason}
+                {step.skipped_by ? ` · ${person(step.skipped_by)}` : ''}
+                {step.skipped_at ? ` · ${fmtStamp(step.skipped_at)}` : ''}
+              </p>
+            )}
           </li>
         );
       })}

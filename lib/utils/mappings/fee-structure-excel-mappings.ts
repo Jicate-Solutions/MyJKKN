@@ -586,14 +586,22 @@ export interface ItemScheduleConfig {
 }
 
 /**
- * The two rungs of the learner ladder (account → reserved → admitted) that
- * EVERY structure must be able to climb. "Promotes To" on a fee or an
- * instalment is what moves a learner up when it is settled; a structure that
- * names only one rung, or neither, strands learners on it however much they
- * pay. Codes are `admission_statuses.code` (scope 'learner'); the labels are
- * what the sheet's "Promotes To" column shows and what the error names.
+ * The rungs of the learner ladder (account → reserved → admitted) that a fee
+ * can move a learner onto. "Promotes To" on a fee or an instalment is what
+ * moves a learner up when it is settled; a structure that names NEITHER rung
+ * strands learners on it however much they pay, and is rejected.
+ *
+ * ONE rung is enough. Requiring both was wrong for the shapes this group
+ * actually bills: a government-quota structure (the ten "GQ 7.5" ones at
+ * Engineering) charges an application + university fee that reserves the seat
+ * and nothing more — admission arrives by allotment, not by payment — and a
+ * structure whose single unsplit fee admits outright has only one row to say
+ * it on. Both were refused by a both-rungs rule that no real structure needed.
+ *
+ * Codes are `admission_statuses.code` (scope 'learner'); the labels are what
+ * the sheet's "Promotes To" column shows and what the error names.
  */
-export const REQUIRED_PROMOTIONS = [
+export const PROMOTION_RUNGS = [
   { code: 'reserved', label: 'Reserved' },
   { code: 'admitted', label: 'Admitted' },
 ] as const;
@@ -991,10 +999,11 @@ export function resolveScheduleSheet(
 // of 57, every field sortable and filterable, "show me every Tuition row across
 // 237 structures" is one filter, and adding a fee is adding a row.
 //
-// EVERY STRUCTURE PROMOTES TO BOTH RUNGS. "Promotes To" is how a settled fee
-// moves a learner account → reserved → admitted. A structure on this sheet
-// must name Reserved somewhere and Admitted somewhere — any fee, any
-// instalment, in any combination — or it is rejected (REQUIRED_PROMOTIONS).
+// EVERY STRUCTURE PROMOTES SOMEWHERE. "Promotes To" is how a settled fee moves
+// a learner account → reserved → admitted. A structure on this sheet must name
+// Reserved or Admitted somewhere — any fee, any instalment — or it is rejected
+// (PROMOTION_RUNGS). One rung is enough: a govt-quota structure only reserves
+// the seat, and a structure with one unsplit fee has one row to speak with.
 // This tab carries every fee of a structure, so it can be held to that; the
 // legacy schedules tab only carries what is being changed, and cannot be.
 //
@@ -1342,22 +1351,24 @@ export function resolveUnifiedSheet(
     const resolved = resolveRow(structureCells, headRow, lookups);
     resolved.errors = [...resolved.errors, ...errors];
 
-    // ── Every structure must promote to BOTH Reserved and Admitted ─────────
-    // Any fee, any instalment may carry either rung; what matters is that both
-    // appear somewhere on the structure. Checked only once every row of the
-    // structure resolved cleanly: a fee whose rows failed has not yet said what
-    // it promotes to, and a second error about that would only be noise.
-    // Archived structures bill nobody and are exempt.
+    // ── Every structure must promote a learner SOMEWHERE ───────────────────
+    // Any fee, any instalment may carry a rung, and ONE is enough — Reserved
+    // alone (a govt-quota seat that payment reserves but allotment admits) and
+    // Admitted alone (one unsplit fee that admits outright) are both real
+    // shapes. Only a structure that names neither is rejected: it takes money
+    // and moves nobody. Checked once every row of the structure resolved
+    // cleanly — a fee whose rows failed has not yet said what it promotes to,
+    // and a second error about that would only be noise. Archived structures
+    // bill nobody and are exempt.
     if (resolved.errors.length === 0 && resolved.payload!.status !== 'archived') {
       const promoted = new Set<string>();
       for (const s of schedules) {
         if (s.promotes_to_status_code) promoted.add(s.promotes_to_status_code);
         for (const l of s.lines) if (l.promotes_to_status_code) promoted.add(l.promotes_to_status_code);
       }
-      const missing = REQUIRED_PROMOTIONS.filter((p) => !promoted.has(p.code));
-      if (missing.length > 0) {
+      if (!PROMOTION_RUNGS.some((p) => promoted.has(p.code))) {
         resolved.errors.push(
-          `Row ${headRow}: "${resolved.name}" must promote a learner to both Reserved and Admitted — set "Promotes To" to Reserved on one fee or instalment and to Admitted on another (any fee category will do). Missing: ${missing.map((p) => p.label).join(' and ')}.`,
+          `Row ${headRow}: "${resolved.name}" does not promote a learner anywhere — set "Promotes To" to ${PROMOTION_RUNGS.map((p) => p.label).join(' or ')} on at least one fee or instalment (any fee category will do).`,
         );
       }
     }

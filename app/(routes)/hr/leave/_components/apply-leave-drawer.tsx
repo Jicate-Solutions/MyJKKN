@@ -29,7 +29,7 @@ import {
 } from '@/components/ui/select';
 import { useApplyLeave } from '@/hooks/hr/use-leave';
 import { useLeavePeriodUsage } from '@/hooks/hr/use-hr-leave-types';
-import { useMyApplications } from '@/hooks/hr/use-leave';
+import { useDayOccupancy } from '@/hooks/hr/use-day-occupancy';
 import { Progress } from '@/components/ui/progress';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
 import { useClosedAttendanceMonths } from '@/hooks/hr/use-attendance-records';
@@ -39,7 +39,7 @@ import { formatDays } from './format';
 import { LeaveDocumentUpload } from './leave-document-upload';
 import { leaveDocumentRequirement } from '@/lib/hr/leave-document-rule';
 import { LIMIT_PERIOD_LABELS } from '@/types/hr-leave-types';
-import type { HRLeaveApplicationWithType, LeaveDocument, LeaveDurationType } from '@/types/hr';
+import type { LeaveDocument, LeaveDurationType } from '@/types/hr';
 import { toast } from 'sonner';
 
 const DURATIONS: Array<{ value: LeaveDurationType; label: string; days: number }> = [
@@ -188,25 +188,18 @@ export function ApplyLeaveDrawer({
   const notInHr = !ctx.isLoading && ctx.hasEmployeeRecord && !ctx.hrIncluded;
 
   /**
-   * A live request already covering these dates. hr_trig_leave_enforce_no_overlap
-   * refuses it outright — this says so while the dates are being picked instead
-   * of after Submit.
+   * Anything already occupying these dates — leave, a permission, or a
+   * compensatory off claim. Only ONE request may exist per day, and
+   * hr_trig_leave_enforce_no_overlap refuses the rest outright; this says so
+   * while the dates are being picked instead of after Submit.
    *
-   * Reads the caller's own list, which the applications route caps at 50. Fine
-   * for one person's requests, and the trigger is the enforcement point either
-   * way, so a miss here costs a round trip and not a double booking.
+   * The scan this replaces read the caller's own application list and filtered
+   * it to `request_category === 'leave'` — the same blind spot the trigger had,
+   * so the drawer happily let someone file leave onto a day that already held a
+   * permission. The hook asks the database the identical question the trigger
+   * asks, so warning and refusal cannot drift apart.
    */
-  const { data: mine } = useMyApplications(ctx.employeeId || undefined);
-  const clash = useMemo(() => {
-    if (!startDate || !endDate || endDate < startDate) return null;
-    // The route embeds hr_leave_types; the hook's return type predates that.
-    const list = (mine?.data ?? []) as HRLeaveApplicationWithType[];
-    return list.find((a) => {
-      if ((a.hr_leave_types?.request_category ?? 'leave') !== 'leave') return false;
-      if (!['pending', 'approved', 'escalated'].includes(a.status)) return false;
-      return a.start_date <= endDate && startDate <= a.end_date;
-    }) ?? null;
-  }, [mine, startDate, endDate]);
+  const { data: clash } = useDayOccupancy(ctx.employeeId, startDate, endDate);
 
   // Does THIS request need a certificate? Shared with the server so the drawer
   // and LeaveService.createApplication cannot disagree about the answer.
@@ -559,9 +552,7 @@ export function ApplyLeaveDrawer({
                 <Alert variant="destructive">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>
-                    You already have a {clash.hr_leave_types?.leave_type_name ?? 'leave'} request
-                    from {new Date(`${clash.start_date}T00:00:00`).toLocaleDateString('en-GB')} to{' '}
-                    {new Date(`${clash.end_date}T00:00:00`).toLocaleDateString('en-GB')} ({clash.status}).
+                    Only one request is allowed per day, and you already have {clash}.
                     Pick different dates, or cancel that request first.
                   </AlertDescription>
                 </Alert>
