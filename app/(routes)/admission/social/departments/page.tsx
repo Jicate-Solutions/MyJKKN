@@ -16,7 +16,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Copy, Instagram, Check, Link2, Unlink } from 'lucide-react';
+import Link from 'next/link';
+import { Copy, Instagram, Check, Link2, Unlink, Repeat } from 'lucide-react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -613,6 +614,7 @@ export default function SocialDepartmentAccountsPage() {
                     <TableHead>Live insights</TableHead>
                     <TableHead>Monitoring</TableHead>
                     <TableHead>IG Login</TableHead>
+                    <TableHead>Loop</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -655,6 +657,30 @@ export default function SocialDepartmentAccountsPage() {
                           onChanged={load}
                           onActionError={setActionError}
                         />
+                      </TableCell>
+                      {/* Entry point to this department's own weekly READ →
+                          DECIDE → LEARN cycle. The loop reads real signal
+                          (saves/shares/comments), which only exists for handles
+                          Meta feeds fully — so the link is offered only where
+                          live insights are on. */}
+                      <TableCell>
+                        {insightByDept.get(r.id) === 'live' ? (
+                          <Link
+                            href={`/admission/social/loop?account=${encodeURIComponent(r.username)}`}
+                            className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+                            aria-label={`Open the weekly loop for @${r.username}`}
+                          >
+                            <Repeat className="h-3.5 w-3.5" aria-hidden="true" />
+                            Open loop
+                          </Link>
+                        ) : (
+                          <span
+                            className="text-sm text-muted-foreground"
+                            title="The loop scores saves, shares and comments — Meta only exposes those once full insights are on."
+                          >
+                            —
+                          </span>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}

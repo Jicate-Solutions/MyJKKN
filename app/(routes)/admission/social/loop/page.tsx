@@ -16,10 +16,19 @@
  * useState + useEffect + getLoop() (no react-query).
  *
  * Gate: social.view — same broad key as the other social read pages.
- * Default account: jkknpharmacy.
+ *
+ * Account selection (2026-09-07): the loop shipped as a single-handle pilot on
+ * jkknpharmacy (PR #1615) because that was the ONLY graph-readable handle at
+ * the time — its own PR body names the other 46 as "blocked on
+ * business_discovery pending the token fix". That block cleared on 2026-09-04
+ * (50 of 59 department handles now read graph), so the handle is now chosen by
+ * a `?account=` search param with a picker, and jkknpharmacy remains the
+ * fallback so every existing link keeps working. The API already accepted
+ * `?accountId=` (uuid OR username) from day one — only this page never asked.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { AlertTriangle, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PermissionGuard } from '@/components/auth/permission-guard';
@@ -36,6 +45,36 @@ import { VoiceCard } from './_components/voice-card';
 import { CadenceCard } from './_components/cadence-card';
 
 const DEFAULT_ACCOUNT = 'jkknpharmacy';
+const LOOP_PATH = '/admission/social/loop';
+
+/** One handle in the picker. Shape is the subset of /api/social/instagram/accounts
+ *  this page needs — that route is already the list source for the sibling
+ *  Instagram admin page, so no new endpoint is introduced. */
+interface LoopAccountOption {
+  id: string;
+  username: string;
+  department_name: string | null;
+  institution_name: string;
+  last_post_at: string | null;
+}
+
+/** Whole days since the handle last posted, or null if it has never posted.
+ *  Shown in the picker so a silent department reads as silent BEFORE its empty
+ *  loop is mistaken for a broken page. */
+function daysSincePost(iso: string | null): number | null {
+  if (!iso) return null;
+  const ms = Date.now() - new Date(iso).getTime();
+  return Number.isNaN(ms) ? null : Math.max(0, Math.floor(ms / 86_400_000));
+}
+
+/** Picker label: "@handle · Department — silence marker". */
+function accountLabel(a: LoopAccountOption): string {
+  const who = a.department_name ?? a.institution_name ?? '';
+  const days = daysSincePost(a.last_post_at);
+  const silence =
+    days === null ? ' · never posted' : days >= 30 ? ` · silent ${days}d` : '';
+  return `@${a.username}${who ? ` · ${who}` : ''}${silence}`;
+}
 
 /** One-line banner showing whether the last cycle's advice moved the needle. */
 function LastCycleGradeBanner({ grade }: { grade: LoopLastCycleGrade }) {
@@ -68,6 +107,16 @@ const breadcrumbItems = [
 ];
 
 function LoopBody() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // The URL is the single source of truth for which handle is shown, so a loop
+  // is linkable — the departments page links straight to a department's own
+  // cycle. No `?account=` falls back to the pilot handle, unchanged.
+  const rawParam = searchParams.get('account');
+  const account = rawParam && rawParam.trim().length > 0 ? rawParam.trim() : DEFAULT_ACCOUNT;
+
+  const [accounts, setAccounts] = useState<LoopAccountOption[]>([]);
   const [data, setData] = useState<LoopResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -76,7 +125,7 @@ function LoopBody() {
     if (showSpinner) setLoading(true);
     setError(null);
     try {
-      const res = await getLoop(DEFAULT_ACCOUNT);
+      const res = await getLoop(account);
       if (!res || !res.success) {
         setError(
           (res && 'error' in res && (res as { error?: string }).error) ||
@@ -92,7 +141,7 @@ function LoopBody() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [account]);
 
   useEffect(() => {
     let cancelled = false;
@@ -105,6 +154,70 @@ function LoopBody() {
     };
   }, [load]);
 
+  // Handle list for the picker. Fails soft and silently: if this request fails
+  // the picker simply does not render and the loop still works on its handle.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/social/instagram/accounts', { cache: 'no-store' });
+        const json = (await res.json().catch(() => null)) as
+          | { accounts?: LoopAccountOption[] }
+          | null;
+        if (!cancelled && json && Array.isArray(json.accounts)) {
+          setAccounts(
+            [...json.accounts].sort((a, b) => a.username.localeCompare(b.username))
+          );
+        }
+      } catch {
+        // Intentionally ignored — see comment above.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleAccountChange = useCallback(
+    (next: string) => {
+      router.replace(
+        next === DEFAULT_ACCOUNT ? LOOP_PATH : `${LOOP_PATH}?account=${encodeURIComponent(next)}`,
+        { scroll: false }
+      );
+    },
+    [router]
+  );
+
+  // Rendered above every state (loading, error, empty) so a handle whose loop
+  // fails to load can still be switched away from.
+  const picker = useMemo(() => {
+    if (accounts.length < 2) return null;
+    const known = accounts.some((a) => a.username === account);
+    return (
+      <div className="flex flex-wrap items-center gap-3">
+        <label htmlFor="loop-account" className="text-sm text-muted-foreground">
+          Loop for
+        </label>
+        <select
+          id="loop-account"
+          value={known ? account : ''}
+          onChange={(e) => handleAccountChange(e.target.value)}
+          className="rounded-md border border-input bg-background px-3 py-2 text-sm min-w-64"
+        >
+          {!known && <option value="">@{account}</option>}
+          {accounts.map((a) => (
+            <option key={a.id} value={a.username}>
+              {accountLabel(a)}
+            </option>
+          ))}
+        </select>
+        <span className="text-xs text-muted-foreground">
+          {accounts.length} handles
+        </span>
+      </div>
+    );
+  }, [accounts, account, handleAccountChange]);
+
   // After closing a cycle, refetch quietly (the playbook grows by one).
   const handleCycleClosed = useCallback(() => {
     void load(false);
@@ -113,6 +226,7 @@ function LoopBody() {
   if (loading) {
     return (
       <div className="mt-6 space-y-6">
+        {picker}
         <Skeleton className="h-28 w-full" />
         <Skeleton className="h-56 w-full" />
         <div className="grid gap-6 lg:grid-cols-2">
@@ -125,10 +239,13 @@ function LoopBody() {
 
   if (error || !data) {
     return (
-      <Alert variant="destructive" className="mt-6">
-        <AlertTriangle className="h-4 w-4" />
-        <AlertDescription>{error ?? 'No loop data available.'}</AlertDescription>
-      </Alert>
+      <div className="mt-6 space-y-6">
+        {picker}
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>{error ?? 'No loop data available.'}</AlertDescription>
+        </Alert>
+      </div>
     );
   }
 
@@ -136,12 +253,17 @@ function LoopBody() {
   // (absent on the failure shape). Narrow them so children get non-null blocks.
   if (!data.read || !data.decide) {
     return (
-      <Alert variant="destructive" className="mt-6">
-        <AlertTriangle className="h-4 w-4" />
-        <AlertDescription>
-          The loop returned no data for this account yet — it may have no posts.
-        </AlertDescription>
-      </Alert>
+      <div className="mt-6 space-y-6">
+        {picker}
+        <Alert>
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>
+            @{account} has nothing to read yet — the loop needs posts before it
+            can score what the audience rewarded. Silence is the finding here,
+            not an error.
+          </AlertDescription>
+        </Alert>
+      </div>
     );
   }
 
@@ -149,8 +271,9 @@ function LoopBody() {
 
   return (
     <div className="mt-6 space-y-6">
+      {picker}
       <CycleHeader
-        username={data.account?.username ?? DEFAULT_ACCOUNT}
+        username={data.account?.username ?? account}
         cycleNo={cycleNo}
         cycleLengthDays={data.config?.cycleLengthDays}
         readable={data.readable ?? false}
@@ -177,7 +300,7 @@ function LoopBody() {
       {/* Monthly Cadence — the per-department calendar-month reach loop.
           Reuses this cycle's Voice-of-Audience as the feedback snapshot. */}
       <CadenceCard
-        accountUsername={data.account?.username ?? DEFAULT_ACCOUNT}
+        accountUsername={data.account?.username ?? account}
         voice={data.voice}
       />
     </div>
@@ -200,7 +323,18 @@ export default function SocialLoopPage() {
     >
       <ContentLayout title="Social Loop">
         <PageBreadcrumb items={breadcrumbItems} />
-        <LoopBody />
+        {/* useSearchParams() must sit inside a Suspense boundary or the page
+            build fails on prerender (Next.js app-router requirement). */}
+        <Suspense
+          fallback={
+            <div className="mt-6 space-y-6">
+              <Skeleton className="h-28 w-full" />
+              <Skeleton className="h-56 w-full" />
+            </div>
+          }
+        >
+          <LoopBody />
+        </Suspense>
       </ContentLayout>
     </PermissionGuard>
   );
