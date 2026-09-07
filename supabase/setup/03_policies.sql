@@ -10511,8 +10511,11 @@ WITH CHECK (((learner_id = ( SELECT auth.uid() AS uid)) AND (EXISTS ( SELECT 1
 -- its own, so the scope comes through the department row, whose
 -- institution_id is NOT NULL — which matters, because
 -- role_has_institution_access(NULL) returns TRUE by design.
--- UPDATE governs a direct PostgREST PATCH only: the sanctioned decide path,
--- apply_department_status_review(), is SECURITY DEFINER and bypasses RLS.
+-- ⚠️ These two policies govern DIRECT PostgREST access only. The path the
+-- product uses, apply_department_status_review(), is SECURITY DEFINER and
+-- bypasses RLS, so neither policy is consulted on it — its institution check
+-- lives inside the function (migration 20261120000000). These are defence in
+-- depth for the direct GET/PATCH, not the control.
 CREATE POLICY "sh_department_status_reviews_select"
   ON public.sh_department_status_reviews
   FOR SELECT

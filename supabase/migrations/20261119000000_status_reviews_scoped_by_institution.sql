@@ -70,13 +70,25 @@
 -- estate-wide change inside a queue PR.
 --
 -- WHAT IS DELIBERATELY UNCHANGED: the permission keys. This file decides WHERE
--- a key applies, never WHO holds it. `apply_department_status_review()` is
--- SECURITY DEFINER and untouched — it bypasses RLS on its own writes, so the
--- decide path keeps working exactly as before for anyone the function itself
--- admits. The UPDATE policy below governs a DIRECT client `PATCH` against the
--- table, which `authenticated` holds a GRANT for, and which is how a holder of
--- `solutions.societal.approve` could otherwise stamp a decision on another
--- college's review without going through the function at all.
+-- a key applies, never WHO holds it.
+--
+-- ⚠️ WHAT THIS FILE DOES **NOT** CLOSE — READ THIS BEFORE RELYING ON IT.
+-- These two policies govern DIRECT client access to the table: a `PATCH` or
+-- `GET` straight to PostgREST, which `authenticated` holds a GRANT for. They do
+-- NOT govern the path the product actually uses.
+-- `apply_department_status_review()` is SECURITY DEFINER owned by postgres, so
+-- it bypasses RLS entirely and neither policy below is consulted on it — and
+-- `DepartmentTrackerService.decideStatusReview()` calls exactly that RPC. Its
+-- own authorization was `is_super_admin() OR is_admin() OR
+-- user_has_permission('solutions.societal.approve')` with no institution
+-- predicate anywhere, and it then loaded the review by id alone. So on its own
+-- this file scopes the door nobody walks through while the product's real door
+-- stays open.
+-- That hole is closed by the companion migration
+-- 20261120000000_apply_status_review_institution_scoped.sql, which puts the same
+-- institution predicate inside the function. This file remains correct and
+-- necessary — direct PostgREST access is real and needs a boundary — but it is
+-- DEFENCE IN DEPTH, not the control. Do not read it as the control.
 -- ============================================================================
 
 -- ── 1. Read: scoped to the reader's institutions ────────────────────────────
@@ -128,9 +140,10 @@ CREATE POLICY "sh_department_status_reviews_update" ON public.sh_department_stat
 
 COMMENT ON POLICY "sh_department_status_reviews_update"
     ON public.sh_department_status_reviews IS
-  'Direct writes are scoped the same way as reads. The sanctioned decide path '
-  'is apply_department_status_review(), which is SECURITY DEFINER and does not '
-  'consult this policy; this governs a client PATCH straight to PostgREST.';
+  'Governs a DIRECT client PATCH to PostgREST only. The path the product uses, '
+  'apply_department_status_review(), is SECURITY DEFINER and does NOT consult '
+  'this policy — its own institution check lives inside the function (added '
+  '20261120000000). This policy is defence in depth, not the control.';
 
 -- ── 3. ACLs restated ────────────────────────────────────────────────────────
 -- Idempotent, and it keeps the table's grants readable next to its policies.
