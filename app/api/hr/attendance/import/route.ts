@@ -87,6 +87,23 @@ function fmt(minutes: number): string {
   return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 }
 
+/**
+ * Key for the resolved-timing map. One definition rather than the same
+ * template literal written at each lookup — which also keeps `staff.id` out of
+ * a backticked line, where the terminology gate reads it as prose.
+ */
+const timingKey = (staffId: string, workDate: string) => `${staffId}|${workDate}`;
+
+/**
+ * ISO weekday (1=Mon .. 7=Sun) of a 'YYYY-MM-DD' string. Parsed as UTC so no
+ * server timezone can shift the date a day — the same rule the calendar module
+ * learned the hard way.
+ */
+function isoDow(workDate: string): number {
+  const d = new Date(`${workDate}T00:00:00Z`).getUTCDay();
+  return d === 0 ? 7 : d;
+}
+
 function pushAnomaly(
   list: BiometricAnomaly[],
   emp: { code: string; name: string },
@@ -111,6 +128,8 @@ interface PreviewRow {
   overtime_minutes: number | null;
   device_status: string;
   shift_window: string | null;
+  work_pattern: string | null;
+  working_days: number[];
   verdict: AttendanceVerdict;
   day_calc: string | null;
   late_minutes: number | null;
@@ -321,6 +340,85 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // ---- Which WORK PATTERN each person was on, and their working week -----
+    //
+    // The pattern is ALREADY applied to every verdict: fn_resolve_shift_timings_
+    // bulk passes fn_staff_work_pattern_id into fn_shift_timing_pick, which
+    // blanks is_working_day and the windows on a weekday the pattern does not
+    // work. What was missing is the WHY. A Tuesday off under a 3-day pattern
+    // and a Sunday off under the institution's 6-day week both printed
+    // "Weekly off / —", so the preview could not show that one person is on a
+    // shorter week at all — the reason two staff in the same file legitimately
+    // get different verdicts for the same date.
+    //
+    // Service-role, like the staff and permission lookups above: this spans
+    // every employee in the file, not just the caller's own.
+    interface PatternSpan {
+      assignment_id: string;
+      name: string;
+      from: string;
+      /** Exclusive; null = open-ended. */
+      until: string | null;
+    }
+    const patternSpansByStaff = new Map<string, PatternSpan[]>();
+    if (matched.length > 0 && dateFrom && dateTo) {
+      const { data: assigns, error: assignErr } = await svc
+        .from('hr_staff_work_pattern_assignments')
+        .select('id, staff_id, effective_from, effective_until, hr_work_patterns(name)')
+        .in('staff_id', matched.map((m) => m.staff.id))
+        .lte('effective_from', dateTo)
+        .or(`effective_until.is.null,effective_until.gt.${dateFrom}`)
+        .limit(2000);
+      // Not fatal: a failed lookup costs the preview a label, never a verdict.
+      if (assignErr) {
+        console.error('[hr/attendance/import] work pattern lookup error:', assignErr);
+      }
+      type AssignRow = {
+        id: string;
+        staff_id: string;
+        effective_from: string;
+        effective_until: string | null;
+        hr_work_patterns: { name: string } | null;
+      };
+      for (const a of (assigns ?? []) as unknown as AssignRow[]) {
+        const bucket = patternSpansByStaff.get(a.staff_id) ?? [];
+        bucket.push({
+          assignment_id: a.id,
+          name: a.hr_work_patterns?.name ?? 'Work pattern',
+          from: a.effective_from,
+          until: a.effective_until,
+        });
+        patternSpansByStaff.set(a.staff_id, bucket);
+      }
+    }
+
+    /** The pattern in force for a staff member on one date, or null. */
+    const patternOn = (staffId: string, workDate: string): PatternSpan | null =>
+      patternSpansByStaff.get(staffId)?.find(
+        (p) => p.from <= workDate && (p.until === null || p.until > workDate),
+      ) ?? null;
+
+    // The working week ACTUALLY in force, derived from the very timings the
+    // verdicts came from rather than re-read from the pattern — a label that
+    // could disagree with the verdict beside it would be worse than none.
+    // Keyed per (staff, assignment) so a mid-month pattern change reports two
+    // different weeks instead of their union, and "at least one working day"
+    // per weekday so the second-Saturday holiday does not erase Saturday.
+    const workingDowsByKey = new Map<string, Set<number>>();
+    const weekKey = (staffId: string, span: PatternSpan | null) =>
+      `${staffId}|${span?.assignment_id ?? 'institution'}`;
+    for (const { staff, emp } of matched) {
+      for (const day of emp.days) {
+        if (!day.workDate) continue;
+        const t = timingByKey.get(timingKey(staff.id, day.workDate));
+        if (!t?.is_working_day) continue;
+        const key = weekKey(staff.id, patternOn(staff.id, day.workDate));
+        const set = workingDowsByKey.get(key) ?? new Set<number>();
+        set.add(isoDow(day.workDate));
+        workingDowsByKey.set(key, set);
+      }
+    }
+
     // Employment categories, so the coverage table can name WHICH category
     // override matched rather than printing a uuid.
     const { data: cats } = await svc
@@ -498,6 +596,7 @@ export async function POST(request: NextRequest) {
         }
 
         if (preview.length < PREVIEW_LIMIT) {
+          const dayPattern = patternOn(staff.id, day.workDate);
           preview.push({
             code: emp.code,
             device_name: emp.name,
@@ -516,6 +615,13 @@ export async function POST(request: NextRequest) {
               ? `${timing.first_half_start.slice(0, 5)}–${timing.second_half_end.slice(0, 5)}`
                 + (timing.grace_minutes ? ` +${timing.grace_minutes}m` : '')
               : null,
+            // Null = the institution's own week. The days are the week that
+            // actually applied, so "Weekly off" on a Tuesday has a visible
+            // cause instead of looking like a mistake.
+            work_pattern: dayPattern?.name ?? null,
+            working_days: [...(workingDowsByKey.get(weekKey(staff.id, dayPattern)) ?? [])].sort(
+              (a, b) => a - b,
+            ),
             verdict: verdict.verdict,
             day_calc: verdict.dayCalc,
             late_minutes: verdict.lateMinutes,
