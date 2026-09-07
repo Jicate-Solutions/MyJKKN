@@ -80,6 +80,26 @@ export function useUpdateTournament() {
       toast.success('Tournament updated');
     },
     onError: (error: Error) => {
+      // The institutional-number freeze (trg_events_stamp_event_number, migration
+      // 20261118093000) raises 23514 when somebody moves a NUMBERED event to
+      // another college. Its raw message names internal UUIDs, which is no use to
+      // a coordinator, so it is mapped here.
+      //
+      // WHY THIS MATCHES THE MESSAGE AND NOT error.code: the code does not reach
+      // this point. EventBaseService.updateEvent does `throw new Error(error.message)`,
+      // which discards the PostgrestError and its `code`. Attaching the code there
+      // is the right repair, but that file carries FOUR pre-existing type errors
+      // (TS2769/TS2345 at lines 134/166/308/334 — reproduced on the unmodified
+      // file, they are not from this PR); touching it drags them into the
+      // PR-scoped typecheck gate, which then attributes them here. So this PR
+      // matches on text it owns: the sentence below is raised by this PR's own
+      // trigger, in this PR's own migration.
+      if (/already carries institutional number/i.test(error.message)) {
+        toast.error(
+          "A tournament's host institution is fixed once it has an institutional event number. Reopen the dialog, leave Host Institution unchanged, and save your other edits.",
+        );
+        return;
+      }
       toast.error(error.message || 'Failed to update tournament');
     },
   });

@@ -82,7 +82,7 @@ END $$;
 COMMENT ON COLUMN public.events.event_number_year IS
   'The calendar year in which this event''s academic year OPENS (2026 = AY 2026-2027). Half of the institutional event number. Frozen once assigned.';
 COMMENT ON COLUMN public.events.event_number_seq IS
-  'Position of this event within its college and academic year, from 1. Frozen once assigned. Gaps are possible and expected — a rolled-back create burns its number rather than handing it to somebody else.';
+  'Position of this event within its college and academic year, from 1. Frozen once assigned. Gaps are possible and expected: DELETING a numbered event leaves its number unused, and the counter never goes backwards. A rolled-back create does NOT leave a gap — the counter is bumped inside the same transaction as the insert, so it rolls back with it and the next create reuses the number.';
 -- ANON CAN READ event_number ON A PUBLISHED EVENT -- DECIDED, NOT OVERLOOKED.
 --   public.events carries the pre-existing policy `events_public_read`
 --   (supabase/setup/03_policies.sql): FOR SELECT USING (is_public = true AND
@@ -403,6 +403,37 @@ ON CONFLICT (institution_id, year_start) DO UPDATE
       updated_at = now();
 
 
+-- 1g. Keep the new columns off the anonymous marathon surface.
+--
+-- public.marathon_events is `SELECT * FROM public.events WHERE event_type =
+-- 'marathon'` and is an APPROVED anon-readable relation
+-- (scripts/ci/anon-exposure-allowlist.json) serving an external public marathon
+-- site. `CREATE OR REPLACE VIEW` APPENDS trailing columns, so the next run of
+-- supabase/setup/05_views.sql after this migration would publish event_number,
+-- event_number_year and event_number_seq to anonymous internet users, silently.
+--
+-- THE FIX LIVES IN supabase/setup/05_views.sql, NOT HERE, and deliberately:
+--   * 05_views.sql is the file that would do the appending, so pinning the
+--     column list there closes the vector at its source.
+--   * Production is not at risk from this migration alone. The view's column
+--     list was frozen when it was last created, before these columns existed,
+--     so adding columns to public.events does not change what it publishes.
+--   * Putting a `CREATE OR REPLACE VIEW` in THIS file would make
+--     scripts/ci/check-table-anon-revoke.mjs treat marathon_events as a new
+--     relation and demand an anon lock the view must not have. The only way to
+--     satisfy it is that script's whole-FILE escape hatch, which would waive the
+--     anon-lock check for all four new tables in this migration. Trading four
+--     real locks for one is a net loss.
+--     (That hatch marker is deliberately NOT spelled out anywhere in this file.
+--      The script reads its markers BEFORE stripping comments, so merely NAMING
+--      the token in a comment ACTIVATES it — which is exactly what happened for
+--      one run during review round 2: the guard reported "0 relations checked"
+--      while all four REVOKEs sat untouched a few lines below.)
+--
+-- The end-state assertion at the foot of this file still proves the anon view
+-- did not gain the columns.
+
+
 -- ────────────────────────────────────────────────────────────────────────────
 -- 2. THE CLASSES AN EVENT IS ACTUALLY FOR
 -- ────────────────────────────────────────────────────────────────────────────
@@ -721,6 +752,15 @@ BEGIN
   -- Every event carries a number, and no college/year pair reuses one.
   IF EXISTS (SELECT 1 FROM public.events WHERE event_number IS NULL) THEN
     RAISE EXCEPTION 'backfill left events without an institutional number';
+  END IF;
+
+  -- The anonymous marathon surface must not carry the institutional number.
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'marathon_events'
+       AND column_name IN ('event_number', 'event_number_year', 'event_number_seq')
+  ) THEN
+    RAISE EXCEPTION 'marathon_events exposes the institutional event number to anon';
   END IF;
 
   -- Both catalogues must still be empty. Seeding them here is the one thing

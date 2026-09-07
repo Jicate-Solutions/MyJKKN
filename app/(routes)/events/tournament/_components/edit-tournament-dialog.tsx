@@ -205,6 +205,14 @@ function EditTournamentForm({
   const { data: detail, isLoading: divisionsLoading } = useTournament(tournament.id);
   const divisions = detail?.divisions ?? [];
 
+  // An institutional event number is issued per college and frozen on issue, so
+  // the database (trg_events_stamp_event_number) REFUSES a college change on a
+  // numbered event — moving it would carry the number into a counter that knows
+  // nothing about it. Disable the control rather than let Save fail and throw
+  // away every other edit made in the same dialog. Tournaments are fetched with
+  // select('*'), so event_number is present on the row whenever one is issued.
+  const issuedNumber = tournament.event_number ?? null;
+
   // Defaults for the first division when a tournament has none yet — mirror the
   // create form so saving the edit modal seeds a valid division inline.
   const newDivisionDefaults: TournamentDivision = {
@@ -326,7 +334,11 @@ function EditTournamentForm({
           <Label htmlFor="t-institution">
             Host Institution <span className="text-destructive">*</span>
           </Label>
-          <Select value={form.institution_id} onValueChange={(v) => set('institution_id', v)}>
+          <Select
+            value={form.institution_id}
+            onValueChange={(v) => set('institution_id', v)}
+            disabled={issuedNumber !== null}
+          >
             <SelectTrigger id="t-institution">
               <SelectValue
                 placeholder={
@@ -343,8 +355,18 @@ function EditTournamentForm({
             </SelectContent>
           </Select>
           <p className="text-xs text-muted-foreground">
-            Registration fees for this tournament settle into this institution&apos;s payment
-            account.
+            {issuedNumber !== null ? (
+              <>
+                An event&apos;s college is fixed once it has an institutional number (this one is{' '}
+                <span className="font-medium">{issuedNumber}</span>). Registration fees settle
+                into this institution&apos;s payment account.
+              </>
+            ) : (
+              <>
+                Registration fees for this tournament settle into this institution&apos;s payment
+                account.
+              </>
+            )}
           </p>
         </div>
 
