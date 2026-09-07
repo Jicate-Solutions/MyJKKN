@@ -2631,26 +2631,26 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "SprayCan",
         "children": [
           {
-            "path": "/campus-living/housekeeping/bookings",
-            "label": "Bookings",
+            "path": "/campus-living/housekeeping/availability",
+            "label": "Availability",
+            "iconName": "CalendarCheck",
+            "children": []
+          },
+          {
+            "path": "/campus-living/housekeeping/cleaners",
+            "label": "Cleaners",
             "iconName": "SprayCan",
             "children": []
           },
           {
-            "path": "/campus-living/housekeeping/my-work",
-            "label": "My Work",
+            "path": "/campus-living/housekeeping/holds",
+            "label": "Holds",
             "iconName": "SprayCan",
             "children": []
           },
           {
-            "path": "/campus-living/housekeeping/schedules",
-            "label": "Schedules",
-            "iconName": "CalendarClock",
-            "children": []
-          },
-          {
-            "path": "/campus-living/housekeeping/tasks",
-            "label": "Tasks",
+            "path": "/campus-living/housekeeping/types",
+            "label": "Types",
             "iconName": "SprayCan",
             "children": []
           }
@@ -2832,8 +2832,8 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": [
           {
             "path": "/campus-living/my-hostel/housekeeping",
-            "label": "Room Cleaning",
-            "iconName": "Brush",
+            "label": "Housekeeping",
+            "iconName": "SprayCan",
             "children": []
           },
           {
@@ -3093,12 +3093,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/campus-living/settings/hostel-years",
             "label": "Hostel Years",
             "iconName": "Building",
-            "children": []
-          },
-          {
-            "path": "/campus-living/settings/housekeeping",
-            "label": "Housekeeping",
-            "iconName": "SprayCan",
             "children": []
           },
           {
@@ -3922,6 +3916,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "children": []
               }
             ]
+          },
+          {
+            "path": "/hr/admin/institutions",
+            "label": "Institutions",
+            "iconName": "Building",
+            "children": []
           },
           {
             "path": "/hr/admin/leave-balances",

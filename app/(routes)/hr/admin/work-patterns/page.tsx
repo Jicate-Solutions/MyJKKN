@@ -27,7 +27,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { PermissionGuard } from '@/components/auth/permission-guard';
-import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useHrInstitutionsWithAccess } from '@/hooks/hr/use-hr-institutions';
 import { useWorkPatterns } from '@/hooks/hr/use-work-patterns';
 
 import { WorkPatternList } from './_components/work-pattern-list';
@@ -38,7 +38,7 @@ const ALL_INSTITUTIONS = '__all__';
 export default function WorkPatternsPage() {
   // entityType 'all', same reason as shift-timings: the default
   // ('institution') hides admin_office, both schools and the two companies.
-  const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess({
+  const { institutions, loading: institutionsLoading } = useHrInstitutionsWithAccess({
     entityType: 'all',
   });
 

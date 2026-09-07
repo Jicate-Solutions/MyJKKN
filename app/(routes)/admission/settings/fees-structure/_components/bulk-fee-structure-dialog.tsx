@@ -161,6 +161,20 @@ export function BulkFeeStructureDialog({
     setErrorsOnly(true);
   };
 
+  /**
+   * THE ONLY WAY THIS DIALOG MAY CLOSE. The parent mounts it unconditionally
+   * (`<BulkFeeStructureDialog open={bulkOpen} …>` in fee-structures-list-view),
+   * so nothing unmounts on close and every useState above survives it. A button
+   * that calls the onOpenChange PROP directly therefore leaves the wizard
+   * parked wherever it was — clicking "Done" after an import and reopening put
+   * the operator back on the Done summary of the import they had just finished,
+   * with no file input in sight, instead of a fresh upload step.
+   */
+  const close = () => {
+    reset();
+    onOpenChange(false);
+  };
+
   const post = async (mode: 'validate' | 'apply') => {
     const fd = new FormData();
     fd.append('file', file!);
@@ -230,7 +244,7 @@ export function BulkFeeStructureDialog({
   );
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) reset(); onOpenChange(o); }}>
+    <Dialog open={open} onOpenChange={(o) => (o ? onOpenChange(true) : close())}>
       <DialogContent className="flex max-h-[92dvh] w-[calc(100vw-1.5rem)] max-w-5xl flex-col overflow-hidden p-4 sm:w-full sm:p-6">
         <DialogHeader className="shrink-0 pr-8 text-left">
           <DialogTitle className="text-base sm:text-lg">Bulk Import Fee Structures</DialogTitle>
@@ -595,7 +609,7 @@ export function BulkFeeStructureDialog({
         <DialogFooter className="shrink-0 gap-2 border-t pt-3 sm:gap-2">
           {step === 'upload' && (
             <>
-              <Button className="w-full sm:w-auto" variant="ghost" onClick={() => onOpenChange(false)} disabled={validating}>Close</Button>
+              <Button className="w-full sm:w-auto" variant="ghost" onClick={close} disabled={validating}>Close</Button>
               <Button className="w-full sm:w-auto" onClick={handleValidate} disabled={!file || validating}>
                 {validating ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <ListChecks className="mr-1 h-4 w-4" />}
                 Read file
@@ -641,8 +655,9 @@ export function BulkFeeStructureDialog({
 
           {step === 'done' && (
             <>
+              {/* "Import another" resets and STAYS open; "Done" resets and leaves. */}
               <Button className="w-full sm:w-auto" variant="ghost" onClick={reset}>Import another</Button>
-              <Button className="w-full sm:w-auto" onClick={() => onOpenChange(false)}>Done</Button>
+              <Button className="w-full sm:w-auto" onClick={close}>Done</Button>
             </>
           )}
         </DialogFooter>

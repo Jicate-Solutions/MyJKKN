@@ -15,7 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Gauge, AlertCircle, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useHrInstitutionsWithAccess } from '@/hooks/hr/use-hr-institutions';
 
 interface WorkloadRow {
   staff_id: string;
@@ -85,7 +85,7 @@ function getTrafficLight(pct: number): {
 
 export function ResourceUtilizationTab() {
   const { data, isLoading, isError } = useUtilizationData();
-  const { institutions } = useInstitutionsWithAccess({ entityType: 'all' });
+  const { institutions } = useHrInstitutionsWithAccess({ entityType: 'all' });
 
   const institutionNames = useMemo(() => {
     const map: Record<string, string> = {};

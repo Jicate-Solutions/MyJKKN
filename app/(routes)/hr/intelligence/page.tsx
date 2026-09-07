@@ -60,7 +60,7 @@ import {
   useSuppressions,
   useEscalations,
 } from '@/hooks/hr/recruitment-need/use-recruitment-signal';
-import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useHrInstitutionsWithAccess } from '@/hooks/hr/use-hr-institutions';
 import { SignalCard } from '@/components/hr/recruitment-need/signal-card';
 import { SignalCardSkeleton } from '@/components/hr/recruitment-need/signal-card-skeleton';
 import { EscalationQueue } from '@/components/hr/recruitment-need/escalation-queue';
@@ -275,7 +275,7 @@ function RecruitmentNeedTab() {
   // Queries
   const { data: signals, isLoading: signalsLoading, isError } = useRecruitmentSignals(queryFilters);
   const { data: suppressions } = useSuppressions();
-  const { institutions } = useInstitutionsWithAccess({ entityType: 'all' });
+  const { institutions } = useHrInstitutionsWithAccess({ entityType: 'all' });
   const computeSignal = useComputeSignal();
 
   // Build institution name lookup
