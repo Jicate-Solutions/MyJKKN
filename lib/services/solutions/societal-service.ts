@@ -254,12 +254,28 @@ function describeWriteFailure(error: PostgrestLikeError, action: 'record' | 'dec
     return new Error(error.message);
   }
 
+  // 42501 on a RECORD does NOT prove the caller lacks the write key, and the
+  // message must not say it does. PostgREST asks for the inserted row back, so
+  // `INSERT ... RETURNING` filters that row through the SELECT policy: a
+  // submit-only faculty member passes the INSERT WITH CHECK, fails SELECT on
+  // the row being returned, and the whole statement errors 42501 and rolls
+  // back. The old text sent them to request `solutions.societal.submit` — the
+  // permission they already hold — which is the worst kind of refusal message:
+  // confidently wrong, and it makes the reader doubt their own grid.
+  // 20261120143000 adds the missing own-row SELECT branch; until it is applied
+  // this message is the only thing standing between a submitter and a wild
+  // goose chase, so it names what was refused and lets an administrator work
+  // out which half.
   if (error.code === RLS_DENIED) {
     return new Error(
       action === 'record'
-        ? 'You do not have permission to record a community engagement for this ' +
-          'department. Ask your Solutions Hub administrator for ' +
-          'solutions.societal.submit on this institution.'
+        ? 'Nothing was recorded — the database refused the save. Saving has to ' +
+          'write the row AND read it back, and this register grants those two ' +
+          'separately, so this means either your role cannot record community ' +
+          'work for this institution, or it can record but cannot read the entry ' +
+          'back. Show this to your Solutions Hub administrator: writing needs ' +
+          'solutions.societal.submit or solutions.societal.record, reading back ' +
+          'needs solutions.societal.view.'
         : 'You do not have permission to approve or reject engagements for this ' +
           'department. Ask your Solutions Hub administrator for ' +
           'solutions.societal.approve on this institution.'
@@ -308,9 +324,9 @@ function refusedSilently(action: 'record' | 'decide'): Error {
   if (action === 'record') {
     return new Error(
       'The engagement was not saved. The database accepted the request and then ' +
-        'returned no row, which means the insert policy refused it for this ' +
-        'institution. Ask your Solutions Hub administrator for ' +
-        'solutions.societal.submit on it. Nothing was recorded.'
+        'returned no row. Nothing was recorded — show this to your Solutions Hub ' +
+        'administrator, who can check the register\'s insert and select rules for ' +
+        'your role on this institution.'
     );
   }
   return new Error(

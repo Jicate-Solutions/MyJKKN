@@ -332,10 +332,10 @@ export function CommunityEngagementsPanel({
             <Info className="h-4 w-4" />
             <AlertTitle>You can record community work here, not browse it</AlertTitle>
             <AlertDescription>
-              Browsing this department&apos;s register — meaning everyone&apos;s entries — needs{' '}
-              <code className="text-xs">solutions.societal.view</code>, which your role does not
-              hold, on purpose. What you submit is saved and waits for a head of department to
-              approve it; ask them for the outcome.
+              This panel shows your own entries only, never anyone else&apos;s. Browsing the whole
+              register needs <code className="text-xs">solutions.societal.view</code>, which your
+              role does not hold, on purpose. What you record waits for a head of department to
+              approve it, and only an approved entry counts towards the department&apos;s activity.
               {canApprove
                 ? ' Your approve permission has nothing to act on here for the same reason.'
                 : ''}
@@ -418,12 +418,14 @@ export function CommunityEngagementsPanel({
               </>
             ) : (
               <>
-                <p className="text-sm font-medium text-foreground">Nothing listed here for you</p>
+                <p className="text-sm font-medium text-foreground">
+                  You have not recorded anything here yet
+                </p>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Entries you submit are not listed back to you — reading this register needs{' '}
-                  <code className="text-xs">solutions.societal.view</code>. Nothing is lost: they
-                  are saved against {departmentName} and waiting for a head of department. If that
-                  changes, they will appear here.
+                  This panel lists your own entries for {departmentName} — a camp, a free clinic, a
+                  school programme. Entries recorded by other people are not shown, because
+                  browsing the whole register needs{' '}
+                  <code className="text-xs">solutions.societal.view</code>.
                 </p>
               </>
             )}

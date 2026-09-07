@@ -10549,3 +10549,43 @@ CREATE POLICY "sh_department_status_reviews_update"
       )
     )
   )
+
+-- ============================================================================
+-- 2026-11-20 — sh_community_engagements: a submitter can see their own row
+-- Migration: 20261120143000_societal_submitter_can_see_own_engagement.sql
+-- Status at time of writing: NOT APPLIED — FILE ONLY.
+-- ============================================================================
+--
+-- `INSERT ... RETURNING` filters the returned row through the SELECT policy, so
+-- a submit-only faculty member passed the INSERT WITH CHECK, failed SELECT on
+-- the row being returned, and the whole statement errored 42501 and rolled
+-- back. A read policy narrower than its write policy is a WRITE bug.
+--
+-- The fourth branch is per-user by construction (`recorded_by = auth.uid()`) and
+-- shows a submitter their own entries only. It is deliberately NOT bounded to
+-- `approval_status = 'pending'` the way the UPDATE branch is: `review_note`
+-- exists to tell a submitter why their entry was rejected, and a pending-only
+-- read would deliver it to nobody. Its key test mirrors the INSERT policy
+-- (`submit OR record`), because it exists to make that INSERT's RETURNING work.
+--
+-- The INSERT / UPDATE / DELETE policies on this table are unchanged by that
+-- migration and are not restated here; they live in
+-- 20261013000000_societal_capture_and_activity_clock.sql and
+-- 20261019000000_societal_approval_and_status_review.sql.
+
+CREATE POLICY "sh_community_engagements_select" ON public.sh_community_engagements
+    FOR SELECT USING (
+        public.is_super_admin()
+        OR public.is_admin()
+        OR (
+            public.user_has_permission('solutions.societal.view')
+            AND public.role_has_institution_access(institution_id)
+        )
+        OR (
+            recorded_by = auth.uid()
+            AND (
+                public.user_has_permission('solutions.societal.submit')
+                OR public.user_has_permission('solutions.societal.record')
+            )
+        )
+    )
