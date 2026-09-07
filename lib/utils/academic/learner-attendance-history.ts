@@ -17,6 +17,16 @@
 // attendance dashboard once read "60 present + 16 absent" out of 462 learners
 // while 386 had simply never been marked; that is the confusion this rollup
 // refuses to reproduce.
+//
+// ON-DUTY COUNTS AS ATTENDED (Director ruling, 2026-09-07)
+// ----------------------------------------------------------
+// A day marked OnDuty is shown as ATTENDED: it sits in BOTH the numerator and
+// the denominator of `attendancePercent`, and it must never pull the rate
+// down. It keeps its own distinct label and its own count
+// (`summary.onDutyDays`) so a Senior Learner can still tell duty apart from
+// ordinary attendance -- only the RATE treats them the same. Mixed-day
+// rollup precedence is Present > OnDuty > Absent (> Other), unchanged from
+// before; what changed is only which day states feed the percentage.
 
 /** The statuses the marking screen actually saves into attendance_data. */
 export type LearnerAttendanceStatus = 'present' | 'absent' | 'on_duty' | 'other';
@@ -37,6 +47,14 @@ export interface LearnerAttendanceHistoryRow {
   lah_start_time: string | null;
   lah_end_time: string | null;
   lah_course_name: string | null;
+  /**
+   * Which section this register was filed under. Learner-first as of
+   * 2026-09-07: a row can carry a DIFFERENT section than the one the dialog
+   * was opened from (a combined/practical register filed under a sibling
+   * section) — this is what makes that legible instead of mysterious.
+   */
+  lah_section_id: string | null;
+  lah_section_name: string | null;
   /** null = the register exists but holds no entry for this learner. */
   lah_status: string | null;
   lah_marked_at: string | null;
@@ -48,6 +66,8 @@ export interface LearnerAttendancePeriod {
   startTime: string | null;
   endTime: string | null;
   courseName: string | null;
+  sectionId: string | null;
+  sectionName: string | null;
   /** null = unmarked for this learner in this period. */
   status: LearnerAttendanceStatus | null;
   /** The exact string that was saved, kept so an unexpected value stays visible. */
@@ -75,14 +95,22 @@ export interface LearnerAttendanceSummary {
   absentDays: number;
   onDutyDays: number;
   otherDays: number;
+  /**
+   * presentDays + onDutyDays. Director ruling 2026-09-07: OnDuty reads as
+   * attended, so it belongs in this count even though it keeps its own
+   * distinct `onDutyDays` for display.
+   */
+  attendedDays: number;
   /** Days the register exists but this learner is not in it. NEVER absence. */
   unmarkedDays: number;
   /**
-   * presentDays / markedDays, 0-100, rounded to one decimal.
+   * attendedDays / markedDays, 0-100, rounded to one decimal.
    * null when nothing is marked — an unknown rate is not 0%.
-   * Unmarked days are excluded from BOTH sides of this division.
+   * Unmarked days are excluded from BOTH sides of this division; OnDuty days
+   * are INCLUDED in both sides (Director ruling 2026-09-07) so they never
+   * pull the rate down.
    */
-  presentPercent: number | null;
+  attendancePercent: number | null;
 }
 
 export interface LearnerAttendanceHistory {
@@ -162,6 +190,8 @@ export function buildLearnerAttendanceHistory(
       startTime: row.lah_start_time ?? null,
       endTime: row.lah_end_time ?? null,
       courseName: row.lah_course_name ?? null,
+      sectionId: row.lah_section_id ?? null,
+      sectionName: row.lah_section_name ?? null,
       status: normalizeAttendanceStatus(rawStatus),
       rawStatus,
       markedAt: row.lah_marked_at ?? null,
@@ -191,8 +221,9 @@ export function buildLearnerAttendanceHistory(
     absentDays: 0,
     onDutyDays: 0,
     otherDays: 0,
+    attendedDays: 0,
     unmarkedDays: 0,
-    presentPercent: null,
+    attendancePercent: null,
   };
 
   for (const day of days) {
@@ -221,10 +252,16 @@ export function buildLearnerAttendanceHistory(
     summary.onDutyDays +
     summary.otherDays;
 
-  summary.presentPercent =
+  // Director ruling 2026-09-07: OnDuty counts as attended, in both the
+  // numerator and the denominator (markedDays already includes it) of the
+  // rate. `other` stays out of the numerator — an unrecognised status is not
+  // evidence the learner attended.
+  summary.attendedDays = summary.presentDays + summary.onDutyDays;
+
+  summary.attendancePercent =
     summary.markedDays === 0
       ? null
-      : Math.round((summary.presentDays / summary.markedDays) * 1000) / 10;
+      : Math.round((summary.attendedDays / summary.markedDays) * 1000) / 10;
 
   return { days, summary };
 }

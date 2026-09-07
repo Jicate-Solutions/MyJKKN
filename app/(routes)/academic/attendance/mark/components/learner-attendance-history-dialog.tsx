@@ -13,6 +13,15 @@
 // an absence, and it is never folded into the percentage. The rule itself lives
 // in lib/utils/academic/learner-attendance-history.ts under unit test; this file
 // only draws it.
+//
+// Two Director rulings (2026-09-07) shape what's on screen:
+//   1. An OnDuty day reads as ATTENDED in the headline rate, but keeps its own
+//      blue badge and its own "Days on duty" tile so it never looks like
+//      ordinary Present.
+//   2. History follows the LEARNER, not the section — a day marked inside a
+//      combined/practical register filed under a sibling section still shows
+//      up here, with that section's name on the row so it reads as a real
+//      class rather than a mystery entry.
 
 import { useCallback, useEffect, useState } from 'react';
 import { format, parseISO, subDays } from 'date-fns';
@@ -192,6 +201,11 @@ function DayRow({ day }: { day: LearnerAttendanceDay }) {
                 <Clock className='h-3 w-3 mr-1' />
                 {period.periodName || 'Period'}
                 {period.courseName ? ` · ${period.courseName}` : ''}
+                {/* Learner-first (2026-09-07): a period can be filed under a
+                    DIFFERENT section than the one this dialog was opened
+                    from — a combined/practical register. Naming it here is
+                    what keeps that legible instead of mysterious. */}
+                {period.sectionName ? ` · ${period.sectionName}` : ''}
                 {' — '}
                 {period.status === null
                   ? 'not marked'
@@ -271,7 +285,9 @@ export function LearnerAttendanceHistoryDialog({
             {sectionName ? `${sectionName} · ` : ''}
             {format(parseISO(fromDate), 'd MMM yyyy')} to{' '}
             {format(parseISO(toDate), 'd MMM yyyy')} (last{' '}
-            {LEARNER_ATTENDANCE_HISTORY_DAYS} days), this section only.
+            {LEARNER_ATTENDANCE_HISTORY_DAYS} days). Includes days marked in a
+            combined or practical register filed under a different section —
+            each day shows which one.
           </DialogDescription>
         </DialogHeader>
 
@@ -323,18 +339,18 @@ export function LearnerAttendanceHistoryDialog({
             <div className='rounded-lg border border-gray-200 dark:border-gray-700 p-3'>
               <div className='flex items-baseline gap-2'>
                 <span className='text-2xl font-semibold text-gray-900 dark:text-gray-100'>
-                  {summary.presentPercent === null
+                  {summary.attendancePercent === null
                     ? 'Not known'
-                    : `${summary.presentPercent}%`}
+                    : `${summary.attendancePercent}%`}
                 </span>
                 <span className='text-sm text-gray-600 dark:text-gray-400'>
-                  present
+                  attendance
                 </span>
               </div>
               <p className='text-xs text-gray-600 dark:text-gray-400 mt-1'>
-                {summary.presentPercent === null
+                {summary.attendancePercent === null
                   ? `No day in this window has a status recorded for this learner, so no rate can be worked out. ${summary.unmarkedDays} ${summary.unmarkedDays === 1 ? 'day was' : 'days were'} marked for the section but not for this learner.`
-                  : `Out of the ${summary.markedDays} ${summary.markedDays === 1 ? 'day' : 'days'} actually marked for this learner. A further ${summary.unmarkedDays} ${summary.unmarkedDays === 1 ? 'day is' : 'days are'} not counted here — the section's register exists but this learner has no entry in it. Those are not absences.`}
+                  : `${summary.presentDays} present + ${summary.onDutyDays} on duty, out of the ${summary.markedDays} ${summary.markedDays === 1 ? 'day' : 'days'} actually marked for this learner (on-duty days count as attended). A further ${summary.unmarkedDays} ${summary.unmarkedDays === 1 ? 'day is' : 'days are'} not counted here — the section's register exists but this learner has no entry in it. Those are not absences.`}
               </p>
             </div>
 
