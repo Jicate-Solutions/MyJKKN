@@ -13,19 +13,31 @@
 // gains a field breaks nothing and a payload that loses one degrades to an
 // honest empty state rather than a 500.
 //
-// Rulings this file carries:
-//   #8  A question withdrawn after a sitting is shown with a withdrawn note
-//       and scores are NEVER recomputed — `withdrawn` is a display flag only;
-//       no aggregate in this file excludes a withdrawn item from a learner's
-//       score, and nothing here recomputes a score from responses.
-//   #9  Per-item statistics are hidden below the min-learners threshold; the
-//       score list always shows. `itemStatsVisible()` is the only gate, and
-//       it gates ONLY the item table.
-//   #14 The CSV export carries learner names and scores and NEVER an answer
-//       key or an explanation. `buildScoreListCsv` reads only the score list;
-//       neither the cohort payload's item rows nor any answer text can reach
-//       it — see the test that asserts the column set is closed.
-//   #17 A sitting taken on a device is flagged (`taken_digitally`).
+// Rulings this file carries. SOURCE OF RECORD, cited by file and heading —
+// #8/#9/#14 are rows of the ruling table in
+// `specs/onemark-wave3-2026-09-06.md`, section
+// "## Rulings of 2026-09-06 01:20 IST (Director interview, 15 answers)",
+// published on jicate/main by PR #3343. Decision #17 is a different document:
+// `specs/onemark-decisions-2026-09-02.md` (the 20 decisions). The two are
+// separately numbered — always name the file with the number.
+//   W3 #8  "Question withdrawn after a paper was sat — scores stay as they
+//       were; the results sheet marks that question withdrawn. Never
+//       recompute." `withdrawn` is a display flag only; no aggregate in this
+//       file excludes a withdrawn item from a learner's score, and nothing
+//       here recomputes a score from responses.
+//   W3 #9  "Hide per-question numbers below 3 learners
+//       (`onemark.results.min_learners_for_item_stats = 3`). The score list
+//       always shows. This OVERRIDES the 5 written in Lane S3 item 6." The
+//       browser gate is `itemStatsVisible()`; the SERVER strips the item array
+//       below the threshold (see the [assessmentId] route) so the raw JSON
+//       cannot be read past the rule.
+//   W3 #14 "Results download — names and scores; never answer keys or
+//       explanations." `buildScoreListCsv` reads only the score list; neither
+//       the cohort payload's item rows nor any answer text can reach it — see
+//       the test that asserts the column set is closed.
+//   Decision #17 (2026-09-02 doc) A sitting taken on a device is flagged
+//       (`taken_digitally`), read from the explicit flag or from
+//       `fp_attempts.mode`, which is the column that actually carries it.
 
 /* ------------------------------------------------------------------ *
  * Defensive scalar readers
@@ -63,7 +75,36 @@ function int(value: unknown, fallback = 0): number {
 }
 
 function bool(value: unknown): boolean {
-  return value === true || value === 'true';
+  if (value === true) return true;
+  if (typeof value === 'number') return value === 1;
+  if (typeof value === 'string') {
+    const s = value.trim().toLowerCase();
+    // Postgres renders a boolean as "true"/"t" over some drivers, and a jsonb
+    // build that stringifies can send "1". All three mean the same thing.
+    return s === 'true' || s === 't' || s === 'yes' || s === '1';
+  }
+  return false;
+}
+
+/** Every value of the `fp_attempts.mode` CHECK is an app-mediated sitting —
+ *  the column's own COMMENT calls `live` "single-submission hall test taken
+ *  digitally" (20260917111500 §9). A sitting entered from paper carries no
+ *  mode. Decision #17 (2026-09-02 doc) is delivered by reading this column;
+ *  before this, only a boolean key was read and `mode: 'live'` scored false. */
+const DIGITAL_MODES = new Set(['practice', 'timed', 'live', 'vault_review']);
+
+/** An explicit boolean from the RPC always wins, in EITHER direction, so S3 can
+ *  mark a mode-carrying row as a paper sitting. Only when no flag is present at
+ *  all does the mode decide. */
+function parseTakenDigitally(source: Json): boolean {
+  const explicit = pick(source, 'taken_digitally', 'is_digital', 'digital');
+  if (explicit !== undefined) return bool(explicit);
+  return DIGITAL_MODES.has((str(pick(source, 'mode')) ?? '').trim().toLowerCase());
+}
+
+/** A percentage the screen can print: 0..100, one decimal. */
+function clampPct(value: number): number {
+  return Math.min(100, Math.max(0, value));
 }
 
 /** First present key wins — the RPC may name a field either way. */
@@ -139,11 +180,19 @@ export interface CohortResults {
   min_learners_for_item_stats: number;
   learners: CohortLearnerResult[];
   items: CohortItemResult[];
+  /** True when the SERVER emptied `items` because the cohort is below the
+   *  threshold. The browser cannot distinguish "withheld" from "no data" by
+   *  looking at an empty array, and the raw JSON must not carry what the rule
+   *  hides — so the route strips the rows and sets this. */
+  items_withheld: boolean;
 }
 
-/** Ruling #9's code default. The live number is the platform policy row
- *  `onemark.results.min_learners_for_item_stats`, read server-side; this is
- *  the fallback for a payload that predates the row. */
+/** Wave 3 ruling #9's number, not a guess: `min_learners_for_item_stats = 3`,
+ *  and that ruling explicitly overrides the 5 first written in Lane S3 item 6
+ *  (`specs/onemark-wave3-2026-09-06.md`, "## Rulings of 2026-09-06", row 9 —
+ *  S3 item 6 in the same file now reads 3 as well). The live number is still
+ *  read from the platform policy row at request time; this is the fallback for
+ *  a database that predates the row. */
 export const MIN_LEARNERS_FOR_ITEM_STATS_DEFAULT = 3;
 
 function parseStatus(value: unknown): SittingStatus {
@@ -170,48 +219,79 @@ function parseBuckets(value: unknown): ResultBucket[] {
     .filter((b): b is ResultBucket => b !== null);
 }
 
+/** A p-value is a FRACTION correct, 0..1. A payload that sends 85 meaning 85%
+ *  used to render as "8500%"; guessing the unit from magnitude is what makes a
+ *  learner who answered 1 in 100 look perfect elsewhere, so an out-of-range
+ *  value becomes the honest empty state instead of a converted one. */
+function parsePValue(value: unknown): number | null {
+  const n = num(value);
+  if (n === null || n < 0 || n > 1) return null;
+  return n;
+}
+
+/** First row per id wins. A repeated `student_id` used to produce duplicate
+ *  React keys in the score table and two CSV lines for one learner; a repeated
+ *  `item_id` did the same in the item table. */
+function dedupeBy<T>(rows: T[], id: (row: T) => string): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const row of rows) {
+    const key = id(row);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(row);
+  }
+  return out;
+}
+
 export function parseCohortResults(raw: unknown): CohortResults {
   const root = obj(raw);
   const a = obj(pick(root, 'assessment', 'paper'));
-  const learners = arr(pick(root, 'learners', 'students', 'score_list'))
-    .map((entry) => {
-      const l = obj(entry);
-      const student_id = str(pick(l, 'student_id', 'id')) ?? '';
-      if (!student_id) return null;
-      return {
-        student_id,
-        name: str(pick(l, 'name', 'full_name', 'learner_name')) ?? 'Name not recorded',
-        roll_no: str(pick(l, 'roll_no', 'roll_number', 'admission_no')),
-        score: num(pick(l, 'score', 'correct')),
-        max_score: num(pick(l, 'max_score', 'out_of', 'total')),
-        submitted_at: str(pick(l, 'submitted_at', 'finished_at')),
-        status: parseStatus(pick(l, 'status')),
-        taken_digitally: bool(pick(l, 'taken_digitally', 'is_digital', 'digital')),
-        per_unit: parseBuckets(pick(l, 'per_unit', 'units')),
-        per_tag: parseBuckets(pick(l, 'per_tag', 'tags')),
-      } satisfies CohortLearnerResult;
-    })
-    .filter((l): l is CohortLearnerResult => l !== null);
+  const learners = dedupeBy(
+    arr(pick(root, 'learners', 'students', 'score_list'))
+      .map((entry) => {
+        const l = obj(entry);
+        const student_id = str(pick(l, 'student_id', 'id')) ?? '';
+        if (!student_id) return null;
+        return {
+          student_id,
+          name: str(pick(l, 'name', 'full_name', 'learner_name')) ?? 'Name not recorded',
+          roll_no: str(pick(l, 'roll_no', 'roll_number', 'admission_no')),
+          score: num(pick(l, 'score', 'correct')),
+          max_score: num(pick(l, 'max_score', 'out_of', 'total')),
+          submitted_at: str(pick(l, 'submitted_at', 'finished_at')),
+          status: parseStatus(pick(l, 'status')),
+          taken_digitally: parseTakenDigitally(l),
+          per_unit: parseBuckets(pick(l, 'per_unit', 'units')),
+          per_tag: parseBuckets(pick(l, 'per_tag', 'tags')),
+        } satisfies CohortLearnerResult;
+      })
+      .filter((l): l is CohortLearnerResult => l !== null),
+    (l) => l.student_id,
+  );
 
-  const items = arr(pick(root, 'items', 'questions'))
-    .map((entry, index) => {
-      const it = obj(entry);
-      const item_id = str(pick(it, 'item_id', 'id')) ?? '';
-      if (!item_id) return null;
-      const distractor = obj(pick(it, 'top_distractor', 'top_wrong_option'));
-      const optionKey = str(pick(distractor, 'option_key', 'key', 'option'));
-      return {
-        item_id,
-        position: num(pick(it, 'position', 'qno', 'sort_order')) ?? index + 1,
-        unit_label: str(pick(it, 'unit_label', 'topic_label', 'chapter')),
-        p_value: num(pick(it, 'p_value', 'fraction_correct')),
-        answered: int(pick(it, 'answered', 'responses')),
-        top_distractor:
-          optionKey === null ? null : { option_key: optionKey, count: int(pick(distractor, 'count', 'n')) },
-        withdrawn: bool(pick(it, 'withdrawn', 'is_withdrawn')) || pick(it, 'is_active') === false,
-      } satisfies CohortItemResult;
-    })
-    .filter((i): i is CohortItemResult => i !== null);
+  const items = dedupeBy(
+    arr(pick(root, 'items', 'questions'))
+      .map((entry, index) => {
+        const it = obj(entry);
+        const item_id = str(pick(it, 'item_id', 'id')) ?? '';
+        if (!item_id) return null;
+        const distractor = obj(pick(it, 'top_distractor', 'top_wrong_option'));
+        const optionKey = str(pick(distractor, 'option_key', 'key', 'option'));
+        return {
+          item_id,
+          position: num(pick(it, 'position', 'qno', 'sort_order')) ?? index + 1,
+          unit_label: str(pick(it, 'unit_label', 'topic_label', 'chapter')),
+          p_value: parsePValue(pick(it, 'p_value', 'fraction_correct')),
+          answered: int(pick(it, 'answered', 'responses')),
+          top_distractor:
+            optionKey === null ? null : { option_key: optionKey, count: int(pick(distractor, 'count', 'n')) },
+          withdrawn: bool(pick(it, 'withdrawn', 'is_withdrawn')) || pick(it, 'is_active') === false,
+        } satisfies CohortItemResult;
+      })
+      .filter((i): i is CohortItemResult => i !== null),
+    (i) => i.item_id,
+  );
 
   const sat = num(pick(root, 'learners_sat', 'sat'));
   return {
@@ -232,6 +312,7 @@ export function parseCohortResults(raw: unknown): CohortResults {
     ),
     learners,
     items,
+    items_withheld: bool(pick(root, 'items_withheld')),
   };
 }
 
@@ -252,30 +333,42 @@ export function submittedLearners(results: CohortResults): CohortLearnerResult[]
 export interface CohortSummary {
   sat: number;
   total: number;
-  /** Mean score of submitted sittings, rounded to one decimal. Null with none. */
+  /** Submitted sittings that carry a score. `sat` counts submissions; a live
+   *  sitting that has not been graded yet is in `sat` and not in `graded`, and
+   *  every mean below is over `graded`. Two numbers, two names. */
+  graded: number;
+  /** Mean score of GRADED sittings, rounded to one decimal. Null with none. */
   average: number | null;
   /** Mean score as a percentage of the paper, 0..100. Null when unknown. */
   average_pct: number | null;
   highest: number | null;
   lowest: number | null;
   max_score: number | null;
+  /** Sat on a device, counted over every SUBMITTED sitting — the same
+   *  denominator as `sat`, so the two tiles can be read side by side. */
   digital: number;
 }
 
+/** Every submitted sitting, graded or not — the denominator `sat` counts. */
+function submittedAll(results: CohortResults): CohortLearnerResult[] {
+  return results.learners.filter((l) => l.status === 'submitted');
+}
+
 export function summarize(results: CohortResults): CohortSummary {
-  const sat = submittedLearners(results);
-  const scores = sat.map((l) => l.score as number);
-  const maxScore = sat.reduce<number | null>((acc, l) => (l.max_score !== null ? l.max_score : acc), null);
+  const graded = submittedLearners(results);
+  const scores = graded.map((l) => l.score as number);
+  const maxScore = graded.reduce<number | null>((acc, l) => (l.max_score !== null ? l.max_score : acc), null);
   const average = scores.length ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10 : null;
   return {
     sat: results.learners_sat,
     total: results.learners_total,
+    graded: graded.length,
     average,
     average_pct: average !== null && maxScore ? Math.round((average / maxScore) * 1000) / 10 : null,
     highest: scores.length ? Math.max(...scores) : null,
     lowest: scores.length ? Math.min(...scores) : null,
     max_score: maxScore,
-    digital: sat.filter((l) => l.taken_digitally).length,
+    digital: submittedAll(results).filter((l) => l.taken_digitally).length,
   };
 }
 
@@ -294,10 +387,14 @@ export function scoreDistribution(results: CohortResults, bandCount = 5): ScoreB
   const maxScore = sat.reduce<number | null>((acc, l) => (l.max_score !== null ? l.max_score : acc), null);
   if (sat.length === 0 || !maxScore || maxScore <= 0 || bandCount <= 0) return [];
   const width = maxScore / bandCount;
+  // Labels name the OPEN end so a boundary score is placeable: with width 4, a
+  // score of exactly 4 goes in "4 to <8", and only the top band is closed on
+  // both sides. "0–4" next to "4–8" left the reader no way to know.
   const bands: ScoreBand[] = Array.from({ length: bandCount }, (_, i) => {
     const from = Math.round(i * width * 10) / 10;
     const to = Math.round((i + 1) * width * 10) / 10;
-    return { label: `${from}–${to}`, from, to, count: 0 };
+    const isTop = i === bandCount - 1;
+    return { label: isTop ? `${from}–${to}` : `${from} to <${to}`, from, to, count: 0 };
   });
   for (const l of sat) {
     const score = l.score as number;
@@ -422,12 +519,27 @@ export interface ResultsPaperSummary {
   title: string;
   exam_key: string | null;
   cohort_label: string | null;
+  /** The build state from `config.state` — DRAFT | PREVIEW | EDITED | FINALIZED. */
   state: string;
+  /** Whether learners may open it: `config.outputs.published_at` is set — the
+   *  same predicate as `paper-service.isPaperLive`. A FINALIZED paper that was
+   *  never published, and one that is live, used to render identically. */
+  published: boolean;
+  /** True once `config.close_at` has passed. Null when the paper carries no
+   *  window at all. */
+  closed: boolean | null;
   question_count: number;
-  sat: number;
-  total: number;
-  /** Mean score of submitted sittings, or null when nobody has sat it. */
+  /** Null — NOT zero — when this caller cannot read the sitting rows behind the
+   *  count (see `counts_visible`). RLS returns no rows rather than an error, so
+   *  a zero here would be an assertion the route cannot make. */
+  sat: number | null;
+  total: number | null;
+  /** Mean score over ONE sitting per learner (the latest submitted), or null
+   *  when nobody has sat it / the counts are not readable. */
   average: number | null;
+  /** False when `fp_attempts`/`fp_enrollments` RLS does not admit this caller
+   *  for this paper — the screen says so instead of printing "0 of — sat". */
+  counts_visible: boolean;
   updated_at: string | null;
   /** True when this caller sees the paper through a school owner row alone. */
   via_school_owner: boolean;
@@ -470,13 +582,23 @@ export function parseLearnerReport(raw: unknown): LearnerReport {
 
   const attempted = int(pick(p, 'attempted', 'total_attempted', 'answered'));
   const correct = int(pick(p, 'correct', 'total_correct'));
-  const accuracyRaw = num(pick(p, 'accuracy', 'accuracy_pct'));
-  const accuracy =
-    accuracyRaw !== null
-      ? Math.round((accuracyRaw <= 1 ? accuracyRaw * 100 : accuracyRaw) * 10) / 10
-      : attempted > 0
-        ? Math.round((correct / attempted) * 1000) / 10
-        : null;
+  // UNIT IS PINNED BY THE KEY NAME, NEVER BY MAGNITUDE. The old rule was
+  // `raw <= 1 ? raw * 100 : raw`, so a learner who answered 1 of 100 and whose
+  // `accuracy_pct` was therefore 1 was shown "Accuracy 100%". A single scalar
+  // cannot disambiguate a fraction from a percent, so:
+  //   1. correct/attempted whenever attempted > 0 — exact, unit-free, and it
+  //      makes this tile agree with the two tiles beside it;
+  //   2. a *_pct / *_percent key is a PERCENT as sent (0.5 means 0.5%);
+  //   3. a *_ratio / *_fraction key is a fraction, multiplied by 100;
+  //   4. nothing usable => null, which the screen renders as "—".
+  const accuracy = (() => {
+    if (attempted > 0) return clampPct(Math.round((correct / attempted) * 1000) / 10);
+    const asPercent = num(pick(p, 'accuracy_pct', 'accuracy_percent', 'accuracy'));
+    if (asPercent !== null) return clampPct(Math.round(asPercent * 10) / 10);
+    const asRatio = num(pick(p, 'accuracy_ratio', 'accuracy_fraction'));
+    if (asRatio !== null) return clampPct(Math.round(asRatio * 1000) / 10);
+    return null;
+  })();
 
   const topics = arr(pick(root, 'topics', 'per_topic', 'units'))
     .map((entry) => {

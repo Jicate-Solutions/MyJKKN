@@ -6,15 +6,20 @@
 // came for, so it comes first and is NEVER gated; the analytics that follow are
 // the paper judging itself.
 //
-// Rulings on the surface:
-//   #1  No client permission test — the API and Lane S3's RPC decide who reads
-//       this, and a principal with only a school owner row is one of them.
-//   #8  A withdrawn question keeps its row, carries a "withdrawn" note, and
+// Rulings on the surface. #1/#8/#9/#14 are rows of the ruling table in
+// `specs/onemark-wave3-2026-09-06.md`, "## Rulings of 2026-09-06 01:20 IST
+// (Director interview, 15 answers)"; decision #17 is from the separate
+// `specs/onemark-decisions-2026-09-02.md` (the 20 decisions). Two documents,
+// two numbering schemes — the file is always named with the number.
+//   W3 #1  No client permission test — the API and Lane S3's RPC decide who
+//       reads this, and an active school-owner row alone is one of the doors.
+//   W3 #8  A withdrawn question keeps its row, carries a "withdrawn" note, and
 //       nothing on this screen recomputes a score because of it.
-//   #9  The item table hides below the min-learners threshold. The score list
-//       above it does not.
-//   #14 The export is the score list. No answer key, no explanation.
-//   #17 A sitting taken on a device is flagged in the score list.
+//   W3 #9  The item table hides below the min-learners threshold; the server
+//       withholds the rows, this screen only explains the gap. The score list
+//       above it is never gated.
+//   W3 #14 The export is the score list. No answer key, no explanation.
+//   Decision #17 A sitting taken on a device is flagged in the score list.
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
@@ -65,6 +70,8 @@ export function CohortSheet({ assessmentId }: { assessmentId: string }) {
     | { kind: 'error'; message: string }
     | { kind: 'ready'; results: CohortResults }
   >({ kind: 'loading' });
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setState({ kind: 'loading' });
@@ -93,6 +100,45 @@ export function CohortSheet({ assessmentId }: { assessmentId: string }) {
     void load();
   }, [load]);
 
+  // THE EXPORT IS FETCHED, NOT LINKED. It used to be `<Button asChild disabled>`
+  // wrapping an `<a href>`: with asChild the Button renders a Slot, so
+  // `disabled` landed on an anchor, which ignores it — the control was neither
+  // dimmed nor blocked at zero learners and downloaded a header-only file. And
+  // the anchor was a top-level navigation, so any non-200 from the export route
+  // replaced the page with its raw JSON body — which, before Lane S3's
+  // migration is applied, is EVERY click ("Cohort results are not switched on
+  // yet."). A fetch keeps the failure on this screen, in words.
+  const downloadCsv = useCallback(async () => {
+    setExporting(true);
+    setExportError(null);
+    try {
+      const res = await fetch(`/api/foundation/onemark/results/${assessmentId}/export`, {
+        cache: 'no-store',
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setExportError(body?.error ?? 'Could not build the score list. Please try again.');
+        return;
+      }
+      const blob = await res.blob();
+      const name =
+        /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ??
+        'onemark-scores.csv';
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = name;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setExportError('Could not reach the server. Check your connection and try again.');
+    } finally {
+      setExporting(false);
+    }
+  }, [assessmentId]);
+
   if (state.kind === 'loading') {
     return (
       <div className="space-y-4">
@@ -104,7 +150,12 @@ export function CohortSheet({ assessmentId }: { assessmentId: string }) {
   }
 
   if (state.kind === 'denied') {
-    return <PermissionError message={state.message} requiredPermission="foundation.assessments.manage" />;
+    // No `requiredPermission` prop: the message already names BOTH doors
+    // (the assessment-builder permission or a school owner row), and printing
+    // "Required permission: foundation.assessments.manage" underneath it
+    // contradicted the sentence above — ruling #1 makes the owner row
+    // sufficient on its own.
+    return <PermissionError message={state.message} />;
   }
 
   if (state.kind === 'notReady' || state.kind === 'error') {
@@ -149,20 +200,26 @@ export function CohortSheet({ assessmentId }: { assessmentId: string }) {
           note={
             summary.average === null
               ? 'nobody has submitted yet'
-              : summary.max_score
-                ? `out of ${summary.max_score}${summary.average_pct === null ? '' : ` · ${summary.average_pct}%`}`
-                : undefined
+              : // A submitted-but-ungraded live sitting is in `sat` and not in
+                // `graded`, so the gap is named rather than left to be noticed.
+                [
+                  summary.max_score ? `out of ${summary.max_score}` : null,
+                  summary.average_pct === null ? null : `${summary.average_pct}%`,
+                  summary.graded < summary.sat ? `over ${summary.graded} graded of ${summary.sat}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ') || undefined
           }
         />
         <Stat
           label="Range"
           value={summary.lowest === null ? '—' : `${summary.lowest}–${summary.highest}`}
-          note="lowest to highest score"
+          note="lowest to highest graded score"
         />
         <Stat
           label="On a device"
           value={summary.sat === 0 ? '—' : String(summary.digital)}
-          note="sat digitally rather than on paper"
+          note="of the submitted sittings, sat on a device rather than on paper"
         />
       </section>
 
@@ -198,12 +255,18 @@ export function CohortSheet({ assessmentId }: { assessmentId: string }) {
               explanation.
             </p>
           </div>
-          <Button asChild variant="outline" size="sm" disabled={results.learners.length === 0}>
-            <a href={`/api/foundation/onemark/results/${assessmentId}/export`}>
+          <div className="flex flex-col items-end gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={results.learners.length === 0 || exporting}
+              onClick={() => void downloadCsv()}
+            >
               <Download className="mr-2 h-4 w-4" />
-              Export CSV
-            </a>
-          </Button>
+              {exporting ? 'Preparing…' : 'Export CSV'}
+            </Button>
+            {exportError && <p className="text-xs text-destructive">{exportError}</p>}
+          </div>
         </div>
         {results.learners.length === 0 ? (
           <p className="p-6 text-sm text-muted-foreground">
@@ -277,7 +340,8 @@ export function CohortSheet({ assessmentId }: { assessmentId: string }) {
           <p className="p-6 text-sm text-muted-foreground">
             Per-question statistics stay hidden until{' '}
             <span className="tabular-nums">{results.min_learners_for_item_stats}</span> learners have
-            submitted — below that, a single row identifies a person. The score list above is unaffected.
+            submitted — below that, a single row identifies a person. The server withholds the rows
+            entirely, so they are not in this page&rsquo;s data either. The score list above is unaffected.
           </p>
         ) : results.items.length === 0 ? (
           <p className="p-6 text-sm text-muted-foreground">No question-level data for this paper yet.</p>

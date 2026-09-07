@@ -13,13 +13,27 @@ import { NOT_READY_MESSAGE, UUID_RE, isMissingFunction } from '../../_shared';
 // which wraps the existing fn_fp_student_progress and adds vault state and the
 // last ten sittings.
 //
-// NO PERMISSION GATE HERE, DELIBERATELY. The RPC's caller check is
+// NO PERMISSION-KEY GATE HERE, DELIBERATELY. The RPC's caller check is
 // fn_fp_can_view_student, and that predicate admits THE LEARNER THEMSELVES —
 // this route is the API behind the learner's own "My progress" card as well as
 // behind the Senior Learner's report screen. Adding assessments.manage here
 // would lock a learner out of their own numbers. A caller the predicate refuses
 // gets the RPC's 42501, surfaced below as an explicit 403 (CLAUDE.md #27),
 // never a silent redirect.
+//
+// BUT NOT "NO GATE AT ALL". This is a learner-PII endpoint taking a
+// caller-supplied uuid, and `fn_onemark_learner_report` is another lane's
+// unwritten SECURITY DEFINER function: if it ships without the predicate, every
+// signed-in caller could read every learner's report by uuid, and nothing here
+// would notice. So the route first reads the `fp_students` row through the
+// SESSION client. That table's own RLS (`fp_students_select`,
+// 20260706063000:118-124) is super-admin OR `profile_id = auth.uid()` OR
+// `parent_profile_id = auth.uid()` OR `fn_fp_manages_school(school_id)` OR
+// `fn_fp_teaches_student(id)` — the same set fn_fp_can_view_student admits, so
+// this is defence in depth rather than a second, different rule, and it CANNOT
+// lock out the learner (line 120 is their own row) or a school owner. Zero rows
+// means the caller cannot see that learner at all: an explicit 403 that names
+// the reason, never a redirect.
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ studentId: string }> }) {
   await connection();
@@ -38,6 +52,23 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    // Defence in depth — see the header. One indexed read, RLS-scoped.
+    const { data: visible, error: visibleError } = await (supabase as any)
+      .from('fp_students')
+      .select('id')
+      .eq('id', studentId)
+      .maybeSingle();
+    if (visibleError) throw visibleError;
+    if (!visible) {
+      return NextResponse.json(
+        {
+          error:
+            'You do not have access to this learner’s OneMark report. Ask the Foundation programme lead to record you as a JKKN owner for the school, or open your own report from OneMark practice.',
+        },
+        { status: 403 },
+      );
+    }
 
     const { data, error } = await supabase.rpc('fn_onemark_learner_report', {
       p_student_id: studentId,

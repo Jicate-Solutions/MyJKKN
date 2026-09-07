@@ -20,14 +20,23 @@ import {
 // The payload is Lane S3's `fn_onemark_cohort_results(p_assessment_id)`,
 // normalized by lib/services/onemark/results-service. THE RPC OWNS THE ACCESS
 // DECISION: it admits a holder of foundation.assessments.manage who manages the
-// cohort's school AND — ruling #1 — a principal who holds only a
-// school_jkkn_owners row. This route therefore refuses only the caller who has
-// neither door at all, and otherwise lets the database's 42501 through as a
-// 403. Nothing here narrows what the RPC allows.
+// cohort's school AND — Wave 3 ruling #1 — a principal who holds only a
+// school_jkkn_owners row ("an active `school_jkkn_owners` row alone grants read
+// of every results sheet for that school, with no `assessments.manage`
+// required"; `specs/onemark-wave3-2026-09-06.md`, "## Rulings of 2026-09-06",
+// row 1). This route therefore refuses only the caller who has neither door at
+// all, and otherwise lets the database's 42501 through as a 403. Nothing here
+// narrows what the RPC allows.
 //
-// The min-learners threshold that hides per-item statistics (ruling #9) is read
-// from the platform policy and merged into the payload so the browser gets the
-// same number the server used.
+// PRIVACY IS ENFORCED HERE, NOT IN THE BROWSER. Wave 3 ruling #9 hides
+// per-question numbers below `onemark.results.min_learners_for_item_stats` (3)
+// because "a single row identifies a person". A client-side gate leaves the
+// per-question p-values and the top distractor of a one-learner cohort sitting
+// in the raw JSON, readable from the Network tab or by curl with the caller's
+// own session — which reconstructs that one learner's right/wrong pattern
+// question by question, exactly what the rule exists to prevent. So the server
+// EMPTIES `items` below the threshold and says it did (`items_withheld`); the
+// score list, which the ruling says always shows, is untouched.
 
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ assessmentId: string }> }) {
   await connection();
@@ -67,8 +76,19 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 
     const results = parseCohortResults(data);
     const policyThreshold = await readMinLearners(supabase);
+    const withheld = results.learners_sat < policyThreshold;
     return NextResponse.json({
-      results: { ...results, min_learners_for_item_stats: policyThreshold },
+      results: {
+        ...results,
+        min_learners_for_item_stats: policyThreshold,
+        items: withheld ? [] : results.items,
+        items_withheld: withheld,
+      },
+      ...(withheld
+        ? {
+            items_withheld_reason: `Per-question numbers are hidden until ${policyThreshold} learners have submitted — below that, a single row identifies a person.`,
+          }
+        : {}),
     });
   } catch (err) {
     console.error('[onemark/results/[assessmentId]] GET failed', err);

@@ -20,8 +20,11 @@ import {
 //
 // GET /api/foundation/onemark/results/[assessmentId]/export -> text/csv
 //
-// RULING #14 — this file carries learner names and scores and NEVER an answer
-// key or an explanation. It is built from the SCORE LIST alone: the cohort
+// WAVE 3 RULING #14 ("Results download — **Names and scores**; never answer
+// keys or explanations"; `specs/onemark-wave3-2026-09-06.md`,
+// "## Rulings of 2026-09-06", row 14) — this file carries learner names and
+// scores and NEVER an answer key or an explanation. Built from the SCORE LIST
+// alone: the cohort
 // payload's item rows are not read here, and `buildScoreListCsv` has a closed
 // column set (results-service.SCORE_LIST_CSV_COLUMNS) that a unit test pins.
 // Access is the RPC's decision, exactly as on the sheet itself.
@@ -50,6 +53,11 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       }
       if (error.code === '42501') {
         return NextResponse.json({ error: NO_ACCESS_MESSAGE }, { status: 403 });
+      }
+      // Same branch as the sheet route: "no such paper" is a 404 here too, not
+      // a 500 reading "Could not build the score list".
+      if (error.code === 'P0002' || error.code === '02000') {
+        return NextResponse.json({ error: 'That paper does not exist.' }, { status: 404 });
       }
       throw error;
     }

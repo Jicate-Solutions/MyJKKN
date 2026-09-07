@@ -342,3 +342,111 @@ describe('parseLearnerReport', () => {
     }
   });
 });
+
+/* ------------------------------------------------------------------ *
+ * Fix round, 2026-09-08. One test per reviewer finding that was
+ * reproduced and repaired, each named by its finding id so a later
+ * reader can walk back from the assertion to the report.
+ * ------------------------------------------------------------------ */
+
+describe('fix round — parsing the payload honestly', () => {
+  it('R1.2 — reads decision 17 from fp_attempts.mode, which is the column that carries it', () => {
+    const live = parseCohortResults(
+      cohortPayload(0, { learners: [{ ...learner(1), taken_digitally: undefined, mode: 'live' }] }),
+    );
+    expect(live.learners[0].taken_digitally).toBe(true);
+  });
+
+  it('R1.2 — an explicit flag still wins over the mode, in both directions', () => {
+    const onPaper = parseCohortResults(
+      cohortPayload(0, { learners: [{ ...learner(1), mode: 'live', taken_digitally: false }] }),
+    );
+    expect(onPaper.learners[0].taken_digitally).toBe(false);
+    const flagged = parseCohortResults(
+      cohortPayload(0, { learners: [{ ...learner(1), mode: null, taken_digitally: 'true' }] }),
+    );
+    expect(flagged.learners[0].taken_digitally).toBe(true);
+  });
+
+  it('R1.3 — 1 percent is not 100 percent: the count pair decides, never the magnitude', () => {
+    const r = parseLearnerReport({ progress: { attempted: 100, correct: 1, accuracy_pct: 1 } });
+    expect(r.progress.accuracy).toBe(1);
+  });
+
+  it('R1.3 — the key name pins the unit when there is no count pair', () => {
+    expect(parseLearnerReport({ progress: { accuracy_pct: 0.5 } }).progress.accuracy).toBe(0.5);
+    expect(parseLearnerReport({ progress: { accuracy_ratio: 0.5 } }).progress.accuracy).toBe(50);
+    expect(parseLearnerReport({ progress: { accuracy_pct: 250 } }).progress.accuracy).toBe(100);
+  });
+
+  it('R1.6 — a p-value outside 0..1 is an empty state, not an 8500 percent cell', () => {
+    expect(parseCohortResults({ items: [{ item_id: 'i1', p_value: 85 }] }).items[0].p_value).toBeNull();
+    expect(parseCohortResults({ items: [{ item_id: 'i1', p_value: -0.2 }] }).items[0].p_value).toBeNull();
+    expect(parseCohortResults({ items: [{ item_id: 'i1', p_value: 0.6 }] }).items[0].p_value).toBe(0.6);
+    expect(parseCohortResults({ items: [{ item_id: 'i1', p_value: 1 }] }).items[0].p_value).toBe(1);
+  });
+
+  it('R1.7 — a repeated learner row reaches neither the table nor the export twice', () => {
+    const r = parseCohortResults({
+      learners: [
+        { student_id: 'dup', name: 'A', score: 1, max_score: 10, status: 'submitted' },
+        { student_id: 'dup', name: 'A', score: 2, max_score: 10, status: 'submitted' },
+      ],
+    });
+    expect(r.learners).toHaveLength(1);
+    expect(r.learners[0].score).toBe(1);
+    expect(buildScoreListCsv(r).trim().split('\r\n')).toHaveLength(2); // header + one row
+  });
+
+  it('R1.7 — a repeated item row is collapsed too', () => {
+    const r = parseCohortResults({
+      items: [
+        { item_id: 'same', p_value: 0.5 },
+        { item_id: 'same', p_value: 0.9 },
+      ],
+    });
+    expect(r.items).toHaveLength(1);
+    expect(r.items[0].p_value).toBe(0.5);
+  });
+
+  it('R1.11 — a boundary score is placeable from the band label alone', () => {
+    const r = parseCohortResults({
+      learners: [3.9, 4, 20].map((score, i) => ({
+        student_id: `b${i}`,
+        name: 'n',
+        score,
+        max_score: 20,
+        status: 'submitted',
+      })),
+    });
+    const bands = scoreDistribution(r);
+    expect(bands.map((b) => b.label)).toEqual(['0 to <4', '4 to <8', '8 to <12', '12 to <16', '16–20']);
+    expect(bands[0].count).toBe(1);
+    expect(bands[1].count).toBe(1);
+    expect(bands[4].count).toBe(1);
+  });
+
+  it('R3.11 — sat and on-a-device share a denominator, and graded is its own number', () => {
+    const r = parseCohortResults({
+      learners_sat: 2,
+      learners: [
+        { student_id: 'g1', name: 'a', score: 5, max_score: 10, status: 'submitted', taken_digitally: true },
+        { student_id: 'g2', name: 'b', score: null, max_score: 10, status: 'submitted', taken_digitally: true },
+      ],
+    });
+    const s = summarize(r);
+    expect(s.sat).toBe(2);
+    expect(s.digital).toBe(2); // both submitted sittings were on a device
+    expect(s.graded).toBe(1); // only one carries a score
+    expect(s.average).toBe(5);
+  });
+
+  it('R3.2 — the withheld marker survives a round trip through the parser', () => {
+    expect(parseCohortResults({ items_withheld: true }).items_withheld).toBe(true);
+    expect(parseCohortResults({}).items_withheld).toBe(false);
+  });
+
+  it('W3 ruling #9 — the code fallback is the ruling number, 3', () => {
+    expect(MIN_LEARNERS_FOR_ITEM_STATS_DEFAULT).toBe(3);
+  });
+});
