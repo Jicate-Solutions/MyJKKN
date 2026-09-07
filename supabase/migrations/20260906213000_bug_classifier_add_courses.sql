@@ -155,7 +155,15 @@ CREATE INDEX IF NOT EXISTS idx_bug_reports_module_name ON public.bug_reports(mod
 CREATE INDEX IF NOT EXISTS idx_bug_reports_sub_module_name ON public.bug_reports(module_name, sub_module_name);
 
 -- The dependent view, verbatim from supabase/setup/05_views.sql.
-CREATE OR REPLACE VIEW public.bug_reports_with_details AS
+-- security_invoker = true is NOT optional and NOT decorative: the DROP VIEW above
+-- destroys the view's reloptions and its whole ACL, so a bare re-CREATE would
+-- resurrect it as a SECURITY DEFINER-equivalent view owned by the superuser --
+-- silently reverting migration 20251210_fix_security_and_performance_issues.sql
+-- and serving every bug report (and the joined reporter's name/email) to anyone
+-- who can read the view, bypassing bug_reports RLS entirely.
+CREATE OR REPLACE VIEW public.bug_reports_with_details
+WITH (security_invoker = true)
+AS
 SELECT
     br.id,
     br.created_at,
@@ -179,11 +187,28 @@ SELECT
     d.department_name,
     d.department_code,
     br.module_name,
-    br.sub_module_name
+    br.sub_module_name,
+    -- Restored from migration 20260717061500_bug_reports_duplicate_machinery.sql.
+    -- supabase/setup/05_views.sql had drifted and never received these three, so a
+    -- recreation copied "verbatim" from that file silently DELETES the duplicate
+    -- feature from /admin/bug-reports (list badge, detail page, mark-duplicate
+    -- dialog) -- and silently, because the UI reads `duplicate_count ?? 0`.
+    br.duplicate_of,
+    canon.display_id AS duplicate_of_display_id,
+    (SELECT count(*)::int FROM public.bug_reports dup WHERE dup.duplicate_of = br.id) AS duplicate_count
 FROM public.bug_reports br
 LEFT JOIN public.profiles p ON br.reporter_user_id = p.id
 LEFT JOIN public.institutions i ON br.institution_id = i.id
-LEFT JOIN public.departments d ON br.department_id = d.id;
+LEFT JOIN public.departments d ON br.department_id = d.id
+LEFT JOIN public.bug_reports canon ON br.duplicate_of = canon.id;
+
+-- The DROP VIEW above also destroyed the view's grants. Supabase's
+-- ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon
+-- re-grants the re-created view to anon, so the revoke must be explicit --
+-- exactly the omission the "New tables lock anon" gate refused.
+REVOKE ALL ON TABLE public.bug_reports_with_details FROM anon, PUBLIC;
+GRANT  SELECT ON TABLE public.bug_reports_with_details TO authenticated;
+GRANT  ALL    ON TABLE public.bug_reports_with_details TO service_role;
 
 -- End-state assert: the new expression knows /courses/, the view is back, both indexes exist.
 DO $$
@@ -199,6 +224,32 @@ BEGIN
   END IF;
   IF to_regclass('public.bug_reports_with_details') IS NULL THEN
     RAISE EXCEPTION 'bug_reports_with_details view was not re-created';
+  END IF;
+  -- The view existing is not the same as the view being safe: assert the two
+  -- properties the DROP destroyed, or this migration silently un-does 20251210.
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public'
+       AND c.relname = 'bug_reports_with_details'
+       AND c.reloptions @> ARRAY['security_invoker=true']
+  ) THEN
+    RAISE EXCEPTION 'bug_reports_with_details lost WITH (security_invoker = true) - it would bypass bug_reports RLS';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon')
+     AND has_table_privilege('anon', 'public.bug_reports_with_details', 'SELECT') THEN
+    RAISE EXCEPTION 'anon can still SELECT bug_reports_with_details';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated')
+     AND NOT has_table_privilege('authenticated', 'public.bug_reports_with_details', 'SELECT') THEN
+    RAISE EXCEPTION 'authenticated lost SELECT on bug_reports_with_details - the admin bug page would 42501';
+  END IF;
+  -- The duplicate machinery must survive the recreation, or /admin/bug-reports
+  -- loses it with no error anywhere.
+  IF (SELECT count(*) FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'bug_reports_with_details'
+         AND column_name IN ('duplicate_of','duplicate_of_display_id','duplicate_count')) <> 3 THEN
+    RAISE EXCEPTION 'bug_reports_with_details lost the duplicate columns (20260717061500)';
   END IF;
   IF to_regclass('public.idx_bug_reports_module_name') IS NULL
      OR to_regclass('public.idx_bug_reports_sub_module_name') IS NULL THEN
