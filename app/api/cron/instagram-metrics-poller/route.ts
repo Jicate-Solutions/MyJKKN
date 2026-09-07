@@ -1388,13 +1388,19 @@ export async function GET(request: Request): Promise<Response> {
     // closing Sentry write and JSON response.
     const POLL_BUDGET_MS = 270_000;
 
+    // Counted here rather than derived from accountsPolled + errorsCount:
+    // errorsCount also carries SEEDING errors from the discovery branch above,
+    // which would silently undercount the skipped tail on a first-run install.
+    let accountsAttempted = 0;
+
     for (const account of accountList) {
       if (Date.now() - start > POLL_BUDGET_MS) {
         // Ordered oldest-first above, so the accounts skipped here are the
         // most-recently-polled ones — they go to the FRONT of the next run.
-        accountsSkipped = accountList.length - accountsPolled - errorsCount;
+        accountsSkipped = accountList.length - accountsAttempted;
         break;
       }
+      accountsAttempted++;
       const acctStart = Date.now();
       try {
         // ----------------------------------------------------------------
