@@ -2649,11 +2649,14 @@ CREATE TRIGGER trg_b_induction_require_session_started
 -- Updated: 2026-09-07 — see supabase/migrations/20261118093000_events_institutional_number_and_target_classes.sql
 -- ============================================================================
 
--- UPDATE OF <cols> so an ordinary event edit does not pay for this trigger; it
--- fires only when somebody tries to write the number itself, and then freezes it.
+-- UPDATE OF <cols> so an ordinary event edit does not pay for this trigger. It
+-- fires when somebody tries to write the number itself (and then freezes it),
+-- and on a change of institution_id, which would otherwise re-home an already
+-- issued number into a college whose counter knows nothing about it.
 DROP TRIGGER IF EXISTS trg_events_stamp_event_number ON public.events;
 CREATE TRIGGER trg_events_stamp_event_number
-  BEFORE INSERT OR UPDATE OF event_number_year, event_number_seq ON public.events
+  BEFORE INSERT OR UPDATE OF event_number_year, event_number_seq, institution_id
+  ON public.events
   FOR EACH ROW EXECUTE FUNCTION public.fn_events_stamp_event_number();
 
 DROP TRIGGER IF EXISTS trg_event_target_classes_scope ON public.event_target_classes;

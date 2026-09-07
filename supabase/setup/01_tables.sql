@@ -9548,12 +9548,28 @@ GRANT SELECT, INSERT                 ON TABLE public.hostel_cleaning_feedback   
 ALTER TABLE public.events
   ADD COLUMN IF NOT EXISTS event_number_year INTEGER,
   ADD COLUMN IF NOT EXISTS event_number_seq  INTEGER;
--- event_number TEXT GENERATED ALWAYS AS (
---   CASE WHEN event_number_year IS NULL OR event_number_seq IS NULL THEN NULL
---        ELSE lpad((event_number_year % 100)::text, 2, '0')
---             || '-' || lpad(event_number_seq::text, 3, '0') END) STORED
--- (added by the migration inside a DO block, because ADD COLUMN IF NOT EXISTS
---  cannot carry a GENERATED clause on every supported PostgreSQL.)
+-- ADD COLUMN IF NOT EXISTS cannot carry a GENERATED clause on every supported
+-- PostgreSQL, so the generated column is added inside a DO block that checks for
+-- it first. This block is NOT optional: idx_events_event_number below indexes
+-- this column, so a rebuild from setup fails without it.
+DO $events_number_col$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'events'
+       AND column_name = 'event_number'
+  ) THEN
+    ALTER TABLE public.events
+      ADD COLUMN event_number TEXT
+      GENERATED ALWAYS AS (
+        CASE
+          WHEN event_number_year IS NULL OR event_number_seq IS NULL THEN NULL
+          ELSE lpad((event_number_year % 100)::text, 2, '0')
+               || '-' || lpad(event_number_seq::text, 3, '0')
+        END
+      ) STORED;
+  END IF;
+END $events_number_col$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_events_institution_number
   ON public.events (institution_id, event_number_year, event_number_seq)

@@ -61276,7 +61276,9 @@ BEGIN
 END;
 $$;
 
-REVOKE EXECUTE ON FUNCTION public.fn_events_allocate_number(UUID, INTEGER) FROM anon, PUBLIC;
+-- `authenticated` named explicitly: Supabase's ALTER DEFAULT PRIVILEGES gives it
+-- a DIRECT grant on every new function, separate from PUBLIC.
+REVOKE EXECUTE ON FUNCTION public.fn_events_allocate_number(UUID, INTEGER) FROM anon, authenticated, PUBLIC;
 -- Deliberately NOT granted to `authenticated`: a signed-in caller who could call
 -- this directly could burn numbers or bump last_seq past every real event.
 GRANT  EXECUTE ON FUNCTION public.fn_events_allocate_number(UUID, INTEGER) TO service_role;
@@ -61292,28 +61294,53 @@ DECLARE
   v_year INTEGER;
 BEGIN
   IF TG_OP = 'UPDATE' THEN
+    -- An institutional number is quoted in letters, minutes and reports. Once
+    -- issued it is not re-derivable from a later edit to the date or the
+    -- college, so both halves are frozen. NULL -> value is still allowed, so a
+    -- row that escaped numbering can still be numbered; that is the path the
+    -- backfill in 1f travels.
     IF OLD.event_number_year IS NOT NULL THEN
       NEW.event_number_year := OLD.event_number_year;
     END IF;
     IF OLD.event_number_seq IS NOT NULL THEN
       NEW.event_number_seq := OLD.event_number_seq;
     END IF;
+
+    -- A number belongs to the college that issued it. Moving a numbered event
+    -- to another college carries its number into a counter that knows nothing
+    -- about it; that college's next genuine create then collides on
+    -- uq_events_institution_number and keeps colliding. Renumbering on the move
+    -- was rejected as the alternative: it would silently change a number that
+    -- has already been quoted in letters and minutes, which is the very thing
+    -- the freeze above exists to prevent. So the move is REFUSED while a number
+    -- is held. An event that genuinely changes college is an owner-level
+    -- repair: disable this trigger, clear both halves, re-enable, and the next
+    -- stamp issues a fresh number in the receiving college.
+    IF NEW.institution_id IS DISTINCT FROM OLD.institution_id
+       AND OLD.event_number_seq IS NOT NULL THEN
+      RAISE EXCEPTION
+        'events: event % already carries institutional number % issued by college %. Changing its college would re-home that number and desync the counter of the receiving college.',
+        OLD.id, OLD.event_number, OLD.institution_id
+        USING ERRCODE = '23514';
+    END IF;
+
     RETURN NEW;
   END IF;
 
+  -- INSERT
   IF NEW.institution_id IS NULL THEN
+    -- events.institution_id is NOT NULL, so this row dies on its own constraint
+    -- a moment from now. Nothing to number, and nothing to raise about here.
     RETURN NEW;
   END IF;
 
-  IF NEW.event_number_year IS NOT NULL AND NEW.event_number_seq IS NOT NULL THEN
-    RETURN NEW;
-  END IF;
-
-  v_year := COALESCE(
-    NEW.event_number_year,
-    public.fn_event_academic_year_start(
-      NEW.institution_id,
-      COALESCE(NEW.event_date, (NEW.start_date AT TIME ZONE 'Asia/Kolkata')::date, CURRENT_DATE)
+  -- Caller-supplied halves are deliberately NOT consulted -- see the header.
+  v_year := public.fn_event_academic_year_start(
+    NEW.institution_id,
+    COALESCE(
+      NEW.event_date,
+      (NEW.start_date AT TIME ZONE 'Asia/Kolkata')::date,
+      CURRENT_DATE
     )
   );
 
@@ -61323,7 +61350,12 @@ BEGIN
 END;
 $$;
 
-REVOKE EXECUTE ON FUNCTION public.fn_events_stamp_event_number() FROM anon, PUBLIC;
+-- Trigger-only. PostgreSQL checks EXECUTE on a trigger function at CREATE
+-- TRIGGER time (done here by the owner, who keeps the privilege regardless) and
+-- never again when the trigger fires, so no role needs a grant. `authenticated`
+-- is revoked explicitly because Supabase's ALTER DEFAULT PRIVILEGES hands it a
+-- direct grant on every new function, separate from PUBLIC.
+REVOKE EXECUTE ON FUNCTION public.fn_events_stamp_event_number() FROM anon, authenticated, PUBLIC;
 
 -- Trigger body: stamp event_target_classes.institution_id from the event and
 -- refuse a class that belongs to a different college. Without this the RLS on
@@ -61362,5 +61394,5 @@ BEGIN
 END;
 $$;
 
-REVOKE EXECUTE ON FUNCTION public.fn_event_target_class_scope() FROM anon, PUBLIC;
-
+-- Trigger-only: EXECUTE is checked at CREATE TRIGGER time, not per firing.
+REVOKE EXECUTE ON FUNCTION public.fn_event_target_class_scope() FROM anon, authenticated, PUBLIC;

@@ -83,6 +83,35 @@ COMMENT ON COLUMN public.events.event_number_year IS
   'The calendar year in which this event''s academic year OPENS (2026 = AY 2026-2027). Half of the institutional event number. Frozen once assigned.';
 COMMENT ON COLUMN public.events.event_number_seq IS
   'Position of this event within its college and academic year, from 1. Frozen once assigned. Gaps are possible and expected — a rolled-back create burns its number rather than handing it to somebody else.';
+-- ANON CAN READ event_number ON A PUBLISHED EVENT -- DECIDED, NOT OVERLOOKED.
+--   public.events carries the pre-existing policy `events_public_read`
+--   (supabase/setup/03_policies.sql): FOR SELECT USING (is_public = true AND
+--   status NOT IN ('draft','cancelled')), with NO `TO` clause, so it applies to
+--   anon, which holds the table-level SELECT grant Supabase's default
+--   privileges hand out. is_public DEFAULTS TO TRUE, so most events are on that
+--   surface and the new number travels with them.
+--   WHAT IT DISCLOSES: on an event the institution has ALREADY published in
+--   full (name, description, date, venue), the number adds the college's
+--   ordinal for that academic year -- so a reader can infer how many events a
+--   college has numbered this year. No personal data, no learner data.
+--   ACCEPTED, because the two alternatives are both worse here:
+--     * Re-scoping `events_public_read` to `TO authenticated` reverses a
+--       deliberate product decision (a policy written expressly to publish
+--       flagged events) from inside a migration about numbering. Nothing in
+--       THIS repository reads events anonymously -- all 42 `from('events')`
+--       call sites run on the authenticated browser client -- but an external
+--       consumer hitting PostgREST with the anon key is exactly what the policy
+--       exists for, and this PR cannot measure who that is.
+--     * Hiding just these columns from anon needs a column-level grant, and
+--       PostgreSQL will not subtract a column from a table-level grant: it
+--       would mean REVOKE SELECT ON public.events FROM anon followed by a GRANT
+--       enumerating every other column -- which then silently hides every
+--       column added to events in future.
+--   If the Director decides the ordinal should not be public, the clean change
+--   is a separate PR that re-scopes `events_public_read` after auditing who
+--   consumes it. NOTE: that anon holds the table-level SELECT grant is inferred
+--   from Supabase's defaults; this PR did not query the live database to
+--   confirm it.
 COMMENT ON COLUMN public.events.event_number IS
   'The institutional event number a coordinator quotes, e.g. 26-001: the academic year''s opening year (last two digits), a dash, then the sequence within that college and year. Generated — never write to it.';
 
@@ -214,7 +243,11 @@ BEGIN
 END;
 $$;
 
-REVOKE EXECUTE ON FUNCTION public.fn_events_allocate_number(UUID, INTEGER) FROM anon, PUBLIC;
+-- `authenticated` is named explicitly: Supabase's ALTER DEFAULT PRIVILEGES
+-- gives it a DIRECT execute grant on every new function, separate from PUBLIC,
+-- so revoking PUBLIC alone leaves it callable -- and the end-state assertion
+-- at the foot of this file would then abort the migration.
+REVOKE EXECUTE ON FUNCTION public.fn_events_allocate_number(UUID, INTEGER) FROM anon, authenticated, PUBLIC;
 -- Deliberately NOT granted to `authenticated`. The only legitimate caller is the
 -- BEFORE INSERT trigger, which runs as the table owner. A signed-in caller who
 -- could call this directly could burn numbers, or bump last_seq past every real
@@ -225,7 +258,27 @@ COMMENT ON FUNCTION public.fn_events_allocate_number(UUID, INTEGER) IS
   'Hands out the next institutional event number for a college and academic year. Atomic: the ON CONFLICT DO UPDATE row lock serialises concurrent creates, so two coordinators never receive the same number.';
 
 
--- 1e. Assign on insert; freeze thereafter.
+-- 1e. Assign on insert; freeze thereafter; refuse a college change.
+--
+-- THE ALLOCATOR IS THE ONLY SOURCE OF A NUMBER ON INSERT.
+--   An earlier draft returned early when the caller supplied both halves,
+--   commented "backfill / data repair". That justification was wrong: the
+--   backfill in 1f is an UPDATE, so it travels the UPDATE branch (OLD halves
+--   NULL -> NEW values pass through) and never reached that INSERT branch. What
+--   the branch DID reach was every ordinary create. `authenticated` holds
+--   INSERT on public.events and PostgREST forwards any column the caller sends,
+--   so a signed-in event creator could claim an arbitrary sequence number
+--   WITHOUT bumping the counter. Claiming the numbers the allocator is about to
+--   hand out desyncs the counter, and because the allocator has no retry loop,
+--   every subsequent create for that college and year then dies on
+--   uq_events_institution_number and keeps dying -- a permanent, unprivileged
+--   denial of service on the numbering scheme.
+--   The branch is therefore REMOVED, not narrowed: a caller-supplied
+--   event_number_year / event_number_seq is now ignored on INSERT, and both
+--   halves are always resolved and allocated here.
+--   The privileged repair path an operator still has is the table owner's
+--   `ALTER TABLE public.events DISABLE TRIGGER trg_events_stamp_event_number`
+--   -- a privilege `authenticated` does not hold and PostgREST cannot express.
 CREATE OR REPLACE FUNCTION public.fn_events_stamp_event_number()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -238,35 +291,51 @@ BEGIN
   IF TG_OP = 'UPDATE' THEN
     -- An institutional number is quoted in letters, minutes and reports. Once
     -- issued it is not re-derivable from a later edit to the date or the
-    -- college, so both halves are frozen. NULL -> value is allowed (a row that
-    -- somehow escaped numbering can still be numbered).
+    -- college, so both halves are frozen. NULL -> value is still allowed, so a
+    -- row that escaped numbering can still be numbered; that is the path the
+    -- backfill in 1f travels.
     IF OLD.event_number_year IS NOT NULL THEN
       NEW.event_number_year := OLD.event_number_year;
     END IF;
     IF OLD.event_number_seq IS NOT NULL THEN
       NEW.event_number_seq := OLD.event_number_seq;
     END IF;
+
+    -- A number belongs to the college that issued it. Moving a numbered event
+    -- to another college carries its number into a counter that knows nothing
+    -- about it; that college's next genuine create then collides on
+    -- uq_events_institution_number and keeps colliding. Renumbering on the move
+    -- was rejected as the alternative: it would silently change a number that
+    -- has already been quoted in letters and minutes, which is the very thing
+    -- the freeze above exists to prevent. So the move is REFUSED while a number
+    -- is held. An event that genuinely changes college is an owner-level
+    -- repair: disable this trigger, clear both halves, re-enable, and the next
+    -- stamp issues a fresh number in the receiving college.
+    IF NEW.institution_id IS DISTINCT FROM OLD.institution_id
+       AND OLD.event_number_seq IS NOT NULL THEN
+      RAISE EXCEPTION
+        'events: event % already carries institutional number % issued by college %. Changing its college would re-home that number and desync the counter of the receiving college.',
+        OLD.id, OLD.event_number, OLD.institution_id
+        USING ERRCODE = '23514';
+    END IF;
+
     RETURN NEW;
   END IF;
 
   -- INSERT
   IF NEW.institution_id IS NULL THEN
+    -- events.institution_id is NOT NULL, so this row dies on its own constraint
+    -- a moment from now. Nothing to number, and nothing to raise about here.
     RETURN NEW;
   END IF;
 
-  IF NEW.event_number_year IS NOT NULL AND NEW.event_number_seq IS NOT NULL THEN
-    RETURN NEW;  -- caller supplied both halves (backfill / data repair)
-  END IF;
-
-  v_year := COALESCE(
-    NEW.event_number_year,
-    public.fn_event_academic_year_start(
-      NEW.institution_id,
-      COALESCE(
-        NEW.event_date,
-        (NEW.start_date AT TIME ZONE 'Asia/Kolkata')::date,
-        CURRENT_DATE
-      )
+  -- Caller-supplied halves are deliberately NOT consulted -- see the header.
+  v_year := public.fn_event_academic_year_start(
+    NEW.institution_id,
+    COALESCE(
+      NEW.event_date,
+      (NEW.start_date AT TIME ZONE 'Asia/Kolkata')::date,
+      CURRENT_DATE
     )
   );
 
@@ -276,11 +345,17 @@ BEGIN
 END;
 $$;
 
-REVOKE EXECUTE ON FUNCTION public.fn_events_stamp_event_number() FROM anon, PUBLIC;
+-- Trigger-only. PostgreSQL checks EXECUTE on a trigger function at CREATE
+-- TRIGGER time (done here by the owner, who keeps the privilege regardless) and
+-- never again when the trigger fires, so no role needs a grant. `authenticated`
+-- is revoked explicitly because Supabase's ALTER DEFAULT PRIVILEGES hands it a
+-- direct grant on every new function, separate from PUBLIC.
+REVOKE EXECUTE ON FUNCTION public.fn_events_stamp_event_number() FROM anon, authenticated, PUBLIC;
 
 DROP TRIGGER IF EXISTS trg_events_stamp_event_number ON public.events;
 CREATE TRIGGER trg_events_stamp_event_number
-  BEFORE INSERT OR UPDATE OF event_number_year, event_number_seq ON public.events
+  BEFORE INSERT OR UPDATE OF event_number_year, event_number_seq, institution_id
+  ON public.events
   FOR EACH ROW EXECUTE FUNCTION public.fn_events_stamp_event_number();
 
 
@@ -398,7 +473,9 @@ BEGIN
 END;
 $$;
 
-REVOKE EXECUTE ON FUNCTION public.fn_event_target_class_scope() FROM anon, PUBLIC;
+-- Trigger-only, same reasoning as fn_events_stamp_event_number: EXECUTE is
+-- checked at CREATE TRIGGER time, not per firing, so no role is granted it.
+REVOKE EXECUTE ON FUNCTION public.fn_event_target_class_scope() FROM anon, authenticated, PUBLIC;
 
 DROP TRIGGER IF EXISTS trg_event_target_classes_scope ON public.event_target_classes;
 CREATE TRIGGER trg_event_target_classes_scope
@@ -624,6 +701,21 @@ BEGIN
   END IF;
   IF has_function_privilege('authenticated', 'public.fn_event_academic_year_start(uuid,date)', 'EXECUTE') THEN
     RAISE EXCEPTION 'authenticated can execute fn_event_academic_year_start — it must be trigger-only';
+  END IF;
+
+  -- The two trigger functions need no EXECUTE from anybody: PostgreSQL checks
+  -- it at CREATE TRIGGER time and never when the trigger fires.
+  IF has_function_privilege('authenticated', 'public.fn_events_stamp_event_number()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'authenticated can execute fn_events_stamp_event_number — it must be trigger-only';
+  END IF;
+  IF has_function_privilege('anon', 'public.fn_events_stamp_event_number()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'anon can still execute fn_events_stamp_event_number';
+  END IF;
+  IF has_function_privilege('authenticated', 'public.fn_event_target_class_scope()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'authenticated can execute fn_event_target_class_scope — it must be trigger-only';
+  END IF;
+  IF has_function_privilege('anon', 'public.fn_event_target_class_scope()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'anon can still execute fn_event_target_class_scope';
   END IF;
 
   -- Every event carries a number, and no college/year pair reuses one.
