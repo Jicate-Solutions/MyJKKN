@@ -35,11 +35,14 @@
  * would be measuring the clock. Every assertion here is about a fixture this
  * file created, or about a relationship (before/after, presence/absence).
  *
- * REQUIRES a local PostgreSQL. It is NOT run by CI — no workflow in
- * .github/workflows names this path, and this repo has no test glob: every
- * guard suite is invoked by explicit filename. It is deliberately loud rather
- * than skipped when no server is reachable; a silent skip would report green
- * over a suite that never executed.
+ * REQUIRES a PostgreSQL. This suite IS run by CI: test-suite.yml gates the whole
+ * suite by glob minus an explicit quarantine list, and this path is not on it, so
+ * the job runs this file against its postgres:16 service container. (An earlier
+ * revision of this header said the opposite — true when written, and false from
+ * the moment #2724 turned the lights on. Believing it is what left this file
+ * connecting as `runner`.) It is deliberately loud rather than skipped when no
+ * server is reachable; a silent skip would report green over a suite that never
+ * executed.
  *
  *   brew services start postgresql@16
  *   ./node_modules/.bin/vitest run __tests__/academic/attendance-activates-learner.test.ts
@@ -60,7 +63,17 @@ const MIGRATION = path.join(
 
 const PGHOST = process.env.ACTIVATE_TEST_PGHOST ?? 'localhost';
 const PGPORT = Number(process.env.ACTIVATE_TEST_PGPORT ?? 5432);
-const PGUSER = process.env.ACTIVATE_TEST_PGUSER ?? process.env.USER ?? 'postgres';
+// `process.env.USER` is the right default on a developer's machine — Homebrew's
+// postgres creates a role named after the account — and the WRONG one in CI,
+// where $USER is `runner` and no such role exists. test-suite.yml documents this
+// exact trap ("an unlisted prefix falls back to `runner` and fails with 'role does
+// not exist'") and hands the five suites it already knew about a *_TEST_PGUSER.
+// This file is the sixth, so it resolves the CI case itself rather than depending
+// on an env var somebody must remember to add: the postgres:16 service container
+// the job starts always has a `postgres` superuser, with trust auth.
+const PGUSER =
+  process.env.ACTIVATE_TEST_PGUSER ??
+  (process.env.CI ? 'postgres' : (process.env.USER ?? 'postgres'));
 const PGPASSWORD = process.env.ACTIVATE_TEST_PGPASSWORD;
 
 const DBNAME = `activate_first_present_${randomUUID().replace(/-/g, '').slice(0, 16)}`;
@@ -92,6 +105,12 @@ const POLICY_KEY = 'learners.activate_on_first_present.enabled';
 
 let admin: Client;
 let db: Client;
+// Teardown must know what actually opened. `admin` is ASSIGNED before it is
+// connected, so a connect failure used to leave afterAll running a query on a
+// dead client — surfacing "Connection terminated unexpectedly" as a second,
+// louder failure that buried the real one ("role X does not exist").
+let adminConnected = false;
+let dbConnected = false;
 
 /**
  * The slice of the production estate this migration touches, rebuilt from the
@@ -313,10 +332,12 @@ beforeAll(async () => {
         `fails rather than skipping. Start one with: brew services start postgresql@16\n${e}`,
     );
   }
+  adminConnected = true;
   await admin.query(`CREATE DATABASE ${DBNAME}`);
 
   db = new Client({ host: PGHOST, port: PGPORT, user: PGUSER, password: PGPASSWORD, database: DBNAME });
   await db.connect();
+  dbConnected = true;
   await db.query(SCHEMA);
 
   // THE MIGRATION IS APPLIED VERBATIM. Nothing is edited, reordered or inlined —
@@ -325,8 +346,8 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(async () => {
-  if (db) await db.end();
-  if (admin) {
+  if (dbConnected) await db.end();
+  if (adminConnected) {
     await admin.query(`DROP DATABASE IF EXISTS ${DBNAME} WITH (FORCE)`);
     await admin.end();
   }
