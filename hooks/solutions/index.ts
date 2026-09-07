@@ -691,6 +691,19 @@ export {
 } from './use-products';
 
 // ============================================
+// DEPARTMENT STATUS REVIEW HOOKS
+// ============================================
+
+export {
+  useOpenDepartmentStatusReviews,
+  useDecidedDepartmentStatusReviews,
+  useDecideDepartmentStatusReview,
+  departmentStatusReviewKeys,
+  type DepartmentStatusReviewWithDetails,
+  type DecideStatusReviewInput,
+} from './use-department-status-reviews';
+
+// ============================================
 // PARADIGM SHIFT DASHBOARD HOOKS
 // ============================================
 

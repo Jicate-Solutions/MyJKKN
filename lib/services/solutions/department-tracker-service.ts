@@ -205,6 +205,95 @@ export const DEPARTMENT_ELIGIBILITY_UNAVAILABLE =
   'Department eligibility screening is not available in this environment — the eligibility criteria table was never provisioned.';
 
 // ============================================
+// STATUS REVIEW QUEUE
+// ============================================
+
+/**
+ * A proposed status change, written by `update_department_statuses()` and
+ * waiting for a person to accept or reject it.
+ *
+ * The table exists because on 2026-08-17 the sweep moved all 44 departments to
+ * dormant in one statement and eight colleges' work vanished from the Council
+ * page. Since 2026-09-02 the sweep only PROPOSES here; nothing changes a
+ * department's status until `apply_department_status_review()` is called.
+ *
+ * `decision` is null while the review is open. A partial unique index keeps at
+ * most one open review per department, so a monthly re-run refreshes the open
+ * proposal rather than stacking duplicates.
+ */
+export interface DepartmentStatusReview {
+  id: string;
+  solution_department_id: string;
+  current_status: string;
+  proposed_status: string;
+  months_since_activity: number;
+  reason: string;
+  computed_at: string;
+  decision: 'applied' | 'dismissed' | null;
+  decided_by: string | null;
+  decided_at: string | null;
+  decision_note: string | null;
+}
+
+/** A review joined to the department it concerns, for display. */
+export interface DepartmentStatusReviewWithDetails extends DepartmentStatusReview {
+  department_name: string;
+  department_code: string | null;
+  institution_name: string;
+}
+
+/** Shape returned by the PostgREST embed below, before flattening. */
+interface StatusReviewJoinRow extends DepartmentStatusReview {
+  solution_department?: {
+    id: string;
+    department?: { department_name: string; department_code: string | null } | null;
+    institution?: { name: string } | null;
+  } | null;
+}
+
+const STATUS_REVIEW_SELECT = `
+  id,
+  solution_department_id,
+  current_status,
+  proposed_status,
+  months_since_activity,
+  reason,
+  computed_at,
+  decision,
+  decided_by,
+  decided_at,
+  decision_note,
+  solution_department:sh_solution_departments!solution_department_id(
+    id,
+    department:departments!department_id(department_name, department_code),
+    institution:institutions!institution_id(name)
+  )
+`;
+
+function flattenStatusReview(row: StatusReviewJoinRow): DepartmentStatusReviewWithDetails {
+  const dept = row.solution_department?.department ?? null;
+  const inst = row.solution_department?.institution ?? null;
+  return {
+    id: row.id,
+    solution_department_id: row.solution_department_id,
+    current_status: row.current_status,
+    proposed_status: row.proposed_status,
+    months_since_activity: row.months_since_activity,
+    reason: row.reason,
+    computed_at: row.computed_at,
+    decision: row.decision,
+    decided_by: row.decided_by,
+    decided_at: row.decided_at,
+    decision_note: row.decision_note,
+    // A null embed means the department row was deleted or is unreadable. Say
+    // so rather than rendering a blank cell that reads as a nameless department.
+    department_name: dept?.department_name ?? 'Unknown department',
+    department_code: dept?.department_code ?? null,
+    institution_name: inst?.name ?? 'Unknown institution',
+  };
+}
+
+// ============================================
 // SERVICE CLASS
 // ============================================
 
@@ -347,6 +436,73 @@ export class DepartmentTrackerService extends BaseService {
       reason,
       changed_by: changedBy || null,
     });
+  }
+
+  // ----------------------------------------
+  // STATUS REVIEW QUEUE
+  // ----------------------------------------
+
+  /**
+   * Open reviews — a status change the sweep proposed that nobody has decided.
+   *
+   * Oldest computation first: a proposal that has sat longest is the one whose
+   * department has been mislabelled longest on every page that reads status.
+   */
+  static async listOpenStatusReviews(): Promise<DepartmentStatusReviewWithDetails[]> {
+    const { data, error } = await this.supabase
+      .from('sh_department_status_reviews')
+      .select(STATUS_REVIEW_SELECT)
+      .is('decision', null)
+      .order('computed_at', { ascending: true });
+
+    if (error) throw error;
+    return ((data ?? []) as unknown as StatusReviewJoinRow[]).map(flattenStatusReview);
+  }
+
+  /**
+   * Recently decided reviews, newest first — the audit trail for this screen.
+   *
+   * Without it the page would be blank the moment a queue is cleared, and a
+   * person could not tell "I just accepted three" from "nothing was ever here".
+   */
+  static async listDecidedStatusReviews(
+    limit = 20
+  ): Promise<DepartmentStatusReviewWithDetails[]> {
+    const { data, error } = await this.supabase
+      .from('sh_department_status_reviews')
+      .select(STATUS_REVIEW_SELECT)
+      .not('decision', 'is', null)
+      .order('decided_at', { ascending: false })
+      .limit(limit);
+
+    if (error) throw error;
+    return ((data ?? []) as unknown as StatusReviewJoinRow[]).map(flattenStatusReview);
+  }
+
+  /**
+   * Accept or reject one open review.
+   *
+   * Delegates to `apply_department_status_review(p_review_id, p_apply, p_note)`,
+   * which is the ONLY sanctioned way to move a department's status from a
+   * review: it re-checks the caller's permission server-side, writes
+   * `sh_department_status_history`, and stamps the decision — all in one
+   * transaction. Writing an UPDATE against `sh_solution_departments` from here
+   * instead would apply the status without the history row, which is the exact
+   * blindness the review queue was built to end.
+   */
+  static async decideStatusReview(
+    reviewId: string,
+    apply: boolean,
+    note?: string | null
+  ): Promise<void> {
+    const trimmed = note?.trim();
+    const { error } = await this.supabase.rpc('apply_department_status_review', {
+      p_review_id: reviewId,
+      p_apply: apply,
+      p_note: trimmed ? trimmed : null,
+    });
+
+    if (error) throw error;
   }
 
   // ----------------------------------------

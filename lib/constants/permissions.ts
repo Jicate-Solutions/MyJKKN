@@ -2014,6 +2014,14 @@ export const PERMISSION_CATEGORIES = [
       { key: 'solutions.societal.view', label: 'View Community Engagements' },
       { key: 'solutions.societal.record', label: 'Record Community Engagements' },
       { key: 'solutions.societal.submit', label: 'Submit Community Engagements' },
+      // `solutions.societal.approve` gained a SECOND enforcement site on
+      // 2026-10-19: it is the key `apply_department_status_review()` checks
+      // before a person may accept or reject a proposed dormancy change, and
+      // `solutions.societal.view` is what the SELECT policy on
+      // `sh_department_status_reviews` requires. No separate status-review key
+      // was added, because a key the database does not check would draw a
+      // button that always fails. Renaming or removing either of these two
+      // closes the department status review queue on /solutions/departments.
       { key: 'solutions.societal.approve', label: 'Approve Community Engagements' },
 
       // Settings (tier-2 chip-leak sweep 2026-04-27)
