@@ -47,7 +47,7 @@ import {
   type PlacementAnswers,
   type SignedPartner,
 } from '@/lib/services/improvement/placement-service';
-import { createClient } from '@/lib/supabase/client';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 const EMPTY: PlacementAnswers = {
   q_done_twice: '',
@@ -108,7 +108,7 @@ export function RecordPlacementDialog({
     }
     setSaving(true);
     try {
-      await PlacementService.record(createClient(), input);
+      await PlacementService.record(createClientSupabaseClient(), input);
       toast.success('Recorded. Thank you for going.');
       reset();
       onOpenChange(false);

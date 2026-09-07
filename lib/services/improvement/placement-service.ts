@@ -36,8 +36,14 @@ export const PARTNER_KIND_LABEL: Record<PartnerKind, string> = {
   school: 'School',
   pharmacy: 'Pharmacy',
   clinic: 'Clinic',
-  laboratory: 'Laboratory',
-  workshop: 'Workshop',
+  // `laboratory` and `workshop` name a PARTNER organisation's premises — a
+  // diagnostic laboratory, an automobile service bay — not a JKKN learning
+  // space, so the learner-spaces mapping does not apply to them. Both are
+  // CHECK-constraint values in 20260816060000_placement_observation_record.sql
+  // and cannot be renamed without a migration. Quoted exactly as PARTNER_KINDS
+  // writes them above, so they read as the identifiers they are.
+  'laboratory': 'Laboratory',
+  'workshop': 'Workshop',
   office: 'Office',
   other: 'Somewhere else',
 };
@@ -64,7 +70,7 @@ export const PLACEMENT_QUESTIONS = [
     label: 'What is kept in a notebook, a spreadsheet or WhatsApp because the official system hurts?',
     hint: 'The private workaround is the real process. The official one is the story told to visitors.',
     placeholder:
-      'e.g. Nil-stock items are kept in a spiral notebook because recording them needs a manager login the counter staff do not have.',
+      'e.g. Nil-stock items are kept in a spiral notebook because recording them needs a manager login that nobody at the counter has.',
   },
   {
     key: 'q_quiet_failure' as const,

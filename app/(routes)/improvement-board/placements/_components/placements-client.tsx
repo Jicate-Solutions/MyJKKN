@@ -19,7 +19,7 @@ import { toast } from 'react-hot-toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Loader2, Plus, MapPin, Lock } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import {
   PlacementService,
   PARTNER_KIND_LABEL,
@@ -56,7 +56,7 @@ export function PlacementsClient({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const supabase = createClient();
+      const supabase = createClientSupabaseClient();
       const [mine, signed] = await Promise.all([
         PlacementService.listMine(supabase, currentUserId),
         PlacementService.listSignedPartners(supabase, institutionId),
@@ -84,7 +84,7 @@ export function PlacementsClient({
             Placement observations
           </h1>
           <p className="text-muted-foreground mt-1 max-w-2xl text-sm">
-            What you saw inside the hospital, school, pharmacy or workshop you
+            What you saw inside the hospital, school, pharmacy or clinic you
             were placed in. Not a report on the organisation — a record of what
             actually happens there, which nobody outside can see.
           </p>
