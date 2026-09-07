@@ -43,6 +43,9 @@ import { TdsSlabService } from '@/lib/services/hr/payroll/tds-slab-service';
 import type {
   HRSalaryRegisterLine,
   HRSalaryRegisterRun,
+  SalaryClosePreview,
+  SalaryClosePreviewExclusion,
+  SalaryClosePreviewRow,
   SalaryRegisterExclusionReason,
   SalaryRegisterPeriodDependency,
   SalaryRegisterPreflight,
@@ -70,6 +73,35 @@ function num(v: unknown): number {
 }
 
 /** Money is stored numeric(12,2); keep every computed figure at 2dp. */
+/** The identity columns every preview row carries, payable or excluded. */
+function baseRow(m: RosterMember) {
+  return {
+    staff_id: m.staff_id,
+    employee_code: m.employee_code,
+    staff_name: m.staff_name,
+    designation: m.designation,
+    department_name: m.department_name,
+  };
+}
+
+/**
+ * A stable digest of the figures a preview showed.
+ *
+ * Not a security hash — a change detector. The close compares it against a
+ * freshly computed preview and refuses if they differ, so approving a month and
+ * then closing it after somebody imported more biometric data cannot silently
+ * freeze numbers nobody verified. Sorted by staff so row order cannot flip it.
+ */
+function fingerprintOf(rows: SalaryClosePreviewRow[]): string {
+  const body = rows
+    .map((r) => [r.staff_id, r.working_days, r.paid_days, r.unpaid_days, r.net_pay].join(':'))
+    .sort()
+    .join('|');
+  let h = 5381;
+  for (let i = 0; i < body.length; i++) h = ((h * 33) ^ body.charCodeAt(i)) >>> 0;
+  return `${rows.length}-${h.toString(36)}`;
+}
+
 function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
@@ -424,6 +456,8 @@ export class SalaryRegisterService {
       .from('hr_organizations')
       .select('id, name, institution_id, is_payroll_entity')
       .eq('id', hrOrganizationId)
+      // Null for an excluded institution — no salary register is produced.
+      .eq('included_in_hr', true)
       .maybeSingle();
 
     if (orgErr) throw new Error(`Failed to load the paying institution: ${getErrorMessage(orgErr)}`);
@@ -736,6 +770,128 @@ export class SalaryRegisterService {
    * named with its count and the institution it belongs to. A bare "not ready"
    * would send HR looking in the wrong module.
    */
+  /**
+   * What the salary register WILL say if this month is closed now.
+   *
+   * The month-close screen shows this so HR can verify pay before freezing
+   * attendance. It writes nothing: the per-staff day counts come from
+   * fn_hr_attendance_period_projection, which is the SAME SQL the close runs to
+   * populate hr_attendance_period_summaries. Preview and closed month therefore
+   * cannot disagree -- that is the whole reason the computation was lifted out
+   * of fn_hr_compute_attendance_period_summary rather than reimplemented here.
+   *
+   * Money is computed by computeRegisterLine, the same pure function generate()
+   * uses, for the same reason.
+   *
+   * Deliberately does NOT consult ctx.dependencies. Those exist to stop a
+   * register being ISSUED against a moving month; this preview is what you look
+   * at precisely because the month is still open.
+   */
+  static async previewForClose(
+    supabase: SupabaseClient,
+    input: SalaryRegisterInput,
+  ): Promise<SalaryClosePreview> {
+    const ctx = await SalaryRegisterService.loadContext(supabase, input);
+    const { year, month } = input;
+
+    const { data, error } = await (supabase as any).rpc(
+      'fn_hr_attendance_period_projection',
+      { p_institution_id: ctx.institutionId, p_year: year, p_month: month },
+    );
+    if (error) throw error;
+
+    const rows = (data ?? []) as Array<Record<string, unknown>>;
+    const projected = new Map<string, AttendanceSummaryRow>();
+    for (const r of rows) {
+      projected.set(r.staff_id as string, {
+        period_id: '',
+        present_days: Number(r.present_days ?? 0),
+        half_days: Number(r.half_days ?? 0),
+        leave_days: Number(r.leave_days ?? 0),
+        on_duty_days: Number(r.on_duty_days ?? 0),
+        comp_off_days: Number(r.comp_off_days ?? 0),
+        lop_days: Number(r.lop_days ?? 0),
+        payable_days: Number(r.payable_days ?? 0),
+        leave_by_type: (r.leave_by_type ?? {}) as Record<string, number>,
+        unprocessed_days: Number(r.unprocessed_days ?? 0),
+        scheduled_days: r.scheduled_days === null ? null : Number(r.scheduled_days),
+        work_pattern_id: (r.work_pattern_id ?? null) as string | null,
+      });
+    }
+
+    // The month standard, derived exactly as the close derives it: the largest
+    // working_days across the projection is what it writes into
+    // hr_attendance_periods.working_days_count.
+    const periodBasis = rows.reduce(
+      (max, r) => Math.max(max, Number(r.working_days ?? 0)),
+      0,
+    );
+
+    const payable: SalaryClosePreviewRow[] = [];
+    const excluded: SalaryClosePreviewExclusion[] = [];
+
+    for (const member of ctx.roster) {
+      const salary = ctx.salaryByStaff.get(member.staff_id);
+      const summary = projected.get(member.staff_id);
+
+      // Order matters: report the FIRST thing that has to be fixed. A person
+      // with neither a salary nor attendance is a salary problem first.
+      if (salary === undefined) {
+        excluded.push({ ...baseRow(member), reason: 'no_salary_recorded' });
+        continue;
+      }
+      if (salary <= 0) {
+        excluded.push({ ...baseRow(member), reason: 'salary_is_zero' });
+        continue;
+      }
+      if (!summary) {
+        excluded.push({ ...baseRow(member), reason: 'no_attendance_summary' });
+        continue;
+      }
+
+      const statutory = ctx.statutoryByStaff.get(member.staff_id);
+      const figures = computeRegisterLine({
+        monthlyGross: salary,
+        workingDaysBasis: registerBasisFor(summary, periodBasis),
+        epfAmount: statutory?.epf,
+        esiAmount: statutory?.esi,
+        allowance: statutory?.allowance,
+        tdsAmount: statutory?.tds,
+        summary,
+      });
+
+      payable.push({
+        ...baseRow(member),
+        working_days: figures.business_working_days,
+        paid_days: figures.paid_days,
+        unpaid_days: figures.unpaid_leave_days,
+        on_duty_days: figures.on_duty_days,
+        monthly_gross: salary,
+        net_pay: figures.net_pay,
+        unprocessed_days: summary.unprocessed_days,
+      });
+    }
+
+    payable.sort((a, b) => (a.employee_code ?? '').localeCompare(b.employee_code ?? ''));
+    excluded.sort((a, b) => (a.employee_code ?? '').localeCompare(b.employee_code ?? ''));
+
+    return {
+      organisation_name: ctx.organisationName,
+      institution_id: ctx.institutionId,
+      year,
+      month,
+      period_basis: periodBasis,
+      payable,
+      excluded,
+      roster_count: ctx.roster.length,
+      total_net_pay: round2(payable.reduce((t, r) => t + r.net_pay, 0)),
+      unprocessed_days: payable.reduce((t, r) => t + r.unprocessed_days, 0),
+      // What the close will freeze. Compared again at close time so a preview
+      // that has gone stale cannot be confirmed -- see the close page.
+      fingerprint: fingerprintOf(payable),
+    };
+  }
+
   static async preflight(
     supabase: SupabaseClient,
     input: SalaryRegisterInput,

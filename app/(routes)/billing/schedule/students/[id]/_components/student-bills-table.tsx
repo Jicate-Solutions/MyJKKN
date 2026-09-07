@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { Fragment, useState, useMemo } from 'react';
 import Link from 'next/link';
 import {
   Eye,
@@ -61,6 +61,14 @@ import { StudentBillService } from '@/lib/services/billing/schedule/student-bill
 import type { StudentBill } from '@/types/billing-schedule';
 import { isBillableBill } from '@/lib/billing/bill-status';
 import { Card } from '@/components/ui/card';
+import {
+  useBillInstalments,
+  useInvalidateBillInstalments,
+} from '@/hooks/billing/use-bill-instalments';
+import {
+  BillInstalmentSchedule,
+  instalmentSummary,
+} from './bill-instalment-schedule';
 
 interface StudentBillsTableProps {
   bills: StudentBill[];
@@ -102,6 +110,19 @@ export function StudentBillsTable({
     if (statusFilter === 'all') return bills;
     return bills.filter((bill) => bill.status === statusFilter);
   }, [bills, statusFilter]);
+
+  // A fee collectable in tranches is ONE bill of the full amount, and the
+  // bill's due_date is only its NEXT unsettled tranche. Without this the row
+  // read "1 Year Tuition Fee · ₹65,000 · due 30 Oct" with nothing to say the
+  // ₹65,000 is actually two ₹32,500 collections on two dates — which is
+  // exactly how a configured schedule looked like it had never been applied.
+  const billIds = useMemo(
+    () => filteredBills.map((bill) => bill.id),
+    [filteredBills]
+  );
+  const { data: instalmentsByBill } = useBillInstalments(billIds);
+  const invalidateInstalments = useInvalidateBillInstalments();
+  const instalmentsFor = (billId: string) => instalmentsByBill?.get(billId) ?? [];
 
   // Group bills by the bill's own academic year. Null → "Unspecified".
   const billGroups = useMemo(() => {
@@ -277,6 +298,10 @@ export function StudentBillsTable({
       // payment_transaction_items) clean up child rows automatically.
       await StudentBillService.deleteStudentBill(billId);
       toast.success('Bill deleted');
+      // The deleted bill's tranches went with it (FK cascade), and this cache
+      // is keyed on the bill-id set — drop it or the schedule of a bill that
+      // no longer exists survives the refresh.
+      invalidateInstalments();
       onRefresh();
     } catch (error) {
       console.error('Error deleting bill:', error);
@@ -450,13 +475,19 @@ export function StudentBillsTable({
             )}
           </div>
         )}
+
+        {/* The card view is what phones get; a schedule visible only on the
+            desktop table would be the same missing-instalments bug there. */}
+        {instalmentsFor(bill.id).length > 0 && (
+          <BillInstalmentSchedule rows={instalmentsFor(bill.id)} />
+        )}
       </div>
     </Card>
   );
 
   const renderBillRow = (bill: StudentBill, index: number) => (
+    <Fragment key={bill.id}>
     <TableRow
-      key={bill.id}
       className={`hover:bg-muted/50 transition-colors ${
         index % 2 === 0
           ? 'bg-white dark:bg-gray-900'
@@ -505,6 +536,13 @@ export function StudentBillsTable({
             <div className='text-sm font-medium'>
               {formatDate(bill.due_date)}
             </div>
+            {instalmentsFor(bill.id).length > 0 && (
+              // Says the date above is one of several, so nobody reads a
+              // scheduled bill's next-tranche date as its only collection.
+              <div className='text-xs text-muted-foreground'>
+                {instalmentSummary(instalmentsFor(bill.id))}
+              </div>
+            )}
             {isOverdue(bill.due_date, bill.status) && (
               <div className='flex items-center gap-1 text-xs text-red-600'>
                 <AlertCircle className='h-3 w-3' />
@@ -623,6 +661,23 @@ export function StudentBillsTable({
         </DropdownMenu>
       </TableCell>
     </TableRow>
+    {instalmentsFor(bill.id).length > 0 && (
+      <TableRow
+        className={
+          index % 2 === 0
+            ? 'bg-white dark:bg-gray-900'
+            : 'bg-gray-50 dark:bg-gray-800'
+        }
+      >
+        {/* 7 columns: select, category, due date, amount, balance, status,
+            actions. Spanning all of them keeps the schedule visually inside
+            the bill it belongs to rather than beside it. */}
+        <TableCell colSpan={7} className='pt-0'>
+          <BillInstalmentSchedule rows={instalmentsFor(bill.id)} />
+        </TableCell>
+      </TableRow>
+    )}
+    </Fragment>
   );
 
   return (

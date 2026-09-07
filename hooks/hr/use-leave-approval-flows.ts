@@ -143,3 +143,36 @@ export function useClearLeaveApprovalFlow() {
     },
   });
 }
+
+/**
+ * May THIS caller approve the request outright, ahead of the reviews below it?
+ *
+ * The final authority may act at any point (decision 2026-09-05), but whether
+ * the caller is admitted by the final step depends on user_roles / custom_roles,
+ * which an ordinary member of staff cannot select — a browser-side answer comes
+ * back empty for exactly the people it is meant to admit. fn_hr_leave_can_finalize
+ * runs SECURITY DEFINER against the same fn_leave_step_admits that
+ * hr_trig_leave_enforce_approver uses, so the button and the gate agree.
+ *
+ * Returns false while the request is already ON its final step: that is the
+ * ordinary path, not a short-circuit, and the queue's own can_decide covers it.
+ */
+export function useCanFinalizeLeave(applicationId: string | undefined) {
+  const supabase = createClientSupabaseClient();
+  return useQuery({
+    queryKey: [KEY, 'can-finalize', applicationId ?? null],
+    enabled: Boolean(applicationId),
+    queryFn: async () => {
+      // `as any` on the client, not on the result: types/supabase.ts is the
+      // GENERATED Database type and does not know a function added by a
+      // migration until it is regenerated. Same pattern as the
+      // hr_resolve_leave_ladder call in LeaveService.buildApprovalChain.
+      const { data, error } = await (supabase as any).rpc('fn_hr_leave_can_finalize', {
+        p_application_id: applicationId,
+      });
+      if (error) throw error;
+      return data === true;
+    },
+    staleTime: 60_000,
+  });
+}

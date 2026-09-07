@@ -329,6 +329,14 @@ export interface LeaveApprovalStep {
   // Optional so legacy chains and leave chains are untouched.
   /** 'review' = notes + mark reviewed; 'final' = grants final approval. Legacy chains: absent → last step acts as final. */
   step_type?: 'review' | 'final';
+  // ----- Final-approver short-circuit (2026-09-05) -------------------------
+  // Set when the final approver approved while this review step was still
+  // pending. The step's status becomes 'skipped' — never 'approved' — so the
+  // chain never claims a review happened that did not.
+  /** profiles.id of the final approver whose direct approval skipped this step. */
+  skipped_by?: string | null;
+  skipped_at?: string | null;
+  skipped_reason?: string | null;
   /** When true, this step's approver must complete an interview before marking reviewed. */
   interview_required?: boolean;
   /** hr_recruitment_interviews.id linked to this step (re-pointed on reschedule). */
@@ -752,4 +760,29 @@ export interface HRLeaveApprovalQueueRow {
    * requests, for institutions that run no biometric, and on decided rows.
    */
   biometric_gap_from: string | null;
+  /**
+   * The request's supporting documents, straight off
+   * hr_leave_applications.documents (COALESCEd to [] by the RPC, so this is
+   * never null on a row the queue returned).
+   *
+   * Carried on the ROW so the queue can render a per-request document icon
+   * without a fetch per row — the detail sheet used to be the only way to learn
+   * a certificate existed, which meant opening all 816 open requests to find
+   * the 102 that have one.
+   */
+  documents: LeaveDocument[];
+  /** 0-based index of the step the request is waiting on. */
+  current_step: number;
+  /** How many steps the frozen chain has. */
+  chain_length: number;
+  /**
+   * Does a decision here GRANT the request, or only review it and pass it on?
+   *
+   * False on a review step: approving there advances the chain and leaves the
+   * application pending, which is why the button must not say "Approve".
+   * Computed by fn_hr_leave_final_step_index — the same body
+   * trg_hla_final_step_approves refuses the write on — so the label cannot
+   * promise an outcome the database will not produce.
+   */
+  step_is_final: boolean;
 }

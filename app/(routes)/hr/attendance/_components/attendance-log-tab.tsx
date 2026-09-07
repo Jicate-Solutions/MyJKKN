@@ -9,12 +9,10 @@
  * those rows would make a month with a partial import look complete.
  */
 
-import Link from 'next/link';
 import { format } from 'date-fns';
-import { ArrowRight, TriangleAlert } from 'lucide-react';
+import { TriangleAlert } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -23,8 +21,6 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { cn } from '@/lib/utils';
 import {
   formatDuration,
-  isNonWorkingToken,
-  isRegularizable,
   STATUS_TOKENS,
   type AttendanceDay,
 } from '@/types/hr-attendance';
@@ -34,13 +30,9 @@ import { AttendanceTokenBadge, tonesFor } from './attendance-legend';
 export function AttendanceLogTab({
   days,
   isLoading,
-  canRegularize,
 }: {
   days: AttendanceDay[];
   isLoading: boolean;
-  /** False when an HR user is viewing someone else's record — you cannot file
-   *  a self-service correction on another person's behalf. */
-  canRegularize: boolean;
 }) {
   if (isLoading) return <LogSkeleton />;
 
@@ -56,12 +48,17 @@ export function AttendanceLogTab({
               <TableHead className="w-[18%]">Time off</TableHead>
               <TableHead className="w-[10%] text-right">Effective hours</TableHead>
               <TableHead className="w-[10%] text-right">Gross hours</TableHead>
-              <TableHead className="w-[12%] text-right">Actions</TableHead>
+              {/* Was "Actions", carrying a self-service Regularize link. That
+                  moved to the month-close preview, where the person closing the
+                  month can see what a wrong day does to somebody's pay before
+                  freezing it — and where only a super admin or HR Head can reach
+                  it. All that remains here is why a day has no verdict yet. */}
+              <TableHead className="w-[12%] text-right">Note</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {days.map((day) => (
-              <LogRow key={day.date} day={day} canRegularize={canRegularize} />
+              <LogRow key={day.date} day={day} />
             ))}
           </TableBody>
         </Table>
@@ -144,9 +141,7 @@ function TimeOffCell({ day }: { day: AttendanceDay }) {
   );
 }
 
-function LogRow({ day, canRegularize }: { day: AttendanceDay; canRegularize: boolean }) {
-  const showRegularize =
-    canRegularize && !day.isFuture && isRegularizable(day.token) && !isNonWorkingToken(day.token);
+function LogRow({ day }: { day: AttendanceDay }) {
   /** Past day with no record yet — nothing to correct until the import lands. */
   const awaitingImport = !day.isFuture && day.token === 'AEYP';
 
@@ -194,16 +189,9 @@ function LogRow({ day, canRegularize }: { day: AttendanceDay; canRegularize: boo
       </TableCell>
 
       <TableCell className="text-right">
-        {showRegularize ? (
-          <Button asChild variant="ghost" size="sm" className="h-7 text-xs">
-            <Link href={`/hr/attendance/regularize?date=${day.date}`}>
-              Regularize
-              <ArrowRight className="ml-1 h-3 w-3" />
-            </Link>
-          </Button>
-        ) : awaitingImport ? (
-          // Says WHY there is no action: the day has no record yet, so there is
-          // no verdict to dispute. Without this the empty cell reads as a bug.
+        {awaitingImport ? (
+          // Says WHY the day has no verdict: no record has been imported yet.
+          // Without this the empty cell reads as a bug.
           <span className="text-[11px] text-muted-foreground">Awaiting import</span>
         ) : (
           <span className="text-muted-foreground">—</span>

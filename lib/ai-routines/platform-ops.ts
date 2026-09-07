@@ -344,23 +344,6 @@ export const PLATFORM_OPS_ROUTINES: AIRoutine[] = [
     "notes": "Auth: Bearer or ?secret=. IST math: 01:30 UTC = 07:00 IST (minute_of_day 420)."
   },
   {
-    "id": "campus-housekeeping-task-generator",
-    "name": "Campus Living housekeeping task generator",
-    "category": "platform-ops",
-    "type": "cron",
-    "schedule": "Daily · 00:00 IST (editable via dispatcher)",
-    "cronExpr": "35 18 * * * (retired from vercel.json 2026-08-13)",
-    "triggerPath": "/api/cron/campus-living/housekeeping-task-generator",
-    "callsClaude": false,
-    "featureKey": null,
-    "featureKeyNote": "Pure SQL task generation via fn_housekeeping_generate_tasks(); no model involved.",
-    "whatItDoes": "Inserts one 'scheduled' cleaning task per active, due cleaning-schedule plan for today (Asia/Kolkata) so the Tasks page is populated before team members arrive.",
-    "configKnobs": "Plans in hostel_cleaning_schedules. Day/time editable at /admin/ai-routines.",
-    "sideEffects": "DB inserts only, idempotent via the (schedule_id, date) unique index.",
-    "safeToManualTrigger": true,
-    "notes": "TIMING-SENSITIVE: 18:35 UTC = 00:05 IST — start of the Indian day on purpose. The dispatcher slot 00:00 IST preserves that. Auth: Bearer or ?secret=. minute_of_day 5, every day."
-  },
-  {
     "id": "attention-bar-prune",
     "name": "Attention Bar retention pruner",
     "category": "platform-ops",

@@ -34,6 +34,10 @@ const FILTER_KEYS = [
   'semester_id', 'section_id', 'academic_year_id', 'admission_year', 'gender',
   'block_id', 'year_of_study', 'hostel_category_id',
   'mess_category_id', 'room_id',
+  // Lifecycle status. Absent means Active (the service default), NOT "all" —
+  // see CL_DEFAULT_ROSTER_STATUSES. Listing it here is what wires it into the
+  // URL sync, the Apply button and Reset for free.
+  'lifecycle_status',
 ] as const;
 
 type LocalFilters = Partial<Record<(typeof FILTER_KEYS)[number], string>>;
@@ -276,6 +280,18 @@ export function LearnersFilters() {
               <SelectItem value='Male'>Male</SelectItem>
               <SelectItem value='Female'>Female</SelectItem>
               <SelectItem value='Other'>Other</SelectItem>
+            </SelectContent>
+          </Select>
+          {/* Lifecycle status. Placeholder reads "Active" rather than "Status"
+              because an unset value is not "no filter" — the service defaults
+              to active-only, so the empty state genuinely IS Active. */}
+          <Select value={local.lifecycle_status || ''} onValueChange={(v) => set({ lifecycle_status: v === 'active' ? undefined : v })}>
+            <SelectTrigger><SelectValue placeholder='Status: Active' /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value='active'>Active only</SelectItem>
+              <SelectItem value='reserved'>Reserved only</SelectItem>
+              <SelectItem value='admitted'>Admitted only</SelectItem>
+              <SelectItem value='all'>All (incl. reserved &amp; admitted)</SelectItem>
             </SelectContent>
           </Select>
           {/* Block — pins the gender scope + feeds the Room list, so changing it clears downstream picks */}

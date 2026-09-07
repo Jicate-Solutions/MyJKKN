@@ -81,7 +81,13 @@ export class HRDashboardService {
       institution_id: string | null;
       mode: DashboardMode;
     }
-  ): Promise<HRDashboardPayload> {
+    // display_role is deliberately NOT produced here. It is the viewer's exact
+    // role label, and only the route knows it — viewer_role has already
+    // normalised several raw role_keys down to 'hr_officer' by the time this
+    // runs. app/api/hr/dashboard/route.ts adds it on the way out
+    // (`{ ...payload, display_role }`), so the field stays required on
+    // HRDashboardPayload for every consumer.
+  ): Promise<Omit<HRDashboardPayload, 'display_role'>> {
     const { viewer_role, hr_organization_id, institution_id, mode } = opts;
     const fy = getCurrentFiscalYear();
     const generated_at = new Date().toISOString();
@@ -387,6 +393,9 @@ export class HRDashboardService {
         .from('hr_organizations')
         .select('institution_id')
         .eq('id', hrOrgId)
+        // Resolves to null for an excluded institution, which is the point:
+        // its dashboard should not build at all.
+        .eq('included_in_hr', true)
         .maybeSingle();
       const instId = (org as { institution_id: string | null } | null)?.institution_id ?? null;
       if (instId) docsPending = docsPending.eq('institution_id', instId);
@@ -665,6 +674,8 @@ export class HRDashboardService {
     const { data: orgs, error } = await supabase
       .from('hr_organizations')
       .select('id, name, institution_id')
+      // Excluded institutions are not part of the HR module.
+      .eq('included_in_hr', true)
       .not('institution_id', 'is', null)
       .order('name', { ascending: true });
     if (error) throw error;
