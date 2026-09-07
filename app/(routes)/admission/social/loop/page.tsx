@@ -204,7 +204,15 @@ function LoopBody() {
           onChange={(e) => handleAccountChange(e.target.value)}
           className="rounded-md border border-input bg-background px-3 py-2 text-sm min-w-64"
         >
-          {!known && <option value="">@{account}</option>}
+          {/* The URL names a handle this viewer cannot see (or the list failed
+              to load). Show it so the control is not silently wrong, but do not
+              offer it as a choice — picking it would drop them onto the pilot
+              handle without explanation. */}
+          {!known && (
+            <option value="" disabled>
+              @{account} (not in your list)
+            </option>
+          )}
           {accounts.map((a) => (
             <option key={a.id} value={a.username}>
               {accountLabel(a)}
