@@ -258,7 +258,7 @@ function StatTile({
   icon: React.ReactNode;
   label: string;
   value: string;
-  sub: string;
+  sub?: string;
   valueClassName?: string;
 }) {
   return (
@@ -269,7 +269,7 @@ function StatTile({
           {label}
         </div>
         <div className={`text-xl font-bold tabular-nums sm:text-2xl ${valueClassName}`}>{value}</div>
-        <div className='text-xs text-muted-foreground'>{sub}</div>
+        {sub && <div className='text-xs text-muted-foreground'>{sub}</div>}
       </CardContent>
     </Card>
   );

@@ -27,6 +27,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { LeaveDocumentUpload } from './leave-document-upload';
 import { useClaimWorkedDay } from '@/hooks/hr/use-comp-off';
+import { useDayOccupancy } from '@/hooks/hr/use-day-occupancy';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
 import { useClosedAttendanceMonths } from '@/hooks/hr/use-attendance-records';
 import { closedMonthsInRange, describeClosedMonths } from '@/types/hr-attendance';
@@ -64,18 +65,35 @@ export function ClaimWorkedDayDialog({
   /** Category excluded from HR — trg_hcoc_block_non_hr_staff refuses the claim. */
   const notInHr = !ctx.isLoading && ctx.hasEmployeeRecord && !ctx.hrIncluded;
 
+  // Only one request may exist per day, and a worked-day claim competes with
+  // leave and permissions for it — claiming a day you also took leave on is a
+  // contradiction, and trg_hcoc_day_occupancy refuses it. Same predicate the
+  // trigger uses, so this cannot promise a claim the database will reject.
+  const { data: clash } = useDayOccupancy(ctx.employeeId, workedDate, workedDate);
+
   // Shown so the claimant knows the deadline before submitting, using the same
   // +90 rule the database applies.
-  const expiresOn = useMemo(() => {
+  const expiry = useMemo(() => {
     if (!workedDate) return null;
     const d = new Date(`${workedDate}T00:00:00`);
     d.setDate(d.getDate() + 90);
-    return d.toLocaleDateString('en-GB');
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return {
+      label: d.toLocaleDateString('en-GB'),
+      daysLeft: Math.round((d.getTime() - today.getTime()) / 86_400_000),
+    };
   }, [workedDate]);
 
+  // The credit expires 90 days after the day worked, so a date older than that
+  // would be inserted already dead — visible in the ledger, never spendable.
+  // hr_comp_off_set_expiry refuses it too; this only saves the round trip and
+  // names the deadline, which the raw database message cannot do as kindly.
+  const tooOld = !inFuture && !!expiry && expiry.daysLeft < 0;
+
   const canSubmit =
-    !!ctx.employeeId && !!ctx.hrOrgId && !!workedDate && !inFuture &&
-    closedHit.length === 0 && !notInHr && !mutation.isPending && !uploading &&
+    !!ctx.employeeId && !!ctx.hrOrgId && !!workedDate && !inFuture && !tooOld &&
+    closedHit.length === 0 && !notInHr && !clash && !mutation.isPending && !uploading &&
     // Proof of the worked day is required — CompOffService.claimWorkedDay
     // enforces the same rule; this only spares the round trip.
     documentFiles.length > 0;
@@ -182,9 +200,27 @@ export function ClaimWorkedDayDialog({
                 Attendance for {describeClosedMonths(closedHit)} is closed, so a worked day in
                 that month can no longer be claimed. Ask HR to reopen the month.
               </p>
-            ) : expiresOn ? (
+            ) : tooOld ? (
+              <p className="mt-1 text-xs text-destructive">
+                Too late to claim — a credit for this day expired on{' '}
+                <strong>{expiry?.label}</strong>. Compensatory off must be claimed
+                within 90 days of the day worked.
+              </p>
+            ) : clash ? (
+              <p className="mt-1 text-xs text-destructive">
+                Only one request is allowed per day, and you already have {clash} on
+                this date. Claim another day, or cancel that request first.
+              </p>
+            ) : expiry ? (
               <p className="mt-1 text-xs text-muted-foreground">
-                Earns <strong>1 day</strong>, usable until <strong>{expiresOn}</strong>.
+                Earns <strong>1 day</strong>, usable until <strong>{expiry.label}</strong>
+                {expiry.daysLeft <= 14 && (
+                  <span className="text-amber-600 dark:text-amber-400">
+                    {' '}— only {expiry.daysLeft} day(s) left to use it, so get it
+                    approved quickly.
+                  </span>
+                )}
+                .
               </p>
             ) : (
               <p className="mt-1 text-xs text-muted-foreground">

@@ -20,6 +20,7 @@ import {
 } from '@/hooks/hr/use-leave';
 import { LEAVE_DURATION_LABELS, LEAVE_STATUS_LABELS } from '@/types/hr';
 import { LeaveDocumentList } from '../_components/leave-document-list';
+import { ApprovalChainTimeline } from '../_components/approval-chain-timeline';
 
 export default function ApplicationDetailPage() {
   const params = useParams();
@@ -100,25 +101,9 @@ export default function ApplicationDetailPage() {
         <Card>
           <CardHeader><CardTitle className="text-sm">Approval Chain (frozen at apply-time)</CardTitle></CardHeader>
           <CardContent>
-            <ol className="space-y-2">
-              {app.approval_chain.map((step, idx) => (
-                <li key={idx} className="flex flex-wrap items-center gap-3 text-sm">
-                  <span className={`h-2 w-2 rounded-full ${
-                    step.status === 'approved' ? 'bg-green-500' :
-                    step.status === 'rejected' ? 'bg-red-500' :
-                    idx === app.current_step ? 'bg-yellow-500' : 'bg-muted'
-                  }`} />
-                  <span className="font-medium">Step {step.step_order}:</span>
-                  <span>{step.approver_role}</span>
-                  <span className="text-xs text-muted-foreground">({step.status})</span>
-                  {step.decided_at && (
-                    <span className="text-xs text-muted-foreground ml-auto">
-                      {new Date(step.decided_at).toLocaleString()}
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ol>
+            {/* Same component as the approver's detail sheet, so the applicant
+                and the approver read one chain, not two renderings of it. */}
+            <ApprovalChainTimeline app={app} />
           </CardContent>
         </Card>
 

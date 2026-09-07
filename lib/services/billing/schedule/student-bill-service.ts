@@ -6,6 +6,12 @@ import {
   oncePerLearnerMessage
 } from '@/lib/utils/billing-duplicate-error';
 import { logActivityForCurrentUser, BillingActivityTemplates } from '@/lib/utils/activity-logger-client';
+import { BillCancellationService } from './bill-cancellation-service';
+import type {
+  BillCancelReasonCode,
+  BillCancellationAttachment,
+  CancelBillResult
+} from '@/types/billing-bill-cancellation';
 import type {
   StudentBill,
   CreateStudentBillDto,
@@ -382,74 +388,48 @@ export class StudentBillService {
     return results;
   }
 
-  private static readonly CANCELLABLE_STATUSES = ['unpaid', 'partially_paid', 'overdue'];
-
+  /**
+   * Cancel a bill.
+   *
+   * This used to be a plain UPDATE that set status and appended the reason to
+   * the free-text `remarks` column. It now delegates to
+   * BillCancellationService, which goes through fn_cancel_student_bill --
+   * a SECURITY DEFINER RPC that records the reason, the reason code and the
+   * supporting documents in billing_bill_cancellations, and refuses a bill
+   * that still has receipted money against it.
+   *
+   * The status allow-list, the receipted-money guard and the zeroing of
+   * balance_amount all live in the RPC now. Duplicating them here is how the
+   * two would drift apart, and a trigger rejects any UPDATE that tries to set
+   * status='cancelled' outside the RPC, so a second implementation could not
+   * work anyway.
+   */
   static async cancelStudentBill(
     id: string,
-    reason?: string
-  ): Promise<StudentBill> {
-    try {
-      const bill = await this.getStudentBill(id);
-
-      if (!this.CANCELLABLE_STATUSES.includes(bill.status)) {
-        throw new Error(
-          `Cannot cancel bill with status "${bill.status}". Only unpaid, partially paid, or overdue bills can be cancelled.`
-        );
-      }
-
-      const updateQuery: any = this.supabase.from('billing_student_bills');
-      const { data, error } = await updateQuery
-        .update({
-          status: 'cancelled',
-          balance_amount: 0,
-          remarks: reason
-            ? `${bill.remarks ? bill.remarks + ' | ' : ''}Cancelled: ${reason}`
-            : bill.remarks
-        })
-        .eq('id', id)
-        .select(
-          `
-          *,
-          student:learners_profiles(
-            id, first_name, last_name, roll_number
-          ),
-          institution:institutions(id, name),
-          item_category:billing_categories(id, category_name)
-        `
-        )
-        .single();
-
-      if (error) throw error;
-
-      const studentName = `${data.student?.first_name || ''} ${data.student?.last_name || ''}`.trim() || 'Unknown';
-      const template = BillingActivityTemplates.billCancelled(
-        bill.bill_description || 'Student bill',
-        studentName,
-        reason
-      );
-      logActivityForCurrentUser({
-        ...template,
-        resourceId: id,
-        institutionId: bill.institution_id,
-        metadata: {
-          sub_type: template.sub_type,
-          student_id: bill.student_id,
-          original_amount: bill.final_amount,
-          balance_at_cancel: bill.balance_amount,
-          reason,
-        },
-      });
-
-      return data;
-    } catch (error) {
-      console.error('Error cancelling student bill:', error);
-      throw error;
-    }
+    reasonCode: BillCancelReasonCode,
+    reason: string,
+    attachments: BillCancellationAttachment[]
+  ): Promise<CancelBillResult> {
+    return BillCancellationService.cancelBill({
+      billId: id,
+      reasonCode,
+      reason,
+      attachments,
+    });
   }
 
+  /**
+   * Cancel several bills under ONE reason and ONE set of documents -- the
+   * "these twelve rows are the same duplicate, here is the approval memo" case.
+   * Each bill still goes through the RPC individually, so a bill that is
+   * ineligible (wrong status, or money receipted against it) fails on its own
+   * and the rest continue.
+   */
   static async bulkCancelStudentBills(
     ids: string[],
-    reason?: string
+    reasonCode: BillCancelReasonCode,
+    reason: string,
+    attachments: BillCancellationAttachment[]
   ): Promise<BulkOperationResult> {
     const results: BulkOperationResult = {
       success: [],
@@ -458,12 +438,17 @@ export class StudentBillService {
 
     for (const id of ids) {
       try {
-        await this.cancelStudentBill(id, reason);
+        await BillCancellationService.cancelBill({
+          billId: id,
+          reasonCode,
+          reason,
+          attachments,
+        });
         results.success.push(id);
       } catch (error) {
         results.failed.push({
           id,
-          error: error instanceof Error ? error.message : 'Unknown error'
+          error: getErrorMessage(error)
         });
       }
     }
@@ -480,6 +465,7 @@ export class StudentBillService {
           sub_type: template.sub_type,
           cancelled_ids: results.success,
           failed_count: results.failed.length,
+          reason_code: reasonCode,
           reason,
         },
       });

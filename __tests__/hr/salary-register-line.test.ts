@@ -19,6 +19,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   computeRegisterLine,
+  registerBasisFor,
   ZERO_FIGURES,
   type AttendanceSummaryRow,
 } from '@/lib/services/hr/payroll/salary-register-service';
@@ -236,5 +237,320 @@ describe('ZERO_FIGURES — the excluded-row shape', () => {
     for (const [key, value] of Object.entries(ZERO_FIGURES)) {
       expect(value, key).toBe(0);
     }
+  });
+});
+
+describe('computeRegisterLine — EPF and ESI', () => {
+  /**
+   * DEDUCTED IN FULL, NEVER PRO-RATED. These are stored as a flat monthly rupee
+   * figure per employee, so the number recorded is the number withheld — unlike
+   * the unpaid-leave deduction beside it, which is day-rated by definition.
+   */
+  it('withholds the whole amount in a month with unpaid days', () => {
+    const r = computeRegisterLine({
+      monthlyGross: 26500,
+      workingDaysBasis: 22,
+      epfAmount: 1800,
+      esiAmount: 165,
+      // 16 paid days of 22 — six unpaid.
+      summary: summary({ present_days: 16, payable_days: 16 }),
+    });
+
+    expect(r.unpaid_leave_days).toBe(6);
+    expect(r.unpaid_leave_deduction).toBe(7227.27);
+    // Not 1800 x 16/22. The stored figure is the withheld figure.
+    expect(r.epf_deduction).toBe(1800);
+    expect(r.esi_deduction).toBe(165);
+    expect(r.total_deductions).toBe(9192.27);
+    expect(r.net_pay).toBe(Math.round(26500 - 9192.27));
+  });
+
+  it('withholds nothing when no amounts are supplied', () => {
+    const r = computeRegisterLine({
+      monthlyGross: 26500,
+      workingDaysBasis: 22,
+      summary: summary({ present_days: 22, payable_days: 22 }),
+    });
+
+    expect(r.epf_deduction).toBe(0);
+    expect(r.esi_deduction).toBe(0);
+    // Unchanged from before the feature: total_deductions is the unpaid figure alone.
+    expect(r.total_deductions).toBe(r.unpaid_leave_deduction);
+    expect(r.net_pay).toBe(26500);
+  });
+
+  it('carries the pair into total_deductions on a full month', () => {
+    const r = computeRegisterLine({
+      monthlyGross: 30000,
+      workingDaysBasis: 22,
+      epfAmount: 1800,
+      esiAmount: 225,
+      summary: summary({ present_days: 22, payable_days: 22 }),
+    });
+
+    expect(r.unpaid_leave_deduction).toBe(0);
+    expect(r.total_deductions).toBe(2025);
+    expect(r.net_pay).toBe(27975);
+    // The earnings side is untouched by a deduction.
+    expect(r.total_earnings).toBe(30000);
+  });
+
+  /**
+   * THE FLOOR. "Full amount always" and "zero paid days" together would net a
+   * NEGATIVE figure — the register asking the employee to pay the institution.
+   * The pair is capped at what survives the unpaid-leave deduction, EPF first.
+   */
+  it('never nets below zero when nothing was earned', () => {
+    const r = computeRegisterLine({
+      monthlyGross: 26500,
+      workingDaysBasis: 22,
+      epfAmount: 1800,
+      esiAmount: 165,
+      summary: summary({ present_days: 0, payable_days: 0 }),
+    });
+
+    expect(r.unpaid_leave_days).toBe(22);
+    expect(r.unpaid_leave_deduction).toBe(26500);
+    expect(r.epf_deduction).toBe(0);
+    expect(r.esi_deduction).toBe(0);
+    expect(r.net_pay).toBe(0);
+  });
+
+  it('takes EPF first when only part of the pair fits', () => {
+    const r = computeRegisterLine({
+      monthlyGross: 2200,
+      workingDaysBasis: 22,
+      epfAmount: 1800,
+      esiAmount: 165,
+      // 10 paid days of 22 leaves exactly 1000 to deduct from.
+      summary: summary({ present_days: 10, payable_days: 10 }),
+    });
+
+    expect(r.unpaid_leave_deduction).toBe(1200);
+    expect(r.epf_deduction).toBe(1000);
+    expect(r.esi_deduction).toBe(0);
+    expect(r.net_pay).toBe(0);
+  });
+
+  it('leaves the day-count identities untouched', () => {
+    const r = computeRegisterLine({
+      monthlyGross: 26500,
+      workingDaysBasis: 22,
+      epfAmount: 1800,
+      esiAmount: 165,
+      summary: summary({ present_days: 16, leave_days: 2, on_duty_days: 1, payable_days: 19 }),
+    });
+
+    expect(r.paid_days).toBe(r.business_working_days - r.unpaid_leave_days);
+    expect(r.paid_days).toBe(r.worked_days + r.paid_leave_days + r.on_duty_days);
+  });
+});
+
+describe('computeRegisterLine — allowance', () => {
+  /**
+   * THE ALLOWANCE IS PRO-RATED, unlike the flat statutory amounts beside it.
+   * The day rate divides gross + allowance, so an absent day costs a slice of
+   * both — which is the one behaviour that separates it from EPF/ESI/TDS.
+   */
+  it('pro-rates with the gross in a short month', () => {
+    const r = computeRegisterLine({
+      monthlyGross: 26500,
+      allowance: 3000,
+      workingDaysBasis: 22,
+      summary: summary({ present_days: 16, payable_days: 16 }),
+    });
+
+    expect(r.total_earnings).toBe(29500);
+    // 29,500 / 22 x 6 = 8,045.45 — NOT 26,500 / 22 x 6 = 7,227.27.
+    expect(r.unpaid_leave_deduction).toBe(8045.45);
+    expect(r.net_pay).toBe(Math.round(29500 - 8045.45));
+  });
+
+  it('separates basic pay from actual gross once an allowance exists', () => {
+    const r = computeRegisterLine({
+      monthlyGross: 26500,
+      allowance: 3000,
+      workingDaysBasis: 22,
+      summary: summary({ present_days: 22, payable_days: 22 }),
+    });
+
+    // Before the allowance these two carried the same figure by definition.
+    expect(r.basic_pay).toBe(26500);
+    expect(r.allowance).toBe(3000);
+    expect(r.actual_gross).toBe(29500);
+    expect(r.net_pay).toBe(29500);
+  });
+
+  it('behaves exactly as before when there is no allowance', () => {
+    const r = computeRegisterLine({
+      monthlyGross: 26500,
+      workingDaysBasis: 22,
+      summary: summary({ present_days: 16, payable_days: 16 }),
+    });
+
+    expect(r.allowance).toBe(0);
+    expect(r.unpaid_leave_deduction).toBe(7227.27);
+    expect(r.basic_pay).toBe(r.actual_gross);
+  });
+});
+
+describe('computeRegisterLine — TDS', () => {
+  /**
+   * THE RULE THE WHOLE FEATURE TURNS ON: TDS is computed on the monthly gross
+   * ALONE. The caller resolves it from the bands against the gross, so an
+   * allowance can never push somebody into a tax band or raise what they owe.
+   */
+  it('does not grow when an allowance is added', () => {
+    const withoutAllowance = computeRegisterLine({
+      monthlyGross: 150000,
+      tdsAmount: 7500, // 5% of 150000
+      workingDaysBasis: 22,
+      summary: summary({ present_days: 22, payable_days: 22 }),
+    });
+    const withAllowance = computeRegisterLine({
+      monthlyGross: 150000,
+      allowance: 20000,
+      tdsAmount: 7500, // resolved on the GROSS, so unchanged
+      workingDaysBasis: 22,
+      summary: summary({ present_days: 22, payable_days: 22 }),
+    });
+
+    expect(withoutAllowance.tds_deduction).toBe(7500);
+    expect(withAllowance.tds_deduction).toBe(7500);
+    // The allowance raises earnings and net pay, and nothing else.
+    expect(withAllowance.total_earnings).toBe(170000);
+    expect(withAllowance.net_pay).toBe(170000 - 7500);
+  });
+
+  it('withholds the full amount in a month with unpaid days', () => {
+    const r = computeRegisterLine({
+      monthlyGross: 150000,
+      tdsAmount: 7500,
+      workingDaysBasis: 22,
+      summary: summary({ present_days: 16, payable_days: 16 }),
+    });
+
+    expect(r.unpaid_leave_deduction).toBe(40909.09);
+    // Flat, not 7500 x 16/22.
+    expect(r.tds_deduction).toBe(7500);
+    expect(r.total_deductions).toBe(48409.09);
+  });
+
+  it('carries EPF, ESI and TDS together into total_deductions', () => {
+    const r = computeRegisterLine({
+      monthlyGross: 150000,
+      allowance: 5000,
+      epfAmount: 1800,
+      esiAmount: 0,
+      tdsAmount: 7500,
+      workingDaysBasis: 22,
+      summary: summary({ present_days: 22, payable_days: 22 }),
+    });
+
+    expect(r.total_earnings).toBe(155000);
+    expect(r.total_deductions).toBe(9300);
+    expect(r.net_pay).toBe(145700);
+  });
+
+  /**
+   * THE CAP ORDER. EPF first, then ESI, then TDS — so a month with almost
+   * nothing left drops the tax rather than the provident fund, and net_pay
+   * still floors at zero instead of asking the employee to pay the institution.
+   */
+  it('drops TDS before EPF when there is not enough to go round', () => {
+    const r = computeRegisterLine({
+      monthlyGross: 22000,
+      epfAmount: 1800,
+      esiAmount: 165,
+      tdsAmount: 1100,
+      workingDaysBasis: 22,
+      // 20 unpaid days of 22 leaves exactly 2,000 to deduct from.
+      summary: summary({ present_days: 2, payable_days: 2 }),
+    });
+
+    expect(r.unpaid_leave_deduction).toBe(20000);
+    expect(r.epf_deduction).toBe(1800);
+    expect(r.esi_deduction).toBe(165);
+    expect(r.tds_deduction).toBe(35); // all that was left
+    expect(r.net_pay).toBe(0);
+  });
+
+  it('never nets below zero when nothing was earned', () => {
+    const r = computeRegisterLine({
+      monthlyGross: 150000,
+      allowance: 10000,
+      epfAmount: 1800,
+      esiAmount: 165,
+      tdsAmount: 7500,
+      workingDaysBasis: 22,
+      summary: summary({ present_days: 0, payable_days: 0 }),
+    });
+
+    expect(r.epf_deduction).toBe(0);
+    expect(r.esi_deduction).toBe(0);
+    expect(r.tds_deduction).toBe(0);
+    expect(r.net_pay).toBe(0);
+  });
+
+  it('leaves the day-count identities untouched', () => {
+    const r = computeRegisterLine({
+      monthlyGross: 150000,
+      allowance: 8000,
+      tdsAmount: 7500,
+      workingDaysBasis: 22,
+      summary: summary({ present_days: 16, leave_days: 2, on_duty_days: 1, payable_days: 19 }),
+    });
+
+    expect(r.paid_days).toBe(r.business_working_days - r.unpaid_leave_days);
+    expect(r.paid_days).toBe(r.worked_days + r.paid_leave_days + r.on_duty_days);
+  });
+});
+
+/**
+ * Work patterns (2026-09-04): a person on a 3-day or 5-day week at a 6-day
+ * institution is paid on THEIR scheduled days. The basis choice is a pure
+ * function so it can be pinned here; the arithmetic on top is unchanged.
+ */
+describe('registerBasisFor — a work pattern replaces the institution basis', () => {
+  it("uses the pattern member's own scheduled days", () => {
+    expect(registerBasisFor({ work_pattern_id: 'p1', scheduled_days: 13 }, 26)).toBe(13);
+  });
+
+  it('keeps the period basis for everyone without a pattern', () => {
+    expect(registerBasisFor({ work_pattern_id: null, scheduled_days: 13 }, 26)).toBe(26);
+    expect(registerBasisFor({ work_pattern_id: null, scheduled_days: null }, 26)).toBe(26);
+  });
+
+  it('falls back to the period basis when the pattern month has no scheduled days recorded', () => {
+    // A month closed before the column existed, or a pattern week of all-off
+    // days: dividing by zero is never the answer.
+    expect(registerBasisFor({ work_pattern_id: 'p1', scheduled_days: null }, 26)).toBe(26);
+    expect(registerBasisFor({ work_pattern_id: 'p1', scheduled_days: 0 }, 26)).toBe(26);
+  });
+
+  it('prices a 3-day week person against 13 scheduled days, not 26', () => {
+    // 26,000 gross over 13 scheduled days = 2,000/day. Worked 12 -> 1 unpaid.
+    const r = computeRegisterLine({
+      monthlyGross: 26000,
+      workingDaysBasis: registerBasisFor({ work_pattern_id: 'p1', scheduled_days: 13 }, 26),
+      summary: summary({ present_days: 12, payable_days: 12 }),
+    });
+    expect(r.business_working_days).toBe(13);
+    expect(r.unpaid_leave_days).toBe(1);
+    expect(r.unpaid_leave_deduction).toBe(2000);
+    expect(r.net_pay).toBe(24000);
+  });
+
+  it('still charges a mid-month joiner on a pattern for the scheduled days before they joined', () => {
+    // scheduled_days is the FULL month's expectation, never clamped to the
+    // joining date — the same rule the institution basis follows.
+    const r = computeRegisterLine({
+      monthlyGross: 26000,
+      workingDaysBasis: registerBasisFor({ work_pattern_id: 'p1', scheduled_days: 13 }, 26),
+      summary: summary({ present_days: 6, payable_days: 6 }),
+    });
+    expect(r.unpaid_leave_days).toBe(7);
+    expect(r.unpaid_leave_deduction).toBe(14000);
+    expect(r.net_pay).toBe(12000);
   });
 });

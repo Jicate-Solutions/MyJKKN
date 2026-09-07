@@ -100,7 +100,7 @@ export async function GET(
  *
  * Body:
  * {
- *   taxonomy_type: 'finks' | 'blooms' | 'custom',
+ *   taxonomy_type: 'finks' | 'blooms' | 'jkkn_advanced' | 'custom',
  *   k_values: { K1: "...", K2: "...", ... },
  *   pos?: Record<string, unknown>  (legacy; POs now live in bos_programme_outcomes)
  *   psos?: Record<string, unknown> (legacy; PSOs now live in bos_programme_specific_outcomes)

@@ -37,7 +37,7 @@ import {
 
 export default function AnalyticsDashboardPage() {
   const { profile } = useAuth();
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, isLoading: permsLoading } = usePermissions();
   const institutionId = profile?.institution_id ?? '';
 
   const { data: overview, isLoading: overviewLoading } = useCampusLivingOverview(institutionId);
@@ -45,7 +45,11 @@ export default function AnalyticsDashboardPage() {
   const { data: maintenance, isLoading: maintenanceLoading } = useMaintenanceAnalytics(institutionId);
   const { data: incidents, isLoading: incidentsLoading } = useIncidentAnalytics(institutionId);
 
-  const isLoading = overviewLoading || occupancyLoading || maintenanceLoading || incidentsLoading;
+  // permsLoading is part of the gate: the queries stay disabled until the viewer's
+  // scope resolves, and a disabled React Query reports isLoading:false, so without
+  // it the page renders zero metrics before the first fetch starts (BUG-005831).
+  const isLoading =
+    permsLoading || overviewLoading || occupancyLoading || maintenanceLoading || incidentsLoading;
 
   // Build metrics from real data
   const metrics = useMemo(() => {

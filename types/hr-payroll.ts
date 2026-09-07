@@ -207,6 +207,61 @@ export interface SalaryImportResponse {
 // interfaces carry the shape.
 
 /** Why a roster member produced no payable row. Ordered by how HR fixes them. */
+/**
+ * One staff member in the month-close salary preview.
+ *
+ * Computed from live attendance, not from a frozen period — the close has not
+ * happened yet. The day counts come from the same SQL the close will run and
+ * the money from the same pure function the issued register uses, so this is a
+ * projection of the real register rather than an estimate of it.
+ */
+export interface SalaryClosePreviewRow {
+  staff_id: string;
+  employee_code: string | null;
+  staff_name: string;
+  designation: string | null;
+  department_name: string | null;
+  working_days: number;
+  paid_days: number;
+  /** Days that will be deducted — LOP. */
+  unpaid_days: number;
+  on_duty_days: number;
+  monthly_gross: number;
+  net_pay: number;
+  /** Days the evaluator could not judge. Non-zero means fix attendance first. */
+  unprocessed_days: number;
+}
+
+export interface SalaryClosePreviewExclusion {
+  staff_id: string;
+  employee_code: string | null;
+  staff_name: string;
+  designation: string | null;
+  department_name: string | null;
+  reason: SalaryRegisterExclusionReason;
+}
+
+export interface SalaryClosePreview {
+  organisation_name: string;
+  institution_id: string;
+  year: number;
+  month: number;
+  /** The month standard used as the day-rate divisor for staff with no work pattern. */
+  period_basis: number;
+  payable: SalaryClosePreviewRow[];
+  excluded: SalaryClosePreviewExclusion[];
+  roster_count: number;
+  total_net_pay: number;
+  unprocessed_days: number;
+  /**
+   * A digest of every payable figure. The close re-runs the preview and compares
+   * this, so a month whose attendance changed after it was verified cannot be
+   * closed on a stale confirmation — which is what makes "verify, then close"
+   * mean anything.
+   */
+  fingerprint: string;
+}
+
 export type SalaryRegisterExclusionReason =
   | 'no_salary_recorded'
   | 'salary_is_zero'
@@ -274,7 +329,20 @@ export interface HRSalaryRegisterLine {
 
   actual_gross: number;
   basic_pay: number;
+  /** Paid on top of basic_pay. Pro-rated with it, and never in the TDS base. */
+  allowance: number;
   unpaid_leave_deduction: number;
+  // Statutory deductions, snapshotted from the salary in force at generation.
+  // Broken out rather than buried in total_deductions (which still carries
+  // them) so a PF/ESI return can be read straight off the register.
+  epf_deduction: number;
+  esi_deduction: number;
+  /**
+   * Resolved from hr_tds_slabs against the monthly gross ALONE and snapshotted
+   * here — which is what keeps an issued register explicable after someone
+   * edits a band, and why the slab table needs no effective-dating.
+   */
+  tds_deduction: number;
   total_earnings: number;
   total_deductions: number;
   adjustment_amount: number;

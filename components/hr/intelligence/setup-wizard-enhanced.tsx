@@ -29,6 +29,13 @@ interface StepStatus {
   loaded: boolean;
   complete: boolean;
   count: number;
+  /**
+   * The count query itself failed. Distinct from `count: 0`, which means the
+   * table was read and is genuinely empty. Conflating the two is what hid two
+   * wrong table names here for months: both steps read "0 of N required" and
+   * looked exactly like work nobody had done yet.
+   */
+  failed?: boolean;
 }
 
 const SETUP_STEPS = [
@@ -37,8 +44,10 @@ const SETUP_STEPS = [
     title: 'Add Regulatory Bodies',
     description: 'Add regulatory bodies (AICTE, PCI, NMC, etc.) that govern your institutions.',
     icon: Building,
-    href: '/hr/admin/recruitment-need/norms',
-    table: 'regulatory_bodies' as const,
+    // Was `regulatory_bodies` (no such table) and pointed at the norms screen.
+    // The table is `hr_regulatory_bodies` and there is a dedicated /bodies page.
+    href: '/hr/admin/recruitment-need/bodies',
+    table: 'hr_regulatory_bodies' as const,
     threshold: 8,
   },
   {
@@ -47,7 +56,8 @@ const SETUP_STEPS = [
     description: 'Define student-faculty ratio norms from each regulatory body.',
     icon: FileText,
     href: '/hr/admin/recruitment-need/norms',
-    table: 'hr_recruitment_signal_norms' as const,
+    // Was `hr_recruitment_signal_norms` — no such table. It is `hr_regulatory_norms`.
+    table: 'hr_regulatory_norms' as const,
     threshold: 1,
   },
   {
@@ -73,7 +83,11 @@ const SETUP_STEPS = [
     title: 'Enter Faculty Workload',
     description: 'Record or import faculty workload data for workload balance scoring.',
     icon: Clock,
-    href: '/hr/admin/recruitment-need/workload',
+    // /hr/admin/recruitment-need/workload has never existed — this step's
+    // "Set Up" button led to a 404, so the last step of the wizard could not be
+    // reached at all. The real screen is /hr/workload, which is fully built:
+    // Add Workload, Import from Excel, and a downloadable template.
+    href: '/hr/workload',
     table: 'hr_faculty_workload' as const,
     threshold: 1,
   },
@@ -108,16 +122,17 @@ export function SetupWizardEnhanced({ className }: SetupWizardEnhancedProps) {
             .select('*', { count: 'exact', head: true });
 
           if (!cancelled) {
-            const n = error ? 0 : (count ?? 0);
+            const n = count ?? 0;
             results[step.id] = {
               loaded: true,
-              complete: n >= step.threshold,
+              complete: !error && n >= step.threshold,
               count: n,
+              failed: !!error,
             };
           }
         } catch {
           if (!cancelled) {
-            results[step.id] = { loaded: true, complete: false, count: 0 };
+            results[step.id] = { loaded: true, complete: false, count: 0, failed: true };
           }
         }
       }
@@ -221,7 +236,9 @@ export function SetupWizardEnhanced({ className }: SetupWizardEnhancedProps) {
                         </span>
                       ) : (
                         <span className="text-muted-foreground">
-                          {status.count} of {step.threshold} required
+                          {status.failed
+                            ? 'Could not be checked'
+                            : `${status.count} of ${step.threshold} required`}
                         </span>
                       )}
                     </p>

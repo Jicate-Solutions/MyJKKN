@@ -4,16 +4,27 @@
 // worked only because `import type` is erased at build time. Creating it
 // here to plug the type-check debt alongside the Hostel Residents rebuild.
 
+// JSON shapes for jsonb writes live in types/json.ts so non-campus-living code
+// (the HR policy editors) can use them without importing from this module.
+export type { JsonValue, JsonObject } from './json';
+import type { JsonObject } from './json';
+
 // ─── Enums (mirrors supabase/migrations/20260222000015_campus_living_enums_and_tables.sql) ───
 
 export type AllocationType = 'fresh' | 'renewal' | 'transfer' | 'temporary';
 
+// Mirrors the hostel_allocations.status enum EXACTLY. 'pending_approval' and
+// 'rejected' were missing here while existing in the database — and 2 live rows
+// carry them (verified 2026-09-07), so code narrowing on this type was denying
+// states that real rows are in.
 export type AllocationStatus =
   | 'active'
   | 'vacated'
   | 'transferred'
   | 'suspended'
-  | 'pending_vacate';
+  | 'pending_vacate'
+  | 'pending_approval'
+  | 'rejected';
 
 export type VacateReason =
   | 'graduation'
@@ -24,9 +35,25 @@ export type VacateReason =
   | 'semester_end'
   | 'medical';
 
-export type FeeStatus = 'pending' | 'partial' | 'paid' | 'overdue' | 'waived';
+// Mirrors the hostel_allocations.fee_status enum EXACTLY. 'overdue' was listed
+// here but does not exist in the database enum (verified 2026-09-07: the enum is
+// pending|partial|paid|waived, and zero rows carry any other value), so any
+// filter passing it queried for a value that cannot exist. Nothing in the app
+// produced or rendered it.
+export type FeeStatus = 'pending' | 'partial' | 'paid' | 'waived';
 
-export type FoodPreference = 'veg' | 'non_veg' | 'vegan' | 'jain';
+// Mirrors the hostel_allocations.food_preference enum EXACTLY:
+// vegetarian | non_vegetarian | vegan | jain | eggetarian.
+// This previously read 'veg' | 'non_veg' | 'vegan' | 'jain' — two values the
+// database has never accepted and one ('eggetarian') it does. Saving a food
+// preference from the allocation drawer therefore failed on the enum every
+// time, which is why 0 rows carry one (verified 2026-09-07).
+export type FoodPreference =
+  | 'vegetarian'
+  | 'non_vegetarian'
+  | 'vegan'
+  | 'jain'
+  | 'eggetarian';
 
 // ─── Core row + DTOs ───────────────────────────────────────────────────
 
@@ -88,7 +115,7 @@ export interface CreateHostelAllocationDTO {
   emergency_contact_relation: string;
   medical_conditions?: string | null;
   food_preference?: FoodPreference | null;
-  metadata?: Record<string, unknown>;
+  metadata?: JsonObject;
   // ─── New columns added in hostel-rooms-v2 PR 1 ───
   monthly_fee_at_allocation_inr?: number | null;
   warden_id?: string | null;
@@ -109,7 +136,7 @@ export interface UpdateHostelAllocationDTO {
   emergency_contact_relation?: string;
   medical_conditions?: string | null;
   food_preference?: FoodPreference | null;
-  metadata?: Record<string, unknown>;
+  metadata?: JsonObject;
   // ─── New columns added in hostel-rooms-v2 PR 1 ───
   monthly_fee_at_allocation_inr?: number | null;
   warden_id?: string | null;
@@ -125,6 +152,9 @@ export interface AllocationFilters {
   allocation_type?: AllocationType;
   fee_status?: FeeStatus;
   learner_id?: string;
+  /** hostel_allocations.academic_year_id — the service already filtered on
+   *  this; it was simply missing from the interface. */
+  academic_year_id?: string;
   search?: string;
 }
 
@@ -175,6 +205,13 @@ export interface LearnerHostelite {
   gender: string | null;
   father_name: string | null;
   mother_name: string | null;
+  // Contact numbers, projected by v_learner_hostelites since migration
+  // 20260902140000. Stored on learners_profiles and populated for every current
+  // resident, but a few rows hold '' rather than NULL — normalise at the
+  // display/export boundary, not here.
+  student_mobile: string | null;
+  father_mobile: string | null;
+  mother_mobile: string | null;
   accommodation_type: LearnerAccommodationType;
   hostel_fee: number | null;
   dayscholar_fee: number | null;
@@ -207,7 +244,17 @@ export interface LearnerHostelite {
   current_allocation_id?: string | null;
   current_room_number?: string | null;
   current_bed_number?: string | null;
-  /** Learner lifecycle status (surfaced from v_learner_hostelites, which is filtered to active/reserved/admitted). */
+  /** False when the learner has no `profiles` row yet. hostel_allocations
+   *  .learner_id FKs profiles(id) and the login profile is only created at the
+   *  admitted -> active activation step, so these learners CANNOT be given a
+   *  bed — the UI must disable Allocate with that reason rather than let the
+   *  insert fail on a 23503. 48 of the 82 reserved/admitted hostelers as of
+   *  2026-09-05. Projected by v_learner_hostelites. */
+  has_login_profile?: boolean;
+  /** Learner lifecycle status. v_learner_hostelites carries active + reserved +
+   *  admitted (migration 20260905102440); the SERVICE defaults reads to
+   *  `active` only, so a widened list is always something the caller asked for.
+   *  See CL_ROSTER_STATUSES in lib/services/campus-living/roster-statuses.ts. */
   lifecycle_status?: string | null;
   /** Which date source produced year_of_study. NULL when no source available. PR #823. */
   year_source?: 'admission_year' | 'batch' | 'enquiry' | null;
@@ -243,6 +290,13 @@ export interface LearnerHostelitesFilters {
    */
   admission_year?: number;
   gender?: 'Male' | 'Female' | 'Other';
+  /**
+   * Learner lifecycle statuses to include. Omitted means
+   * CL_DEFAULT_ROSTER_STATUSES (['active']) — NOT "no filter". The view carries
+   * reserved and admitted too, so an absent filter must still resolve to the
+   * narrow set or every existing screen would silently gain 82 rows.
+   */
+  lifecycle_statuses?: readonly string[];
   block_id?: BlockFilterValue;
   // Block-scoped wardens: restrict to the warden's assigned blocks (cross-
   // institution). ANDs with block_id when both are present.
@@ -290,6 +344,10 @@ export interface UnallocatedCandidate {
   resolved_mess_category_name: string | null;
   // 'matched'|'different_year'|'untagged'|'none'
   bill_state: 'matched' | 'different_year' | 'untagged' | 'none';
+  /** Learner lifecycle status — 'active' | 'reserved' | 'admitted' (migration
+   *  20260905102440). Present so the Unallocated list can badge a reserved
+   *  learner instead of showing an unexplained new name. */
+  lifecycle_status: string;
   // 'ready' = all blocking conditions pass; 'incomplete' = something missing
   readiness: 'ready' | 'incomplete';
   // Human-readable list of what is blocking placement (empty when ready)
@@ -888,6 +946,15 @@ export interface MarkableResident {
    *  get_markable_resident_photos RPC (profiles.avatar_url is NULL for ~all
    *  students). Falls back to initials when absent. */
   student_photo_url: string | null;
+  /**
+   * Set when a cleaning in this learner's room finished and nobody rated it, so
+   * attendance is held for the whole room. Null when they can be marked.
+   *
+   * UX only — the BEFORE trigger on hostel_attendance is the actual wall. This
+   * exists so the warden sees a reason instead of a raw check_violation.
+   * Shaped like the academic side's LeaveBlockInfo so one banner renders both.
+   */
+  feedback_hold?: import('./campus-living/housekeeping').FeedbackHold | null;
 }
 
 export interface CreateHostelAttendanceDTO {

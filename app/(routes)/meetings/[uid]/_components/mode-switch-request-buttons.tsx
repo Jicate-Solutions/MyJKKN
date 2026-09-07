@@ -38,13 +38,22 @@ export function ModeSwitchRequestButtons({ uid }: { uid: string }) {
       const result = await resolveBookingModeSwitchRequest(uid, decision);
       setActing(null);
       if (result.success) {
-        toast.success(
-          decision === 'approve'
-            ? result.timeMoved
-              ? 'Switched to Google Meet and moved. Both of you have been emailed.'
-              : 'Switched to Google Meet. Both of you have been emailed.'
-            : 'Request declined. The meeting stays in person.',
-        );
+        // Approving keeps the meeting's time unless the visitor asked for a new
+        // one, so the same warning applies here: the host is told when the time
+        // they just approved sits outside their online hours.
+        if (decision === 'approve' && result.outsideOnlineHours) {
+          toast.warning(
+            'Switched to Google Meet. Both of you have been emailed — but this time is outside the hours you keep for online meetings. It was not moved; change the time yourself if you need to.',
+          );
+        } else {
+          toast.success(
+            decision === 'approve'
+              ? result.timeMoved
+                ? 'Switched to Google Meet and moved. Both of you have been emailed.'
+                : 'Switched to Google Meet. Both of you have been emailed.'
+              : 'Request declined. The meeting stays in person.',
+          );
+        }
         router.refresh();
       } else {
         setError(result.error ?? 'Could not change the booking.');

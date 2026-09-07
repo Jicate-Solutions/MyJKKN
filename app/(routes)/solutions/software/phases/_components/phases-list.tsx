@@ -551,6 +551,12 @@ export function PhasesList() {
                           ? 'No phases match your filters'
                           : 'No phases found'}
                       </p>
+                      {!searchQuery && statusFilter === 'all' && (
+                        <p className="text-muted-foreground text-sm mt-2 max-w-md mx-auto">
+                          Solutions Hub phase tracking is retired and holds no records.
+                          Delivery is tracked in the Projects module.
+                        </p>
+                      )}
                     </TableCell>
                   </TableRow>
                 ) : (

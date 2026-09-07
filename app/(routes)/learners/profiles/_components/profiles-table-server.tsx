@@ -113,10 +113,16 @@ export function ProfilesTableServer({
     semester_id: searchParams.get('semester_id') || undefined,
     section_id: searchParams.get('section_id') || undefined,
     academic_year_id: searchParams.get('academic_year_id') || undefined,
+    admission_year: Number(searchParams.get('admission_year')) || undefined,
     gender: searchParams.get('gender') || undefined,
     lifecycle_status: searchParams.get('lifecycle_status') || undefined,
     is_profile_complete: searchParams.get('is_profile_complete') || undefined,
     search: searchParams.get('search') || undefined,
+    // Carried alongside `search` so the export can reproduce the exact query
+    // the table ran, not just the same search term.
+    search_case_sensitive: searchParams.get('search_case_sensitive') || undefined,
+    search_exact_match: searchParams.get('search_exact_match') || undefined,
+    search_fields: searchParams.get('search_fields') || undefined,
   };
 
   // Permission check - Super admin has full access, others need 'learners.delete' permission

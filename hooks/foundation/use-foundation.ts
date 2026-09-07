@@ -10,6 +10,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   FoundationService,
+  type AddLearnerToCohortInput,
   type CreateAssessmentInput,
   type CreateItemInput,
   type ExamLevel,
@@ -88,6 +89,46 @@ export function useRoster(cohortId: string | null) {
     queryFn: () => FoundationService.getRoster(cohortId as string),
     enabled: !!cohortId,
     staleTime: 30 * 1000,
+  });
+}
+
+/**
+ * Put a learner on the programme and into a cohort.
+ *
+ * Invalidates that cohort's roster AND the cohort list, because the list card
+ * carries an enrolled_count that is now stale.
+ */
+export function useAddLearnerToCohort() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: AddLearnerToCohortInput) =>
+      FoundationService.addLearnerToCohort(input),
+    onSuccess: (_data, input) => {
+      qc.invalidateQueries({
+        queryKey: foundationKeys.roster(input.cohort_id),
+      });
+      qc.invalidateQueries({ queryKey: foundationKeys.cohorts() });
+    },
+  });
+}
+
+/**
+ * Assign (or clear) a cohort's resource person. A cohort with none is
+ * unreachable by the facilitation screen, which scopes to the caller.
+ */
+export function useSetCohortResourcePerson() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      cohortId,
+      resourcePersonId,
+    }: {
+      cohortId: string;
+      resourcePersonId: string | null;
+    }) => FoundationService.setCohortResourcePerson(cohortId, resourcePersonId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: foundationKeys.cohorts() });
+    },
   });
 }
 

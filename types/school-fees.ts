@@ -650,3 +650,23 @@ export interface CreateSchoolReceiptDto {
   payment_remarks?: string | null;
   receipt_items: { bill_id: string; amount_paid: number }[];
 }
+
+/**
+ * One generated school-fee bill line, flattened for the learner-wise report.
+ * Sourced from billing_student_bills — what was actually written, not what
+ * the generation preview projected.
+ */
+export interface SchoolFeeReportRow {
+  student_id: string;
+  learner_name: string;
+  roll_number: string;
+  register_number: string;
+  class_name: string;
+  section_name: string;
+  fee_head: string;
+  term_number: number | null;
+  due_date: string | null;
+  amount: number;
+  balance: number;
+  status: string;
+}

@@ -2,6 +2,7 @@
 // CRUD operations for sh_phase_deployments
 
 import { BaseService, type BaseListResponse } from '../base-service';
+import { RETIRED_DELIVERY_SURFACE_MESSAGE } from './types';
 import type {
   PhaseDeployment,
   PaginationParams,
@@ -40,17 +41,15 @@ export interface DeploymentFilters extends PaginationParams {
 export interface CreateDeploymentInput {
   phase_id: string;
   environment: DeploymentEnvironment;
-  version?: string;
   vercel_url?: string;
   supabase_project_id?: string;
   custom_domain?: string;
-  deployed_date: string;
+  deployed_at: string;
   deployed_by: string;
   notes?: string;
 }
 
 export interface UpdateDeploymentInput {
-  version?: string;
   vercel_url?: string;
   supabase_project_id?: string;
   custom_domain?: string;
@@ -126,7 +125,7 @@ export class DeploymentsService extends BaseService {
       `,
         { count: 'exact' }
       )
-      .order('deployed_date', { ascending: false });
+      .order('deployed_at', { ascending: false });
 
     // Apply filters
     if (filters?.phase_id) {
@@ -204,7 +203,7 @@ export class DeploymentsService extends BaseService {
     const { data, error } = await this.supabase.from('sh_phase_deployments')
       .select('*')
       .eq('phase_id', phaseId)
-      .order('deployed_date', { ascending: false });
+      .order('deployed_at', { ascending: false });
 
     if (error) throw new Error(`Failed to fetch deployments: ${error.message}`);
     return data as PhaseDeployment[];
@@ -221,7 +220,7 @@ export class DeploymentsService extends BaseService {
       .select('*')
       .eq('phase_id', phaseId)
       .eq('environment', environment)
-      .order('deployed_date', { ascending: false })
+      .order('deployed_at', { ascending: false })
       .limit(1)
       .maybeSingle();
 
@@ -230,44 +229,16 @@ export class DeploymentsService extends BaseService {
   }
 
   /**
-   * Create a deployment record
+   * Create a deployment record.
+   *
+   * RETIRED (2026-08-14 boundary ruling). `sh_phase_deployments` is retired in
+   * place, so this no longer inserts. The previous implementation could never
+   * succeed anyway — it wrote `version` and `deployed_date`, neither of which
+   * exists on the table — so every call already failed, opaquely, with a
+   * Postgres 42703. It now fails explicitly instead.
    */
-  static async createDeployment(input: CreateDeploymentInput): Promise<PhaseDeployment> {
-    // Deactivate previous active deployments in same environment
-    await this.supabase.from('sh_phase_deployments')
-      .update({ status: 'inactive' })
-      .eq('phase_id', input.phase_id)
-      .eq('environment', input.environment)
-      .eq('status', 'active');
-
-    const { data, error } = await this.supabase.from('sh_phase_deployments')
-      .insert({
-        phase_id: input.phase_id,
-        environment: input.environment,
-        version: input.version,
-        vercel_url: input.vercel_url,
-        supabase_project_id: input.supabase_project_id,
-        custom_domain: input.custom_domain,
-        deployed_date: input.deployed_date,
-        deployed_by: input.deployed_by,
-        status: 'active',
-      })
-      .select()
-      .single();
-
-    if (error) throw new Error(`Failed to create deployment: ${error.message}`);
-
-    // Update phase status to 'live' if this is a production deployment
-    if (input.environment === 'production') {
-      await this.supabase.from('sh_solution_phases')
-        .update({
-          status: 'live',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', input.phase_id);
-    }
-
-    return data as PhaseDeployment;
+  static async createDeployment(_input: CreateDeploymentInput): Promise<never> {
+    throw new Error(RETIRED_DELIVERY_SURFACE_MESSAGE);
   }
 
   /**
@@ -355,7 +326,7 @@ export class DeploymentsService extends BaseService {
     deploymentsThisMonth: number;
   }> {
     const { data, error } = await this.supabase.from('sh_phase_deployments')
-      .select('environment, status, deployed_date');
+      .select('environment, status, deployed_at');
 
     if (error) throw new Error(`Failed to fetch deployment stats: ${error.message}`);
 
@@ -377,7 +348,7 @@ export class DeploymentsService extends BaseService {
     let activeProduction = 0;
     let deploymentsThisMonth = 0;
 
-    data?.forEach((deployment: { environment: DeploymentEnvironment; status: DeploymentStatus; deployed_date: string }) => {
+    data?.forEach((deployment: { environment: DeploymentEnvironment; status: DeploymentStatus; deployed_at: string }) => {
       if (deployment.environment) {
         byEnvironment[deployment.environment]++;
       }
@@ -387,7 +358,7 @@ export class DeploymentsService extends BaseService {
       if (deployment.environment === 'production' && deployment.status === 'active') {
         activeProduction++;
       }
-      if (deployment.deployed_date && new Date(deployment.deployed_date) >= startOfMonth) {
+      if (deployment.deployed_at && new Date(deployment.deployed_at) >= startOfMonth) {
         deploymentsThisMonth++;
       }
     });

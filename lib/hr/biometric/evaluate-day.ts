@@ -13,6 +13,12 @@
  *   first half  : IN <= first_half_start + grace_minutes  AND  OUT >= first_half_end
  *   second half : IN <= midpoint(second_half)             AND  OUT >= second_half_end
  *
+ * A WORKING DAY MAY HAVE ONE HALF (2026-09-04) — a 09:00-14:00 Saturday with no
+ * afternoon. The day's FIRST SESSION, whichever half that is, is the grace-gated
+ * one; a lone afternoon is judged exactly like a morning would be. Such a day is
+ * PRESENT or ABSENT, never HALF_DAY, and the half the day does not have is
+ * reported as null, not false.
+ *
  * THE ASYMMETRY IS DELIBERATE, and so is the cliff on the first half.
  *
  *   Grace applies to the morning only — a standing JKKN requirement. Arriving
@@ -268,7 +274,14 @@ export function evaluateDay({ inTime, outTime, timing, permissions }: EvaluateDa
       exceptionReason: `Unreadable punch time (in="${inTime}", out="${outTime}").`,
     };
   }
-  if (fhStart === null || fhEnd === null || shStart === null || shEnd === null) {
+  // A WORKING DAY MAY HAVE ONE HALF (2026-09-04): a 09:00–14:00 Saturday with
+  // no afternoon. Each half is all-or-nothing; a day with neither, or with a
+  // half-filled half, is a missing RULE and stays an exception.
+  const hasFirst = fhStart !== null && fhEnd !== null;
+  const hasSecond = shStart !== null && shEnd !== null;
+  const firstHalfFilled = (fhStart === null) === (fhEnd === null);
+  const secondHalfFilled = (shStart === null) === (shEnd === null);
+  if (!firstHalfFilled || !secondHalfFilled || (!hasFirst && !hasSecond)) {
     return {
       ...base,
       verdict: 'EXCEPTION',
@@ -286,19 +299,38 @@ export function evaluateDay({ inTime, outTime, timing, permissions }: EvaluateDa
   }
 
   const grace = Number.isFinite(timing.grace_minutes) ? timing.grace_minutes : 0;
-  const graceDeadline = fhStart + grace;
 
-  // The morning is gated on the grace deadline; the afternoon on the midpoint
-  // of its own window. See the header for why the two differ.
-  const shLatestArrival = Math.floor((shStart + shEnd) / 2);
+  // THE DAY'S FIRST SESSION IS GATED ON GRACE — the morning when there is one,
+  // the lone afternoon on a second-half-only day. A SECOND session, when there
+  // is one, keeps its midpoint tolerance. See the header for why the two differ.
+  const firstSessionStart = hasFirst ? (fhStart as number) : (shStart as number);
+  const graceDeadline = firstSessionStart + grace;
 
-  const baseFirst = inMin <= graceDeadline && outMin >= fhEnd;
-  const baseSecond = inMin <= shLatestArrival && outMin >= shEnd;
-
-  // Grace applies to the first half only — an explicit requirement. Since
-  // 2026-08-20 this figure also DECIDES the morning: any value above zero means
-  // the base morning test fails (a permission may still reinstate it below).
+  // Since 2026-08-20 this figure also DECIDES the first session: any value above
+  // zero means its base test fails (a permission may still reinstate it below).
   const lateMinutes = Math.max(0, inMin - graceDeadline);
+
+  // The required span per half, and the base verdict per half. `null` for a
+  // half the day does not have — it is then neither required nor reported.
+  const firstRequired: Span | null = hasFirst
+    ? { from: graceDeadline, to: fhEnd as number }
+    : null;
+  const secondRequired: Span | null = hasSecond
+    ? {
+        // Afternoon after a morning: required from its own start, arrival
+        // judged at its midpoint. Lone afternoon: it IS the first session, so
+        // required from the grace deadline like a morning would be.
+        from: hasFirst ? (shStart as number) : graceDeadline,
+        to: shEnd as number,
+      }
+    : null;
+
+  const baseFirst = hasFirst ? inMin <= graceDeadline && outMin >= (fhEnd as number) : null;
+  const baseSecond = hasSecond
+    ? hasFirst
+      ? inMin <= Math.floor(((shStart as number) + (shEnd as number)) / 2) && outMin >= (shEnd as number)
+      : inMin <= graceDeadline && outMin >= (shEnd as number)
+    : null;
 
   // ---- Approved permissions reinstate a half they fully cover --------------
   const covers: Span[] = [];
@@ -312,14 +344,18 @@ export function evaluateDay({ inTime, outTime, timing, permissions }: EvaluateDa
   }
 
   const present: Span = { from: inMin, to: outMin };
-  const firstMissing = baseFirst ? [] : missingOf({ from: graceDeadline, to: fhEnd }, present);
-  const secondMissing = baseSecond ? [] : missingOf({ from: shStart, to: shEnd }, present);
+  const firstMissing =
+    firstRequired && baseFirst === false ? missingOf(firstRequired, present) : [];
+  const secondMissing =
+    secondRequired && baseSecond === false ? missingOf(secondRequired, present) : [];
 
-  const firstExcused = !baseFirst && isCovered(firstMissing, covers);
-  const secondExcused = !baseSecond && isCovered(secondMissing, covers);
+  const firstExcused = baseFirst === false && isCovered(firstMissing, covers);
+  const secondExcused = baseSecond === false && isCovered(secondMissing, covers);
 
-  const firstHalfAttended = baseFirst || firstExcused;
-  const secondHalfAttended = baseSecond || secondExcused;
+  // null for a half the day does not have, so the stored row says "no such
+  // half" rather than "missed it".
+  const firstHalfAttended = hasFirst ? Boolean(baseFirst) || firstExcused : null;
+  const secondHalfAttended = hasSecond ? Boolean(baseSecond) || secondExcused : null;
 
   // The two halves overlap (13:00 end vs 12:30 start), so union the excused
   // gaps before measuring rather than adding the two totals.
@@ -334,10 +370,17 @@ export function evaluateDay({ inTime, outTime, timing, permissions }: EvaluateDa
 
   const decided = { ...base, firstHalfAttended, secondHalfAttended, lateMinutes, excusedMinutes, excusedBy };
 
-  if (firstHalfAttended && secondHalfAttended) {
+  // A single-session day is PRESENT or ABSENT — there is no half to be short
+  // of. With two halves the verdicts are exactly as before.
+  const sessions = [firstHalfAttended, secondHalfAttended].filter(
+    (v): v is boolean => v !== null,
+  );
+  const attended = sessions.filter(Boolean).length;
+
+  if (attended === sessions.length) {
     return { ...decided, verdict: 'PRESENT', dayCalc: 'FULL' };
   }
-  if (firstHalfAttended || secondHalfAttended) {
+  if (attended > 0) {
     return { ...decided, verdict: 'HALF_DAY', dayCalc: 'HALF' };
   }
   // On site, but covering neither window — e.g. in at 11:00, out at 14:00.

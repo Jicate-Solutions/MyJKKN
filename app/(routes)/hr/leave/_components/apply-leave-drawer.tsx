@@ -29,7 +29,7 @@ import {
 } from '@/components/ui/select';
 import { useApplyLeave } from '@/hooks/hr/use-leave';
 import { useLeavePeriodUsage } from '@/hooks/hr/use-hr-leave-types';
-import { useMyApplications } from '@/hooks/hr/use-leave';
+import { useDayOccupancy } from '@/hooks/hr/use-day-occupancy';
 import { Progress } from '@/components/ui/progress';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
 import { useClosedAttendanceMonths } from '@/hooks/hr/use-attendance-records';
@@ -39,7 +39,7 @@ import { formatDays } from './format';
 import { LeaveDocumentUpload } from './leave-document-upload';
 import { leaveDocumentRequirement } from '@/lib/hr/leave-document-rule';
 import { LIMIT_PERIOD_LABELS } from '@/types/hr-leave-types';
-import type { HRLeaveApplicationWithType, LeaveDocument, LeaveDurationType } from '@/types/hr';
+import type { LeaveDocument, LeaveDurationType } from '@/types/hr';
 import { toast } from 'sonner';
 
 const DURATIONS: Array<{ value: LeaveDurationType; label: string; days: number }> = [
@@ -114,9 +114,15 @@ export function ApplyLeaveDrawer({
   const effectiveDuration: LeaveDurationType =
     selected?.allow_half_day && isSingleDay ? durationType : 'full';
 
-  const available = selected
-    ? selected.entitled + selected.carried_forward - selected.used
-    : null;
+  /**
+   * READ from the view, not recomputed.
+   *
+   * This was `entitled + carried_forward - used`, which cannot see a request
+   * awaiting approval -- so the drawer offered 12 days while the database, which
+   * does count them, refused. The view's `available` nets off pending and caps
+   * at what has actually accrued.
+   */
+  const available = selected ? selected.available : null;
 
   // Inclusive day span, adjusted for a half-day request.
   const requestedDays = useMemo(() => {
@@ -182,25 +188,18 @@ export function ApplyLeaveDrawer({
   const notInHr = !ctx.isLoading && ctx.hasEmployeeRecord && !ctx.hrIncluded;
 
   /**
-   * A live request already covering these dates. hr_trig_leave_enforce_no_overlap
-   * refuses it outright — this says so while the dates are being picked instead
-   * of after Submit.
+   * Anything already occupying these dates — leave, a permission, or a
+   * compensatory off claim. Only ONE request may exist per day, and
+   * hr_trig_leave_enforce_no_overlap refuses the rest outright; this says so
+   * while the dates are being picked instead of after Submit.
    *
-   * Reads the caller's own list, which the applications route caps at 50. Fine
-   * for one person's requests, and the trigger is the enforcement point either
-   * way, so a miss here costs a round trip and not a double booking.
+   * The scan this replaces read the caller's own application list and filtered
+   * it to `request_category === 'leave'` — the same blind spot the trigger had,
+   * so the drawer happily let someone file leave onto a day that already held a
+   * permission. The hook asks the database the identical question the trigger
+   * asks, so warning and refusal cannot drift apart.
    */
-  const { data: mine } = useMyApplications(ctx.employeeId || undefined);
-  const clash = useMemo(() => {
-    if (!startDate || !endDate || endDate < startDate) return null;
-    // The route embeds hr_leave_types; the hook's return type predates that.
-    const list = (mine?.data ?? []) as HRLeaveApplicationWithType[];
-    return list.find((a) => {
-      if ((a.hr_leave_types?.request_category ?? 'leave') !== 'leave') return false;
-      if (!['pending', 'approved', 'escalated'].includes(a.status)) return false;
-      return a.start_date <= endDate && startDate <= a.end_date;
-    }) ?? null;
-  }, [mine, startDate, endDate]);
+  const { data: clash } = useDayOccupancy(ctx.employeeId, startDate, endDate);
 
   // Does THIS request need a certificate? Shared with the server so the drawer
   // and LeaveService.createApplication cannot disagree about the answer.
@@ -356,7 +355,8 @@ export function ApplyLeaveDrawer({
                   </SelectTrigger>
                   <SelectContent>
                     {options.map((b) => {
-                      const avail = b.entitled + b.carried_forward - b.used;
+                      // Same figure the card below and the server use.
+                      const avail = b.available;
                       return (
                         <SelectItem key={b.leave_type_id} value={b.leave_type_id}>
                           {b.leave_type_name}
@@ -384,16 +384,43 @@ export function ApplyLeaveDrawer({
                       )}
                     </div>
 
-                    <div className="mt-2 grid grid-cols-4 gap-2 text-center">
+                    {/* Pending is named rather than silently deducted: "10
+                        available" is baffling to someone who believes they have
+                        12, when the two missing days are ones they filed
+                        themselves an hour ago. Shown only when there are any, so
+                        the common case keeps four columns. */}
+                    <div
+                      className={`mt-2 grid gap-2 text-center ${
+                        selected.pending > 0 ? 'grid-cols-5' : 'grid-cols-4'
+                      }`}
+                    >
                       <Figure label="Entitled" value={formatDays(selected.entitled)} />
                       <Figure label="Carried" value={formatDays(selected.carried_forward)} />
                       <Figure label="Used" value={formatDays(selected.used)} />
+                      {selected.pending > 0 && (
+                        <Figure label="Pending" value={formatDays(selected.pending)} />
+                      )}
                       <Figure label="Available" value={formatDays(available)} strong />
                     </div>
                     <Progress
                       className="mt-2 h-1.5"
-                      value={pct(selected.used, selected.entitled + selected.carried_forward)}
+                      value={pct(
+                        selected.used + selected.pending,
+                        selected.accrued + selected.carried_forward
+                      )}
                     />
+                    {selected.pending > 0 && (
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        {formatDays(selected.pending)} day(s) are held by requests awaiting
+                        approval and cannot be applied for again.
+                      </p>
+                    )}
+                    {selected.accrued < selected.entitled && (
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        {formatDays(selected.accrued)} of {formatDays(selected.entitled)} day(s)
+                        have accrued so far this year; the rest accrue month by month.
+                      </p>
+                    )}
 
                     {/* The per-period throttle sits ALONGSIDE the entitlement: a
                         request can be well inside the balance and still refused. */}
@@ -410,6 +437,16 @@ export function ApplyLeaveDrawer({
                               {new Date(`${periodUsage.period_end}T00:00:00`).toLocaleDateString('en-GB')})
                             </>
                           )}
+                        </p>
+                        {/* The balance card above already names its pending
+                            hold; this figure has the same one folded in and
+                            said nothing, so the two read as disagreeing.
+                            hr_leave_period_usage counts 'pending' and
+                            'escalated' beside 'approved', exactly as the cap
+                            trigger does. */}
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          Requests awaiting approval are already counted here,
+                          and released if rejected, cancelled or withdrawn.
                         </p>
                       </div>
                     )}
@@ -515,9 +552,7 @@ export function ApplyLeaveDrawer({
                 <Alert variant="destructive">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>
-                    You already have a {clash.hr_leave_types?.leave_type_name ?? 'leave'} request
-                    from {new Date(`${clash.start_date}T00:00:00`).toLocaleDateString('en-GB')} to{' '}
-                    {new Date(`${clash.end_date}T00:00:00`).toLocaleDateString('en-GB')} ({clash.status}).
+                    Only one request is allowed per day, and you already have {clash}.
                     Pick different dates, or cancel that request first.
                   </AlertDescription>
                 </Alert>

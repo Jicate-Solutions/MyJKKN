@@ -11,6 +11,7 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { accommodationLegacyFromCode } from '@/lib/utils/accommodation-type-resolver';
+import { CL_DEFAULT_ROSTER_STATUSES } from './roster-statuses';
 import {
   UNASSIGNED_BLOCK,
   type HosteliteBillStatus,
@@ -37,6 +38,13 @@ const VIEW_SELECT = [
   'gender',
   'father_name',
   'mother_name',
+  // Contact numbers for the roster export (migration 20260902140000). Both the
+  // base view and v_learner_hostelites_scoped project these — the scoped view's
+  // `SELECT v.*` had to be re-expanded to pick them up, since Postgres freezes
+  // the star at creation time.
+  'student_mobile',
+  'father_mobile',
+  'mother_mobile',
   'accommodation_type',
   'hostel_fee',
   'dayscholar_fee',
@@ -73,6 +81,10 @@ const VIEW_SELECT = [
   'hostel_category_type',
   'mess_category_id',
   'mess_category_name',
+  // Can this learner be given a bed at all? hostel_allocations.learner_id FKs
+  // profiles(id), which does not exist until activation (migration
+  // 20260905102440). Drives the disabled Allocate action + its tooltip.
+  'has_login_profile',
 ].join(',');
 
 // learners_profiles columns NOT exposed on the view (used by mutations and the
@@ -126,6 +138,17 @@ export class LearnerHosteliteService {
       let query = (supabase as any)
         .from('v_learner_hostelites_scoped')
         .select(VIEW_SELECT, { count: 'exact' });
+
+      // Lifecycle scoping. v_learner_hostelites carries active + reserved +
+      // admitted since migration 20260905102440, but an ABSENT filter must
+      // still mean 'active' — not "everything". This single line is what keeps
+      // the Learners tab, the Generate-bills tab and the detail drawer on the
+      // 754 active hostelers unless a caller explicitly widens, and it is the
+      // reason the 2026-06-08 widening could be redone safely.
+      query = query.in(
+        'lifecycle_status',
+        (filters?.lifecycle_statuses ?? CL_DEFAULT_ROSTER_STATUSES) as string[],
+      );
 
       // Institution scoping — non-super-admin always restricted to their inst.
       // Super-admin can pass filters.institution_id to narrow.
@@ -530,7 +553,14 @@ export class LearnerHosteliteService {
     let query = supabase
       .from('v_learner_hostelites')
       .select('year_of_study')
-      .not('year_of_study', 'is', null);
+      .not('year_of_study', 'is', null)
+      // Same default as listHostelites — otherwise the Year chips would offer
+      // cohorts that only exist among reserved learners, filtering the table to
+      // an empty result while the Status filter still says Active.
+      // Passed as the readonly literal tuple, NOT widened to string[]: the cast
+      // erased the literal types, and PostgREST's generated signature wants the
+      // lifecycle_status union, which a bare string[] cannot satisfy.
+      .in('lifecycle_status', CL_DEFAULT_ROSTER_STATUSES);
     if (institutionId) query = query.eq('institution_id', institutionId);
     const { data, error } = await query;
     if (error) {
@@ -684,7 +714,7 @@ export class LearnerHosteliteService {
         throw error;
       }
       // Flatten accommodation_type from the embed (legacy 'HOSTEL'/'DAY SCHOLAR').
-      return (data ?? []).map((row: Record<string, unknown>) => {
+      return ((data ?? []) as unknown as Record<string, unknown>[]).map((row) => {
         const ref = row.accommodation_ref as { code?: string } | null;
         delete row.accommodation_ref;
         row.accommodation_type = accommodationLegacyFromCode(ref?.code);

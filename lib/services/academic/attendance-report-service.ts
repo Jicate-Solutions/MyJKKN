@@ -84,6 +84,24 @@ export interface AttendanceStatistics {
   todayTotalCapacity: number;
 }
 
+/**
+ * Default window for the statistics card when the user has not picked a date
+ * range. Previously this was '2020-01-01' (6.5 years) combined with an
+ * unpaginated select of attendance_data -- the full per-period roster blob --
+ * which crashed the browser tab with "Aw, Snap! Out of Memory". A trailing year
+ * covers an academic year, keeps the 30-day trend and 7-day comparison intact,
+ * and bounds how much the aggregate has to scan. Pick an explicit range to widen.
+ */
+const STATS_DEFAULT_WINDOW_DAYS = 365;
+
+/**
+ * Row ceiling for the client-side fallback that runs only when the
+ * get_attendance_statistics RPC is missing from the schema cache. Statistics
+ * computed from a truncated set are wrong, so the fallback reports that it
+ * truncated rather than pretending the numbers are complete.
+ */
+const STATS_FALLBACK_MAX_ROWS = 2000;
+
 export class AttendanceReportService {
   private static supabase = createClientSupabaseClient();
 
@@ -1147,17 +1165,61 @@ export class AttendanceReportService {
   /**
    * Get attendance statistics
    */
+  /**
+   * Map the get_attendance_statistics jsonb payload onto AttendanceStatistics.
+   * Postgres `numeric` can arrive as a string through PostgREST, so every figure
+   * is coerced rather than trusted -- an un-coerced string would render as
+   * "88.4" but break any arithmetic the cards do on it.
+   */
+  private static toStatistics(row: Record<string, unknown>): AttendanceStatistics {
+    const num = (v: unknown): number => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : 0;
+    };
+    const arr = (v: unknown): any[] => (Array.isArray(v) ? v : []);
+
+    return {
+      totalClasses: num(row.totalClasses),
+      averageAttendance: num(row.averageAttendance),
+      totalStudents: num(row.totalStudents),
+      totalFaculty: num(row.totalFaculty),
+      presentToday: num(row.presentToday),
+      absentToday: num(row.absentToday),
+      todayClasses: num(row.todayClasses),
+      todayAttendanceRate: num(row.todayAttendanceRate),
+      weeklyComparison: num(row.weeklyComparison),
+      todayPeriods: num(row.todayPeriods),
+      todayTotalCapacity: num(row.todayTotalCapacity),
+      attendanceTrend: arr(row.attendanceTrend).map((t) => ({
+        date: t?.date,
+        percentage: num(t?.percentage),
+        present: num(t?.present),
+        total: num(t?.total)
+      })),
+      departmentComparison: arr(row.departmentComparison),
+      lowAttendanceAlerts: arr(row.lowAttendanceAlerts).map((a) => ({
+        date: a?.date,
+        percentage: num(a?.percentage),
+        section: undefined
+      }))
+    };
+  }
+
   static async getAttendanceStatistics(
     filters: AttendanceReportFilters,
     level: 'institution' | 'department' | 'faculty' = 'institution',
     facultyStaffId?: string
   ): Promise<{ data: AttendanceStatistics | null; error: string | null }> {
     try {
-      // Use same date range as reports or default to a broader range for statistics
-      // If no date range specified, use a wider range to match all available data
-      const endDate =
-        filters.date_range?.to || new Date().toISOString().split('T')[0];
-      const startDate = filters.date_range?.from || '2020-01-01'; // Broader default range
+      // `today` is computed once and handed to the RPC so the server reproduces
+      // this exact (UTC) day boundary rather than using its own current_date.
+      const today = new Date().toISOString().split('T')[0];
+      const endDate = filters.date_range?.to || today;
+      const startDate =
+        filters.date_range?.from ||
+        new Date(Date.now() - STATS_DEFAULT_WINDOW_DAYS * 86400000)
+          .toISOString()
+          .split('T')[0];
 
       let data: any[] = [];
       let count = 0;
@@ -1190,6 +1252,43 @@ export class AttendanceReportService {
         data = rpcData || [];
         count = data.length > 0 ? data[0]?.total_count || data.length : 0;
       } else {
+        // Aggregate in Postgres: one jsonb row instead of every matching
+        // session record with its roster blob attached. Counting these in the
+        // browser is what crashed the tab -- see
+        // 20260923000000_attendance_statistics_aggregate_rpc.sql.
+        const { data: agg, error: aggError } = await (this.supabase as any).rpc(
+          'get_attendance_statistics',
+          {
+            p_institution_id: filters.institution_id || null,
+            p_academic_year_id: filters.academic_year_id || null,
+            p_degree_id: filters.degree_id || null,
+            p_department_id: filters.department_id || null,
+            p_program_id: filters.program_id || null,
+            p_semester_id: filters.semester_id || null,
+            p_section_id: filters.section_id || null,
+            p_date_from: startDate,
+            p_date_to: endDate,
+            p_today: today
+          }
+        );
+
+        if (!aggError && agg) {
+          return { data: this.toStatistics(agg), error: null };
+        }
+
+        // The function is absent from the schema cache, which here means the
+        // migration has not been applied (or landed partially). Fall back to
+        // counting client-side, but BOUNDED -- the unpaginated roster fetch
+        // must never come back.
+        logger.warn(
+          'academic/attendance-reports',
+          'get_attendance_statistics RPC unavailable; using bounded client-side fallback',
+          {
+            message: aggError?.message,
+            code: (aggError as { code?: string } | null)?.code
+          }
+        );
+
         // Build base query for non-faculty users
         let query = this.supabase
           .from('student_attendance')
@@ -1222,7 +1321,9 @@ export class AttendanceReportService {
 
         query = query
           .gte('attendance_date', startDate)
-          .lte('attendance_date', endDate);
+          .lte('attendance_date', endDate)
+          .order('attendance_date', { ascending: false })
+          .range(0, STATS_FALLBACK_MAX_ROWS - 1);
 
         const result = await query;
 
@@ -1232,6 +1333,16 @@ export class AttendanceReportService {
 
         data = result.data || [];
         count = result.count || 0;
+
+        // Statistics built from a truncated set are wrong. Say so rather than
+        // presenting partial figures as complete.
+        if (count > data.length) {
+          logger.warn(
+            'academic/attendance-reports',
+            'Statistics fallback truncated: figures cover only the most recent rows',
+            { returned: data.length, matched: count, startDate, endDate }
+          );
+        }
       }
 
       // Calculate statistics
@@ -1302,7 +1413,8 @@ export class AttendanceReportService {
         .slice(-30); // Last 30 days for trend
 
       // Get today's stats and enhanced metrics
-      const today = new Date().toISOString().split('T')[0];
+      // (`today` is declared once at the top of this method and shared with the
+      // RPC call, so both paths agree on the day boundary.)
       const todayStats = dailyStats[today] || { present: 0, total: 0 };
 
       // Calculate today's specific metrics

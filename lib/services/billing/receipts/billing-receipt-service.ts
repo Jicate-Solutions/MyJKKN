@@ -575,6 +575,15 @@ export class BillingReceiptService {
   }
 
   // Method to get multiple bills by their IDs for receipt generation
+  /**
+   * The `institution:institutions(...)` embed is what keeps the receipt form's
+   * locked Institution field populated. That field is derived from the bill and
+   * cannot be edited, but it used to resolve its LABEL by looking the bill's
+   * institution_id up in a separately-fetched dropdown list — so any gap in
+   * that list (fetch failure, `is_active = false`, RLS) rendered the locked
+   * field as a bare "Select institution" placeholder the operator had no way to
+   * correct. Carrying the name on the bill removes that second dependency.
+   */
   static async getBillsByIds(billIds: string[]): Promise<any[]> {
     try {
       const { data, error } = await this.supabase
@@ -594,7 +603,15 @@ export class BillingReceiptService {
             last_name,
             roll_number,
             college_email,
-            institution_id
+            institution_id,
+            student_mobile,
+            father_mobile,
+            mother_mobile
+          ),
+          institution:institutions (
+            id,
+            name,
+            counselling_code
           )
         `
         )

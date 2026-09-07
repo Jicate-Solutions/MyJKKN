@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
+import { withAuth } from '@/lib/auth/with-auth';
 
 const GRAPH_API = 'https://graph.facebook.com/v21.0';
 
@@ -13,7 +14,15 @@ function getPhoneNumberId() {
 }
 
 // GET — Fetch current WhatsApp Business Profile from Meta
-export async function GET() {
+/**
+ * Guarded 2026-09-01. This route had NO authentication of any kind: it reads
+ * WhatsApp Business account settings and returned them to any anonymous
+ * caller. That was masked only because WHATSAPP_ACCESS_TOKEN is unset in
+ * production, so it failed with a config error before reaching the data. Set
+ * the token and it would have leaked. The gap, not the missing config, is the
+ * bug.
+ */
+export const GET = withAuth(async () => {
   try {
     const phoneNumberId = getPhoneNumberId();
     const accessToken = getAccessToken();
@@ -52,10 +61,11 @@ export async function GET() {
       { status: 500 }
     );
   }
-}
+}, { requiredPermission: 'read' });
 
 // PUT — Update WhatsApp Business Profile on Meta
-export async function PUT(request: NextRequest) {
+// Same gap as the GET above, and worse: this WRITES the business profile.
+export const PUT = withAuth(async (request: NextRequest) => {
   try {
     const phoneNumberId = getPhoneNumberId();
     const accessToken = getAccessToken();
@@ -111,4 +121,4 @@ export async function PUT(request: NextRequest) {
       { status: 500 }
     );
   }
-}
+}, { requiredPermission: 'write' });

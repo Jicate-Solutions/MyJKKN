@@ -1,0 +1,41 @@
+name: Schema-drift guard
+
+# Code must not reference sh_* columns that no migration creates.
+#
+# WHY: this defect class shipped twice from the Solutions Hub's first day
+# (sh_prospects.existing_client_id, sh_prospects.reopen_date) and passed
+# type-check, build, and every other gate both times — PostgREST resolves
+# column names at REQUEST time, so nothing static catches it without schema
+# knowledge. Both bugs hard-500'd production routes and stayed invisible only
+# because the tables were empty. See scripts/ci/check-schema-drift.mjs header
+# for scope and accepted limits.
+#
+# Repo-only (no DB secrets): the known-schema side is derived from
+# supabase/**/*.sql, so the guard also runs on forks and needs no network.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - 'lib/services/solutions/**'
+      - 'supabase/**'
+      - 'scripts/ci/check-schema-drift.mjs'
+      - 'scripts/ci/schema-drift-allowlist.json'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: No unbacked column references
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    if: ${{ !github.event.pull_request.draft }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run guard
+        run: node scripts/ci/check-schema-drift.mjs

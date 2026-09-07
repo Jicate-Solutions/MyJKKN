@@ -38,11 +38,56 @@ export interface CalculatedSplit {
   recipientId?: string;
 }
 
+/**
+ * Where an adjustment's value came from.
+ *
+ * This lane divides money, so a bare `0` is dangerous: it reads as "we looked it up and
+ * it was zero" when the truth may be "there is nothing to look up". Every calculation
+ * states its provenance so a reader can tell an authoritative figure from a what-if one.
+ */
+export type SplitAdjustmentSource =
+  /** Value came from the request body — a what-if input, not stored data. */
+  | 'caller_supplied'
+  /** No such field exists in the schema; nothing was looked up. A zero here is not a lookup result. */
+  | 'not_stored'
+  /** The adjustment's rule did not apply to this split. */
+  | 'not_applicable';
+
+export interface SplitAdjustmentSources {
+  /**
+   * Always `not_stored` unless a caller passed one. There is no stored HOD discount:
+   * `sh_solutions` carries `discount_percentage` / `discount_reason` (applied at
+   * price-setting time, before any split) and `sh_clients.partner_status` for partner
+   * discount eligibility. No column named `hod_discount` has ever existed.
+   */
+  hodDiscount: SplitAdjustmentSource;
+  referralBonus: SplitAdjustmentSource;
+}
+
 export interface RevenueSplitCalculation {
   splits: CalculatedSplit[];
   totalAmount: number;
   hodDiscountApplied: number;
   referralBonusApplied: number;
+  adjustmentSources: SplitAdjustmentSources;
+}
+
+/**
+ * Thrown when a split cannot be computed from data the system actually stores.
+ *
+ * Callers must surface this rather than substituting a default. A split that silently
+ * fills a missing input with zero still produces a confident-looking number, and that
+ * number gets trusted and paid.
+ */
+export class RevenueSplitUnavailableError extends Error {
+  readonly code = 'REVENUE_SPLIT_UNAVAILABLE';
+  readonly missing: string[];
+
+  constructor(message: string, missing: string[]) {
+    super(message);
+    this.name = 'RevenueSplitUnavailableError';
+    this.missing = missing;
+  }
 }
 
 // ============================================
@@ -364,6 +409,10 @@ export class RevenueSplitService extends BaseService {
       totalAmount: amount,
       hodDiscountApplied: Math.round(hodDiscountApplied * 100) / 100,
       referralBonusApplied: Math.round(referralBonusApplied * 100) / 100,
+      adjustmentSources: {
+        hodDiscount: hodDiscountApplied > 0 ? 'caller_supplied' : 'not_stored',
+        referralBonus: referralBonusApplied > 0 ? 'caller_supplied' : 'not_applicable',
+      },
     };
   }
 
@@ -375,12 +424,17 @@ export class RevenueSplitService extends BaseService {
     solutionId: string,
     amount: number
   ): Promise<RevenueSplitCalculation> {
-    // Get solution details
+    // Get solution details.
+    //
+    // This select used to ask for `hod_discount`. That column does not exist on
+    // sh_solutions and never has — it is absent from the table's creating migration, from
+    // the generated Supabase types, and from the live database (PostgREST answers 42703).
+    // Because the Supabase client here is typed `any`, the reference compiled and passed
+    // CI while failing on every single call at runtime.
     const { data: solution, error } = await this.supabase.from('sh_solutions')
       .select(`
         id,
         solution_type,
-        hod_discount,
         lead_department_id,
         client:sh_clients(
           partner_status,
@@ -411,16 +465,28 @@ export class RevenueSplitService extends BaseService {
     const clientData = Array.isArray(solution.client) ? solution.client[0] : solution.client;
     const hasReferral = clientData?.partner_status === 'referral' || (clientData?.referral_count || 0) > 0;
 
-    // Check if this is first phase for referral bonus
-    const { count: phaseCount } = await this.supabase.from('sh_solution_phases')
-      .select('id', { count: 'exact', head: true })
-      .eq('solution_id', solutionId);
+    // The referral bonus moves 10% of the amount away from the department share, and it
+    // is payable only on a solution's FIRST phase. Phase order used to be counted from
+    // sh_solution_phases — a retired table that is permanently empty — so the count was
+    // always 0, every solution always looked like a first phase, and the bonus was paid
+    // out on the strength of a table nobody writes to.
+    //
+    // There is no live source for phase order, so refuse rather than guess. Refusing is
+    // recoverable; a wrong split figure gets trusted and paid.
+    if (hasReferral && splitType === 'software') {
+      throw new RevenueSplitUnavailableError(
+        'Cannot compute this split. The client qualifies for a referral bonus, which is ' +
+          'payable only on a solution\'s first phase, and phase order has no live source. ' +
+          'Record this split manually, or clear the referral status on the client if it no ' +
+          'longer applies.',
+        ['first_phase_indicator']
+      );
+    }
 
-    const isFirstPhase = (phaseCount || 0) <= 1;
-
+    // No hodDiscount is passed: there is no stored HOD discount to pass. The returned
+    // adjustmentSources.hodDiscount reports `not_stored` so the zero is not mistaken for
+    // a lookup that came back empty.
     return this.calculateRevenueSplit(amount, splitType, {
-      hodDiscount: solution.hod_discount || 0,
-      isFirstPhase,
       hasReferral,
       departmentId: solution.lead_department_id,
     });
@@ -514,6 +580,10 @@ export class RevenueSplitService extends BaseService {
       totalAmount: amount,
       hodDiscountApplied: Math.round(hodDiscountApplied * 100) / 100,
       referralBonusApplied: Math.round(referralBonusApplied * 100) / 100,
+      adjustmentSources: {
+        hodDiscount: hodDiscountApplied > 0 ? 'caller_supplied' : 'not_stored',
+        referralBonus: referralBonusApplied > 0 ? 'caller_supplied' : 'not_applicable',
+      },
     };
   }
 }

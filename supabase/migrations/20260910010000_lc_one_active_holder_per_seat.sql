@@ -1,0 +1,108 @@
+-- =====================================================================
+-- lc_members — one active holder per council seat
+-- Added: 2026-09-10
+-- =====================================================================
+-- WHY
+-- A Learners Council position can currently be given two active holders at
+-- once, and nothing anywhere refuses it.
+--
+-- The only uniqueness on lc_members that touches a seat is
+--
+--     lc_members_unique_position UNIQUE (term_id, position_id, user_id)
+--
+-- and `user_id` is IN the key. It stops the SAME learner being assigned to the
+-- same seat twice in a term — which was never the risk. A DIFFERENT learner
+-- assigned to a seat that already has a sitting holder differs in user_id, so
+-- the key is distinct and the row inserts cleanly.
+--
+-- The write path did not compensate. LCStructureService.assignMember() was a
+-- bare INSERT with status 'active' that never read lc_positions.max_holders
+-- and never looked for an incumbent, and the Position dropdown above it
+-- offered every position whether or not it was already filled.
+--
+-- The result is silent. The council ends up with two active Presidents, and
+-- the screens that map holders by position keep whichever row they read last,
+-- so exactly one of the two is displayed. Nothing looks wrong.
+--
+-- WHY AN INDEX AS WELL AS THE SERVICE GUARD
+-- The companion change adds an occupancy check to assignMember() that reads
+-- max_holders properly and refuses with a plain-English message naming the
+-- sitting holder. That guard is the one users will meet. This index is the
+-- backstop for every path that does not go through it — a future service
+-- method, a bulk import, an election-result writer, a hand-run SQL statement.
+-- An application-only guard is a convention; this makes it a rule.
+--
+-- WHY (term_id, position_id) AND NOT max_holders-AWARE
+-- A partial unique index encodes exactly `max_holders = 1`. That is true of
+-- every position in the table today: all 52 active lc_positions carry
+-- max_holders = 1, as do the 9 inactive ones (verified against production
+-- 2026-08-18). Postgres cannot express "at most max_holders rows" as an index,
+-- so a position later configured for 2 holders would be blocked by this index
+-- at the second holder even though the service guard would correctly allow it.
+--
+-- RAISING ANY POSITION'S max_holders ABOVE 1 THEREFORE REQUIRES REVISITING
+-- THIS INDEX — replacing it with a trigger or an EXCLUDE constraint that reads
+-- max_holders. The service guard already handles that case correctly and needs
+-- no change; only this index does.
+--
+-- WHY THE KEY OMITS institution_id — DELIBERATE, NOT AN OVERSIGHT
+-- lc_members carries a NOT NULL institution_id, so keying the seat on
+-- (term_id, position_id) alone looks at first glance like a multi-tenant hole:
+-- one college's President blocking every other college's. It is not, and
+-- adding institution_id would introduce the very corruption this index exists
+-- to prevent. Verified against production 2026-08-18:
+--
+--   lc_positions, is_active = true:
+--     48 rows have institution_id SET      -- the position row IS the tenant
+--      4 rows have institution_id NULL     -- President, Vice President,
+--                                             Secretary, Treasurer
+--
+-- The 48 institution-scoped positions are not shared: each college has its own
+-- position row (titles are institution-specific, e.g. "Representative 1 -
+-- Nursing"), so (term_id, position_id) already identifies exactly one tenant's
+-- seat. Confirmed there is no counter-example live — zero institution-scoped
+-- positions have members drawn from more than one institution:
+--
+--   SELECT p.title, count(DISTINCT m.institution_id)
+--     FROM lc_members m JOIN lc_positions p ON p.id = m.position_id
+--    WHERE p.institution_id IS NOT NULL
+--    GROUP BY 1 HAVING count(DISTINCT m.institution_id) > 1;   -- 0 rows
+--
+-- The 4 NULL-institution rows are the executive seats, and the Learners
+-- Council is a SINGLE cluster-wide council across all 8 colleges — there is
+-- one President, not one per college. Keying on
+-- (institution_id, term_id, position_id) would permit eight simultaneous
+-- active Presidents, which is precisely the two-holders defect this index
+-- closes.
+--
+-- If the council is ever re-modelled as per-college, this reasoning expires
+-- with it and the key must be revisited alongside lc_positions.
+--
+-- WHY status = 'active' AND NOT 'not ended'
+-- 'active' is the application's own definition of a sitting holder. The five
+-- statuses are active / inactive / on_leave / graduated / removed, and the
+-- retirement path (MemberStatusSelect) moves an outgoing officer to inactive,
+-- graduated or removed. on_leave is deliberately NOT treated as occupying the
+-- seat here: it is a temporary absence the council may want to cover, and
+-- blocking a stand-in is not this change's call to make.
+--
+-- status is nullable (DEFAULT 'active'). A NULL-status row is not 'active' and
+-- so falls outside the predicate — correct, since a row whose status was never
+-- established should not be able to claim a seat. No such row exists today:
+-- all 34 lc_members rows are status 'active'.
+--
+-- SAFETY
+-- No data is modified. No column, table or policy changes. Verified against
+-- production 2026-08-18: zero (term_id, position_id) pairs currently hold more
+-- than one active member, so the index builds without error. If a duplicate
+-- somehow exists at apply time, CREATE UNIQUE INDEX fails loudly and names the
+-- offending key rather than silently discarding a row — the correct outcome
+-- for a governance record.
+-- =====================================================================
+
+CREATE UNIQUE INDEX IF NOT EXISTS lc_members_one_active_holder_per_seat
+  ON public.lc_members (term_id, position_id)
+  WHERE status = 'active';
+
+COMMENT ON INDEX public.lc_members_one_active_holder_per_seat IS
+  'One active holder per council seat per term. Encodes lc_positions.max_holders = 1, which is true of all 52 active positions as of 2026-08-18; raising any position above 1 holder requires replacing this index with a max_holders-aware trigger or EXCLUDE constraint. The pre-existing lc_members_unique_position includes user_id and so does NOT prevent a second, different learner being made an active holder of a filled seat. A violation raises 23505, which LCStructureService.assignMember() translates into a message naming the sitting holder.';

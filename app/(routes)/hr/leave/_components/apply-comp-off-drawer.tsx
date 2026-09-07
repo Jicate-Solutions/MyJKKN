@@ -31,6 +31,7 @@ import {
 import { useApplyLeave } from '@/hooks/hr/use-leave';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
 import { useCompOffBalance } from '@/hooks/hr/use-comp-off';
+import { formatDays } from './format';
 import { getErrorMessage } from '@/lib/utils';
 import { toast } from 'sonner';
 
@@ -52,6 +53,8 @@ export function ApplyCompOffDrawer({
   const options = ctx.balancesFor('compensatory_off');
   const { data: balance } = useCompOffBalance(ctx.employeeId || undefined);
   const available = balance?.available ?? 0;
+  const pending = balance?.pending ?? 0;
+  const expired = balance?.expired ?? 0;
 
   // Derived rather than synced by an effect — see apply-short-time-off-drawer.
   const effectiveTypeId =
@@ -138,7 +141,20 @@ export function ApplyCompOffDrawer({
                   <Info className="h-4 w-4" />
                   <AlertDescription className="text-xs">
                     You have no available credits, so this request could not be approved.
-                    Claim a worked day first.
+                    {/* The bare "0" was the whole complaint: credits were visible on
+                        the Balance tab while this said zero, with nothing joining the
+                        two. Pending and expired are the only two ways that happens,
+                        so name whichever applies. */}
+                    {pending > 0 && (
+                      <> <strong>{formatDays(pending)}</strong> claim(s) are still
+                      awaiting your approver — a credit only becomes bookable once
+                      approved.</>
+                    )}
+                    {expired > 0 && (
+                      <> <strong>{formatDays(expired)}</strong> credit(s) have passed
+                      their 90-day expiry and can no longer be used.</>
+                    )}
+                    {pending <= 0 && expired <= 0 && <> Claim a worked day first.</>}
                   </AlertDescription>
                 </Alert>
               )}

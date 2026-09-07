@@ -15,6 +15,12 @@ export const dynamic = 'force-dynamic';
 // and leave the rest. They come back as an acknowledgeable block so the commit
 // still has to be confirmed, rather than a silent partial success.
 //
+// EXCLUDED CATEGORIES ARE SKIPPED THE SAME WAY. employment_categories.
+// included_in_hr gates the whole HR module, and the roster lookup below carries
+// the flag so a code belonging to an Ayaah or a Driver is reported as
+// 'not_in_hr' rather than silently taking a salary. Reported, not fatal — the
+// rest of the file still imports.
+//
 // CLIENTS: the roster lookup uses the service role because it spans every
 // employee in the file, not just the caller's own. Every WRITE goes through
 // fn_hr_set_staff_salary on the SESSION client, so hr_staff_salaries_write
@@ -87,9 +93,23 @@ export async function POST(request: NextRequest) {
 
     const svc = createServiceRoleClient();
 
+    // included_in_hr comes along for the ride. This lookup runs under the
+    // SERVICE ROLE — it spans every employee in the file, so RLS is not the
+    // enforcement point here and nothing else in this route would have stopped a
+    // Driver's or an Ayaah's employee code resolving and taking a salary. The
+    // read screen has been gated on v_hr_staff all along; this write path was
+    // not, which is the half of the module that could still let an excluded
+    // category in.
+    //
+    // A LEFT embed, not `!inner`: a staff row whose category_id is null must
+    // still resolve so the verdict can name it, and it falls through to
+    // included_in_hr = false below — the same way v_hr_staff's inner join
+    // excludes it.
     const { data: staffRows, error: staffErr } = await svc
       .from('staff')
-      .select('id, staff_id, first_name, last_name, is_active')
+      .select(
+        'id, staff_id, first_name, last_name, is_active, employment_categories ( included_in_hr )',
+      )
       .limit(5000);
     if (staffErr) {
       console.error('[payroll/salaries/import] staff lookup error:', staffErr);
@@ -113,8 +133,24 @@ export async function POST(request: NextRequest) {
       (staffRows ?? []) as Array<{
         id: string; staff_id: string | null; first_name: string | null;
         last_name: string | null; is_active: boolean | null;
+        employment_categories:
+          | { included_in_hr: boolean | null }
+          | Array<{ included_in_hr: boolean | null }>
+          | null;
       }>
-    ).map((s) => ({ ...s, hr_organization_id: orgByStaff.get(s.id) ?? null }));
+    ).map(({ employment_categories, ...s }) => {
+      // PostgREST returns a many-to-one embed as an object, but the generated
+      // types widen it to an array often enough that both shapes are unwrapped
+      // here rather than trusting one.
+      const category = Array.isArray(employment_categories)
+        ? employment_categories[0]
+        : employment_categories;
+      return {
+        ...s,
+        included_in_hr: category?.included_in_hr === true,
+        hr_organization_id: orgByStaff.get(s.id) ?? null,
+      };
+    });
 
     // What each person earns today, so the preview can separate a real change
     // from a re-upload of the same file.
@@ -193,6 +229,15 @@ export async function POST(request: NextRequest) {
         p_eligible_for_gratuity: src.eligible_for_gratuity,
         p_eligible_for_etf: src.eligible_for_etf,
         p_notes: null,
+        // A blank amount cell imports as 0, not as "leave what is there". The
+        // sheet is the whole record for the row it describes, and the RPC
+        // supersedes rather than patches — a partial write would leave a figure
+        // nobody can point at a source for.
+        p_epf_amount: src.epf_amount ?? 0,
+        p_eligible_for_esi: src.eligible_for_esi,
+        p_esi_amount: src.esi_amount ?? 0,
+        p_allowance_amount: src.allowance_amount ?? 0,
+        p_allowance_label: src.allowance_label,
       });
 
       if (error) {

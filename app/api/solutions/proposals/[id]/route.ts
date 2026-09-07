@@ -14,7 +14,7 @@ export const GET = withAuth(async (request, auth, context) => {
   const result = await ProposalsService.getProposalById(id)
   if (!result) return errorResponse('Proposal not found', 404)
   return successApiResponse(result)
-}, { requiredPermission: 'read' })
+}, { requiredPermission: 'read', requirePermission: 'solutions.clients.view' })
 
 export const PATCH = withAuth(async (request, auth, context) => {
   const { id } = await context!.params!
@@ -47,10 +47,10 @@ export const PATCH = withAuth(async (request, auth, context) => {
     return errorResponse('No changes provided', 400)
   }
   return successApiResponse(result)
-})
+}, { requiredPermission: 'write', requirePermission: 'solutions.clients.view' })
 
 export const DELETE = withAuth(async (request, auth, context) => {
   const { id } = await context!.params!
   await ProposalsService.deleteProposal(id)
   return noContentResponse()
-})
+}, { requiredPermission: 'write', requirePermission: 'solutions.clients.view' })

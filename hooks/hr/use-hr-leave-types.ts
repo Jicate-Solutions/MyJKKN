@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { HRLeaveTypeService } from '@/lib/services/hr/leave-type-service';
 import type {
@@ -8,12 +8,44 @@ import type {
   HRLeaveTypeInsert,
   HRLeaveTypeUpdate,
 } from '@/types/hr-leave-types';
-import type { HRBalanceAdjustPayload } from '@/types/hr-leave-staff-balances';
+import type {
+  HRBalanceAdjustPayload,
+  HRLeaveMonthEntryPayload,
+} from '@/types/hr-leave-staff-balances';
 
 const KEY = 'hr-leave-types';
 const ANALYTICS_KEY = 'hr-leave-balance-analytics';
 const STAFF_BALANCES_KEY = 'hr-leave-staff-balances';
 const CAN_APPROVE_KEY = 'hr-can-approve-leave';
+const STO_USAGE_KEY = 'hr-sto-usage';
+const LEAVE_PERIOD_USAGE_KEY = 'hr-leave-period-usage';
+const MONTHLY_LEDGER_KEY = 'hr-leave-monthly-ledger';
+
+/**
+ * Refresh the per-period allowance figures the apply drawers quote.
+ *
+ * BOTH RPCs behind these keys already count 'pending' and 'escalated' beside
+ * 'approved' — an undecided request is held against the allowance exactly as
+ * hr_trig_sto_enforce_limits and hr_leave_period_usage hold it, so the server
+ * has never been wrong here. The number on screen was, because nothing
+ * invalidated these keys: with staleTime 5 min and focus refetch off, the
+ * drawer re-served the answer it cached BEFORE the request existed. Applying
+ * did not reduce the remaining hours, and rejecting, cancelling or
+ * withdrawing did not give them back until the entry aged out.
+ *
+ * Every mutation that moves an application into or out of
+ * ('pending','approved','escalated') must call this.
+ *
+ * The month-wise ledger belongs here for the same reason: it attributes each
+ * request to the month whose credit paid for it, so approving or withdrawing
+ * one re-orders the FIFO walk for every LATER request too — a stale ledger
+ * would keep showing days drawn from a month they no longer come from.
+ */
+export function invalidateAllowanceViews(qc: QueryClient) {
+  for (const key of [STO_USAGE_KEY, LEAVE_PERIOD_USAGE_KEY, MONTHLY_LEDGER_KEY]) {
+    qc.invalidateQueries({ queryKey: [key] });
+  }
+}
 
 /**
  * Whether the Approvals tab should render. Mirrors the hla_update RLS policy
@@ -65,12 +97,70 @@ export function useStaffLeaveBalances(
 }
 
 /**
+ * The month-by-month ledger behind one balance cell.
+ *
+ * `enabled` guards both ids: the RPC needs a staff member and a leave type, and
+ * firing it with nulls would surface a Postgres argument error as the panel's
+ * empty state. The year may be null — the RPC resolves "the year containing
+ * today" itself, exactly as the page-level year does.
+ *
+ * Returns [] rather than raising for comp-off and short-time-off types, which
+ * carry no day entitlement to divide into months.
+ */
+export function useLeaveMonthlyLedger(
+  staffId: string | null,
+  leaveTypeId: string | null,
+  hrAcademicYearId: string | null
+) {
+  const supabase = createClientSupabaseClient();
+  return useQuery({
+    queryKey: [MONTHLY_LEDGER_KEY, staffId, leaveTypeId, hrAcademicYearId],
+    queryFn: () =>
+      HRLeaveTypeService.getMonthlyLedger(
+        supabase,
+        staffId as string,
+        leaveTypeId as string,
+        hrAcademicYearId
+      ),
+    enabled: !!staffId && !!leaveTypeId,
+  });
+}
+
+/**
+ * Record or clear the days taken in one month.
+ *
+ * Invalidates the same three keys as useAdjustLeaveBalance, and for the same
+ * reason: in `add` mode this moves `used`, so the grid's available/used columns
+ * and the Analytics totals both go stale. The ledger key matters most — an
+ * entry re-orders the FIFO walk for every LATER month, so the rows the user is
+ * looking at change, not just the one they edited.
+ */
+export function useSetLeaveMonthEntry() {
+  const qc = useQueryClient();
+  const supabase = createClientSupabaseClient();
+  return useMutation({
+    mutationFn: (payload: HRLeaveMonthEntryPayload) =>
+      HRLeaveTypeService.setMonthEntry(supabase, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [MONTHLY_LEDGER_KEY] });
+      qc.invalidateQueries({ queryKey: [STAFF_BALANCES_KEY] });
+      qc.invalidateQueries({ queryKey: [ANALYTICS_KEY] });
+    },
+  });
+}
+
+/**
  * Correct one staff member's balance.
  *
  * Invalidates the analytics key as well as the staff key: an adjustment moves
  * the used/entitled totals and the covered-staff count that the Analytics tab
  * renders, so leaving it stale would show two different numbers for the same
  * year on two tabs of one page.
+ *
+ * The ledger key goes too, and it is the one most easily forgotten: writing
+ * `used` changes the opening adjustment (used minus the approved applications),
+ * which is drawn from the EARLIEST months — so a correction typed here
+ * re-attributes months the user is looking at, not just the total.
  */
 export function useAdjustLeaveBalance() {
   const qc = useQueryClient();
@@ -81,6 +171,7 @@ export function useAdjustLeaveBalance() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [STAFF_BALANCES_KEY] });
       qc.invalidateQueries({ queryKey: [ANALYTICS_KEY] });
+      qc.invalidateQueries({ queryKey: [MONTHLY_LEDGER_KEY] });
     },
   });
 }
@@ -243,7 +334,7 @@ export function useStoUsage(
 ) {
   const supabase = createClientSupabaseClient();
   return useQuery({
-    queryKey: ['hr-sto-usage', employeeId, leaveTypeId, hrAcademicYearId, onDate ?? null],
+    queryKey: [STO_USAGE_KEY, employeeId, leaveTypeId, hrAcademicYearId, onDate ?? null],
     queryFn: () =>
       HRLeaveTypeService.getStoUsage(
         supabase, employeeId!, leaveTypeId!, hrAcademicYearId, onDate
@@ -266,7 +357,7 @@ export function useLeavePeriodUsage(
 ) {
   const supabase = createClientSupabaseClient();
   return useQuery({
-    queryKey: ['hr-leave-period-usage', employeeId, leaveTypeId, hrAcademicYearId, onDate ?? null],
+    queryKey: [LEAVE_PERIOD_USAGE_KEY, employeeId, leaveTypeId, hrAcademicYearId, onDate ?? null],
     queryFn: () =>
       HRLeaveTypeService.getLeavePeriodUsage(
         supabase, employeeId!, leaveTypeId!, hrAcademicYearId, onDate

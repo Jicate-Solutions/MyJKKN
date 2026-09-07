@@ -17,6 +17,7 @@ import { useStudentBillingSummary } from '@/hooks/billing/use-student-search';
 import type { StudentForBilling } from '@/types/billing-schedule';
 import { StudentBillForm } from '../../_components/student-bill-form';
 import { StudentBillsTable } from '../[id]/_components/student-bills-table';
+import { QuickReceiptDialog } from '../../../receipts/_components/quick-receipt-dialog';
 
 interface QuickBillDialogProps {
   /**
@@ -56,6 +57,14 @@ export function QuickBillDialog({
   // create mutation itself, which is what makes back-to-back billing quick.
   const [billsRequested, setBillsRequested] = useState(initialTab === 'bills');
 
+  // Non-null = the receipt step is showing, for these bills. Two paths set it:
+  // selecting existing bills and pressing Generate Receipt, and finishing the
+  // New Bill form (which hands back the ids it just inserted). Either way the
+  // clerk stays inside this popup instead of being navigated to
+  // /billing/receipts/new, which used to reload the whole page and throw away
+  // the search results behind it.
+  const [receiptBillIds, setReceiptBillIds] = useState<string[] | null>(null);
+
   const {
     data: summary,
     isLoading: isLoadingBills,
@@ -82,9 +91,15 @@ export function QuickBillDialog({
     student.section?.section_name && `Sec ${student.section.section_name}`
   ].filter(Boolean) as string[];
 
+  // Collecting payment REPLACES this dialog rather than stacking on top of it:
+  // one modal at a time keeps the focus trap unambiguous, and closing the
+  // receipt step without generating drops the clerk straight back here.
+  const showBillDialog = open && receiptBillIds === null;
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='flex max-h-[92vh] max-w-5xl flex-col gap-0 overflow-hidden p-0'>
+    <>
+    <Dialog open={showBillDialog} onOpenChange={onOpenChange}>
+      <DialogContent className='flex max-h-[95vh] w-[96vw] max-w-6xl flex-col gap-0 overflow-hidden p-0'>
         {/* Header stays put while the form scrolls, so the clerk always sees
             WHO they are billing. */}
         {/* pr-12 clears the DialogContent's built-in close button, which is
@@ -211,6 +226,7 @@ export function QuickBillDialog({
                   // amount shown in the results row behind the dialog.
                   onCreated();
                 }}
+                onGenerateReceipt={(billIds) => setReceiptBillIds(billIds)}
               />
             ) : (
               <p className='py-12 text-center text-sm text-muted-foreground'>
@@ -224,14 +240,52 @@ export function QuickBillDialog({
               preSelectedStudent={student}
               compact
               onCancel={() => onOpenChange(false)}
-              onSuccess={() => {
-                onOpenChange(false);
+              onSuccess={(createdBillIds) => {
+                // The results row behind the popup shows an outstanding
+                // amount that this bill just changed — refresh it either way.
                 onCreated();
+                refetchBills();
+
+                if (createdBillIds && createdBillIds.length > 0) {
+                  // Raising a bill at the counter is nearly always followed by
+                  // taking the money for it, so go straight to the receipt
+                  // step instead of making the clerk re-find the bill they
+                  // just created. Cancelling there returns here.
+                  setBillsRequested(true);
+                  setTab('bills');
+                  setReceiptBillIds(createdBillIds);
+                  return;
+                }
+
+                onOpenChange(false);
               }}
             />
           </div>
         </div>
       </DialogContent>
     </Dialog>
+
+    <QuickReceiptDialog
+      open={receiptBillIds !== null}
+      onOpenChange={(receiptOpen) => {
+        // Closing without generating returns to the bill dialog, because
+        // `showBillDialog` keys off this being null.
+        if (!receiptOpen) setReceiptBillIds(null);
+      }}
+      billIds={receiptBillIds ?? []}
+      studentId={student.id}
+      studentName={fullName}
+      subtitle={identifiers.join(' • ') || undefined}
+      onGenerated={() => {
+        setReceiptBillIds(null);
+        // Land back on Existing Bills with fresh data, so the clerk can see
+        // the bill they just settled flip to PAID before moving on.
+        setBillsRequested(true);
+        setTab('bills');
+        refetchBills();
+        onCreated();
+      }}
+    />
+    </>
   );
 }

@@ -8,7 +8,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { CheckCircle2, Home, Receipt, Loader2, Download, ArrowRight, CheckCheck, Sparkles } from 'lucide-react';
+import { CheckCircle2, Home, ReceiptIndianRupee, Loader2, Download, ArrowRight, CheckCheck, Sparkles } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -447,7 +447,7 @@ export default function PaymentSuccessPage() {
                         className="flex-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white shadow-lg"
                         onClick={() => router.push(`/billing/receipts/${receiptId}`)}
                       >
-                        <Receipt className="mr-2 h-5 w-5" />
+                        <ReceiptIndianRupee className="mr-2 h-5 w-5" />
                         View Receipt
                       </Button>
                     )}
@@ -465,7 +465,7 @@ export default function PaymentSuccessPage() {
                         }
                       }}
                     >
-                      <Receipt className="mr-2 h-5 w-5" />
+                      <ReceiptIndianRupee className="mr-2 h-5 w-5" />
                       View My Bills
                     </Button>
                     <Button

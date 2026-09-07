@@ -292,13 +292,17 @@ GRANT  EXECUTE ON FUNCTION public.fn_attendance_measure_intervention_effect(inte
 --       edge. Gates honest: flag+nudge run today (g,a on); measurement exists
 --       only as machinery until this apply + the regress proves it (m off).
 
+-- owner_email added 2026-08-26: the constitution's NOT NULL refuses owner-less
+-- births and ON CONFLICT cannot rescue a NOT-NULL violation (proven at apply).
+-- Director interim per the standing machine-born-loop ruling of 2026-08-26.
 INSERT INTO public.loop_registry
-  (loop_key, name, stack_tier, loop_class, domain, description, gates, routine_id)
+  (loop_key, name, stack_tier, loop_class, domain, description, gates, routine_id, owner_email)
 VALUES
   ('attendance-intervention', 'Attendance → Intervention Loop', 3, 'accountability', 'academic',
    'Attendance-weighted risk flags nudge department staff (learner-risk-staff-notifications); staff log interventions; each nudge/intervention''s attendance delta is measured against the learner''s own 14-day baseline in attendance_intervention_effects.',
    '{"g":"on","a":"on","m":"off","f":"off"}'::jsonb,
-   'attendance-intervention-measure')
+   'attendance-intervention-measure',
+   'director@jkkn.ac.in')
 ON CONFLICT (loop_key) DO NOTHING;
 
 INSERT INTO public.loop_edges (from_key, to_key, what_flows, note, is_draft)

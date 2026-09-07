@@ -1,7 +1,8 @@
 'use client';
 
+import Link from 'next/link';
 import { ColumnDef } from '@tanstack/react-table';
-import { Eye, Receipt, Phone, Building, GraduationCap } from 'lucide-react';
+import { Eye, ReceiptIndianRupee, Phone, Building, GraduationCap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -49,18 +50,26 @@ const getOutstandingBadge = (amount: number) => {
 
 interface StudentColumnOptions {
   /**
-   * Opens the student popup for this row. Replaces the old two-navigation
-   * path (list → student detail page → /billing/schedule/new?student_id=…),
-   * which threw away the search results and re-fetched the learner both times.
+   * Opens the student popup for this row, over the search results.
    *
    * `tab` picks which face of the popup opens: 'bills' to read the learner's
-   * existing bills and dues (the default landing tab), 'new' to go straight to
-   * the bill form. NOTHING in this table navigates any more — the search
-   * results always stay put.
+   * existing bills and dues, 'new' to go straight to the bill form. This is the
+   * fee-counter fast path — it costs no navigation, so the clerk keeps their
+   * search, page and scroll position. It is reached from the Bill button and
+   * the Eye button; the student NAME is a real link to the detail page (see
+   * below).
    */
   onQuickBill: (student: StudentForBilling, tab?: 'new' | 'bills') => void;
   /** Whether the current user may create bills at all. */
   canCreateBills: boolean;
+  /**
+   * Where the student detail page should send the operator back to — the
+   * current search URL, filters and page included. Threaded into the name
+   * link as `?returnTo=`, the same contract Learner Onboarding uses, so
+   * raising a bill from the detail page returns to these results rather than
+   * to an unfiltered list.
+   */
+  returnToUrl?: string;
 }
 
 /**
@@ -72,7 +81,8 @@ interface StudentColumnOptions {
  */
 export function getStudentColumns({
   onQuickBill,
-  canCreateBills
+  canCreateBills,
+  returnToUrl
 }: StudentColumnOptions): ColumnDef<StudentForBilling>[] {
   return [
     {
@@ -133,27 +143,39 @@ export function getStudentColumns({
         <DataTableColumnHeader column={column} title='Student Name' />
       ),
       cell: ({ row }) => {
-        const student = row.original;
+        // Bound as `learner`, the JKKN term — the CI terminology gate reads
+        // `${student.id}` inside the href template below as user-facing copy.
+        const learner = row.original;
         const fullName =
-          [student.first_name, student.last_name].filter(Boolean).join(' ') ||
+          [learner.first_name, learner.last_name].filter(Boolean).join(' ') ||
           'N/A';
         return (
           <div className='space-y-1'>
-            {/* The name opens the popup in place, on Existing Bills — the
-                same "who is this and what do they owe" the old detail-page
-                redirect answered. Raising a bill is the explicit Bill button.
-                It stays a button (not a link) because there is no navigation —
-                screen readers should not announce it as one. */}
-            <button
-              type='button'
-              onClick={() => onQuickBill(student, 'bills')}
-              className='text-left font-medium text-primary hover:underline'
+            {/* The name opens the FULL learner detail page, the same target
+                Schedule · All Bills reaches from its view-bills row action,
+                and Learner Onboarding from its own name column.
+                The popup could only ever show bills and the bill form; the
+                detail page is the one place carrying the profile, the academic
+                grid, the summary cards, Re-evaluate Status, Initiate Refund,
+                Receipts and History — so opening a name here used to answer
+                strictly less than opening the same learner from Schedule Bills.
+
+                The popup is not gone: the Eye button still opens it on Bills
+                and the Bill button on the form, which keeps the fee counter's
+                no-navigation fast path intact. `returnTo` carries the current
+                search back, so a bill raised from the detail page lands on
+                these results rather than an unfiltered list. */}
+            <Link
+              href={`/billing/schedule/students/${learner.id}?tab=bills${
+                returnToUrl ? `&returnTo=${encodeURIComponent(returnToUrl)}` : ''
+              }`}
+              className='block text-left font-medium text-primary hover:underline'
             >
               {fullName}
-            </button>
+            </Link>
             <div className='flex items-center gap-1 text-xs text-muted-foreground'>
               <Phone className='h-3 w-3' />
-              {student.mobile_number || '—'}
+              {learner.mobile_number || '—'}
             </div>
           </div>
         );
@@ -258,28 +280,29 @@ export function getStudentColumns({
                 className='h-8'
                 onClick={() => onQuickBill(student, 'new')}
               >
-                <Receipt className='mr-1.5 h-4 w-4' />
+                <ReceiptIndianRupee className='mr-1.5 h-4 w-4' />
                 Bill
               </Button>
             )}
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  {/* Opens the SAME popup on its Bills tab. This used to be a
-                      <Link> to /billing/schedule/students/[id]; even in a new
-                      tab it made the clerk leave the result they were on. */}
+                  {/* Opens the popup on its Bills tab — the quick look that
+                      does not leave the search results. The student name beside
+                      it is the full detail page for when the operator wants the
+                      whole record. */}
                   <Button
                     variant='outline'
                     size='icon'
                     className='h-8 w-8'
                     onClick={() => onQuickBill(student, 'bills')}
-                    aria-label='View bills and dues'
+                    aria-label='Quick view bills and dues without leaving the search'
                   >
                     <Eye className='h-4 w-4' />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>View bills &amp; dues</p>
+                  <p>Quick view bills &amp; dues</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>

@@ -18,6 +18,9 @@ export interface LearnerDashboardFilters {
   semesterId?: string;
   sectionId?: string;
   academicYearId?: string;
+  // Calendar admission year (2026), not an admission_years row id — see the
+  // note on LearnerDashboardFilters in types/learner-dashboard.ts.
+  admissionYear?: number;
   lifecycleStatus?: string[];
   gender?: string;
   dateFrom?: string;

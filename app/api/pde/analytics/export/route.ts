@@ -30,6 +30,7 @@ import { createClient } from '@/lib/supabase/server';
 // Shared serialiser: UTF-8 BOM, CRLF, RFC-4180 quoting and the existing
 // formula-injection guard (this export carries learner-entered free text).
 import { buildCsvDocument } from '@/lib/utils/csv-export';
+import { toAnswersArray } from '@/lib/pde/answers-shape';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Types / helpers
@@ -242,7 +243,7 @@ export async function GET(request: NextRequest) {
     // answers[] entries carry an optional numeric domain_score; the OSCE domain
     // itself lives on the question's metadata.osce_domain.
     const domainAveragesFor = (s: any): Record<string, number> => {
-      const answers: AnswerEntry[] = Array.isArray(s.answers) ? s.answers : [];
+      const answers: AnswerEntry[] = toAnswersArray<AnswerEntry>(s.answers);
       const acc: Record<string, { sum: number; count: number }> = {};
       for (const a of answers) {
         const score = numOrNull(a?.domain_score);
@@ -386,7 +387,7 @@ export async function GET(request: NextRequest) {
         perDim.set(key, cur);
       }
       for (const s of submissions) {
-        const answers: AnswerEntry[] = Array.isArray(s.answers) ? s.answers : [];
+        const answers: AnswerEntry[] = toAnswersArray<AnswerEntry>(s.answers);
         for (const ans of answers) {
           const key = dimOf(ans?.question_id);
           const cur = perDim.get(key) || { questions: 0, points: 0, answers: 0, correct: 0, earned: 0, earnedCount: 0 };

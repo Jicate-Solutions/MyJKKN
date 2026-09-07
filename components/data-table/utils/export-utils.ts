@@ -2,8 +2,21 @@ import { toast } from "sonner";
 import * as XLSX from "xlsx";
 
 
-// Generic type for exportable data - should have string keys and values that can be converted to string
-export type ExportableData = Record<string, string | number | boolean | null | undefined>;
+// Generic type for exportable data — string keys, values that can be converted
+// to string.
+//
+// An index signature of `any`, not a primitive union and not
+// Record<string, unknown>. Two separate reasons:
+//   1. Every real domain row (LearnerHostelite, HRRecruitmentJob, …) carries a
+//      nested object or array, so the primitive union excluded exactly the
+//      types this table is used with.
+//   2. These rows are declared as `interface`, and TypeScript gives implicit
+//      index signatures only to type aliases — so an interface never satisfies
+//      Record<string, unknown> however wide the value type is.
+// Every exporter already funnels values through String() with a null/undefined
+// guard (see buildExcelRows and the CSV/PDF serialisers below), so the wider
+// value type costs nothing at runtime.
+export type ExportableData = { [key: string]: any };
 
 // Type for transformation function that developers can provide
 export type DataTransformFunction<T extends ExportableData> = (row: T) => ExportableData;

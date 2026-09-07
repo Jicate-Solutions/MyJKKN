@@ -26,7 +26,13 @@ import {
 } from '@/components/ui/select';
 import type { StaffSalaryDirectoryRow } from '@/lib/services/hr/payroll/staff-salary-service';
 
-export type SalaryStatusFilter = 'all' | 'awaiting' | 'salaried' | 'no_payer' | 'relieved';
+export type SalaryStatusFilter =
+  | 'active'
+  | 'all'
+  | 'awaiting'
+  | 'salaried'
+  | 'no_payer'
+  | 'relieved';
 
 export interface SalaryFilterState {
   status: SalaryStatusFilter;
@@ -34,8 +40,23 @@ export interface SalaryFilterState {
   payerOrgId: string;
 }
 
+/**
+ * DEFAULTS TO 'active', NOT 'all'.
+ *
+ * hr_staff_salary_directory() admits a row when the person is active OR still
+ * carries an unsuperseded salary — `WHERE (s.is_active OR sal.id IS NOT NULL)`.
+ * That OR is deliberate: a relieved employee whose salary was never closed is
+ * exactly the row someone needs to find and correct, so the RPC keeps returning
+ * them. But it also meant this screen opened on 616 people while HR Directory
+ * and Payroll Organisation — both active-only over the same v_hr_staff — opened
+ * on 594, and a headcount that disagrees with the other two HR screens reads as
+ * a category leak even though every one of the 616 is already HR-included.
+ *
+ * So the roster is narrowed HERE rather than in the RPC. The 22 stay one click
+ * away under 'relieved'; they just stop being the default population.
+ */
 export const DEFAULT_SALARY_FILTERS: SalaryFilterState = {
-  status: 'all',
+  status: 'active',
   worksAtId: 'all',
   payerOrgId: 'all',
 };
@@ -45,6 +66,7 @@ export function matchesSalaryFilters(
   r: StaffSalaryDirectoryRow,
   f: SalaryFilterState
 ): boolean {
+  if (f.status === 'active' && !r.is_active) return false;
   if (f.status === 'awaiting' && (r.salary_id !== null || !r.is_active)) return false;
   if (f.status === 'salaried' && r.salary_id === null) return false;
   if (f.status === 'no_payer' && r.payer_org_id !== null) return false;
@@ -110,6 +132,7 @@ export function SalaryFilters({ rows, filters, onChange }: Props) {
   const statusCounts = useMemo(() => {
     const scope = rows.filter((r) => matchesSalaryFilters(r, { ...filters, status: 'all' }));
     return {
+      active: scope.filter((r) => r.is_active).length,
       all: scope.length,
       awaiting: scope.filter((r) => r.salary_id === null && r.is_active).length,
       salaried: scope.filter((r) => r.salary_id !== null).length,
@@ -118,8 +141,13 @@ export function SalaryFilters({ rows, filters, onChange }: Props) {
     };
   }, [filters, rows]);
 
+  // Compared against the DEFAULTS, not against the literal 'all'. The status
+  // default is 'active', so hardcoding 'all' here would show a Clear button on
+  // an untouched screen and hide it once the user actually widened the scope.
   const dirty =
-    filters.status !== 'all' || filters.worksAtId !== 'all' || filters.payerOrgId !== 'all';
+    filters.status !== DEFAULT_SALARY_FILTERS.status ||
+    filters.worksAtId !== DEFAULT_SALARY_FILTERS.worksAtId ||
+    filters.payerOrgId !== DEFAULT_SALARY_FILTERS.payerOrgId;
 
   return (
     <div className='mb-3 flex flex-wrap items-center gap-2'>
@@ -131,7 +159,10 @@ export function SalaryFilters({ rows, filters, onChange }: Props) {
           <SelectValue placeholder='Salary status' />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value='all'>All employees ({statusCounts.all})</SelectItem>
+          <SelectItem value='active'>Active employees ({statusCounts.active})</SelectItem>
+          <SelectItem value='all'>
+            Including relieved ({statusCounts.all})
+          </SelectItem>
           <SelectItem value='awaiting'>Awaiting a salary ({statusCounts.awaiting})</SelectItem>
           <SelectItem value='salaried'>Salary recorded ({statusCounts.salaried})</SelectItem>
           <SelectItem value='no_payer'>No payer recorded ({statusCounts.no_payer})</SelectItem>

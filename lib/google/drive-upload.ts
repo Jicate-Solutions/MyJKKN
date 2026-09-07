@@ -486,3 +486,104 @@ export async function uploadLeaveDocument(
     sizeBytes: buffer.byteLength,
   };
 }
+
+export interface BillCancellationAttachmentUploadOptions {
+  institutionName: string;
+  billRef: string; // bill id, or a short human ref for the folder name
+  file: File;
+}
+
+/**
+ * Upload a bill-cancellation supporting document to
+ * <ROOT>/Bill Cancellations/<Institution>/<BillRef>.
+ *
+ * Cancelling a bill writes off money, so the evidence has to outlive the
+ * session that raised it: fn_cancel_student_bill refuses to cancel without at
+ * least one of these. Shared-readable like refund attachments, because the
+ * links are opened straight from the audit strip by whoever reviews the
+ * cancellation later.
+ */
+export async function uploadBillCancellationAttachment(
+  opts: BillCancellationAttachmentUploadOptions
+): Promise<{ name: string; driveFileId: string; url: string }> {
+  if (!isDriveConfigured()) throw new Error('Google Drive is not configured.');
+  const drive = createDriveClient();
+  const folderId = await ensureFolderPath(drive, [
+    'Bill Cancellations',
+    opts.institutionName,
+    opts.billRef,
+  ]);
+  const buffer = Buffer.from(await opts.file.arrayBuffer());
+  const safeName = (opts.file.name || 'file').replace(/[\r\n]/g, ' ').slice(0, 200);
+  const storedName = `${Date.now()}-${safeName}`;
+  const created = await drive.files.create({
+    requestBody: { name: storedName, parents: [folderId] },
+    media: {
+      mimeType: opts.file.type || 'application/octet-stream',
+      body: Readable.from(buffer),
+    },
+    fields: 'id, webViewLink',
+    supportsAllDrives: true,
+  });
+  const fileId = created.data.id;
+  if (!fileId) throw new Error('Drive upload returned no file id.');
+  await drive.permissions.create({
+    fileId,
+    requestBody: { role: 'reader', type: 'anyone' },
+    supportsAllDrives: true,
+  });
+  return {
+    name: opts.file.name || storedName,
+    driveFileId: fileId,
+    url: created.data.webViewLink ?? `https://drive.google.com/file/d/${fileId}/view`,
+  };
+}
+
+export interface HousekeepingPhotoUploadOptions {
+  blockName: string;
+  roomNumber: string;
+  bookingDate: string;
+  phase: 'before' | 'after';
+  file: File;
+}
+
+export interface HousekeepingPhotoUploadResult {
+  name: string;
+  driveFileId: string;
+  url: string;
+}
+
+/**
+ * Upload a housekeeping before/after photo to
+ *   <ROOT> / Campus Living / Housekeeping Photos / <Block> / <Room> / <Date>
+ * No anyone:reader permission — access is gated by
+ * hostel_cleaning_booking_photos RLS plus the authenticated image proxy route,
+ * not public link-sharing. blockName/roomNumber (not an institution name) key
+ * the folder path since a block can serve multiple institutions via
+ * hostel_block_institutions.
+ */
+export async function uploadHousekeepingPhoto(
+  opts: HousekeepingPhotoUploadOptions
+): Promise<HousekeepingPhotoUploadResult> {
+  if (!isDriveConfigured()) throw new Error('Google Drive is not configured.');
+  const drive = createDriveClient();
+  const folderId = await ensureFolderPath(drive, [
+    'Campus Living', 'Housekeeping Photos', opts.blockName, opts.roomNumber, opts.bookingDate,
+  ]);
+  const buffer = Buffer.from(await opts.file.arrayBuffer());
+  const safeName = (opts.file.name || 'photo').replace(/[\r\n]/g, ' ').slice(0, 200);
+  const storedName = `${opts.phase}-${Date.now()}-${safeName}`;
+  const created = await drive.files.create({
+    requestBody: { name: storedName, parents: [folderId] },
+    media: { mimeType: opts.file.type || 'application/octet-stream', body: Readable.from(buffer) },
+    fields: 'id, webViewLink',
+    supportsAllDrives: true,
+  });
+  const fileId = created.data.id;
+  if (!fileId) throw new Error('Drive upload returned no file id.');
+  return {
+    name: opts.file.name || storedName,
+    driveFileId: fileId,
+    url: created.data.webViewLink ?? `https://drive.google.com/file/d/${fileId}/view`,
+  };
+}

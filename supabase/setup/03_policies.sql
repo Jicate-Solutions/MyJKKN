@@ -2934,11 +2934,20 @@ CREATE POLICY "workflow_configs_delete" ON admission_workflow_configs FOR DELETE
 -- ============================================================================
 ALTER TABLE admission_years ENABLE ROW LEVEL SECURITY;
 
+-- 2026-08-31: `learners.profiles.view` added as a second accepted key. This is
+-- a 79-row lookup naming the cohort on learners_profiles.admission_year_id, and
+-- 17 of the 24 roles that can read a learner could not read that learner's
+-- cohort name — leaving the admission-year filters on /learners/profiles and on
+-- the Analytics Profile Completion drill-down silently empty for them.
+-- Institution scope is unchanged.
 DROP POLICY IF EXISTS "admission_years_select" ON admission_years;
 CREATE POLICY "admission_years_select" ON admission_years
     FOR SELECT USING (
-        is_super_admin() OR is_admin()
-        OR (user_has_permission('admission.settings.years.view')
+        (SELECT is_super_admin()) OR (SELECT is_admin())
+        OR ((
+                (SELECT user_has_permission('admission.settings.years.view'))
+                OR (SELECT user_has_permission('learners.profiles.view'))
+            )
             AND role_has_institution_access(institution_id))
     );
 
@@ -7223,71 +7232,6 @@ CREATE POLICY platform_policies_social_attr_update ON public.platform_policies
     AND user_has_permission('social.attribution.edit')
   );
 
--- ─── Housekeeping (hostel_cleaning_schedules / hostel_cleaning_tasks) ────────
--- 20260611170000: RLS aligned to the permission CATALOG keys
--- (campus_living.housekeeping.view / .schedule / .mark_done). The original
--- policies checked .create/.edit/.delete — keys no role holds and that aren't
--- in lib/constants/permissions.ts, so only super_admin/admin could ever write.
--- SELECT policies (unchanged) gate on campus_living.housekeeping.view.
-
-ALTER POLICY hostel_cleaning_schedules_insert_permission ON public.hostel_cleaning_schedules
-  WITH CHECK (
-    is_super_admin() OR is_admin()
-    OR (user_has_permission('campus_living.housekeeping.schedule')
-        AND role_has_institution_access(institution_id)
-        AND role_has_block_access(block_id))
-  );
-
-ALTER POLICY hostel_cleaning_schedules_update_permission ON public.hostel_cleaning_schedules
-  USING (
-    is_super_admin() OR is_admin()
-    OR (user_has_permission('campus_living.housekeeping.schedule')
-        AND role_has_institution_access(institution_id)
-        AND role_has_block_access(block_id))
-  )
-  WITH CHECK (
-    is_super_admin() OR is_admin()
-    OR (user_has_permission('campus_living.housekeeping.schedule')
-        AND role_has_institution_access(institution_id)
-        AND role_has_block_access(block_id))
-  );
-
-ALTER POLICY hostel_cleaning_schedules_delete_permission ON public.hostel_cleaning_schedules
-  USING (
-    is_super_admin() OR is_admin()
-    OR (user_has_permission('campus_living.housekeeping.schedule')
-        AND role_has_institution_access(institution_id)
-        AND role_has_block_access(block_id))
-  );
-
-ALTER POLICY hostel_cleaning_tasks_insert_permission ON public.hostel_cleaning_tasks
-  WITH CHECK (
-    is_super_admin() OR is_admin()
-    OR (user_has_permission('campus_living.housekeeping.schedule')
-        AND role_has_institution_access(institution_id))
-  );
-
-ALTER POLICY hostel_cleaning_tasks_update_permission ON public.hostel_cleaning_tasks
-  USING (
-    is_super_admin() OR is_admin()
-    OR ((user_has_permission('campus_living.housekeeping.mark_done')
-         OR user_has_permission('campus_living.housekeeping.schedule'))
-        AND role_has_institution_access(institution_id))
-  )
-  WITH CHECK (
-    is_super_admin() OR is_admin()
-    OR ((user_has_permission('campus_living.housekeeping.mark_done')
-         OR user_has_permission('campus_living.housekeeping.schedule'))
-        AND role_has_institution_access(institution_id))
-  );
-
-ALTER POLICY hostel_cleaning_tasks_delete_permission ON public.hostel_cleaning_tasks
-  USING (
-    is_super_admin() OR is_admin()
-    OR (user_has_permission('campus_living.housekeeping.schedule')
-        AND role_has_institution_access(institution_id))
-  );
-
 -- =====================================================================
 -- Global Calendar module (Phase 1) — mirror of 20260623100000_calendar_module_tables.sql
 -- =====================================================================
@@ -10072,3 +10016,485 @@ REVOKE ALL ON public.hr_salary_register_runs  FROM anon;
 REVOKE ALL ON public.hr_salary_register_lines FROM anon;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_salary_register_runs  TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_salary_register_lines TO authenticated;
+
+-- ============================================================================
+-- billing_bill_cancellations (mig 20260901010000). SELECT-only, and ONE
+-- permissive policy rather than several ORed together: multiple permissive
+-- policies are all evaluated per candidate row. No UPDATE/DELETE policy --
+-- every write goes through fn_cancel_student_bill.
+-- ============================================================================
+DROP POLICY IF EXISTS billing_bill_cancellations_select ON public.billing_bill_cancellations;
+CREATE POLICY billing_bill_cancellations_select
+  ON public.billing_bill_cancellations FOR SELECT
+  USING (
+    (SELECT is_super_admin())
+    OR (SELECT is_admin())
+    OR (
+      role_has_institution_access(institution_id)
+      AND (
+        (SELECT user_has_permission('billing.schedule.view'))
+        OR (SELECT user_has_permission('billing.bills.view'))
+      )
+    )
+  );
+
+-- ===========================================================================
+-- hr_tds_slabs (2026-09-02)
+--
+-- READ IS DELIBERATELY WIDER THAN WRITE. The register RESOLVES these bands
+-- while generating, under the generating user's own session -- and a slab read
+-- emptied by RLS is indistinguishable from 'no bands configured', which
+-- silently produces a register with no tax on it. Anyone who can see a salary
+-- or a register can read the bands; only salary.manage edits them.
+-- ===========================================================================
+ALTER TABLE public.hr_tds_slabs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY hr_tds_slabs_select ON public.hr_tds_slabs
+  FOR SELECT USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.user_has_permission('hr.payroll.salary.view'))
+    OR (SELECT public.user_has_permission('hr.payroll.salary.manage'))
+    OR (SELECT public.user_has_permission('hr.payroll.register.view'))
+    OR (SELECT public.user_has_permission('hr.payroll.register.manage'))
+  );
+
+CREATE POLICY hr_tds_slabs_write ON public.hr_tds_slabs
+  FOR ALL USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.user_has_permission('hr.payroll.salary.manage'))
+  ) WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.user_has_permission('hr.payroll.salary.manage'))
+  );
+
+CREATE POLICY hr_tds_slabs_service_role ON public.hr_tds_slabs
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_tds_slabs TO authenticated;
+GRANT ALL ON public.hr_tds_slabs TO service_role;
+
+
+-- ── Event feedback forms (coordinator-editable questions per event) ──
+-- Migration: supabase/migrations/event_feedback_forms.sql
+-- ============================================================================
+-- RLS
+-- ============================================================================
+
+ALTER TABLE public.event_feedback_forms     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.event_feedback_sections  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.event_feedback_questions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.event_feedback_responses ENABLE ROW LEVEL SECURITY;
+
+-- Table privileges, restated explicitly.
+--
+-- Supabase ships ALTER DEFAULT PRIVILEGES ... GRANT ALL ON TABLES TO anon,
+-- authenticated, service_role, so these four tables arrive with ANON already
+-- holding INSERT and DELETE. Every policy below is `TO authenticated`, so RLS
+-- denies anon today regardless — a role with no matching policy is refused.
+-- But that safety is one permissive policy away from evaporating, and a
+-- feedback table is exactly where a `USING (true)` gets added by someone
+-- wiring up a public link later. Revoke the grant rather than rely on the
+-- absence of a policy.
+--
+-- `authenticated` is revoked alongside anon deliberately: it also arrives
+-- holding DELETE from those default privileges, so revoking only anon would
+-- leave that in place and make the GRANT below a no-op restating privileges
+-- already held.
+REVOKE ALL ON public.event_feedback_forms     FROM anon, authenticated, PUBLIC;
+REVOKE ALL ON public.event_feedback_sections  FROM anon, authenticated, PUBLIC;
+REVOKE ALL ON public.event_feedback_questions FROM anon, authenticated, PUBLIC;
+REVOKE ALL ON public.event_feedback_responses FROM anon, authenticated, PUBLIC;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.event_feedback_forms     TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.event_feedback_sections  TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.event_feedback_questions TO authenticated;
+-- Responses: no UPDATE/DELETE restriction at the GRANT level because both are
+-- needed — a respondent corrects their own row, a manager moderates one — and
+-- the policies above are what separate those two cases.
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.event_feedback_responses TO authenticated;
+
+-- Read: a manager, or a registered participant of the event (who needs the
+-- questions in order to answer them). Note this is NOT the registration
+-- builder's `visibility IN ('public','all_jkkn')` clause — a feedback form is
+-- never anonymous-readable, because only registrants may answer it.
+DROP POLICY IF EXISTS "event_feedback_forms_select" ON public.event_feedback_forms;
+CREATE POLICY "event_feedback_forms_select" ON public.event_feedback_forms
+  FOR SELECT TO authenticated USING (
+    public.fn_can_manage_event_feedback(event_id)
+    OR public.fn_my_event_registration(event_id) IS NOT NULL
+  );
+
+DROP POLICY IF EXISTS "event_feedback_forms_manage" ON public.event_feedback_forms;
+CREATE POLICY "event_feedback_forms_manage" ON public.event_feedback_forms
+  FOR ALL TO authenticated
+  USING (public.fn_can_manage_event_feedback(event_id))
+  WITH CHECK (public.fn_can_manage_event_feedback(event_id));
+
+DROP POLICY IF EXISTS "event_feedback_sections_select" ON public.event_feedback_sections;
+CREATE POLICY "event_feedback_sections_select" ON public.event_feedback_sections
+  FOR SELECT TO authenticated USING (
+    public.fn_can_manage_event_feedback(event_id)
+    OR public.fn_my_event_registration(event_id) IS NOT NULL
+  );
+
+DROP POLICY IF EXISTS "event_feedback_sections_manage" ON public.event_feedback_sections;
+CREATE POLICY "event_feedback_sections_manage" ON public.event_feedback_sections
+  FOR ALL TO authenticated
+  USING (public.fn_can_manage_event_feedback(event_id))
+  WITH CHECK (public.fn_can_manage_event_feedback(event_id));
+
+DROP POLICY IF EXISTS "event_feedback_questions_select" ON public.event_feedback_questions;
+CREATE POLICY "event_feedback_questions_select" ON public.event_feedback_questions
+  FOR SELECT TO authenticated USING (
+    public.fn_can_manage_event_feedback(event_id)
+    OR public.fn_my_event_registration(event_id) IS NOT NULL
+  );
+
+DROP POLICY IF EXISTS "event_feedback_questions_manage" ON public.event_feedback_questions;
+CREATE POLICY "event_feedback_questions_manage" ON public.event_feedback_questions
+  FOR ALL TO authenticated
+  USING (public.fn_can_manage_event_feedback(event_id))
+  WITH CHECK (public.fn_can_manage_event_feedback(event_id));
+
+-- Responses. A participant may read and write ONLY their own row, and only for
+-- the registration that is actually theirs — checking registration_id against
+-- fn_my_event_registration() rather than trusting the id the client sent is
+-- what stops one registrant from answering as another. Managers read every
+-- response but never write one: feedback is not editable by the people it is
+-- about.
+DROP POLICY IF EXISTS "event_feedback_responses_select" ON public.event_feedback_responses;
+CREATE POLICY "event_feedback_responses_select" ON public.event_feedback_responses
+  FOR SELECT TO authenticated USING (
+    public.fn_can_manage_event_feedback(event_id)
+    OR registration_id = public.fn_my_event_registration(event_id)
+  );
+
+-- The window is enforced HERE, not only in the UI: a closed form must refuse
+-- answers even when the write arrives straight at PostgREST.
+DROP POLICY IF EXISTS "event_feedback_responses_insert" ON public.event_feedback_responses;
+CREATE POLICY "event_feedback_responses_insert" ON public.event_feedback_responses
+  FOR INSERT TO authenticated WITH CHECK (
+    registration_id = public.fn_my_event_registration(event_id)
+    AND public.fn_event_feedback_form_open(form_id)
+  );
+
+-- Update is the respondent's own correction, and only while the form is still
+-- open — reopening the edit door after a survey closes would let someone revise
+-- an answer the coordinator has already reported on. Deliberately no manager
+-- branch either way: feedback is not editable by the people it is about.
+DROP POLICY IF EXISTS "event_feedback_responses_update" ON public.event_feedback_responses;
+CREATE POLICY "event_feedback_responses_update" ON public.event_feedback_responses
+  FOR UPDATE TO authenticated
+  USING (
+    registration_id = public.fn_my_event_registration(event_id)
+    AND public.fn_event_feedback_form_open(form_id)
+  )
+  WITH CHECK (
+    registration_id = public.fn_my_event_registration(event_id)
+    AND public.fn_event_feedback_form_open(form_id)
+  );
+
+-- Only a manager may delete a response (moderating abuse). A respondent
+-- withdrawing their feedback would silently distort the counts.
+DROP POLICY IF EXISTS "event_feedback_responses_delete" ON public.event_feedback_responses;
+CREATE POLICY "event_feedback_responses_delete" ON public.event_feedback_responses
+  FOR DELETE TO authenticated USING (
+    public.fn_can_manage_event_feedback(event_id)
+  );
+
+
+-- =====================================================================
+-- hr_work_patterns, hr_staff_work_pattern_assignments,
+-- hr_work_pattern_leave_entitlements (2026-09-04)
+-- Source: 20260904120000_hr_work_patterns.sql
+-- =====================================================================
+
+DROP POLICY IF EXISTS hr_work_patterns_select ON public.hr_work_patterns;
+CREATE POLICY hr_work_patterns_select ON public.hr_work_patterns
+  FOR SELECT USING (
+       (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (((SELECT public.user_has_permission('hr.shift_timings.view'))
+         OR (SELECT public.user_has_permission('hr.shift_timings.manage')))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+DROP POLICY IF EXISTS hr_work_patterns_write ON public.hr_work_patterns;
+CREATE POLICY hr_work_patterns_write ON public.hr_work_patterns
+  FOR ALL USING (
+       (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('hr.shift_timings.manage'))
+        AND public.role_has_institution_access(institution_id))
+  ) WITH CHECK (
+       (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('hr.shift_timings.manage'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+-- Assignments: HR reads by institution; a staff member reads their own row.
+-- Writes are the RPC's job (SECURITY DEFINER, so it is not subject to this);
+-- a direct write is left to super admins only.
+DROP POLICY IF EXISTS hr_swpa_select ON public.hr_staff_work_pattern_assignments;
+CREATE POLICY hr_swpa_select ON public.hr_staff_work_pattern_assignments
+  FOR SELECT USING (
+       (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (((SELECT public.user_has_permission('hr.shift_timings.view'))
+         OR (SELECT public.user_has_permission('hr.shift_timings.manage')))
+        AND public.role_has_institution_access(institution_id))
+    OR staff_id = ANY (public.fn_my_staff_ids())
+  );
+
+DROP POLICY IF EXISTS hr_swpa_write ON public.hr_staff_work_pattern_assignments;
+CREATE POLICY hr_swpa_write ON public.hr_staff_work_pattern_assignments
+  FOR ALL USING ((SELECT public.is_super_admin()))
+  WITH CHECK ((SELECT public.is_super_admin()));
+
+DROP POLICY IF EXISTS hr_wple_select ON public.hr_work_pattern_leave_entitlements;
+CREATE POLICY hr_wple_select ON public.hr_work_pattern_leave_entitlements
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM public.hr_work_patterns p
+       WHERE p.id = work_pattern_id
+         AND (   (SELECT public.is_super_admin())
+              OR (SELECT public.is_admin())
+              OR (((SELECT public.user_has_permission('hr.shift_timings.view'))
+                   OR (SELECT public.user_has_permission('hr.shift_timings.manage')))
+                  AND public.role_has_institution_access(p.institution_id)))
+    )
+  );
+
+DROP POLICY IF EXISTS hr_wple_write ON public.hr_work_pattern_leave_entitlements;
+CREATE POLICY hr_wple_write ON public.hr_work_pattern_leave_entitlements
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM public.hr_work_patterns p
+       WHERE p.id = work_pattern_id
+         AND (   (SELECT public.is_super_admin())
+              OR (SELECT public.is_admin())
+              OR ((SELECT public.user_has_permission('hr.shift_timings.manage'))
+                  AND public.role_has_institution_access(p.institution_id)))
+    )
+  ) WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.hr_work_patterns p
+       WHERE p.id = work_pattern_id
+         AND (   (SELECT public.is_super_admin())
+              OR (SELECT public.is_admin())
+              OR ((SELECT public.user_has_permission('hr.shift_timings.manage'))
+                  AND public.role_has_institution_access(p.institution_id)))
+    )
+  );
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_work_patterns                    TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_staff_work_pattern_assignments   TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_work_pattern_leave_entitlements  TO authenticated;
+GRANT ALL ON public.hr_work_patterns                   TO service_role;
+GRANT ALL ON public.hr_staff_work_pattern_assignments  TO service_role;
+GRANT ALL ON public.hr_work_pattern_leave_entitlements TO service_role;
+
+-- ============================================================================
+-- hr_work_pattern_weeks (2026-09-04, 20260904190000_hr_work_patterns_days_only.sql)
+-- ============================================================================
+
+DROP POLICY IF EXISTS hr_wpw_select ON public.hr_work_pattern_weeks;
+CREATE POLICY hr_wpw_select ON public.hr_work_pattern_weeks
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM public.hr_work_patterns p
+       WHERE p.id = work_pattern_id
+         AND (   (SELECT public.is_super_admin())
+              OR (SELECT public.is_admin())
+              OR (((SELECT public.user_has_permission('hr.shift_timings.view'))
+                   OR (SELECT public.user_has_permission('hr.shift_timings.manage')))
+                  AND public.role_has_institution_access(p.institution_id)))
+    )
+  );
+
+-- Writes go through fn_hr_set_work_pattern_days (SECURITY DEFINER); a direct
+-- write is left to super admins only, like the assignments table.
+DROP POLICY IF EXISTS hr_wpw_write ON public.hr_work_pattern_weeks;
+CREATE POLICY hr_wpw_write ON public.hr_work_pattern_weeks
+  FOR ALL USING ((SELECT public.is_super_admin()))
+  WITH CHECK ((SELECT public.is_super_admin()));
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_work_pattern_weeks TO authenticated;
+GRANT ALL ON public.hr_work_pattern_weeks TO service_role;
+
+-- cl_girls_bc_reconcile_log — read-only evidence table. No INSERT/UPDATE/DELETE
+-- policy exists on purpose: only the migrations that own it write to it, as
+-- table owner, and nothing in the app should be able to rewrite the record of
+-- what a data migration did.
+CREATE POLICY cl_girls_bc_reconcile_log_read
+  ON public.cl_girls_bc_reconcile_log
+  FOR SELECT TO authenticated
+  USING (
+    public.is_super_admin()
+    OR public.user_has_permission('campus_living.upgrades.manage')
+  )
+-- Updated: 2026-08-21 - AIU evidence trail policies
+-- (migration 20260922041500_aiu_prompt_trails.sql — FILE ONLY / NOT APPLIED).
+-- Learner reads/inserts/updates ONLY their own rows; admin read for AIU
+-- marking; deliberately NO DELETE policy (and no DELETE grant).
+ALTER TABLE public.aiu_prompt_trails ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY aiu_trails_select ON public.aiu_prompt_trails
+  FOR SELECT TO authenticated
+  USING (
+    learner_id = (SELECT auth.uid())
+    OR is_super_admin()
+    OR is_admin()
+  )
+
+CREATE POLICY aiu_trails_insert_own ON public.aiu_prompt_trails
+  FOR INSERT TO authenticated
+  WITH CHECK (learner_id = (SELECT auth.uid()))
+
+CREATE POLICY aiu_trails_update_own ON public.aiu_prompt_trails
+  FOR UPDATE TO authenticated
+  USING (learner_id = (SELECT auth.uid()))
+  WITH CHECK (learner_id = (SELECT auth.uid()))
+
+
+-- ==========================================================================
+-- Campus Living - Housekeeping (rebuilt 2026-09-07)
+-- Migration: 20260907090100_housekeeping_schema.sql
+-- Replaces the old hostel_cleaning_schedules / _tasks / _bookings module.
+-- ==========================================================================
+
+-- Housekeeping rebuild 2026-09-07 (migration 20260907090100)
+
+-- ==========================================================================
+-- RLS POLICIES
+--
+-- One permissive policy per table per verb. Every auth call is wrapped in a
+-- scalar subquery so it evaluates once per query (InitPlan) rather than once
+-- per candidate row.
+--
+-- Learner access is deliberately narrow:
+--   types, type_categories     : SELECT yes (they must see what they can book)
+--   type_expenses              : SELECT NO  (institution cost data)
+--   cleaners, cleaner_blocks   : SELECT NO  (phone numbers; RLS is row-level,
+--                                so exposing the row exposes the PII. The
+--                                learner sees bookings.cleaner_name instead.)
+--   availability               : SELECT NO  (the slots RPC is DEFINER)
+--   bookings, photos, feedback : SELECT yes, scoped to their own room
+--
+-- hostel_cleaning_bookings gets NO INSERT and NO DELETE policy on purpose:
+-- both are RPC-only, so PostgREST refuses them for every role.
+--
+-- The bodies below are as Postgres normalised them (dumped from pg_policy
+-- after applying), so this file is exactly what is live.
+-- ==========================================================================
+
+CREATE POLICY hk_types_select ON public.hostel_cleaning_types FOR SELECT
+USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT user_has_permission('campus_living.housekeeping.view'::text) AS user_has_permission) OR (is_active AND (EXISTS ( SELECT 1
+   FROM hostel_allocations a
+  WHERE ((a.learner_id = ( SELECT auth.uid() AS uid)) AND ((a.status)::text = ANY (fn_cl_roster_statuses()))))))));
+
+CREATE POLICY hk_types_insert ON public.hostel_cleaning_types FOR INSERT
+WITH CHECK ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT user_has_permission('campus_living.housekeeping.types_manage'::text) AS user_has_permission)));
+
+CREATE POLICY hk_types_update ON public.hostel_cleaning_types FOR UPDATE
+USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT user_has_permission('campus_living.housekeeping.types_manage'::text) AS user_has_permission)));
+
+CREATE POLICY hk_types_delete ON public.hostel_cleaning_types FOR DELETE
+USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT user_has_permission('campus_living.housekeeping.types_manage'::text) AS user_has_permission)));
+
+CREATE POLICY hk_type_expenses_select ON public.hostel_cleaning_type_expenses FOR SELECT
+USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT user_has_permission('campus_living.housekeeping.view'::text) AS user_has_permission)));
+
+CREATE POLICY hk_type_expenses_insert ON public.hostel_cleaning_type_expenses FOR INSERT
+WITH CHECK ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT user_has_permission('campus_living.housekeeping.types_manage'::text) AS user_has_permission)));
+
+CREATE POLICY hk_type_expenses_update ON public.hostel_cleaning_type_expenses FOR UPDATE
+USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT user_has_permission('campus_living.housekeeping.types_manage'::text) AS user_has_permission)));
+
+CREATE POLICY hk_type_expenses_delete ON public.hostel_cleaning_type_expenses FOR DELETE
+USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT user_has_permission('campus_living.housekeeping.types_manage'::text) AS user_has_permission)));
+
+CREATE POLICY hk_type_categories_select ON public.hostel_cleaning_type_categories FOR SELECT
+USING ((EXISTS ( SELECT 1
+   FROM hostel_cleaning_types t
+  WHERE (t.id = hostel_cleaning_type_categories.type_id))));
+
+CREATE POLICY hk_type_categories_insert ON public.hostel_cleaning_type_categories FOR INSERT
+WITH CHECK ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.types_manage'::text) AS user_has_permission) AND (EXISTS ( SELECT 1
+   FROM hostel_cleaning_types t
+  WHERE (t.id = hostel_cleaning_type_categories.type_id))))));
+
+CREATE POLICY hk_type_categories_delete ON public.hostel_cleaning_type_categories FOR DELETE
+USING ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.types_manage'::text) AS user_has_permission) AND (EXISTS ( SELECT 1
+   FROM hostel_cleaning_types t
+  WHERE (t.id = hostel_cleaning_type_categories.type_id))))));
+
+CREATE POLICY hk_cleaners_select ON public.hostel_cleaners FOR SELECT
+USING ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.view'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+
+CREATE POLICY hk_cleaners_insert ON public.hostel_cleaners FOR INSERT
+WITH CHECK ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.cleaners_manage'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+
+CREATE POLICY hk_cleaners_update ON public.hostel_cleaners FOR UPDATE
+USING ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.cleaners_manage'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+
+CREATE POLICY hk_cleaners_delete ON public.hostel_cleaners FOR DELETE
+USING ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.cleaners_manage'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+
+CREATE POLICY hk_cleaner_blocks_select ON public.hostel_cleaner_blocks FOR SELECT
+USING ((EXISTS ( SELECT 1
+   FROM hostel_cleaners c
+  WHERE (c.id = hostel_cleaner_blocks.cleaner_id))));
+
+CREATE POLICY hk_cleaner_blocks_insert ON public.hostel_cleaner_blocks FOR INSERT
+WITH CHECK ((( SELECT is_super_admin() AS is_super_admin) OR (EXISTS ( SELECT 1
+   FROM hostel_cleaners c
+  WHERE ((c.id = hostel_cleaner_blocks.cleaner_id) AND ( SELECT user_has_permission('campus_living.housekeeping.cleaners_manage'::text) AS user_has_permission) AND role_has_institution_access(c.institution_id))))));
+
+CREATE POLICY hk_cleaner_blocks_delete ON public.hostel_cleaner_blocks FOR DELETE
+USING ((( SELECT is_super_admin() AS is_super_admin) OR (EXISTS ( SELECT 1
+   FROM hostel_cleaners c
+  WHERE ((c.id = hostel_cleaner_blocks.cleaner_id) AND ( SELECT user_has_permission('campus_living.housekeeping.cleaners_manage'::text) AS user_has_permission) AND role_has_institution_access(c.institution_id))))));
+
+CREATE POLICY hk_availability_select ON public.hostel_cleaning_availability FOR SELECT
+USING ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.view'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+
+CREATE POLICY hk_availability_insert ON public.hostel_cleaning_availability FOR INSERT
+WITH CHECK ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.availability_manage'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+
+CREATE POLICY hk_availability_update ON public.hostel_cleaning_availability FOR UPDATE
+USING ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.availability_manage'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+
+CREATE POLICY hk_availability_delete ON public.hostel_cleaning_availability FOR DELETE
+USING ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.availability_manage'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+
+CREATE POLICY hk_bookings_select ON public.hostel_cleaning_bookings FOR SELECT
+USING ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.view'::text) AS user_has_permission) AND role_has_institution_access(institution_id)) OR (EXISTS ( SELECT 1
+   FROM hostel_allocations a
+  WHERE ((a.room_id = hostel_cleaning_bookings.room_id) AND (a.learner_id = ( SELECT auth.uid() AS uid)) AND ((a.status)::text = ANY (fn_cl_roster_statuses())))))));
+
+CREATE POLICY hk_bookings_update ON public.hostel_cleaning_bookings FOR UPDATE
+USING ((( SELECT is_super_admin() AS is_super_admin) OR ((( SELECT user_has_permission('campus_living.housekeeping.execute'::text) AS user_has_permission) OR ( SELECT user_has_permission('campus_living.housekeeping.assign'::text) AS user_has_permission) OR ( SELECT user_has_permission('campus_living.housekeeping.waive'::text) AS user_has_permission)) AND role_has_institution_access(institution_id))));
+
+CREATE POLICY hk_photos_select ON public.hostel_cleaning_booking_photos FOR SELECT
+USING ((EXISTS ( SELECT 1
+   FROM hostel_cleaning_bookings b
+  WHERE (b.id = hostel_cleaning_booking_photos.booking_id))));
+
+CREATE POLICY hk_photos_insert ON public.hostel_cleaning_booking_photos FOR INSERT
+WITH CHECK ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.execute'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+
+CREATE POLICY hk_photos_delete ON public.hostel_cleaning_booking_photos FOR DELETE
+USING ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.execute'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+
+CREATE POLICY hk_feedback_select ON public.hostel_cleaning_feedback FOR SELECT
+USING ((EXISTS ( SELECT 1
+   FROM hostel_cleaning_bookings b
+  WHERE (b.id = hostel_cleaning_feedback.booking_id))));
+
+CREATE POLICY hk_feedback_insert ON public.hostel_cleaning_feedback FOR INSERT
+WITH CHECK (((learner_id = ( SELECT auth.uid() AS uid)) AND (EXISTS ( SELECT 1
+   FROM (hostel_cleaning_bookings b
+     JOIN hostel_allocations a ON ((a.room_id = b.room_id)))
+  WHERE ((b.id = hostel_cleaning_feedback.booking_id) AND (b.status = 'awaiting_feedback'::text) AND (a.learner_id = ( SELECT auth.uid() AS uid)) AND ((a.status)::text = ANY (fn_cl_roster_statuses())))))));

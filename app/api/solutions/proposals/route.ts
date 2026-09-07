@@ -24,7 +24,7 @@ export const GET = withAuth(async (request) => {
   })
 
   return paginatedResponse(result.data, result.metadata.total, page, limit)
-}, { requiredPermission: 'read' })
+}, { requiredPermission: 'read', requirePermission: 'solutions.clients.view' })
 
 export const POST = withAuth(async (request, auth) => {
   const body = await request.json()
@@ -47,4 +47,7 @@ export const POST = withAuth(async (request, auth) => {
   })
 
   return createdResponse(result)
-})
+  // Second gate on top of RLS: proposals are commercial data. The solutions
+  // module has no write-tier keys yet, so the clients view key (held by the
+  // same 3 roles RLS admits) is the narrowest existing gate.
+}, { requiredPermission: 'write', requirePermission: 'solutions.clients.view' })

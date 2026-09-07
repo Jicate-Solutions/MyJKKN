@@ -115,19 +115,19 @@ export function LinkCodesStep({ suggestion, canEdit, onSaved, onSkip }: Props) {
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Enrolments in file" value={c.total} />
-        <Stat label="In MyJKKN staff" value={c.in_myjkkn} good={c.in_myjkkn > 0} />
+        <Stat label="In MyJKKN team" value={c.in_myjkkn} good={c.in_myjkkn > 0} />
         <Stat label="Not in MyJKKN" value={c.not_in_myjkkn} warn={c.not_in_myjkkn > 0} />
-        <Stat label="MyJKKN staff roster" value={suggestion.roster.total} hint={`${suggestion.roster.active} active`} />
+        <Stat label="MyJKKN team roster" value={suggestion.roster.total} hint={`${suggestion.roster.active} active`} />
       </div>
 
       <p className="text-xs text-muted-foreground">
         <strong>{c.in_myjkkn}</strong> of the <strong>{c.total}</strong> enrolments in this file
-        belong to someone who exists in the MyJKKN staff table — that is the ceiling on what this
-        import can ever write. The other <strong>{c.not_in_myjkkn}</strong> are enrolments the
-        machine still holds for people with no MyJKKN staff record; re-uploading will not change
-        that. Identity is decided by the enrolment code first and, only when no code is stored, by
-        comparing the machine&rsquo;s name to the staff roster — so a &ldquo;Not in MyJKKN&rdquo; row
-        can still be linked by hand if you recognise the person.
+        belong to someone who exists in the MyJKKN team member table — that is the ceiling on what
+        this import can ever write. The other <strong>{c.not_in_myjkkn}</strong> are enrolments the
+        machine still holds for people with no MyJKKN team member record; re-uploading will not
+        change that. Identity is decided by the enrolment code first and, only when no code is
+        stored, by comparing the machine&rsquo;s name to the team roster — so a &ldquo;Not in
+        MyJKKN&rdquo; row can still be linked by hand if you recognise the person.
       </p>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -141,7 +141,7 @@ export function LinkCodesStep({ suggestion, canEdit, onSaved, onSkip }: Props) {
         <details className="rounded-md border bg-muted/30 p-3">
           <summary className="cursor-pointer text-sm font-medium">
             <UserX className="mr-1 inline h-4 w-4 text-amber-700" />
-            {c.not_in_myjkkn} enrolment(s) have no MyJKKN staff record
+            {c.not_in_myjkkn} enrolment(s) have no MyJKKN team member record
           </summary>
           <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
             {notInMyjkkn.map((r) => (
@@ -157,10 +157,12 @@ export function LinkCodesStep({ suggestion, canEdit, onSaved, onSkip }: Props) {
         <Alert>
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription>
-            {c.inactive_staff} enrolment(s) resolve to a staff record marked <strong>relieved</strong>{' '}
-            (inactive). Their punches will still import — MyJKKN matches on the stored enrolment code
-            and does not check employment status. Clear the code on those staff records if their
-            attendance should stop.
+            {c.inactive_staff} enrolment(s) resolve to a team member record marked{' '}
+            <strong>relieved</strong> (inactive). Their punches are <strong>not imported</strong> —
+            since 2026-09-02 the import resolves active team members only, and these codes are
+            reported as skipped rather than turned into attendance. Records imported while they were
+            still active are left untouched. Clear the code on those team member records to stop
+            them appearing here.
           </AlertDescription>
         </Alert>
       )}
@@ -224,25 +226,25 @@ export function LinkCodesStep({ suggestion, canEdit, onSaved, onSkip }: Props) {
                       disabled={!canEdit}
                       onClick={() => setPicker({ code: r.code, deviceName: r.device_name, value: choice[r.code] ?? null })}
                       className="h-auto w-full min-w-[260px] justify-between gap-2 py-1.5 text-left font-normal"
-                      aria-label={`Choose staff for code ${r.code}`}
+                      aria-label={`Choose team member for code ${r.code}`}
                     >
                       <span className="min-w-0 flex-1">
                         {picked ? (
                           <>
                             <span className="block truncate">{picked.full_name}</span>
                             <span className="block truncate text-xs text-muted-foreground">
-                              {[picked.staff_id ?? 'no staff code', picked.institution_name ?? 'no institution'].join(' · ')}
+                              {[picked.staff_id ?? 'no team member code', picked.institution_name ?? 'no institution'].join(' · ')}
                             </span>
                           </>
                         ) : (
-                          <span className="text-muted-foreground">Search staff…</span>
+                          <span className="text-muted-foreground">Search team members…</span>
                         )}
                       </span>
                       <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
                     </Button>
                     {picked?.is_active === false && (
                       <p className="mt-1 text-xs text-amber-700">
-                        This staff record is relieved.
+                        This team member record is relieved — their punches will not be imported.
                       </p>
                     )}
                     {picked?.other_machine && (
@@ -282,7 +284,7 @@ export function LinkCodesStep({ suggestion, canEdit, onSaved, onSkip }: Props) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-muted-foreground">
           {assigned} of {suggestion.rows.length} codes will be linked. Codes left blank are cleared,
-          and their punches will not import — including every &ldquo;No staff record&rdquo; row you
+          and their punches will not import — including every &ldquo;No team member record&rdquo; row you
           leave alone.
         </p>
         <div className="flex gap-2">
@@ -335,13 +337,15 @@ function IdentityCell({ row, pickedManually }: { row: BiometricMappingRow; picke
   } else if (pickedManually) {
     badge = <Badge variant="secondary" className="bg-blue-100 text-blue-800 hover:bg-blue-100">Yes · chosen by you</Badge>;
   } else {
-    badge = <Badge variant="outline" className="border-amber-300 text-amber-800">No staff record</Badge>;
+    badge = <Badge variant="outline" className="border-amber-300 text-amber-800">No team member record</Badge>;
   }
 
   return (
     <div className="space-y-1">
       {badge}
-      {relieved && <p className="text-xs text-amber-700">Staff record is relieved</p>}
+      {relieved && (
+        <p className="text-xs text-amber-700">Team member record is relieved — punches not imported</p>
+      )}
     </div>
   );
 }

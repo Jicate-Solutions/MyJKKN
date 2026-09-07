@@ -15,7 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import {
   AlertCircle,
   Download,
-  Receipt,
+  ReceiptIndianRupee,
   Percent,
   IndianRupee
 } from 'lucide-react';
@@ -170,7 +170,7 @@ export function DiscountReportTab({
             <CardTitle className='text-sm font-medium'>
               Total Discounts
             </CardTitle>
-            <Receipt className='h-4 w-4 text-muted-foreground' />
+            <ReceiptIndianRupee className='h-4 w-4 text-muted-foreground' />
           </CardHeader>
           <CardContent>
             <div className='text-2xl font-bold'>{totalCount.toLocaleString('en-IN')}</div>
@@ -209,7 +209,7 @@ export function DiscountReportTab({
         <CardHeader>
           <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
             <CardTitle className='flex items-center gap-2'>
-              <Receipt className='h-5 w-5' />
+              <ReceiptIndianRupee className='h-5 w-5' />
               Discount Report
             </CardTitle>
             {canExport && (
@@ -236,7 +236,7 @@ export function DiscountReportTab({
         <CardContent>
           {report.length === 0 ? (
             <div className='text-center py-8'>
-              <Receipt className='h-12 w-12 text-muted-foreground mx-auto mb-4' />
+              <ReceiptIndianRupee className='h-12 w-12 text-muted-foreground mx-auto mb-4' />
               <h3 className='text-lg font-semibold mb-2'>No Discounts</h3>
               <p className='text-muted-foreground'>
                 No discounts found matching the current filters.

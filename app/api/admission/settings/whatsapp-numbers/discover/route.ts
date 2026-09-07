@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
+import { withAuth } from '@/lib/auth/with-auth';
 import { createClient } from '@supabase/supabase-js';
 
 // Meta Graph API base
@@ -45,7 +46,15 @@ interface DiscoveredNumber {
  * configured Meta access token. Returns them with flags showing
  * which are already added to MyJKKN.
  */
-export async function GET(request: NextRequest) {
+/**
+ * Guarded 2026-09-01. This route had NO authentication of any kind: it reads
+ * WhatsApp Business account settings and returned them to any anonymous
+ * caller. That was masked only because WHATSAPP_ACCESS_TOKEN is unset in
+ * production, so it failed with a config error before reaching the data. Set
+ * the token and it would have leaked. The gap, not the missing config, is the
+ * bug.
+ */
+export const GET = withAuth(async (request: NextRequest) => {
   const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
   if (!accessToken) {
     return NextResponse.json(
@@ -236,4 +245,4 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
-}
+}, { requiredPermission: 'read' });

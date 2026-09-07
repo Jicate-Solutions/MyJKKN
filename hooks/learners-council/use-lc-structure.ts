@@ -227,16 +227,20 @@ export function useDeletePosition() {
  * Pass `tier: 'tier_1'` for LC proper, `tier: 'yuva_chapter'` for YUVA
  * Chapter Chairs & Co-Chairs. Omitting tier returns both (legacy behavior).
  */
-export function useLCMembers(filters: {
-  term_id?: string;
-  status?: string;
-  institution_id?: string;
-  tier?: string;
-}) {
+export function useLCMembers(
+  filters: {
+    term_id?: string;
+    status?: string;
+    institution_id?: string;
+    tier?: string;
+  },
+  options?: { enabled?: boolean; staleTime?: number }
+) {
   return useQuery({
     queryKey: lcStructureKeys.members.list(filters as Record<string, unknown>),
     queryFn: () => LCStructureService.getMembers(filters),
-    staleTime: 2 * 60 * 1000
+    staleTime: options?.staleTime ?? 2 * 60 * 1000,
+    enabled: options?.enabled ?? true
   });
 }
 

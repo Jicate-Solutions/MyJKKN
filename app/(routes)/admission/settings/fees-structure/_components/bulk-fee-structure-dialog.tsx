@@ -70,6 +70,18 @@ interface SheetInfo {
   sheetNames: string[];
   headers: string[];
   totalRows: number;
+  /** Structures the rows fold into — several rows are one structure on the unified tab. */
+  structures: number;
+  /**
+   * Of those, how many carry a Fee Structure ID (an UPDATE of a structure that
+   * exists) and how many leave it blank (a CREATE). Split by the ID cell alone,
+   * so unlike the Validate step's create/update it still counts rows that have
+   * errors — the operator sees what the file holds before it is clean.
+   */
+  existing: number;
+  new: number;
+  /** Fee items across those structures (one fee may span several instalment rows). */
+  fees: number;
 }
 
 interface RawPreview {
@@ -149,6 +161,20 @@ export function BulkFeeStructureDialog({
     setErrorsOnly(true);
   };
 
+  /**
+   * THE ONLY WAY THIS DIALOG MAY CLOSE. The parent mounts it unconditionally
+   * (`<BulkFeeStructureDialog open={bulkOpen} …>` in fee-structures-list-view),
+   * so nothing unmounts on close and every useState above survives it. A button
+   * that calls the onOpenChange PROP directly therefore leaves the wizard
+   * parked wherever it was — clicking "Done" after an import and reopening put
+   * the operator back on the Done summary of the import they had just finished,
+   * with no file input in sight, instead of a fresh upload step.
+   */
+  const close = () => {
+    reset();
+    onOpenChange(false);
+  };
+
   const post = async (mode: 'validate' | 'apply') => {
     const fd = new FormData();
     fd.append('file', file!);
@@ -218,7 +244,7 @@ export function BulkFeeStructureDialog({
   );
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) reset(); onOpenChange(o); }}>
+    <Dialog open={open} onOpenChange={(o) => (o ? onOpenChange(true) : close())}>
       <DialogContent className="flex max-h-[92dvh] w-[calc(100vw-1.5rem)] max-w-5xl flex-col overflow-hidden p-4 sm:w-full sm:p-6">
         <DialogHeader className="shrink-0 pr-8 text-left">
           <DialogTitle className="text-base sm:text-lg">Bulk Import Fee Structures</DialogTitle>
@@ -295,6 +321,20 @@ export function BulkFeeStructureDialog({
                 <Table2 className="h-3.5 w-3.5" /> Tab &ldquo;{sheet.name}&rdquo;
               </Badge>
               <Badge variant="outline">{sheet.totalRows} rows</Badge>
+              {/* Rows are instalments; the operator counts in structures. Both,
+                  side by side, or "216 rows" reads as 216 structures. */}
+              <Badge variant="outline" className="gap-1">
+                <ListChecks className="h-3.5 w-3.5" />
+                {sheet.structures} fee structure{sheet.structures === 1 ? '' : 's'}
+              </Badge>
+              {/* Same colours the Changes and Validate steps use: blue = update, green = create. */}
+              <Badge variant="outline" className="border-blue-300 bg-blue-50 text-blue-700 gap-1">
+                <Pencil className="h-3.5 w-3.5" /> {sheet.existing} existing · will update
+              </Badge>
+              <Badge variant="outline" className="border-emerald-300 bg-emerald-50 text-emerald-700 gap-1">
+                <Plus className="h-3.5 w-3.5" /> {sheet.new} new · will create
+              </Badge>
+              <Badge variant="outline">{sheet.fees} fee{sheet.fees === 1 ? '' : 's'}</Badge>
               <Badge variant="outline">{sheet.headers.length} columns</Badge>
               <Badge variant="outline" className="border-slate-300 bg-slate-50 text-slate-700">
                 {preview.layout === 'legacy' ? 'Legacy two-tab layout' : 'One row = one instalment'}
@@ -359,8 +399,8 @@ export function BulkFeeStructureDialog({
 
             {preview.rawPreview.truncated && (
               <p className="text-xs text-muted-foreground">
-                Showing the first {preview.rawPreview.rows.length} of {sheet.totalRows} rows. All of them
-                are validated and imported.
+                Showing the first {preview.rawPreview.rows.length} of {sheet.totalRows} rows. All of them,
+                across all {sheet.structures} fee structures, are validated and imported.
               </p>
             )}
           </div>
@@ -569,7 +609,7 @@ export function BulkFeeStructureDialog({
         <DialogFooter className="shrink-0 gap-2 border-t pt-3 sm:gap-2">
           {step === 'upload' && (
             <>
-              <Button className="w-full sm:w-auto" variant="ghost" onClick={() => onOpenChange(false)} disabled={validating}>Close</Button>
+              <Button className="w-full sm:w-auto" variant="ghost" onClick={close} disabled={validating}>Close</Button>
               <Button className="w-full sm:w-auto" onClick={handleValidate} disabled={!file || validating}>
                 {validating ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <ListChecks className="mr-1 h-4 w-4" />}
                 Read file
@@ -615,8 +655,9 @@ export function BulkFeeStructureDialog({
 
           {step === 'done' && (
             <>
+              {/* "Import another" resets and STAYS open; "Done" resets and leaves. */}
               <Button className="w-full sm:w-auto" variant="ghost" onClick={reset}>Import another</Button>
-              <Button className="w-full sm:w-auto" onClick={() => onOpenChange(false)}>Done</Button>
+              <Button className="w-full sm:w-auto" onClick={close}>Done</Button>
             </>
           )}
         </DialogFooter>

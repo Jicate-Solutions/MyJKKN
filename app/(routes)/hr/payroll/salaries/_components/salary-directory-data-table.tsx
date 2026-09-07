@@ -27,6 +27,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import type { StaffSalaryDirectoryRow } from '@/lib/services/hr/payroll/staff-salary-service';
 
+import { useTdsSlabs } from '@/hooks/hr/use-tds-slabs';
 import { getSalaryColumns } from './salary-columns';
 import { matchesSalaryFilters, type SalaryFilterState } from './salary-filters';
 
@@ -72,9 +73,14 @@ export function SalaryDirectoryDataTable({
   onViewHistory,
   onBulkTemplate,
 }: Props) {
+  // The bands drive the derived TDS column. Fetched here rather than threaded
+  // down from the page because the columns are the only consumer, and the query
+  // is shared through React Query anyway — the dialog reads the same cache.
+  const { data: tdsSlabs } = useTdsSlabs();
+
   const columns = useMemo(
-    () => getSalaryColumns({ onEdit, onViewHistory, canManage }),
-    [canManage, onEdit, onViewHistory]
+    () => getSalaryColumns({ onEdit, onViewHistory, canManage, tdsSlabs: tdsSlabs ?? [] }),
+    [canManage, onEdit, onViewHistory, tdsSlabs]
   );
 
   const byId = useMemo(() => {

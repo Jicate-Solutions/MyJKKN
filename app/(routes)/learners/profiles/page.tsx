@@ -80,6 +80,10 @@ async function ProfilesContent({
     semester_id: str('semester_id'),
     section_id: str('section_id'),
     academic_year_id: str('academic_year_id'),
+    // Integer calendar year, not a uuid — see lib/utils/admission-year-filter.ts.
+    // `|| undefined` is safe here (0 is not a valid admission year) and keeps a
+    // junk value like ?admission_year=abc from reaching the query as NaN.
+    admission_year: Number(str('admission_year')) || undefined,
     gender: str('gender'),
     is_profile_complete: bool('is_profile_complete'),
     accommodation_type_id: str('accommodation_type_id'),

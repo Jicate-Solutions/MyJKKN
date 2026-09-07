@@ -1,10 +1,12 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { CL_ROSTER_STATUSES } from './roster-statuses';
 import type {
   HostelAllocation,
   CreateHostelAllocationDTO,
   UpdateHostelAllocationDTO,
   AllocationFilters,
+  AllocationStatus,
   VacateReason,
   RoomBedOccupancy,
   AllocatableRoom,
@@ -89,18 +91,23 @@ export class HostelAllocationService {
         logger.error('campus-living/allocations', 'Failed to fetch all allocations', error);
         throw error;
       }
-      // Campus Living shows ACTIVE learners only. Mirror v_learner_hostelites
-      // (lifecycle_status = 'active'), so an inactive learner who still holds a
-      // bed no longer appears here — this was the sole cause of the
-      // Residents-vs-Allocations count mismatch. Rows whose learner has no
-      // learners_profiles record (academic null) drop too, as they aren't an
-      // active learner either. Filtered in JS (not a PostgREST !inner embed)
-      // to avoid silently dropping rows on a null intermediate join.
-      const activeOnly = (data ?? []).filter(
-        (a: { learner?: { academic?: { lifecycle_status?: string } | null } | null }) =>
-          a?.learner?.academic?.lifecycle_status === 'active',
+      // Mirror the Campus Living roster (v_learner_hostelites), so a learner
+      // outside it who still holds a bed does not appear here — this was the
+      // sole cause of the Residents-vs-Allocations count mismatch, and it is
+      // why this must track CL_ROSTER_STATUSES rather than a local 'active'
+      // literal: the roster widened to reserved+admitted on 2026-09-05, and a
+      // reserved learner given a bed early has to show on both screens or the
+      // same mismatch comes back. Rows whose learner has no learners_profiles
+      // record (academic null) drop too, as they aren't a learner either.
+      // Filtered in JS (not a PostgREST !inner embed) to avoid silently
+      // dropping rows on a null intermediate join.
+      const rosterOnly = (data ?? []).filter(
+        (a: { learner?: { academic?: { lifecycle_status?: string } | null } | null }) => {
+          const s = a?.learner?.academic?.lifecycle_status;
+          return !!s && (CL_ROSTER_STATUSES as readonly string[]).includes(s);
+        },
       );
-      return activeOnly as (HostelAllocation & Record<string, unknown>)[];
+      return rosterOnly as (HostelAllocation & Record<string, unknown>)[];
     } catch (error) {
       logger.error('campus-living/allocations', 'Unexpected error in getAllAllocations', error);
       throw error;
@@ -205,7 +212,13 @@ export class HostelAllocationService {
         .select('*, learner:profiles!hostel_allocations_learner_id_fkey(id, full_name, email), hostel_blocks(name, code), hostel_rooms(room_number, room_type, floor), hostel_beds(bed_number, bed_type)')
         .eq('learner_id', learnerId);
 
-      if (statuses && statuses.length > 0) query = query.in('status', statuses);
+      // Cast at the boundary: the parameter is deliberately `string[]` because
+      // callers pass roster-status arrays assembled elsewhere, while PostgREST's
+      // generated signature wants the allocation_status union. An invalid value
+      // is rejected by the enum at the database, not silently matched.
+      if (statuses && statuses.length > 0) {
+        query = query.in('status', statuses as AllocationStatus[]);
+      }
       else if (activeOnly) query = query.eq('status', 'active');
       query = query.order('allocation_date', { ascending: false });
 
@@ -457,25 +470,40 @@ export class HostelAllocationService {
   }
 
   // ── Vacate ────────────────────────────────────────────────────────
+  // Routes through fn_cl_vacate_allocation (SECURITY DEFINER) so flipping the
+  // allocation and releasing the bed happen in ONE transaction. This used to be
+  // a bare UPDATE of status/vacate_reason/actual_vacate_date, which stranded the
+  // bed two ways with no error: hostel_beds kept status='occupied' plus a
+  // current_occupant_id pointing at the departed learner (so it vanished from
+  // getAvailableBeds and fn_cl_admin_allocatable_rooms), and a NULL
+  // check_out_date kept hostel_allocations_room_bed_active_uidx — UNIQUE
+  // (room_id, bed_id) WHERE check_out_date IS NULL — holding the slot, so even a
+  // forced re-allocation hit 23505. No trigger compensates: none of the nine on
+  // hostel_allocations fires on a transition INTO 'vacated'.
+  //
+  // It must be an RPC rather than a second .update() here because freeing the bed
+  // needs campus_living.beds.edit — a DIFFERENT key from the
+  // campus_living.allocations.edit that gates the allocation write — so the bed
+  // write would be silently refused by RLS for exactly the hostel admins who use
+  // this button. The RPC is idempotent on an already-vacated row.
   static async vacate(allocationId: string, reason: VacateReason) {
     try {
       const supabase = createClientSupabaseClient();
-      const { data, error } = await supabase
-        .from('hostel_allocations')
-        .update({
-          status: 'vacated',
-          vacate_reason: reason,
-          actual_vacate_date: new Date().toISOString().split('T')[0],
-        })
-        .eq('id', allocationId)
-        .select()
-        .single();
+      const { data, error } = await supabase.rpc('fn_cl_vacate_allocation', {
+        p_allocation_id: allocationId,
+        p_vacate_reason: reason,
+      });
 
       if (error) {
         logger.error('campus-living/allocations', 'Failed to vacate', error);
         throw error;
       }
-      return data as HostelAllocation;
+      return data as {
+        success: boolean;
+        allocation_id: string;
+        already_vacated: boolean;
+        freed_bed_id: string | null;
+      };
     } catch (error) {
       logger.error('campus-living/allocations', 'Unexpected error in vacate', error);
       throw error;

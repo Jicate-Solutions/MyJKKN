@@ -44,27 +44,6 @@ export class CourseMappingService {
     }
   }
 
-  /**
-   * Helper method to get user's department ID for filtering
-   */
-  private static async getUserDepartmentId(
-    userId: string
-  ): Promise<string | null> {
-    try {
-      const { data, error } = await this.supabase
-        .from('profiles')
-        .select('department_id')
-        .eq('id', userId)
-        .single();
-
-      if (error) throw error;
-      return (data as any)?.department_id || null;
-    } catch (error) {
-      console.error('Error getting user department ID:', error);
-      return null;
-    }
-  }
-
   // New method to check if a course is already mapped to a semester
   static async isCourseMapped(
     courseId: string,
@@ -321,15 +300,6 @@ export class CourseMappingService {
               totalPages: 0
             }
           };
-        }
-      }
-
-      // Apply department filtering based on user's department if userId is provided
-      if (filters.userId && !filters.bypassDepartmentFilter) {
-        const userDepartmentId = await this.getUserDepartmentId(filters.userId);
-        // Only apply department filter if user has a department_id (HOD, department-specific roles)
-        if (userDepartmentId) {
-          query = query.eq('department_id', userDepartmentId);
         }
       }
 

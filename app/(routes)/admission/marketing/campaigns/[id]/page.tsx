@@ -447,7 +447,7 @@ export default function CampaignDetailPage() {
                 share link, then activate to start collecting leads.
               </span>
             </div>
-            <PermissionGuard module="admission.marketing" action="edit">
+            <PermissionGuard module="admission.marketing" action="edit" fallback={null}>
               <Button
                 size="sm"
                 onClick={() => setStatus('active', 'Active')}
@@ -467,7 +467,7 @@ export default function CampaignDetailPage() {
                 redirecting and clicks aren&apos;t logged until you resume.
               </span>
             </div>
-            <PermissionGuard module="admission.marketing" action="edit">
+            <PermissionGuard module="admission.marketing" action="edit" fallback={null}>
               <Button
                 size="sm"
                 onClick={() => setStatus('active', 'Active')}

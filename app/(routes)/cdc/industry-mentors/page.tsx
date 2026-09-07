@@ -191,7 +191,7 @@ export default function IndustryMentorsPage() {
               {total} mentor{total !== 1 ? 's' : ''} in the directory
             </p>
           </div>
-          <PermissionGuard module="cdc.industry_mentors" action="create">
+          <PermissionGuard module="cdc.industry_mentors" action="create" fallback={null}>
             <Button asChild>
               <Link href="/cdc/industry-mentors/new">
                 <Plus className="h-4 w-4 mr-2" />
@@ -250,7 +250,7 @@ export default function IndustryMentorsPage() {
           <div className="text-center py-12 text-muted-foreground">
             <Users className="h-12 w-12 mx-auto mb-3 opacity-30" />
             <p>No mentors found.</p>
-            <PermissionGuard module="cdc.industry_mentors" action="create">
+            <PermissionGuard module="cdc.industry_mentors" action="create" fallback={null}>
               <Button asChild variant="outline" className="mt-4">
                 <Link href="/cdc/industry-mentors/new">Add the first mentor</Link>
               </Button>

@@ -16,7 +16,11 @@ import { format } from 'date-fns';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Skeleton } from '@/components/ui/skeleton';
 import { DeleteConfirmationModal } from '@/components/billing/delete-confirmation-modal';
-import { CancelConfirmationModal } from '@/components/billing/cancel-confirmation-modal';
+import { BillCancelDialog } from '@/components/billing/bill-cancel-dialog';
+import type {
+  BillCancelReasonCode,
+  BillCancellationAttachment
+} from '@/types/billing-bill-cancellation';
 
 interface BillingScheduleDataTableProps {
   search: BillingScheduleSearchParams;
@@ -101,8 +105,9 @@ export function BillingScheduleDataTable({
     isSuperAdmin ||
     (canAccess('billing.schedule', 'create') &&
       canAccess('billing.schedule', 'bulk_create'));
+  // Its own key, not billing.schedule.update: cancelling writes off money.
   const canCancelBills =
-    isSuperAdmin || canAccess('billing.schedule', 'update');
+    isSuperAdmin || canAccess('billing.schedule', 'cancel');
 
   // Dimension filters shared by the paged fetch AND the cross-page "select all"
   // fetch, so both honour the exact same URL filters. Search/sort come per-call
@@ -322,7 +327,11 @@ export function BillingScheduleDataTable({
   );
 
   const handleConfirmCancel = React.useCallback(
-    async (reason?: string) => {
+    async (payload: {
+      reasonCode: BillCancelReasonCode;
+      reason: string;
+      attachments: BillCancellationAttachment[];
+    }) => {
       const { selectedBills, resetSelection } = cancelModal;
       if (selectedBills.length === 0) return;
 
@@ -344,7 +353,9 @@ export function BillingScheduleDataTable({
 
         const result = await StudentBillService.bulkCancelStudentBills(
           cancellable.map((b) => b.id),
-          reason
+          payload.reasonCode,
+          payload.reason,
+          payload.attachments
         );
 
         const skipped = selectedBills.length - cancellable.length;
@@ -575,13 +586,25 @@ export function BillingScheduleDataTable({
         warningMessage='This will permanently remove all payment history, discounts, and related financial records.'
       />
 
-      {/* Cancel Confirmation Modal */}
-      <CancelConfirmationModal
-        isOpen={cancelModal.isOpen}
-        onClose={handleCloseCancelModal}
+      {/* One reason and one document set covers the whole selection — the
+          "these twelve rows are the same duplicate" case. Each bill still
+          goes through the RPC on its own, so an ineligible one fails alone. */}
+      <BillCancelDialog
+        open={cancelModal.isOpen}
+        onOpenChange={(next) => {
+          if (!next) handleCloseCancelModal();
+        }}
+        bills={cancelModal.selectedBills.map((b) => ({
+          id: b.id,
+          bill_description: b.bill_description,
+          final_amount: b.final_amount,
+          status: b.status
+        }))}
+        institutionName={
+          cancelModal.selectedBills[0]?.institution?.name || 'Unknown Institution'
+        }
+        isPending={cancelModal.isLoading}
         onConfirm={handleConfirmCancel}
-        bills={cancelModal.selectedBills}
-        isLoading={cancelModal.isLoading}
       />
     </>
   );

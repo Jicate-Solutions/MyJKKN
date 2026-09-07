@@ -70,6 +70,12 @@ export function PushNotificationProvider({
   // Track whether we've already done a mobile force-resubscribe this session
   // to prevent the init→auto-resubscribe→init infinite loop
   const hasForceResubscribedRef = useRef(false);
+  // Latches once the server has answered an auto-subscribe with
+  // skipped: 'user_opted_out'. Without it the auto-subscribe effect would spin:
+  // the skip leaves isSubscribed false and flips isLoading, which is one of the
+  // effect's own dependencies, so it would re-fire roughly once a second for
+  // exactly the people who asked for silence. Only a deliberate click clears it.
+  const hasOptedOutRef = useRef(false);
 
   // This provider is mounted in the ROOT layout, so it also runs on /parent/*
   // pages. The Parent Portal has its OWN service worker (/parent-sw.js, scope
@@ -205,6 +211,11 @@ export function PushNotificationProvider({
     // granted notification permission in a prod build.
     if (process.env.NODE_ENV !== 'production') return;
 
+    // The server already told us this person opted out. Retrying would post the
+    // same request on a ~1s cycle for the rest of the session and get the same
+    // answer; switching push back on is a deliberate click, not a retry.
+    if (hasOptedOutRef.current) return;
+
     // Permission granted but no active subscription → re-subscribe silently
     if (state.permission === 'granted' && !state.isSubscribed) {
       const timer = setTimeout(async () => {
@@ -310,15 +321,40 @@ export function PushNotificationProvider({
           ) as BufferSource
         }));
 
-      // Save to server
+      // Save to server.
+      //
+      // `deliberate` tells the server whether a PERSON asked for this. It is
+      // true only when this call did not come from the auto-subscribe effect
+      // below — that effect sets isAutoResubscribeRef before calling in, and
+      // it fires on any page load where permission is still 'granted' and the
+      // browser holds no subscription, which is precisely the state that
+      // unsubscribing leaves behind. Sending `deliberate` from there would
+      // re-enable everybody who asked to be left alone, on their next visit.
+      const isDeliberate = !isAutoResubscribeRef.current;
+      if (isDeliberate) {
+        // The person is asking for it again — the server clears the opt-out, so
+        // the client-side latch has to clear with it.
+        hasOptedOutRef.current = false;
+      }
+
       const response = await fetch('/api/notifications/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subscription })
+        body: JSON.stringify({ subscription, deliberate: isDeliberate })
       });
 
       if (!response.ok) {
         throw new Error('Failed to save subscription to server');
+      }
+
+      // An opted-out person's auto-subscribe is answered with 200 + skipped, so
+      // nothing was stored. Reporting "subscribed" would make the UI claim a
+      // state the server refused to create.
+      const saved = await response.json().catch(() => null);
+      if (saved?.skipped === 'user_opted_out') {
+        hasOptedOutRef.current = true;
+        setState((prev) => ({ ...prev, isLoading: false, error: null }));
+        return false;
       }
 
       // Update shared state — all consumers (banner, settings, etc.) see this

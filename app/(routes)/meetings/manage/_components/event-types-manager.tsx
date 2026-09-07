@@ -13,6 +13,7 @@
 // (react-hook-form + zod + Shadcn Dialog) and the card/list conventions used
 // across app/(routes)/**/_components/*-list.tsx.
 
+import Link from 'next/link';
 import { useEffect, useState, useTransition } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -20,6 +21,7 @@ import { z } from 'zod';
 import { toast } from 'sonner';
 import {
   Calendar,
+  CalendarClock,
   Clock,
   CreditCard,
   EyeOff,
@@ -56,6 +58,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { cn } from '@/lib/utils';
 
 import {
   addMyEventTypeLocation,
@@ -199,6 +202,80 @@ function locationLabel(et: ManageEventType): string {
   return et.locationResourceName || et.locationText || 'In person';
 }
 
+// The list's word for "schedule_id is NULL" — the host's default working hours.
+// Deliberately plainer than the dialog's "My normal working hours" button so it
+// fits a card line on a phone.
+const NORMAL_HOURS_LABEL = 'Normal hours';
+
+/**
+ * Which working-hours calendar a meeting type is bookable in, for the list card.
+ *
+ * `scheduleId === null` means the host's normal working hours, and a type pinned
+ * AT the default schedule means the same thing (some production types were
+ * pinned outside the app) — both read as NORMAL_HOURS_LABEL.
+ *
+ * Returns null only while the host's schedules are still loading AND the type
+ * points at a named one: printing a name we cannot resolve yet would be a guess,
+ * so the line appears when the data does.
+ */
+function hoursLabel(
+  et: ManageEventType,
+  schedules: ScheduleChoice[],
+  defaultScheduleId: string | null,
+): { name: string; tone: 'normal' | 'named' | 'unknown' } | null {
+  if (!et.scheduleId || et.scheduleId === defaultScheduleId) {
+    return { name: NORMAL_HOURS_LABEL, tone: 'normal' };
+  }
+  if (schedules.length === 0) return null;
+  const match = schedules.find((s) => s.id === et.scheduleId);
+  return match
+    ? { name: match.name, tone: 'named' }
+    : { name: 'Other hours', tone: 'unknown' };
+}
+
+/**
+ * The "which hours does this use?" line on a list card (2026-08-31).
+ *
+ * This answer already existed, but only inside the edit dialog — one page away
+ * from where the calendars are created — so the whole model was invisible from
+ * the list. Reads from the schedules the manager already loaded; no extra fetch.
+ */
+function HoursLine({
+  et,
+  schedules,
+  defaultScheduleId,
+}: {
+  et: ManageEventType;
+  schedules: ScheduleChoice[];
+  defaultScheduleId: string | null;
+}) {
+  const hours = hoursLabel(et, schedules, defaultScheduleId);
+  if (!hours) return null;
+
+  const title =
+    hours.tone === 'normal'
+      ? 'Bookable inside your normal working hours.'
+      : hours.tone === 'named'
+        ? `Bookable inside your “${hours.name}” working hours.`
+        : 'These working hours are not one of yours — open Edit to pick one.';
+
+  return (
+    <p className="flex items-center gap-1 text-xs text-muted-foreground" title={title}>
+      <CalendarClock className="h-3 w-3 shrink-0" aria-hidden />
+      <span className="sr-only">Working hours: </span>
+      <span
+        className={cn(
+          'truncate',
+          hours.tone === 'named' && 'font-medium text-foreground',
+          hours.tone === 'unknown' && 'font-medium text-destructive',
+        )}
+      >
+        {hours.name}
+      </span>
+    </p>
+  );
+}
+
 /** Same label, for one row of the places list. */
 function placeLabel(place: ManageEventTypeLocation): string {
   if (place.locationMode === 'phone') return 'Phone call';
@@ -260,6 +337,10 @@ export function EventTypesManager({
       cancelled = true;
     };
   }, []);
+
+  // "My normal working hours" is stored as NULL, so a type pinned AT the default
+  // schedule means the same thing and must read the same on the list.
+  const defaultScheduleId = schedules.find((s) => s.isDefault)?.id ?? null;
 
   // Offer the shortcut only when it would actually do something: the host has
   // one clearly-online schedule AND at least one online meeting type still on
@@ -345,13 +426,27 @@ export function EventTypesManager({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">
-          {eventTypes.length === 0
-            ? 'No meeting types yet.'
-            : `${eventTypes.length} meeting type${eventTypes.length === 1 ? '' : 's'}`}
-        </p>
-        <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 space-y-0.5">
+          <p className="text-sm text-muted-foreground">
+            {eventTypes.length === 0
+              ? 'No meeting types yet.'
+              : `${eventTypes.length} meeting type${eventTypes.length === 1 ? '' : 's'}`}
+          </p>
+          {/* The calendars themselves are created and named on Availability.
+              Nothing here used to say so, which is why hosts believed the
+              multiple-hours model did not exist (2026-08-31). */}
+          <p className="text-xs text-muted-foreground">
+            Each one is bookable inside a working-hours calendar.{' '}
+            <Link
+              href="/meetings/availability"
+              className="font-medium text-foreground underline underline-offset-2 hover:text-primary"
+            >
+              Add or rename calendars on Availability
+            </Link>
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
           {canUseOnlineHours && (
             <Button
               size="sm"
@@ -395,7 +490,7 @@ export function EventTypesManager({
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {eventTypes.map((et) => (
             <Card key={et.id} className="group transition-colors hover:bg-accent/40">
               <CardContent className="flex h-full flex-col gap-3 p-4">
@@ -430,6 +525,11 @@ export function EventTypesManager({
                         ? `${et.locations.length} places`
                         : locationLabel(et)}
                     </p>
+                    <HoursLine
+                      et={et}
+                      schedules={schedules}
+                      defaultScheduleId={defaultScheduleId}
+                    />
                   </div>
                   <Badge variant="outline" className="shrink-0 gap-1">
                     <Clock className="h-3 w-3" aria-hidden />

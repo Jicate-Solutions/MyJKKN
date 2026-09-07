@@ -190,7 +190,7 @@ const config: ModuleNavConfig = {
       ],
     },
     {
-      label: 'School of Influence',
+      label: 'School of Influencer',
       icon: 'GraduationCap',
       // 2026-08-13: the group href WAS the settings page, from 2026-07-31 (S2)
       // when settings was the only screen that existed. That comment promised

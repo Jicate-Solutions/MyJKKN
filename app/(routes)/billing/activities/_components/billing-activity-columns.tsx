@@ -10,12 +10,12 @@ import {
   TooltipTrigger
 } from '@/components/ui/tooltip';
 import {
-  Receipt,
+  ReceiptIndianRupee,
   FileText,
   CreditCard,
   Tag,
   Layers,
-  CircleDollarSign,
+  BadgeIndianRupee,
   User
 } from 'lucide-react';
 import { formatDistanceToNow, format } from 'date-fns';
@@ -28,8 +28,8 @@ import {
 } from '@/types/billing-activity';
 
 const resourceIcons: Record<string, React.ReactNode> = {
-  bill: <CircleDollarSign className='h-3.5 w-3.5' />,
-  receipt: <Receipt className='h-3.5 w-3.5' />,
+  bill: <BadgeIndianRupee className='h-3.5 w-3.5' />,
+  receipt: <ReceiptIndianRupee className='h-3.5 w-3.5' />,
   invoice: <FileText className='h-3.5 w-3.5' />,
   discount: <Tag className='h-3.5 w-3.5' />,
   refund: <CreditCard className='h-3.5 w-3.5' />,

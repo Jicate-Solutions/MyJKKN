@@ -135,6 +135,37 @@
  *   a false negative costs learner identities. The asymmetry is why the segment
  *   match errs inclusive.
  *
+ * WHAT COUNTS AS "CREATED BY THIS MIGRATION" (scripts/ci/lib/sql-relation-parser.mjs):
+ *   The test is EXECUTION, not quoting. Those are different questions and they come
+ *   apart in both directions, so a parser that conflates them is wrong twice:
+ *
+ *     quoted but EXECUTES  -> DO $$ BEGIN CREATE TABLE ... END $$;   CAUGHT
+ *                             (and DDL a DO block runs via EXECUTE of a string —
+ *                             20260530150000 builds a view exactly that way)
+ *     quoted and INERT     -> 'CREATE TABLE AS' in a command-tag list  IGNORED
+ *                             CREATE TABLE inside a CREATE FUNCTION body -> DEFERRED
+ *
+ *   This USED TO BE WRONG in the inert direction and it cost real money. The old
+ *   parser kept string literals and dollar-quoted bodies verbatim, so it invented
+ *   relations out of prose and command tags. Receipt, by name:
+ *   20260808220000_autolock_new_public_relations.sql — the migration that installs
+ *   the ddl_command_end event trigger, i.e. the DATABASE half of this very defence
+ *   and the only complete fix for the 2026-07-31 leak — creates NO relations at
+ *   all, yet had to burn BOTH escape hatches on itself because the guard read the
+ *   `AS` in the required literal `'CREATE TABLE AS'` as a table name. Its header
+ *   asks for this fix in as many words. Measured after the fix: that file passes
+ *   with both hatch markers deleted. A gate that can only be satisfied by its own
+ *   escape hatch teaches people to reach for the hatch, and a hatch reached for by
+ *   habit is a gate that has stopped gating.
+ *
+ *   DEFERRED DDL — a CREATE TABLE/VIEW inside a function body — is reported, never
+ *   silently dropped. It creates nothing today, so demanding a same-migration
+ *   REVOKE was the bug; but the relation is real once the function is called and it
+ *   is born with the same anon default grant. So it is ADVISORY for ordinary
+ *   relations, and still BLOCKING for backup relations, which have no hatch
+ *   anywhere in this guard. The satisfiable fix is a REVOKE inside the same body —
+ *   20260616000000 already does that, and a body that does is scored as locked.
+ *
  * HOW IT DIFFERS FROM THE SECDEF GUARD (deliberately — both are real defects there):
  *   1. It strips SQL comments before matching. The secdef guard does not, and a
  *      commented-out revoke satisfies it — verified, not inferred: a fixture
@@ -144,10 +175,27 @@
  *      `REVOKE EXECUTE ON FUNCTION ...` elsewhere in the same file can never be
  *      mistaken for a table revoke (the exact false-positive that made a
  *      first-pass audit score far more files "covered" than really were).
+ *   3. A revoke that is merely QUOTED does not satisfy it either. String literals
+ *      are redacted at the migration's top level, so a REVOKE sitting inside an
+ *      INSERT payload is not a REVOKE. This is the string-literal twin of defect
+ *      1, and it is deliberately NOT relaxed: the only place literals are unwrapped
+ *      is inside a function body, where `EXECUTE 'REVOKE ...'` is how a revoke is
+ *      genuinely spelled.
  *
  * LIMITATIONS (static SQL-text scan, like check-radix-select-empty-values):
- *   - Textual, not a parser. A revoke naming the table anywhere in the same file
- *     satisfies the check; it does not verify the revoke actually runs.
+ *   - A lexer, not a SQL grammar. It tracks comments, string literals, quoted
+ *     identifiers and dollar-quoted bodies exactly, which is what the phantom bug
+ *     needed; it does not understand statement semantics. A revoke naming the table
+ *     anywhere in the same file satisfies the check; it does not verify the revoke
+ *     actually runs (e.g. inside an IF that is false at apply time).
+ *   - A string literal inside a DO body is treated as executable, because
+ *     `EXECUTE 'CREATE TABLE ...'` there is real. So a DO block that merely MENTIONS
+ *     "CREATE TABLE" in a RAISE NOTICE will be flagged. That false positive is
+ *     deliberate and is the documented asymmetry: it costs one line of SQL a new
+ *     table should carry anyway, whereas the false negative costs learner
+ *     identities. `-- ci:allow-anon-table` covers it for any non-backup relation.
+ *   - CREATE FOREIGN TABLE is not matched. It is reachable by `GRANT ... ON ALL
+ *     TABLES`, so this is a real (if unused-in-this-repo) gap, not a decision.
  *   - Only schema `public` (bare or explicitly `public.`) is gated. Supabase's
  *     default privileges are scoped to public, so other schemas are out of scope.
  *   - TEMP / TEMPORARY tables and views are exempt (session-local, never
@@ -184,6 +232,7 @@
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { execSync } from 'node:child_process';
+import { analyzeSql, statementNamesRelation } from './lib/sql-relation-parser.mjs';
 
 const RED = '\x1b[31m', GREEN = '\x1b[32m', YELLOW = '\x1b[33m', DIM = '\x1b[2m', BOLD = '\x1b[1m', RESET = '\x1b[0m';
 
@@ -232,138 +281,6 @@ function targetFiles() {
   return added.split('\n').filter(f => f.endsWith('.sql'));
 }
 
-const DOLLAR_TAG = /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/;
-
-/**
- * Remove SQL comments while preserving string literals and quoted identifiers
- * verbatim. Comments INSIDE a dollar-quoted body are stripped too (recursively) —
- * a comment is a comment wherever it lives, and the header prose of a migration
- * is exactly where a stray "CREATE TABLE" or a commented-out REVOKE hides.
- *
- * Block comments nest in PostgreSQL, so the depth counter is not decorative.
- */
-function stripSqlComments(sql) {
-  let out = '';
-  let i = 0;
-  const n = sql.length;
-  while (i < n) {
-    const c = sql[i], c2 = sql[i + 1];
-    if (c === '-' && c2 === '-') {                 // line comment
-      while (i < n && sql[i] !== '\n') i++;
-      continue;                                    // the \n itself is copied next loop
-    }
-    if (c === '/' && c2 === '*') {                 // block comment (nestable)
-      let depth = 1; i += 2;
-      while (i < n && depth > 0) {
-        if (sql[i] === '/' && sql[i + 1] === '*') { depth++; i += 2; }
-        else if (sql[i] === '*' && sql[i + 1] === '/') { depth--; i += 2; }
-        else i++;
-      }
-      out += ' ';
-      continue;
-    }
-    if (c === "'" || c === '"') {                  // string literal / quoted ident
-      const q = c;
-      out += q; i++;
-      while (i < n) {
-        if (sql[i] === q && sql[i + 1] === q) { out += q + q; i += 2; continue; }
-        out += sql[i];
-        if (sql[i] === q) { i++; break; }
-        i++;
-      }
-      continue;
-    }
-    if (c === '$') {                               // dollar-quoted body
-      const m = DOLLAR_TAG.exec(sql.slice(i));
-      if (m) {
-        const tag = m[0];
-        const end = sql.indexOf(tag, i + tag.length);
-        const inner = end === -1 ? sql.slice(i + tag.length) : sql.slice(i + tag.length, end);
-        out += tag + stripSqlComments(inner) + tag;
-        i = end === -1 ? n : end + tag.length;
-        continue;
-      }
-    }
-    out += c; i++;
-  }
-  return out;
-}
-
-/**
- * Split comment-stripped SQL into statements on top-level `;`.
- * Strings, quoted identifiers and dollar-quoted bodies never split.
- */
-function splitStatements(sql) {
-  const stmts = [];
-  let cur = '';
-  let i = 0;
-  const n = sql.length;
-  while (i < n) {
-    const c = sql[i];
-    if (c === "'" || c === '"') {
-      const q = c; cur += q; i++;
-      while (i < n) {
-        if (sql[i] === q && sql[i + 1] === q) { cur += q + q; i += 2; continue; }
-        cur += sql[i];
-        if (sql[i] === q) { i++; break; }
-        i++;
-      }
-      continue;
-    }
-    if (c === '$') {
-      const m = DOLLAR_TAG.exec(sql.slice(i));
-      if (m) {
-        const tag = m[0];
-        const end = sql.indexOf(tag, i + tag.length);
-        const stop = end === -1 ? n : end + tag.length;
-        cur += sql.slice(i, stop);
-        i = stop;
-        continue;
-      }
-    }
-    if (c === ';') { stmts.push(cur); cur = ''; i++; continue; }
-    cur += c; i++;
-  }
-  if (cur.trim()) stmts.push(cur);
-  return stmts.map(s => s.trim()).filter(Boolean);
-}
-
-const CREATE_TABLE_RE = new RegExp(
-  'create\\s+' +
-  '(?:(?:global|local)\\s+)?' +
-  '(temp|temporary|unlogged)?\\s*' +
-  'table\\s+' +
-  '(?:if\\s+not\\s+exists\\s+)?' +
-  '(?:("?[A-Za-z0-9_]+"?)\\s*\\.\\s*)?' +   // optional schema
-  '("?[A-Za-z0-9_]+"?)',                    // table name
-  'gi'
-);
-
-/**
- * Names of tables CREATEd in schema public.
- *
- * Covers CREATE TABLE, CREATE UNLOGGED TABLE, IF NOT EXISTS, quoted names,
- * `CREATE TABLE x AS SELECT` (CTAS — the exact leak vector behind the 37 `_bak_*`
- * tables: it inherits the anon default grant AND never enables RLS) and
- * `PARTITION OF`.
- *
- * Excludes TEMP / TEMPORARY (session-local, unreachable via PostgREST) and any
- * explicitly non-public schema.
- */
-function createdTables(sqlNoComments) {
-  const names = [];
-  CREATE_TABLE_RE.lastIndex = 0;
-  let m;
-  while ((m = CREATE_TABLE_RE.exec(sqlNoComments)) !== null) {
-    const kind = (m[1] || '').toLowerCase();
-    if (kind === 'temp' || kind === 'temporary') continue;
-    const schema = (m[2] || '').replace(/"/g, '').toLowerCase();
-    if (schema && schema !== 'public') continue;
-    names.push(m[3].replace(/"/g, ''));
-  }
-  return [...new Set(names)];
-}
-
 /**
  * Backup / rollback relations, matched on a whole name SEGMENT.
  *
@@ -371,16 +288,17 @@ function createdTables(sqlNoComments) {
  * unrelated word. See the BACKUP RELATIONS block in the file header for the
  * calibration evidence and for why `snapshot` is deliberately not in this list.
  */
-const BACKUP_RELATION_RE = /(?:^|_)(?:bak|backup|rollback)(?:_|$)/i;
+// Whitespace and `-` join `_` as segment separators. Only a QUOTED identifier can
+// contain either, so this is a no-op on every unquoted name in the repo and costs
+// nothing — but without it, fixing the name parser would have LOST strictness:
+// `CREATE TABLE public."Bak Copy 20260802"` used to be truncated to `Bak`, which
+// matched `^bak$` and got the strict no-hatch treatment. Parsing the full name
+// correctly would otherwise have quietly demoted it to an ordinary relation.
+const BACKUP_RELATION_RE = /(?:^|[_\s-])(?:bak|backup|rollback)(?:[_\s-]|$)/i;
 
 /** True for a relation held to the anon-revoke + RLS rule with no exemption. */
 function isBackupRelation(name) {
   return BACKUP_RELATION_RE.test(name);
-}
-
-/** Does this statement name `table` (quotes normalised away)? */
-function statementNamesTable(stmt, table) {
-  return new RegExp(`\\b${table}\\b`, 'i').test(stmt.replace(/"/g, ''));
 }
 
 /** REVOKE/GRANT statements targeting FUNCTIONs, schemas, sequences… are not table ACL changes. */
@@ -403,7 +321,7 @@ function hasAnonTableRevoke(stmts, table) {
     if (NON_TABLE_OBJECT.test(s)) return false;
     if (!roleListMentionsAnon(s, 'from')) return false;
     if (/\bon\s+all\s+tables\s+in\s+schema\s+public\b/i.test(s)) return true;
-    return statementNamesTable(s, table);
+    return statementNamesRelation(s, table);
   });
 }
 
@@ -413,50 +331,8 @@ function hasAnonTableGrant(stmts, table) {
     if (!/^grant\b/i.test(s)) return false;
     if (NON_TABLE_OBJECT.test(s)) return false;
     if (!roleListMentionsAnon(s, 'to')) return false;
-    return statementNamesTable(s, table);
+    return statementNamesRelation(s, table);
   });
-}
-
-const CREATE_VIEW_RE = new RegExp(
-  'create\\s+' +
-  '(?:or\\s+replace\\s+)?' +
-  '(?:(temp|temporary)\\s+)?' +
-  '(?:recursive\\s+)?' +
-  '(materialized\\s+)?' +
-  'view\\s+' +
-  '(?:if\\s+not\\s+exists\\s+)?' +
-  '(?:("?[A-Za-z0-9_]+"?)\\s*\\.\\s*)?' +   // optional schema
-  '("?[A-Za-z0-9_]+"?)',                    // view name
-  'gi'
-);
-
-/**
- * Views and materialised views CREATEd in schema public, as {name, kind}.
- *
- * These carry the SAME exposure as a table and for the same reason: Supabase's
- * ALTER DEFAULT PRIVILEGES grant covers them, so a fresh view in schema public is
- * born readable by the anon key. A view is in fact the sharper hazard — it can
- * republish a table that IS locked, and RLS on the underlying table does not
- * follow: a non-SECURITY_INVOKER view executes as its owner, so a correctly
- * protected table can be served to anon straight through the view over it.
- *
- * Excludes TEMP / TEMPORARY and any explicitly non-public schema, matching
- * createdTables().
- */
-function createdViews(sqlNoComments) {
-  const found = new Map();
-  CREATE_VIEW_RE.lastIndex = 0;
-  let m;
-  while ((m = CREATE_VIEW_RE.exec(sqlNoComments)) !== null) {
-    const temp = (m[1] || '').toLowerCase();
-    if (temp === 'temp' || temp === 'temporary') continue;
-    const schema = (m[3] || '').replace(/"/g, '').toLowerCase();
-    if (schema && schema !== 'public') continue;
-    const name = m[4].replace(/"/g, '');
-    const kind = m[2] ? 'materialized view' : 'view';
-    if (!found.has(name)) found.set(name, kind);
-  }
-  return [...found].map(([name, kind]) => ({ name, kind }));
 }
 
 /**
@@ -473,7 +349,7 @@ function hasRlsEnabled(stmts, table) {
   return stmts.some(s => {
     if (!/^alter\s+table\b/i.test(s)) return false;
     if (!/\benable\s+row\s+level\s+security\b/i.test(s)) return false;
-    return statementNamesTable(s, table);
+    return statementNamesRelation(s, table);
   });
 }
 
@@ -489,6 +365,7 @@ const violations = [];
 const rlsViolations = [];
 const backupViolations = [];      // anon lock, backup relations — reported separately
 const backupRlsViolations = [];   // RLS,       backup tables    — reported separately
+const deferredWarnings = [];      // DDL inside a function body — advisory, see below
 let checked = 0, passed = 0;
 let rlsChecked = 0, rlsPassed = 0;
 
@@ -504,14 +381,17 @@ for (const file of files) {
   // checked regardless of either hatch, so skipping the file wholesale here would
   // reinstate exactly the exemption this guard exists to remove.
 
-  const sql = stripSqlComments(raw);
-  const stmts = splitStatements(sql);
-  const tables = createdTables(sql);
+  // ONE parse per file. `stmts` are the statements that genuinely execute (top
+  // level plus DO-block bodies); `tables` / `views` are the relations this
+  // migration creates when it runs; `deferred` is DDL that lives inside a
+  // function body and therefore creates nothing today. See
+  // scripts/ci/lib/sql-relation-parser.mjs for why those three are different.
+  const { statements: stmts, tables, views, deferred } = analyzeSql(raw);
 
   // --- anon lock: tables AND views/matviews share one rule and one counter -----
   const relations = [
     ...tables.map(name => ({ name, kind: 'table' })),
-    ...createdViews(sql),
+    ...views,
   ];
   for (const rel of relations) {
     const backup = isBackupRelation(rel.name);
@@ -558,10 +438,76 @@ for (const file of files) {
       rlsViolations.push({ file, table: t });
     }
   }
+
+  // --- DEFERRED DDL: relations created inside a FUNCTION body ------------------
+  // These used to be counted as created BY THIS MIGRATION, which is the phantom
+  // bug: the migration only DEFINES the function, so a same-migration REVOKE was
+  // being demanded for a relation that does not exist yet — an unsatisfiable
+  // failure, and unsatisfiable failures are what teach people to reach for the
+  // escape hatch.
+  //
+  // They are not dropped either, because the relation is real once the function
+  // runs and it is born with Supabase's default anon grant just the same. The
+  // satisfiable fix is a REVOKE inside the SAME body, which is exactly what
+  // 20260616000000 already does for v_privilege_memberships_effective, so this
+  // reports only when that revoke is absent.
+  //
+  // Advisory (non-blocking) for ordinary relations — the migration itself creates
+  // nothing, so failing the build would be claiming more than the evidence
+  // supports. BLOCKING for backup relations, because those have no hatch anywhere
+  // else in this guard and a function that copies learner rows into a `_bak_` is
+  // the 2026-07-31 shape with one extra call in front of it.
+  for (const d of deferred) {
+    const deferredRels = [
+      ...d.tables.map(name => ({ name, kind: 'table' })),
+      ...d.views,
+    ];
+    for (const rel of deferredRels) {
+      const backup = isBackupRelation(rel.name);
+      if (hasAnonTableRevoke(d.statements, rel.name)) {
+        if (VERBOSE) {
+          console.log(`${GREEN}✓${RESET} ${rel.name} ${DIM}(${rel.kind}, deferred — revoked inside the body, ${file})${RESET}`);
+        }
+        continue;
+      }
+      if (backup) {
+        backupViolations.push({ file, table: rel.name, kind: rel.kind, hatched: false, deferred: true });
+        if (rel.kind === 'table' && !hasRlsEnabled(d.statements, rel.name)) {
+          backupRlsViolations.push({ file, table: rel.name, hatched: false, deferred: true });
+        }
+      } else {
+        deferredWarnings.push({ file, table: rel.name, kind: rel.kind, construct: d.construct });
+      }
+    }
+  }
 }
 
 console.log(`\n${BOLD}New-relation anon-lock guard${RESET} — ${checked} new table(s)/view(s) checked, ${passed} locked.`);
 console.log(`${BOLD}New-table RLS guard${RESET} — ${rlsChecked} new table(s) checked, ${rlsPassed} with RLS enabled.`);
+
+// --- deferred DDL: advisory, NOT a build failure -----------------------------
+// Printed before the failures so it cannot be mistaken for one, and worded so a
+// reader can tell at a glance that nothing here blocks the merge.
+if (deferredWarnings.length > 0) {
+  console.log(`\n${YELLOW}${BOLD}⚠ ${deferredWarnings.length} relation(s) created inside a FUNCTION body — advisory, not blocking.${RESET}`);
+  for (const w of deferredWarnings) {
+    console.log(`  ${YELLOW}•${RESET} ${BOLD}${w.table}${RESET} ${DIM}[${w.kind}] in ${w.construct} — ${w.file}${RESET}`);
+  }
+  console.log(`
+${DIM}This migration does not create these relations; it defines a function that will,
+whenever something calls it. So a REVOKE in this migration would name a relation
+that does not exist yet, and demanding one is the phantom-table failure this guard
+used to produce. It is reported rather than dropped because the relation is real
+once the function runs, and it is born with Supabase's default anon grant exactly
+like any other.
+
+The satisfiable fix is a revoke in the SAME function body, right after the create:
+  ${RESET}${DIM}EXECUTE 'REVOKE ALL ON ' || quote_ident(v_name) || ' FROM anon, PUBLIC';${RESET}${DIM}
+20260616000000_lock_privilege_resolver_views_and_fns_from_anon.sql is the worked
+example; a body that already does this is scored as locked and never printed here.
+
+A backup relation created this way is NOT advisory — it is a hard failure above.${RESET}`);
+}
 
 // --- backup relations: reported FIRST, and separately ------------------------
 // Separate from the generic buckets on purpose. The fix text differs (there is no
@@ -575,13 +521,15 @@ if (backupViolations.length > 0 || backupRlsViolations.length > 0) {
     const why = v.hatched
       ? ` ${YELLOW}(ci:allow-anon-table does NOT cover a backup relation)${RESET}`
       : '';
-    console.error(`  ${RED}•${RESET} ${BOLD}${v.table}${RESET} ${DIM}[${v.kind}] no anon revoke — ${v.file}${RESET}${why}`);
+    const when = v.deferred ? ` ${YELLOW}(created inside a function body — revoke inside that same body)${RESET}` : '';
+    console.error(`  ${RED}•${RESET} ${BOLD}${v.table}${RESET} ${DIM}[${v.kind}] no anon revoke — ${v.file}${RESET}${why}${when}`);
   }
   for (const v of backupRlsViolations) {
     const why = v.hatched
       ? ` ${YELLOW}(ci:allow-no-rls does NOT cover a backup relation)${RESET}`
       : '';
-    console.error(`  ${RED}•${RESET} ${BOLD}${v.table}${RESET} ${DIM}[table] no ENABLE ROW LEVEL SECURITY — ${v.file}${RESET}${why}`);
+    const when = v.deferred ? ` ${YELLOW}(created inside a function body)${RESET}` : '';
+    console.error(`  ${RED}•${RESET} ${BOLD}${v.table}${RESET} ${DIM}[table] no ENABLE ROW LEVEL SECURITY — ${v.file}${RESET}${why}${when}`);
   }
   const example = backupViolations[0]?.table ?? backupRlsViolations[0]?.table;
   console.error(`

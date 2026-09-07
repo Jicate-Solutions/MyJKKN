@@ -44,6 +44,7 @@ import {
   useSoiPolicyRows,
   type SoiScope,
 } from '../_lib/soi-policies-service';
+import { soiDisplayName } from '@/lib/services/school-of-influence/constants';
 import { SoiPolicyCard } from './soi-policy-card';
 
 /** Sentinel for the programme-wide entry in the scope picker. */
@@ -88,7 +89,7 @@ export function SoiSettingsEditor() {
     return (
       <Alert variant="destructive">
         <AlertTriangle className="h-4 w-4" />
-        <AlertTitle>Could not load the School of Influence settings</AlertTitle>
+        <AlertTitle>Could not load the School of Influencer settings</AlertTitle>
         <AlertDescription>
           {rowsQuery.error instanceof Error ? rowsQuery.error.message : 'Unknown error.'}{' '}
           Reload the page to try again.
@@ -105,7 +106,7 @@ export function SoiSettingsEditor() {
         <Database className="h-4 w-4" />
         <AlertTitle>The settings have not been set up yet</AlertTitle>
         <AlertDescription>
-          No School of Influence settings were found. They are created by the
+          No School of Influencer settings were found. They are created by the
           config-substrate migrations{' '}
           <code>20260731180000_platform_policies_cohort_scope.sql</code>,{' '}
           <code>20260731180100_soi_policy_threshold_guard.sql</code> and{' '}
@@ -143,7 +144,7 @@ export function SoiSettingsEditor() {
               </SelectItem>
               {batches.map((batch) => (
                 <SelectItem key={batch.id} value={batch.id}>
-                  {batch.name}
+                  {soiDisplayName(batch.name)}
                   {batch.status ? ` — ${batch.status}` : ''}
                 </SelectItem>
               ))}
@@ -154,7 +155,9 @@ export function SoiSettingsEditor() {
               ? batches.length === 0
                 ? 'These are the values every batch will start from. No batches exist yet.'
                 : `These are the values all ${batches.length} batch(es) follow unless a batch has been given its own.`
-              : `Anything changed here applies to ${selectedBatch?.name} only. Everything else keeps following the programme-wide value.`}
+              : `Anything changed here applies to ${
+                  selectedBatch?.name ? soiDisplayName(selectedBatch.name) : 'this batch'
+                } only. Everything else keeps following the programme-wide value.`}
           </p>
         </div>
 
@@ -198,7 +201,7 @@ export function SoiSettingsEditor() {
                 key={`${scopeValue}-${view.policyKey}`}
                 view={view}
                 scope={scope}
-                batchName={selectedBatch?.name}
+                batchName={selectedBatch?.name ? soiDisplayName(selectedBatch.name) : undefined}
                 batchCount={batches.length}
               />
             ))}

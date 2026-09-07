@@ -20,6 +20,24 @@ import type {
 const ENTRIES = 'calendar_entries';
 const CATEGORIES = 'calendar_categories';
 
+/**
+ * Hard ceiling on a single listEntries page.
+ *
+ * The admin screen fetches the WHOLE table in one call and filters in the
+ * browser, so the roster, the faceted filter counts and the table all read one
+ * array. That is only safe while the table is small: 59 rows today, growing by
+ * roughly one academic year's holidays (~40) annually.
+ *
+ * The default used to be 50 with no pager on the page, so 9 of the 59 live rows
+ * could not be reached or edited from the UI at all — and nothing said so,
+ * because the component dropped the `totalCount` that would have revealed it.
+ * The cap is therefore paired with `totalCount`, which the caller compares
+ * against `data.length` to surface truncation instead of silently hiding rows.
+ * If that banner ever fires, this page needs server-side filtering, not a
+ * bigger number here.
+ */
+export const CALENDAR_ENTRIES_LIST_CAP = 2000;
+
 export class CalendarService extends BaseService {
   /** Unified calendar feed for the grid (holiday/event sources, scoped server-side). */
   static async getCalendarItems(query: CalendarItemsQuery): Promise<CalendarItem[]> {
@@ -42,7 +60,8 @@ export class CalendarService extends BaseService {
     kind?: string;
   } = {}): Promise<{ data: CalendarEntry[]; totalCount: number }> {
     const page = params.page && params.page > 0 ? params.page : 1;
-    const limit = params.limit && params.limit > 0 ? params.limit : 50;
+    const requested = params.limit && params.limit > 0 ? params.limit : CALENDAR_ENTRIES_LIST_CAP;
+    const limit = Math.min(requested, CALENDAR_ENTRIES_LIST_CAP);
     const from = (page - 1) * limit;
     const to = from + limit - 1;
 

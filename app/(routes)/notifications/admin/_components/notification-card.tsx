@@ -12,7 +12,7 @@ import {
   AlertTriangle,
   Clock,
   Info,
-  Bell
+  Users
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -26,6 +26,7 @@ import {
 import { cn } from '@/lib/utils';
 import { Notification } from '@/types/notifications';
 import { stripHtml } from '@/components/ui/rich-text-editor';
+import { describeTargetAudience } from '@/lib/notifications/target-audience';
 import { NotificationActionButtons } from './notification-action-buttons';
 
 // ---- Styling helpers ----
@@ -123,6 +124,11 @@ export function NotificationCard({
   const categoryStyle = getCategoryStyle(notification.category);
   const priorityClass = getPriorityBadgeClass(notification.priority);
   const bodyPreview = stripHtml(notification.body);
+  // Who this actually went to. Until now the card showed nothing at all here,
+  // so a message sent to one person and a blast to every learner looked
+  // identical in the list — the same blast-radius blindness PR #3128 fixed on
+  // the detail page, and fixed here with that same shared rule.
+  const audience = describeTargetAudience(notification.targeting);
 
   const sentDate = notification.sent_at
     ? formatDistanceToNow(new Date(notification.sent_at), { addSuffix: true })
@@ -183,18 +189,22 @@ export function NotificationCard({
           {bodyPreview || 'No preview available'}
         </p>
 
-        {/* Bottom row: priority badge + optional indicators */}
-        <div className='flex items-center gap-1.5'>
+        {/* Bottom row: priority badge + who it was sent to */}
+        <div className='flex items-center gap-1.5 min-w-0'>
           <span
             className={cn(
-              'inline-flex items-center text-[11px] font-medium px-1.5 py-0.5 rounded border capitalize',
+              'inline-flex items-center text-[11px] font-medium px-1.5 py-0.5 rounded border capitalize shrink-0',
               priorityClass
             )}
           >
             {notification.priority}
           </span>
-          {/* Show bell icon as an action indicator placeholder */}
-          <Bell className='h-3 w-3 text-muted-foreground/60' aria-label='Notification' />
+          <span className='flex items-center gap-1 min-w-0 text-[11px] text-muted-foreground'>
+            <Users className='h-3 w-3 shrink-0' aria-hidden='true' />
+            <span className='truncate' title={audience}>
+              {audience}
+            </span>
+          </span>
         </div>
       </Link>
 

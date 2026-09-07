@@ -26,6 +26,21 @@ export interface LearnerDashboardFilters {
   semesterId?: string;
   sectionId?: string;
 
+  // Admission cohort, as a CALENDAR YEAR (2026) — never an admission_years row
+  // id. That table is institution-scoped: production holds ELEVEN separate
+  // "2026" rows, one per college, so an id would silently narrow an
+  // "All Institutions" dashboard to a single institution. The service fans the
+  // year out to every row id the caller may read.
+  // See lib/utils/admission-year-filter.ts, which the Learners Profiles list
+  // and its export already share.
+  admissionYear?: number;
+
+  // Resolved from `admissionYear` ONCE per request by
+  // LearnerProfileService.getDashboardStats, then read by applyDashboardFilters
+  // and passed to the analytics RPCs. Not a client input — the API routes never
+  // parse it from the query string.
+  admissionYearIds?: string[];
+
   // Lifecycle filtering
   lifecycleStatuses?: LifecycleStatus[];
 
@@ -33,7 +48,14 @@ export interface LearnerDashboardFilters {
   isProfileComplete?: boolean;
 
   // Demographics
-  gender?: 'male' | 'female' | 'other';
+  //
+  // Title Case is the stored canon on learners_profiles — enforced by
+  // learners_profiles_gender_check and trg_normalize_gender_learners_profiles.
+  // This union was lower case, so every value the dashboard could produce
+  // missed on the `=` comparison in the service and in the distribution RPCs
+  // and the whole dashboard went to zero. Matching GENDER_OPTIONS on the
+  // Learners Profiles filter bar keeps the two panels on one vocabulary.
+  gender?: 'Male' | 'Female' | 'Other';
 
   // Date range
   dateRange?: {

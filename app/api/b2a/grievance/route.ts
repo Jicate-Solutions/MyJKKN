@@ -51,6 +51,30 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // Step 4: Extract request meta ONCE — used in audit log regardless of outcome
   const { ipAddress, userAgent } = extractRequestMeta(request);
 
+  // Step 4.5: Reject an institution scope this API key is not bound to.
+  // resolveInstitutionId returns null when a bound key supplies a MISMATCHED
+  // institutionId param. Without this guard that null falls straight through to
+  // the `if (institutionId)` filter below, which is then skipped — so the query
+  // runs UNSCOPED across every institution, strictly wider than the mismatch it
+  // was meant to reject. Same guard as app/api/b2a/competency/route.ts:39-45.
+  // (A null from an UNBOUND key is the documented super-key case and is allowed.)
+  if (institutionId === null && context.institutionId !== null) {
+    logApiUsage({
+      apiKeyId: context.keyId,
+      endpoint: '/api/b2a/grievance',
+      module: 'grievance',
+      institutionId,
+      statusCode: 403,
+      responseTimeMs: Date.now() - startTime,
+      ipAddress,
+      userAgent,
+    });
+    return NextResponse.json(
+      { error: { code: 'FORBIDDEN', message: 'Institution mismatch with API key binding' } },
+      { status: 403 }
+    );
+  }
+
   // Parse query params
   const url = new URL(request.url);
   const page = Math.max(1, parseInt(url.searchParams.get('page') ?? '1', 10) || 1);
@@ -118,6 +142,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (institutionId) {
       query = query.eq('institution_id', institutionId);
     }
+
+    // Confidentiality gate: ICC-only tickets (confidential sexual-harassment
+    // cases per spec R4.1) are never exposed over B2A. An external API key
+    // carries no ICC membership, so this filter is unconditional.
+    // Mirrors the read path in lib/mcp/tools/grievance.ts.
+    query = query.eq('is_icc_only', false);
 
     if (status) {
       query = query.eq('status', status);

@@ -38,9 +38,14 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getErrorMessage } from '@/lib/utils';
+import { resolveTds } from '@/lib/hr/payroll/tds-slabs';
+import { TdsSlabService } from '@/lib/services/hr/payroll/tds-slab-service';
 import type {
   HRSalaryRegisterLine,
   HRSalaryRegisterRun,
+  SalaryClosePreview,
+  SalaryClosePreviewExclusion,
+  SalaryClosePreviewRow,
   SalaryRegisterExclusionReason,
   SalaryRegisterPeriodDependency,
   SalaryRegisterPreflight,
@@ -68,6 +73,35 @@ function num(v: unknown): number {
 }
 
 /** Money is stored numeric(12,2); keep every computed figure at 2dp. */
+/** The identity columns every preview row carries, payable or excluded. */
+function baseRow(m: RosterMember) {
+  return {
+    staff_id: m.staff_id,
+    employee_code: m.employee_code,
+    staff_name: m.staff_name,
+    designation: m.designation,
+    department_name: m.department_name,
+  };
+}
+
+/**
+ * A stable digest of the figures a preview showed.
+ *
+ * Not a security hash — a change detector. The close compares it against a
+ * freshly computed preview and refuses if they differ, so approving a month and
+ * then closing it after somebody imported more biometric data cannot silently
+ * freeze numbers nobody verified. Sorted by staff so row order cannot flip it.
+ */
+function fingerprintOf(rows: SalaryClosePreviewRow[]): string {
+  const body = rows
+    .map((r) => [r.staff_id, r.working_days, r.paid_days, r.unpaid_days, r.net_pay].join(':'))
+    .sort()
+    .join('|');
+  let h = 5381;
+  for (let i = 0; i < body.length; i++) h = ((h * 33) ^ body.charCodeAt(i)) >>> 0;
+  return `${rows.length}-${h.toString(36)}`;
+}
+
 function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
@@ -130,6 +164,15 @@ interface RegisterContext {
   /** work institution id -> its locked period (only locked ones are present). */
   lockedPeriodByInstitution: Map<string, { id: string; workingDays: number }>;
   salaryByStaff: Map<string, number>;
+  /**
+   * EPF/ESI in force, already zeroed where the eligibility flag is off.
+   *
+   * A SEPARATE MAP rather than a reshaped salaryByStaff: that map's value is
+   * read as a bare number in two places to decide inclusion (`salary <= 0`),
+   * and widening it to an object would turn both of those into silently-true
+   * comparisons against an object.
+   */
+  statutoryByStaff: Map<string, { epf: number; esi: number; allowance: number; tds: number }>;
   bankByStaff: Map<string, string>;
   /** Who bears each salary. Absent for the 105 staff with no payer recorded. */
   payerByStaff: Map<string, { id: string; name: string }>;
@@ -151,6 +194,40 @@ export interface AttendanceSummaryRow {
   payable_days: number;
   leave_by_type: Record<string, number>;
   unprocessed_days: number;
+  /**
+   * Days the resolver expected this person to work in the month, pattern-aware
+   * (2026-09-04). NULL on months closed before the column existed.
+   */
+  scheduled_days: number | null;
+  /**
+   * The work pattern held on any day of the month. When set, the day rate
+   * divides by scheduled_days — the person's own week — instead of the
+   * institution standard. See registerBasisFor.
+   */
+  work_pattern_id: string | null;
+}
+
+/**
+ * The divisor for one register line.
+ *
+ * A person on a work pattern (a 3-day or 5-day week at an institution that
+ * otherwise runs six) is paid on THEIR scheduled days, not the institution's
+ * month standard — dividing a Tue/Wed/Thu person's salary by 26 would charge
+ * them ~13 unpaid days every month. Everyone else keeps the period basis.
+ *
+ * scheduled_days is the resolver's full-month expectation, NOT the person's
+ * recorded working days, for the same reason the institution basis is used for
+ * everyone else: a mid-month joiner is unpaid for the days before they joined,
+ * not paid a full month for half of one.
+ */
+export function registerBasisFor(
+  summary: Pick<AttendanceSummaryRow, 'scheduled_days' | 'work_pattern_id'>,
+  periodBasis: number,
+): number {
+  if (summary.work_pattern_id && (summary.scheduled_days ?? 0) > 0) {
+    return summary.scheduled_days as number;
+  }
+  return periodBasis;
 }
 
 /** The computed half of a register row — everything that is not identity. */
@@ -163,7 +240,11 @@ export interface RegisterLineFigures {
   paid_days: number;
   actual_gross: number;
   basic_pay: number;
+  allowance: number;
   unpaid_leave_deduction: number;
+  epf_deduction: number;
+  esi_deduction: number;
+  tds_deduction: number;
   total_earnings: number;
   total_deductions: number;
   net_pay: number;
@@ -194,7 +275,11 @@ export const ZERO_FIGURES: RegisterLineFigures = {
   paid_days: 0,
   actual_gross: 0,
   basic_pay: 0,
+  allowance: 0,
   unpaid_leave_deduction: 0,
+  epf_deduction: 0,
+  esi_deduction: 0,
+  tds_deduction: 0,
   total_earnings: 0,
   total_deductions: 0,
   net_pay: 0,
@@ -216,6 +301,29 @@ export function computeRegisterLine(input: {
   monthlyGross: number;
   /** The month standard for the calendar this person actually worked. */
   workingDaysBasis: number;
+  /**
+   * The statutory contributions in force for this person, already zeroed by the
+   * caller when the corresponding eligibility flag is off.
+   *
+   * DEDUCTED IN FULL, NOT PRO-RATED. These are stored as a flat monthly rupee
+   * figure per employee, so the number recorded is the number withheld even in
+   * a month with unpaid days — unlike the unpaid-leave deduction above, which is
+   * day-rated by definition.
+   */
+  epfAmount?: number;
+  esiAmount?: number;
+  /**
+   * Paid on top of the gross, and PRO-RATED WITH IT: the day rate below divides
+   * gross + allowance, so an absent day costs a slice of both. That is the one
+   * behaviour that separates it from the flat statutory amounts around it.
+   */
+  allowance?: number;
+  /**
+   * Resolved from hr_tds_slabs against the MONTHLY GROSS ALONE — never the
+   * allowance. Passed in already computed so this stays a pure function of
+   * numbers, with the band lookup living in lib/hr/payroll/tds-slabs.ts.
+   */
+  tdsAmount?: number;
   summary: Pick<
     AttendanceSummaryRow,
     'present_days' | 'leave_days' | 'on_duty_days' | 'comp_off_days' | 'payable_days' | 'leave_by_type'
@@ -256,11 +364,44 @@ export function computeRegisterLine(input: {
    */
   const unpaidLeaveDays = Math.max(0, basis - paidDays);
 
+  const allowance = round2(Math.max(0, input.allowance ?? 0));
+
   // The day rate divides by the month's WORKING days, not calendar days. The
   // sample register does the same: 16000 / 22 x 6 = 4363.64.
-  const dayRate = basis > 0 ? monthlyGross / basis : 0;
+  //
+  // IT DIVIDES GROSS + ALLOWANCE. The allowance is earnings, so an absent day
+  // costs a proportional slice of it too — unlike EPF/ESI/TDS below, which are
+  // flat monthly figures and are withheld in full.
+  const dayRate = basis > 0 ? (monthlyGross + allowance) / basis : 0;
   const unpaidLeaveDeduction = round2(dayRate * unpaidLeaveDays);
-  const totalEarnings = round2(monthlyGross);
+  const totalEarnings = round2(monthlyGross + allowance);
+
+  /**
+   * The statutory pair, capped at what is left after the unpaid-leave deduction.
+   *
+   * Deducting a flat EPF + ESI in full is right for an ordinary partial month,
+   * but a line with ZERO paid days earns nothing to deduct from and would
+   * otherwise net a negative figure — the register would be asking the employee
+   * to pay the institution. The cap takes EPF first, then ESI from whatever
+   * remains, so net_pay floors at 0 and the shortfall is visible as a reduced
+   * contribution rather than a negative payment.
+   */
+  const afterUnpaid = Math.max(0, round2(totalEarnings - unpaidLeaveDeduction));
+  const epfDeduction = round2(Math.min(Math.max(0, input.epfAmount ?? 0), afterUnpaid));
+  const esiDeduction = round2(
+    Math.min(Math.max(0, input.esiAmount ?? 0), round2(afterUnpaid - epfDeduction))
+  );
+  // TDS is capped LAST, so a month with almost nothing left drops the tax
+  // rather than the provident fund.
+  const tdsDeduction = round2(
+    Math.min(
+      Math.max(0, input.tdsAmount ?? 0),
+      round2(afterUnpaid - epfDeduction - esiDeduction)
+    )
+  );
+  const totalDeductions = round2(
+    unpaidLeaveDeduction + epfDeduction + esiDeduction + tdsDeduction
+  );
 
   return {
     business_working_days: basis,
@@ -270,14 +411,22 @@ export function computeRegisterLine(input: {
     worked_days: workedDays,
     paid_days: paidDays,
     actual_gross: totalEarnings,
-    // Identical to gross in this register: there is no component breakdown.
-    basic_pay: totalEarnings,
+    // These finally differ. Before the allowance existed there was no component
+    // breakdown and both columns carried the same figure; now basic_pay is the
+    // contractual gross and actual_gross is what the person actually earns.
+    basic_pay: round2(monthlyGross),
+    allowance,
     unpaid_leave_deduction: unpaidLeaveDeduction,
+    epf_deduction: epfDeduction,
+    esi_deduction: esiDeduction,
+    tds_deduction: tdsDeduction,
     total_earnings: totalEarnings,
-    total_deductions: unpaidLeaveDeduction,
+    // Carries the statutory pair as well, so net_pay, the run totals and the
+    // per-payer split subtotals all keep deriving from this one figure.
+    total_deductions: totalDeductions,
     // Whole rupees, as the hand-kept register pays. An adjustment recorded
     // later re-derives this the same way.
-    net_pay: Math.round(totalEarnings - unpaidLeaveDeduction),
+    net_pay: Math.round(totalEarnings - totalDeductions),
   };
 }
 
@@ -307,6 +456,8 @@ export class SalaryRegisterService {
       .from('hr_organizations')
       .select('id, name, institution_id, is_payroll_entity')
       .eq('id', hrOrganizationId)
+      // Null for an excluded institution — no salary register is produced.
+      .eq('included_in_hr', true)
       .maybeSingle();
 
     if (orgErr) throw new Error(`Failed to load the paying institution: ${getErrorMessage(orgErr)}`);
@@ -387,6 +538,7 @@ export class SalaryRegisterService {
         dependencies: [],
         lockedPeriodByInstitution: new Map(),
         salaryByStaff: new Map(),
+        statutoryByStaff: new Map(),
         bankByStaff: new Map(),
         payerByStaff: new Map(),
         summaryByStaff: new Map(),
@@ -462,16 +614,45 @@ export class SalaryRegisterService {
     }
 
     // 5. Salaries. superseded_by IS NULL = the currently effective row.
+    // THE BANDS ARE LOADED WITH throwOnDenied. A slab read that RLS empties looks
+    // exactly like "TDS is switched off", and the two demand opposite outcomes:
+    // one generates a register with no tax on it, the other must not generate at
+    // all. TdsSlabService.list asks user_has_permission rather than inferring
+    // from the row count.
+    const tdsSlabs = await TdsSlabService.list(supabase, { throwOnDenied: true });
+
     const salaryByStaff = new Map<string, number>();
+    const statutoryByStaff = new Map<
+      string,
+      { epf: number; esi: number; allowance: number; tds: number }
+    >();
     for (const ids of chunk(staffIds)) {
       const { data, error } = await (supabase as any)
         .from('hr_staff_salaries')
-        .select('staff_id, monthly_gross')
+        .select(
+          'staff_id, monthly_gross, eligible_for_pf, epf_amount, eligible_for_esi, esi_amount, allowance_amount'
+        )
         .in('staff_id', ids)
         .is('superseded_by', null);
 
       if (error) throw new Error(`Failed to load salaries: ${getErrorMessage(error)}`);
-      for (const s of (data ?? []) as any[]) salaryByStaff.set(s.staff_id, num(s.monthly_gross));
+      for (const s of (data ?? []) as any[]) {
+        const gross = num(s.monthly_gross);
+        salaryByStaff.set(s.staff_id, gross);
+        // The flag decides, not the amount. fn_hr_set_staff_salary already
+        // zeroes an amount whose flag is off, but the register must not depend
+        // on that: a row written before this feature existed, or by the
+        // service-role path, can carry a figure the flag does not authorise.
+        statutoryByStaff.set(s.staff_id, {
+          epf: s.eligible_for_pf ? num(s.epf_amount) : 0,
+          esi: s.eligible_for_esi ? num(s.esi_amount) : 0,
+          allowance: num(s.allowance_amount),
+          // Resolved against the GROSS ALONE. The allowance is deliberately not
+          // in the tax base, so a person pushed over a band threshold by their
+          // allowance is not taxed for it.
+          tds: resolveTds(gross, tdsSlabs).amount,
+        });
+      }
     }
 
     // Empty salaries across a non-empty roster is ambiguous the same way the
@@ -524,7 +705,7 @@ export class SalaryRegisterService {
       for (const ids of chunk(staffIds)) {
         const { data, error } = await (supabase as any)
           .from('hr_attendance_period_summaries')
-          .select('period_id, staff_id, present_days, half_days, leave_days, on_duty_days, comp_off_days, lop_days, payable_days, leave_by_type, unprocessed_days')
+          .select('period_id, staff_id, present_days, half_days, leave_days, on_duty_days, comp_off_days, lop_days, payable_days, leave_by_type, unprocessed_days, scheduled_days, work_pattern_id')
           .in('period_id', lockedPeriodIds)
           .in('staff_id', ids);
 
@@ -542,6 +723,8 @@ export class SalaryRegisterService {
             payable_days: num(s.payable_days),
             leave_by_type: (s.leave_by_type ?? {}) as Record<string, number>,
             unprocessed_days: num(s.unprocessed_days),
+            scheduled_days: s.scheduled_days == null ? null : num(s.scheduled_days),
+            work_pattern_id: (s.work_pattern_id as string | null) ?? null,
           });
         }
       }
@@ -567,6 +750,7 @@ export class SalaryRegisterService {
       dependencies,
       lockedPeriodByInstitution,
       salaryByStaff,
+      statutoryByStaff,
       bankByStaff,
       payerByStaff,
       summaryByStaff,
@@ -586,6 +770,128 @@ export class SalaryRegisterService {
    * named with its count and the institution it belongs to. A bare "not ready"
    * would send HR looking in the wrong module.
    */
+  /**
+   * What the salary register WILL say if this month is closed now.
+   *
+   * The month-close screen shows this so HR can verify pay before freezing
+   * attendance. It writes nothing: the per-staff day counts come from
+   * fn_hr_attendance_period_projection, which is the SAME SQL the close runs to
+   * populate hr_attendance_period_summaries. Preview and closed month therefore
+   * cannot disagree -- that is the whole reason the computation was lifted out
+   * of fn_hr_compute_attendance_period_summary rather than reimplemented here.
+   *
+   * Money is computed by computeRegisterLine, the same pure function generate()
+   * uses, for the same reason.
+   *
+   * Deliberately does NOT consult ctx.dependencies. Those exist to stop a
+   * register being ISSUED against a moving month; this preview is what you look
+   * at precisely because the month is still open.
+   */
+  static async previewForClose(
+    supabase: SupabaseClient,
+    input: SalaryRegisterInput,
+  ): Promise<SalaryClosePreview> {
+    const ctx = await SalaryRegisterService.loadContext(supabase, input);
+    const { year, month } = input;
+
+    const { data, error } = await (supabase as any).rpc(
+      'fn_hr_attendance_period_projection',
+      { p_institution_id: ctx.institutionId, p_year: year, p_month: month },
+    );
+    if (error) throw error;
+
+    const rows = (data ?? []) as Array<Record<string, unknown>>;
+    const projected = new Map<string, AttendanceSummaryRow>();
+    for (const r of rows) {
+      projected.set(r.staff_id as string, {
+        period_id: '',
+        present_days: Number(r.present_days ?? 0),
+        half_days: Number(r.half_days ?? 0),
+        leave_days: Number(r.leave_days ?? 0),
+        on_duty_days: Number(r.on_duty_days ?? 0),
+        comp_off_days: Number(r.comp_off_days ?? 0),
+        lop_days: Number(r.lop_days ?? 0),
+        payable_days: Number(r.payable_days ?? 0),
+        leave_by_type: (r.leave_by_type ?? {}) as Record<string, number>,
+        unprocessed_days: Number(r.unprocessed_days ?? 0),
+        scheduled_days: r.scheduled_days === null ? null : Number(r.scheduled_days),
+        work_pattern_id: (r.work_pattern_id ?? null) as string | null,
+      });
+    }
+
+    // The month standard, derived exactly as the close derives it: the largest
+    // working_days across the projection is what it writes into
+    // hr_attendance_periods.working_days_count.
+    const periodBasis = rows.reduce(
+      (max, r) => Math.max(max, Number(r.working_days ?? 0)),
+      0,
+    );
+
+    const payable: SalaryClosePreviewRow[] = [];
+    const excluded: SalaryClosePreviewExclusion[] = [];
+
+    for (const member of ctx.roster) {
+      const salary = ctx.salaryByStaff.get(member.staff_id);
+      const summary = projected.get(member.staff_id);
+
+      // Order matters: report the FIRST thing that has to be fixed. A person
+      // with neither a salary nor attendance is a salary problem first.
+      if (salary === undefined) {
+        excluded.push({ ...baseRow(member), reason: 'no_salary_recorded' });
+        continue;
+      }
+      if (salary <= 0) {
+        excluded.push({ ...baseRow(member), reason: 'salary_is_zero' });
+        continue;
+      }
+      if (!summary) {
+        excluded.push({ ...baseRow(member), reason: 'no_attendance_summary' });
+        continue;
+      }
+
+      const statutory = ctx.statutoryByStaff.get(member.staff_id);
+      const figures = computeRegisterLine({
+        monthlyGross: salary,
+        workingDaysBasis: registerBasisFor(summary, periodBasis),
+        epfAmount: statutory?.epf,
+        esiAmount: statutory?.esi,
+        allowance: statutory?.allowance,
+        tdsAmount: statutory?.tds,
+        summary,
+      });
+
+      payable.push({
+        ...baseRow(member),
+        working_days: figures.business_working_days,
+        paid_days: figures.paid_days,
+        unpaid_days: figures.unpaid_leave_days,
+        on_duty_days: figures.on_duty_days,
+        monthly_gross: salary,
+        net_pay: figures.net_pay,
+        unprocessed_days: summary.unprocessed_days,
+      });
+    }
+
+    payable.sort((a, b) => (a.employee_code ?? '').localeCompare(b.employee_code ?? ''));
+    excluded.sort((a, b) => (a.employee_code ?? '').localeCompare(b.employee_code ?? ''));
+
+    return {
+      organisation_name: ctx.organisationName,
+      institution_id: ctx.institutionId,
+      year,
+      month,
+      period_basis: periodBasis,
+      payable,
+      excluded,
+      roster_count: ctx.roster.length,
+      total_net_pay: round2(payable.reduce((t, r) => t + r.net_pay, 0)),
+      unprocessed_days: payable.reduce((t, r) => t + r.unprocessed_days, 0),
+      // What the close will freeze. Compared again at close time so a preview
+      // that has gone stale cannot be confirmed -- see the close page.
+      fingerprint: fingerprintOf(payable),
+    };
+  }
+
   static async preflight(
     supabase: SupabaseClient,
     input: SalaryRegisterInput,
@@ -774,6 +1080,29 @@ export class SalaryRegisterService {
     const ctx = await SalaryRegisterService.loadContext(supabase, input);
     const runBasis = pre.working_days_basis as number;
 
+    // Names for the Remarks column of anyone paid on their own week. One query
+    // for the whole run; an unreadable name only blanks the remark.
+    const patternIds = Array.from(
+      new Set(
+        Array.from(ctx.summaryByStaff.values())
+          .map((s) => s.work_pattern_id)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    );
+    const patternNameById = new Map<string, string>();
+    if (patternIds.length > 0) {
+      const { data: patterns, error: patternErr } = await (supabase as any)
+        .from('hr_work_patterns')
+        .select('id, name')
+        .in('id', patternIds);
+      if (patternErr) {
+        throw new Error(`Failed to load work pattern names: ${getErrorMessage(patternErr)}`);
+      }
+      for (const p of (patterns ?? []) as Array<{ id: string; name: string }>) {
+        patternNameById.set(p.id, p.name);
+      }
+    }
+
     /**
      * Working days per SOURCE MONTH, so each person is measured against the
      * calendar they actually worked.
@@ -844,14 +1173,25 @@ export class SalaryRegisterService {
           adjustment_amount: 0,
           is_included: false,
           exclusion_reason: reason,
+          // Same key set as an included row — see the batch-shape note above.
+          remarks: null,
         });
         continue;
       }
 
       const s = summary as AttendanceSummaryRow;
+      const statutory = ctx.statutoryByStaff.get(member.staff_id);
+      // A person on a work pattern is measured against THEIR week (see
+      // registerBasisFor); everyone else against the source month's standard.
+      const basis = registerBasisFor(s, workingDaysByPeriod.get(s.period_id) || runBasis);
+      const patternName = s.work_pattern_id ? patternNameById.get(s.work_pattern_id) : undefined;
       const figures = computeRegisterLine({
         monthlyGross: salary as number,
-        workingDaysBasis: workingDaysByPeriod.get(s.period_id) || runBasis,
+        workingDaysBasis: basis,
+        epfAmount: statutory?.epf ?? 0,
+        esiAmount: statutory?.esi ?? 0,
+        allowance: statutory?.allowance ?? 0,
+        tdsAmount: statutory?.tds ?? 0,
         summary: s,
       });
 
@@ -863,6 +1203,9 @@ export class SalaryRegisterService {
       lines.push({
         ...base,
         ...figures,
+        // The register HR reads has no other place to say WHY this row's
+        // Business Working Days differs from the rest of the sheet.
+        remarks: s.work_pattern_id ? `Work pattern: ${patternName ?? 'yes'}` : null,
         adjustment_amount: 0,
         is_included: true,
         exclusion_reason: null,

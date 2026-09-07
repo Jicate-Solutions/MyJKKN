@@ -93,10 +93,9 @@ export default function MyHostelPage() {
           </p>
         </div>
 
-        {/* Room Cleaning — housekeeping slot-booking entry (Agent C, 2026-06-10).
-            Self-gates to residents whose room category includes slot booking
-            (2026-08-25); Classic/Deluxe residents are not offered a booking
-            the next page would refuse. */}
+        {/* Room Cleaning — self-gates to residents whose room CATEGORY has a
+            bookable cleaning type, so an ineligible resident is never offered a
+            booking the next page would refuse. */}
         <RoomCleaningEntryCard />
 
         {/* Invite a roommate — the flow shipped in May 2026 and had never been

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { MoreHorizontal, CheckCircle, Eye, RotateCcw, Receipt } from 'lucide-react';
+import { MoreHorizontal, CheckCircle, Eye, RotateCcw, ReceiptIndianRupee } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -60,7 +60,7 @@ export function OnboardingRowActions({ learner, returnToUrl }: OnboardingRowActi
             View Details
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => router.push(`/billing/schedule/students/${learner.id}${returnToUrl ? `?returnTo=${encodeURIComponent(returnToUrl)}` : ''}`)}>
-            <Receipt className="mr-2 h-4 w-4" />
+            <ReceiptIndianRupee className="mr-2 h-4 w-4" />
             View Bills
           </DropdownMenuItem>
           {hasApprovePermission && isAccountStatus && isFullyPaid && (

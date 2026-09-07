@@ -673,6 +673,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admin/id-cards/photo-check",
+            "label": "Photo Check",
+            "iconName": "Camera",
+            "children": []
+          },
+          {
             "path": "/admin/id-cards/policy",
             "label": "ID Card Policy",
             "iconName": "CreditCard",
@@ -2625,26 +2631,26 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "SprayCan",
         "children": [
           {
-            "path": "/campus-living/housekeeping/bookings",
-            "label": "Bookings",
+            "path": "/campus-living/housekeeping/availability",
+            "label": "Availability",
+            "iconName": "CalendarCheck",
+            "children": []
+          },
+          {
+            "path": "/campus-living/housekeeping/cleaners",
+            "label": "Cleaners",
             "iconName": "SprayCan",
             "children": []
           },
           {
-            "path": "/campus-living/housekeeping/my-work",
-            "label": "My Work",
+            "path": "/campus-living/housekeeping/holds",
+            "label": "Holds",
             "iconName": "SprayCan",
             "children": []
           },
           {
-            "path": "/campus-living/housekeeping/schedules",
-            "label": "Schedules",
-            "iconName": "CalendarClock",
-            "children": []
-          },
-          {
-            "path": "/campus-living/housekeeping/tasks",
-            "label": "Tasks",
+            "path": "/campus-living/housekeeping/types",
+            "label": "Types",
             "iconName": "SprayCan",
             "children": []
           }
@@ -2826,8 +2832,8 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": [
           {
             "path": "/campus-living/my-hostel/housekeeping",
-            "label": "Room Cleaning",
-            "iconName": "Brush",
+            "label": "Housekeeping",
+            "iconName": "SprayCan",
             "children": []
           },
           {
@@ -3090,12 +3096,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
-            "path": "/campus-living/settings/housekeeping",
-            "label": "Housekeeping",
-            "iconName": "SprayCan",
-            "children": []
-          },
-          {
             "path": "/campus-living/settings/leave-types",
             "label": "Leave Types",
             "iconName": "CalendarOff",
@@ -3185,6 +3185,50 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/campus-living/wellness/surveys",
             "label": "Surveys",
             "iconName": "HeartPulse",
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "path": "/campus-walk",
+    "label": "Campus Walk",
+    "iconName": "FileText",
+    "children": [
+      {
+        "path": "/campus-walk/fix",
+        "label": "Fix",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/campus-walk/review",
+        "label": "Review",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/campus-walk/scoreboard",
+        "label": "Scoreboard",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/campus-walk/scoreboard/coverage",
+            "label": "Coverage",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/campus-walk/scoreboard/fixes",
+            "label": "Fixes",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/campus-walk/scoreboard/split",
+            "label": "Split",
+            "iconName": "FileText",
             "children": []
           }
         ]
@@ -3675,6 +3719,31 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/foundation/onemark",
+        "label": "Onemark",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/foundation/onemark/paper",
+            "label": "Paper",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/foundation/onemark/practice",
+            "label": "Practice",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/foundation/onemark/review",
+            "label": "Review",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/foundation/practice",
         "label": "Practice",
         "iconName": "FileText",
@@ -3811,6 +3880,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/hr/admin/designation-mapping",
+            "label": "Designation Mapping",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/hr/admin/disciplinary",
             "label": "Disciplinary Cases",
             "iconName": "Gavel",
@@ -3841,6 +3916,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "children": []
               }
             ]
+          },
+          {
+            "path": "/hr/admin/institutions",
+            "label": "Institutions",
+            "iconName": "Building",
+            "children": []
           },
           {
             "path": "/hr/admin/leave-balances",
@@ -4320,6 +4401,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "children": []
               }
             ]
+          },
+          {
+            "path": "/hr/admin/work-patterns",
+            "label": "Work Patterns",
+            "iconName": "FileText",
+            "children": []
           }
         ]
       },
@@ -4525,6 +4612,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "label": "Salaries",
             "iconName": "FileText",
             "children": []
+          },
+          {
+            "path": "/hr/payroll/tds-slabs",
+            "label": "TDS Bands",
+            "iconName": "Percent",
+            "children": []
           }
         ]
       },
@@ -4574,6 +4667,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/hr/recruitment/approvals",
             "label": "Approvals",
+            "iconName": "UserSearch",
+            "children": []
+          },
+          {
+            "path": "/hr/recruitment/candidates",
+            "label": "Candidates",
             "iconName": "UserSearch",
             "children": []
           },
@@ -5534,6 +5633,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Schedule",
         "iconName": "CalendarClock",
         "children": []
+      },
+      {
+        "path": "/meetings/series",
+        "label": "Recurring Series",
+        "iconName": "Repeat",
+        "children": [
+          {
+            "path": "/meetings/series/rules",
+            "label": "Scheduling Rules",
+            "iconName": "SlidersHorizontal",
+            "children": []
+          }
+        ]
       },
       {
         "path": "/meetings/triggers",
@@ -7047,25 +7159,25 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": [
               {
                 "path": "/startup-studio/school-of-influence/admin/applications",
-                "label": "School of Influence Applications",
+                "label": "School of Influencer Applications",
                 "iconName": "ClipboardList",
                 "children": []
               },
               {
                 "path": "/startup-studio/school-of-influence/admin/attendance",
-                "label": "School of Influence Attendance",
+                "label": "School of Influencer Attendance",
                 "iconName": "CheckSquare",
                 "children": []
               },
               {
                 "path": "/startup-studio/school-of-influence/admin/coordinators",
-                "label": "School of Influence Coordinators",
+                "label": "School of Influencer Coordinators",
                 "iconName": "UserCheck",
                 "children": []
               },
               {
                 "path": "/startup-studio/school-of-influence/admin/lifecycle",
-                "label": "School of Influence Inactivity Dry Run",
+                "label": "School of Influencer Inactivity Dry Run",
                 "iconName": "Activity",
                 "children": []
               },
@@ -7076,8 +7188,14 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "children": []
               },
               {
+                "path": "/startup-studio/school-of-influence/admin/merge",
+                "label": "Merge",
+                "iconName": "FileText",
+                "children": []
+              },
+              {
                 "path": "/startup-studio/school-of-influence/admin/settings",
-                "label": "School of Influence Settings",
+                "label": "School of Influencer Settings",
                 "iconName": "SlidersHorizontal",
                 "children": []
               }
@@ -7311,6 +7429,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       }
     ]
+  },
+  {
+    "path": "/whats-new",
+    "label": "Whats New",
+    "iconName": "FileText",
+    "children": []
   },
   {
     "path": "/work-pulse",

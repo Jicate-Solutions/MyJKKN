@@ -156,6 +156,13 @@ function EditEnquiryPageInner() {
                 <EnquiryForm
                   learner={learner}
                   onSuccess={handleEditSuccess}
+                  // One "Update" on every tab, which saves and routes through
+                  // handleEditSuccess (cache bust + refresh + redirect). Before
+                  // this, a middle tab like Course Selection offered only the
+                  // draft "Update" and "Save & Next" — both wrote the row but
+                  // neither called onSuccess, so the edit stayed invisible
+                  // behind the 5-minute React Query cache and looked unsaved.
+                  singleSaveButton
                 />
               </Card>
             </TabsContent>
@@ -180,6 +187,9 @@ function EditEnquiryPageInner() {
             <EnquiryForm
               learner={learner}
               onSuccess={handleEditSuccess}
+              // Same single-Update behaviour on the no-tabs branch (counselors
+              // / read-only roles), so both branches save identically.
+              singleSaveButton
             />
           </Card>
         )}

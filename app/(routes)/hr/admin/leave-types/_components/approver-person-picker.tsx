@@ -34,16 +34,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useLeaveApproverCandidates } from '@/hooks/hr/use-leave-approval-flows';
 import type { LeaveApproverRoleOption } from '@/types/hr-leave-types';
 import { cn } from '@/lib/utils';
 
-/** Radix Select rejects an item whose value is the empty string. */
-const ANY_ROLE = '__any__';
+import { RolePicker } from './role-picker';
 
 export function ApproverPersonPicker({
   hrOrgId,
@@ -62,7 +58,8 @@ export function ApproverPersonPicker({
 }) {
   const [term, setTerm] = useState('');
   const [debounced, setDebounced] = useState('');
-  const [roleKey, setRoleKey] = useState<string>(ANY_ROLE);
+  /** '' is "any role" — the RolePicker's own empty value, sent to the RPC as null. */
+  const [roleKey, setRoleKey] = useState('');
 
   // Debounce in an effect is the legitimate case: it synchronises with a timer,
   // an external system, and cleans up on change.
@@ -74,7 +71,7 @@ export function ApproverPersonPicker({
   const { data: candidates, isLoading } = useLeaveApproverCandidates(
     hrOrgId,
     debounced,
-    roleKey === ANY_ROLE ? null : roleKey,
+    roleKey || null,
     enabled
   );
 
@@ -99,22 +96,15 @@ export function ApproverPersonPicker({
 
         <div>
           <Label>Filter by role</Label>
-          <Select value={roleKey} onValueChange={setRoleKey}>
-            <SelectTrigger className="mt-1">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ANY_ROLE}>Any role</SelectItem>
-              {(roles ?? []).map((r) => (
-                <SelectItem key={r.role_key} value={r.role_key}>
-                  {r.role_name}
-                  <span className="ml-2 text-xs text-muted-foreground">
-                    {r.user_count}
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <RolePicker
+            roles={roles}
+            value={roleKey}
+            onChange={setRoleKey}
+            placeholder="Any role"
+            clearLabel="Any role"
+            className="mt-1"
+            aria-label="Filter candidates by role"
+          />
         </div>
       </div>
 
@@ -151,7 +141,7 @@ export function ApproverPersonPicker({
           </div>
         ) : list.length === 0 ? (
           <p className="p-3 text-xs text-muted-foreground">
-            {roleKey === ANY_ROLE
+            {!roleKey
               ? 'No matching team members with a login account.'
               : `Nobody you can see holds ${roleLabel ?? 'that role'}${
                   debounced ? ' and matches that search' : ''

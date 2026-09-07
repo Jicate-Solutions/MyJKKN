@@ -15,8 +15,23 @@ import {
   type DepartmentNominationWithDetails,
   type NominationStatus,
   type EligibleDepartment,
-  type EligibilityCriteria,
+  type FeatureUnavailable,
+  DEPARTMENT_NOMINATIONS_UNAVAILABLE,
+  DEPARTMENT_ELIGIBILITY_UNAVAILABLE,
 } from '@/lib/services/solutions/department-tracker-service';
+
+/**
+ * Shared empty result for the three hooks below, whose backing tables and
+ * functions were never provisioned. Frozen so a consumer cannot mistake it for
+ * a mutable list it is allowed to fill.
+ */
+const NO_ROWS = Object.freeze([]) as readonly never[];
+
+/** The single refusal object the nomination mutations resolve to. */
+const NOMINATIONS_REFUSAL: FeatureUnavailable = Object.freeze({
+  success: false,
+  error: DEPARTMENT_NOMINATIONS_UNAVAILABLE,
+});
 
 // ============================================
 // DEPARTMENT LIST HOOK
@@ -361,52 +376,26 @@ export function useDepartmentBuilders(departmentId: string | null) {
 // NOMINATIONS HOOK
 // ============================================
 
-export function useNominations(statusFilter?: NominationStatus) {
-  const [nominations, setNominations] = useState<DepartmentNominationWithDetails[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+/**
+ * Nominations are not available in this estate — the backing table and approval
+ * function were never provisioned. The hook no longer issues a request that can
+ * only 42P01; it reports the refusal up front so a screen can render "not
+ * available" instead of a raw Postgres error, and the three mutations resolve
+ * to the same structured refusal instead of throwing.
+ */
+export function useNominations(_statusFilter?: NominationStatus) {
+  const noop = useCallback(async (): Promise<FeatureUnavailable> => NOMINATIONS_REFUSAL, []);
 
-  const fetch = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await DepartmentTrackerService.getNominations(statusFilter);
-      setNominations(data);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load nominations');
-    } finally {
-      setLoading(false);
-    }
-  }, [statusFilter]);
-
-  useEffect(() => {
-    fetch();
-  }, [fetch]);
-
-  const nominate = useCallback(async (input: {
-    department_id: string;
-    institution_id: string;
-    nomination_reason: string;
-    suggested_capabilities?: string[];
-    nominated_by?: string;
-  }) => {
-    const result = await DepartmentTrackerService.nominateDepartment(input);
-    await fetch();
-    return result;
-  }, [fetch]);
-
-  const approve = useCallback(async (nominationId: string, reviewerId: string, reviewNotes?: string) => {
-    const result = await DepartmentTrackerService.approveNomination(nominationId, reviewerId, reviewNotes);
-    await fetch();
-    return result;
-  }, [fetch]);
-
-  const reject = useCallback(async (nominationId: string, reviewerId: string, reviewNotes: string) => {
-    await DepartmentTrackerService.rejectNomination(nominationId, reviewerId, reviewNotes);
-    await fetch();
-  }, [fetch]);
-
-  return { nominations, loading, error, refresh: fetch, nominate, approve, reject };
+  return {
+    nominations: NO_ROWS as readonly DepartmentNominationWithDetails[],
+    loading: false,
+    error: DEPARTMENT_NOMINATIONS_UNAVAILABLE,
+    unavailable: true as const,
+    refresh: noop,
+    nominate: noop,
+    approve: noop,
+    reject: noop,
+  };
 }
 
 // ============================================
@@ -463,58 +452,41 @@ export function useRemoveDepartment() {
 // ELIGIBLE DEPARTMENTS HOOK
 // ============================================
 
+/**
+ * Eligibility screening is not available in this estate — `get_eligible_departments()`
+ * is not in the schema cache. Reports the refusal instead of firing a doomed RPC.
+ */
 export function useEligibleDepartments() {
-  const [departments, setDepartments] = useState<EligibleDepartment[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const noop = useCallback(async () => {}, []);
 
-  const fetch = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await DepartmentTrackerService.getEligibleDepartments();
-      setDepartments(data);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load eligible departments');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetch();
-  }, [fetch]);
-
-  return { departments, loading, error, refresh: fetch };
+  return {
+    departments: NO_ROWS as readonly EligibleDepartment[],
+    loading: false,
+    error: DEPARTMENT_ELIGIBILITY_UNAVAILABLE,
+    unavailable: true as const,
+    refresh: noop,
+  };
 }
 
 // ============================================
 // ELIGIBILITY CRITERIA HOOK
 // ============================================
 
-export function useEligibilityCriteria(activeOnly = true) {
-  const [criteria, setCriteria] = useState<EligibilityCriteria[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+/**
+ * Eligibility criteria are not available in this estate — the backing table was
+ * never provisioned, and the `criteria_type` column this used to sort on belongs
+ * to the startup-studio table `ss_graduation_criteria`, not to any sh_ table.
+ */
+export function useEligibilityCriteria(_activeOnly = true) {
+  const noop = useCallback(async () => {}, []);
 
-  const fetch = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await DepartmentTrackerService.getEligibilityCriteria(activeOnly);
-      setCriteria(data);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load eligibility criteria');
-    } finally {
-      setLoading(false);
-    }
-  }, [activeOnly]);
-
-  useEffect(() => {
-    fetch();
-  }, [fetch]);
-
-  return { criteria, loading, error, refresh: fetch };
+  return {
+    criteria: NO_ROWS,
+    loading: false,
+    error: DEPARTMENT_ELIGIBILITY_UNAVAILABLE,
+    unavailable: true as const,
+    refresh: noop,
+  };
 }
 
 // Re-export types for convenience
@@ -530,5 +502,5 @@ export type {
   DepartmentNominationWithDetails,
   NominationStatus,
   EligibleDepartment,
-  EligibilityCriteria,
+  FeatureUnavailable,
 };

@@ -161,3 +161,61 @@ export function resolvedRequestPatch(status: Exclude<SwitchRequestStatus, 'pendi
   // stale time be re-applied by a later approval of an already-closed request.
   return { mode_switch_request_status: status, mode_switch_requested_start: null };
 }
+
+/**
+ * Which of a host's schedules holds their ONLINE hours.
+ *
+ * `meeting_host_schedules` has no mode column — its columns are exactly
+ * id, host_profile_id, institution_id, name, timezone, is_default, created_at,
+ * updated_at. A schedule therefore has no idea it is "the online one", and its
+ * NAME is a human convention rather than data: "Online Meeting Schedule" is a
+ * title somebody typed, and matching on it would break the first time anyone
+ * renamed it, in a language the code cannot see.
+ *
+ * So the online schedule is derived STRUCTURALLY — it is the schedule the
+ * host's own online meeting types already point at via meeting_types.schedule_id.
+ *
+ * Two real cases this must survive, both measured in production 2026-08-31:
+ *
+ *   NONE — of the 110 hosts who own an in-person type, most own no online type
+ *     at all. There is nothing to derive, so this returns null and the caller
+ *     keeps exactly today's behaviour. Never an error: those hosts switch
+ *     meetings to online today and must go on doing so.
+ *
+ *   MORE THAN ONE — the 14 live online types sit on 2 distinct schedules
+ *     (13 types on one, 1 on the other), both owned by the same host. Picking
+ *     whichever row the database happened to return first would make the same
+ *     switch resolve different hours on different days.
+ *
+ * The rule for more than one, therefore: the schedule used by the MOST online
+ * types — the host's de-facto online hours — and, if two are level, the lowest
+ * schedule id. Ids are immutable, so that tie-break gives the same answer every
+ * time; row order and created_at do not (Postgres promises no order without an
+ * ORDER BY, and two schedules seeded by one script share a timestamp).
+ *
+ * A type pinned to NO schedule is skipped rather than counted: it runs on the
+ * host's default schedule, which says nothing about which schedule is the
+ * online one. Zero of the 14 live online types are in that state.
+ */
+export function pickOnlineScheduleId(
+  onlineTypes: Array<{ schedule_id?: string | null }> | null | undefined,
+): string | null {
+  const counts = new Map<string, number>();
+  for (const t of onlineTypes ?? []) {
+    const id = t?.schedule_id;
+    if (typeof id !== 'string' || id === '') continue;
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+
+  let best: string | null = null;
+  let bestCount = 0;
+  for (const [id, n] of counts) {
+    // Strictly more types wins; level on count, the lower id wins. Both
+    // comparisons are independent of the order this map was filled in.
+    if (n > bestCount || (n === bestCount && best !== null && id < best)) {
+      best = id;
+      bestCount = n;
+    }
+  }
+  return best;
+}

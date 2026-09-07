@@ -109,11 +109,21 @@ export function SwitchToOnlineButton({ uid }: { uid: string }) {
       // No slot picked → no second argument, so the meeting keeps its time.
       const result = await switchMyBookingToOnline(uid, selected ?? undefined);
       if (result.success) {
-        toast.success(
-          result.timeMoved
-            ? 'Switched to Google Meet and moved. Both of you have been emailed.'
-            : 'Switched to Google Meet. Both of you have been emailed.',
-        );
+        // The switch worked either way. When the meeting kept a time the host's
+        // ONLINE hours do not offer, say so instead of a plain success — it was
+        // deliberately not moved to fit, and the host is the only one who can
+        // decide whether that matters.
+        if (result.outsideOnlineHours) {
+          toast.warning(
+            'Switched to Google Meet. Both of you have been emailed — but this time is outside the hours you keep for online meetings. It was not moved; change the time yourself if you need to.',
+          );
+        } else {
+          toast.success(
+            result.timeMoved
+              ? 'Switched to Google Meet and moved. Both of you have been emailed.'
+              : 'Switched to Google Meet. Both of you have been emailed.',
+          );
+        }
         close();
         router.refresh();
       } else {

@@ -9,7 +9,7 @@ import {
   RefreshCw,
   Calendar,
   CreditCard,
-  Receipt,
+  ReceiptIndianRupee,
   FileText,
   Printer,
   Ban
@@ -186,7 +186,7 @@ export function StudentReceiptsTable({
   if (receipts.length === 0) {
     return (
       <div className='text-center py-12'>
-        <Receipt className='mx-auto h-12 w-12 text-muted-foreground' />
+        <ReceiptIndianRupee className='mx-auto h-12 w-12 text-muted-foreground' />
         <h3 className='mt-4 text-lg font-semibold'>No receipts found</h3>
         <p className='mt-2 text-muted-foreground'>
           This student has no payment receipts yet.

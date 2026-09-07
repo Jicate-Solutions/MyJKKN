@@ -90,7 +90,10 @@ export interface CreateDeploymentInput {
 export function usePhases(filters?: PhaseFilters) {
   return useQuery({
     queryKey: solutionsHubKeys.phases.list(filters),
-    queryFn: () => apiClient.get('/api/solutions/phases', { params: filters as Record<string, any> }),
+    queryFn: () =>
+      apiClient.get<{ data: PhaseWithDetails[]; total?: number }>('/api/solutions/phases', {
+        params: filters as Record<string, any>,
+      }),
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
 }
@@ -101,7 +104,10 @@ export function usePhases(filters?: PhaseFilters) {
 export function usePhase(id: string) {
   return useQuery({
     queryKey: solutionsHubKeys.phases.detail(id),
-    queryFn: () => apiClient.get(`/api/solutions/phases/${id}`),
+    // apiClient.get<T> has no default for T, so an untyped call resolves to
+    // `unknown` and every field access on the result is a type error. The
+    // phase detail page went untypechecked for as long as no PR touched it.
+    queryFn: () => apiClient.get<PhaseWithDetails>(`/api/solutions/phases/${id}`),
     enabled: !!id,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });

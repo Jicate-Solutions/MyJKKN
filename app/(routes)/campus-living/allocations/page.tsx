@@ -1,465 +1,76 @@
 'use client';
 
-import { Suspense, useState, useMemo, useCallback } from 'react';
-import { useTabParam } from '@/hooks/use-tab-param';
+// Hostel Allocations — a single table, no tabs.
+//
+// Until 2026-09-02 this page carried an outer <Tabs> (All / Allocated / Not
+// Allocated) wrapped around <AllAllocationsTab />, which already had its own
+// placement quick-filter carrying the identical three labels. Two identical
+// controls, one directly above the other, both driving the same rows.
+//
+// The outer tabs are gone. The two view-only tabs they hosted — an inline
+// Allocated table that lived in this file, and not-allocated-tab.tsx — are
+// folded into that one table as a Status dropdown, readiness chips, a
+// "Why not allocated" column and Mess/Type/Date/Fee columns, so removing the
+// duplicate removed no view. See the header of all-allocations-tab.tsx.
+//
+// The table itself still owns ?tab= (via useTabParam) for its placement
+// filter, so every existing ?tab=allocated / ?tab=not-allocated link — and the
+// navbar FavoriteStar, which favorites a specific ?tab= value — keeps working.
+
+import { Suspense } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { DataTable } from '@/components/data-table/data-table';
-import { DataTableColumnHeader } from '@/components/data-table/column-header';
-import type { ColumnDef } from '@tanstack/react-table';
-import { useAuth } from '@/hooks/use-auth';
-import { useAllAllocations } from '@/hooks/campus-living/use-hostel-allocations';
-import {
-  AllocationCascadeFilters,
-  EMPTY_ALLOCATION_CASCADE,
-  allocationMatchesCascade,
-} from './_components/allocation-filters';
-import { NotAllocatedTab } from './_components/not-allocated-tab';
 import { AllAllocationsTab } from './_components/all-allocations-tab';
-import {
-  Plus, BedDouble, Loader2, Users, ArrowRightLeft, History, UserCheck, Eye,
-} from 'lucide-react';
-
-const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' }> = {
-  active: { label: 'Active', variant: 'success' },
-  // 'vacated' is the DB status, but on this screen it only ever means "this row
-  // was superseded by a later allocation" — the learner is still resident. Label
-  // it as history so the status badge, the filter chip and the summary card all
-  // say the same thing.
-  vacated: { label: 'Past Allocation', variant: 'secondary' },
-  transferred: { label: 'Transferred', variant: 'outline' },
-  pending_approval: { label: 'Pending', variant: 'default' },
-  pending_vacate: { label: 'Pending Vacate', variant: 'default' },
-  suspended: { label: 'Suspended', variant: 'destructive' },
-};
-const feeStatusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' }> = {
-  paid: { label: 'Paid', variant: 'success' },
-  partial: { label: 'Partial', variant: 'default' },
-  pending: { label: 'Pending', variant: 'destructive' },
-  waived: { label: 'Waived', variant: 'outline' },
-};
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Alloc = any;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const getJoined = (row: any, relation: string, field: string): string => row?.[relation]?.[field] ?? '';
-
-// Export schema for the Allocated tab.
-//
-// This tab previously shipped `exportConfig={{ columnMapping: {}, headers: [], columnWidths: [] }}`,
-// which produces a file with almost nothing in it. Both traps are live in the
-// shared exporter and neither throws:
-//   • `columnMapping: {}` is a TRUTHY empty object, so the auto-generate
-//     fallbacks (`columnMapping || autogen`) in data-export.tsx and
-//     export-utils.ts never fire. exportToExcel then writes
-//     `row[mapping[key]]` = `row[undefined]`, collapsing the whole sheet into
-//     ONE column literally named "undefined".
-//   • `headers: []` falls back to the table's COLUMN IDS, which on this tab are
-//     display-only labels, not data keys. Against a raw hostel_allocations row
-//     only `status` exists; `learner` is an object (exports "[object Object]")
-//     and block / room / bed / room_category / mess_category / type / fee all
-//     resolve to undefined because the real fields are hostel_blocks.name,
-//     hostel_rooms.room_number, allocation_type, fee_status, and so on.
-//
-// So: real headers + mapping + widths, a transformFunction that flattens the
-// embeds, and export keys deliberately DISTINCT from the table column ids —
-// data-export.tsx drops any export header matching a HIDDEN column id, while
-// non-colliding keys are always emitted regardless of column visibility.
-const ALLOCATED_EXPORT_COLUMNS: ReadonlyArray<{ key: string; label: string; width: number }> = [
-  { key: 'learner_name', label: 'Learner', width: 24 },
-  { key: 'learner_email', label: 'Email', width: 28 },
-  { key: 'learner_gender', label: 'Gender', width: 10 },
-  { key: 'institution_name', label: 'Institution', width: 26 },
-  { key: 'program_name', label: 'Program', width: 24 },
-  { key: 'semester_name', label: 'Semester', width: 14 },
-  { key: 'hostel_type_label', label: 'Hostel Type', width: 12 },
-  { key: 'block_name', label: 'Block', width: 18 },
-  { key: 'block_code', label: 'Block Code', width: 12 },
-  { key: 'room_number', label: 'Room', width: 10 },
-  { key: 'room_floor', label: 'Floor', width: 8 },
-  { key: 'bed_number', label: 'Bed', width: 8 },
-  { key: 'room_category_name', label: 'Room Category', width: 18 },
-  { key: 'mess_category_name', label: 'Mess Category', width: 18 },
-  { key: 'allocation_type_label', label: 'Allocation Type', width: 16 },
-  { key: 'allocation_date_value', label: 'Allocation Date', width: 15 },
-  { key: 'check_in_date_value', label: 'Check-in Date', width: 15 },
-  // Both populated on the 190 superseded rows, so they carry the Past
-  // Allocations / Transferred views.
-  { key: 'check_out_date_value', label: 'Check-out Date', width: 15 },
-  { key: 'actual_vacate_date_value', label: 'Vacated On', width: 15 },
-  { key: 'status_label', label: 'Status', width: 16 },
-  { key: 'fee_status_label', label: 'Fee Status', width: 12 },
-];
-// Deliberately NOT exported — every one of these is NULL or '' on all 884
-// allocation rows, so including them would ship permanently blank columns and
-// reproduce the very complaint this fixes: monthly_fee_at_allocation_inr,
-// deposit_paid (always 0), food_preference, emergency_contact_name / _phone /
-// _relation (the auto-allocation engine writes ''), expected_vacate_date,
-// vacate_reason. Add them back here the day the intake flow starts capturing
-// them.
-const ALLOCATED_EXPORT_HEADERS = ALLOCATED_EXPORT_COLUMNS.map((c) => c.key);
-const ALLOCATED_EXPORT_MAPPING: Record<string, string> = Object.fromEntries(
-  ALLOCATED_EXPORT_COLUMNS.map((c) => [c.key, c.label])
-);
-const ALLOCATED_EXPORT_WIDTHS = ALLOCATED_EXPORT_COLUMNS.map((c) => ({ wch: c.width }));
-
-// Flattens one joined allocation row into the schema above. Every path here is
-// covered by getAllAllocations' select, and `??` not `||` throughout — floor 0
-// is a real ground floor that `||` would silently blank.
-const allocationToExportRow = (a: Alloc) => {
-  const academic = a?.learner?.academic ?? null;
-  return {
-    learner_name: a?.learner?.full_name ?? null,
-    learner_email: a?.learner?.email ?? null,
-    learner_gender: academic?.gender ?? null,
-    institution_name: academic?.institution?.name ?? null,
-    program_name: academic?.program?.program_name ?? null,
-    semester_name: academic?.semester?.semester_name ?? null,
-    hostel_type_label: a?.hostel_blocks?.hostel_type ?? null,
-    block_name: a?.hostel_blocks?.name ?? null,
-    block_code: a?.hostel_blocks?.code ?? null,
-    room_number: a?.hostel_rooms?.room_number ?? null,
-    room_floor: a?.hostel_rooms?.floor ?? null,
-    bed_number: a?.hostel_beds?.bed_number ?? null,
-    room_category_name: academic?.room_category?.name ?? null,
-    mess_category_name: academic?.mess_category?.name ?? null,
-    allocation_type_label: a?.allocation_type ?? null,
-    allocation_date_value: a?.allocation_date ?? null,
-    check_in_date_value: a?.check_in_date ?? null,
-    check_out_date_value: a?.check_out_date ?? null,
-    actual_vacate_date_value: a?.actual_vacate_date ?? null,
-    // Same labels the table badges show, so the sheet reads like the screen —
-    // 'vacated' in particular means "superseded by a room change", not "left".
-    status_label: statusConfig[a?.status as string]?.label ?? a?.status ?? null,
-    fee_status_label: feeStatusConfig[a?.fee_status as string]?.label ?? a?.fee_status ?? null,
-  };
-};
-
-const ALLOCATIONS_TABS = ['all', 'allocated', 'not-allocated'] as const;
-
-function AllocationsPageInner() {
-  const { profile } = useAuth();
-  const institutionId = profile?.institution_id ?? '';
-  // Full set (no page cap) — summary counts + the table all read this, so they
-  // reflect every allocation, not just the first page.
-  const { data: allocations = [], isLoading } = useAllAllocations(institutionId);
-
-  // The Allocated tab is view-only — all mutating actions (transfer / reset /
-  // allocate) live in the combined "All" tab.
-  const [activeTab, setActiveTab] = useTabParam('all', ALLOCATIONS_TABS);
-  const [statusFilter, setStatusFilter] = useState<string>('active');
-  const [cascade, setCascade] = useState(EMPTY_ALLOCATION_CASCADE);
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-
-  // Tab badge shows the stable total active count — it's visible from every tab,
-  // so it must not shift with this tab's Advanced Filters.
-  const totalActive = useMemo(
-    () => allocations.filter((a: Alloc) => a.status === 'active').length,
-    [allocations],
-  );
-
-  // Summary cards reflect the active Advanced Filters (cascade). The status
-  // quick-filter + the table search narrow the TABLE only, not the cards.
-  const scopedAllocations = useMemo(
-    () => allocations.filter((a: Alloc) => allocationMatchesCascade(a, cascade)),
-    [allocations, cascade],
-  );
-  const counts = useMemo(() => ({
-    active: scopedAllocations.filter((a: Alloc) => a.status === 'active').length,
-    transfers: scopedAllocations.filter((a: Alloc) => a.allocation_type === 'transfer').length,
-    vacated: scopedAllocations.filter((a: Alloc) => a.status === 'vacated').length,
-    feePending: scopedAllocations.filter((a: Alloc) => a.fee_status === 'pending').length,
-  }), [scopedAllocations]);
-
-  // Client-side data feed for the advanced DataTable: applies the external
-  // status/block/advanced filters + the table's own search & sort, then paginates.
-  // Shared status + cascade + search predicate. Extracted so the paged table
-  // feed and "Export All Pages" can never describe different sets — an export
-  // that silently disagreed with the filters on screen is the same class of
-  // bug as the one this tab already had.
-  const filterRows = useCallback(
-    (search: string) => {
-      const q = (search ?? '').trim().toLowerCase();
-      return allocations.filter((a: Alloc) => {
-        if (statusFilter !== 'all' && a.status !== statusFilter) return false;
-        if (!allocationMatchesCascade(a, cascade)) return false;
-        if (q) {
-          const hay = [
-            getJoined(a, 'learner', 'full_name'),
-            getJoined(a, 'learner', 'email'),
-            getJoined(a, 'hostel_rooms', 'room_number'),
-            getJoined(a, 'hostel_blocks', 'name'),
-            a.emergency_contact_name ?? '',
-          ].join(' ').toLowerCase();
-          if (!hay.includes(q)) return false;
-        }
-        return true;
-      });
-    },
-    [allocations, statusFilter, cascade],
-  );
-
-  // Without this, getAllItems() pages through fetchDataFn at the table's page
-  // size to assemble the export.
-  const fetchAllItems = useCallback(
-    async (params: { search: string }) => filterRows(params.search ?? ''),
-    [filterRows],
-  );
-
-  const fetchData = useCallback(
-    async (params: { page: number; limit: number; search: string; sort_by: string; sort_order: string }) => {
-      let rows = filterRows(params.search ?? '');
-
-      const sortKey = params.sort_by;
-      if (sortKey) {
-        const val = (a: Alloc): string => {
-          switch (sortKey) {
-            case 'learner': return getJoined(a, 'learner', 'full_name');
-            case 'block': return getJoined(a, 'hostel_blocks', 'name');
-            case 'room': return getJoined(a, 'hostel_rooms', 'room_number');
-            case 'date': return a.allocation_date ?? '';
-            case 'status': return a.status ?? '';
-            case 'type': return a.allocation_type ?? '';
-            default: return '';
-          }
-        };
-        const dir = params.sort_order === 'desc' ? -1 : 1;
-        rows = [...rows].sort((x, y) => val(x).localeCompare(val(y)) * dir);
-      }
-
-      const limit = params.limit || 25;
-      const total = rows.length;
-      const start = (params.page - 1) * limit;
-      return {
-        success: true,
-        data: rows.slice(start, start + limit),
-        pagination: { page: params.page, limit, total_pages: Math.max(1, Math.ceil(total / limit)), total_items: total },
-      };
-    },
-    [filterRows],
-  );
-
-  const exportConfig = useMemo(
-    () => ({
-      entityName: 'hostel-allocations',
-      headers: ALLOCATED_EXPORT_HEADERS,
-      columnMapping: ALLOCATED_EXPORT_MAPPING,
-      columnWidths: ALLOCATED_EXPORT_WIDTHS,
-      transformFunction: allocationToExportRow,
-    }),
-    [],
-  );
-
-  const columns = useMemo<ColumnDef<Alloc>[]>(() => [
-    {
-      id: 'learner',
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Learner" />,
-      cell: ({ row }) => (
-        <div className="flex flex-col">
-          <span className="font-medium">{getJoined(row.original, 'learner', 'full_name') || '—'}</span>
-          {getJoined(row.original, 'learner', 'email') && (
-            <span className="text-xs text-muted-foreground">{getJoined(row.original, 'learner', 'email')}</span>
-          )}
-        </div>
-      ),
-      size: 220,
-    },
-    { id: 'block', header: ({ column }) => <DataTableColumnHeader column={column} title="Block" />, cell: ({ row }) => getJoined(row.original, 'hostel_blocks', 'name') || '—', enableSorting: false, size: 130 },
-    { id: 'room', header: ({ column }) => <DataTableColumnHeader column={column} title="Room" />, cell: ({ row }) => getJoined(row.original, 'hostel_rooms', 'room_number') || '—', enableSorting: false, size: 90 },
-    { id: 'bed', header: 'Bed', cell: ({ row }) => getJoined(row.original, 'hostel_beds', 'bed_number') || '—', enableSorting: false, size: 80 },
-    { id: 'room_category', header: 'Room Cat.', cell: ({ row }) => row.original.learner?.academic?.room_category?.name ?? <span className="text-muted-foreground">—</span>, enableSorting: false, size: 130 },
-    { id: 'mess_category', header: 'Mess Cat.', cell: ({ row }) => row.original.learner?.academic?.mess_category?.name ?? <span className="text-muted-foreground">—</span>, enableSorting: false, size: 120 },
-    { id: 'type', header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />, cell: ({ row }) => <Badge variant="outline" className="text-xs capitalize">{row.original.allocation_type}</Badge>, size: 110 },
-    { id: 'date', header: ({ column }) => <DataTableColumnHeader column={column} title="Date" />, cell: ({ row }) => <span className="text-muted-foreground text-sm">{row.original.allocation_date ?? '—'}</span>, size: 120 },
-    {
-      id: 'status',
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
-      cell: ({ row }) => { const c = statusConfig[row.original.status] ?? { label: row.original.status, variant: 'outline' as const }; return <Badge variant={c.variant}>{c.label}</Badge>; },
-      size: 120,
-    },
-    {
-      id: 'fee',
-      header: 'Fee',
-      cell: ({ row }) => { const c = feeStatusConfig[row.original.fee_status] ?? { label: row.original.fee_status, variant: 'outline' as const }; return <Badge variant={c.variant}>{c.label}</Badge>; },
-      enableSorting: false,
-      size: 100,
-    },
-    {
-      // View-only: this tab has no mutating actions (those live in the "All"
-      // tab) — just a read-only link through to the allocation detail page.
-      id: 'actions',
-      header: '',
-      cell: ({ row }) => (
-        <div className="flex justify-end">
-          <Button variant="ghost" size="sm" className="h-8 gap-1 text-xs" asChild>
-            <Link href={`/campus-living/allocations/${row.original.id}`}>
-              <Eye className="h-4 w-4" /> View
-            </Link>
-          </Button>
-        </div>
-      ),
-      enableSorting: false,
-      enableHiding: false,
-      size: 90,
-    },
-  ], []);
-
-  if (isLoading) {
-    return (
-      <ContentLayout title="Allocations">
-        <div className="flex items-center justify-center min-h-[400px]"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
-      </ContentLayout>
-    );
-  }
-
-  return (
-    <ContentLayout title="Hostel Allocations">
-      <PageBreadcrumb
-        items={[
-          { label: 'Home', href: '/' },
-          { label: 'Campus Living', href: '/campus-living' },
-          { label: 'Allocations' },
-        ]}
-      />
-
-      <div className="space-y-6 mt-4">
-        <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start">
-          <div>
-            <h1 className="text-2xl font-bold py-1">Hostel Allocations</h1>
-            <p className="text-sm sm:text-base text-muted-foreground">Manage student bed allocations across all blocks</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" asChild>
-              <Link href="/campus-living/allocations/roommate-matching"><Users className="mr-2 h-4 w-4" /> Roommate Matching</Link>
-            </Button>
-            <Button asChild>
-              <Link href="/campus-living/allocations/new"><Plus className="mr-2 h-4 w-4" /> Allocate Bed</Link>
-            </Button>
-          </div>
-        </div>
-
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-          <TabsList>
-            <TabsTrigger value="all">
-              All
-            </TabsTrigger>
-            <TabsTrigger value="allocated">
-              Allocated
-              <Badge variant="secondary" className="ml-2 text-xs">{totalActive}</Badge>
-            </TabsTrigger>
-            <TabsTrigger value="not-allocated">
-              Not Allocated
-            </TabsTrigger>
-          </TabsList>
-
-          {/* ── All (combined) tab ─────────────────────────────────────── */}
-          <TabsContent value="all" className="space-y-4">
-            {activeTab === 'all' && <AllAllocationsTab />}
-          </TabsContent>
-
-
-          {/* ── Allocated tab ─────────────────────────────────────────── */}
-          <TabsContent value="allocated" className="space-y-4">
-            {/* Summary cards — true totals over the full set */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <SummaryCard icon={<UserCheck className="h-8 w-8 text-green-600" />} value={counts.active} label="Active" />
-              <SummaryCard icon={<ArrowRightLeft className="h-8 w-8 text-blue-600" />} value={counts.transfers} label="Transfers" />
-              {/* Labelled "Past Allocations", not "Vacated": these rows are the
-                  superseded PREVIOUS bed of a learner who has since been moved,
-                  not learners who left the hostel. hostel_allocations is
-                  append-only — a room change or transfer writes a new row and
-                  flips the old one to 'vacated' (see room-change-card.tsx). As
-                  of 2026-08-10 all 167 such rows belong to learners holding a
-                  current active allocation on a different bed, and every one has
-                  a NULL vacate_reason. Read as "vacated" it looks like a queue
-                  of departing learners, which it is not. */}
-              <SummaryCard
-                icon={<History className="h-8 w-8 text-amber-600" />}
-                value={counts.vacated}
-                label="Past Allocations"
-                hint="Superseded by a room change"
-              />
-              <SummaryCard icon={<BedDouble className="h-8 w-8 text-purple-600" />} value={counts.feePending} label="Fee Pending" />
-            </div>
-
-            {/* Status quick-filters */}
-            <div className="flex gap-2 flex-wrap">
-              {['all', 'active', 'vacated', 'transferred', 'suspended'].map((s) => (
-                <Button key={s} variant={statusFilter === s ? 'default' : 'outline'} size="sm" onClick={() => setStatusFilter(s)}>
-                  {s === 'all' ? 'All' : statusConfig[s]?.label ?? s}
-                </Button>
-              ))}
-            </div>
-
-            {/* Advanced Filters — shared Type→Block→Floor + academic cascade */}
-            <AllocationCascadeFilters
-              rows={allocations}
-              value={cascade}
-              onChange={setCascade}
-              open={showAdvancedFilters}
-              onOpenChange={setShowAdvancedFilters}
-            />
-
-            <div className="pinned-actions-col">
-              <DataTable
-                fetchDataFn={fetchData}
-                fetchAllItemsFn={fetchAllItems}
-                getColumns={() => columns}
-                idField="id"
-                exportConfig={exportConfig}
-                config={{ enableUrlState: false, enableDateFilter: false, enableExport: true, enableRowSelection: false }}
-              />
-            </div>
-
-            <div className="flex gap-3">
-              <Button variant="outline" size="sm" asChild>
-                <Link href="/campus-living/allocations/waitlist"><Users className="mr-2 h-4 w-4" /> View Waitlist</Link>
-              </Button>
-            </div>
-          </TabsContent>
-
-          {/* ── Not Allocated tab ──────────────────────────────────────── */}
-          <TabsContent value="not-allocated" className="space-y-4">
-            <div>
-              <p className="text-sm text-muted-foreground">
-                Active hostelites who have not yet been assigned a bed. Shows
-                block-independent readiness checks so you can see exactly what
-                data is missing before allocation can proceed.
-              </p>
-            </div>
-            {activeTab === 'not-allocated' && <NotAllocatedTab />}
-          </TabsContent>
-        </Tabs>
-      </div>
-    </ContentLayout>
-  );
-}
+import { Plus, Users, ClipboardList } from 'lucide-react';
 
 export default function AllocationsPage() {
-  // Suspense boundary required: useTabParam() reads useSearchParams().
+  // Suspense boundary required: the table's placement + readiness filters are
+  // URL-synced via useTabParam(), which reads useSearchParams().
   return (
     <Suspense fallback={null}>
-      <AllocationsPageInner />
-    </Suspense>
-  );
-}
+      <ContentLayout title="Hostel Allocations">
+        <PageBreadcrumb
+          items={[
+            { label: 'Home', href: '/' },
+            { label: 'Campus Living', href: '/campus-living' },
+            { label: 'Allocations' },
+          ]}
+        />
 
-function SummaryCard({ icon, value, label, hint }: { icon: React.ReactNode; value: number; label: string; hint?: string }) {
-  return (
-    <Card>
-      <CardContent className="p-4 flex items-center gap-3">
-        {icon}
-        <div className="min-w-0">
-          <p className="text-2xl font-bold">{value}</p>
-          <p className="text-xs text-muted-foreground">{label}</p>
-          {hint && <p className="text-[11px] leading-tight text-muted-foreground/70">{hint}</p>}
+        <div className="space-y-6 mt-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start">
+            <div>
+              <h1 className="text-2xl font-bold py-1">Hostel Allocations</h1>
+              <p className="text-sm sm:text-base text-muted-foreground">
+                Manage student bed allocations across all blocks
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {/* Promoted from under the old Allocated tab's table, which no
+                  longer exists — the link would otherwise have gone with it. */}
+              <Button variant="outline" asChild>
+                <Link href="/campus-living/allocations/waitlist">
+                  <ClipboardList className="mr-2 h-4 w-4" /> View Waitlist
+                </Link>
+              </Button>
+              <Button variant="outline" asChild>
+                <Link href="/campus-living/allocations/roommate-matching">
+                  <Users className="mr-2 h-4 w-4" /> Roommate Matching
+                </Link>
+              </Button>
+              <Button asChild>
+                <Link href="/campus-living/allocations/new">
+                  <Plus className="mr-2 h-4 w-4" /> Allocate Bed
+                </Link>
+              </Button>
+            </div>
+          </div>
+
+          <AllAllocationsTab />
         </div>
-      </CardContent>
-    </Card>
+      </ContentLayout>
+    </Suspense>
   );
 }

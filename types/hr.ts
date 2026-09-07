@@ -289,19 +289,54 @@ export type LeaveDurationType = 'full' | 'first_half' | 'second_half' | 'hourly'
  */
 export type LeaveRequestCategory = 'leave' | 'short_time_off' | 'compensatory_off';
 
+/** One approver's decision on a step. Only meaningful on multi-approver steps. */
+export interface LeaveStepDecision {
+  /** profiles.id of the approver. trg_hla_guard_chain_decisions refuses any
+   *  newly-added decision whose `by` is not the caller's own auth.uid(). */
+  by: string;
+  at: string;
+  decision: 'approved' | 'rejected';
+  comment: string | null;
+}
+
 export interface LeaveApprovalStep {
   step_order: number;
   approver_role: string;
   approver_user_id?: string | null;
+  /** Display name frozen with the step — a pinned person's name, or the org
+   *  catch-all's "HR / Approving Authority". Written by the flow editor and
+   *  buildApprovalChain; absent on the oldest chains. */
+  approver_name?: string | null;
   status: 'pending' | 'approved' | 'rejected' | 'skipped';
   decided_at?: string | null;
   decided_by?: string | null;
   comment?: string | null;
   escalate_after_hours: number;
+  // ----- Multi-approver / parallel (2026-08-31) ----------------------------
+  // All optional, so the 709 in-flight single-approver chains and every
+  // recruitment chain read exactly as before.
+  /** Every approver on this step. Absent → the step's own singular fields. */
+  approvers?: Array<{
+    approver_role: string | null;
+    approver_user_id: string | null;
+    approver_name: string | null;
+  }>;
+  /** Absent → 'any', which is what a one-approver step has always meant. */
+  quorum?: 'any' | 'all';
+  /** Decisions recorded so far. Absent → none yet (or a legacy single decision). */
+  decisions?: LeaveStepDecision[];
   // ----- Recruitment-only extensions (2026-07-06 dynamic flows) -------------
   // Optional so legacy chains and leave chains are untouched.
   /** 'review' = notes + mark reviewed; 'final' = grants final approval. Legacy chains: absent → last step acts as final. */
   step_type?: 'review' | 'final';
+  // ----- Final-approver short-circuit (2026-09-05) -------------------------
+  // Set when the final approver approved while this review step was still
+  // pending. The step's status becomes 'skipped' — never 'approved' — so the
+  // chain never claims a review happened that did not.
+  /** profiles.id of the final approver whose direct approval skipped this step. */
+  skipped_by?: string | null;
+  skipped_at?: string | null;
+  skipped_reason?: string | null;
   /** When true, this step's approver must complete an interview before marking reviewed. */
   interview_required?: boolean;
   /** hr_recruitment_interviews.id linked to this step (re-pointed on reschedule). */
@@ -389,6 +424,25 @@ export interface HRLeaveApplication {
   updated_at: string;
 }
 
+/**
+ * Names for the ids frozen into approval_chain. profiles and custom_roles are
+ * RLS-hidden to a member of staff, so decided_by, decisions[].by and
+ * approver_role are opaque in the browser — the detail route resolves them with
+ * the service-role client, AFTER the RLS-gated read of the application has
+ * already proved the caller may see it.
+ */
+export interface LeaveChainNames {
+  /** profiles.id → full_name, else email. */
+  people: Record<string, string>;
+  /** custom_roles.role_key → role_name. */
+  roles: Record<string, string>;
+}
+
+/** What GET /api/hr/leave/applications/[id] returns: the row plus the names. */
+export interface HRLeaveApplicationDetail extends HRLeaveApplication {
+  chain_names?: LeaveChainNames;
+}
+
 export interface HRLeaveApplicationInsert {
   hr_organization_id: string;
   employee_id: string;
@@ -416,6 +470,21 @@ export interface HRLeaveBalance {
   entitled: number;
   used: number;
   carried_forward: number;
+  /**
+   * Days accrued so far. Equal to `entitled` for every type that is not
+   * accrual_type='monthly', which is how it behaved before accrual existed.
+   */
+  accrued: number;
+  /** Days locked up by requests awaiting a decision. */
+  pending: number;
+  /**
+   * accrued + carried_forward - used - pending, computed by the view.
+   *
+   * READ THIS, never recompute it. Three separate places used to derive
+   * `entitled + carried - used` by hand, which could not see an unapproved
+   * request -- so the screen offered days the database then refused.
+   */
+  available: number;
   created_at: string;
   updated_at: string;
 }
@@ -691,4 +760,29 @@ export interface HRLeaveApprovalQueueRow {
    * requests, for institutions that run no biometric, and on decided rows.
    */
   biometric_gap_from: string | null;
+  /**
+   * The request's supporting documents, straight off
+   * hr_leave_applications.documents (COALESCEd to [] by the RPC, so this is
+   * never null on a row the queue returned).
+   *
+   * Carried on the ROW so the queue can render a per-request document icon
+   * without a fetch per row — the detail sheet used to be the only way to learn
+   * a certificate existed, which meant opening all 816 open requests to find
+   * the 102 that have one.
+   */
+  documents: LeaveDocument[];
+  /** 0-based index of the step the request is waiting on. */
+  current_step: number;
+  /** How many steps the frozen chain has. */
+  chain_length: number;
+  /**
+   * Does a decision here GRANT the request, or only review it and pass it on?
+   *
+   * False on a review step: approving there advances the chain and leaves the
+   * application pending, which is why the button must not say "Approve".
+   * Computed by fn_hr_leave_final_step_index — the same body
+   * trg_hla_final_step_approves refuses the write on — so the label cannot
+   * promise an outcome the database will not produce.
+   */
+  step_is_final: boolean;
 }

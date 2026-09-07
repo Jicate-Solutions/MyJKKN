@@ -20,6 +20,7 @@ import {
   DUE_ANCHOR_LABELS,
   APPLIES_TO_LABELS,
   type BulkResolveLookups,
+  type BulkUpsertPayload,
   type FeeAppliesTo,
   type ItemScheduleConfig,
   type RowResolution,
@@ -524,4 +525,196 @@ export async function buildChangeSets(
   }
 
   return changes;
+}
+
+// ============================================================================
+// CREATE rows that would duplicate a structure that already exists
+// ============================================================================
+// A blank Fee Structure ID means "create". Nothing on the sheet can tell the
+// operator that the structure it describes was created by the LAST import of
+// this same file, so the row asks for the same create again and the database's
+// overlap trigger refuses it at Apply — per row, after everything else has been
+// written, with advice to change a dimension. This predicts that refusal at
+// Validate, and names the structure the row is really talking about.
+
+/** What the Validate step says about the structure a CREATE row collides with. */
+export interface DuplicateOfExisting {
+  id: string;
+  name: string;
+  created_at: string | null;
+  /**
+   * Set when the collision is with another CREATE row of the SAME sheet rather
+   * than a stored structure. There is no ID to point the operator at then, so
+   * the advice has to be "these two rows claim the same community", not "put
+   * its ID in the Fee Structure ID column".
+   */
+  sheetRow?: number;
+}
+
+/** The columns of a stored structure that make up the overlap trigger's key. */
+export interface ExistingStructureKey {
+  id: string;
+  name: string;
+  created_at: string | null;
+  status: string;
+  institution_id: string;
+  degree_id: string;
+  department_id: string;
+  programme_id: string;
+  quota_id: string;
+  admission_year_id: string;
+  accommodation_type_id: string | null;
+  gender: string | null;
+  communities: Array<{ community_category_id: string }> | null;
+}
+
+/**
+ * Would inserting `p` trip _fee_structure_community_no_overlap against
+ * `existing`? Mirrored column for column from that trigger so the Validate
+ * step predicts exactly what Apply would hit: institution, degree, department,
+ * programme, quota, admission year, accommodation type (null only equals
+ * null), gender where either side is "Any" or both agree, and at least one
+ * community in common. Hostel and mess categories are NOT in the trigger's
+ * key, so two hostel structures differing only by room tier DO collide — and
+ * this says so rather than pretending otherwise. Pure, so it is unit-tested.
+ */
+export function collidesWithExisting(p: BulkUpsertPayload, existing: ExistingStructureKey): boolean {
+  if (existing.status === 'archived') return false;
+  if (
+    existing.institution_id !== p.institution_id ||
+    existing.degree_id !== p.degree_id ||
+    existing.department_id !== p.department_id ||
+    existing.programme_id !== p.programme_id ||
+    existing.quota_id !== p.quota_id ||
+    existing.admission_year_id !== p.admission_year_id
+  ) {
+    return false;
+  }
+  if ((existing.accommodation_type_id ?? null) !== (p.accommodation_type_id ?? null)) return false;
+  const genderAgrees = existing.gender == null || p.gender == null || existing.gender === p.gender;
+  if (!genderAgrees) return false;
+  const theirs = new Set((existing.communities ?? []).map((c) => c.community_category_id));
+  return p.community_category_ids.some((id) => theirs.has(id));
+}
+
+/** A structure to compare CREATE rows against, stored or produced by the sheet. */
+type CandidateKey = ExistingStructureKey & { sheetRow?: number };
+
+/** The overlap key a payload will HAVE once this batch has been applied. */
+function keyFromPayload(
+  id: string,
+  name: string,
+  created_at: string | null,
+  p: BulkUpsertPayload,
+  sheetRow?: number,
+): CandidateKey {
+  return {
+    id,
+    name,
+    created_at,
+    status: p.status,
+    institution_id: p.institution_id,
+    degree_id: p.degree_id,
+    department_id: p.department_id,
+    programme_id: p.programme_id,
+    quota_id: p.quota_id,
+    admission_year_id: p.admission_year_id,
+    accommodation_type_id: p.accommodation_type_id ?? null,
+    gender: p.gender ?? null,
+    communities: p.community_category_ids.map((community_category_id) => ({ community_category_id })),
+    sheetRow,
+  };
+}
+
+/**
+ * For every CREATE row (blank Fee Structure ID) on the sheet, the structure it
+ * would duplicate, keyed by sheet row number.
+ *
+ * COMPARED AGAINST THE STATE THIS BATCH LEAVES BEHIND, NOT THE STATE IT FINDS.
+ * That distinction is the whole point. The normal way to split a structure by
+ * community is one sheet that does both halves: narrow the existing structure
+ * to the BC/OC communities on its own row, and create a second structure for
+ * SC/ST on a new row. Read against STORED state those two collide on every
+ * SC/ST community, because the existing structure still holds them — and the
+ * B.Ed sheet that exposed this was refused on all nine of its new structures
+ * for a conflict that would not exist by the time they were written. The
+ * upsert RPC replaces a structure's communities wholesale (DELETE then
+ * re-INSERT), and the overlap trigger is row-level and reads live state, so
+ * the narrowing genuinely frees them. Substituting each updated structure's
+ * SHEET payload for its stored row predicts what the trigger will actually
+ * see. Structures the sheet archives leave the comparison set entirely, which
+ * is what archiving them does.
+ *
+ * CREATE rows are also compared against each other, in sheet order: two blank
+ * -ID rows claiming one community used to both pass Validate and then fail the
+ * second one at Apply, after the first had already been written.
+ *
+ * Reads every non-archived structure of the institutions involved once and
+ * matches in memory — a few dozen to a few hundred rows.
+ *
+ * Ordering note: this trusts Apply to run every UPDATE before any CREATE (see
+ * the apply loop in app/api/admission/fees-structure/import/route.ts). An
+ * update can only free or reshape communities and a create can only claim
+ * them, so updates-first is the order that makes the end state reachable
+ * whatever order the operator's rows happen to be in.
+ */
+export async function findDuplicateCreates(
+  supabase: SupabaseClient,
+  resolutions: readonly RowResolution[],
+): Promise<Map<number, DuplicateOfExisting>> {
+  const out = new Map<number, DuplicateOfExisting>();
+  const creates = resolutions.filter(
+    (r) => r.payload && !r.payload.structure_id && r.payload.status !== 'archived',
+  );
+  if (creates.length === 0) return out;
+
+  const institutionIds = [...new Set(creates.map((r) => r.payload!.institution_id))];
+  // Left join on communities: a structure with none is never a collision, but
+  // it must still come back rather than vanish from the comparison set.
+  const { data, error } = await supabase
+    .from('admission_fee_structures')
+    .select(`
+      id, name, created_at, status,
+      institution_id, degree_id, department_id, programme_id, quota_id, admission_year_id,
+      accommodation_type_id, gender,
+      communities:admission_fee_structure_communities(community_category_id)
+    `)
+    .in('institution_id', institutionIds)
+    .neq('status', 'archived');
+  if (error) throw error;
+
+  /** structure_id -> the row of this sheet that rewrites it. */
+  const updates = new Map<string, RowResolution>();
+  for (const r of resolutions) {
+    if (r.payload?.structure_id) updates.set(r.payload.structure_id, r);
+  }
+
+  const candidates: CandidateKey[] = [];
+  for (const stored of (data ?? []) as unknown as ExistingStructureKey[]) {
+    const update = updates.get(stored.id);
+    if (!update) {
+      candidates.push(stored);
+      continue;
+    }
+    if (update.payload!.status === 'archived') continue;
+    candidates.push(
+      keyFromPayload(stored.id, update.name || stored.name, stored.created_at, update.payload!),
+    );
+  }
+
+  for (const res of creates) {
+    const hit = candidates.find((e) => collidesWithExisting(res.payload!, e));
+    if (hit) {
+      out.set(res.rowNumber, {
+        id: hit.id,
+        name: hit.name,
+        created_at: hit.created_at,
+        sheetRow: hit.sheetRow,
+      });
+      continue;
+    }
+    // Cleared — so this row now owns its communities for the rows below it.
+    candidates.push(keyFromPayload(res.payload!.structure_id ?? '', res.name, null, res.payload!, res.rowNumber));
+  }
+  return out;
 }

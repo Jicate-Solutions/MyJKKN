@@ -48,6 +48,11 @@ import {
   fetchApprovedPermissions, permissionKey, type PermissionsByStaffDay,
 } from '@/lib/hr/biometric/fetch-permissions';
 import { evaluateDay, type AttendanceVerdict } from '@/lib/hr/biometric/evaluate-day';
+import {
+  applyHolidayToStatusCode,
+  fetchHolidayKeys,
+  holidayKey,
+} from '@/lib/hr/attendance/holiday-dates';
 import type { ResolvedShiftTiming } from '@/types/hr-shift-timings';
 import type {
   BiometricAnomaly,
@@ -192,10 +197,29 @@ export async function POST(request: NextRequest) {
     // base table would silently re-add excluded staff every month, which is the
     // one thing that would make the flag look broken. Same columns (the view is
     // SELECT s.*), and no embed here, so the swap is a table-name change only.
+    //
+    // ACTIVE STAFF ONLY (2026-09-02). Until now the resolution ignored
+    // employment status entirely, so a relieved employee whose enrolment code
+    // was never cleared from the device kept generating attendance for as long
+    // as they kept punching -- 107 relieved staff still hold a code, and 26 of
+    // them already had records. Their days flowed into the period summary and
+    // out the other side as payable days on the Salary Register.
+    //
+    // A SKIP, NEVER A DELETE. The upsert below is keyed on
+    // (employee_id, work_date), so an inactive person simply produces no row;
+    // records already imported while they were active are left exactly as they
+    // are. That matters because `staff` carries no relieving date -- only the
+    // is_active boolean -- so re-importing an old month cannot tell "left after
+    // this date" from "left before it". Not writing is safe; deleting would not
+    // have been.
+    //
+    // Their codes fall through to the unmatched list, which the report shows, so
+    // a skipped person is visible rather than silently missing.
     const { data: enrolled, error: staffErr } = await svc
       .from('v_hr_staff')
       .select('id, staff_id, first_name, last_name, institution_id, biometric_id, category_id')
       .eq('biometric_institution_id', machine.id)
+      .eq('is_active', true)
       .not('biometric_id', 'is', null)
       .limit(5000);
     if (staffErr) {
@@ -214,13 +238,46 @@ export async function POST(request: NextRequest) {
       if (key && !staffByCode.has(key)) staffByCode.set(key, s);
     }
 
+    // The same enrolment set again, but RELIEVED. Only used to tell "this code
+    // belongs to someone who left" apart from "nobody owns this code" -- two very
+    // different things for whoever reads the report, and indistinguishable if
+    // the skipped rows just vanished into unmatched_codes.
+    const { data: relievedEnrolled } = await svc
+      .from('staff')
+      .select('staff_id, first_name, last_name, biometric_id')
+      .eq('biometric_institution_id', machine.id)
+      .eq('is_active', false)
+      .not('biometric_id', 'is', null)
+      .limit(5000);
+
+    const relievedByCode = new Map<string, string>();
+    for (const s of (relievedEnrolled ?? []) as Array<{
+      staff_id: string | null; first_name: string | null;
+      last_name: string | null; biometric_id: string | null;
+    }>) {
+      const key = normBiometricCode(s.biometric_id);
+      if (key && !relievedByCode.has(key)) {
+        relievedByCode.set(
+          key,
+          [[s.first_name, s.last_name].filter(Boolean).join(' ').trim(), s.staff_id]
+            .filter(Boolean).join(' · ') || 'unnamed',
+        );
+      }
+    }
+
     const matched: Array<{ staff: StaffRow; emp: (typeof report.employees)[number] }> = [];
     const unmatched: Array<{ code: string; name: string }> = [];
+    const relievedSkipped: Array<{ code: string; name: string; staff: string }> = [];
     for (const emp of report.employees) {
       const key = normBiometricCode(emp.code);
       const s = key ? staffByCode.get(key) : undefined;
-      if (s) matched.push({ staff: s, emp });
-      else unmatched.push({ code: emp.code, name: emp.name });
+      if (s) {
+        matched.push({ staff: s, emp });
+      } else if (key && relievedByCode.has(key)) {
+        relievedSkipped.push({ code: emp.code, name: emp.name, staff: relievedByCode.get(key)! });
+      } else {
+        unmatched.push({ code: emp.code, name: emp.name });
+      }
     }
 
     // ---- Shift timings for every (staff, date), in one call -----------------
@@ -288,6 +345,9 @@ export async function POST(request: NextRequest) {
     const { data: orgs, error: orgErr } = await svc
       .from('hr_organizations')
       .select('id, institution_id')
+      // This runs on the SERVICE-ROLE client, which bypasses RLS entirely, so
+      // the exclusion has to be spelled out here — nothing else will apply it.
+      .eq('included_in_hr', true)
       .limit(500);
     if (orgErr) {
       console.error('[hr/attendance/import] hr_organizations lookup error:', orgErr);
@@ -317,7 +377,33 @@ export async function POST(request: NextRequest) {
       ABSENT: 'ABSENT',
       WEEKLY_OFF: 'WEEKLY_OFF',
     };
-    const missingStatus = Object.values(VERDICT_TO_CODE).filter((c) => !statusIdByCode.has(c));
+    // Not a verdict evaluateDay can produce — it is substituted below for a
+    // declared holiday — but the id has to exist before the loop runs.
+    const HOLIDAY_CODE = 'HOLIDAY';
+    /**
+     * DECLARED HOLIDAYS FOR THIS IMPORT'S RANGE, loaded once.
+     *
+     * Without this the importer writes ABSENT for every staff member on a
+     * festival, and ABSENT carries affects_lop = true — so the Salary Register
+     * deducts a day's pay for a paid holiday. A trigger corrects it afterwards,
+     * but only afterwards: anything reading in between sees absences that were
+     * never real, and until 2026-09-02 no trigger watched the calendar at all.
+     *
+     * Institutions come from the matched staff, so an import that touches one
+     * college does not resolve holidays for the whole group.
+     */
+    const holidayKeys =
+      dateFrom && dateTo
+        ? await fetchHolidayKeys(
+            svc,
+            matched.map((m) => m.staff.institution_id).filter(Boolean) as string[],
+            dateFrom,
+            dateTo,
+          )
+        : new Set<string>();
+
+    const missingStatus = [...Object.values(VERDICT_TO_CODE), HOLIDAY_CODE]
+      .filter((c) => !statusIdByCode.has(c));
     if (missingStatus.length > 0) {
       return NextResponse.json(
         { error: 'Attendance status types missing', message: `No system status row for: ${missingStatus.join(', ')}.` },
@@ -471,7 +557,16 @@ export async function POST(request: NextRequest) {
           hr_organization_id: orgId,
           institution_id: institutionId,
           work_date: day.workDate,
-          status_type_id: statusIdByCode.get(VERDICT_TO_CODE[verdict.verdict as Exclude<AttendanceVerdict, 'EXCEPTION'>]),
+          // A declared holiday turns a no-show into HOLIDAY, which
+          // fn_hr_compute_attendance_period_summary subtracts from working days
+          // so it can never be LOP. PRESENT and HALF_DAY pass through untouched:
+          // a punch is evidence of work.
+          status_type_id: statusIdByCode.get(
+            applyHolidayToStatusCode(
+              VERDICT_TO_CODE[verdict.verdict as Exclude<AttendanceVerdict, 'EXCEPTION'>],
+              holidayKeys.has(holidayKey(institutionId, day.workDate)),
+            ),
+          ),
           in_at: day.inTime ? `${day.workDate}T${day.inTime}:00+05:30` : null,
           out_at: day.outTime ? `${day.workDate}T${day.outTime}:00+05:30` : null,
           source: 'biometric',
@@ -559,6 +654,84 @@ export async function POST(request: NextRequest) {
       });
     }
 
+
+    /**
+     * DAYS THIS IMPORT MARKED AS A PENALTY THAT SOMEBODY HAS ALREADY CLAIMED.
+     *
+     * Attendance restamps only on APPROVAL -- status feeds payable_days and the
+     * Salary Register -- so an ABSENT or HALF_DAY with an undecided request
+     * behind it is correct, and was also indistinguishable from an unexplained
+     * one. This REPORTS the overlap; it changes nothing that gets written.
+     *
+     * One query over the import's own range, matched in memory against the rows
+     * being written -- not a lookup per row.
+     */
+    const pendingOnMarkedDays: {
+      count: number;
+      staff: number;
+      sample: Array<{ staff_name: string; work_date: string; request: string; category: string }>;
+    } = { count: 0, staff: 0, sample: [] };
+
+    if (dateFrom && dateTo && matched.length > 0) {
+      const penaltyIds = new Set(
+        ['ABSENT', 'HALF_DAY'].map((c) => statusIdByCode.get(c)).filter(Boolean) as string[],
+      );
+      const marked = new Set(
+        records
+          .filter((r) => penaltyIds.has(r.status_type_id as string))
+          .map((r) => `${r.employee_id as string}|${r.work_date as string}`),
+      );
+
+      if (marked.size > 0) {
+        const { data: pendingRows } = await svc
+          .from('hr_leave_applications')
+          .select('employee_id, start_date, end_date, hr_leave_types:leave_type_id ( leave_type_name, request_category )')
+          .in('employee_id', matched.map((m) => m.staff.id))
+          .in('status', ['pending', 'escalated'])
+          .lte('start_date', dateTo)
+          .gte('end_date', dateFrom)
+          .limit(5000);
+
+        const nameById = new Map(
+          matched.map((m) => [
+            m.staff.id,
+            [m.staff.first_name, m.staff.last_name].filter(Boolean).join(' ').trim() || m.emp.name,
+          ]),
+        );
+        const seenStaff = new Set<string>();
+
+        for (const row of (pendingRows ?? []) as Array<Record<string, unknown>>) {
+          const emb = row.hr_leave_types as
+            | { leave_type_name?: string; request_category?: string }
+            | Array<{ leave_type_name?: string; request_category?: string }>
+            | null;
+          const lt = Array.isArray(emb) ? emb[0] : emb;
+          const empId = row.employee_id as string;
+
+          // Expand the request across its days and keep only those this import
+          // actually penalised.
+          for (
+            let d = new Date(`${row.start_date as string}T00:00:00`);
+            d <= new Date(`${row.end_date as string}T00:00:00`);
+            d.setDate(d.getDate() + 1)
+          ) {
+            const key = `${empId}|${d.toISOString().slice(0, 10)}`;
+            if (!marked.has(key)) continue;
+            pendingOnMarkedDays.count += 1;
+            seenStaff.add(empId);
+            if (pendingOnMarkedDays.sample.length < PREVIEW_LIMIT) {
+              pendingOnMarkedDays.sample.push({
+                staff_name: nameById.get(empId) ?? 'unknown',
+                work_date: d.toISOString().slice(0, 10),
+                request: lt?.leave_type_name ?? 'Time off',
+                category: lt?.request_category ?? 'leave',
+              });
+            }
+          }
+        }
+        pendingOnMarkedDays.staff = seenStaff.size;
+      }
+    }
     const base = {
       success: true,
       dry_run: dryRun,
@@ -569,6 +742,8 @@ export async function POST(request: NextRequest) {
       employees_in_file: report.employees.length,
       matched_employees: matched.length,
       unmatched_codes: unmatched,
+      relieved_skipped: relievedSkipped,
+      pending_requests_on_marked_days: pendingOnMarkedDays,
       total_day_cells: report.employees.reduce((n, e) => n + e.days.length, 0),
       counts,
       preview,

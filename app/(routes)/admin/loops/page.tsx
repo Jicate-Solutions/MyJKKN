@@ -16,6 +16,14 @@
 // ============================================================================
 
 export const dynamic = 'force-dynamic';
+// The builds block streams a GitHub read (measured cold: 26 s) inside this
+// page's render; Vercel's default function limit would cut it off mid-stream
+// and leave the Suspense fallback on screen forever. 120 s: the reader's own
+// 40 s deadline (lib/services/loops/pending-prs.ts) bounds only the GitHub
+// tail, and the rest of the render (the Supabase reads above it, streamed
+// under Suspense) must fit in the remainder — so a slow GitHub renders an
+// explicit line instead (reconcile round, obj. 2; post-verdict note b).
+export const maxDuration = 120;
 export const navMeta = { label: 'Loop Control Tower', icon: 'Repeat' } as const;
 
 import Link from 'next/link';
@@ -28,7 +36,12 @@ import { LoopControlTower } from './_components/loop-control-tower';
 import { LoopTower, type LoopTowerStats } from './_components/loop-tower';
 import { LoopWiring } from './_components/loop-wiring';
 import { ClusterLens } from './_components/cluster-lens';
-import { OwnersPanel, type OwnerPanelRow } from './_components/owners-panel';
+import {
+  OwnersPanel,
+  type InstitutionOption,
+  type OwnerPanelRow,
+  type ScopedOwnerRow,
+} from './_components/owners-panel';
 import { ProvenGreenStrip } from './_components/proven-green-strip';
 import {
   WaitingOnDirectorPanel,
@@ -1037,6 +1050,46 @@ export default async function LoopControlTowerPage({
     ),
   }));
 
+  // ── Per-college owners (2026-09-06) ───────────────────────────────────────
+  // loop_owner_scopes (20261019020000) — one row per (loop, institution). Read
+  // without a PostgREST embed and named from the institutions list below, so
+  // a scope row never depends on the FK's embed name. Same swallow-to-empty
+  // contract: before that migration applies the table is missing, the read
+  // errors, and the panel simply shows no per-college block — never a 500.
+  type ScopeRead = { loop_key: string; institution_id: string; owner_email: string };
+  type InstitutionRead = { id: string; name: string | null; is_active: boolean | null };
+  const [scopeReads, institutionReads] = await Promise.all([
+    admin
+      .from('loop_owner_scopes')
+      .select('loop_key,institution_id,owner_email')
+      .then(
+        (r) => (r.data ?? []) as ScopeRead[],
+        () => [] as ScopeRead[]
+      ),
+    admin
+      .from('institutions')
+      .select('id,name,is_active')
+      .order('name', { ascending: true })
+      .then(
+        (r) => (r.data ?? []) as InstitutionRead[],
+        () => [] as InstitutionRead[]
+      ),
+  ]);
+  const institutionNameById = new Map(
+    institutionReads.map((i) => [i.id, i.name ?? i.id] as const)
+  );
+  const scopedOwners: ScopedOwnerRow[] = scopeReads.map((s) => ({
+    loop_key: s.loop_key,
+    institution_id: s.institution_id,
+    institution_name: institutionNameById.get(s.institution_id) ?? s.institution_id,
+    owner_email: s.owner_email,
+  }));
+  // Only active institutions are offered by the add control; an existing
+  // scope on an inactive one still renders (by name) so it can be removed.
+  const institutionOptions: InstitutionOption[] = institutionReads
+    .filter((i) => i.is_active !== false)
+    .map((i) => ({ id: i.id, name: i.name ?? i.id }));
+
   // ── Proven-green thresholds (spec 2026-08-13) ─────────────────────────────
   // Two Director-adjustable policy rows (seeded by 20260813033300); in-code
   // fallbacks keep the strip safe before that migration is applied. Same
@@ -1653,7 +1706,11 @@ export default async function LoopControlTowerPage({
           </div>
           <LoopControlTower tiers={tiers} summary={summary} asOf={asOf} />
           <div className="mt-6">
-            <OwnersPanel rows={ownersPanelRows} />
+            <OwnersPanel
+              rows={ownersPanelRows}
+              scopes={scopedOwners}
+              institutions={institutionOptions}
+            />
           </div>
           {/* MetaLoop chartering factory (2026-08-13) — kept separate from the
               proven-green strip wiring above; this is the drafts review queue. */}

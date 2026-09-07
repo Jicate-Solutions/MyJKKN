@@ -19,7 +19,7 @@
  */
 
 import { useMemo, useState } from 'react';
-import { AlertCircle, Check, Clock, X } from 'lucide-react';
+import { AlertCircle, Check, Clock, FileText, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -37,6 +37,7 @@ import {
 import { RequestTable, RequestRow } from './request-table';
 import { PeriodFilter, allTimePeriod, type PeriodRange } from './period-filter';
 import { CompOffClaimDetailSheet } from './comp-off-claim-detail-sheet';
+import { LeaveDocumentViewer } from './leave-document-viewer';
 import { formatDays } from './format';
 import type { PendingCompOffClaim } from '@/types/hr-comp-off';
 import { usePendingCompOffClaims, useDecideCompOffClaim } from '@/hooks/hr/use-comp-off';
@@ -55,6 +56,8 @@ export function CompOffClaimsQueue() {
   const [rejectReason, setRejectReason] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
   const [detailClaim, setDetailClaim] = useState<PendingCompOffClaim | null>(null);
+  /** Whose proof the viewer is showing. null = closed. */
+  const [proofClaim, setProofClaim] = useState<PendingCompOffClaim | null>(null);
 
   // Same advanced filters as the Leave / Short Time Off tabs, minus the ones
   // this queue has no data for (every row is pending; claims carry no
@@ -104,6 +107,19 @@ export function CompOffClaimsQueue() {
     setInstitutionId('any');
     setPeriod(allTimePeriod());
   };
+
+  // A claim can lapse before anyone decides it: expiry runs 90 days from the
+  // day WORKED, not from approval. Approving one mints a credit that the
+  // balance's `expires_on >= CURRENT_DATE` filter can never see — it shows in
+  // the claimant's ledger and buys them nothing, which is exactly how the COO
+  // ended up with credits on screen and "0 available" on Apply.
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  // Counted over `filtered`, not `claims`: the banner says "below", so it must
+  // agree with the rows the approver can actually see through the filters.
+  const lapsedCount = useMemo(
+    () => filtered.filter((c) => c.expires_on < today).length,
+    [filtered, today]
+  );
 
   const onApprove = async (id: string) => {
     setActionError(null);
@@ -182,6 +198,17 @@ export function CompOffClaimsQueue() {
         )}
       </div>
 
+      {lapsedCount > 0 && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription className="text-xs">
+            <strong>{lapsedCount}</strong> claim(s) below have already passed their
+            90-day expiry. Approving one creates a credit the team member cannot
+            book — reject it with a reason instead, so they know where it went.
+          </AlertDescription>
+        </Alert>
+      )}
+
       {(error || actionError) && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
@@ -196,6 +223,7 @@ export function CompOffClaimsQueue() {
           { key: 'worked', label: 'Worked Date' },
           { key: 'expiry', label: 'Would Expire' },
           { key: 'days', label: 'Days', align: 'right' },
+          { key: 'proof', label: 'Proof' },
           { key: 'notes', label: 'Notes' },
           { key: 'actions', label: 'Actions', align: 'right' },
         ]}
@@ -216,6 +244,7 @@ export function CompOffClaimsQueue() {
           // cosmetic gap, not a self-approval hole. Closing it properly means
           // exposing the full staff-id set through the context.
           const isOwn = c.employee_id === ctx.employeeId;
+          const lapsed = c.expires_on < today;
           return (
             <RequestRow key={c.id} status="pending">
               <TableCell className="pl-4">
@@ -242,9 +271,40 @@ export function CompOffClaimsQueue() {
                 {c.institution_name ?? '—'}
               </TableCell>
               <TableCell>{fmtDate(c.worked_date)}</TableCell>
-              <TableCell className="text-muted-foreground">{fmtDate(c.expires_on)}</TableCell>
+              <TableCell className={cn(lapsed ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground')}>
+                {fmtDate(c.expires_on)}
+                {lapsed && (
+                  <span className="block text-xs font-medium">
+                    Already expired — a credit here is unusable
+                  </span>
+                )}
+              </TableCell>
               <TableCell className="text-right tabular-nums">
                 {formatDays(c.credit_days)}
+              </TableCell>
+              {/* The proof of the worked day, one click from the queue. A claim
+                  is a request to create a leave credit out of a Sunday; the
+                  evidence for it should not cost a sheet-open. */}
+              <TableCell>
+                {(c.documents?.length ?? 0) > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setProofClaim(c)}
+                    title={
+                      c.documents.length > 1
+                        ? `View ${c.documents.length} proof documents`
+                        : `View ${c.documents[0]?.name || 'the proof document'}`
+                    }
+                    className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-primary hover:bg-muted"
+                  >
+                    <FileText className="h-4 w-4" />
+                    <span className="text-xs underline-offset-4 hover:underline">
+                      {c.documents.length > 1 ? `View (${c.documents.length})` : 'View'}
+                    </span>
+                  </button>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
               </TableCell>
               <TableCell className="max-w-[220px] truncate text-muted-foreground" title={c.notes ?? ''}>
                 {c.notes || '—'}
@@ -281,6 +341,18 @@ export function CompOffClaimsQueue() {
           );
         })}
       </RequestTable>
+
+      {/* One viewer for the table, opened with a claim. View only. */}
+      <LeaveDocumentViewer
+        documents={proofClaim?.documents}
+        open={Boolean(proofClaim)}
+        onOpenChange={(open) => { if (!open) setProofClaim(null); }}
+        title={
+          proofClaim
+            ? `${proofClaim.employee_name} · worked ${fmtDate(proofClaim.worked_date)}`
+            : undefined
+        }
+      />
 
       <CompOffClaimDetailSheet
         claim={detailClaim}

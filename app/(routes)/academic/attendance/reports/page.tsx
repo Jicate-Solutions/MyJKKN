@@ -23,6 +23,14 @@ import { AttendanceReportService } from '@/lib/services/academic/attendance-repo
 import { AttendanceService } from '@/lib/services/academic/attendance-service';
 import { useState, useEffect, useMemo } from 'react';
 import { FileText } from 'lucide-react';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import {
+  ATTENDANCE_REPORT_TABS,
+  RECORDS_TAB,
+  findReportTab
+} from './_components/report-tabs';
+import { ReportPanel } from './_components/report-panel';
+import { ReportSettingsDialog } from './_components/report-settings-dialog';
 import type { AttendanceStatistics } from '@/lib/services/academic/attendance-report-service';
 
 export default function AttendanceReportsPage() {
@@ -50,7 +58,14 @@ export default function AttendanceReportsPage() {
   // Use local state for search params to avoid page refreshes
   const [search, setSearch] = useState(initialSearch);
 
-  // Update URL without navigation when search changes
+  // Which report is on screen. Seeded from ?tab= so a tab can be linked and
+  // bookmarked; an unknown value falls back to the records tab rather than
+  // rendering nothing.
+  const [activeTab, setActiveTab] = useState(
+    () => findReportTab(searchParams.get('tab')).value
+  );
+
+  // Update URL without navigation when search or the active tab changes
   useEffect(() => {
     const params = new URLSearchParams();
     Object.entries(search).forEach(([key, value]) => {
@@ -58,10 +73,13 @@ export default function AttendanceReportsPage() {
         params.set(key, String(value));
       }
     });
+    if (activeTab && activeTab !== RECORDS_TAB) {
+      params.set('tab', activeTab);
+    }
 
     const newUrl = `/academic/attendance/reports?${params.toString()}`;
     window.history.replaceState({}, '', newUrl);
-  }, [search]);
+  }, [search, activeTab]);
 
   // Determine user role - memoize to prevent unnecessary re-renders
   const userRole = useMemo(() => {
@@ -257,37 +275,89 @@ export default function AttendanceReportsPage() {
               </Card>
             </div>
           ) : (
-            <>
-              {/* Statistics Dashboard (Available for all roles) */}
-              <ReportStatistics
-                statistics={statistics}
-                loading={loadingStats}
-                userRole={userRole}
-              />
+            <Tabs
+              value={activeTab}
+              onValueChange={setActiveTab}
+              className='space-y-6'
+            >
+              {/* Report selector. Scrolls horizontally rather than wrapping, so
+                  the strip stays one row on a phone instead of eating the fold. */}
+              <div className='flex items-center gap-3'>
+                <div className='-mx-1 min-w-0 flex-1 overflow-x-auto px-1 pb-1'>
+                  <TabsList className='inline-flex w-max'>
+                    {ATTENDANCE_REPORT_TABS.map((tab) => (
+                      <TabsTrigger key={tab.value} value={tab.value}>
+                        {tab.label}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </div>
+                {/* Admin-only; renders nothing until an institution is picked,
+                    since the rules are per-institution. */}
+                <ReportSettingsDialog institutionId={search.institution_id} />
+              </div>
 
-              {/* Main Content */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className='flex items-center gap-2'>
-                    <FileText className='h-5 w-5' />
-                    Attendance Reports
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className='p-6'>
-                  <div className='space-y-6'>
-                    {/* Filters */}
-                    <ReportsFilters
-                      searchParams={search}
-                      onFilterChange={handleFilterChange}
-                      onClearFilters={handleClearFilters}
-                    />
+              {/* Records - the page as it has always been, untouched */}
+              <TabsContent value={RECORDS_TAB} className='space-y-6'>
+                {/* Statistics Dashboard (Available for all roles) */}
+                <ReportStatistics
+                  statistics={statistics}
+                  loading={loadingStats}
+                  userRole={userRole}
+                />
 
-                    {/* Data Table */}
-                    <AttendanceReportsDataTable search={search} />
-                  </div>
-                </CardContent>
-              </Card>
-            </>
+                {/* Main Content */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className='flex items-center gap-2'>
+                      <FileText className='h-5 w-5' />
+                      Attendance Reports
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className='p-6'>
+                    <div className='space-y-6'>
+                      {/* Filters */}
+                      <ReportsFilters
+                        searchParams={search}
+                        onFilterChange={handleFilterChange}
+                        onClearFilters={handleClearFilters}
+                      />
+
+                      {/* Data Table */}
+                      <AttendanceReportsDataTable search={search} />
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              {/* One tab per report. The filter bar is shared, so switching
+                  reports keeps the cohort you already narrowed to. */}
+              {ATTENDANCE_REPORT_TABS.filter(
+                (tab) => tab.value !== RECORDS_TAB
+              ).map((tab) => (
+                <TabsContent
+                  key={tab.value}
+                  value={tab.value}
+                  className='space-y-6'
+                >
+                  <ReportsFilters
+                    searchParams={search}
+                    onFilterChange={handleFilterChange}
+                    onClearFilters={handleClearFilters}
+                  />
+                  {/* Pending Attendance reads timetables, whose visibility is
+                      institution-wide, so it cannot inherit the per-faculty
+                      narrowing the student_attendance RPCs get from RLS. Hand it
+                      the caller's own staff id when — and only when — they are a
+                      plain faculty member. */}
+                  <ReportPanel
+                    tab={tab}
+                    search={search}
+                    facultyStaffId={isRegularFaculty ? facultyStaffId : null}
+                  />
+                </TabsContent>
+              ))}
+            </Tabs>
           )}
         </div>
       </ContentLayout>

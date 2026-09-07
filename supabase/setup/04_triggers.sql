@@ -1351,11 +1351,6 @@ AFTER INSERT OR UPDATE OF referral_type, referred_by_id, referred_by_name, learn
 ON public.admission_leads
 FOR EACH ROW EXECUTE FUNCTION public.sync_lead_referral_to_learner_profile();
 
--- 20260611180000: seed today's hostel_cleaning_tasks row when a due cleaning
--- schedule is created (daily plans appear on the Tasks page immediately).
-CREATE TRIGGER trg_cleaning_schedule_seed_task AFTER INSERT ON hostel_cleaning_schedules
-    FOR EACH ROW EXECUTE FUNCTION _on_cleaning_schedule_seed_task();
-
 -- 20260611190000: sync learners_profiles room/mess categories from the room
 -- whenever an allocation becomes active (single enforcement point for manual,
 -- batch-approval, auto-allocate and upgrade allocation paths).
@@ -2433,3 +2428,199 @@ DROP TRIGGER IF EXISTS trg_hr_salary_register_lines_touch ON public.hr_salary_re
 CREATE TRIGGER trg_hr_salary_register_lines_touch
   BEFORE UPDATE ON public.hr_salary_register_lines
   FOR EACH ROW EXECUTE FUNCTION public.fn_touch_updated_at();
+
+-- ============================================================================
+-- 2026-08-31 — guard: a decision may only be recorded by the approver making it
+-- Migration: 20260831120000_hr_leave_approval_flow_parallel_ladder.sql
+-- hla_update's USING clause admits the APPLICANT and its WITH CHECK only bites
+-- when status becomes approved/rejected. Until quorum='all' existed every
+-- decision flipped status, so that window was closed by accident.
+-- ============================================================================
+DROP TRIGGER IF EXISTS trg_hla_guard_chain_decisions ON public.hr_leave_applications;
+CREATE TRIGGER trg_hla_guard_chain_decisions
+  BEFORE UPDATE ON public.hr_leave_applications
+  FOR EACH ROW
+  EXECUTE FUNCTION public.hr_trig_leave_guard_chain_decisions();
+
+-- ============================================================================
+-- Bills may only reach status='cancelled' through fn_cancel_student_bill
+-- (mig 20260901010000). Without this the mandatory reason + documents are
+-- advisory: the UPDATE policy on billing_student_bills lets any
+-- billing.schedule.update holder -- and anyone is_admin() accepts, with no
+-- permission key at all -- set the status directly from a browser console.
+-- Only transitions INTO cancelled are guarded, so editing an already-cancelled
+-- bill is untouched and 'superseded' keeps its own flow.
+-- ============================================================================
+DROP TRIGGER IF EXISTS trg_billing_bills_guard_cancel ON public.billing_student_bills;
+CREATE TRIGGER trg_billing_bills_guard_cancel
+  BEFORE UPDATE ON public.billing_student_bills
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_guard_bill_cancellation();
+
+-- ===========================================================================
+-- hr_tds_slabs (2026-09-02)
+-- DEFERRABLE INITIALLY DEFERRED: a multi-band edit is judged once at COMMIT,
+-- not at every intermediate state -- reordering bands would be impossible
+-- otherwise. Constraint triggers must be FOR EACH ROW; the function reads the
+-- whole set regardless.
+-- ===========================================================================
+-- The set-level validator that used to live here was dropped on 2026-09-02
+-- (20260902120000): its rules could not be satisfied by any single row, so
+-- adding one band was impossible. Overlap is still refused by the EXCLUDE
+-- constraint on the table; coverage is now a warning on the TDS Bands screen.
+
+
+DROP TRIGGER IF EXISTS trg_hr_tds_slabs_updated_at ON public.hr_tds_slabs;
+CREATE TRIGGER trg_hr_tds_slabs_updated_at
+  BEFORE UPDATE ON public.hr_tds_slabs
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- ===========================================================================
+-- calendar_entries -> attendance (2026-09-02)
+-- No WHEN clause: it would reference OLD, which Postgres refuses on a trigger
+-- that also fires for INSERT. The kind='holiday' check is the first thing the
+-- function does instead.
+-- ===========================================================================
+DROP TRIGGER IF EXISTS tr_recompute_attendance_on_calendar_holiday ON public.calendar_entries;
+CREATE TRIGGER tr_recompute_attendance_on_calendar_holiday
+  AFTER INSERT OR UPDATE OR DELETE ON public.calendar_entries
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_recompute_attendance_on_calendar_holiday();
+
+-- ===========================================================================
+-- hr_leave_applications balance guard (2026-09-02)
+-- Sits alongside trg_hla_leave_period_cap: the cap limits days per PERIOD, this
+-- limits days against the ENTITLEMENT, and pending requests count toward both.
+-- ===========================================================================
+DROP TRIGGER IF EXISTS trg_hla_balance_guard ON public.hr_leave_applications;
+CREATE TRIGGER trg_hla_balance_guard
+  BEFORE INSERT OR UPDATE OF start_date, end_date, duration_type, leave_type_id, status
+  ON public.hr_leave_applications
+  FOR EACH ROW EXECUTE FUNCTION public.hr_trig_leave_enforce_balance();
+
+-- =====================================================================
+-- hr_work_patterns, hr_staff_work_pattern_assignments,
+-- hr_work_pattern_leave_entitlements (2026-09-04)
+-- Source: 20260904120000_hr_work_patterns.sql
+-- =====================================================================
+
+-- updated_at, same helper every HR table uses.
+DROP TRIGGER IF EXISTS hr_work_patterns_updated_at ON public.hr_work_patterns;
+CREATE TRIGGER hr_work_patterns_updated_at
+  BEFORE UPDATE ON public.hr_work_patterns
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS hr_swpa_updated_at ON public.hr_staff_work_pattern_assignments;
+CREATE TRIGGER hr_swpa_updated_at
+  BEFORE UPDATE ON public.hr_staff_work_pattern_assignments
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS hr_wple_updated_at ON public.hr_work_pattern_leave_entitlements;
+CREATE TRIGGER hr_wple_updated_at
+  BEFORE UPDATE ON public.hr_work_pattern_leave_entitlements
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- The assignment's institution is the pattern's, and it must be the staff
+-- member's too. A wrong institution_id here would grant cross-institution
+-- visibility through role_has_institution_access, which is the only scope
+-- predicate in the table's RLS.
+DROP TRIGGER IF EXISTS t10_wpa_stamp_institution ON public.hr_staff_work_pattern_assignments;
+CREATE TRIGGER t10_wpa_stamp_institution
+  BEFORE INSERT OR UPDATE OF staff_id, work_pattern_id, institution_id
+  ON public.hr_staff_work_pattern_assignments
+  FOR EACH ROW EXECUTE FUNCTION public.trg_wpa_stamp_institution();
+
+-- A pattern's leave figures must name leave types of the pattern's own
+-- institution (hr_organizations map 1:1 to institutions), and only day-based
+-- ones.
+DROP TRIGGER IF EXISTS t10_wple_same_institution ON public.hr_work_pattern_leave_entitlements;
+CREATE TRIGGER t10_wple_same_institution
+  BEFORE INSERT OR UPDATE OF work_pattern_id, leave_type_id
+  ON public.hr_work_pattern_leave_entitlements
+  FOR EACH ROW EXECUTE FUNCTION public.trg_wple_same_institution();
+
+-- Retiring a pattern that people still hold would leave them resolving to
+-- nothing (the pattern is exclusive). End their assignments first.
+DROP TRIGGER IF EXISTS t10_wp_guard_deactivate ON public.hr_work_patterns;
+CREATE TRIGGER t10_wp_guard_deactivate
+  BEFORE UPDATE OF is_active ON public.hr_work_patterns
+  FOR EACH ROW EXECUTE FUNCTION public.trg_wp_guard_deactivate();
+
+-- ============================================================================
+-- hr_work_pattern_weeks (2026-09-04, 20260904190000_hr_work_patterns_days_only.sql)
+-- ============================================================================
+
+DROP TRIGGER IF EXISTS hr_wpw_updated_at ON public.hr_work_pattern_weeks;
+CREATE TRIGGER hr_wpw_updated_at
+  BEFORE UPDATE ON public.hr_work_pattern_weeks
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- Mirrored from supabase/migrations/20260905160000_hr_one_request_per_day.sql
+-- One live request per staff member per calendar day, across leave, short time
+-- off and comp-off claims. Bodies live in 02_functions.sql.
+
+-- duration_type joins the column list: a first_half -> full edit changes which
+-- days the row occupies and used to skip the check entirely.
+DROP TRIGGER IF EXISTS trg_hla_leave_overlap ON public.hr_leave_applications;
+CREATE TRIGGER trg_hla_leave_overlap
+  BEFORE INSERT OR UPDATE OF start_date, end_date, leave_type_id, duration_type
+  ON public.hr_leave_applications
+  FOR EACH ROW EXECUTE FUNCTION public.hr_trig_leave_enforce_no_overlap();
+
+
+DROP TRIGGER IF EXISTS trg_hcoc_day_occupancy ON public.hr_comp_off_credits;
+CREATE TRIGGER trg_hcoc_day_occupancy
+  BEFORE INSERT OR UPDATE OF worked_date, status
+  ON public.hr_comp_off_credits
+  FOR EACH ROW EXECUTE FUNCTION public.hr_trig_comp_off_day_occupancy();
+
+-- Mirrored from supabase/migrations/20260905180000_hr_leave_final_step_approves.sql
+-- Only the FINAL step of a chain may move a request to approved.
+
+DROP TRIGGER IF EXISTS trg_hla_final_step_approves ON public.hr_leave_applications;
+CREATE TRIGGER trg_hla_final_step_approves
+  BEFORE UPDATE ON public.hr_leave_applications
+  FOR EACH ROW EXECUTE FUNCTION public.hr_trig_leave_final_step_approves();
+
+-- ---------------------------------------------------------------------------
+-- aiu_prompt_trails: capture-column immutability + write-once finalization
+-- (migration 20260922041500_aiu_prompt_trails.sql — FILE ONLY / NOT APPLIED)
+-- ---------------------------------------------------------------------------
+DROP TRIGGER IF EXISTS trg_aiu_prompt_trails_guard ON public.aiu_prompt_trails;
+
+CREATE TRIGGER trg_aiu_prompt_trails_guard
+  BEFORE UPDATE ON public.aiu_prompt_trails
+  FOR EACH ROW EXECUTE FUNCTION public.tg_aiu_prompt_trails_guard();
+
+
+-- ==========================================================================
+-- Campus Living - Housekeeping (rebuilt 2026-09-07)
+-- Migration: 20260907090100_housekeeping_schema.sql
+-- Replaces the old hostel_cleaning_schedules / _tasks / _bookings module.
+-- ==========================================================================
+
+CREATE TRIGGER t_hk_types_touch BEFORE UPDATE ON public.hostel_cleaning_types
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+CREATE TRIGGER t_hk_type_expenses_touch BEFORE UPDATE ON public.hostel_cleaning_type_expenses
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+CREATE TRIGGER t_hk_cleaners_touch BEFORE UPDATE ON public.hostel_cleaners
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+CREATE TRIGGER t_hk_availability_touch BEFORE UPDATE ON public.hostel_cleaning_availability
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+CREATE TRIGGER t_hk_bookings_touch BEFORE UPDATE ON public.hostel_cleaning_bookings
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+
+-- ==========================================================================
+-- Campus Living - Housekeeping (rebuilt 2026-09-07)
+-- Migration: 20260907090200_housekeeping_rpcs.sql
+-- ==========================================================================
+
+DROP TRIGGER IF EXISTS t_hostel_attendance_housekeeping_gate ON public.hostel_attendance;
+CREATE TRIGGER t_hostel_attendance_housekeeping_gate
+  BEFORE INSERT OR UPDATE ON public.hostel_attendance
+  FOR EACH ROW EXECUTE FUNCTION public.fn_cl_housekeeping_attendance_gate();

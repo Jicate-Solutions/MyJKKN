@@ -11,6 +11,7 @@ import { solutionsHubKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
 import { apiClient } from '@/lib/api/client';
 import type { CreateBuilderInput } from '@/lib/services/solutions/types';
+import type { BuilderWithDetails } from '@/lib/services/solutions/builders-service';
 
 // ============================================
 // TYPES (Re-exported from service for convenience)
@@ -99,7 +100,10 @@ export function useBuilderStats() {
 export function useAvailableBuildersForPhase(phaseId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.builders.available(phaseId),
-    queryFn: () => apiClient.get('/api/solutions/builders', { params: { available_for_phase: phaseId } }),
+    queryFn: () =>
+      apiClient.get<BuilderWithDetails[]>('/api/solutions/builders', {
+        params: { available_for_phase: phaseId },
+      }),
     enabled: !!phaseId,
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });

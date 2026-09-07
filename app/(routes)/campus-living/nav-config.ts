@@ -206,7 +206,6 @@ const config: ModuleNavConfig = {
       matchPaths: [
         '/campus-living/mess',
         '/campus-living/laundry',
-        '/campus-living/housekeeping',
       ],
       children: [
         {
@@ -321,24 +320,31 @@ const config: ModuleNavConfig = {
           label: 'Housekeeping',
           icon: 'Brush',
           href: '/campus-living/housekeeping',
+          matchPaths: ['/campus-living/housekeeping'],
         },
         {
-          label: 'Housekeeping Tasks',
+          label: 'Cleaning Types',
           icon: 'Sparkles',
-          href: '/campus-living/housekeeping/tasks',
-          matchPaths: ['/campus-living/housekeeping/tasks'],
+          href: '/campus-living/housekeeping/types',
+          matchPaths: ['/campus-living/housekeeping/types'],
         },
         {
-          label: 'Housekeeping Schedules',
+          label: 'Cleaners',
+          icon: 'Users',
+          href: '/campus-living/housekeeping/cleaners',
+          matchPaths: ['/campus-living/housekeeping/cleaners'],
+        },
+        {
+          label: 'Cleaning Availability',
           icon: 'CalendarDays',
-          href: '/campus-living/housekeeping/schedules',
-          matchPaths: ['/campus-living/housekeeping/schedules'],
+          href: '/campus-living/housekeeping/availability',
+          matchPaths: ['/campus-living/housekeeping/availability'],
         },
         {
-          label: 'Housekeeping Bookings',
-          icon: 'CalendarCheck',
-          href: '/campus-living/housekeeping/bookings',
-          matchPaths: ['/campus-living/housekeeping/bookings'],
+          label: 'Attendance Holds',
+          icon: 'ShieldAlert',
+          href: '/campus-living/housekeeping/holds',
+          matchPaths: ['/campus-living/housekeeping/holds'],
         },
       ],
     },
@@ -647,12 +653,6 @@ const config: ModuleNavConfig = {
           icon: 'Package',
           href: '/campus-living/settings/packages',
           matchPaths: ['/campus-living/settings/packages'],
-        },
-        {
-          label: 'Housekeeping Booking',
-          icon: 'Brush',
-          href: '/campus-living/settings/housekeeping',
-          matchPaths: ['/campus-living/settings/housekeeping'],
         },
         {
           label: 'Choose Your Menu',

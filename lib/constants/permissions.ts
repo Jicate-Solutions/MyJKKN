@@ -567,6 +567,14 @@ export const PERMISSION_CATEGORIES = [
       { key: 'academic.staff.planning.create', label: 'Create Employee Planning' },
       { key: 'academic.staff.planning.edit', label: 'Edit Employee Planning' },
       { key: 'academic.staff.planning.delete', label: 'Delete Employee Planning' },
+      {
+        key: 'academic.shared_teaching.label.view',
+        label: 'View Shared Teaching Labels'
+      },
+      {
+        key: 'academic.shared_teaching.label.manage',
+        label: 'Label Shared Teaching Received'
+      },
       { key: 'academic.timetables.view', label: 'View Timetables' },
       { key: 'academic.timetables.create', label: 'Create Timetables' },
       { key: 'academic.timetables.edit', label: 'Edit Timetables' },
@@ -780,6 +788,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.schedule.create', label: 'Create Schedule' },
       { key: 'billing.schedule.update', label: 'Update Schedule' },
       { key: 'billing.schedule.delete', label: 'Delete Schedule' },
+      // Cancelling a bill writes off money, so it is deliberately NOT
+      // billing.schedule.update: that key is held by 6 roles and also covers
+      // fixing a typo. fn_cancel_student_bill gates on THIS key, and a trigger
+      // rejects any other route into status='cancelled'.
+      { key: 'billing.schedule.cancel', label: 'Cancel Bills' },
       // Bulk bill creation: the "Bulk Create" button on /billing/schedule and
       // the /billing/schedule/bulk-create flow (pick many learners, or upload
       // an Excel of bills). Separate from billing.schedule.create so the bulk
@@ -1365,7 +1378,7 @@ export const PERMISSION_CATEGORIES = [
       // page guard AND by MENU_PERMISSIONS, so the nav chip and the page never
       // disagree. Super admins bypass both.
       // -----------------------------------------------------------------
-      { key: 'startup_studio.school_of_influence.configure', label: 'School of Influence — Configure programme settings' },
+      { key: 'startup_studio.school_of_influence.configure', label: 'School of Influencer — Configure programme settings' },
 
       // NIF Pipeline (Nattraja Incubation Forum)
       { key: 'startup_studio.nif.view', label: 'NIF — View Pipeline' },
@@ -1992,6 +2005,17 @@ export const PERMISSION_CATEGORIES = [
       { key: 'solutions.first_use.view', label: 'View First Real Use' },
       { key: 'solutions.first_use.record', label: 'Record First Real Use' },
 
+      // Societal capture (2026-08-28). A department records community work that
+      // produced no invoice; the activity clock reads it so that closing
+      // un-invoiced problems no longer marks the department dormant. Both keys
+      // gate `sh_community_engagements` in RLS
+      // (20261013000000_societal_capture_and_activity_clock.sql), so leaving
+      // either unregistered would make the table permanently super-admin-only.
+      { key: 'solutions.societal.view', label: 'View Community Engagements' },
+      { key: 'solutions.societal.record', label: 'Record Community Engagements' },
+      { key: 'solutions.societal.submit', label: 'Submit Community Engagements' },
+      { key: 'solutions.societal.approve', label: 'Approve Community Engagements' },
+
       // Settings (tier-2 chip-leak sweep 2026-04-27)
       { key: 'solutions.settings.view', label: 'View Solutions Settings' }
     ]
@@ -2128,9 +2152,14 @@ export const PERMISSION_CATEGORIES = [
       { key: 'campus_living.maintenance.approve_payment', label: 'Approve Vendor Payment' },
 
       // Housekeeping
-      { key: 'campus_living.housekeeping.view', label: 'View Housekeeping Schedules' },
-      { key: 'campus_living.housekeeping.schedule', label: 'Create/Edit Schedule' },
-      { key: 'campus_living.housekeeping.mark_done', label: 'Mark Task Done' },
+      { key: 'campus_living.housekeeping.view', label: 'View Housekeeping' },
+      { key: 'campus_living.housekeeping.types_manage', label: 'Manage Cleaning Types' },
+      { key: 'campus_living.housekeeping.cleaners_manage', label: 'Manage Cleaner Directory' },
+      { key: 'campus_living.housekeeping.availability_manage', label: 'Manage Booking Availability' },
+      { key: 'campus_living.housekeeping.assign', label: 'Assign Cleaner to Booking' },
+      { key: 'campus_living.housekeeping.execute', label: 'Record Cleaning (photos, start/finish)' },
+      { key: 'campus_living.housekeeping.cancel', label: "Cancel Another's Booking" },
+      { key: 'campus_living.housekeeping.waive', label: 'Waive Feedback Hold' },
 
       // Laundry
       { key: 'campus_living.laundry.view', label: 'View Laundry Config' },
@@ -3021,7 +3050,15 @@ export const PERMISSION_CATEGORIES = [
       { key: 'meetings.embed.manage', label: 'Manage Embed & Theming' },
       { key: 'meetings.analytics.view', label: 'View Meeting Analytics' },
       { key: 'meetings.webhooks.view', label: 'View Webhooks' },
-      { key: 'meetings.webhooks.manage', label: 'Manage Webhooks' }
+      { key: 'meetings.webhooks.manage', label: 'Manage Webhooks' },
+      // Recurring series + scheduling rules (Monthly Slate, pieces 1 and 2).
+      // The RLS policies on meeting_recurring_series and the two rules tables
+      // reference these via user_has_permission(); registering them here makes
+      // them grantable in Role Management. The EAO reaches the Director's own
+      // series through the EXISTING meeting_host_delegates link, so these keys
+      // are for anyone else who needs the surface — not a replacement for it.
+      { key: 'meetings.series.view', label: 'View Recurring Series' },
+      { key: 'meetings.series.manage', label: 'Manage Recurring Series & Scheduling Rules' }
     ]
   },
   // ======================================================================
@@ -3379,10 +3416,10 @@ export const PERMISSION_CATEGORIES = [
       { key: 'cohort.create', label: 'Create Cohorts (ALL programmes)' },
       { key: 'cohort.edit', label: 'Edit Cohorts (ALL programmes)' },
       { key: 'cohort.manage', label: 'Manage Cohorts (ALL programmes — delete, remove members, admin)' },
-      { key: 'cohort.school_of_influence.view', label: 'School of Influence — View batches and members' },
-      { key: 'cohort.school_of_influence.create', label: 'School of Influence — Create batches, accept applicants' },
-      { key: 'cohort.school_of_influence.edit', label: 'School of Influence — Edit batches and member status' },
-      { key: 'cohort.school_of_influence.manage', label: 'School of Influence — Run the programme (attendance, review queue, remove members)' }
+      { key: 'cohort.school_of_influence.view', label: 'School of Influencer — View batches and members' },
+      { key: 'cohort.school_of_influence.create', label: 'School of Influencer — Create batches, accept applicants' },
+      { key: 'cohort.school_of_influence.edit', label: 'School of Influencer — Edit batches and member status' },
+      { key: 'cohort.school_of_influence.manage', label: 'School of Influencer — Run the programme (attendance, review queue, remove members)' }
     ]
   },
   {
