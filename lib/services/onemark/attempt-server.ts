@@ -38,8 +38,20 @@ export const ONEMARK_MODES: OneMarkAttemptMode[] = [
 ];
 
 /** Seconds of slack after a clock runs out before a late answer is refused —
- *  covers a slow network on the final tap, not a second attempt. */
+ *  covers a slow network on the final tap, not a second attempt.
+ *
+ *  RULING 7 — the grace covers the LAST ANSWER ONLY. It is the tap the learner
+ *  already had in hand when the clock stopped, arriving late over a slow line;
+ *  it is not fifteen extra seconds of paper. `graceAlreadyUsed` below is what
+ *  makes that true: once one answer has landed after the deadline, the next
+ *  one is refused however soon it comes. */
 export const DEADLINE_GRACE_MS = 15_000;
+
+/** Policy key + fallback for the same slack, so the number lives in a config
+ *  row (Lane S3 seeds `onemark.live.grace_seconds = 15`) and this literal is
+ *  only the fallback. */
+export const GRACE_SECONDS_POLICY_KEY = 'onemark.live.grace_seconds';
+export const DEFAULT_GRACE_SECONDS = DEADLINE_GRACE_MS / 1000;
 
 /** The permission the whole lane is gated on — checked server-side in
  *  resolveCaller as well as on the page, so a role whose key was revoked
@@ -447,4 +459,153 @@ export async function closeSitting(
     return { error: closeError(msg, 'Submitting'), alreadySubmitted: false };
   }
   return { error: null, alreadySubmitted: false };
+}
+
+
+// ---------------------------------------------------------------------------
+// The served set, part 2 — the DATABASE column (Lane S3 item 1).
+// ---------------------------------------------------------------------------
+// `fp_attempts.served_item_ids uuid[]` is the server-side wall the signed
+// token above only approximates: with the column present the RPCs themselves
+// refuse an item id outside the array, so a forged request never reaches the
+// answer key even if this route were bypassed. NULL for live papers, whose set
+// is fp_assessment_items.
+//
+// BOTH CHECKS SHIP TOGETHER FOR ONE RELEASE (Lane L item 1). The column is
+// written when it exists and read first when it is populated; the HMAC token
+// stays minted and stays enforced as the fallback, so this change is safe to
+// merge BEFORE S3's migration is applied and safe to run after it. The token
+// comes out in a follow-up once the column is live and proven.
+
+/** PostgREST's phrasings for "that column is not there" — the shape of the
+ *  error while S3's migration is still a file. */
+export const MISSING_COLUMN =
+  /column .* does not exist|could not find the .* column|42703/i;
+
+export type ServedSetWrite = 'written' | 'column_missing' | 'failed';
+
+/** Persist the drawn set on the attempt. Never throws and never fails the
+ *  sitting: before S3 is applied the column is absent and the token carries
+ *  the whole job, which is exactly the belt-and-braces state. */
+export async function persistServedSet(
+  adminClient: any,
+  attemptId: string,
+  itemIds: string[],
+): Promise<ServedSetWrite> {
+  const ids = [...new Set(itemIds)].filter((id) => typeof id === 'string' && UUID_RE.test(id));
+  if (ids.length === 0) return 'failed';
+  try {
+    // No .select() on purpose: a filtered UPDATE's RETURNING projection is
+    // re-filtered by PostgREST, and nothing here needs the row back.
+    const { error } = await adminClient
+      .from('fp_attempts')
+      .update({ served_item_ids: ids })
+      .eq('id', attemptId);
+    if (!error) return 'written';
+    return MISSING_COLUMN.test(error.message ?? '') ? 'column_missing' : 'failed';
+  } catch {
+    return 'failed';
+  }
+}
+
+/** The stored served set, or null when the column is absent, NULL (a live
+ *  paper) or empty — in which case the caller falls back to the token. */
+export async function readServedSetFromDb(
+  adminClient: any,
+  attemptId: string,
+): Promise<Set<string> | null> {
+  try {
+    const { data, error } = await adminClient
+      .from('fp_attempts')
+      .select('served_item_ids')
+      .eq('id', attemptId)
+      .maybeSingle();
+    if (error || !data) return null;
+    const ids = (data as any).served_item_ids;
+    if (!Array.isArray(ids) || ids.length === 0) return null;
+    const strings = ids.filter((v: unknown): v is string => typeof v === 'string');
+    return strings.length ? new Set(strings) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The set this sitting actually served — the stored column first, the signed
+ *  token second. `null` means neither could be established, which is a refusal,
+ *  not an empty set. */
+export async function resolveServedSet(
+  adminClient: any,
+  attemptId: string,
+  token: unknown,
+): Promise<{ served: Set<string> | null; source: 'column' | 'token' | 'none' }> {
+  const fromDb = await readServedSetFromDb(adminClient, attemptId);
+  if (fromDb) return { served: fromDb, source: 'column' };
+  const fromToken = verifyServedSet(attemptId, token);
+  return fromToken
+    ? { served: fromToken, source: 'token' }
+    : { served: null, source: 'none' };
+}
+
+// ---------------------------------------------------------------------------
+// The clock — ruling 7 (the grace covers the last answer only)
+// ---------------------------------------------------------------------------
+
+/** The slack in ms, from the policy row when it exists. */
+export async function graceMs(adminClient: any): Promise<number> {
+  const seconds = await readPolicyInt(
+    adminClient,
+    GRACE_SECONDS_POLICY_KEY,
+    DEFAULT_GRACE_SECONDS,
+  );
+  return seconds * 1000;
+}
+
+/** True when an ANSWER has already been recorded after the deadline on this
+ *  attempt — so the one grace this sitting gets is spent (ruling 7). A skip is
+ *  not an answer: the auto-submit files blanks as skips after the clock stops
+ *  and must never be read as the learner using their grace. */
+export async function graceAlreadyUsed(
+  adminClient: any,
+  attemptId: string,
+  deadlineMs: number,
+): Promise<boolean> {
+  try {
+    const { data } = await adminClient
+      .from('fp_responses')
+      .select('created_at, skipped')
+      .eq('attempt_id', attemptId)
+      .gt('created_at', new Date(deadlineMs).toISOString())
+      .limit(50);
+    const rows: any[] = Array.isArray(data) ? data : [];
+    return rows.some((r) => r && r.skipped !== true);
+  } catch {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Ruling 2 — the full review opens when the PAPER closes, not when one
+// learner submits.
+// ---------------------------------------------------------------------------
+// A live paper is sat by a whole group inside one window. Handing the first
+// learner to submit the answer key, the correct option and the explanation for
+// every question hands it to the group — the review would leave the hall
+// before the paper does. So on a LIVE sitting the score and the counts come
+// back the moment it is submitted, and the item-by-item review is released
+// once `config.close_at` has passed. A paper with no close time has no window
+// to protect, so its review opens immediately. Practice, timed and vault
+// review are unchanged: nobody else is sitting them.
+
+/** When a live paper's item-level review opens, or null when it is open now. */
+export function liveReviewOpensAt(assessmentConfig: any): string | null {
+  const closeAt = assessmentConfig?.close_at;
+  if (typeof closeAt !== 'string') return null;
+  const t = new Date(closeAt).getTime();
+  if (!Number.isFinite(t)) return null;
+  return Date.now() >= t ? null : closeAt;
+}
+
+/** Whether the item-level review may be shown for this paper right now. */
+export function liveReviewOpen(assessmentConfig: any): boolean {
+  return liveReviewOpensAt(assessmentConfig) === null;
 }
