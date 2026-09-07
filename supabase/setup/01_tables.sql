@@ -9157,8 +9157,8 @@ COMMENT ON INDEX public.hr_comp_off_credits_employee_date_live_unique IS
 -- Evidence trail for the Girls Hostel B/C occupancy reconciliation (2026-09-06
 -- / 2026-09-07). One row per learner touched: the before-state, the target, and
 -- what actually happened, including which upgrade bill was created, topped up,
--- or found already sufficient. Written by migrations
--- 20260906120000 / 20260907090000 / 20260907110000 / 20260907120000.
+-- or found already sufficient. Written by migrations 20260906120200 /
+-- 20260907090000 / 20260907110000 / 20260907120500.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.cl_girls_bc_reconcile_log (
   id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
