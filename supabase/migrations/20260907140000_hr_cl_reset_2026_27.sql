@@ -309,14 +309,21 @@ BEGIN
     AND e.hr_academic_year_id = v_year_id
     AND t.leave_type_code = 'CL';
 
-  -- added_days is 0 on purpose: step 8 sets `used` absolutely, so there is
-  -- nothing for a later `clear` to hand back. A non-zero value here would make
-  -- clearing one of these months double-subtract.
+  -- added_days RECORDS WHAT THIS ENTRY PUT INTO `used`, and step 8 puts all of
+  -- it there — so it is the day itself, not zero.
+  --
+  -- It was zero, on the reasoning that setting `used` absolutely left nothing
+  -- for a later `clear` to hand back. That was wrong, and it broke the Adjust
+  -- dialog: `clear` refunds exactly added_days, so removing a June charge
+  -- deleted the entry and left `used` untouched — one day that no entry and no
+  -- application explained, which is the opening adjustment this whole function
+  -- exists to drive to zero. Re-running the reset is still safe: step 8 writes
+  -- `used` absolutely, so nothing double-counts.
   INSERT INTO public.hr_leave_month_entries (
     employee_id, leave_type_id, hr_academic_year_id, hr_organization_id,
     month_start, days, added_days, reason, created_by)
   SELECT c.employee_id, c.leave_type_id, v_year_id, c.hr_organization_id,
-         m.month_start, m.days, 0, v_reason, v_actor
+         m.month_start, m.days, m.days, v_reason, v_actor
   FROM _cl_target c
   CROSS JOIN LATERAL (
     VALUES (DATE '2026-06-01', c.jun_days), (DATE '2026-07-01', c.jul_days)
