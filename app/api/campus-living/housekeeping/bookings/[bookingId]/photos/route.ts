@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { isDriveConfigured } from '@/lib/google/drive-client';
 import { uploadHousekeepingPhoto } from '@/lib/google/drive-upload';
+import { HousekeepingBookingService } from '@/lib/services/campus-living/housekeeping-booking-service';
 import { learnerFacingError, logWithReference } from '@/lib/services/campus-living/error-sanitize';
 
 const LOG = 'campus-living/housekeeping-photos';
@@ -147,6 +148,14 @@ export async function POST(
         { error: learnerFacingError('updating the cleaning', ref) },
         { status: 500 },
       );
+    }
+
+    // The job is now waiting on a rating. Tell the room tonight, before the
+    // attendance hold lands tomorrow morning — a block nobody was warned about
+    // is just a mystery. Deliberately not awaited into the response path:
+    // notification delivery must never fail a completed cleaning.
+    if (nextStatus === 'awaiting_feedback') {
+      void HousekeepingBookingService.notifyFeedbackPending(bookingId);
     }
 
     return NextResponse.json({ ok: true, phase, status: nextStatus });

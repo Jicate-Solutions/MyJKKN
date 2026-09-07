@@ -2,6 +2,12 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { getErrorMessage } from '@/lib/utils';
 import { CL_ROSTER_STATUSES } from './roster-statuses';
+import { sendNotification } from '@/lib/services/notification/notification-service';
+import {
+  NotificationCategory,
+  NotificationPriority,
+  NotificationType,
+} from '@/types/notification';
 import type { MyAllocation } from '@/types/campus-living/housekeeping';
 import type {
   AssignResult,
@@ -319,6 +325,63 @@ export class HousekeepingBookingService {
     if (error) {
       logger.error(LOG, 'Failed to finish job', error);
       throw error;
+    }
+  }
+
+  /**
+   * Tell every learner in the room that a cleaning is waiting on their rating.
+   *
+   * Fired when a booking enters awaiting_feedback, so the room hears about it
+   * the same evening — BEFORE the attendance hold lands the next morning. A
+   * block nobody was warned about is just a mystery to the person hitting it,
+   * which is the whole reason this exists.
+   *
+   * Best-effort by design: the caller must not fail the photo upload because a
+   * notification could not be delivered. The hold is still correct either way.
+   */
+  static async notifyFeedbackPending(bookingId: string): Promise<void> {
+    try {
+      const { data: booking, error } = await (this.supabase as any)
+        .from('hostel_cleaning_bookings')
+        .select('id, room_id, type_name, booking_date')
+        .eq('id', bookingId)
+        .maybeSingle();
+      if (error || !booking) {
+        logger.warn(LOG, 'Could not load booking for feedback notification', error);
+        return;
+      }
+
+      // Every CURRENT resident of the room, not just the booker — any of them
+      // can rate, and all of them are held.
+      const { data: roommates, error: roomErr } = await (this.supabase as any)
+        .from('hostel_allocations')
+        .select('learner_id')
+        .eq('room_id', booking.room_id)
+        .in('status', CL_ROSTER_STATUSES);
+      if (roomErr) {
+        logger.warn(LOG, 'Could not load roommates for feedback notification', roomErr);
+        return;
+      }
+
+      const userIds = Array.from(
+        new Set(((roommates ?? []) as Array<{ learner_id: string }>).map((r) => r.learner_id)),
+      );
+      if (userIds.length === 0) return;
+
+      await sendNotification({
+        user_ids: userIds,
+        type: NotificationType.REMINDER,
+        category: NotificationCategory.APPROVAL,
+        priority: NotificationPriority.HIGH,
+        title: 'Rate your room cleaning',
+        message: `${booking.type_name} was completed today. Rate it before midnight — until someone in your room does, hostel attendance is on hold for all of you.`,
+        action_url: '/campus-living/my-hostel/housekeeping',
+        action_label: 'Rate the cleaning',
+        metadata: { booking_id: booking.id, booking_date: booking.booking_date } as never,
+      });
+    } catch (err) {
+      // Never let a notification failure break the cleaning workflow.
+      logger.error(LOG, `notifyFeedbackPending failed: ${getErrorMessage(err)}`, err);
     }
   }
 
