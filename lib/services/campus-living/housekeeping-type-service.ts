@@ -18,24 +18,19 @@ export class HousekeepingTypeService {
   }
 
   /**
-   * institutionId omitted => every institution the caller's roles can reach.
-   * Never branch on isSuperAdmin to decide this: pass undefined and let RLS
-   * filter, or a secondary role with wider scope silently loses access.
+   * The catalogue is GLOBAL — there is no institution to scope by. A type is
+   * reachable to a learner through its room-category junction, not through
+   * tenancy, so every reader sees the same list.
    */
-  static async listTypes(institutionId?: string): Promise<CleaningTypeWithDetail[]> {
+  static async listTypes(): Promise<CleaningTypeWithDetail[]> {
     try {
-      let query = this.supabase
+      const { data, error } = await this.supabase
         .from('hostel_cleaning_types')
         .select(`*,
                  expenses:hostel_cleaning_type_expenses(*),
                  categories:hostel_cleaning_type_categories(category_id)`)
         .order('sort_order', { ascending: true })
         .order('name', { ascending: true });
-
-      // ?? not ||: '' would travel as a real UUID and match zero rows.
-      if (institutionId != null) query = query.eq('institution_id', institutionId);
-
-      const { data, error } = await query;
       if (error) {
         logger.error(LOG, 'Failed to list cleaning types', error);
         throw error;
@@ -95,7 +90,6 @@ export class HousekeepingTypeService {
       const { data: type, error } = await this.supabase
         .from('hostel_cleaning_types')
         .insert({
-          institution_id: dto.institution_id,
           name: dto.name.trim(),
           description: dto.description?.trim() || null,
           duration_minutes: dto.duration_minutes,
@@ -113,7 +107,7 @@ export class HousekeepingTypeService {
       }
 
       const created = type as unknown as CleaningType;
-      await this.replaceExpenses(created.id, dto.institution_id, dto.expenses);
+      await this.replaceExpenses(created.id, dto.expenses);
       await this.replaceCategories(created.id, dto.category_ids);
       return created;
     } catch (error) {
@@ -144,18 +138,8 @@ export class HousekeepingTypeService {
         }
       }
 
-      const { data: existing, error: readErr } = await this.supabase
-        .from('hostel_cleaning_types')
-        .select('institution_id')
-        .eq('id', typeId)
-        .single();
-      if (readErr) {
-        logger.error(LOG, 'Failed to read institution for type update', readErr);
-        throw readErr;
-      }
-
       if (dto.expenses !== undefined) {
-        await this.replaceExpenses(typeId, (existing as any).institution_id, dto.expenses);
+        await this.replaceExpenses(typeId, dto.expenses);
       }
       if (dto.category_ids !== undefined) {
         await this.replaceCategories(typeId, dto.category_ids);
@@ -233,7 +217,6 @@ export class HousekeepingTypeService {
 
   private static async replaceExpenses(
     typeId: string,
-    institutionId: string,
     lines: CreateCleaningTypeDto['expenses'],
   ): Promise<void> {
     const { error: delErr } = await this.supabase
@@ -250,7 +233,6 @@ export class HousekeepingTypeService {
     // sent as an explicit NULL and defeats the column DEFAULT.
     const rows = lines.map((l, i) => ({
       type_id: typeId,
-      institution_id: institutionId,
       item_name: l.item_name.trim(),
       unit: l.unit?.trim() || null,
       quantity: l.quantity,

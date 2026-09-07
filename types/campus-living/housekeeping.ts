@@ -19,9 +19,13 @@ export type BookingStatus =
 
 export type PhotoPhase = 'before' | 'after';
 
+/**
+ * A GLOBAL catalogue row — cleaning types carry no institution_id. Eligibility
+ * is decided by the room-category junction, not by tenancy. See
+ * supabase/migrations/20260909110000_housekeeping_types_global.sql.
+ */
 export interface CleaningType {
   id: string;
-  institution_id: string;
   name: string;
   description: string | null;
   duration_minutes: number;
@@ -37,7 +41,6 @@ export interface CleaningType {
 export interface CleaningTypeExpense {
   id: string;
   type_id: string;
-  institution_id: string;
   item_name: string;
   unit: string | null;
   quantity: number;
@@ -221,7 +224,6 @@ export type CleaningExpenseInput = Pick<
 > & { sort_order?: number };
 
 export interface CreateCleaningTypeDto {
-  institution_id: string;
   name: string;
   description?: string | null;
   duration_minutes: number;
@@ -233,7 +235,7 @@ export interface CreateCleaningTypeDto {
   expenses: CleaningExpenseInput[];
 }
 
-export type UpdateCleaningTypeDto = Partial<Omit<CreateCleaningTypeDto, 'institution_id'>>;
+export type UpdateCleaningTypeDto = Partial<CreateCleaningTypeDto>;
 
 export interface CreateCleanerDto {
   institution_id: string;

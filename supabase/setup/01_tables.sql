@@ -9239,9 +9239,11 @@ ALTER TABLE public.aiu_prompt_trails ENABLE ROW LEVEL SECURITY;
 -- ==========================================================================
 -- 1. hostel_cleaning_types
 -- ==========================================================================
+-- GLOBAL catalogue: no institution_id. Eligibility is decided by the
+-- hostel_cleaning_type_categories junction (hostel_categories is itself global),
+-- not by tenancy. See 20260909110000_housekeeping_types_global.sql.
 CREATE TABLE public.hostel_cleaning_types (
   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  institution_id    uuid NOT NULL REFERENCES public.institutions(id),
   name              text NOT NULL,
   description       text,
   duration_minutes  integer NOT NULL CHECK (duration_minutes > 0 AND duration_minutes <= 480),
@@ -9254,12 +9256,10 @@ CREATE TABLE public.hostel_cleaning_types (
   updated_at        timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_hk_types_institution ON public.hostel_cleaning_types (institution_id);
-
 CREATE INDEX idx_hk_types_created_by  ON public.hostel_cleaning_types (created_by);
 
-CREATE UNIQUE INDEX ux_hk_types_name_per_institution
-  ON public.hostel_cleaning_types (institution_id, lower(name));
+CREATE UNIQUE INDEX ux_hk_types_name
+  ON public.hostel_cleaning_types (lower(name));
 
 ALTER TABLE public.hostel_cleaning_types ENABLE ROW LEVEL SECURITY;
 
@@ -9269,7 +9269,6 @@ ALTER TABLE public.hostel_cleaning_types ENABLE ROW LEVEL SECURITY;
 CREATE TABLE public.hostel_cleaning_type_expenses (
   id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   type_id        uuid NOT NULL REFERENCES public.hostel_cleaning_types(id) ON DELETE CASCADE,
-  institution_id uuid NOT NULL REFERENCES public.institutions(id),
   item_name      text NOT NULL,
   unit           text,
   quantity       numeric(10,2) NOT NULL CHECK (quantity > 0),
@@ -9281,8 +9280,6 @@ CREATE TABLE public.hostel_cleaning_type_expenses (
 );
 
 CREATE INDEX idx_hk_type_expenses_type        ON public.hostel_cleaning_type_expenses (type_id);
-
-CREATE INDEX idx_hk_type_expenses_institution ON public.hostel_cleaning_type_expenses (institution_id);
 
 ALTER TABLE public.hostel_cleaning_type_expenses ENABLE ROW LEVEL SECURITY;
 

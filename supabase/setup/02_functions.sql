@@ -60527,12 +60527,12 @@ BEGIN
     RETURN jsonb_build_object('success', false, 'error_code', 'no_allocation');
   END IF;
 
-  -- 3. Active type in the caller's institution.
+  -- 3. Active type. The catalogue is global, so there is no institution to
+  --    match -- step 4 is what decides whether THIS learner may book it.
   SELECT * INTO v_type
   FROM public.hostel_cleaning_types t
   WHERE t.id = p_type_id
-    AND t.is_active
-    AND t.institution_id = v_alloc.institution_id;
+    AND t.is_active;
   IF NOT FOUND THEN
     RETURN jsonb_build_object('success', false, 'error_code', 'type_unavailable');
   END IF;

@@ -4,16 +4,8 @@ import { useMemo, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,9 +23,8 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { DataTable } from '@/components/ui/data-table';
-import { AlertTriangle, Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
+import { AlertTriangle, Info, Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import {
   useHousekeepingTypes,
   useDeleteCleaningType,
@@ -43,7 +34,6 @@ import { CleaningTypeDialog } from './_components/cleaning-type-dialog';
 import type { CleaningTypeWithDetail } from '@/types/campus-living/housekeeping';
 
 export default function HousekeepingTypesPage() {
-  const [institutionId, setInstitutionId] = useState<string>('all');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<CleaningTypeWithDetail | undefined>();
   const [deleteTarget, setDeleteTarget] = useState<CleaningTypeWithDetail | null>(null);
@@ -56,13 +46,9 @@ export default function HousekeepingTypesPage() {
   const canManage =
     permsLoading || isSuperAdmin || !!permissions['campus_living.housekeeping.types_manage'];
 
-  const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess();
-
-  // Pass the selection straight through — never branch on isSuperAdmin to decide
-  // WHICH institution's rows to fetch; RLS already filters them.
-  const scopedInstitution = institutionId === 'all' ? undefined : institutionId;
-
-  const { data: types = [], isLoading, refetch } = useHousekeepingTypes(scopedInstitution);
+  // One shared catalogue: there is no institution filter because a cleaning
+  // type has no institution. Eligibility is decided by room category instead.
+  const { data: types = [], isLoading, refetch } = useHousekeepingTypes();
   const deleteMut = useDeleteCleaningType();
 
   const openCreate = () => {
@@ -186,41 +172,14 @@ export default function HousekeepingTypesPage() {
             </p>
           </div>
           {canManage && (
-            <div className="flex flex-col items-end gap-1">
-              <Button onClick={openCreate} disabled={!scopedInstitution}>
-                <Plus className="mr-1.5 h-4 w-4" />
-                New Type
-              </Button>
-              {!scopedInstitution && (
-                <p className="text-xs text-muted-foreground">
-                  Select an institution above to add a new type.
-                </p>
-              )}
-            </div>
+            <Button onClick={openCreate}>
+              <Plus className="mr-1.5 h-4 w-4" />
+              New Type
+            </Button>
           )}
         </div>
 
-        <Card>
-          <CardContent className="flex flex-wrap items-end gap-3 p-4">
-            <Select
-              value={institutionId}
-              onValueChange={setInstitutionId}
-              disabled={institutionsLoading}
-            >
-              <SelectTrigger className="w-[15rem]">
-                <SelectValue placeholder="All institutions" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All institutions</SelectItem>
-                {institutions.map((inst) => (
-                  <SelectItem key={inst.id} value={inst.id}>
-                    {inst.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </CardContent>
-        </Card>
+        
 
         {isLoading || permsLoading ? (
           <div className="flex items-center justify-center py-16">
@@ -242,7 +201,6 @@ export default function HousekeepingTypesPage() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         mode={editTarget ? 'edit' : 'create'}
-        institutionId={editTarget ? editTarget.institution_id : scopedInstitution}
         type={editTarget}
       />
 

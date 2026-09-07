@@ -67563,7 +67563,6 @@ export type Database = {
         Row: {
           created_at: string
           id: string
-          institution_id: string
           item_name: string
           line_total_inr: number | null
           quantity: number
@@ -67576,7 +67575,6 @@ export type Database = {
         Insert: {
           created_at?: string
           id?: string
-          institution_id: string
           item_name: string
           line_total_inr?: number | null
           quantity: number
@@ -67589,7 +67587,6 @@ export type Database = {
         Update: {
           created_at?: string
           id?: string
-          institution_id?: string
           item_name?: string
           line_total_inr?: number | null
           quantity?: number
@@ -67600,62 +67597,6 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
-          {
-            foreignKeyName: "hostel_cleaning_type_expenses_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "case_graduation_readiness"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hostel_cleaning_type_expenses_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "institutions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hostel_cleaning_type_expenses_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "mv_cluster_leaderboard_colleges"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hostel_cleaning_type_expenses_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "semester_hierarchy_health"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hostel_cleaning_type_expenses_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "v_cac_collaboration_isolation"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hostel_cleaning_type_expenses_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "v_cac_solution_funnel"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hostel_cleaning_type_expenses_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "v_hostel_institution_residents"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hostel_cleaning_type_expenses_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "v_institutions_needing_admission_counselors"
-            referencedColumns: ["institution_id"]
-          },
           {
             foreignKeyName: "hostel_cleaning_type_expenses_type_id_fkey"
             columns: ["type_id"]
@@ -67672,7 +67613,6 @@ export type Database = {
           description: string | null
           duration_minutes: number
           id: string
-          institution_id: string
           is_active: boolean
           name: string
           sort_order: number
@@ -67686,7 +67626,6 @@ export type Database = {
           description?: string | null
           duration_minutes: number
           id?: string
-          institution_id: string
           is_active?: boolean
           name: string
           sort_order?: number
@@ -67700,7 +67639,6 @@ export type Database = {
           description?: string | null
           duration_minutes?: number
           id?: string
-          institution_id?: string
           is_active?: boolean
           name?: string
           sort_order?: number
@@ -67736,62 +67674,6 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "users_profiles"
             referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hostel_cleaning_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "case_graduation_readiness"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hostel_cleaning_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "institutions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hostel_cleaning_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "mv_cluster_leaderboard_colleges"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hostel_cleaning_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "semester_hierarchy_health"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hostel_cleaning_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "v_cac_collaboration_isolation"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hostel_cleaning_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "v_cac_solution_funnel"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hostel_cleaning_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "v_hostel_institution_residents"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hostel_cleaning_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "v_institutions_needing_admission_counselors"
-            referencedColumns: ["institution_id"]
           },
         ]
       }

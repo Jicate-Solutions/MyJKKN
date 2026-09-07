@@ -39,10 +39,12 @@ export const GET = withAuth(async (request, auth) => {
   if (type === 'types' || type === 'schedules') {
     const isActive = getStringParam(url, 'is_active');
 
+    // No institution filter: the cleaning-type catalogue is global. The API key
+    // still has to belong to an organization (checked above), and RLS decides
+    // what the key's identity may read.
     let query = (auth.supabase as any)
       .from('hostel_cleaning_types')
-      .select('*, categories:hostel_cleaning_type_categories(category_id)', { count: 'exact' })
-      .eq('institution_id', institutionId);
+      .select('*, categories:hostel_cleaning_type_categories(category_id)', { count: 'exact' });
 
     if (isActive) query = query.eq('is_active', isActive === 'true');
 

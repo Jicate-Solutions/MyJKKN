@@ -95,7 +95,6 @@ interface CleaningTypeDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   mode: 'create' | 'edit';
-  institutionId?: string;
   type?: CleaningTypeWithDetail;
 }
 
@@ -103,7 +102,6 @@ export function CleaningTypeDialog({
   open,
   onOpenChange,
   mode,
-  institutionId,
   type,
 }: CleaningTypeDialogProps) {
   const createMut = useCreateCleaningType();
@@ -189,8 +187,7 @@ export function CleaningTypeDialog({
 
     try {
       if (mode === 'create') {
-        if (!institutionId) return;
-        await createMut.mutateAsync({ institution_id: institutionId, ...payload });
+        await createMut.mutateAsync(payload);
       } else if (type) {
         await updateMut.mutateAsync({ typeId: type.id, dto: payload });
       }

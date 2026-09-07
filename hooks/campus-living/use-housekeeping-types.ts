@@ -11,17 +11,17 @@ import type {
 
 export const housekeepingTypeKeys = {
   all: ['housekeeping-types'] as const,
-  list: (institutionId?: string) =>
-    ['housekeeping-types', 'list', institutionId ?? 'all'] as const,
+  // The catalogue is global, so the list has no institution dimension.
+  list: () => ['housekeeping-types', 'list'] as const,
   detail: (typeId: string) => ['housekeeping-types', 'detail', typeId] as const,
   bookable: (roomId?: string) =>
     ['housekeeping-types', 'bookable', roomId ?? 'none'] as const,
 };
 
-export function useHousekeepingTypes(institutionId?: string) {
+export function useHousekeepingTypes() {
   return useQuery({
-    queryKey: housekeepingTypeKeys.list(institutionId),
-    queryFn: () => HousekeepingTypeService.listTypes(institutionId),
+    queryKey: housekeepingTypeKeys.list(),
+    queryFn: () => HousekeepingTypeService.listTypes(),
   });
 }
 
