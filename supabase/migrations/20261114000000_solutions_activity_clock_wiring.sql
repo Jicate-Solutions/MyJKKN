@@ -109,11 +109,8 @@ BEGIN
   IF NOT has_function_privilege(
             current_user, 'public.update_department_statuses()', 'EXECUTE') THEN
     RAISE EXCEPTION
-      'Refusing to schedule a job that cannot run: role % has no EXECUTE on '
-      'public.update_department_statuses(). Scheduling it anyway would create a '
-      'silent monthly no-op visible only in cron.job_run_details. Apply this '
-      'migration as the function owner (or a member of it), or grant EXECUTE '
-      'to the applying role first.', current_user;
+      'Refusing to schedule a job that cannot run: role % has no EXECUTE on public.update_department_statuses(). Scheduling it anyway would create a silent monthly no-op visible only in cron.job_run_details. Apply this migration as the function owner (or a member of it), or grant EXECUTE to the applying role first.',
+      current_user;
   END IF;
 END $execcheck$;
 
