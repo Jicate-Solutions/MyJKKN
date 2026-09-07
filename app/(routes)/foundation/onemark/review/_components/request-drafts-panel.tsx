@@ -9,7 +9,12 @@
 // The panel sits above the queue it fills, so asking and approving live on one
 // screen — the same person, the same visit.
 //
-// FOUR THINGS THIS SCREEN REFUSES TO FAKE:
+// FIVE THINGS THIS SCREEN REFUSES TO FAKE:
+//   0. A FAILED READ IS NOT A FACT. If the contract row or today's own requests
+//      cannot be read, the panel says the count is unknown and holds the button
+//      — it never shows a full allowance off an empty error result (which would
+//      let a spent day be discovered by the refusal) and never reports "not
+//      switched on for this estate", which one network blip cannot support.
 //   1. The caps are read live from the contract row BEFORE the click, so a
 //      spent day is visible, not discovered by a refusal.
 //   2. There is no spinner theatre. Drafts land in the queue below after the
@@ -24,7 +29,7 @@
 // queue underneath and the panel is written for it.
 
 import { useMemo, useState } from 'react';
-import { Sparkles, Info } from 'lucide-react';
+import { Sparkles, Info, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -43,6 +48,7 @@ import {
   DRAFT_MAX_COUNT,
   DRAFT_MIN_COUNT,
   describeLane,
+  describeMonthlyCap,
   describeRemaining,
   ownQueuePosition,
   validateRequest,
@@ -58,7 +64,7 @@ const ANY_UNIT = '__any_unit';
 const DEFAULT_COUNT = 5;
 
 export function RequestDraftsPanel() {
-  const { data: exams, isLoading: examsLoading } = useOneMarkExams();
+  const { data: exams, isLoading: examsLoading, isError: examsError } = useOneMarkExams();
   const [examId, setExamId] = useState<string | null>(null);
   const activeExamId = examId ?? exams?.[0]?.id ?? null;
   const exam = useMemo(
@@ -110,6 +116,10 @@ export function RequestDraftsPanel() {
   async function ask() {
     setOutcome(null);
     const result = await submit.mutateAsync({ input, dailyCap: caps.dailyCap });
+    if (result.detail && result.detail !== result.message) {
+      // The route's own words, kept out of the person's way but not lost.
+      console.warn('[onemark/draft-request] route refused:', result.detail);
+    }
     setOutcome(result);
     setJobId(result.jobId);
   }
@@ -117,7 +127,31 @@ export function RequestDraftsPanel() {
   const position = jobId ? ownQueuePosition(budget.today, jobId) : null;
 
   if (examsLoading) return <Skeleton className="h-56 w-full rounded-xl" />;
-  if (!exams || exams.length === 0) return null;
+
+  // Three different absences, three different sentences. A failed read used to
+  // fall into the same silent `return null` as a genuinely empty estate, so a
+  // Senior Learner who came to ask for questions saw no door and no reason
+  // (CLAUDE.md #27: a refusal is explicit, never a silent vanish).
+  if (examsError) {
+    return (
+      <section className="rounded-xl border border-border bg-card p-4 text-[13px] text-muted-foreground md:p-5">
+        <span className="flex items-start gap-1.5">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          The subject list could not be read, so the AI drafting panel cannot be shown.
+          Reload the page; if it keeps happening, tell the OneMark administrator.
+        </span>
+      </section>
+    );
+  }
+  if (!exams || exams.length === 0) {
+    return (
+      <section className="rounded-xl border border-dashed border-border p-4 text-[13px] text-muted-foreground md:p-5">
+        No OneMark subject is switched on yet, so there is nothing to draft questions
+        for. Once a subject is active, the &ldquo;Ask for AI questions&rdquo; panel
+        appears here.
+      </section>
+    );
+  }
 
   return (
     <section
@@ -149,12 +183,40 @@ export function RequestDraftsPanel() {
                 {describeRemaining(caps) ?? 'Not switched on'}
               </div>
               <div className="mt-0.5">{describeLane(caps)}</div>
+              {/* Lane G item 3's SECOND cap. The daily one above is the caller's;
+                  this is the estate's monthly ceiling from the same contract row. */}
+              {describeMonthlyCap(caps) && (
+                <div className="mt-0.5 max-w-[22rem]">{describeMonthlyCap(caps)}</div>
+              )}
             </>
           )}
         </div>
       </div>
 
-      {!caps.live && !budget.isLoading && (
+      {/* A failed read is not a fact about the estate. Saying "not switched on"
+          off a network blip would be a claim we cannot support, and showing a
+          full allowance would let a spent day be discovered by the refusal. */}
+      {budget.isError && !budget.isLoading && (
+        <div className="mt-4 rounded-lg border border-amber-400/60 bg-amber-50/60 p-3 text-[13px] dark:bg-amber-950/20">
+          <p className="flex items-start gap-1.5 text-foreground">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            The AI settings could not be read just now, so how many requests you have
+            left today is unknown. Asking is held back until the count is known — that
+            way a spent day is never discovered by a refusal.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="mt-2"
+            onClick={() => budget.refetch()}
+          >
+            Try again
+          </Button>
+        </div>
+      )}
+
+      {!caps.live && !caps.readFailed && !budget.isLoading && (
         <p className="mt-4 rounded-lg border border-dashed border-border p-3 text-[13px] text-muted-foreground">
           AI drafting is not switched on for this estate yet. Nothing can be queued and
           nothing can be spent from here.

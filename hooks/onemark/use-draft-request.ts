@@ -18,10 +18,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import {
   DRAFT_STATUS_ROUTE,
+  JOB_NOT_FOUND,
+  JOB_SIGNED_OUT,
   computeCaps,
   describeJob,
   istDayStart,
   submitDraftRequest,
+  unreadableJobView,
   type DraftCaps,
   type DraftJobTypeRow,
   type DraftRequestInput,
@@ -57,15 +60,22 @@ async function readContract(): Promise<DraftJobTypeRow | null> {
   return (data ?? null) as DraftJobTypeRow | null;
 }
 
+/** The ceiling on today's own-rows read. It exists only to bound the query; it
+ *  is NOT the cap. If a future `/admin/ai-models` edit raises
+ *  daily_cap_per_user above this, the fetch would saturate and the counter
+ *  would silently under-report — so a saturated read is treated as a FAILED
+ *  read (caps.readFailed) rather than as a small number. */
+export const TODAY_ROW_LIMIT = 200;
+
 async function readToday(): Promise<OwnJobRow[]> {
   const { data, error } = await sb()
     .from('ai_jobs')
-    .select('id, status, requested_at, completed_at')
+    .select('id, status, requested_at')
     .eq('job_type', ONEMARK_DRAFT_JOB_TYPE)
     .neq('status', 'canceled')
     .gte('requested_at', istDayStart(new Date()).toISOString())
     .order('requested_at', { ascending: true })
-    .limit(50);
+    .limit(TODAY_ROW_LIMIT);
   if (error) throw error;
   return (data ?? []) as OwnJobRow[];
 }
@@ -84,15 +94,26 @@ export function useDraftBudget() {
   });
 
   const rows = today.data ?? [];
+  // A failed read is NOT a zero. If either query threw, or if today's fetch hit
+  // its own ceiling, the panel knows nothing about the allowance and must say
+  // so — showing "5 of 5 left today" off an empty error result would let a
+  // spent day be discovered by the refusal, which Lane G item 3 forbids.
+  const readFailed =
+    contract.isError || today.isError || rows.length >= TODAY_ROW_LIMIT;
+
   const budget: DraftBudget = {
-    caps: computeCaps(contract.data ?? null, rows.length, new Date()),
+    caps: computeCaps(contract.data ?? null, rows.length, new Date(), readFailed),
     today: rows,
   };
 
   return {
     ...budget,
     isLoading: contract.isLoading || today.isLoading,
-    isError: contract.isError || today.isError,
+    isError: readFailed,
+    refetch: () => {
+      void contract.refetch();
+      void today.refetch();
+    },
   };
 }
 
@@ -113,10 +134,24 @@ interface JobStatusPayload {
   error: string | null;
 }
 
+/** Three shapes of failure, three different answers:
+ *   - 401 -> the session died. An ENDING. Terminal, with a sign-in sentence.
+ *   - 404 -> fn_ai_job_status said not_found. An ENDING. Terminal.
+ *   - anything else non-ok -> transient. THROWN, so React Query retries it a
+ *     bounded number of times and then settles into an error the panel renders
+ *     as "could not read this request".
+ *  Before this, every one of them became {status:'unknown'} -> non-terminal ->
+ *  a 10-second poll that ran for as long as the tab stayed open. */
 async function readJob(jobId: string): Promise<JobStatusPayload> {
   const response = await fetch(`${DRAFT_STATUS_ROUTE}?id=${encodeURIComponent(jobId)}`);
+  if (response.status === 401) {
+    return { status: JOB_SIGNED_OUT, result: null, error: null };
+  }
+  if (response.status === 404) {
+    return { status: JOB_NOT_FOUND, result: null, error: null };
+  }
   if (!response.ok) {
-    return { status: 'unknown', result: null, error: null };
+    throw new Error(`status read failed (${response.status})`);
   }
   const body = await response.json();
   return {
@@ -127,23 +162,28 @@ async function readJob(jobId: string): Promise<JobStatusPayload> {
 }
 
 /** Polls one request until it reaches a terminal state, then stops. Terminal
- *  means filed, errored or cancelled — "the model finished" is NOT terminal,
- *  because the collect pass has not run yet. */
+ *  means filed, errored, cancelled, signed out, not found, or unreadable —
+ *  "the model finished" is NOT terminal, because the collect pass has not run
+ *  yet. There is no state this poll cannot leave. */
 export function useDraftJobStatus(jobId: string | null) {
   const query = useQuery({
     queryKey: draftRequestKeys.job(jobId ?? ''),
     queryFn: () => readJob(jobId as string),
     enabled: !!jobId,
+    retry: 3,
     refetchInterval: (q) => {
+      if (q.state.status === 'error') return false;
       const d = q.state.data as JobStatusPayload | undefined;
       if (!d) return 10_000;
       return describeJob(d.status, d.result, d.error).terminal ? false : 10_000;
     },
   });
 
-  const view: JobView | null = query.data
-    ? describeJob(query.data.status, query.data.result, query.data.error)
-    : null;
+  const view: JobView | null = query.isError
+    ? unreadableJobView()
+    : query.data
+      ? describeJob(query.data.status, query.data.result, query.data.error)
+      : null;
 
-  return { view, rawStatus: query.data?.status ?? null, isLoading: query.isLoading };
+  return { view };
 }

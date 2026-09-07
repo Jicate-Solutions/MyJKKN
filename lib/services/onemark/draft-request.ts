@@ -15,10 +15,16 @@
 // against those required keys before it looks at anything else. So a body
 // that carries only the six domain fields answers 400 "Missing: prompt".
 // buildRequestBody therefore sends BOTH: the six fields the route's own shape
-// checks read, and a `prompt` string that satisfies the schema gate. The route
-// discards our prompt and composes its own through buildDraftPayload — ours
-// exists to get past the gate, and reads as a plain sentence so an operator
-// looking at ai_jobs.payload can tell what was asked for.
+// checks read, and a `prompt` string that satisfies the schema gate.
+//
+// THE PROMPT WE SEND IS THROWN AWAY, AND THAT IS THE POINT. The route reads
+// the body's `prompt` ONLY to pass its own required-keys check (route.ts:110-122)
+// and then rebuilds the payload from scratch — draft-contract.ts:99
+// `buildDraftPayload` returns `{ _ctx: ctx, prompt: JSON.stringify(ctx) }`, so
+// OUR sentence never reaches ai_jobs.payload and is persisted nowhere. Do not
+// justify it as something an operator reads; it exists to unlock the gate.
+// The live risk stays recorded: if anyone later makes the route honour the
+// caller's prompt, this sentence silently becomes the drafting instruction.
 //
 // THREE ANSWERS THE PANEL MUST NOT MISREAD:
 //   - fn_ai_enqueue refuses a spent daily cap with {ok:false, error:'daily
@@ -27,11 +33,22 @@
 //   - 503 "contract pending" means nothing was queued and nothing was spent.
 //   - 429 is the in-flight ceiling (max_inflight = 3), not a cap.
 //
-// COST (ruling #12). The job type sits on lane 'max' — the ₹0 seat lane. The
-// ₹5,000/month figure on the row governs the PAID inline operator path
-// (?mode=generate_now), never this door: a request from this panel is queued
-// on the free lane whatever the month's spend looks like, which is exactly
-// what ruling #12 asks for. The route needs no change; the panel says so.
+// COST. Ruling #12 of 2026-09-06 — `specs/onemark-wave3-2026-09-06.md`,
+// section "## Rulings of 2026-09-06", row 12, published to main by PR #3343:
+// "Monthly AI drafting cap reached -> Route 'draft now' to the ₹0 Max lane
+// (enqueue for the scheduled collect pass; tell the Senior Learner 'queued,
+// runs within 30 minutes at no cost') rather than blocking." The job type
+// already sits on lane 'max', so this door satisfies the ruling with no route
+// change. The MECHANISM behind it is stated on main at draft-collect.ts:33-36:
+// monthly_spend_cap_inr is enforced on the PAID path by resolveChatModel; the
+// ₹0 lane spends nothing.
+//
+// THE ONE HEDGE THE RULING DOES NOT COVER: the same queued job can later be
+// accelerated by an operator through the paid inline path
+// (`/api/cron/onemark-item-drafts?mode=generate_now`, which runs it "through
+// the estate's paid chat client"). So the honest sentence is "queued at no
+// cost on the free lane" — a claim about how it is QUEUED, not a promise about
+// the request's whole life.
 //
 // DECISION 7 is absolute here: nothing in this lane writes is_active. A
 // drafting request is not an approval.
@@ -85,6 +102,13 @@ export interface DraftCaps {
   resetsAt: string;
   freeLane: boolean;
   monthlyCapInr: number | null;
+  /** A read of the contract row or of today's own requests FAILED. Distinct
+   *  from `live:false`, which is a fact about the estate. When this is true the
+   *  panel knows nothing: it must not claim a full allowance (which would let a
+   *  spent day be discovered by a refusal — the exact thing Lane G item 3
+   *  forbids) and it must not claim the feature is switched off. Blocked, and
+   *  says why. */
+  readFailed: boolean;
 }
 
 export type RequestOutcomeKind =
@@ -100,8 +124,12 @@ export type RequestOutcomeKind =
 export interface RequestOutcome {
   ok: boolean;
   kind: RequestOutcomeKind;
+  /** What a person reads. Plain words only. */
   message: string;
   jobId: string | null;
+  /** The route's own words, when they differ from `message`. For the console
+   *  and for a bug report — never rendered. */
+  detail?: string | null;
 }
 
 export interface FiledRejection {
@@ -126,7 +154,18 @@ export type JobPhase =
   | 'filed'
   | 'errored'
   | 'canceled'
+  | 'signed out'
+  | 'not found'
+  | 'unreadable'
   | 'unknown';
+
+/** Sentinel statuses readJob() puts in place of an HTTP failure, so the poll
+ *  can tell "the job is still working" apart from "we cannot read the job".
+ *  /api/ai-jobs/status answers 401 when the session dies and 404 when
+ *  fn_ai_job_status returns not_found; both used to become "Still checking"
+ *  and a 10-second loop with no exit. */
+export const JOB_SIGNED_OUT = 'client:signed_out';
+export const JOB_NOT_FOUND = 'client:not_found';
 
 export interface JobView {
   phase: JobPhase;
@@ -151,8 +190,12 @@ export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 // The request body
 // ---------------------------------------------------------------------------
 
-/** The sentence that rides in `prompt`. The route ignores it; the schema gate
- *  does not, and an operator reading ai_jobs.payload deserves a readable line. */
+/** The sentence that rides in `prompt`. It exists for ONE reason: the route's
+ *  required-keys check (route.ts:110-122) rejects a body without it. The route
+ *  then discards it and rebuilds the payload with buildDraftPayload, so this
+ *  text is persisted nowhere and no operator ever reads it. It is written as a
+ *  plain human summary rather than as model instructions precisely because it
+ *  must never be mistaken for the drafting brief. */
 function promptSentence(input: DraftRequestInput): string {
   const where = input.topic_label
     ? `the unit "${input.topic_label}"`
@@ -206,6 +249,35 @@ function text(v: unknown): string {
   return typeof v === 'string' ? v : '';
 }
 
+/** Lane G item 1: "Plain words, not job-queue words." The route's 400 bodies
+ *  are internal contract text — "Missing: prompt" names a field the person
+ *  never filled in and cannot see, "bloom_level must be one of K1, K2, …"
+ *  names a column. validateRequest stops most of these before the click; this
+ *  maps the ones that can still get through. The raw string is kept on the
+ *  outcome's `detail` for the console, never on the screen. */
+export function plainInvalidReason(err: string): string {
+  const e = err.toLowerCase();
+  if (/missing:/.test(e)) {
+    return 'Something the drafting service needs was not sent. Reload the page and try once more.';
+  }
+  if (/exam_definition_id|must be a uuid/.test(e)) {
+    return 'That subject could not be recognised. Pick it again from the list.';
+  }
+  if (/topic_id/.test(e)) {
+    return 'That unit does not belong to the chosen subject. Pick the unit again.';
+  }
+  if (/bloom_level/.test(e)) {
+    return 'Choose a JABT level between K1 and K6.';
+  }
+  if (/tag/.test(e)) {
+    return 'One of the chosen category tags does not belong to this subject. Pick the tags again.';
+  }
+  if (/count/.test(e)) {
+    return `Ask for between ${DRAFT_MIN_COUNT} and ${DRAFT_MAX_COUNT} questions.`;
+  }
+  return 'The request was refused. Check the choices above and try again.';
+}
+
 export function mapRequestOutcome(
   status: number,
   body: unknown,
@@ -219,8 +291,11 @@ export function mapRequestOutcome(
     return {
       ok: true,
       kind: 'queued',
+      // Ruling #12's own words ("queued, runs within 30 minutes at no cost"),
+      // hedged to the lane: an operator accelerating this job through the paid
+      // inline path would spend, so we promise how it was QUEUED, not its life.
       message:
-        'Queued on the free lane, at no cost. It usually runs within 30 minutes; drafts appear in the queue below after the next collect pass.',
+        'Queued at no cost on the free lane. It usually runs within 30 minutes; drafts appear in the queue below after the next collect pass.',
       jobId: typeof b.job_id === 'string' ? b.job_id : null,
     };
   }
@@ -275,7 +350,13 @@ export function mapRequestOutcome(
     };
   }
   if (status === 400) {
-    return { ok: false, kind: 'invalid', message: err || 'The request was refused.', jobId: null };
+    return {
+      ok: false,
+      kind: 'invalid',
+      message: plainInvalidReason(err),
+      jobId: null,
+      detail: err || null,
+    };
   }
   return {
     ok: false,
@@ -332,8 +413,24 @@ export function computeCaps(
   row: DraftJobTypeRow | null,
   usedToday: number,
   now: Date,
+  /** True when a read threw, or when today's row fetch saturated its limit so
+   *  the used count cannot be trusted. */
+  readFailed = false,
 ): DraftCaps {
   const resetsAt = istNextMidnight(now).toISOString();
+  if (readFailed) {
+    return {
+      live: false,
+      dailyCap: null,
+      usedToday,
+      remainingToday: null,
+      blocked: true,
+      resetsAt,
+      freeLane: false,
+      monthlyCapInr: null,
+      readFailed: true,
+    };
+  }
   if (!row || !row.enabled) {
     return {
       live: false,
@@ -344,6 +441,7 @@ export function computeCaps(
       resetsAt,
       freeLane: false,
       monthlyCapInr: null,
+      readFailed: false,
     };
   }
   const dailyCap = typeof row.daily_cap_per_user === 'number' ? row.daily_cap_per_user : null;
@@ -355,15 +453,18 @@ export function computeCaps(
     remainingToday,
     blocked: remainingToday === 0,
     resetsAt,
-    // lane 'max' is the ₹0 seat lane; the monthly figure governs the paid
-    // operator path, never this door (ruling #12).
+    // lane 'max' is the ₹0 seat lane. The monthly figure on the row governs the
+    // paid inline operator path, not the queueing this door does — ruling #12,
+    // specs/onemark-wave3-2026-09-06.md "## Rulings of 2026-09-06" row 12.
     freeLane: row.lane === 'max',
     monthlyCapInr:
       typeof row.monthly_spend_cap_inr === 'number' ? row.monthly_spend_cap_inr : null,
+    readFailed: false,
   };
 }
 
 export function describeRemaining(caps: DraftCaps): string | null {
+  if (caps.readFailed) return 'Daily count unknown';
   if (!caps.live) return null;
   if (caps.dailyCap === null || caps.remainingToday === null) return 'No daily limit.';
   if (caps.remainingToday === 0) {
@@ -373,11 +474,29 @@ export function describeRemaining(caps: DraftCaps): string | null {
 }
 
 export function describeLane(caps: DraftCaps): string {
+  if (caps.readFailed) {
+    return 'Could not read the AI settings just now.';
+  }
   if (!caps.live) return 'AI drafting is not switched on yet.';
   if (caps.freeLane) {
+    // Hedged deliberately: "queued at no cost" is a claim about the lane this
+    // request is placed on, not a promise for its whole life — an operator can
+    // still accelerate the same job through the paid inline path.
     return 'Runs on the free lane — queued at no cost, whatever the monthly ceiling shows.';
   }
   return 'Runs on a paid lane; the monthly ceiling applies.';
+}
+
+/** Lane G item 3 names TWO caps and asks for both to be visible before the
+ *  click. This is the second one — the estate-wide monthly ceiling that sits on
+ *  the same `ai_job_types` row. Returns null when there is no figure to show. */
+export function describeMonthlyCap(caps: DraftCaps): string | null {
+  if (caps.readFailed || !caps.live || caps.monthlyCapInr === null) return null;
+  const amount = `₹${caps.monthlyCapInr.toLocaleString('en-IN')}`;
+  if (caps.freeLane) {
+    return `${amount} a month is the estate's AI ceiling. It applies to the paid path, not to requests queued from here.`;
+  }
+  return `${amount} a month is the estate's AI ceiling, and this lane spends against it.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -453,6 +572,29 @@ export function describeJob(
       detail: 'This request was cancelled. Nothing was added to the queue.',
     };
   }
+  // A dead session and a vanished job are ENDINGS, not waiting. Leaving them
+  // non-terminal is what made the panel poll for as long as the tab was open
+  // while showing "Still checking" — a state it could never leave.
+  if (status === JOB_SIGNED_OUT) {
+    return {
+      ...base,
+      phase: 'signed out',
+      terminal: true,
+      headline: 'Your session has ended',
+      detail:
+        'Sign in again to see how this request finished. The request itself is unaffected — it stays queued and will still be filed.',
+    };
+  }
+  if (status === JOB_NOT_FOUND) {
+    return {
+      ...base,
+      phase: 'not found',
+      terminal: true,
+      headline: 'This request could not be found',
+      detail:
+        'It may have been cleared from the queue. Nothing was added below by it; ask again if you still need the questions.',
+    };
+  }
   if (status === 'error') {
     return {
       ...base,
@@ -504,6 +646,22 @@ export function describeJob(
     terminal: false,
     headline: 'Still checking',
     detail: collectSentence(),
+  };
+}
+
+/** What the panel shows once the status read has failed its retries — a 500,
+ *  a proxy blip, anything that is not a 401 or a 404. Terminal by construction:
+ *  the poll has given up, so the screen must say so rather than spin. */
+export function unreadableJobView(): JobView {
+  return {
+    phase: 'unreadable',
+    terminal: true,
+    inserted: null,
+    rejected: [],
+    shortfallReason: null,
+    headline: 'Could not read this request',
+    detail:
+      'The request was queued and is unaffected — only this progress check failed. Reload the page to look again; drafts still arrive in the queue below after the collect pass.',
   };
 }
 

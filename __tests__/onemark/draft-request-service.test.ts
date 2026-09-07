@@ -16,10 +16,13 @@
 import { describe, it, expect } from 'vitest';
 import {
   DRAFT_MAX_COUNT,
+  JOB_NOT_FOUND,
+  JOB_SIGNED_OUT,
   buildRequestBody,
   computeCaps,
   describeJob,
   describeLane,
+  describeMonthlyCap,
   describeRemaining,
   istDayStart,
   istNextMidnight,
@@ -28,6 +31,7 @@ import {
   ownQueuePosition,
   readFiled,
   submitDraftRequest,
+  unreadableJobView,
   validateRequest,
   type DraftJobTypeRow,
   type DraftRequestInput,
@@ -147,10 +151,34 @@ describe('reading the route answer', () => {
     expect(mapRequestOutcome(401, { error: 'Unauthorized' }).kind).toBe('signed_out');
   });
 
-  it('400 shows the route reason verbatim — including the prompt-key gate', () => {
+  it('400 reaches the screen in plain words and keeps the route text for the console', () => {
     const out = mapRequestOutcome(400, { error: 'Missing: prompt' });
     expect(out.kind).toBe('invalid');
-    expect(out.message).toBe('Missing: prompt');
+    // Lane G item 1: plain words, not job-queue words. "Missing: prompt" names
+    // a field the person never filled in and cannot see.
+    expect(out.message).not.toMatch(/Missing: prompt/);
+    expect(out.message).toMatch(/reload the page/i);
+    expect(out.detail).toBe('Missing: prompt');
+  });
+
+  it('maps the other route 400s a person could still trigger', () => {
+    expect(mapRequestOutcome(400, { error: 'exam_definition_id must be a uuid' }).message).toMatch(
+      /subject/i,
+    );
+    expect(mapRequestOutcome(400, { error: 'topic_id is not a unit of this exam' }).message).toMatch(
+      /unit/i,
+    );
+    expect(
+      mapRequestOutcome(400, { error: 'bloom_level must be one of K1, K2, K3' }).message,
+    ).toMatch(/K1/);
+    for (const raw of [
+      'Missing: prompt',
+      'exam_definition_id must be a uuid',
+      'topic_id is not a unit of this exam',
+      'bloom_level must be one of K1, K2, K3',
+    ]) {
+      expect(mapRequestOutcome(400, { error: raw }).message).not.toContain('_');
+    }
   });
 
   it('a dead connection never throws — it comes back as a handled failure', async () => {
@@ -215,6 +243,45 @@ describe('caps, computed for display before the click', () => {
 
   it('a disabled row is as good as an absent one', () => {
     expect(computeCaps({ ...jobTypeRow, enabled: false }, 0, now).live).toBe(false);
+  });
+
+  // Regression, fix round 2026-09-08. A failed read used to be indistinguishable
+  // from zero usage: usedToday=0 -> "5 of 5 left today" with the button ENABLED,
+  // so a Senior Learner who had spent the day discovered it from the refusal —
+  // the one thing Lane G item 3 forbids.
+  it('a failed read is not a full allowance — it blocks and says the count is unknown', () => {
+    const caps = computeCaps(jobTypeRow, 0, now, true);
+    expect(caps.readFailed).toBe(true);
+    expect(caps.blocked).toBe(true);
+    expect(caps.remainingToday).toBeNull();
+    expect(describeRemaining(caps)).toMatch(/unknown/i);
+    expect(describeRemaining(caps)).not.toMatch(/5 of 5/);
+  });
+
+  it('a failed read never claims the estate has AI switched off', () => {
+    const caps = computeCaps(jobTypeRow, 0, now, true);
+    expect(caps.live).toBe(false);
+    // live:false is the flag the panel uses, but readFailed steers the COPY:
+    // "could not read" is a claim about this fetch, "not switched on" would be
+    // a claim about the estate that one network blip cannot support.
+    expect(describeLane(caps)).toMatch(/could not read/i);
+    expect(describeLane(caps)).not.toMatch(/not switched on/i);
+  });
+
+  // Lane G item 3 names TWO caps and both must be visible before the click.
+  it('shows the estate monthly ceiling as well as the daily one', () => {
+    const caps = computeCaps(jobTypeRow, 0, now);
+    expect(describeMonthlyCap(caps)).toMatch(/5,000/);
+    expect(describeMonthlyCap(caps)).toMatch(/paid path/i);
+    expect(describeMonthlyCap(computeCaps(null, 0, now))).toBeNull();
+    expect(describeMonthlyCap(computeCaps(jobTypeRow, 0, now, true))).toBeNull();
+  });
+
+  it('says the monthly ceiling DOES bite if the job type ever leaves the free lane', () => {
+    const paid = computeCaps({ ...jobTypeRow, lane: 'api' }, 0, now);
+    expect(paid.freeLane).toBe(false);
+    expect(describeMonthlyCap(paid)).toMatch(/spends against it/i);
+    expect(describeLane(paid)).toMatch(/paid lane/i);
   });
 
   it('a monthly ceiling never blocks the free lane (ruling 12)', () => {
@@ -292,6 +359,44 @@ describe('what the poll says', () => {
     const view = describeJob('something-else', null, null);
     expect(view.phase).toBe('unknown');
     expect(view.terminal).toBe(false);
+  });
+
+  // Regression, fix round 2026-09-08. Every non-ok answer from
+  // /api/ai-jobs/status used to become {status:'unknown'} -> terminal:false, so
+  // a dead session or a vanished job left the panel polling every 10s forever
+  // on "Still checking" — a state it could never leave.
+  it('a dead session is an ENDING, not waiting', () => {
+    const view = describeJob(JOB_SIGNED_OUT, null, null);
+    expect(view.terminal).toBe(true);
+    expect(view.phase).toBe('signed out');
+    expect(view.headline).toMatch(/session has ended/i);
+    expect(view.detail).toMatch(/sign in again/i);
+  });
+
+  it('a vanished job is an ENDING, not waiting', () => {
+    const view = describeJob(JOB_NOT_FOUND, null, null);
+    expect(view.terminal).toBe(true);
+    expect(view.phase).toBe('not found');
+    expect(view.headline).toMatch(/could not be found/i);
+  });
+
+  it('a status read that ran out of retries is terminal and says so', () => {
+    const view = unreadableJobView();
+    expect(view.terminal).toBe(true);
+    expect(view.phase).toBe('unreadable');
+    expect(view.headline).toMatch(/could not read/i);
+    // It must not imply the request itself failed — only the progress check did.
+    expect(view.detail).toMatch(/unaffected/i);
+  });
+
+  it('leaves no non-terminal state that can never be left', () => {
+    for (const s of [JOB_SIGNED_OUT, JOB_NOT_FOUND]) {
+      expect(describeJob(s, null, null).terminal).toBe(true);
+    }
+    // The only remaining non-terminal states are ones the queue itself leaves.
+    for (const s of ['pending', 'claimed', 'running']) {
+      expect(describeJob(s, null, null).terminal).toBe(false);
+    }
   });
 
   it('readFiled ignores a result that has no filing record', () => {
