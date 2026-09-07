@@ -33,6 +33,21 @@ let rpcError: any = null;
 let permissionAllowed = true;
 let selects: string[] = [];
 let eqCalls: string[] = [];
+// Lane L (Wave 3) — the fp_attempts.served_item_ids column S3 adds. Default
+// 'missing', so every test written before S3 keeps exercising the HMAC token
+// path exactly as it did.
+let servedColumn: 'missing' | 'present' = 'missing';
+let servedColumnIds: string[] | null = null;
+let updates: Array<{ table: string; row: any }> = [];
+let updateError: any = null;
+// The auto-close sweep RPC (S3 item 2) and the AI budget ledger (ruling 12).
+let closeRpcCalls = 0;
+let closeRpcResult: any = 0;
+let closeRpcError: any = null;
+let jobTypeRow: any = null;
+let tagRows: any[] = [];
+let enqueueResult: any = { ok: true, job_id: 'job-00000000' };
+let mtdSpend: any = 0;
 
 // The served-set token is signed with the estate's JWT secret convention.
 process.env.SUPABASE_JWT_SECRET = 'onemark-test-secret';
@@ -61,6 +76,10 @@ function tableData(table: string): any {
       return paperItemRows;
     case 'exam_definitions':
       return [{ id: EXAM_ID, config_key: 'tn_hsc_physics', display_name: 'Physics', is_active: true }];
+    case 'ai_job_types':
+      return jobTypeRow;
+    case 'onemark_item_tags':
+      return tagRows;
     default:
       return [];
   }
@@ -69,14 +88,23 @@ function tableData(table: string): any {
 /** One builder for both clients: every terminal resolves from tableData. */
 function builder(table: string) {
   let headCount = false;
+  let lastCols = '';
+  let isUpdate = false;
   const b: any = {
     select: vi.fn((cols: string, opts?: any) => {
       selects.push(`${table}:${cols}`);
+      lastCols = cols ?? '';
       // A head-count select stays chainable (.eq().eq()) and resolves to
       // { count } when awaited, like the real builder.
       if (opts?.head) headCount = true;
       return b;
     }),
+    update: vi.fn((row: any) => {
+      updates.push({ table, row });
+      isUpdate = true;
+      return b;
+    }),
+    gt: vi.fn(() => b),
     eq: vi.fn((col: string, val: unknown) => {
       eqCalls.push(`${table}:${col}=${String(val)}`);
       return b;
@@ -86,6 +114,16 @@ function builder(table: string) {
     order: vi.fn(() => b),
     limit: vi.fn(() => Promise.resolve({ data: tableData(table), error: null })),
     maybeSingle: vi.fn(() => {
+      // The served-set column read: absent until S3's migration is applied,
+      // which is exactly the shape PostgREST answers with.
+      if (table === 'fp_attempts' && lastCols.includes('served_item_ids')) {
+        return servedColumn === 'missing'
+          ? Promise.resolve({
+              data: null,
+              error: { message: 'column fp_attempts.served_item_ids does not exist' },
+            })
+          : Promise.resolve({ data: { served_item_ids: servedColumnIds }, error: null });
+      }
       const d = tableData(table);
       return Promise.resolve({ data: Array.isArray(d) ? d[0] ?? null : d, error: null });
     }),
@@ -104,6 +142,9 @@ function builder(table: string) {
       return b;
     }),
     then: (resolve: any) => {
+      if (isUpdate) {
+        return resolve({ data: null, error: updateError });
+      }
       const d = tableData(table);
       if (headCount) {
         return resolve({ count: Array.isArray(d) ? d.length : d ? 1 : 0, error: null });
@@ -119,6 +160,14 @@ function rpc(fn: string, args: any) {
   if (fn === 'user_has_permission') return Promise.resolve({ data: permissionAllowed, error: null });
   if (fn === 'fn_get_policy_int') return Promise.resolve({ data: args.p_default, error: null });
   if (fn === 'fn_get_policy_bool') return Promise.resolve({ data: false, error: null });
+  if (fn === 'fn_onemark_close_abandoned_live') {
+    closeRpcCalls += 1;
+    return Promise.resolve(
+      closeRpcError ? { data: null, error: closeRpcError } : { data: closeRpcResult, error: null },
+    );
+  }
+  if (fn === 'fn_ai_enqueue') return Promise.resolve({ data: enqueueResult, error: null });
+  if (fn === 'fn_ai_feature_mtd_spend') return Promise.resolve({ data: mtdSpend, error: null });
   if (rpcError) return Promise.resolve({ data: null, error: rpcError });
   return Promise.resolve({ data: rpcResult, error: null });
 }
@@ -146,7 +195,17 @@ import { GET as getHome, POST as startSitting } from '@/app/api/foundation/onema
 import { POST as respond } from '@/app/api/foundation/onemark/attempts/[attemptId]/respond/route';
 import { POST as finalize } from '@/app/api/foundation/onemark/attempts/[attemptId]/finalize/route';
 import { localDayKey, upcomingVaultDays } from '@/lib/services/onemark/vault-service';
-import { shuffleOptionsTogether, signServedSet, verifyServedSet } from '@/lib/services/onemark/attempt-server';
+import { NextRequest } from 'next/server';
+import { GET as autoCloseCron } from '@/app/api/cron/onemark-live-autoclose/route';
+import { POST as requestDrafts } from '@/app/api/foundation/onemark/draft/route';
+import {
+  liveReviewOpen,
+  liveReviewOpensAt,
+  shuffleOptionsTogether,
+  signServedSet,
+  verifyServedSet,
+} from '@/lib/services/onemark/attempt-server';
+import { pickLanguage } from '@/app/(routes)/foundation/onemark/practice/_components/bilingual';
 import { OneMarkPolicyDefaults, OneMarkPolicyKeys } from '@/types/onemark';
 
 function post(body: unknown) {
@@ -196,6 +255,30 @@ beforeEach(() => {
   permissionAllowed = true;
   selects = [];
   eqCalls = [];
+  servedColumn = 'missing';
+  servedColumnIds = null;
+  updates = [];
+  updateError = null;
+  closeRpcCalls = 0;
+  closeRpcResult = 0;
+  closeRpcError = null;
+  jobTypeRow = {
+    job_type: 'onemark.item_draft',
+    lane: 'max',
+    monthly_spend_cap_inr: 5000,
+    input_schema: [
+      { key: 'exam_definition_id', required: true },
+      { key: 'topic_id', required: false },
+      { key: 'tag_keys', required: true },
+      { key: 'count', required: true },
+      { key: 'bloom_level', required: true },
+    ],
+  };
+  tagRows = [{ key: 'definition', subject_exam_definition_id: null }];
+  enqueueResult = { ok: true, job_id: 'job-00000000' };
+  mtdSpend = 0;
+  process.env.CRON_SECRET = 'cron-test-secret';
+  vi.useRealTimers();
 });
 
 /** The token POST /attempts would have minted for a sitting that served ITEM_ID. */
@@ -735,5 +818,430 @@ describe('upcomingVaultDays', () => {
       { status: 'active', next_eligible_at: null },
     ];
     expect(upcomingVaultDays(rows, now)).toEqual([{ day: '2026-09-06', count: 2 }]);
+  });
+});
+
+// ===========================================================================
+// Wave 3 Lane L — live-sitting operations
+// ===========================================================================
+
+describe('served set — the fp_attempts.served_item_ids column (S3 item 1)', () => {
+  it('writes the drawn ids onto the attempt when the column exists', async () => {
+    servedColumn = 'present';
+    await startSitting(post({ mode: 'practice', examDefinitionId: EXAM_ID }));
+    const write = updates.find((u) => u.table === 'fp_attempts' && u.row?.served_item_ids);
+    expect(write?.row.served_item_ids).toEqual([ITEM_ID]);
+  });
+
+  it('reports column_missing and still opens the sitting before S3 is applied', async () => {
+    updateError = { message: 'column fp_attempts.served_item_ids does not exist' };
+    const res = await startSitting(post({ mode: 'practice', examDefinitionId: EXAM_ID }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.servedSetStored).toBe('column_missing');
+    // The HMAC token is still minted — the belt while the braces are pending.
+    expect(typeof body.servedToken).toBe('string');
+  });
+
+  it('never writes the column for a live paper — its set is fp_assessment_items', async () => {
+    const paper = closedPaper();
+    paper.config.close_at = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    assessmentRow = paper as any;
+    enrolmentRows = [{ id: 'enrol-1' }];
+    paperItemRows = [{ position: 1, item: LACED_ITEM }];
+    const res = await startSitting(post({ mode: 'live', assessmentId: PAPER_ID }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).servedSetStored).toBe('skipped_live');
+    expect(updates.find((u) => u.row?.served_item_ids)).toBeUndefined();
+  });
+
+  it('REFUSES an item outside the stored set even when the token would allow it', async () => {
+    // The column is the wall: it names one item, the (valid) token names
+    // another. The column wins, and the answer key of the un-served item is
+    // never reached.
+    const OTHER = '44444444-2222-4333-8444-555555555555';
+    servedColumn = 'present';
+    servedColumnIds = [OTHER];
+    attemptRow = {
+      id: ATTEMPT_ID,
+      student_id: 'learner-1',
+      assessment_id: POOL_ID,
+      mode: 'practice',
+      status: 'in_progress',
+      started_at: new Date().toISOString(),
+      submitted_at: null,
+      score: null,
+      session_id: 's',
+    };
+    const res = await respond(
+      post({ itemId: ITEM_ID, chosen: 'A', servedToken: served([ITEM_ID]) }),
+      params(ATTEMPT_ID),
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/not part of this sitting/i);
+    expect(rpcCalls.find((c) => c.fn === 'fn_onemark_record_response')).toBeUndefined();
+  });
+
+  it('accepts the item when the stored set contains it', async () => {
+    servedColumn = 'present';
+    servedColumnIds = [ITEM_ID];
+    attemptRow = {
+      id: ATTEMPT_ID,
+      student_id: 'learner-1',
+      assessment_id: POOL_ID,
+      mode: 'practice',
+      status: 'in_progress',
+      started_at: new Date().toISOString(),
+      submitted_at: null,
+      score: null,
+      session_id: 's',
+    };
+    // No token at all: the column alone is enough once S3 is live.
+    const res = await respond(post({ itemId: ITEM_ID, chosen: 'A' }), params(ATTEMPT_ID));
+    expect(res.status).toBe(200);
+    expect(rpcCalls.some((c) => c.fn === 'fn_onemark_record_response')).toBe(true);
+  });
+});
+
+describe('ruling 7 — the grace covers the LAST answer only', () => {
+  const startedLongAgo = () => {
+    attemptRow = {
+      id: ATTEMPT_ID,
+      student_id: 'learner-1',
+      assessment_id: POOL_ID,
+      mode: 'timed',
+      status: 'in_progress',
+      // The default timed policy is 20 minutes; started 20 min + 5 s ago, so
+      // the clock is out but the sitting is inside a 15-second grace.
+      started_at: new Date(
+        Date.now() - (OneMarkPolicyDefaults[OneMarkPolicyKeys.TIMED_DEFAULT_MINUTES] * 60_000 + 5_000),
+      ).toISOString(),
+      submitted_at: null,
+      score: null,
+      session_id: 's',
+    };
+  };
+
+  it('accepts the first late answer — the tap the learner had in hand', async () => {
+    startedLongAgo();
+    responseRows = [];
+    const res = await respond(
+      post({ itemId: ITEM_ID, chosen: 'A', servedToken: served() }),
+      params(ATTEMPT_ID),
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it('refuses the SECOND late answer, however soon it arrives', async () => {
+    startedLongAgo();
+    // One answer already landed after the deadline: the grace is spent.
+    responseRows = [
+      { item_id: ITEM_ID, skipped: false, created_at: new Date().toISOString() },
+    ];
+    const res = await respond(
+      post({ itemId: ITEM_ID, chosen: 'A', servedToken: served() }),
+      params(ATTEMPT_ID),
+    );
+    expect(res.status).toBe(409);
+    expect((await res.json()).expired).toBe(true);
+  });
+
+  it('does not count the auto-submit’s SKIPS as the grace being spent', async () => {
+    startedLongAgo();
+    responseRows = [
+      { item_id: ITEM_ID, skipped: true, created_at: new Date().toISOString() },
+    ];
+    const res = await respond(
+      post({ itemId: ITEM_ID, chosen: 'A', servedToken: served() }),
+      params(ATTEMPT_ID),
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it('still accepts a SKIP after the clock, always — a blank is not a wrong answer', async () => {
+    startedLongAgo();
+    responseRows = [
+      { item_id: ITEM_ID, skipped: false, created_at: new Date().toISOString() },
+    ];
+    const res = await respond(
+      post({ itemId: ITEM_ID, skipped: true, servedToken: served() }),
+      params(ATTEMPT_ID),
+    );
+    expect(res.status).toBe(200);
+  });
+});
+
+describe('ruling 2 — the item-level review opens when the PAPER closes', () => {
+  it('holds the questions back while a live paper’s window is still open', async () => {
+    const closesAt = new Date(Date.now() + 45 * 60 * 1000).toISOString();
+    attemptRow = {
+      id: ATTEMPT_ID,
+      student_id: 'learner-1',
+      assessment_id: PAPER_ID,
+      mode: 'live',
+      status: 'submitted',
+      started_at: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+      submitted_at: new Date().toISOString(),
+      score: 3,
+      session_id: 's',
+    };
+    assessmentRow = { id: PAPER_ID, exam_definition_id: EXAM_ID, config: { close_at: closesAt } };
+    responseRows = [
+      { item_id: ITEM_ID, chosen: 'B', is_correct: false, time_ms: 900, skipped: false, created_at: 'x' },
+    ];
+    const res = await finalize(post({}), params(ATTEMPT_ID));
+    const body = await res.json();
+    expect(body.reviewPending).toBe(true);
+    expect(body.reviewOpensAt).toBe(closesAt);
+    expect(body.questions).toEqual([]);
+    // The learner's OWN score is theirs the moment they submit.
+    expect(body.correct).toBe(0);
+    expect(body.total).toBe(1);
+    // Nothing that could be read back as a key left the server.
+    expect(JSON.stringify(body)).not.toContain('One farad is one coulomb per volt.');
+  });
+
+  it('releases the full review once the paper has closed', async () => {
+    attemptRow = {
+      id: ATTEMPT_ID,
+      student_id: 'learner-1',
+      assessment_id: PAPER_ID,
+      mode: 'live',
+      status: 'submitted',
+      started_at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+      submitted_at: new Date().toISOString(),
+      score: 1,
+      session_id: 's',
+    };
+    assessmentRow = {
+      id: PAPER_ID,
+      exam_definition_id: EXAM_ID,
+      config: { close_at: new Date(Date.now() - 60 * 60 * 1000).toISOString() },
+    };
+    responseRows = [
+      { item_id: ITEM_ID, chosen: 'A', is_correct: true, time_ms: 900, skipped: false, created_at: 'x' },
+    ];
+    const body = await (await finalize(post({}), params(ATTEMPT_ID))).json();
+    expect(body.reviewPending).toBe(false);
+    expect(body.reviewOpensAt).toBeNull();
+    expect(body.questions).toHaveLength(1);
+    expect(body.questions[0].correctAnswer).toBe('A');
+  });
+
+  it('opens immediately for a practice sitting — nobody else is sitting it', async () => {
+    attemptRow = {
+      id: ATTEMPT_ID,
+      student_id: 'learner-1',
+      assessment_id: POOL_ID,
+      mode: 'practice',
+      status: 'submitted',
+      started_at: new Date().toISOString(),
+      submitted_at: new Date().toISOString(),
+      score: 1,
+      session_id: 's',
+    };
+    responseRows = [
+      { item_id: ITEM_ID, chosen: 'A', is_correct: true, time_ms: 900, skipped: false, created_at: 'x' },
+    ];
+    const body = await (await finalize(post({}), params(ATTEMPT_ID))).json();
+    expect(body.reviewPending).toBe(false);
+    expect(body.questions).toHaveLength(1);
+  });
+
+  it('liveReviewOpensAt: null for a paper with no close time', () => {
+    expect(liveReviewOpensAt({})).toBeNull();
+    expect(liveReviewOpen({})).toBe(true);
+    expect(liveReviewOpensAt({ close_at: 'not a date' })).toBeNull();
+  });
+});
+
+describe('ruling 13 — an auto-closed sitting is never reopened', () => {
+  it('offers the same questions as PRACTICE instead of a second go at the paper', async () => {
+    assessmentRow = closedPaper() as any;
+    enrolmentRows = [{ id: 'enrol-1' }];
+    attemptRow = null;
+    const res = await startSitting(post({ mode: 'live', assessmentId: PAPER_ID }));
+    expect(res.status).toBe(403);
+  });
+
+  it('refuses a replay from someone who never sat the paper', async () => {
+    assessmentRow = closedPaper() as any;
+    attemptRow = null; // no submitted live attempt of this learner
+    const res = await startSitting(
+      post({ mode: 'practice', fromAssessmentId: PAPER_ID }),
+    );
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toMatch(/once you have sat the paper/i);
+  });
+
+  it('refuses a replay while the paper is still open — the key must not leave the hall', async () => {
+    const paper = closedPaper();
+    paper.config.close_at = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+    assessmentRow = paper as any;
+    attemptRow = { id: 'prior', status: 'submitted' };
+    const res = await startSitting(
+      post({ mode: 'practice', fromAssessmentId: PAPER_ID }),
+    );
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toMatch(/when the paper closes/i);
+  });
+
+  it('rejects fromAssessmentId on any mode but practice', async () => {
+    const res = await startSitting(
+      post({ mode: 'timed', examDefinitionId: EXAM_ID, fromAssessmentId: PAPER_ID }),
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/only valid with mode practice/i);
+  });
+});
+
+describe('GET /api/cron/onemark-live-autoclose', () => {
+  it('refuses a caller without the cron secret', async () => {
+    const res = await autoCloseCron(
+      new NextRequest('https://jkkn.ai/api/cron/onemark-live-autoclose') as any,
+    );
+    expect(res.status).toBe(401);
+    expect(closeRpcCalls).toBe(0);
+  });
+
+  it('sweeps once per run and reports the count the RPC returned', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-07T10:04:00.000Z'));
+    closeRpcResult = 3;
+    const res = await autoCloseCron(
+      new NextRequest('https://jkkn.ai/api/cron/onemark-live-autoclose?secret=cron-test-secret') as any,
+    );
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.closed).toBe(3);
+    expect(closeRpcCalls).toBe(1);
+    expect(body.elapsed_ms).toBe(0);
+  });
+
+  it('is idempotent — the ten-minutes-later run closes nothing and says so', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-07T10:04:00.000Z'));
+    closeRpcResult = 2;
+    const first = await (
+      await autoCloseCron(
+        new NextRequest('https://jkkn.ai/api/cron/onemark-live-autoclose?secret=cron-test-secret') as any,
+      )
+    ).json();
+    expect(first.closed).toBe(2);
+
+    // Ten minutes on the fake clock; the RPC only ever looks at rows still
+    // in_progress, so the same sweep finds nothing left to close.
+    vi.setSystemTime(new Date('2026-09-07T10:14:00.000Z'));
+    closeRpcResult = 0;
+    const second = await (
+      await autoCloseCron(
+        new NextRequest('https://jkkn.ai/api/cron/onemark-live-autoclose?secret=cron-test-secret') as any,
+      )
+    ).json();
+    expect(second.ok).toBe(true);
+    expect(second.closed).toBe(0);
+    // One call per run, never a retry loop.
+    expect(closeRpcCalls).toBe(2);
+  });
+
+  it('answers 200 pending_migration while S3 is still a file, not an alarm every ten minutes', async () => {
+    closeRpcError = {
+      message:
+        'Could not find the function public.fn_onemark_close_abandoned_live without parameters in the schema cache',
+    };
+    const res = await autoCloseCron(
+      new NextRequest('https://jkkn.ai/api/cron/onemark-live-autoclose?secret=cron-test-secret') as any,
+    );
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.pending_migration).toBe(true);
+    expect(body.closed).toBe(0);
+  });
+
+  it('reports a real sweep failure as 500 — silence is not success', async () => {
+    closeRpcError = { message: 'deadlock detected' };
+    const res = await autoCloseCron(
+      new NextRequest('https://jkkn.ai/api/cron/onemark-live-autoclose?secret=cron-test-secret') as any,
+    );
+    expect(res.status).toBe(500);
+    expect((await res.json()).ok).toBe(false);
+  });
+});
+
+describe('ruling 12 — a spent AI budget queues the free lane, it does not block', () => {
+  const draftBody = {
+    exam_definition_id: EXAM_ID,
+    topic_id: null,
+    tag_keys: ['definition'],
+    count: 5,
+    bloom_level: 'K1',
+  };
+
+  it('answers 202 with the free-lane promise when the month’s budget is spent', async () => {
+    mtdSpend = 5000; // cap reached exactly
+    const res = await requestDrafts(post(draftBody));
+    const body = await res.json();
+    expect(res.status).toBe(202);
+    expect(body.ok).toBe(true);
+    expect(body.budget).toBe('exhausted');
+    expect(body.cost_inr).toBe(0);
+    expect(body.runs_within_minutes).toBe(30);
+    expect(body.message).toMatch(/within 30 minutes at no cost/i);
+    // The job really was queued — the cap changes the words, not the outcome.
+    expect(rpcCalls.some((c) => c.fn === 'fn_ai_enqueue')).toBe(true);
+  });
+
+  it('answers 202 the same way with budget to spare', async () => {
+    mtdSpend = 12;
+    const body = await (await requestDrafts(post(draftBody))).json();
+    expect(body.budget).toBe('available');
+    expect(body.message).toMatch(/within 30 minutes at no cost/i);
+  });
+
+  it('fails open to unknown when the spend ledger cannot be read', async () => {
+    mtdSpend = 'not a number';
+    const body = await (await requestDrafts(post(draftBody))).json();
+    expect(body.budget).toBe('unknown');
+    expect(body.ok).toBe(true);
+  });
+
+  it('treats an absent cap as no cap at all, without touching the ledger', async () => {
+    jobTypeRow.monthly_spend_cap_inr = null;
+    const body = await (await requestDrafts(post(draftBody))).json();
+    expect(body.budget).toBe('available');
+    expect(rpcCalls.some((c) => c.fn === 'fn_ai_feature_mtd_spend')).toBe(false);
+  });
+});
+
+describe('ruling 15 — one language on screen, English fallback per item', () => {
+  it('shows Tamil when Tamil was picked and the bank has it', () => {
+    const r = pickLanguage('ta', 'The SI unit', 'SI அலகு');
+    expect(r.text).toBe('SI அலகு');
+    expect(r.lang).toBe('ta');
+    expect(r.fellBackToEnglish).toBe(false);
+  });
+
+  it('falls back to English for THAT ITEM only, and says so', () => {
+    const r = pickLanguage('ta', 'The SI unit', null);
+    expect(r.text).toBe('The SI unit');
+    expect(r.lang).toBe('en');
+    expect(r.fellBackToEnglish).toBe(true);
+  });
+
+  it('never stacks both languages — English picked returns English alone', () => {
+    const r = pickLanguage('en', 'The SI unit', 'SI அலகு');
+    expect(r.text).toBe('The SI unit');
+    expect(r.lang).toBe('en');
+  });
+
+  it('shows the Tamil text rather than nothing when English is missing', () => {
+    const r = pickLanguage('en', '   ', 'SI அலகு');
+    expect(r.text).toBe('SI அலகு');
+    expect(r.lang).toBe('ta');
+  });
+
+  it('renders nothing at all when the bank has neither', () => {
+    expect(pickLanguage('ta', null, null).text).toBeNull();
   });
 });

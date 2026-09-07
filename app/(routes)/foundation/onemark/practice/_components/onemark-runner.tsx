@@ -36,6 +36,7 @@ import {
 } from '@/lib/services/onemark/vault-service';
 import { useFinalizeSitting, useRespond } from '@/hooks/onemark/use-vault';
 import { Bilingual, LangSwitch, useLang, optionText } from './bilingual';
+import { QuestionAssetSlot, type QuestionAssetRef } from './question-asset-slot';
 
 const MODE_LABEL: Record<OneMarkSitting['mode'], string> = {
   practice: 'Practice',
@@ -335,6 +336,10 @@ export function OneMarkRunner({
       <h2 className="mb-8 text-xl font-medium leading-relaxed text-foreground sm:text-2xl sm:leading-relaxed">
         <Bilingual lang={lang} en={current.stem} ta={current.stemTa} />
       </h2>
+
+      {/* Lane D's diagrams. Absent until Lane D merges and starts sending
+          `assets`; the slot renders nothing rather than an empty frame. */}
+      <QuestionAssetSlot assets={(current as { assets?: QuestionAssetRef[] }).assets} />
 
       <div className="space-y-3">
         {options.map((opt, idx) => {
