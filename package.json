@@ -49,6 +49,7 @@
     "gen:guide-load": "tsx scripts/load-profile.ts",
     "check:anon-exposure": "node scripts/ci/check-anon-exposure-live.mjs",
     "check:ungrantable": "node scripts/ci/check-ungrantable-permissions.mjs",
+    "check:event-times": "node scripts/ci/check-event-time-consistency.mjs",
     "changelog": "node scripts/generate-changelog.mjs",
     "changelog:sync": "node scripts/sync-changelog-db.mjs"
   },
