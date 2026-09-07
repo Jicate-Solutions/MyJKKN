@@ -54,8 +54,10 @@ import {
   // Clear All previously used XCircle, which now belongs to Mark All Absent
   // sitting immediately beside it — two identical icons on adjacent buttons
   // that do very different things.
-  Eraser
+  Eraser,
+  AlertTriangle,
 } from 'lucide-react';
+import { holdMessage } from '@/lib/services/campus-living/housekeeping-rules';
 
 type AttendanceStatus = 'present' | 'absent' | 'on_leave' | 'late_entry' | 'medical';
 
@@ -124,7 +126,9 @@ export default function MarkAttendancePage() {
   // block filter works and each row carries block/room/bed context.
   const { data: studentsRaw, isLoading } = useMarkableResidents(
     profile?.institution_id ?? '',
-    selectedBlock === 'all' ? undefined : selectedBlock
+    selectedBlock === 'all' ? undefined : selectedBlock,
+    // Holds are evaluated against the date being marked, not today.
+    attendanceDate
   );
   // For block-scoped users viewing "All my blocks", drop residents outside
   // their grants (incl. unallocated ones — those aren't assigned to them).
@@ -338,7 +342,19 @@ export default function MarkAttendancePage() {
     );
   }) ?? [], [students, selectedFloor, selectedCategory, searchQuery]);
 
-  const visibleIds = useMemo(() => filteredStudents.map((s) => s.id), [filteredStudents]);
+  // Held learners are excluded from every selection surface: select-all, group
+  // checkboxes and the bulk bar. They cannot be written anyway — the BEFORE
+  // trigger on hostel_attendance refuses them — so including them would only
+  // produce a bulk action that silently marks fewer people than it selected.
+  const visibleIds = useMemo(
+    () => filteredStudents.filter((s) => !s.feedback_hold).map((s) => s.id),
+    [filteredStudents]
+  );
+
+  const heldCount = useMemo(
+    () => filteredStudents.filter((s) => s.feedback_hold).length,
+    [filteredStudents]
+  );
 
   // Selection is confined to what's on screen: switching block, floor, category
   // or search drops anything that scrolled out of scope.
@@ -632,8 +648,19 @@ export default function MarkAttendancePage() {
                   onToggle={() => toggleGroupSelection(visibleIds)}
                   label="Select all visible residents"
                 />
-                <span>Select all ({filteredStudents.length})</span>
+                {/* Count excludes held learners — select-all cannot pick them,
+                    so promising a larger number would be a lie. */}
+                <span>Select all ({visibleIds.length})</span>
               </div>
+            )}
+            {heldCount > 0 && (
+              <Link
+                href="/campus-living/housekeeping/holds"
+                className="flex items-center gap-1.5 rounded-md border border-destructive/50 bg-destructive/5 px-2.5 py-1.5 text-xs text-destructive"
+              >
+                <AlertTriangle className="h-3.5 w-3.5" />
+                {heldCount} on housekeeping hold
+              </Link>
             )}
             <Button variant="outline" size="sm" onClick={handleMarkAllPresent}>
               <CheckCircle2 className="mr-2 h-4 w-4 text-green-600" />
@@ -716,6 +743,7 @@ export default function MarkAttendancePage() {
                                       <Checkbox
                                         checked={selectedIds.has(student.id)}
                                         onCheckedChange={() => toggleResident(student.id)}
+                                        disabled={!!student.feedback_hold}
                                         aria-label={`Select ${student.profile?.full_name ?? 'resident'}`}
                                         className="h-5 w-5"
                                       />
@@ -750,20 +778,41 @@ export default function MarkAttendancePage() {
                                         </p>
                                       </div>
                                     </div>
-                                    <div className="flex gap-1.5 flex-wrap">
-                                      {statusOptions.map((opt) => (
-                                        <button
-                                          key={opt.value}
-                                          onClick={() => handleMarkStatus(student.id, opt.value)}
-                                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs font-medium transition-colors ${
-                                            status === opt.value ? opt.color + ' border-current' : 'bg-background hover:bg-muted border-border'
-                                          }`}
-                                        >
-                                          {opt.icon}
-                                          {opt.label}
-                                        </button>
-                                      ))}
-                                    </div>
+                                    {/* A housekeeping feedback hold replaces the
+                                        status buttons entirely: the BEFORE
+                                        trigger on hostel_attendance would
+                                        refuse the write anyway, so offering
+                                        the buttons would only produce a
+                                        confusing failure. */}
+                                    {student.feedback_hold ? (
+                                      <div className="flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+                                        <AlertTriangle className="h-4 w-4 shrink-0" />
+                                        <span>
+                                          {holdMessage(student.feedback_hold)}{' '}
+                                          <Link
+                                            href="/campus-living/housekeeping/holds"
+                                            className="underline underline-offset-2"
+                                          >
+                                            View holds
+                                          </Link>
+                                        </span>
+                                      </div>
+                                    ) : (
+                                      <div className="flex gap-1.5 flex-wrap">
+                                        {statusOptions.map((opt) => (
+                                          <button
+                                            key={opt.value}
+                                            onClick={() => handleMarkStatus(student.id, opt.value)}
+                                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs font-medium transition-colors ${
+                                              status === opt.value ? opt.color + ' border-current' : 'bg-background hover:bg-muted border-border'
+                                            }`}
+                                          >
+                                            {opt.icon}
+                                            {opt.label}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    )}
                                   </div>
                                 </CardContent>
                               </Card>

@@ -121,6 +121,23 @@ export const GUIDES: GuideBook = {
           ],
         },
         {
+          id: 'cleaning',
+          title: 'Book room cleaning',
+          steps: [
+            {
+              action: 'Open **Room Cleaning**, pick a cleaning type, then a date and time slot.',
+              detail:
+                "Your room shares a limit for each cleaning type, so a booking uses one of your room's turns, not just yours. Only one cleaning can be live for a room at a time.",
+              link: { label: 'Open Room Cleaning', href: '/campus-living/my-hostel/housekeeping' },
+            },
+            {
+              action: 'After the cleaning, rate it.',
+              detail:
+                'Any one of you can rate it, and that closes the job for the whole room. Until someone does, hostel attendance is on hold for everyone in the room.',
+            },
+          ],
+        },
+        {
           id: 'requests',
           title: 'Requests & moving out',
           steps: [

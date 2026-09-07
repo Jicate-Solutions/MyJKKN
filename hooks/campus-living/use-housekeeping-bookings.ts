@@ -15,7 +15,16 @@ export const housekeepingBookingKeys = {
     ['housekeeping-bookings', 'day-board', date, institutionId ?? 'all', blockId ?? 'all'] as const,
   mine: (roomId?: string) => ['housekeeping-bookings', 'mine', roomId ?? 'none'] as const,
   photos: (bookingId: string) => ['housekeeping-bookings', 'photos', bookingId] as const,
+  myAllocation: () => ['housekeeping-bookings', 'my-allocation'] as const,
 };
+
+/** The caller's own live allocation, or null when they have no room. */
+export function useMyAllocation() {
+  return useQuery({
+    queryKey: housekeepingBookingKeys.myAllocation(),
+    queryFn: () => HousekeepingBookingService.getMyAllocation(),
+  });
+}
 
 /**
  * Everything a booking mutation must refresh.

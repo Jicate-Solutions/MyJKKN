@@ -162,6 +162,21 @@ export interface FeedbackHold {
   type_name: string;
 }
 
+/**
+ * The caller's own live allocation, as the learner surface needs it.
+ * allocation_id/room_id/block_id/institution_id come straight from
+ * hostel_allocations; category_id is the SEATED room's category, which is the
+ * axis cleaning-type eligibility is decided on.
+ */
+export interface MyAllocation {
+  allocation_id: string;
+  room_id: string;
+  block_id: string;
+  institution_id: string;
+  room_number: string | null;
+  category_id: string | null;
+}
+
 export interface Slot {
   slot_start: string;
   slot_end: string;

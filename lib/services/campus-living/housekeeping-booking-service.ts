@@ -1,6 +1,8 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { getErrorMessage } from '@/lib/utils';
+import { CL_ROSTER_STATUSES } from './roster-statuses';
+import type { MyAllocation } from '@/types/campus-living/housekeeping';
 import type {
   AssignResult,
   BookResult,
@@ -39,6 +41,53 @@ export class HousekeepingBookingService {
   }
 
   // ── Reads ──────────────────────────────────────────────────────────────
+
+  /**
+   * The caller's own live allocation — the room the learner surface books for.
+   *
+   * Reads hostel_allocations directly: the Student role holds
+   * campus_living.allocations.view_own, and that policy branch is
+   * `learner_id = auth.uid()`. That works because
+   * hostel_allocations.learner_id IS a profiles.id despite the column name.
+   *
+   * Returns null when the caller has no live allocation (a dayscholar, or a
+   * learner who has vacated), which the page renders as "you have no room"
+   * rather than an error.
+   */
+  static async getMyAllocation(): Promise<MyAllocation | null> {
+    try {
+      const { data: auth } = await this.supabase.auth.getUser();
+      const uid = auth?.user?.id;
+      if (!uid) return null;
+
+      const { data, error } = await (this.supabase as any)
+        .from('hostel_allocations')
+        .select('id, room_id, block_id, institution_id, status, room:hostel_rooms(room_number, category_id)')
+        .eq('learner_id', uid)
+        .in('status', CL_ROSTER_STATUSES)
+        .order('allocation_date', { ascending: false, nullsFirst: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        logger.error(LOG, 'Failed to read my allocation', error);
+        throw error;
+      }
+      if (!data) return null;
+
+      return {
+        allocation_id: data.id,
+        room_id: data.room_id,
+        block_id: data.block_id,
+        institution_id: data.institution_id,
+        room_number: data.room?.room_number ?? null,
+        category_id: data.room?.category_id ?? null,
+      };
+    } catch (error) {
+      logger.error(LOG, `Unexpected error in getMyAllocation: ${getErrorMessage(error)}`, error);
+      throw error;
+    }
+  }
 
   /**
    * The warden day board. Left joins throughout: an !inner embed would be an

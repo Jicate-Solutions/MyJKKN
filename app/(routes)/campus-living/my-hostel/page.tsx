@@ -19,6 +19,7 @@ import { CategoryFeesTab } from './_components/category-fees-tab';
 import { ProfileTab } from './_components/profile-tab';
 import { RequestsTab } from './_components/requests-tab';
 import { PremiumInviteEntryCard } from './_components/premium-invite-entry-card';
+import { RoomCleaningEntryCard } from './_components/room-cleaning-entry-card';
 import { Loader2, AlertCircle } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -91,6 +92,11 @@ export default function MyHostelPage() {
             Your hostel details, fees, and requests — all in one place.
           </p>
         </div>
+
+        {/* Room Cleaning — self-gates to residents whose room CATEGORY has a
+            bookable cleaning type, so an ineligible resident is never offered a
+            booking the next page would refuse. */}
+        <RoomCleaningEntryCard />
 
         {/* Invite a roommate — the flow shipped in May 2026 and had never been
             used because nothing linked to it. Self-gates to premium residents. */}

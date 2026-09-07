@@ -916,6 +916,15 @@ export interface MarkableResident {
    *  get_markable_resident_photos RPC (profiles.avatar_url is NULL for ~all
    *  students). Falls back to initials when absent. */
   student_photo_url: string | null;
+  /**
+   * Set when a cleaning in this learner's room finished and nobody rated it, so
+   * attendance is held for the whole room. Null when they can be marked.
+   *
+   * UX only — the BEFORE trigger on hostel_attendance is the actual wall. This
+   * exists so the warden sees a reason instead of a raw check_violation.
+   * Shaped like the academic side's LeaveBlockInfo so one banner renders both.
+   */
+  feedback_hold?: import('./campus-living/housekeeping').FeedbackHold | null;
 }
 
 export interface CreateHostelAttendanceDTO {
