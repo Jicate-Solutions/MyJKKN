@@ -712,3 +712,19 @@ export {
   useParadigmShiftDepartment,
   useParadigmShiftLeaderboard,
 } from './use-paradigm-shift';
+
+// ============================================
+// COMMUNITY ENGAGEMENT REGISTER HOOKS
+// ============================================
+
+export {
+  useCommunityEngagements,
+  useDepartmentSolutionOptions,
+  useRecordCommunityEngagement,
+  useDecideCommunityEngagement,
+  communityEngagementKeys,
+  type CommunityEngagement,
+  type DepartmentSolutionOption,
+  type EngagementApprovalStatus,
+  type RecordEngagementInput,
+} from './use-community-engagements';

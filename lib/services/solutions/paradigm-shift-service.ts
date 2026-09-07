@@ -27,24 +27,54 @@ export interface DepartmentMetrics {
 
 // --- Societal Value Metrics ---
 //
-// NOT CURRENTLY MEASURABLE. Every source this axis was written against is absent from
-// production: there is no `sh_community_engagements` table (42P01), and `sh_solutions`
-// carries no `is_pro_bono`, `beneficiaries_count` or `sdg_goals` column (42703). No
-// write path exists anywhere in the codebase to populate them either.
+// THIS AXIS IS NOW MEASURABLE. The comment that used to sit here said there was no
+// `sh_community_engagements` table (42P01) and no `is_pro_bono` / `beneficiaries_count`
+// / `sdg_goals` columns on `sh_solutions` (42703). That was true when it was written on
+// 2026-08-17 and it is false now: `20261013000000_societal_capture_and_activity_clock.sql`
+// created the table and those columns, `20261019000000_societal_approval_and_status_review.sql`
+// gave engagements an approval workflow, and the register has a capture surface on the
+// department detail page. Four permission keys (`solutions.societal.view` / `.record` /
+// `.submit` / `.approve`) are registered in lib/constants/permissions.ts.
 //
-// Until a capture surface is designed and shipped, every societal field is reported as
-// `null` — meaning "not measured" — and never as `0`, which would read as a measurement.
+// WHAT IS COUNTED, AND WHAT IS NOT.
+//   * Only APPROVED engagements count. A pending entry has been claimed, not verified,
+//     and the same rule governs the department activity clock: the trigger
+//     `trg_community_engagement_touches_dept` fires on approval, never on insert.
+//   * `null` still means "not measured" and is never replaced by `0`. Zero now has a
+//     real meaning here — the register exists and holds no approved work for that
+//     department — so it is reported as a number. `null` is reserved for the case where
+//     the SOURCE itself is unreadable: the table or column is absent in this
+//     environment because the migration has not been applied there.
+//   * `pro_bono_solutions` is reported independently of the other four, because it
+//     reads a different source (`sh_solutions.is_pro_bono`) that can be missing on its
+//     own. If that column answers 42703, that ONE field stays `null` and the rest are
+//     still reported.
+//
+// A CAVEAT WORTH STATING. These reads run under the caller's session (withAuth injects
+// a session-scoped client), so RLS applies. A SELECT policy filters rather than raising,
+// which means a reader without `solutions.societal.view` sees zero approved engagements
+// and cannot be distinguished from a department that has none. The register panel on the
+// department page says so in words; this service cannot.
 export interface SocietalMetrics {
-  pro_bono_solutions: number;
+  /** `null` when `sh_solutions.is_pro_bono` is absent in this environment. */
+  pro_bono_solutions: number | null;
   beneficiaries_reached: number;
   community_engagements: number;
   community_hours: number;
   sdg_goals_addressed: number;
 }
 
-/** Shown to the reader wherever a societal figure would otherwise appear. */
+/**
+ * Shown to the reader wherever a societal figure would otherwise appear — now only
+ * when the register itself cannot be read, not as a standing statement about the
+ * platform.
+ */
 export const SOCIETAL_METRICS_UNAVAILABLE_REASON =
-  'Societal value is not captured yet — the Solutions Hub has no community engagement register, and solutions carry no beneficiary, SDG or pro-bono fields.';
+  'Societal value could not be read — the community engagement register is not available in this environment yet.';
+
+/** Shown against the pro-bono figure alone when only that column is missing. */
+export const PRO_BONO_UNAVAILABLE_REASON =
+  'Pro-bono solutions are not counted — sh_solutions has no is_pro_bono column in this environment.';
 
 export interface DepartmentParadigmShift {
   department_id: string;
@@ -186,6 +216,65 @@ function emptyMetrics(): DepartmentMetrics {
 }
 
 // ============================================
+// SOCIETAL AXIS HELPERS
+// ============================================
+
+/**
+ * Accumulator for one department's approved community engagements. Separate from
+ * DepartmentMetrics because it is built from a different source with a different
+ * failure mode: if the register is unreadable the whole axis is `null`, whereas a
+ * commercial metric that returns nothing is a genuine zero.
+ */
+interface SocietalAccumulator {
+  beneficiaries_reached: number;
+  community_engagements: number;
+  community_hours: number;
+  /** Distinct SDG codes across every approved engagement for the department. */
+  sdg_codes: Set<string>;
+  pro_bono_solutions: number;
+}
+
+function emptySocietalAccumulator(): SocietalAccumulator {
+  return {
+    beneficiaries_reached: 0,
+    community_engagements: 0,
+    community_hours: 0,
+    sdg_codes: new Set<string>(),
+    pro_bono_solutions: 0,
+  };
+}
+
+/** `hours_spent` is numeric(8,2); PostgREST hands numerics back as strings. */
+function readNumeric(value: unknown): number {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
+/** text[] with a DEFAULT '{}' can still hold NULL on a hand-written row. */
+function readStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
+}
+
+/**
+ * How many of the five societal metrics carry a real, non-zero measurement.
+ * A `null` field is not counted — it was never measured, so it cannot be active.
+ */
+function countActiveSocietalMetrics(s: SocietalMetrics): number {
+  let count = 0;
+  if ((s.pro_bono_solutions ?? 0) > 0) count++;
+  if (s.beneficiaries_reached > 0) count++;
+  if (s.community_engagements > 0) count++;
+  if (s.community_hours > 0) count++;
+  if (s.sdg_goals_addressed > 0) count++;
+  return count;
+}
+
+// ============================================
 // SERVICE CLASS
 // ============================================
 
@@ -302,10 +391,29 @@ export class ParadigmShiftService extends BaseService {
         .gte('created_at', fy.start + 'T00:00:00')
         .lte('created_at', fy.end + 'T23:59:59'),
 
-      // NOTE: the three societal-value queries that used to sit here were removed —
-      // they read a table and three columns that do not exist in production, so they
-      // errored on every request and the failures were swallowed into zeros. See
-      // SOCIETAL_METRICS_UNAVAILABLE_REASON above.
+      // ── The societal axis ──────────────────────────────────────────────────
+      // Restored, against sources that now exist. These two results are read
+      // WITHOUT extractData below, because collapsing a failure into [] is
+      // exactly what produced the fake zeros this axis was reporting before.
+
+      // Approved community engagements, fiscal-year scoped like every other
+      // dated metric on this dashboard. `approval_status = 'approved'` is the
+      // whole point: a pending entry has been claimed, not verified, and the
+      // department activity clock counts approvals only.
+      this.supabase
+        .from('sh_community_engagements')
+        .select('department_id, hours_spent, beneficiaries_count, sdg_goals')
+        .eq('approval_status', 'approved')
+        .gte('engagement_date', fy.start)
+        .lte('engagement_date', fy.end),
+
+      // Pro-bono solutions: cumulative, no FY filter, mirroring the retained_ip
+      // query above — a pro-bono solution is a standing fact about the solution,
+      // not an event in a year.
+      this.supabase
+        .from('sh_solutions')
+        .select('lead_department_id')
+        .eq('is_pro_bono', true),
     ]);
 
     // Extract data with graceful fallback for failed queries
@@ -322,6 +430,73 @@ export class ParadigmShiftService extends BaseService {
     const productsData = { data: extractData(results[5]) };
     const ipRetainedData = { data: extractData(results[6]) };
     const trainingData = { data: extractData(results[7]) };
+
+    /**
+     * The societal reads keep their failure. `extractData` above turns a rejected
+     * or errored query into `[]`, which for a societal figure is indistinguishable
+     * from "measured, and it is nothing" — the exact confusion that had this
+     * dashboard printing zeros as if they were measurements. `null` here means the
+     * source could not be read at all.
+     */
+    const extractOrNull = (
+      result: PromiseSettledResult<{ data: unknown[] | null; error: unknown }>
+    ): unknown[] | null => {
+      if (result.status !== 'fulfilled') return null;
+      if (result.value.error) return null;
+      return result.value.data ?? [];
+    };
+
+    const engagementRows = extractOrNull(results[8]);
+    const proBonoRows = extractOrNull(results[9]);
+
+    const societalReadable = engagementRows !== null;
+    const proBonoReadable = proBonoRows !== null;
+
+    // Per-department societal accumulation, from approved engagements only.
+    const societalMap: Record<string, SocietalAccumulator> = {};
+    const initSocietal = (deptId: string) => {
+      if (!societalMap[deptId]) societalMap[deptId] = emptySocietalAccumulator();
+    };
+
+    (engagementRows ?? []).forEach((raw) => {
+      const row = raw as {
+        department_id: string | null;
+        hours_spent: unknown;
+        beneficiaries_count: number | null;
+        sdg_goals: unknown;
+      };
+      if (!row.department_id) return;
+      initSocietal(row.department_id);
+      const acc = societalMap[row.department_id];
+      acc.community_engagements++;
+      acc.community_hours += readNumeric(row.hours_spent);
+      acc.beneficiaries_reached += row.beneficiaries_count ?? 0;
+      readStringArray(row.sdg_goals).forEach((code) => acc.sdg_codes.add(code));
+    });
+
+    (proBonoRows ?? []).forEach((raw) => {
+      const row = raw as { lead_department_id: string | null };
+      if (!row.lead_department_id) return;
+      initSocietal(row.lead_department_id);
+      societalMap[row.lead_department_id].pro_bono_solutions++;
+    });
+
+    /**
+     * Build one department's societal block, or `null` when the register itself
+     * could not be read. Pro-bono is independently nullable: its column can be
+     * missing while the engagement table is present.
+     */
+    const buildSocietal = (deptId: string): SocietalMetrics | null => {
+      if (!societalReadable) return null;
+      const acc = societalMap[deptId] ?? emptySocietalAccumulator();
+      return {
+        pro_bono_solutions: proBonoReadable ? acc.pro_bono_solutions : null,
+        beneficiaries_reached: acc.beneficiaries_reached,
+        community_engagements: acc.community_engagements,
+        community_hours: acc.community_hours,
+        sdg_goals_addressed: acc.sdg_codes.size,
+      };
+    };
 
     // 3. Build per-department metric maps
     const metricsMap: Record<string, DepartmentMetrics> = {};
@@ -408,9 +583,11 @@ export class ParadigmShiftService extends BaseService {
     });
 
     // 4. Build department list with tiers and clusters.
-    // The societal axis has no source in production, so it is reported as not measured.
+    // The societal axis now reads the community engagement register; it is `null`
+    // only when that register could not be read at all.
     const result: DepartmentParadigmShift[] = filteredDepts.map((dept) => {
       const metrics = metricsMap[dept.id] || emptyMetrics();
+      const societal = buildSocietal(dept.id);
       const activeCount = countActiveMetrics(metrics);
       const rawInst = dept.institution;
       const inst = Array.isArray(rawInst) ? rawInst[0] : rawInst as { id: string; name: string } | null;
@@ -424,11 +601,17 @@ export class ParadigmShiftService extends BaseService {
         institution_name: institutionName,
         cluster: getClusterForInstitution(institutionName),
         metrics,
-        societal: null,
+        societal,
         active_metrics_count: activeCount,
-        societal_metrics_count: null,
+        societal_metrics_count: societal ? countActiveSocietalMetrics(societal) : null,
         tier: calculateTier(activeCount),
         composite_score: computeCompositeScore(metrics),
+        // Deliberately still null. `composite_score` is a weighted sum with
+        // weights someone chose for the commercial axis; no weighting was ever
+        // specified for the societal one. Inventing hours-vs-beneficiaries-vs-SDGs
+        // weights here would produce a number colleges are ranked by, decided by
+        // nobody. The underlying counts are all present above for whoever sets
+        // that policy.
         societal_score: null,
       };
     });
@@ -468,9 +651,18 @@ export class ParadigmShiftService extends BaseService {
       total_revenue: finalResult.reduce((sum, d) => sum + d.metrics.revenue_generated, 0),
       total_solutions: finalResult.reduce((sum, d) => sum + d.metrics.solutions_built, 0),
       total_publications: finalResult.reduce((sum, d) => sum + d.metrics.publications, 0),
-      total_beneficiaries: null,
-      total_community_engagements: null,
-      total_pro_bono: null,
+      // Summed across the SAME departments the caller is looking at, and `null`
+      // whenever the underlying source was unreadable — never a zero standing in
+      // for an unread source.
+      total_beneficiaries: societalReadable
+        ? finalResult.reduce((sum, d) => sum + (d.societal?.beneficiaries_reached ?? 0), 0)
+        : null,
+      total_community_engagements: societalReadable
+        ? finalResult.reduce((sum, d) => sum + (d.societal?.community_engagements ?? 0), 0)
+        : null,
+      total_pro_bono: proBonoReadable
+        ? finalResult.reduce((sum, d) => sum + (d.societal?.pro_bono_solutions ?? 0), 0)
+        : null,
     };
 
     return { departments: finalResult, summary };
