@@ -10660,3 +10660,137 @@ CREATE POLICY event_impact_categories_write ON public.event_impact_categories
         AND (institution_id IS NULL OR public.role_has_institution_access(institution_id)))
   );
 
+
+
+-- ============================================================================
+-- Campus Living — allocation, bed and learner policies scope on institution OR
+-- block. Mirrored from migrations 20260909160000 and 20260909170000.
+-- The two hostel_allocations SELECT policies also collapse into one: multiple
+-- permissive policies are ORed but ALL of them evaluate per candidate row.
+-- ============================================================================
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 2. hostel_allocations policies — institution OR block, everywhere.
+--    The two SELECT policies also collapse into one: multiple permissive
+--    policies are ORed but ALL of them are evaluated per candidate row.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+DROP POLICY IF EXISTS hostel_allocations_warden_review_select ON public.hostel_allocations;
+DROP POLICY IF EXISTS hostel_allocations_select_permission ON public.hostel_allocations;
+
+CREATE POLICY hostel_allocations_select_permission ON public.hostel_allocations
+FOR SELECT
+USING (
+  (SELECT is_super_admin())
+  OR (SELECT is_admin())
+  OR (
+    (SELECT user_has_permission('campus_living.allocations.view'))
+    AND (role_has_institution_access(institution_id) OR role_has_block_access(block_id))
+  )
+  -- Kept from the old hostel_allocations_warden_review_select: an approver may
+  -- read the rows they are being asked to approve even without allocations.view.
+  OR (
+    (SELECT user_has_permission('campus_living.allocations.approve'))
+    AND role_has_block_access(block_id)
+  )
+  OR (
+    (SELECT user_has_permission('campus_living.allocations.view_own'))
+    AND learner_id = (SELECT auth.uid())
+  )
+);
+
+DROP POLICY IF EXISTS hostel_allocations_insert_permission ON public.hostel_allocations;
+CREATE POLICY hostel_allocations_insert_permission ON public.hostel_allocations
+FOR INSERT
+WITH CHECK (
+  (SELECT is_super_admin())
+  OR (SELECT is_admin())
+  OR (
+    (SELECT user_has_permission('campus_living.allocations.create'))
+    AND (role_has_institution_access(institution_id) OR role_has_block_access(block_id))
+  )
+);
+
+DROP POLICY IF EXISTS hostel_allocations_update_permission ON public.hostel_allocations;
+CREATE POLICY hostel_allocations_update_permission ON public.hostel_allocations
+FOR UPDATE
+USING (
+  (SELECT is_super_admin())
+  OR (SELECT is_admin())
+  OR (
+    (SELECT user_has_permission('campus_living.allocations.edit'))
+    AND (role_has_institution_access(institution_id) OR role_has_block_access(block_id))
+  )
+)
+WITH CHECK (
+  (SELECT is_super_admin())
+  OR (SELECT is_admin())
+  OR (
+    (SELECT user_has_permission('campus_living.allocations.edit'))
+    AND (role_has_institution_access(institution_id) OR role_has_block_access(block_id))
+  )
+);
+
+DROP POLICY IF EXISTS hostel_allocations_delete_permission ON public.hostel_allocations;
+CREATE POLICY hostel_allocations_delete_permission ON public.hostel_allocations
+FOR DELETE
+USING (
+  (SELECT is_super_admin())
+  OR (SELECT is_admin())
+  OR (
+    (SELECT user_has_permission('campus_living.allocations.delete'))
+    AND (role_has_institution_access(institution_id) OR role_has_block_access(block_id))
+  )
+);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 3. hostel_beds SELECT — the transfer dialog's bed picker reads this table
+--    directly (useBedsByRoom), and it returned 0 rows for a warden, so "Change
+--    room / bed" would have stayed unusable even with the RPC gate widened.
+--    hostel_beds has no block_id, hence the room-id array.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+DROP POLICY IF EXISTS hostel_beds_select_permission ON public.hostel_beds;
+CREATE POLICY hostel_beds_select_permission ON public.hostel_beds
+FOR SELECT
+USING (
+  (SELECT is_super_admin())
+  OR (SELECT is_admin())
+  OR (
+    (SELECT user_has_permission('campus_living.beds.view'))
+    AND (
+      role_has_institution_access(institution_id)
+      -- Array-contains against a scalar subquery: one InitPlan for the whole
+      -- query, not one function call per bed. (`= ANY ((SELECT f()))` would be
+      -- read as ANY-of-a-SUBQUERY and compare uuid to uuid[] — 42883.)
+      OR (SELECT public.fn_cl_my_block_room_ids()) @> ARRAY[room_id]
+    )
+  )
+);
+
+-- existing branch is carried over verbatim; only the last one is new.
+DROP POLICY IF EXISTS learners_profiles_select_policy ON public.learners_profiles;
+
+CREATE POLICY learners_profiles_select_policy ON public.learners_profiles
+FOR SELECT
+USING (
+  (SELECT is_super_admin())
+  OR (
+    institution_id = ANY (
+      (SELECT array_agg(i.id) FROM institutions i WHERE role_has_institution_access(i.id))::uuid[]
+    )
+    AND (
+      (SELECT user_has_permission('learners.admissions.view'))
+      OR (SELECT user_has_permission('learners.profiles.view'))
+      OR (SELECT user_has_permission('learners.view'))
+    )
+  )
+  OR student_email = (SELECT profiles.email FROM profiles WHERE profiles.id = (SELECT auth.uid()))
+  OR college_email = (SELECT profiles.email FROM profiles WHERE profiles.id = (SELECT auth.uid()))
+  -- NEW: the learner behind an allocation in a block the caller holds. Scalar
+  -- subquery so the id set is one InitPlan for the whole query rather than a
+  -- lookup per candidate row.
+  OR (
+    (SELECT user_has_permission('campus_living.allocations.view'))
+    AND (SELECT public.fn_cl_my_block_learner_ids()) @> ARRAY[learners_profiles.id]
+  )
+);
