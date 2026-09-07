@@ -1,6 +1,12 @@
 import type { PageEntry } from './types';
 
 /**
+ * Declared once so the sidebar rule and the route-guard rule below can never
+ * drift to different spellings of the same path.
+ */
+const SOI_MEMBERS_PATH = '/startup-studio/school-of-influence/admin/members';
+
+/**
  * Roles the database `is_admin()` treats as admin:
  *   is_super_admin = true  OR  role IN ('admin','super_admin','administrator').
  * The nav/route guard must NOT be stricter than the data layer — these roles pass
@@ -115,6 +121,12 @@ export function filterByPermissions(
                 permissions['improvement.area_role.assign']);
     }
 
+    // School of Influence batch roster — the same union as isPageAccessible
+    // below. See the note there for why 'cohort.edit' has to be admitted.
+    if (page.path === SOI_MEMBERS_PATH) {
+      return !!(permissions['cohort.manage'] || permissions['cohort.edit']);
+    }
+
     // A sentinel is not a key. Anyone entitled to a `super_admin`-marked route
     // has already returned true at the admin bypass above; reaching here means
     // the caller is not an admin, so the answer is no — regardless of what the
@@ -161,6 +173,24 @@ export function isPageAccessible(
     return !!(permissions['improvement.ideas.view'] ||
               permissions['improvement.board.manage'] ||
               permissions['improvement.area_role.assign']);
+  }
+  // School of Influence batch roster — this screen carries the batch stage
+  // control (BatchStatusCard), whose authority is fn_cohort_can_set_status. That
+  // function admits 'cohort.edit' scoped to the institution, because the table's
+  // own cohorts_update_permission does. MENU_PERMISSIONS declares this route on
+  // 'cohort.manage' alone, so a holder of 'cohort.edit' without 'cohort.manage'
+  // was refused at this guard and shown PermissionError — while the database
+  // would have let them make the change. The gate the user meets must not be
+  // narrower than the gate the write enforces, or the control is unreachable by
+  // someone the platform says may use it.
+  //
+  // 'cohort.manage' stays first because it is the key the rest of this screen
+  // (the remove-a-member path, fn_soi_remove_member) checks; admitting
+  // 'cohort.edit' opens the page, not that action, which refuses server-side.
+  // The appointed coordinator, who holds neither key, is admitted by the
+  // subtree's fallbackCheck (hasSchoolOfInfluenceAccess), not by this rule.
+  if (pagePath === SOI_MEMBERS_PATH) {
+    return !!(permissions['cohort.manage'] || permissions['cohort.edit']);
   }
   // Same sentinel wall as filterByPermissions, in the same position (last, so it
   // narrows only the generic lookup). Both functions are route guards and they

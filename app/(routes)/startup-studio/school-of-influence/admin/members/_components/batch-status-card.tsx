@@ -111,7 +111,7 @@ const MOVE: Record<
     Icon: Archive,
     meaning: 'The batch is closed and put away. Nothing is deleted.',
     warning:
-      'Archiving is the last stage. There is no move out of it, so a batch you archive cannot be reopened from this screen.',
+      'Archiving is the last stage. There is no move out of it, so a batch you archive cannot be reopened from this screen. And if this is the LAST batch of the programme still open, archiving it also closes these screens to you: an appointed coordinator reaches School of Influence through its open batches, so once none is open you will see "you do not have permission" here and only a MyJKKN administrator can let you back in. Archive the last batch only when the programme is genuinely finished.',
   },
 };
 

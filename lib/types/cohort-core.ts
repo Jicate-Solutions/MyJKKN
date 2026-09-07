@@ -117,8 +117,20 @@ export interface CreateCohortDto {
   created_by?: string | null;
 }
 
+/**
+ * `status` is deliberately NOT updatable here. A stage change is a decision with
+ * a written reason and an audit row, and the only method that can make one is
+ * CohortService.transitionCohortStatus (which calls fn_cohort_set_status). A
+ * plain `.update({ status })` would move a cohort with nothing on the record
+ * saying who decided or why — the one outcome that whole path exists to prevent.
+ *
+ * This is the service-layer half of the rule. The database still permits a
+ * direct UPDATE of the column to anyone cohorts_update_permission or
+ * cohorts_soi_scoped_update admits; see
+ * supabase/migrations/20261115043000_cohort_status_change_control.sql.
+ */
 export type UpdateCohortDto = Partial<
-  Omit<CreateCohortDto, 'kind' | 'institution_id'>
+  Omit<CreateCohortDto, 'kind' | 'institution_id' | 'status'>
 > & {
   archived_at?: string | null;
   archived_by?: string | null;

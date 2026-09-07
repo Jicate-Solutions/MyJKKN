@@ -44,6 +44,22 @@ import type {
 } from '@/lib/types/cohort-core';
 
 /**
+ * Is this PostgREST saying the function does not exist — i.e. the migration has
+ * not been applied yet — rather than saying anything about the caller or the
+ * data? PostgREST reports it as PGRST202 with a "schema cache" message; the
+ * string test is a belt-and-braces for a proxy that drops the code.
+ */
+function isMissingRpc(error: unknown): boolean {
+  const e = error as { code?: string; message?: string } | null;
+  if (e?.code === 'PGRST202') return true;
+  const message = e?.message?.toLowerCase() ?? '';
+  return (
+    message.includes('schema cache') ||
+    message.includes('could not find the function')
+  );
+}
+
+/**
  * Turn a PostgREST RPC error into something a person can act on: keep the
  * database's own sentence when it wrote one (these functions RAISE in plain
  * English) and map 42501 to a 403 so a screen can tell a refusal apart from a
@@ -214,8 +230,15 @@ export class CohortService {
       return data || [];
     } catch (error) {
       console.error('CohortService: getCohortsByKind error:', error);
-      // Non-critical list read — degrade gracefully.
-      return [];
+      // A refusal is NOT an empty list. Returning [] here turned "you may not
+      // read this" into "there is nothing here" — indistinguishable on screen,
+      // and only one of them is true (CLAUDE.md rule 27). The callers each have
+      // a catch: useCohortsByKind surfaces a query error, and the SoI members
+      // workspace renders its `denied` panel for a 403 and a toast otherwise.
+      throw explainCohortRpcError(
+        error,
+        'The list of groups could not be read.'
+      );
     }
   }
 
@@ -475,7 +498,27 @@ export class CohortService {
     const { data, error } = await (this.supabase as any).rpc('fn_cohort_status_control', {
       p_cohort_id: cohortId,
     });
-    if (error) throw explainCohortRpcError(error, 'The stage of this group could not be read.');
+    if (error) {
+      // THE CONTROL IS NOT DEPLOYED YET, WHICH IS NOT AN ERROR THE VIEWER CAN ACT ON.
+      // Migrations here ship as files and are applied separately, so between
+      // this code merging and the migration running, PostgREST answers PGRST202
+      // ("Could not find the function public.fn_cohort_status_control ... schema
+      // cache"). This card renders for EVERY viewer who selects a batch —
+      // including the 70 School of Influencer learner-members — so throwing put
+      // a raw PostgREST message about a missing database function in front of
+      // them. Degrade to the same "you cannot change this" state a refusal
+      // produces: the stage still shows from the row the parent already read.
+      // The real cause is logged, because an engineer does need to see it.
+      if (isMissingRpc(error)) {
+        console.error(
+          'CohortService: fn_cohort_status_control is not present in the database ' +
+            '(migration 20261115043000 not applied). Rendering the read-only state.',
+          error
+        );
+        return empty;
+      }
+      throw explainCohortRpcError(error, 'The stage of this group could not be read.');
+    }
 
     const payload = (data ?? {}) as {
       can_change?: boolean;

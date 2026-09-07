@@ -371,10 +371,11 @@ export function MembersWorkspace({ eventId }: Props) {
           <CardTitle className="text-base">No batch is showing here</CardTitle>
           <CardDescription>
             Either this programme has no batch yet — create one from the batch admin
-            first — or your account cannot see its batches, which needs the
+            first — or your account cannot see its batches. Seeing them needs the
             &ldquo;cohort.view&rdquo; permission for the institution that runs the
-            programme. Ask the COO or a MyJKKN administrator if you expected to see
-            one.
+            programme, or an active appointment as one of the programme&rsquo;s
+            coordinators. Ask the COO or a MyJKKN administrator if you expected to
+            see one.
           </CardDescription>
         </CardHeader>
       </Card>

@@ -1189,6 +1189,15 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/startup-studio/school-of-influence/admin/attendance': 'cohort.manage',
   // Same reasoning for the batch roster — it is the only screen somebody can be
   // taken off a batch from, so it must not be reachable by typing the URL.
+  //
+  // ⚠️ THIS KEY IS NOT THE WHOLE GATE for this one route. The screen also carries
+  // the batch stage control, whose database authority (fn_cohort_can_set_status,
+  // migration 20261115043000) admits 'cohort.edit' as well — because the table's
+  // own cohorts_update_permission does. lib/navigation/permission-filter.ts
+  // therefore has a NAMED rule for this path admitting 'cohort.manage' OR
+  // 'cohort.edit', so the guard is not narrower than the write it fronts. Change
+  // one and change the other; a single-key gate here silently locked out a user
+  // the database plainly admitted.
   '/startup-studio/school-of-influence/admin/members': 'cohort.manage',
   // 2026-08-13 (BUG-005799 / BUG-005800): the other three admin screens were
   // never declared, so each one inherited '/startup-studio' ->

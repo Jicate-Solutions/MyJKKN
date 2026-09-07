@@ -16,8 +16,19 @@
 --   "this batch has started" or "this round is over" — and no way for anyone
 --   reading it later to see who decided that, or why.
 --
---   This file adds the ONE database path that moves a cohort's status, and it
---   cannot move one without recording the reason.
+--   This file adds a database path that moves a cohort's status and cannot move
+--   one without recording the reason, and repoints the application at it.
+--
+--   IT IS THE ONLY PATH IN THIS CODEBASE, NOT THE ONLY PATH THE DATABASE ALLOWS.
+--   cohorts_update_permission and cohorts_soi_scoped_update still permit a
+--   direct UPDATE of the status column by anyone they admit, and this file adds
+--   no column-level REVOKE and no trigger — a REVOKE UPDATE (status) would also
+--   block the archived_at/archived_by writes those same policies exist for, and
+--   deciding that belongs with the spine, not with one screen's control. What
+--   this change does enforce is at the layer it owns: UpdateCohortDto no longer
+--   carries `status` (lib/types/cohort-core.ts), so no typed caller of
+--   CohortService.updateCohort can move a cohort's stage by accident, and
+--   transitionCohortStatus is the one method that can.
 --
 -- WHY AN RPC AND NOT A PLAIN TABLE UPDATE
 --   lib/services/cohort-core/cohort-service.ts already has
@@ -105,10 +116,20 @@ COMMENT ON FUNCTION public.fn_cohort_next_statuses(text) IS
 -- the verdict a screen renders and the verdict the write enforces are the same
 -- sentence evaluated twice — never two sentences that drift.
 --
--- Branch 1 is EXACTLY cohorts_update_permission (20260731040000): a super
--- admin, an admin, or 'cohort.edit' scoped to the cohort's institution. Anyone
--- who could already UPDATE the row directly still can, so this function is
--- never NARROWER than the table it writes to.
+-- Branch 1 mirrors cohorts_update_permission (20260731040000): a super admin,
+-- an admin, or 'cohort.edit' scoped to the cohort's institution.
+--
+-- public.cohorts has TWO UPDATE policies, OR'd by Postgres, not one — the
+-- second is cohorts_soi_scoped_update (20260808140000): kind =
+-- 'school_of_influence' AND 'cohort.school_of_influence.edit' AND institution
+-- access. Branch 2 therefore carries a '.edit' arm as well as the '.manage'
+-- ones, so that "anyone who could already UPDATE the row directly still can"
+-- is true of BOTH policies and this function is never NARROWER than the table
+-- it writes to. (Live blast radius today is zero: measured on production
+-- 2026-09-07, ZERO of the 104 roles in custom_roles grant
+-- 'cohort.school_of_influence.edit' — the roles that carry the key at all carry
+-- it set to false. The arm is here so the sentence above stays true when a role
+-- is edited in Role Management, which is a live value, not a deployment.)
 --
 -- Branch 2 is School of Influencer only, and it is the reason this exists: it
 -- admits the appointed coordinator, who holds no permission key at all.
@@ -152,7 +173,10 @@ BEGIN
 
   IF v_kind = 'school_of_influence' THEN
     RETURN COALESCE(public.fn_soi_can_manage_batch(p_cohort_id), false)
-        OR COALESCE(public.fn_is_cohort_programme_coordinator(p_cohort_id), false);
+        OR COALESCE(public.fn_is_cohort_programme_coordinator(p_cohort_id), false)
+        -- The second UPDATE policy on the table, mirrored: see the note above.
+        OR (COALESCE(public.user_has_permission('cohort.school_of_influence.edit'), false)
+            AND COALESCE(public.role_has_institution_access(v_inst), false));
   END IF;
 
   RETURN false;
@@ -378,9 +402,46 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.fn_cohort_set_status(uuid, text, text, text) IS
-  'Move one cohort to its next status with a written reason, recording a cohort_status_events row (from_status, to_status, actor_id = auth.uid(), reason) in the same transaction. The only path that changes cohorts.status.';
+  'Move one cohort to its next status with a written reason, recording a cohort_status_events row (from_status, to_status, actor_id = auth.uid(), reason) in the same transaction. The only path the APPLICATION uses to change cohorts.status; the table''s UPDATE policies still permit a direct write, so this is a convention enforced in the service layer, not a database lock.';
 
--- ── 5. Grants ─────────────────────────────────────────────────────────────────
+-- ── 5. The read side, without which none of the above is reachable ───────────
+-- A control the person it was built for cannot get to is not a control.
+--
+-- Measured on production 2026-09-07, the appointed coordinator (the single
+-- status='active' row in cohort_coordinators) passes every write predicate
+-- above — fn_soi_can_manage_batch, fn_is_cohort_programme_coordinator and
+-- fn_cohort_can_set_status all return true for Batch A — and yet
+-- `SELECT count(*) FROM public.cohorts` returns ZERO for them, because none of
+-- the three SELECT policies on the table has a coordinator branch:
+--   • cohorts_select_permission    needs 'cohort.view'
+--   • cohorts_soi_scoped_select    needs 'cohort.school_of_influence.view'
+--   • cohorts_soi_member_select    needs a cohort_memberships row
+-- A coordinator holds no permission key (that is the whole premise of the
+-- appointment) and is not a member of the batch they run. So the batch list on
+-- the members screen comes back empty, no batch can be selected, and the card
+-- added by this change never renders. The write authority was granted to
+-- somebody who cannot see the thing it acts on.
+--
+-- WHY A POLICY AND NOT A WIDER PERMISSION. Handing the coordinator
+-- 'cohort.view' would let them read every cohort of every kind in the
+-- institution. fn_is_cohort_programme_coordinator is already pinned to the
+-- programme they were appointed to (cc.programme_kind = c.kind), so this
+-- policy shows them their own programme's cohorts and nothing else, and it
+-- fails CLOSED: no active appointment row, no rows.
+--
+-- IT IS EXACTLY AS WIDE AS THE APPOINTMENT, NOT AS WIDE AS THE WRITE. Reading
+-- is the narrower act; a coordinator of a non-SoI programme may see the cohorts
+-- they coordinate here even though fn_cohort_can_set_status still refuses to
+-- move them (branch 2 is School of Influencer only). Seeing is not changing.
+DROP POLICY IF EXISTS cohorts_coordinator_select ON public.cohorts;
+CREATE POLICY cohorts_coordinator_select ON public.cohorts
+FOR SELECT TO authenticated
+USING (public.fn_is_cohort_programme_coordinator(id));
+
+COMMENT ON POLICY cohorts_coordinator_select ON public.cohorts IS
+  'An appointed programme coordinator may READ the cohorts of the programme they were appointed to. Added 2026-09-07 with fn_cohort_set_status: the coordinator passed every write predicate and still saw zero cohorts, so the status control never rendered for the one person it exists for.';
+
+-- ── 6. Grants ─────────────────────────────────────────────────────────────────
 -- anon is revoked EXPLICITLY as well as PUBLIC: Supabase's default privileges
 -- give anon a direct EXECUTE grant on every new function, separate from its
 -- PUBLIC membership, so revoking PUBLIC alone leaves the function callable by
