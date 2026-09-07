@@ -125,8 +125,8 @@ BEGIN
   -- over the cap on the first row, and shortening a request the staff member
   -- submitted would rewrite their words, so it is rejected whole.
   CREATE TEMP TABLE _aug ON COMMIT DROP AS
-  SELECT a.id, a.employee_id, a.start_date, a.end_date, a.total_days, a.status,
-         a.created_at
+  SELECT a.id, a.employee_id, a.leave_type_id, a.start_date, a.end_date, a.total_days,
+         a.status, a.created_at
   FROM public.hr_leave_applications a
   JOIN public.hr_leave_types t ON t.id = a.leave_type_id
   WHERE t.leave_type_code = 'CL'
@@ -136,7 +136,7 @@ BEGIN
     AND a.status IN ('approved', 'pending', 'escalated');
 
   CREATE TEMP TABLE _keep ON COMMIT DROP AS
-  SELECT x.id, x.employee_id, x.total_days, x.status
+  SELECT x.id, x.employee_id, x.leave_type_id, x.total_days, x.status
   FROM (
     SELECT a.*,
            SUM(a.total_days) OVER (PARTITION BY a.employee_id
@@ -146,14 +146,22 @@ BEGIN
   ) x
   WHERE x.running <= 1;
 
-  -- A person can now keep more than one request, so what August contributes to
+  -- A person can keep more than one request, so what August contributes to
   -- `used` is a SUM. Materialised once — three later statements read it, and a
   -- scalar subquery would silently take only the first row.
+  --
+  -- KEYED ON (employee, leave type), NOT ON THE EMPLOYEE. 29 staff hold a CL
+  -- balance row for an institution they do not work at — generate_hr_leave_
+  -- balances provisions per organization, so a Main Office employee can carry a
+  -- Pharmacy CL row as well as their own. Summing by employee alone credited
+  -- their single approved August day to EVERY one of those rows, leaving 13
+  -- rows with 12.5 days that the row's own applications cannot explain — the
+  -- very opening adjustment this function exists to drive to zero.
   CREATE TEMP TABLE _keep_approved ON COMMIT DROP AS
-  SELECT employee_id, SUM(total_days) AS days
+  SELECT employee_id, leave_type_id, SUM(total_days) AS days
   FROM _keep
   WHERE status = 'approved'
-  GROUP BY employee_id;
+  GROUP BY employee_id, leave_type_id;
 
   -- ---- 3. What gets rejected ----------------------------------------------
   CREATE TEMP TABLE _reject ON COMMIT DROP AS
@@ -213,7 +221,8 @@ BEGIN
     SELECT c.used_now,
            c.jun_days + c.jul_days
              + COALESCE((SELECT ka.days FROM _keep_approved ka
-                          WHERE ka.employee_id = c.employee_id), 0) AS target
+                          WHERE ka.employee_id = c.employee_id
+                            AND ka.leave_type_id = c.leave_type_id), 0) AS target
     FROM _cl_target c
   ) x;
 
@@ -313,17 +322,20 @@ BEGIN
          jsonb_build_object('used', c.used_now),
          jsonb_build_object('used', c.jun_days + c.jul_days
            + COALESCE((SELECT ka.days FROM _keep_approved ka
-                        WHERE ka.employee_id = c.employee_id), 0)),
+                        WHERE ka.employee_id = c.employee_id
+                            AND ka.leave_type_id = c.leave_type_id), 0)),
          v_reason, v_actor
   FROM _cl_target c
   WHERE c.used_now IS DISTINCT FROM (c.jun_days + c.jul_days
     + COALESCE((SELECT ka.days FROM _keep_approved ka
-                 WHERE ka.employee_id = c.employee_id), 0));
+                 WHERE ka.employee_id = c.employee_id
+                            AND ka.leave_type_id = c.leave_type_id), 0));
 
   UPDATE public.hr_leave_balances b
      SET used = c.jun_days + c.jul_days
               + COALESCE((SELECT ka.days FROM _keep_approved ka
-                           WHERE ka.employee_id = c.employee_id), 0),
+                           WHERE ka.employee_id = c.employee_id
+                            AND ka.leave_type_id = c.leave_type_id), 0),
          updated_at = now()
     FROM _cl_target c
    WHERE b.employee_id         = c.employee_id
