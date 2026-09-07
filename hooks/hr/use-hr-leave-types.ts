@@ -265,6 +265,38 @@ export function useHardDeleteHRLeaveType() {
   });
 }
 
+/**
+ * ONE-OFF Casual Leave reset for 2026-2027 (migration 20260907140000).
+ *
+ * Invalidation is guarded on `vars.dryRun`, not on anything in the response:
+ * a dry run writes nothing whatever it returns, and a refusal comes back as a
+ * thrown RPC error rather than a payload with a marker in it. Same shape as
+ * useGenerateBalances — and the same trap documented on
+ * useHardDeleteHRLeaveType above.
+ *
+ * A real run rewrites balances, month entries AND rejects leave applications,
+ * so it has to reach further than the balance keys: the requests queue and the
+ * staff-facing leave pages read the applications it just decided.
+ */
+export function useResetCasualLeave2026_27() {
+  const qc = useQueryClient();
+  const supabase = createClientSupabaseClient();
+  return useMutation({
+    mutationFn: ({ dryRun }: { dryRun: boolean }) =>
+      HRLeaveTypeService.resetCasualLeave2026_27(supabase, dryRun),
+    onSuccess: (_data, vars) => {
+      if (vars.dryRun) return;
+      qc.invalidateQueries({ queryKey: [KEY] });
+      qc.invalidateQueries({ queryKey: [ANALYTICS_KEY] });
+      qc.invalidateQueries({ queryKey: [STAFF_BALANCES_KEY] });
+      qc.invalidateQueries({ queryKey: ['hr-leave-balance'] });
+      qc.invalidateQueries({ queryKey: ['hr-leave-staff-balances'] });
+      qc.invalidateQueries({ queryKey: ['hr-leave-applications'] });
+      qc.invalidateQueries({ queryKey: ['hr-leave-requests'] });
+    },
+  });
+}
+
 export function useGenerateBalances() {
   const qc = useQueryClient();
   const supabase = createClientSupabaseClient();

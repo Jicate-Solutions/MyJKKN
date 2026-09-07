@@ -408,6 +408,25 @@ export class HRLeaveTypeService {
     return data as HRBalanceAdjustResult;
   }
 
+  /**
+   * ONE-OFF 2026-09-07 repair of Casual Leave consumption for HR year
+   * 2026-2027 (migration 20260907140000). Super-admin only, inside the RPC.
+   *
+   * `dryRun` writes nothing and returns the same shaped summary as a real run,
+   * so the two can be compared before committing. Guard cache invalidation on
+   * the REQUEST, never on the response — a refused run returns no marker.
+   */
+  static async resetCasualLeave2026_27(
+    supabase: SupabaseClient,
+    dryRun: boolean
+  ): Promise<Record<string, unknown>> {
+    const { data, error } = await supabase.rpc('fn_hr_cl_reset_2026_27', {
+      p_dry_run: dryRun,
+    });
+    if (error) throw error;
+    return data as Record<string, unknown>;
+  }
+
   static async generateBalances(
     supabase: SupabaseClient,
     hrOrgId: string,
