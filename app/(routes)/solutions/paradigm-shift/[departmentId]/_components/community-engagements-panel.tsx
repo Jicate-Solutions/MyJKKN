@@ -131,13 +131,33 @@ export function CommunityEngagementsPanel({
   // does not close the gap either — it bypasses only `is_super_admin = true`.
   const adminBypass = hasDbAdminBypass(userProfile?.role, isSuperAdmin);
 
+  /**
+   * FOUR CAPABILITIES, NOT ONE GATE.
+   *
+   * Read off the live production grid on 2026-09-07, because the shape of this
+   * component depends on it and guessing it wrong locks people out:
+   *
+   *   submit  — faculty (490) and staff (201). Add YOUR OWN entry. They
+   *             deliberately do NOT hold `view`: they are not meant to browse
+   *             colleagues' community work.
+   *   view    — hod, principal, managing_director, ceo/cbo. Browse the whole
+   *             register for the department.
+   *   record  — executives only. Enter work on someone else's behalf.
+   *   approve — hod and principal only. Decide.
+   *
+   * The grid is COHERENT; the absence of `view` for faculty and staff is a
+   * decision, not a gap. This panel used to return an access-denied card
+   * whenever `view` was missing, which locked all 691 submitters out of the one
+   * action the submit key exists to give them. So the surface is split by
+   * capability: what you can do decides what you see.
+   */
   const canView = adminBypass || can('solutions.societal.view');
-  // The INSERT policy accepts EITHER key, so the button must too — gating on
-  // `record` alone would hide the form from every faculty member the submit key
-  // was created for.
-  const canRecord =
-    adminBypass || can('solutions.societal.record') || can('solutions.societal.submit');
   const canApprove = adminBypass || can('solutions.societal.approve');
+  // The INSERT policy accepts EITHER key, so the form must too — gating on
+  // `record` alone would hide it from every faculty member the submit key was
+  // created for.
+  const canCreate =
+    adminBypass || can('solutions.societal.record') || can('solutions.societal.submit');
 
   if (permissionsLoading || isLoading) {
     return (
@@ -153,9 +173,10 @@ export function CommunityEngagementsPanel({
     );
   }
 
-  // Rule 27 — a reader without the view key is told so by name, not shown an
-  // empty list that reads as "this department has done nothing".
-  if (!canView) {
+  // Rule 27 — named, never silent. But ONLY when there is genuinely nothing
+  // this person can do here. Missing `view` on its own is not that: a faculty
+  // member holding `submit` has a real action on this page.
+  if (!canView && !canCreate && !canApprove) {
     return (
       <Card>
         <CardHeader>
@@ -166,9 +187,11 @@ export function CommunityEngagementsPanel({
             <Info className="h-4 w-4" />
             <AlertTitle>You don&apos;t have access to this register</AlertTitle>
             <AlertDescription>
-              Viewing recorded community work needs the{' '}
-              <code className="text-xs">solutions.societal.view</code> permission. Ask your
-              Solutions Hub administrator to grant it for your role.
+              Recording community work needs{' '}
+              <code className="text-xs">solutions.societal.submit</code> and browsing what has
+              already been recorded needs <code className="text-xs">solutions.societal.view</code>.
+              Your role holds neither. Ask your Solutions Hub administrator for whichever one
+              matches what you need to do.
             </AlertDescription>
           </Alert>
         </CardContent>
@@ -219,7 +242,23 @@ export function CommunityEngagementsPanel({
     );
   }
 
-  const engagements: CommunityEngagement[] = data ?? [];
+  const allReturned: CommunityEngagement[] = data ?? [];
+
+  /**
+   * A submitter without `view` must never be shown a colleague's entry.
+   *
+   * RLS is the control, not this line: the SELECT policy requires
+   * `solutions.societal.view`, so for a faculty member this array is already
+   * empty and the filter removes nothing today. It is here because a UI that
+   * would start displaying other people's work the moment a policy widened is a
+   * UI trusting the policy to stay narrow. It NARROWS and cannot contradict RLS
+   * — it can only ever show fewer rows than the database returned, never more,
+   * and it is switched off entirely for anyone who does hold `view`.
+   */
+  const engagements: CommunityEngagement[] = canView
+    ? allReturned
+    : allReturned.filter((e) => !!userProfile?.id && e.recorded_by === userProfile.id);
+
   const approved = engagements.filter((e) => e.approval_status === 'approved');
   const pending = engagements.filter((e) => e.approval_status === 'pending');
 
@@ -268,7 +307,7 @@ export function CommunityEngagementsPanel({
             entries keep the department out of dormancy.
           </p>
         </div>
-        {canRecord && (
+        {canCreate && (
           <Button size="sm" onClick={() => setDialogOpen(true)}>
             <Plus className="h-4 w-4 mr-1" />
             Record an engagement
@@ -277,13 +316,29 @@ export function CommunityEngagementsPanel({
       </CardHeader>
 
       <CardContent className="space-y-4">
-        {!canRecord && (
+        {canView && !canCreate && (
           <Alert>
             <Info className="h-4 w-4" />
             <AlertDescription>
               You can read this register but not add to it. Recording needs{' '}
               <code className="text-xs">solutions.societal.submit</code> — ask your Solutions Hub
               administrator.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {!canView && (
+          <Alert>
+            <Info className="h-4 w-4" />
+            <AlertTitle>You can record community work here, not browse it</AlertTitle>
+            <AlertDescription>
+              Browsing this department&apos;s register — meaning everyone&apos;s entries — needs{' '}
+              <code className="text-xs">solutions.societal.view</code>, which your role does not
+              hold, on purpose. What you submit is saved and waits for a head of department to
+              approve it; ask them for the outcome.
+              {canApprove
+                ? ' Your approve permission has nothing to act on here for the same reason.'
+                : ''}
             </AlertDescription>
           </Alert>
         )}
@@ -296,7 +351,14 @@ export function CommunityEngagementsPanel({
           </Alert>
         )}
 
-        {engagements.length > 0 && (
+        {/*
+          Gated on `canView`, not on the array being non-empty. Without `view`
+          this list is what RLS let through for one person, and totalling it into
+          "Approved · Approved hours · People reached" would present one
+          submitter's slice as the department's figure — the same fake zero this
+          feature exists to stop, wearing a different number.
+        */}
+        {canView && engagements.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="rounded-xl border bg-card p-3 shadow-sm dark:shadow-none">
               <div className="flex items-center gap-2 mb-1">
@@ -345,13 +407,27 @@ export function CommunityEngagementsPanel({
         {engagements.length === 0 ? (
           <div className="rounded-xl border border-dashed p-6 text-center">
             <HandHeart className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-            <p className="text-sm font-medium text-foreground">Nothing recorded yet</p>
-            <p className="text-sm text-muted-foreground mt-1">
-              This register is empty for {departmentName}. If work has been done — a camp, a free
-              clinic, a school programme — record it here so it counts. An empty register can also
-              mean the entries belong to an institution your role cannot see.
-            </p>
-            {canRecord && (
+            {canView ? (
+              <>
+                <p className="text-sm font-medium text-foreground">Nothing recorded yet</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  This register is empty for {departmentName}. If work has been done — a camp, a
+                  free clinic, a school programme — record it here so it counts. An empty register
+                  can also mean the entries belong to an institution your role cannot see.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm font-medium text-foreground">Nothing listed here for you</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Entries you submit are not listed back to you — reading this register needs{' '}
+                  <code className="text-xs">solutions.societal.view</code>. Nothing is lost: they
+                  are saved against {departmentName} and waiting for a head of department. If that
+                  changes, they will appear here.
+                </p>
+              </>
+            )}
+            {canCreate && (
               <Button className="mt-4" size="sm" onClick={() => setDialogOpen(true)}>
                 <Plus className="h-4 w-4 mr-1" />
                 Record the first one
@@ -477,7 +553,7 @@ export function CommunityEngagementsPanel({
         )}
       </CardContent>
 
-      {canRecord && (
+      {canCreate && (
         <RecordEngagementDialog
           open={dialogOpen}
           onOpenChange={setDialogOpen}
