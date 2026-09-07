@@ -1,3 +1,25 @@
+-- ci:allow-secdef-authenticated  fn_my_event_feedback_registration is callable
+-- by every authenticated user ON PURPOSE, and cannot be used to reach another
+-- person's data. It is the attendance-aware twin of fn_my_event_registration,
+-- which carries this same marker in event_feedback_forms.sql for the same
+-- reason, and it is self-scoped in its own WHERE clause exactly as that one is:
+-- every identity branch is pinned to (SELECT auth.uid()) — directly via
+-- profile_id, or via the caller's own profiles.learner_id. Its ONLY argument
+-- names a FORM, never a user, so there is no parameter through which a caller
+-- can ask about anybody else. The most it can return is the caller's OWN
+-- events_registrations.id, for a form id they already held.
+--
+-- It is SECURITY DEFINER for the same reason its sibling is: it must read
+-- events_registrations past that table's own SELECT policy, which is what lets
+-- a participant be recognised at all.
+--
+-- The one extra fact it exposes beyond its sibling is a BOOLEAN about the
+-- event, not a person — "was anyone checked in before this form opened" —
+-- which is the same class of disclosure fn_event_feedback_form_open already
+-- makes about a form's own window.
+--
+-- The guard's own rule still applies to anything added to this file later:
+-- a predicate that IDENTIFIES a caller is not a predicate that AUTHORISES one.
 -- ============================================================================
 -- Event feedback: only people who actually turned up may rate the event,
 -- with a fallback so a forgotten check-in cannot silence everybody.
