@@ -88,6 +88,20 @@ export function useMyBookings(roomId?: string, fromDate?: string) {
   });
 }
 
+/**
+ * Ratings already on a booking. The learner surface needs this to know whether
+ * THIS learner has rated — any roommate may rate, so "the booking has feedback"
+ * and "I have rated" are different questions and only the second decides whether
+ * to keep showing them the form.
+ */
+export function useBookingFeedback(bookingId?: string) {
+  return useQuery({
+    queryKey: ['housekeeping-bookings', 'feedback', bookingId ?? 'none'] as const,
+    queryFn: () => HousekeepingBookingService.listFeedback(bookingId as string),
+    enabled: Boolean(bookingId),
+  });
+}
+
 export function useBookingPhotos(bookingId: string) {
   return useQuery({
     queryKey: housekeepingBookingKeys.photos(bookingId),

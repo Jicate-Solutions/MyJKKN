@@ -16,8 +16,15 @@ import {
 import { useBookableTypes } from '@/hooks/campus-living/use-housekeeping-types';
 import {
   canLearnerCancel,
-  quotaWindowStart,
+  typeQuota,
 } from '@/lib/services/campus-living/housekeeping-rules';
+import { CurrentBookingCard } from './_components/current-booking-card';
+import {
+  LEARNER_STATUS_LABEL,
+  LEARNER_STATUS_TONE,
+  bookingDateLabel,
+  hhmm,
+} from './_components/learner-booking-status';
 import { TypePicker } from './_components/type-picker';
 import { SlotGrid } from './_components/slot-grid';
 import { RateCleaningCard } from './_components/rate-cleaning-card';
@@ -57,22 +64,23 @@ export default function MyHousekeepingPage() {
   );
 
   /**
-   * Remaining quota per type, counted PER ROOM over the type's own rolling
-   * window. Mirrors fn_cl_housekeeping_book step 6; the RPC remains the
-   * authority, this only avoids a pointless round trip.
+   * Quota per type, counted PER ROOM. typeQuota mirrors fn_cl_housekeeping_book
+   * step 6 -- crucially including the fact that the window is anchored on the
+   * date being BOOKED, not on today, so a booking made for tomorrow still counts.
    */
-  const remainingByType = useMemo(() => {
-    const out = new Map<string, number>();
+  const quotaByType = useMemo(() => {
+    const out = new Map<string, ReturnType<typeof typeQuota>>();
     for (const t of types) {
-      const windowStart = quotaWindowStart(today, t.usage_period);
-      const used = bookings.filter(
-        (b) =>
-          b.type_id === t.id &&
-          b.status !== 'cancelled' &&
-          b.booking_date >= windowStart &&
-          b.booking_date <= today,
-      ).length;
-      out.set(t.id, Math.max(0, t.usage_limit_count - used));
+      out.set(
+        t.id,
+        typeQuota({
+          bookings,
+          typeId: t.id,
+          usageLimit: t.usage_limit_count,
+          usagePeriod: t.usage_period,
+          today,
+        }),
+      );
     }
     return out;
   }, [types, bookings, today]);
@@ -116,7 +124,7 @@ export default function MyHousekeepingPage() {
 
       <div className='space-y-6'>
         <div>
-          <h1 className='text-2xl font-semibold tracking-tight'>Room Cleaning</h1>
+          <h1 className='text-xl font-semibold tracking-tight sm:text-2xl'>Room Cleaning</h1>
           <p className='text-sm text-muted-foreground'>
             Room {allocation.room_number ?? '—'} · bookings and limits are shared with your
             roommates.
@@ -133,35 +141,20 @@ export default function MyHousekeepingPage() {
           />
         )}
 
-        {/* 2. Book */}
+        {/* 2. The live booking, or the booking flow. Never both — the room lock
+            allows exactly one open cleaning at a time. */}
         <section className='space-y-3'>
-          <h2 className='text-sm font-semibold'>Book a cleaning</h2>
+          <h2 className='text-sm font-semibold'>
+            {liveBooking ? 'Your current cleaning' : 'Book a cleaning'}
+          </h2>
 
           {liveBooking ? (
-            <Card>
-              <CardContent className='space-y-2 p-4 text-sm'>
-                <p>
-                  A cleaning is already booked for your room —{' '}
-                  <strong>{liveBooking.type_name}</strong> on {liveBooking.booking_date} at{' '}
-                  {liveBooking.slot_start?.slice(0, 5)}. Only one at a time.
-                </p>
-                {canLearnerCancel(liveBooking.status) && (
-                  <Button
-                    variant='outline'
-                    size='sm'
-                    disabled={cancel.isPending}
-                    onClick={() => cancel.mutate({ bookingId: liveBooking.id })}
-                  >
-                    Cancel it
-                  </Button>
-                )}
-                {!canLearnerCancel(liveBooking.status) && liveBooking.status !== 'awaiting_feedback' && (
-                  <p className='text-muted-foreground'>
-                    A cleaner is on the way, so this can no longer be cancelled here.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
+            <CurrentBookingCard
+              booking={liveBooking}
+              today={today}
+              cancelling={cancel.isPending}
+              onCancel={(bookingId) => cancel.mutate({ bookingId })}
+            />
           ) : typesLoading ? (
             <p className='flex items-center gap-2 text-sm text-muted-foreground'>
               <Loader2 className='h-4 w-4 animate-spin' /> Loading cleaning types…
@@ -179,7 +172,7 @@ export default function MyHousekeepingPage() {
             <>
               <TypePicker
                 types={types}
-                remainingByType={remainingByType}
+                quotaByType={quotaByType}
                 selectedId={selectedType?.id ?? null}
                 onSelect={setSelectedType}
               />
@@ -205,20 +198,35 @@ export default function MyHousekeepingPage() {
           {!bookingsLoading && bookings.length === 0 && (
             <p className='text-sm text-muted-foreground'>Nothing booked yet.</p>
           )}
+          {/* One column on a phone: the date and status stack under the type
+              name rather than being squeezed onto one line. */}
           <div className='space-y-2'>
             {bookings.map((b) => (
               <Card key={b.id}>
-                <CardContent className='flex flex-wrap items-center justify-between gap-2 p-3 text-sm'>
-                  <div>
-                    <span className='font-medium'>{b.type_name}</span>
-                    <span className='text-muted-foreground'>
-                      {' '}
-                      · {b.booking_date} at {b.slot_start?.slice(0, 5)}
-                    </span>
+                <CardContent className='flex items-start justify-between gap-3 p-3'>
+                  <div className='min-w-0 space-y-0.5'>
+                    <p className='text-sm font-medium'>{b.type_name}</p>
+                    <p className='text-xs text-muted-foreground'>
+                      {bookingDateLabel(b.booking_date)} · {hhmm(b.slot_start)}–
+                      {hhmm(b.slot_end)}
+                    </p>
+                    {b.cleaner_name && (
+                      <p className='text-xs text-muted-foreground'>
+                        Cleaner: {b.cleaner_name}
+                      </p>
+                    )}
+                    {b.status === 'completed' && b.average_rating != null && (
+                      <p className='text-xs text-muted-foreground'>
+                        Rated {b.average_rating} / 5
+                      </p>
+                    )}
                   </div>
-                  <div className='flex items-center gap-2'>
-                    <Badge variant={b.status === 'cancelled' ? 'outline' : 'secondary'}>
-                      {b.status.replace(/_/g, ' ')}
+                  <div className='flex shrink-0 flex-col items-end gap-1.5'>
+                    <Badge
+                      className={LEARNER_STATUS_TONE[b.status]}
+                      variant='secondary'
+                    >
+                      {LEARNER_STATUS_LABEL[b.status]}
                     </Badge>
                     {canLearnerCancel(b.status) && (
                       <Button
