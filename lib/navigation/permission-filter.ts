@@ -10,7 +10,7 @@ import type { PageEntry } from './types';
  * `is_admin()` exactly, so it grants nothing the DB doesn't already grant; a plain
  * student/faculty (not in this set) is unaffected and cannot be over-opened.
  */
-const ADMIN_BYPASS_ROLES = ['admin', 'super_admin', 'administrator'];
+export const ADMIN_BYPASS_ROLES = ['admin', 'super_admin', 'administrator'];
 function hasAdminBypass(userRole: string, isSuperAdmin: boolean): boolean {
   return isSuperAdmin || ADMIN_BYPASS_ROLES.includes(userRole);
 }

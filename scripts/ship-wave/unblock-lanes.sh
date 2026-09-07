@@ -60,7 +60,10 @@ merge_main_into() {  # $1 = PR number  $2 = branch → merged | current | confli
 }
 
 lane_retry_allowed() {  # $1 = PR number → 0 if this UNRESOLVABLE PR may get its ONE retry now
-  local n="${1#\#}" m="$STATE/retried/$n" vage
+  # `local n=… m="$n"` in ONE statement expands $n before the assignment lands, so under `set -u`
+  # bash 5.3 aborts with "n: unbound variable" — it killed the 15:15 run mid-round (2026-09-07).
+  local n m vage
+  n="${1#\#}"; m="$STATE/retried/$n"
   [ -f "$m" ] && return 1
   # the verdict comment must be ≥ LANE_TTL_H old — a fresh verdict is a fresh verdict
   vage=$(gh pr view "$n" --repo "$REPO" --json comments \

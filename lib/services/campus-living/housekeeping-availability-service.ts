@@ -35,10 +35,7 @@ export class HousekeepingAvailabilityService {
    *
    * Postgres DOW: index 0 = Sunday .. 6 = Saturday.
    */
-  static async listForBlock(
-    blockId: string,
-    institutionId: string,
-  ): Promise<CleaningAvailability[]> {
+  static async listForBlock(blockId: string): Promise<CleaningAvailability[]> {
     try {
       const { data, error } = await this.supabase
         .from('hostel_cleaning_availability')
@@ -55,7 +52,6 @@ export class HousekeepingAvailabilityService {
       return Array.from({ length: 7 }, (_unused, weekday) =>
         byWeekday.get(weekday) ?? {
           id: '',
-          institution_id: institutionId,
           block_id: blockId,
           weekday,
           is_open: false,
@@ -74,7 +70,6 @@ export class HousekeepingAvailabilityService {
     try {
       const { error } = await this.supabase.from('hostel_cleaning_availability').upsert(
         {
-          institution_id: dto.institution_id,
           block_id: dto.block_id,
           weekday: dto.weekday,
           is_open: dto.is_open,

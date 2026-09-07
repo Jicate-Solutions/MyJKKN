@@ -202,6 +202,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/foundation/onemark/review': 'foundation.items.manage',
   '/foundation/onemark/practice': 'foundation.practice.take',
 
+  // Cohorts — the top-level section for the shared cohort spine. Its first
+  // screen appoints coordinators for every programme on that spine. Mapped to
+  // its own key so it does not inherit a permission from an ancestor route; the
+  // page itself is super-administrator-only whatever this key says.
+  '/cohorts': 'cohort.coordinators.manage',
+  '/cohorts/coordinators': 'cohort.coordinators.manage',
+
   // Improvement Board (MBA teaching-enterprise)
   '/improvement-board': 'improvement.ideas.view',
   '/improvement-board/dashboard': 'improvement.ideas.view',
@@ -3037,6 +3044,15 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          // No MENU_PERMISSIONS entry, same as My Marks above: the page gates
+          // on profiles.role === 'student' itself and explains when it refuses.
+          href: '/learners/my-syllabus',
+          label: 'My Learning Pathway',
+          active: pathname.startsWith('/learners/my-syllabus'),
+          icon: BookOpen,
+          submenus: []
+        },
+        {
           href: '/learners/my-bills',
           label: 'My Bills',
           active: pathname.startsWith('/learners/my-bills'),
@@ -3701,6 +3717,21 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/work-pulse/all', label: 'All Submissions', active: pathname.startsWith('/work-pulse/all') },
             { href: '/work-pulse/impact', label: 'Impact', active: pathname.startsWith('/work-pulse/impact') },
           ]
+        }
+      ]
+    },
+    {
+      // Cohorts — every programme on the shared cohort spine (School of
+      // Influence, Solve for 100, MBA Associates, Foundations, CDC Training,
+      // Trainer Development). Coordinators is its first screen.
+      groupLabel: 'Cohorts',
+      menus: [
+        {
+          href: '/cohorts/coordinators',
+          label: 'Coordinators',
+          active: pathname.startsWith('/cohorts/coordinators'),
+          icon: UserCog,
+          submenus: []
         }
       ]
     },

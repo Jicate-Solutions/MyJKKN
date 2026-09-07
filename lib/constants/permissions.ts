@@ -2014,6 +2014,14 @@ export const PERMISSION_CATEGORIES = [
       { key: 'solutions.societal.view', label: 'View Community Engagements' },
       { key: 'solutions.societal.record', label: 'Record Community Engagements' },
       { key: 'solutions.societal.submit', label: 'Submit Community Engagements' },
+      // `solutions.societal.approve` gained a SECOND enforcement site on
+      // 2026-10-19: it is the key `apply_department_status_review()` checks
+      // before a person may accept or reject a proposed dormancy change, and
+      // `solutions.societal.view` is what the SELECT policy on
+      // `sh_department_status_reviews` requires. No separate status-review key
+      // was added, because a key the database does not check would draw a
+      // button that always fails. Renaming or removing either of these two
+      // closes the department status review queue on /solutions/departments.
       { key: 'solutions.societal.approve', label: 'Approve Community Engagements' },
 
       // Settings (tier-2 chip-leak sweep 2026-04-27)
@@ -3419,7 +3427,20 @@ export const PERMISSION_CATEGORIES = [
       { key: 'cohort.school_of_influence.view', label: 'School of Influencer — View batches and members' },
       { key: 'cohort.school_of_influence.create', label: 'School of Influencer — Create batches, accept applicants' },
       { key: 'cohort.school_of_influence.edit', label: 'School of Influencer — Edit batches and member status' },
-      { key: 'cohort.school_of_influence.manage', label: 'School of Influencer — Run the programme (attendance, review queue, remove members)' }
+      { key: 'cohort.school_of_influence.manage', label: 'School of Influencer — Run the programme (attendance, review queue, remove members)' },
+      // Added 2026-08-02 — the /cohorts/coordinators console. Its substrate is
+      // live on production and baselined in
+      // supabase/migrations/20260816020001_programme_coordinator_authz.sql.
+      //
+      // ⚠ THIS KEY OPENS NOTHING ON ITS OWN, AND THAT IS DELIBERATE. The Director
+      // decided appointing coordinators is super-administrator-only, so the page,
+      // the API routes, the RLS on cohort_coordinators and every RPC all require
+      // COALESCE(is_super_admin(), false). The key exists so the sidebar entry has
+      // its own MENU_PERMISSIONS mapping instead of inheriting one from an
+      // ancestor route and gating on the wrong thing. Granting it shows somebody
+      // the menu item; the page then refuses them explicitly, naming who to ask.
+      // Do not grant it expecting it to admit anyone.
+      { key: 'cohort.coordinators.manage', label: 'Cohort Coordinators console (super administrators only — granting this alone admits nobody)' }
     ]
   },
   {
@@ -3498,6 +3519,26 @@ export const PERMISSION_CATEGORIES = [
       { key: 'referrals.categories.manage', label: 'Manage Referral Categories' },
       { key: 'referrals.eligibility.manage', label: 'Manage Referral Category Eligibility' },
       { key: 'referrals.forms.manage', label: 'Manage Referral Forms & Fields' }
+    ]
+  },
+  {
+    // Added 2026-09-06 — Campus Wi-Fi captive-portal SSO foundation
+    // (migration 20260906020000, supersedes Draft PR #792). These nine keys
+    // are the ONLY predicates the network_* RLS policies and the two
+    // learner-reachable RPCs use; no role name appears in that SQL. No page
+    // exists yet, so nothing in lib/sidebarMenuLink.ts points at them.
+    name: 'Network (Campus Wi-Fi)',
+    key: 'network',
+    permissions: [
+      { key: 'network.view', label: 'View Campus Wi-Fi (routers, overview)' },
+      { key: 'network.sessions.view', label: 'View Who Is Connected (sessions)' },
+      { key: 'network.sessions.manage', label: 'End Sessions & Register Devices for Others' },
+      { key: 'network.devices.view', label: 'View Registered Devices (learners & Senior Learners)' },
+      { key: 'network.routers.manage', label: 'Register & Edit Routers and RADIUS Servers' },
+      { key: 'network.lockouts.manage', label: 'View & Clear Sign-in Lockouts' },
+      { key: 'network.audit.view', label: 'View the Wi-Fi Audit Trail' },
+      { key: 'network.settings.manage', label: 'Manage Wi-Fi Settings (sign-in methods, speed tiers, block reasons)' },
+      { key: 'network.panic.manage', label: 'Emergency Open Wi-Fi (panic switch)' }
     ]
   }
 ];

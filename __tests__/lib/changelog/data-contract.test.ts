@@ -1,8 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
+import { MODULES, PLATFORM, moduleFor, slugify } from '@/lib/changelog/modules.mjs';
 import { canSeeModule } from '@/lib/changelog/use-changelog';
-import type { ChangelogEntry, ChangelogMeta } from '@/lib/changelog/types';
+import type { ChangelogModule } from '@/lib/changelog/types';
 
 // See can-see-module.test.ts: importing the client module for its one pure
 // export would otherwise boot the Supabase browser client.
@@ -11,198 +10,180 @@ vi.mock('@/hooks/use-permissions', () => ({
 }));
 
 /**
- * The contract between scripts/generate-changelog.mjs and the page.
+ * The changelog data contract, after the move off committed files.
  *
- * The generator shells out to `git log` at import time, so it cannot be
- * imported here. What CAN be checked is its committed output: these are the
- * three files the browser actually fetches, and every assertion below must hold
- * for ANY generation, not for today's history. Counts and commit text are
- * deliberately not asserted — they change on every merge.
+ * WHAT THIS FILE USED TO ASSERT, AND WHY IT NO LONGER CAN. It read
+ * lib/changelog/data/{meta,recent,archive}.json off disk and checked the
+ * generator's output: date format, the four kinds, newest-first ordering, the
+ * recent/archive split, contributor counts, and that every entry's module slug
+ * existed in the dictionary that travelled with it. Those files are gone — the
+ * entries are rows in changelog_entries now. Every one of those invariants moved
+ * INTO the database (a `date` column, a CHECK on `kind`, NOT NULL on subject and
+ * author, a foreign key on `module_key`, `ORDER BY entry_date DESC` in the read
+ * path) or into SQL this suite cannot execute. It would be worse than useless to
+ * keep asserting them against a fixture written in this file: the fixture would
+ * always pass and would prove nothing about the rows a reader actually gets.
  *
- * Note for whoever changes the generator: this suite runs on a pull request
- * only when a path under __tests__/lib/**, lib/** or vitest.config.js changes
- * (see .github/workflows/lib-unit-suite.yml). Regenerating lib/changelog/data/
- * alone does not trigger it.
+ * live-data-schema.test.ts asserts the declarations that replaced them, and
+ * names in one place everything that is now beyond the reach of a unit test.
+ *
+ * WHAT IS STILL REAL HERE. The module dictionary did not move. It is still plain
+ * JavaScript in lib/changelog/modules.mjs, it is what must seed
+ * changelog_modules, and it is what the role gate runs against. A mistake in it
+ * is invisible on the page rather than loud: canSeeModule fails closed, so a bad
+ * slug makes entries silently disappear for every non-super-admin, and a
+ * too-broad namespace shows module news to people with no access to the module.
  */
-const dir = path.join(process.cwd(), 'lib', 'changelog', 'data');
-const read = <T,>(f: string): T => JSON.parse(readFileSync(path.join(dir, f), 'utf8')) as T;
 
-const meta = read<ChangelogMeta>('meta.json');
-const recent = read<ChangelogEntry[]>('recent.json');
-const archive = read<ChangelogEntry[]>('archive.json');
-const all = [...recent, ...archive];
+type Mod = { key: string; label: string; perm: string | string[] | null; href: string | null };
 
-const KINDS = new Set(['new', 'fixed', 'faster', 'security']);
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const scopes = Object.keys(MODULES as Record<string, unknown>);
+
+/**
+ * Every module the generator can emit, keyed the way changelog_modules is.
+ *
+ * Built by running every scope through moduleFor(), which is exactly what the
+ * generator does per commit — so this is the row set a sync job has to write,
+ * derived the same way rather than restated.
+ */
+const seed = new Map<string, Mod>();
+for (const scope of scopes) seed.set((moduleFor(scope) as Mod).key, moduleFor(scope) as Mod);
+
+const PLATFORM_KEY = slugify((PLATFORM as { label: string }).label) as string;
+
+const namespacesOf = (m: Mod) => (m.perm === null ? [] : Array.isArray(m.perm) ? m.perm : [m.perm]);
 
 /** Rows that break a rule, capped so a failure prints a diff a person can read. */
 const sample = <T,>(rows: T[], n = 5) => rows.slice(0, n);
 
-describe('generated files load', () => {
-  it('recent and archive are arrays and recent is not empty', () => {
-    expect(Array.isArray(recent)).toBe(true);
-    expect(Array.isArray(archive)).toBe(true);
-    expect(recent.length).toBeGreaterThan(0);
+describe('the dictionary is a valid seed for changelog_modules', () => {
+  it('has modules to seed at all', () => {
+    expect(seed.size).toBeGreaterThan(0);
   });
 
-  it('meta carries the fields the page reads', () => {
-    expect(typeof meta.generatedAt).toBe('string');
-    expect(typeof meta.ref).toBe('string');
-    expect(meta.generatedAt).toMatch(DATE_RE);
-    expect(Array.isArray(meta.months)).toBe(true);
-    expect(Array.isArray(meta.contributors)).toBe(true);
-    expect(typeof meta.modules).toBe('object');
-    expect(Object.keys(meta.modules).length).toBeGreaterThan(0);
-  });
-});
-
-describe('entry shape', () => {
-  it('every entry has a 7-character short sha', () => {
-    expect(sample(all.filter((e) => !/^[0-9a-f]{7}$/.test(e.h)))).toEqual([]);
+  it('every key is a slug the module_key foreign key can point at', () => {
+    // changelog_entries.module_key REFERENCES changelog_modules(key), so a key
+    // that is empty, capitalised or punctuated is not a cosmetic problem: the
+    // entry insert fails and that commit never reaches the page.
+    const bad = [...seed.keys()].filter((k) => !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(k));
+    expect(bad).toEqual([]);
   });
 
-  it('every date is YYYY-MM-DD', () => {
-    expect(sample(all.filter((e) => !DATE_RE.test(e.d)))).toEqual([]);
-  });
-
-  it('every kind is one of new | fixed | faster | security', () => {
-    // KIND_LABEL and the filter chips are keyed on exactly these four; a fifth
-    // renders as an unlabelled chip nothing can select.
-    expect(sample(all.filter((e) => !KINDS.has(e.t)))).toEqual([]);
-  });
-
-  it('no entry has an empty summary or author', () => {
-    // An empty summary is a blank row on the page; an empty author is an
-    // uncredited change.
-    expect(sample(all.filter((e) => typeof e.s !== 'string' || e.s.trim() === ''))).toEqual([]);
-    expect(sample(all.filter((e) => typeof e.a !== 'string' || e.a.trim() === ''))).toEqual([]);
-  });
-
-  it('the optional PR number is a positive integer when present', () => {
-    expect(sample(all.filter((e) => 'p' in e && !(Number.isInteger(e.p) && (e.p as number) > 0)))).toEqual(
-      []
-    );
-  });
-
-  it('the optional breaking flag is exactly 1 when present', () => {
-    expect(sample(all.filter((e) => 'b' in e && e.b !== 1))).toEqual([]);
-  });
-});
-
-describe('ordering', () => {
-  const nonIncreasing = (rows: ChangelogEntry[]) =>
-    rows
-      .map((e, i) => (i > 0 && e.d > rows[i - 1].d ? { at: i, after: rows[i - 1].d, is: e.d } : null))
-      .filter(Boolean);
-
-  it('recent is newest-first by date', () => {
-    // git log is topological, not chronological, so the generator sorts
-    // explicitly. A changelog read as a timeline must never step forwards.
-    expect(sample(nonIncreasing(recent))).toEqual([]);
-  });
-
-  it('archive is newest-first by date', () => {
-    expect(sample(nonIncreasing(archive))).toEqual([]);
-  });
-
-  it('the archive is entirely older than the recent window', () => {
-    if (archive.length === 0) return;
-    expect(archive[0].d <= recent[recent.length - 1].d).toBe(true);
-  });
-});
-
-describe('the recent / archive split', () => {
-  it('splits on meta.recentFrom, with no entry on the wrong side', () => {
-    // The page renders recent.json first and fetches archive.json on demand. If
-    // the two windows overlapped, an entry would appear twice once the reader
-    // asked for older changes.
-    expect(meta.recentFrom).toMatch(DATE_RE);
-    expect(sample(recent.filter((e) => e.d < meta.recentFrom))).toEqual([]);
-    expect(sample(archive.filter((e) => e.d >= meta.recentFrom))).toEqual([]);
-  });
-
-  it('meta counts describe the files that were written', () => {
-    expect(meta.recentCount).toBe(recent.length);
-    expect(meta.archiveCount).toBe(archive.length);
-    expect(meta.total).toBe(all.length);
-  });
-
-  it('meta.first and meta.latest bracket the data', () => {
-    expect(meta.latest).toBe(all[0].d);
-    expect(meta.first).toBe(all[all.length - 1].d);
-  });
-
-  it('meta.months lists every month present, newest first', () => {
-    const derived = [...new Set(all.map((e) => e.d.slice(0, 7)))].sort().reverse();
-    expect(meta.months).toEqual(derived);
-  });
-});
-
-describe('the module dictionary travels with the data', () => {
-  it('every entry module slug exists in meta.modules', () => {
-    // A slug missing here is invisible on the page: canSeeModule() fails closed
-    // on an unknown module, so those entries silently disappear for every
-    // non-super-admin.
-    const unknown = [...new Set(all.filter((e) => !meta.modules[e.m]).map((e) => e.m))];
-    expect(unknown).toEqual([]);
-  });
-
-  it('every module entry has a label, a namespace or null, and an href or null', () => {
-    for (const [slug, m] of Object.entries(meta.modules)) {
-      expect(typeof m.label, slug).toBe('string');
-      expect(m.label.length, slug).toBeGreaterThan(0);
-
-      const permOk =
-        m.perm === null ||
-        (typeof m.perm === 'string' && m.perm.length > 0) ||
-        (Array.isArray(m.perm) &&
-          m.perm.length > 0 &&
-          m.perm.every((p) => typeof p === 'string' && p.length > 0));
-      expect(permOk, `${slug}: perm must be a non-empty namespace, list of them, or null`).toBe(
-        true
-      );
-
-      const hrefOk = m.href === null || (typeof m.href === 'string' && m.href.startsWith('/'));
-      expect(hrefOk, `${slug}: href must be an app path or null`).toBe(true);
+  it('a key never carries two different labels or two different namespaces', () => {
+    // The seed is an upsert on a UNIQUE key. If two scopes produced the same key
+    // with different content, the row would hold whichever the job wrote last —
+    // and which one that is depends on iteration order, so the page's filter
+    // chip and its permission gate would change for no reason anyone can see.
+    const drift: string[] = [];
+    const seen = new Map<string, Mod>();
+    for (const scope of scopes) {
+      const m = moduleFor(scope) as Mod;
+      const prev = seen.get(m.key);
+      if (!prev) {
+        seen.set(m.key, m);
+        continue;
+      }
+      if (prev.label !== m.label) drift.push(`${m.key}: label "${prev.label}" vs "${m.label}"`);
+      if (JSON.stringify(prev.perm) !== JSON.stringify(m.perm)) {
+        drift.push(`${m.key}: perm ${JSON.stringify(prev.perm)} vs ${JSON.stringify(m.perm)}`);
+      }
     }
+    expect(drift).toEqual([]);
+  });
+
+  it('records the ONE key whose href is not stable, so a second one is caught', () => {
+    // Characterisation, not approval. `administration` is reachable through two
+    // MODULES entries that agree on label and namespace but disagree on href
+    // (/admin/ai-models and /admin/dashboard-drilldowns), so the "Open
+    // Administration" link already points wherever the last write happened to
+    // land — the JSON generator had the same wart, silently. It is left alone
+    // here because lib/changelog/modules.mjs is not this suite's to change; the
+    // point of pinning it is that a SECOND module developing the same split
+    // turns this test red instead of shipping another arbitrary link.
+    const hrefs = new Map<string, Set<string>>();
+    for (const scope of scopes) {
+      const m = moduleFor(scope) as Mod;
+      if (!hrefs.has(m.key)) hrefs.set(m.key, new Set());
+      hrefs.get(m.key)!.add(JSON.stringify(m.href));
+    }
+    const unstable = [...hrefs.entries()].filter(([, set]) => set.size > 1).map(([k]) => k);
+    expect(unstable).toEqual(['administration']);
+  });
+
+  it('every namespace fits the text[] column and the gate that reads it', () => {
+    // changelog_modules.perm is text[]; modules.mjs stores a bare string for
+    // most modules and an array for the few that span namespaces, so the sync
+    // has to wrap the bare ones. Both shapes are checked here because a
+    // namespace is also matched by canSeeModule with a dot boundary — a value
+    // with a space or a capital could never match a real permission key.
+    const bad: string[] = [];
+    for (const [key, m] of seed) {
+      if (m.perm === null) continue;
+      const ns = namespacesOf(m);
+      if (ns.length === 0) bad.push(`${key}: perm present but empty`);
+      for (const p of ns) {
+        if (typeof p !== 'string' || !/^[a-z0-9_]+(?:\.[a-z0-9_]+)*$/.test(p)) {
+          bad.push(`${key}: "${p}" is not a permission namespace`);
+        }
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('every href is an app path or null', () => {
+    const bad = [...seed.entries()]
+      .filter(([, m]) => !(m.href === null || (typeof m.href === 'string' && m.href.startsWith('/'))))
+      .map(([k, m]) => `${k}: ${JSON.stringify(m.href)}`);
+    expect(bad).toEqual([]);
   });
 });
 
-describe('contributors', () => {
-  it('names every author that appears in the data', () => {
-    const named = new Set(meta.contributors.map((c) => c.name));
-    const missing = [...new Set(all.map((e) => e.a))].filter((a) => !named.has(a));
-    expect(missing).toEqual([]);
+describe('the platform bucket must be seeded even though no scope produces it', () => {
+  it('is where every unmapped scope lands', () => {
+    expect((moduleFor('a-scope-nobody-has-ever-used') as Mod).key).toBe(PLATFORM_KEY);
+    expect(PLATFORM_KEY).toBe('platform');
   });
 
-  it('counts are positive integers ordered most-first', () => {
-    expect(sample(meta.contributors.filter((c) => !Number.isInteger(c.count) || c.count < 1))).toEqual(
-      []
-    );
-    const outOfOrder = meta.contributors.filter((c, i, a) => i > 0 && a[i - 1].count < c.count);
-    expect(sample(outOfOrder)).toEqual([]);
+  it('is NOT reachable by walking MODULES, so a seed built from MODULES alone omits it', () => {
+    // Measured, not assumed: no key in MODULES maps to the Platform module — it
+    // exists only as moduleFor()'s fallback. A sync job that seeds
+    // changelog_modules by iterating MODULES therefore never writes the
+    // `platform` row, and then every unscoped commit fails its foreign key on
+    // insert. Cross-cutting changes (sign-in, navigation, speed) are exactly the
+    // entries everyone signed in is meant to see, so that failure would be
+    // invisible AND would empty the one bucket with no permission gate.
+    expect(seed.has(PLATFORM_KEY)).toBe(false);
+  });
+
+  it('is platform-wide: no namespace, so everyone signed in reads it', () => {
+    expect((PLATFORM as { perm: unknown }).perm).toBeNull();
+    expect(canSeeModule(moduleFor('') as ChangelogModule, {}, false)).toBe(true);
   });
 });
 
 describe('role scoping against the real dictionary', () => {
+  // These ran against meta.json's copy of the dictionary before the move. They
+  // now run against its source, which is the same data one step earlier and no
+  // longer depends on a file being regenerated.
+
   it('a viewer holding nothing sees exactly the platform-wide modules', () => {
     // The floor of the gate. If this ever returns a perm-gated module, every
     // signed-in learner is reading module news they have no access to.
-    const visible = Object.entries(meta.modules)
-      .filter(([, m]) => canSeeModule(m, {}, false))
-      .map(([slug]) => slug)
+    const visible = [...seed.entries()]
+      .filter(([, m]) => canSeeModule(m as ChangelogModule, {}, false))
+      .map(([k]) => k)
       .sort();
-    const platformWide = Object.entries(meta.modules)
+    const platformWide = [...seed.entries()]
       .filter(([, m]) => m.perm === null)
-      .map(([slug]) => slug)
+      .map(([k]) => k)
       .sort();
     expect(visible).toEqual(platformWide);
   });
 
   it('a super admin sees every module', () => {
-    const hidden = Object.entries(meta.modules)
-      .filter(([, m]) => !canSeeModule(m, {}, true))
-      .map(([slug]) => slug);
+    const hidden = [...seed.entries()]
+      .filter(([, m]) => !canSeeModule(m as ChangelogModule, {}, true))
+      .map(([k]) => k);
     expect(hidden).toEqual([]);
   });
 
@@ -212,24 +193,23 @@ describe('role scoping against the real dictionary', () => {
     // modules may legitimately share a namespace (Administration and AI
     // Routines are both gated on `admin`), so this checks each module against
     // its own namespace rather than asserting exclusivity between modules.
-    const gated = Object.entries(meta.modules).filter(([, m]) => m.perm !== null);
+    const gated = [...seed.entries()].filter(([, m]) => m.perm !== null);
     expect(gated.length).toBeGreaterThan(0);
 
     const wrong: string[] = [];
-    for (const [slug, mod] of gated) {
-      const namespaces = Array.isArray(mod.perm) ? mod.perm : [mod.perm as string];
-      for (const ns of namespaces) {
-        if (!canSeeModule(mod, { [`${ns}.view`]: true }, false)) {
-          wrong.push(`${slug}: "${ns}.view" did not open it`);
+    for (const [key, mod] of gated) {
+      for (const ns of namespacesOf(mod)) {
+        if (!canSeeModule(mod as ChangelogModule, { [`${ns}.view`]: true }, false)) {
+          wrong.push(`${key}: "${ns}.view" did not open it`);
         }
-        if (canSeeModule(mod, { [`${ns}x.view`]: true }, false)) {
-          wrong.push(`${slug}: look-alike "${ns}x.view" opened it`);
+        if (canSeeModule(mod as ChangelogModule, { [`${ns}x.view`]: true }, false)) {
+          wrong.push(`${key}: look-alike "${ns}x.view" opened it`);
         }
-        if (canSeeModule(mod, { [`${ns}.view`]: false }, false)) {
-          wrong.push(`${slug}: a DENIED "${ns}.view" opened it`);
+        if (canSeeModule(mod as ChangelogModule, { [`${ns}.view`]: false }, false)) {
+          wrong.push(`${key}: a DENIED "${ns}.view" opened it`);
         }
       }
     }
-    expect(wrong).toEqual([]);
+    expect(sample(wrong)).toEqual([]);
   });
 });

@@ -1,0 +1,257 @@
+# Event Effectiveness Loop — DECISION MANIFEST, written 2026-09-07.
+#
+# READ THIS FIRST: there is NO events loop in loop_registry, and this manifest
+# does not create one. It records the four loop decisions (metric,
+# counter-metric, verdict owner, fuel) and the three blockers that must clear
+# before a row is written to loop_registry.
+#
+# WHY IT IS NOT REGISTERED: 6 of the 7 existing loop_class='self_improving'
+# loops are missing part of the contract. The 4 that actually work share one
+# trait — a named human who has to read the verdict. Registering an events row
+# today would make a 7th incomplete loop: the verdict metric has one noisy data
+# point and the fuel table holds zero rows. A registry row is an object; it
+# proves nothing.
+#
+# Every number below was read from live prod (Mgmt API) on 2026-09-07 and is
+# dated. Nothing here is inherited from an earlier manifest.
+
+loop_key: events                  # NOT yet present in loop_registry — deliberate
+name: Event Effectiveness Loop
+prod_ref: kvizhngldtiuufknvehv
+status: decisions_recorded_not_registered
+
+# ── The four decisions ──────────────────────────────────────────────────────
+
+# Answered in the 2026-09-07 interview. Recorded here because a loop that
+# cannot say who decided what, and what the alternative was, silently becomes
+# whatever the last person to touch it assumed.
+interview_2026_09_07:
+  anonymity:
+    decided: "hide respondent names from the organiser"
+    why: |
+      The form asks how clearly a NAMED guest speaker explained things; people
+      soften criticism when the speaker's host can see who said it. The
+      registration is still recorded (it has to be — it is the one-answer-per-
+      person key), it is simply not shown. Applied live: is_anonymous = true.
+  who_may_answer:
+    decided: "only people marked present — with a fallback"
+    why: |
+      Turnout is the metric and rating is its counter-metric, so both must
+      come from the same population; a no-show rating corrupts both. The plain
+      version of this rule has a trap (see the migration header): it would
+      silence EVERYONE if check-in is forgotten. Frozen at the form's opening
+      instant instead. Ships as migration 20260907160000 — a FILE, not applied.
+  trust_floor:
+    decided: "10 responses"
+    why: |
+      45 registered; below 10 a single strong opinion moves the mean enough
+      to flip a verdict. Under the floor, show the answers and decline to
+      declare an outcome. NOTE this is a DECISION, not yet enforced anywhere —
+      whatever renders the verdict must implement it.
+  check_in_owner:
+    decided: "the event's creator, prithiviraja.ak@jkkn.ac.in"
+    applied: "appointed to events.config->incharges 2026-09-07"
+    caveat: |
+      NECESSARY BUT DEMONSTRABLY NOT SUFFICIENT. He was ALREADY in-charge of the
+      Business Analytics workshop (181 registered) and that event still recorded
+      0 check-ins. Appointing someone grants the ability, not the habit. The
+      appointment is also SILENT — no trigger notifies him — so the Director
+      tells him separately.
+
+decisions:
+  # Director, asked what counts as an event having gone well: "All of the
+  # above" (turnout AND rating AND repeat attendance). Recorded as a SEQUENCE,
+  # not three simultaneous verdicts — a loop with three outcome metrics cannot
+  # say whether it worked when they disagree. Exactly ONE number is the verdict
+  # at any moment.
+  metric:
+    now: turnout                  # checked-in / registered, per event
+    when_fuelled: mean_rating     # joins once event_feedback_responses has rows
+    long_run: repeat_attendance
+    computed_from: events_registrations.checked_in / count(*)
+
+  # The mirror image of induction's counter-metric. Induction measures RATING
+  # and guards it with ATTENDANCE ("no rating lift bought by shrinking the
+  # room"). Events measures TURNOUT, so the guard is the other way round:
+  # no turnout lift bought by dragging people in.
+  counter_metric:
+    name: mean_usefulness_rating
+    rule: must_not_fall_vs_baseline
+    source: event_feedback_responses.answers->>'usefulness'   # rating 1..5
+    # NOTE the useful property of the sequence: `rating` serves as the
+    # COUNTER-metric first and becomes the METRIC later, so the same column is
+    # collected from day one either way. Nothing is wasted by starting on
+    # turnout.
+
+  # The single trait every working loop here shares. Decided 2026-09-07.
+  # Already owns induction-session and induction-playbook, which are the same
+  # machinery — Events is its second consumer.
+  verdict_owner: krishnaveni_a@jkkn.ac.in
+
+  fuel:
+    first_form: event_feedback_forms/post-seminar
+    first_event: SEMINAR - LOGISTICS SUPPLY CHAIN MANAGEMENT (dceeef19-de9f-49a5-be29-c40cca696ee3)
+    opens_at: 2026-09-09T08:30Z   # 14:00 IST — see time_source_trap below
+    closes_at: 2026-09-16T08:30Z
+    # Openness is DERIVED (is_enabled AND now() inside the window), not flipped
+    # by a job — an expired form left collecting is the failure that design
+    # avoids. Verified rendering on production 2026-09-07 as superadmin: the
+    # coordinator panel shows "Seminar Feedback / Scheduled / 4 questions /
+    # 0 responses".
+    time_source_trap: |
+      THIS ROW DISAGREES WITH ITSELF and the form was armed an hour early
+      because of it. events carries two end times:
+        end_time  (plain clock)   14:00 IST  <- what the UI renders
+        end_date  (timestamptz)   13:00 IST  <- one hour earlier
+      start_time and start_date agree (10:30); only the END diverges. The form
+      was first anchored to end_date, so it would have opened at 13:00 — while
+      the seminar, as every organiser and attendee sees it, was still running.
+      Corrected 2026-09-07 to (event_date + end_time) AT TIME ZONE
+      'Asia/Kolkata'. Anchor any future event-timing logic to the field the UI
+      renders, and check the two agree before trusting either. The data layer
+      alone looked perfectly consistent — only the rendered page exposed it.
+
+# ── Tables ──────────────────────────────────────────────────────────────────
+
+tables:
+  # The general-event form. Created 2026-09-07: this table held 0 rows since it
+  # shipped — the form was built and never instantiated once, for any event.
+  input: event_feedback_responses         # 0 rows as of 2026-09-07 14:35 IST
+  action: null                            # not built — see blockers
+  # supporting chain (all read live 2026-09-07):
+  #   event_feedback_forms      — 1 row (created this session; was 0)
+  #   event_feedback_questions  — 4 rows, keys: usefulness, speaker_clarity,
+  #                               attend_again, improvement
+  #   events                    — 50 (24 live / 21 draft / 5 archived)
+  #   events_registrations      — 1,908; .checked_in is the turnout mechanism
+  #   event_session_feedback    — 15,929 ratings, 100% induction (5 events).
+  #                               This is the INDUCTION loop's fuel, not this
+  #                               one's. Do not conflate them.
+
+# ── Blockers: what must clear before loop_registry gets a row ───────────────
+
+blockers:
+  - id: B1-no-fuel
+    what: event_feedback_responses holds 0 rows.
+    why: A loop cannot measure an outcome that has never been recorded.
+    clears_when: The post-seminar form collects its first real responses after
+      2026-09-09 07:30Z.
+    status: armed 2026-09-07 — form created and enabled, opens at seminar end.
+
+  - id: B2-door-shut-for-externals
+    what: |
+      Every RLS policy on event_feedback_forms and event_feedback_responses is
+      scoped to {authenticated}, and fn_my_event_registration resolves the
+      caller through auth.uid(). anon has no grant on the tables at all
+      (verified 2026-09-07 — "permission denied for table
+      event_feedback_forms" as role anon).
+    why: |
+      The migration's own header states the opposite design intent —
+      "a response keys on events_registrations.id, NOT on a profile ...
+      participant_type='external' rows (marathon runners, outside guests) that
+      have no auth.users account at all" and "NULL for an external participant
+      answering through their registration link". That registration-link door
+      was never built: app/p/event/[id]/ has only `register`, and no feedback
+      route.
+    blast_radius: |
+      Per event, registrants who physically cannot answer (2026-09-07):
+        Kumarapalayam Bypass Marathon    1,559 of 1,600  (97%)
+        Excel workshop                      15 of   181
+        SEMINAR - LOGISTICS                   7 of    45
+        School of Influencer                  2 of    76
+    clears_when: A registration-scoped public feedback door exists.
+    status: |
+      DESIGNED, NOT BUILT (Director 2026-09-07: "design it, don't build it
+      yet"). See docs/architecture/2026-09-07-DESIGN-event-feedback-external-participants.md
+      — a one-time link keyed on the registration, redeemed through ONE
+      SECURITY DEFINER function, with no blanket anon grant on any table.
+      Five decisions are pending in that doc; nothing is built until they land.
+
+  - id: B3-turnout-has-no-data
+    what: events_registrations.checked_in is the turnout mechanism and it works,
+      but exactly ONE event has ever recorded a check-in — the marathon,
+      148 of 1,600 = 9.3%, which reads as a capture artifact, not a turnout.
+      All 49 other events are 0.
+    why: |
+      NOT a missing screen. An earlier reading of this blocker said check-in
+      existed for marathon only; that was wrong, and the correction matters
+      because it changes the fix. Verified 2026-09-07 on jicate/main:
+        - components/events/shared/checkin-board.tsx is a shared board whose
+          own header reads "Shared check-in station for ANY event type".
+        - event-logistics.tsx registers it as tab key 'checkin' with
+          eventTypes: 'all'.
+        - app/(routes)/events/[id]/page.tsx mounts EventLogistics for every
+          general event, so the seminar HAS a Check-in tab today.
+        - events.config->'enabled_tools' is NULL on all 24 live events, and
+          NULL means "all tools on" (tabVisible). Check-in is switched ON
+          everywhere.
+      So the tool is present, enabled, and reachable. It is simply not part of
+      anyone's routine. Building a check-in screen would duplicate a working
+      one.
+    contributing_factor: |
+      Confirmed at the SCREEN on production 2026-09-07 (persona render probe,
+      superadmin): the event console prints, verbatim,
+        "In-charge  Nobody — only holders of the events manage permission can
+         run it."
+      EventLogistics is mounted with canManage={canEdit}, and event-level edit
+      comes from fn_is_event_incharge() matching auth.uid() against
+      config->incharges[].member_id. Incharges on live events (2026-09-07):
+        SEMINAR - LOGISTICS      0 incharges,   45 registered
+        Kumarapalayam Marathon   0 incharges, 1,600 registered
+        School of Influencer     0 incharges,   76 registered
+        Excel workshop           1 incharge,   181 registered — still 0 check-ins
+      So an empty incharge list is not a complete explanation (the workshop had
+      one and still recorded nothing), but for the seminar it does mean nobody
+      holds the event-level grant that would make check-in their job — only
+      super admins / admins / events.view holders with institution access can
+      operate its board at all.
+    consequence_for_the_loop: |
+      THIS IS THE LIVE RISK. If nobody checks anyone in on 9 Sep, the seminar
+      reports 45 registered / 0 checked in = 0% turnout, and the loop's very
+      first verdict is false — not "the event went badly" but "nobody recorded
+      that it happened". A loop that cannot tell those two apart is worse than
+      no loop.
+    clears_when: One non-marathon event records real check-ins.
+    status: open — needs a named human on the seminar before 2026-09-09, which
+      is a Director action (it assigns a duty to a real colleague), not a code
+      change.
+
+# ── Deliberately NOT claimed ────────────────────────────────────────────────
+
+not_claimed:
+  - No sim block. There is no measure function to assert against yet, and a
+    sim must never carry another loop's magic numbers (SCHEMA.md rule).
+  - No confound block. min_rows for a causal read is 10; fuel is 0.
+  - No feed_forward. Nothing conditions cycle N+1 on cycle N yet, which is the
+    definition of the loop and precisely what is not built.
+  - No walk block. The persona circuit is written after the surfaces exist.
+  - "No registry_gates_hint. Registering gates for a loop that cannot measure
+    would be the 7th incomplete loop."
+
+# ── Adjacent, already in the tree, dead ─────────────────────────────────────
+
+notes:
+  - app/api/cron/event-feedback-naac-evidence/route.ts exists on jicate/main and
+    is NOT registered in vercel.json (grep count 0, verified 2026-09-07) — it
+    has never run. fn_event_feedback_refresh_naac_evidence() exists in prod.
+    Whoever wires the events loop should decide whether this cron is revived or
+    deleted; leaving it is a third dead object in the same module.
+  - events.config->'incharges' is [] on the seminar, so fn_is_event_incharge()
+    grants nobody. Only super admin / admin / events.view holders with
+    institution access can edit its feedback form — the event's own creator
+    (prithiviraja.ak@jkkn.ac.in) may not be able to.
+
+open_questions:
+  - |
+    B2's fix is a security-sensitive change (a public, registration-scoped read
+    and write path) and it must not become a blanket anon grant.
+    An earlier draft of this manifest proposed the existing registration QR
+    (events_registrations.qr_code_url) as the natural capability token. That is
+    WRONG and was corrected the same day: qr_code_url is NULL for every
+    external registrant on every live event (0 of 1,559 marathon, 0 of 7
+    seminar, verified 2026-09-07). There is no token to reuse.
+    Externals ARE reachable — of the 1,584 external registrants on live events,
+    1,584 have a phone and 1,571 have an email — so a signed one-time link sent
+    by email or SMS is the realistic mechanism, and it has to be built, not
+    wired. Choosing it is a Director-level decision about who may answer a
+    survey and how they are contacted, not a purely technical one.

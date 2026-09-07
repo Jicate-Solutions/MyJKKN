@@ -7,6 +7,7 @@ import {
   isLiveStatus,
   bookingErrorMessage,
   holdMessage,
+  typeQuota,
 } from '@/lib/services/campus-living/housekeeping-rules';
 
 // quotaWindowStart mirrors the CASE inside fn_cl_housekeeping_book. The SQL's
@@ -128,5 +129,98 @@ describe('holdMessage', () => {
     });
     expect(msg).toContain('Toilet Cleaning');
     expect(msg).toContain('12 Sep 2026');
+  });
+});
+
+
+// typeQuota mirrors step 6 of fn_cl_housekeeping_book. The bug it exists to stop:
+// the page counted only bookings dated up to TODAY, so a 1-per-week type looked
+// free the moment its single booking moved into the future. The picker offered
+// it and the RPC then refused with quota_exhausted.
+describe('typeQuota — the window is SYMMETRIC about the date being booked', () => {
+  const base = { typeId: 't1', usageLimit: 1, usagePeriod: 'week' as const, today: '2026-09-07' };
+
+  it('counts a booking dated in the FUTURE against today, because the window is symmetric', () => {
+    // The whole point of migration 20260909150000. Today (7th) has window
+    // [1st, 13th], which DOES contain the 8th -- so a 1-per-week type booked for
+    // tomorrow is used up today too. Before it was symmetric this returned 1 and
+    // the picker offered a slot the RPC would then have refused.
+    const q = typeQuota({
+      ...base,
+      bookings: [{ type_id: 't1', status: 'completed', booking_date: '2026-09-08' }],
+    });
+    expect(q.remainingToday).toBe(0);
+    expect(q.bookable).toBe(false);
+  });
+
+  it('a booking just outside the window on either side does not count', () => {
+    const q = typeQuota({
+      ...base,
+      bookings: [
+        { type_id: 't1', status: 'completed', booking_date: '2026-08-31' }, // today - 7
+        { type_id: 't1', status: 'booked', booking_date: '2026-09-14' },    // today + 7
+      ],
+    });
+    expect(q.remainingToday).toBe(1);
+  });
+
+  it('counts a completed booking, not just a live one', () => {
+    const q = typeQuota({
+      ...base,
+      bookings: [{ type_id: 't1', status: 'completed', booking_date: '2026-09-07' }],
+    });
+    expect(q.remainingToday).toBe(0);
+  });
+
+  it('ignores a cancelled booking, matching the RPC', () => {
+    const q = typeQuota({
+      ...base,
+      bookings: [{ type_id: 't1', status: 'cancelled', booking_date: '2026-09-07' }],
+    });
+    expect(q.remainingToday).toBe(1);
+    expect(q.bookable).toBe(true);
+  });
+
+  it('ignores other types', () => {
+    const q = typeQuota({
+      ...base,
+      bookings: [{ type_id: 't2', status: 'completed', booking_date: '2026-09-07' }],
+    });
+    expect(q.remainingToday).toBe(1);
+  });
+
+  it('stays bookable when today is full but a later date in the horizon is free', () => {
+    // One booking on the 7th. Booking on the 14th has window [8th, 14th], which
+    // excludes it, so the 14th is free and the type must stay selectable.
+    const q = typeQuota({
+      ...base,
+      bookings: [{ type_id: 't1', status: 'completed', booking_date: '2026-09-07' }],
+    });
+    expect(q.remainingToday).toBe(0);
+    expect(q.bookable).toBe(true);
+    expect(q.nextAvailableDate).toBe('2026-09-14');
+  });
+
+  it('is not bookable at all when every date in the horizon is full', () => {
+    // Two bookings a week apart cover the whole 8-day horizon for a 1/week type.
+    const q = typeQuota({
+      ...base,
+      bookings: [
+        { type_id: 't1', status: 'completed', booking_date: '2026-09-07' },
+        { type_id: 't1', status: 'booked', booking_date: '2026-09-14' },
+      ],
+    });
+    expect(q.bookable).toBe(false);
+    expect(q.nextAvailableDate).toBeNull();
+  });
+
+  it('a 2-per-week type still has one left after a single booking', () => {
+    const q = typeQuota({
+      ...base,
+      usageLimit: 2,
+      bookings: [{ type_id: 't1', status: 'completed', booking_date: '2026-09-07' }],
+    });
+    expect(q.remainingToday).toBe(1);
+    expect(q.nextAvailableDate).toBeNull();
   });
 });

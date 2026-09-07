@@ -32,6 +32,7 @@ import type {
   WorkPatternEntitlementInput,
   WorkPatternLeaveTypeOption,
   WorkPatternMember,
+  WorkPatternMemberBrief,
   WorkPatternSummary,
 } from '@/types/hr-work-patterns';
 
@@ -105,7 +106,7 @@ export class WorkPatternService {
         .or(`effective_until.is.null,effective_until.gt.${on}`),
       supabase
         .from('hr_staff_work_pattern_assignments')
-        .select('work_pattern_id')
+        .select('work_pattern_id, staff_id')
         .in('work_pattern_id', ids)
         .lte('effective_from', on)
         .or(`effective_until.is.null,effective_until.gt.${on}`)
@@ -127,9 +128,31 @@ export class WorkPatternService {
       weekByPattern.set(w.work_pattern_id, w);
     }
 
+    // Who holds each pattern today, not just how many: the card names them.
+    // One entry per assignment row, so the names and the count never disagree
+    // — a staff member v_hr_staff cannot see (excluded category) still counts,
+    // and reads '(unnamed)' here exactly as it does in the Members tab.
+    type AssignRow = { work_pattern_id: string; staff_id: string };
+    const assignments = (memberRes.data ?? []) as AssignRow[];
+    const { byId: staffById } = await WorkPatternService.staffLite(
+      supabase,
+      Array.from(new Set(assignments.map((a) => a.staff_id))),
+      { withCategories: false },
+    );
+
     const memberCount = new Map<string, number>();
-    for (const m of (memberRes.data ?? []) as Array<{ work_pattern_id: string }>) {
-      memberCount.set(m.work_pattern_id, (memberCount.get(m.work_pattern_id) ?? 0) + 1);
+    const membersByPattern = new Map<string, WorkPatternMemberBrief[]>();
+    for (const a of assignments) {
+      memberCount.set(a.work_pattern_id, (memberCount.get(a.work_pattern_id) ?? 0) + 1);
+      const s = staffById.get(a.staff_id);
+      const bucket = membersByPattern.get(a.work_pattern_id) ?? [];
+      bucket.push({
+        staff_id: a.staff_id,
+        staff_code: s?.staff_id ?? null,
+        name: fullName(s?.first_name, s?.last_name),
+        designation: s?.designation ?? null,
+      });
+      membersByPattern.set(a.work_pattern_id, bucket);
     }
 
     type EntRow = {
@@ -155,6 +178,7 @@ export class WorkPatternService {
         working_days: (week?.working_days ?? []).map((d) => d as IsoDayOfWeek),
         days_effective_from: week?.effective_from ?? null,
         member_count: memberCount.get(p.id) ?? 0,
+        members: (membersByPattern.get(p.id) ?? []).sort((a, b) => a.name.localeCompare(b.name)),
         entitlements: (entByPattern.get(p.id) ?? [])
           .sort((a, b) => a.order - b.order)
           .map(({ leave_type_code, entitled_days }) => ({ leave_type_code, entitled_days })),
@@ -410,7 +434,9 @@ export class WorkPatternService {
   private static async staffLite(
     supabase: SupabaseClient,
     staffIds: string[],
+    opts?: { withCategories?: boolean },
   ): Promise<{ byId: Map<string, StaffLite>; categoryName: Map<string, string> }> {
+    const withCategories = opts?.withCategories ?? true;
     const byId = new Map<string, StaffLite>();
     const categoryName = new Map<string, string>();
     if (staffIds.length === 0) return { byId, categoryName };
@@ -431,7 +457,7 @@ export class WorkPatternService {
       if (s.category_id) catIds.add(s.category_id);
     }
 
-    if (catIds.size > 0) {
+    if (withCategories && catIds.size > 0) {
       const { data: cats, error: catErr } = await supabase
         .from('employment_categories')
         .select('id, category_name')

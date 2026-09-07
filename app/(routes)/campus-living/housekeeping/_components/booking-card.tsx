@@ -1,45 +1,21 @@
 'use client';
 
-import { useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
-  Camera,
   CheckCircle2,
   Clock,
   ImageIcon,
-  Loader2,
   ShieldAlert,
   Star,
   UserPlus,
   XCircle,
 } from 'lucide-react';
-import { toast } from 'sonner';
-import type { BookingBoardRow, BookingStatus } from '@/types/campus-living/housekeeping';
+import type { BookingBoardRow } from '@/types/campus-living/housekeeping';
 
-const STATUS_LABEL: Record<BookingStatus, string> = {
-  booked: 'Unassigned',
-  assigned: 'Assigned',
-  in_progress: 'In progress',
-  awaiting_feedback: 'Awaiting feedback',
-  completed: 'Completed',
-  cancelled: 'Cancelled',
-};
-
-const STATUS_TONE: Record<BookingStatus, string> = {
-  booked: 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200',
-  assigned: 'bg-blue-100 text-blue-900 dark:bg-blue-950 dark:text-blue-200',
-  in_progress: 'bg-indigo-100 text-indigo-900 dark:bg-indigo-950 dark:text-indigo-200',
-  awaiting_feedback: 'bg-purple-100 text-purple-900 dark:bg-purple-950 dark:text-purple-200',
-  completed: 'bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200',
-  cancelled: 'bg-muted text-muted-foreground',
-};
-
-/** HH:MM:SS from Postgres -> HH:MM for display. */
-function hhmm(t: string): string {
-  return t?.slice(0, 5) ?? t;
-}
+import { STATUS_LABEL, STATUS_TONE, hhmm } from './booking-status';
+import { PhotoUploadButton } from './photo-upload-button';
 
 interface Props {
   booking: BookingBoardRow;
@@ -63,36 +39,6 @@ export function BookingCard({
   onWaive,
   onUploaded,
 }: Props) {
-  const [uploading, setUploading] = useState<'before' | 'after' | null>(null);
-  const beforeRef = useRef<HTMLInputElement>(null);
-  const afterRef = useRef<HTMLInputElement>(null);
-
-  async function upload(phase: 'before' | 'after', file: File) {
-    setUploading(phase);
-    try {
-      const body = new FormData();
-      body.append('file', file);
-      body.append('phase', phase);
-      const res = await fetch(
-        `/api/campus-living/housekeeping/bookings/${booking.id}/photos`,
-        { method: 'POST', body },
-      );
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        // The route's own copy is already actionable ("Upload the before photo
-        // first."), so surface it rather than a generic failure.
-        toast.error(json?.error ?? 'Could not upload the photo.');
-        return;
-      }
-      toast.success(phase === 'before' ? 'Before photo saved' : 'After photo saved');
-      onUploaded();
-    } catch {
-      toast.error('Could not upload the photo. Check your connection and try again.');
-    } finally {
-      setUploading(null);
-    }
-  }
-
   // An unassigned booking whose slot has passed is the module's main failure
   // mode — a learner waited and nobody came. Make it impossible to miss.
   const isStranded = booking.status === 'booked' && isOverdue;
@@ -150,64 +96,13 @@ export function BookingCard({
               After
             </span>
 
-            {canExecute && booking.status === 'assigned' && (
-              <>
-                <input
-                  ref={beforeRef}
-                  type='file'
-                  accept='image/jpeg,image/png,image/webp'
-                  capture='environment'
-                  className='hidden'
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) void upload('before', f);
-                    e.target.value = '';
-                  }}
-                />
-                <Button
-                  size='sm'
-                  className='ml-auto'
-                  disabled={uploading !== null}
-                  onClick={() => beforeRef.current?.click()}
-                >
-                  {uploading === 'before' ? (
-                    <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />
-                  ) : (
-                    <Camera className='mr-1.5 h-3.5 w-3.5' />
-                  )}
-                  Upload before
-                </Button>
-              </>
-            )}
-
-            {canExecute && booking.status === 'in_progress' && (
-              <>
-                <input
-                  ref={afterRef}
-                  type='file'
-                  accept='image/jpeg,image/png,image/webp'
-                  capture='environment'
-                  className='hidden'
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) void upload('after', f);
-                    e.target.value = '';
-                  }}
-                />
-                <Button
-                  size='sm'
-                  className='ml-auto'
-                  disabled={uploading !== null}
-                  onClick={() => afterRef.current?.click()}
-                >
-                  {uploading === 'after' ? (
-                    <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />
-                  ) : (
-                    <Camera className='mr-1.5 h-3.5 w-3.5' />
-                  )}
-                  Upload after
-                </Button>
-              </>
+            {canExecute && (
+              <PhotoUploadButton
+                booking={booking}
+                onUploaded={onUploaded}
+                variant='button'
+                className='ml-auto'
+              />
             )}
           </div>
         )}

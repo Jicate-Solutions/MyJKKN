@@ -23,8 +23,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { AlertTriangle } from 'lucide-react';
-import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
-import { useHostelBlocks } from '@/hooks/campus-living/use-hostel-blocks';
+import { useAllReachableBlocks } from '@/hooks/campus-living/use-hostel-blocks';
 import {
   useCreateCleaner,
   useUpdateCleaner,
@@ -66,25 +65,13 @@ interface Props {
   cleaner?: Cleaner | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  defaultInstitutionId?: string;
 }
 
-export function CleanerDialog({
-  mode,
-  cleaner,
-  open,
-  onOpenChange,
-  defaultInstitutionId,
-}: Props) {
-  const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess();
-
+export function CleanerDialog({ mode, cleaner, open, onOpenChange }: Props) {
   // State is INITIALISED from props, never synced from them in an effect: the
   // page keys this dialog on the cleaner id, so editing a different cleaner
   // mounts a fresh component. An effect that reset state on open would cascade
   // a render every time the dialog appeared.
-  const [institutionId, setInstitutionId] = useState<string>(
-    mode === 'edit' && cleaner ? cleaner.institution_id : defaultInstitutionId ?? '',
-  );
   const [form, setForm] = useState(() =>
     mode === 'edit' && cleaner
       ? {
@@ -105,7 +92,9 @@ export function CleanerDialog({
   const create = useCreateCleaner();
   const update = useUpdateCleaner();
 
-  const { data: blocksData } = useHostelBlocks(institutionId);
+  // Every block, unfiltered: hostel_blocks has no institution_id, and a cleaner
+  // serving a block shared by six colleges is the normal case, not the exception.
+  const { data: blocksData } = useAllReachableBlocks();
   const blocks: any[] = (blocksData as any)?.data ?? [];
 
   const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
@@ -127,8 +116,7 @@ export function CleanerDialog({
         : [...form.block_ids, id],
     );
 
-  const canSave =
-    form.full_name.trim().length > 0 && (mode === 'edit' || institutionId.length > 0);
+  const canSave = form.full_name.trim().length > 0;
 
   function handleSave() {
     const payload = {
@@ -150,10 +138,7 @@ export function CleanerDialog({
         { onSuccess: () => onOpenChange(false) },
       );
     } else {
-      create.mutate(
-        { institution_id: institutionId, ...payload },
-        { onSuccess: () => onOpenChange(false) },
-      );
+      create.mutate(payload, { onSuccess: () => onOpenChange(false) });
     }
   }
 
@@ -174,28 +159,6 @@ export function CleanerDialog({
         </DialogHeader>
 
         <div className='min-h-0 flex-1 space-y-4 overflow-y-auto pr-1'>
-          {mode === 'create' && (
-            <div className='space-y-2'>
-              <Label>Institution *</Label>
-              <Select
-                value={institutionId}
-                onValueChange={setInstitutionId}
-                disabled={institutionsLoading}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder='Choose an institution' />
-                </SelectTrigger>
-                <SelectContent>
-                  {institutions.map((inst: any) => (
-                    <SelectItem key={inst.id} value={inst.id}>
-                      {inst.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-
           <div className='space-y-2'>
             <Label htmlFor='cleaner-name'>Full name *</Label>
             <Input
@@ -289,11 +252,10 @@ export function CleanerDialog({
 
           <div className='space-y-2'>
             <Label>Blocks served</Label>
-            {!institutionId && (
-              <p className='text-sm text-muted-foreground'>
-                Choose an institution first to list its blocks.
-              </p>
-            )}
+            <p className='text-sm text-muted-foreground'>
+              This is the cleaner&apos;s scope — assigning a job in a block they do not serve
+              is refused. Blocks are shared between institutions.
+            </p>
             <div className='space-y-1.5'>
               {blocks.map((b) => (
                 <label key={b.id} className='flex items-center gap-2 text-sm'>

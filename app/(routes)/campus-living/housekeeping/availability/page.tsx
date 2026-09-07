@@ -18,8 +18,7 @@ import {
 } from '@/components/ui/select';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
-import { BlockSelector } from '@/components/campus-living/block-selector';
+import { useAllReachableBlocks } from '@/hooks/campus-living/use-hostel-blocks';
 import {
   useBlockAvailability,
   useUpsertAvailability,
@@ -36,7 +35,6 @@ const HK_KEYS = ['campus_living.housekeeping.availability_manage'];
 const DOW_LABEL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 export default function HousekeepingAvailabilityPage() {
-  const [institutionId, setInstitutionId] = useState<string>('');
   const [blockId, setBlockId] = useState<string>('all');
 
   const { permissions, isSuperAdmin, isLoading: permsLoading } = usePermissions(HK_KEYS);
@@ -44,10 +42,14 @@ export default function HousekeepingAvailabilityPage() {
   const canManage =
     permsLoading || isSuperAdmin || !!permissions['campus_living.housekeeping.availability_manage'];
 
-  const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess();
+  // A window belongs to the BLOCK, not to a college: ux_hk_availability_block_weekday
+  // is UNIQUE (block_id, weekday), and hostel_blocks has no institution_id at all.
+  // The block list comes back already scoped by the caller's own block RLS.
+  const { data: blocksResult } = useAllReachableBlocks();
+  const blocks = ((blocksResult as any)?.data ?? []) as Array<{ id: string; name: string; hostel_type?: string | null }>;
 
   const scopedBlock = blockId === 'all' ? undefined : blockId;
-  const { data: rows = [], isLoading } = useBlockAvailability(scopedBlock, institutionId);
+  const { data: rows = [], isLoading } = useBlockAvailability(scopedBlock);
   const upsert = useUpsertAvailability();
 
   return (
@@ -88,50 +90,26 @@ export default function HousekeepingAvailabilityPage() {
 
         <Card>
           <CardContent className='flex flex-wrap items-end gap-3 p-4'>
-            <Select
-              value={institutionId}
-              onValueChange={(v) => {
-                setInstitutionId(v);
-                setBlockId('all');
-              }}
-              disabled={institutionsLoading}
-            >
-              <SelectTrigger className='w-[16rem]'>
-                <SelectValue placeholder='Choose an institution' />
+            <Select value={blockId} onValueChange={setBlockId}>
+              <SelectTrigger className='w-[18rem]'>
+                <SelectValue placeholder='Choose a block' />
               </SelectTrigger>
               <SelectContent>
-                {institutions.map((inst: any) => (
-                  <SelectItem key={inst.id} value={inst.id}>
-                    {inst.name}
+                {blocks.map((b) => (
+                  <SelectItem key={b.id} value={b.id}>
+                    {b.name}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-
-            {institutionId && (
-              <BlockSelector
-                institutionId={institutionId}
-                value={blockId}
-                onValueChange={setBlockId}
-                includeAll={false}
-                className='w-[16rem]'
-              />
-            )}
           </CardContent>
         </Card>
 
-        {!institutionId && (
+        {blockId === 'all' && (
           <Card>
             <CardContent className='p-8 text-center text-sm text-muted-foreground'>
-              Choose an institution and a block to set its cleaning window.
-            </CardContent>
-          </Card>
-        )}
-
-        {institutionId && blockId === 'all' && (
-          <Card>
-            <CardContent className='p-8 text-center text-sm text-muted-foreground'>
-              Choose a block — availability is set per block.
+              Choose a block — availability is set per block, and a block is shared by every
+              institution whose learners live in it.
             </CardContent>
           </Card>
         )}
@@ -149,7 +127,6 @@ export default function HousekeepingAvailabilityPage() {
                 <WeekdayRow
                   key={`${row.block_id}-${row.weekday}-${row.is_open}-${row.window_start}-${row.window_end}-${row.capacity}`}
                   row={row}
-                  institutionId={institutionId}
                   blockId={scopedBlock}
                   disabled={!canManage || upsert.isPending}
                   onSave={(dto) => upsert.mutate(dto)}
@@ -167,17 +144,14 @@ export default function HousekeepingAvailabilityPage() {
 
 function WeekdayRow({
   row,
-  institutionId,
   blockId,
   disabled,
   onSave,
 }: {
   row: CleaningAvailability;
-  institutionId: string;
   blockId: string;
   disabled: boolean;
   onSave: (dto: {
-    institution_id: string;
     block_id: string;
     weekday: number;
     is_open: boolean;
@@ -246,7 +220,6 @@ function WeekdayRow({
         disabled={disabled || (isOpen && invalidWindow)}
         onClick={() =>
           onSave({
-            institution_id: institutionId,
             block_id: blockId,
             weekday: row.weekday,
             is_open: isOpen,

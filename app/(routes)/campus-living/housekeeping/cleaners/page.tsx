@@ -10,13 +10,6 @@ import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
   Table,
   TableBody,
   TableCell,
@@ -26,8 +19,7 @@ import {
 } from '@/components/ui/table';
 import { ArrowLeft, Loader2, Pencil, Plus } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
-import { useHostelBlocks } from '@/hooks/campus-living/use-hostel-blocks';
+import { useAllReachableBlocks } from '@/hooks/campus-living/use-hostel-blocks';
 import { useHousekeepingCleaners } from '@/hooks/campus-living/use-housekeeping-cleaners';
 import { CleanerDialog } from './_components/cleaner-dialog';
 import type { Cleaner } from '@/types/campus-living/housekeeping';
@@ -43,7 +35,6 @@ const DOW_SHORT: Record<number, string> = {
 const DISPLAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 
 export default function HousekeepingCleanersPage() {
-  const [institutionId, setInstitutionId] = useState<string>('all');
   const [showInactive, setShowInactive] = useState(false);
   const [editing, setEditing] = useState<Cleaner | null>(null);
   const [creating, setCreating] = useState(false);
@@ -54,18 +45,12 @@ export default function HousekeepingCleanersPage() {
   const canManage =
     permsLoading || isSuperAdmin || !!permissions['campus_living.housekeeping.cleaners_manage'];
 
-  const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess();
+  // One shared directory: no institution filter, because a cleaner has no
+  // institution. hostel_blocks has none either — a cleaner's scope is the blocks
+  // they serve, and 4 of the 6 blocks house several colleges at once.
+  const { data: cleaners = [], isLoading } = useHousekeepingCleaners(showInactive);
 
-  // Pass the selection straight through — never branch on isSuperAdmin to
-  // decide WHICH institution's rows to fetch; RLS already filters them.
-  const scopedInstitution = institutionId === 'all' ? undefined : institutionId;
-
-  const { data: cleaners = [], isLoading } = useHousekeepingCleaners(
-    scopedInstitution,
-    showInactive,
-  );
-
-  const { data: blocksResult } = useHostelBlocks(scopedInstitution);
+  const { data: blocksResult } = useAllReachableBlocks();
   const blockNameById = useMemo(() => {
     const list = ((blocksResult as any)?.data ?? []) as Array<{ id: string; name: string }>;
     return new Map(list.map((b) => [b.id, b.name]));
@@ -87,7 +72,8 @@ export default function HousekeepingCleanersPage() {
             <h1 className='text-2xl font-semibold tracking-tight'>Cleaners</h1>
             <p className='max-w-3xl text-sm text-muted-foreground'>
               Who can be assigned to a cleaning, which blocks they serve, and when. These are
-              directory records — cleaners do not log in.
+              directory records — cleaners do not log in. One shared directory: blocks are
+              shared between institutions, so cleaners are too.
             </p>
           </div>
           <div className='flex gap-2'>
@@ -106,24 +92,6 @@ export default function HousekeepingCleanersPage() {
 
         <Card>
           <CardContent className='flex flex-wrap items-center gap-4 p-4'>
-            <Select
-              value={institutionId}
-              onValueChange={setInstitutionId}
-              disabled={institutionsLoading}
-            >
-              <SelectTrigger className='w-[16rem]'>
-                <SelectValue placeholder='All institutions' />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value='all'>All institutions</SelectItem>
-                {institutions.map((inst: any) => (
-                  <SelectItem key={inst.id} value={inst.id}>
-                    {inst.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
             <div className='flex items-center gap-2'>
               <Switch id='show-inactive' checked={showInactive} onCheckedChange={setShowInactive} />
               <Label htmlFor='show-inactive' className='text-sm text-muted-foreground'>
@@ -227,11 +195,10 @@ export default function HousekeepingCleanersPage() {
           with state initialised from props, instead of an effect resetting it
           — which would cascade a render on every open. */}
       <CleanerDialog
-        key={`create-${creating}-${scopedInstitution ?? 'all'}`}
+        key={`create-${creating}`}
         mode='create'
         open={creating}
         onOpenChange={setCreating}
-        defaultInstitutionId={scopedInstitution}
       />
       <CleanerDialog
         key={`edit-${editing?.id ?? 'none'}`}
