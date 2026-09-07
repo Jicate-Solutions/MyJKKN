@@ -29,6 +29,10 @@ const CONSOLE = '/foundation/console';
 const PAPER = '/foundation/onemark/paper';
 const REVIEW = '/foundation/onemark/review';
 const PRACTICE = '/foundation/onemark/practice';
+// Wave 3 Lane N gave the same items.manage key a second child — the unit list.
+// The two exact-array assertions below are the reason it is named here: they
+// pin the approver's WHOLE submenu set, so a new child has to be declared.
+const UNITS = '/foundation/onemark/units';
 const ONEMARK_HUB = '/foundation/onemark';
 const OPERATOR_LABEL = 'Foundation Programme';
 
@@ -110,8 +114,8 @@ describe('Foundation Programme row — explicit submenu rows (OneMark Lane R)', 
     expect(operatorRow(LEARNER), 'operator accordion leaked to a practice.take-only learner').toBeUndefined();
   });
 
-  it('reveals the parent to an approver-only holder with the review screen as its only submenu row', () => {
-    expect(subHrefs(APPROVER_ONLY)).toEqual([REVIEW]);
+  it('reveals the parent to an approver-only holder with the review screen and the unit list as its submenu rows', () => {
+    expect(subHrefs(APPROVER_ONLY)).toEqual([REVIEW, UNITS]);
     expect(flatHrefs(APPROVER_ONLY)).not.toContain(PRACTICE);
   });
 
@@ -170,7 +174,7 @@ describe('OneMark hub — /foundation/onemark (Lane I page, Lane R key)', () => 
     // has a sidebar door straight to /foundation/onemark/review.
     expect(routeMatcher.hasAccess(ONEMARK_HUB, 'x', APPROVER_ONLY.permissions)).toBe(false);
     expect(routeMatcher.hasAccess(REVIEW, 'x', APPROVER_ONLY.permissions)).toBe(true);
-    expect(subHrefs(APPROVER_ONLY)).toEqual([REVIEW]);
+    expect(subHrefs(APPROVER_ONLY)).toEqual([REVIEW, UNITS]);
   });
 
   it('has NO sidebar row of its own — a hub child under the operator accordion would leak it to every learner', () => {
