@@ -58760,3 +58760,75 @@ END;
 $$;
 
 REVOKE EXECUTE ON FUNCTION public.tg_aiu_prompt_trails_guard() FROM anon, PUBLIC;
+
+-- ---------------------------------------------------------------------------
+-- Updated: 2026-09-07 - on_first_use_touch_department(): recording a
+-- solution's FIRST REAL USE moves the owning solution department's
+-- last_activity_at forward, so the dormancy sweep can finally see something
+-- other than revenue. Sibling of on_societal_activity_touch_department(),
+-- which cannot serve sh_solution_first_use because its else-branch reads
+-- is_pro_bono / lead_department_id — columns that table does not have.
+-- (migration 20261114000000_solutions_activity_clock_wiring.sql
+--  — FILE ONLY / NOT APPLIED)
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.on_first_use_touch_department()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_dept_id UUID;
+    v_sd_id   UUID;
+    v_old     TEXT;
+    v_when    timestamptz;
+BEGIN
+    -- The date the use HAPPENED, not now(): an entry filed today for a first
+    -- use back in March must not read as activity today.
+    v_when := NEW.used_on::timestamptz;
+
+    SELECT s.lead_department_id
+      INTO v_dept_id
+      FROM public.sh_solutions s
+     WHERE s.id = NEW.solution_id;
+
+    IF v_dept_id IS NULL THEN
+        RETURN NEW;
+    END IF;
+
+    SELECT sd.id, sd.status
+      INTO v_sd_id, v_old
+      FROM public.sh_solution_departments sd
+     WHERE sd.department_id = v_dept_id;
+
+    IF v_sd_id IS NULL THEN
+        RETURN NEW;
+    END IF;
+
+    -- Never move the clock backwards.
+    UPDATE public.sh_solution_departments
+       SET last_activity_at = GREATEST(COALESCE(last_activity_at, v_when), v_when),
+           updated_at = now()
+     WHERE id = v_sd_id;
+
+    -- Reactivate only when the use is recent enough to mean it.
+    IF v_old IN ('at_risk', 'dormant') AND v_when > now() - interval '30 days' THEN
+        UPDATE public.sh_solution_departments
+           SET status = 'active',
+               updated_at = now()
+         WHERE id = v_sd_id;
+
+        INSERT INTO public.sh_department_status_history
+            (solution_department_id, previous_status, new_status, reason, changed_at)
+        VALUES (v_sd_id, v_old, 'active', 'Reactivated: first real use recorded', now());
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+-- Trigger function: PostgreSQL does not consult EXECUTE when a trigger fires,
+-- so the narrowest grant that works is no grant at all. The revoke still names
+-- all three grantees — Supabase's ALTER DEFAULT PRIVILEGES gives anon a direct
+-- EXECUTE grant separately from PUBLIC, and authenticated is a member of PUBLIC.
+REVOKE EXECUTE ON FUNCTION public.on_first_use_touch_department() FROM anon, authenticated, PUBLIC;

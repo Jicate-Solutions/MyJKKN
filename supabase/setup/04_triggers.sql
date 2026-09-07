@@ -2560,3 +2560,19 @@ DROP TRIGGER IF EXISTS trg_aiu_prompt_trails_guard ON public.aiu_prompt_trails;
 CREATE TRIGGER trg_aiu_prompt_trails_guard
   BEFORE UPDATE ON public.aiu_prompt_trails
   FOR EACH ROW EXECUTE FUNCTION public.tg_aiu_prompt_trails_guard();
+
+-- ---------------------------------------------------------------------------
+-- Updated: 2026-09-07 - sh_solution_first_use: recording a solution's first
+-- real user touches the owning department's activity clock.
+-- AFTER INSERT only, deliberately — solution_id is UNIQUE so the row is
+-- written once; the UPDATE path exists to correct a typo, and the clock's
+-- never-move-backwards rule means a correction to an earlier date must not
+-- move it anyway.
+-- (migration 20261114000000_solutions_activity_clock_wiring.sql
+--  — FILE ONLY / NOT APPLIED)
+-- ---------------------------------------------------------------------------
+DROP TRIGGER IF EXISTS trg_first_use_touches_dept ON public.sh_solution_first_use;
+
+CREATE TRIGGER trg_first_use_touches_dept
+  AFTER INSERT ON public.sh_solution_first_use
+  FOR EACH ROW EXECUTE FUNCTION public.on_first_use_touch_department();
