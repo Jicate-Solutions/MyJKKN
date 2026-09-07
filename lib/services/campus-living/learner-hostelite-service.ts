@@ -557,7 +557,10 @@ export class LearnerHosteliteService {
       // Same default as listHostelites — otherwise the Year chips would offer
       // cohorts that only exist among reserved learners, filtering the table to
       // an empty result while the Status filter still says Active.
-      .in('lifecycle_status', CL_DEFAULT_ROSTER_STATUSES as unknown as string[]);
+      // Passed as the readonly literal tuple, NOT widened to string[]: the cast
+      // erased the literal types, and PostgREST's generated signature wants the
+      // lifecycle_status union, which a bare string[] cannot satisfy.
+      .in('lifecycle_status', CL_DEFAULT_ROSTER_STATUSES);
     if (institutionId) query = query.eq('institution_id', institutionId);
     const { data, error } = await query;
     if (error) {

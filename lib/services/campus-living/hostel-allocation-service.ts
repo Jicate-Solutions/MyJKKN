@@ -6,6 +6,7 @@ import type {
   CreateHostelAllocationDTO,
   UpdateHostelAllocationDTO,
   AllocationFilters,
+  AllocationStatus,
   VacateReason,
   RoomBedOccupancy,
   AllocatableRoom,
@@ -211,7 +212,13 @@ export class HostelAllocationService {
         .select('*, learner:profiles!hostel_allocations_learner_id_fkey(id, full_name, email), hostel_blocks(name, code), hostel_rooms(room_number, room_type, floor), hostel_beds(bed_number, bed_type)')
         .eq('learner_id', learnerId);
 
-      if (statuses && statuses.length > 0) query = query.in('status', statuses);
+      // Cast at the boundary: the parameter is deliberately `string[]` because
+      // callers pass roster-status arrays assembled elsewhere, while PostgREST's
+      // generated signature wants the allocation_status union. An invalid value
+      // is rejected by the enum at the database, not silently matched.
+      if (statuses && statuses.length > 0) {
+        query = query.in('status', statuses as AllocationStatus[]);
+      }
       else if (activeOnly) query = query.eq('status', 'active');
       query = query.order('allocation_date', { ascending: false });
 

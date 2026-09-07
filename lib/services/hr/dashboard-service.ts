@@ -81,7 +81,13 @@ export class HRDashboardService {
       institution_id: string | null;
       mode: DashboardMode;
     }
-  ): Promise<HRDashboardPayload> {
+    // display_role is deliberately NOT produced here. It is the viewer's exact
+    // role label, and only the route knows it — viewer_role has already
+    // normalised several raw role_keys down to 'hr_officer' by the time this
+    // runs. app/api/hr/dashboard/route.ts adds it on the way out
+    // (`{ ...payload, display_role }`), so the field stays required on
+    // HRDashboardPayload for every consumer.
+  ): Promise<Omit<HRDashboardPayload, 'display_role'>> {
     const { viewer_role, hr_organization_id, institution_id, mode } = opts;
     const fy = getCurrentFiscalYear();
     const generated_at = new Date().toISOString();

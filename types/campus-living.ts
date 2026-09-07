@@ -8,12 +8,18 @@
 
 export type AllocationType = 'fresh' | 'renewal' | 'transfer' | 'temporary';
 
+// Mirrors the hostel_allocations.status enum EXACTLY. 'pending_approval' and
+// 'rejected' were missing here while existing in the database — and 2 live rows
+// carry them (verified 2026-09-07), so code narrowing on this type was denying
+// states that real rows are in.
 export type AllocationStatus =
   | 'active'
   | 'vacated'
   | 'transferred'
   | 'suspended'
-  | 'pending_vacate';
+  | 'pending_vacate'
+  | 'pending_approval'
+  | 'rejected';
 
 export type VacateReason =
   | 'graduation'
