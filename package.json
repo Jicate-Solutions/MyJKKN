@@ -7,7 +7,7 @@
     "dev": "next dev --turbopack",
     "dev:webpack": "next dev --webpack",
     "dev:sentry": "cross-env LOCAL_SENTRY=1 next dev --turbopack",
-    "build": "npm run changelog && npm run gen:routes && npm run check:sidebar && npm run check:reachability && npm run check:audit-coverage && cross-env NODE_OPTIONS=\"--max-old-space-size=12288 --max-semi-space-size=128\" next build --turbopack && serwist build serwist.config.mjs",
+    "build": "npm run gen:routes && npm run check:sidebar && npm run check:reachability && npm run check:audit-coverage && cross-env NODE_OPTIONS=\"--max-old-space-size=12288 --max-semi-space-size=128\" next build --turbopack && serwist build serwist.config.mjs",
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",
@@ -49,7 +49,8 @@
     "gen:guide-load": "tsx scripts/load-profile.ts",
     "check:anon-exposure": "node scripts/ci/check-anon-exposure-live.mjs",
     "check:ungrantable": "node scripts/ci/check-ungrantable-permissions.mjs",
-    "changelog": "node scripts/generate-changelog.mjs"
+    "changelog": "node scripts/generate-changelog.mjs",
+    "changelog:sync": "node scripts/sync-changelog-db.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",

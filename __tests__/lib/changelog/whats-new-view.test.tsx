@@ -55,6 +55,10 @@ beforeEach(() => {
     'fetch',
     vi.fn((url: string) =>
       Promise.resolve({
+        // `ok` is load-bearing, not decoration: the hook refuses to parse a
+        // non-2xx body. A stub without it does not resemble any real response.
+        ok: true,
+        status: 200,
         json: () => Promise.resolve(url.includes('part=meta') ? META : RECENT),
       } as Response)
     )
@@ -150,5 +154,34 @@ describe('WhatsNewView — filters', () => {
     });
 
     expect(screen.getByText('No changes match that')).toBeInTheDocument();
+  });
+});
+
+describe('WhatsNewView — a failed request', () => {
+  it('shows the error card instead of crashing on a non-2xx', async () => {
+    // The regression this guards: the hook used to call .json() without checking
+    // the status, so an error body like { error: 'Unauthorized' } became `meta`.
+    // It is an object, so it passed the `if (!meta)` guard, and reading
+    // meta.modules on undefined threw during render — the app's generic crash
+    // page, not this feature's own "could not be loaded" card. The route can
+    // genuinely 500 now (it reads a table that a deploy might precede), so this
+    // path is reachable in production, not hypothetical.
+    permissionsMock.current = { permissions: {}, isSuperAdmin: true, isLoading: false };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve({
+          ok: false,
+          status: 500,
+          json: () => Promise.resolve({ error: 'Internal Server Error' }),
+        } as Response)
+      )
+    );
+
+    render(<WhatsNewView />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/could not be loaded/i)).toBeInTheDocument()
+    );
   });
 });

@@ -38,6 +38,24 @@ interface State {
   error: string | null;
 }
 
+/**
+ * Fetch one part, and FAIL on a non-2xx instead of parsing the error body as data.
+ *
+ * Without the `r.ok` test, a 401 or 500 body — `{ error: '...' }` — was handed
+ * back as `meta`. It is an object, so it is truthy, so the `if (!meta)` guard
+ * below passed and `Object.entries(meta.modules)` ran on undefined: a TypeError
+ * during render, i.e. the app's generic crash page rather than this feature's own
+ * "could not be loaded" card. That path is new — the entries used to be a static
+ * file, and now they come from a route that can genuinely 500 if the migration
+ * has not been applied yet.
+ */
+async function getPart(part: 'meta' | 'recent' | 'archive', before?: string) {
+  const qs = before ? `&before=${encodeURIComponent(before)}` : '';
+  const res = await fetch(`/api/whats-new?part=${part}${qs}`, { cache: 'no-cache' });
+  if (!res.ok) throw new Error(`/api/whats-new?part=${part} responded ${res.status}`);
+  return res.json();
+}
+
 export function useChangelog() {
   const { permissions, isSuperAdmin, isLoading: permsLoading } = usePermissions();
   const [{ meta, recent, archive, error }, set] = useState<State>({
@@ -71,8 +89,8 @@ export function useChangelog() {
   useEffect(() => {
     let cancelled = false;
     Promise.all([
-      fetch('/api/whats-new?part=meta', { cache: 'no-cache' }).then((r) => r.json()),
-      fetch('/api/whats-new?part=recent', { cache: 'no-cache' }).then((r) => r.json()),
+      getPart('meta'),
+      getPart('recent'),
     ])
       .then(([m, r]) => {
         if (!cancelled) set((s) => ({ ...s, meta: m, recent: r }));
@@ -89,13 +107,17 @@ export function useChangelog() {
   useEffect(() => {
     if (!wantArchive || archive || archiveInFlight.current) return;
     archiveInFlight.current = true;
-    fetch('/api/whats-new?part=archive', { cache: 'no-cache' })
-      .then((r) => r.json())
+    // Pin the boundary to the one `meta` reported. Recomputed server-side it
+    // moves at IST midnight, and a reader who opens the page just before and
+    // clicks through just after would see one day listed twice.
+    getPart('archive', meta?.recentFrom)
       .then((a) => set((s) => ({ ...s, archive: a })))
       .catch(() =>
         set((s) => ({ ...s, error: 'Earlier changes could not be loaded. Please refresh.' }))
       );
-  }, [wantArchive, archive]);
+    // `meta?.recentFrom` is a dependency, not an oversight: the effect reads it.
+    // Re-running is harmless — archiveInFlight guards against a second fetch.
+  }, [wantArchive, archive, meta?.recentFrom]);
 
   // Derived rather than stored. The reader has asked for the archive and it has
   // not arrived: that IS the loading state, so a separate flag could only ever

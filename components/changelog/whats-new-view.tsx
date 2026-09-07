@@ -12,7 +12,7 @@
  * rest of the app uses — this screen invents no access rules of its own.
  */
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   Sparkles,
@@ -23,6 +23,7 @@ import {
   ArrowRight,
   AlertCircle,
   Loader2,
+  RefreshCw,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -37,6 +38,7 @@ import {
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { useChangelog } from '@/lib/changelog/use-changelog';
+import { usePermissions } from '@/hooks/use-permissions';
 import { KIND_LABEL, type ChangeKind, type ChangelogEntry } from '@/lib/changelog/types';
 
 const PAGE = 60;
@@ -98,6 +100,109 @@ function initials(name: string) {
     .slice(0, 2)
     .map((w) => w[0]?.toUpperCase() ?? '')
     .join('');
+}
+
+/** idle → starting → started | failed. There is no "done": see below. */
+type RefreshPhase = 'idle' | 'starting' | 'started' | 'failed';
+
+/**
+ * "Check for new changes" — super admins only.
+ *
+ * It sits under the "Updated <date> · N days ago" line because that is the line
+ * a reader uses to judge whether the page is current; the fix belongs next to
+ * the complaint.
+ *
+ * WHAT IT HONESTLY CLAIMS. The button asks GitHub to run the job that rebuilds
+ * the changelog (POST /api/whats-new/refresh) and returns as soon as GitHub has
+ * QUEUED it — a minute or two before any new entry exists. So the success state
+ * says the update is running, never that the page is up to date, and the page is
+ * deliberately NOT re-fetched on success: re-fetching would redraw the same list
+ * and read as "nothing new shipped", which would be a lie about the state of the
+ * world rather than about the button.
+ *
+ * Its own component so that WhatsNewView keeps its existing hooks and early
+ * returns untouched. usePermissions is a React Query hook and useChangelog
+ * already calls it, so this second call is served from the same cache entry.
+ */
+function RefreshChangelogButton() {
+  const { isSuperAdmin } = usePermissions();
+  const [phase, setPhase] = useState<RefreshPhase>('idle');
+  const [message, setMessage] = useState('');
+  // A ref, not the phase: setPhase is async, so two activations inside one tick
+  // (a double-click, or Enter held down) would both see phase === 'idle' and
+  // both POST. The ref flips synchronously, so the second one returns.
+  const inFlight = useRef(false);
+
+  async function start() {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setPhase('starting');
+    setMessage('');
+    try {
+      const res = await fetch('/api/whats-new/refresh', { method: 'POST' });
+      const data: { ok?: boolean; message?: string; error?: string } | null = await res
+        .json()
+        .catch(() => null);
+      if (res.ok && data?.ok) {
+        setPhase('started');
+        setMessage(
+          data.message ??
+            'Update started. It usually takes a minute or two — the newest changes appear once it finishes.'
+        );
+      } else {
+        // The route explains every refusal in words (missing credential, not a
+        // super admin, workflow not on main). Show that sentence, not a code.
+        setPhase('failed');
+        setMessage(data?.error ?? `The update could not be started (HTTP ${res.status}).`);
+      }
+    } catch {
+      setPhase('failed');
+      setMessage('The update could not be started — the request did not reach the server.');
+    } finally {
+      inFlight.current = false;
+    }
+  }
+
+  // Hooks first, then the gate: everyone else sees no control at all. This is a
+  // display rule on top of a server-side check — the route refuses a non-super
+  // admin with a 403 that says why, whether or not this button was ever drawn.
+  if (!isSuperAdmin) return null;
+
+  const busy = phase === 'starting';
+
+  return (
+    <div className="flex w-full flex-col items-center gap-2">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={start}
+        disabled={busy}
+        aria-busy={busy}
+        className="max-w-full"
+      >
+        {busy ? (
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
+        ) : (
+          <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
+        )}
+        {busy ? 'Starting…' : 'Check for new changes'}
+      </Button>
+      {/* Always in the DOM, empty when idle: a live region inserted at the same
+          moment its text arrives is not reliably announced. max-w-prose keeps
+          the sentence readable; it wraps rather than widening at 375px. */}
+      <p
+        role="status"
+        aria-live="polite"
+        className={cn(
+          'max-w-prose text-center text-xs',
+          phase === 'failed' ? 'text-rose-700 dark:text-rose-400' : 'text-muted-foreground'
+        )}
+      >
+        {message}
+      </p>
+    </div>
+  );
 }
 
 export function WhatsNewView() {
@@ -349,9 +454,17 @@ export function WhatsNewView() {
       {filtered.length === 0 ? (
         <Card>
           <CardContent className="py-10 text-center">
-            <p className="font-medium">No changes match that</p>
+            <p className="font-medium">
+              {meta.total === 0 ? 'The changelog has not been built yet' : 'No changes match that'}
+            </p>
+            {/* An empty table and an over-narrow filter look identical to a reader,
+                and blaming their search for a list that was simply never synced sends
+                them hunting for a mistake they did not make. The first deploy after
+                the move to the database hits this for real, until the sync runs. */}
             <p className="mt-1 text-sm text-muted-foreground">
-              Try a different area, or clear the search.
+              {meta.total === 0
+                ? 'No changes have been loaded yet. This fills in the first time the changelog syncs.'
+                : 'Try a different area, or clear the search.'}
             </p>
           </CardContent>
         </Card>
@@ -460,26 +573,37 @@ export function WhatsNewView() {
           </Button>
         )}
         {/* The age is shown ALWAYS, not only when it is bad (Director, 2026-09-06).
-            This list is generated and committed, so it can silently stop moving
-            while still looking perfectly healthy — a plain date gives a reader no
-            way to tell. Past a week we say so outright rather than leaving them to
-            do the arithmetic. */}
-        <p className="text-center text-xs text-muted-foreground">
-          Updated {formatDay(meta.generatedAt)} ·{' '}
-          <span
-            className={cn(
-              daysSince(meta.generatedAt) >= 7 && 'font-medium text-amber-700 dark:text-amber-400'
+            The list can stop moving while still looking perfectly healthy, and a
+            plain date gives a reader no way to tell. Past a week we say so outright
+            rather than leaving them to do the arithmetic.
+
+            `generatedAt` is empty until the first sync has ever run — the route
+            falls back to '' when changelog_sync holds no row. Rendering that
+            unguarded produced "Updated Invalid Date · NaN days ago", which is how
+            the very first deploy after the move to the database would have looked. */}
+        {meta.generatedAt ? (
+          <p className="text-center text-xs text-muted-foreground">
+            Updated {formatDay(meta.generatedAt)} ·{' '}
+            <span
+              className={cn(
+                daysSince(meta.generatedAt) >= 7 && 'font-medium text-amber-700 dark:text-amber-400'
+              )}
+            >
+              {ageLabel(daysSince(meta.generatedAt))}
+            </span>
+            {daysSince(meta.generatedAt) >= 7 && (
+              <> — newer changes have shipped but are not shown here yet.</>
             )}
-          >
-            {ageLabel(daysSince(meta.generatedAt))}
-          </span>
-          {daysSince(meta.generatedAt) >= 7 && (
-            <>
-              {' '}
-              — newer changes have shipped but are not shown here yet.
-            </>
-          )}
-        </p>
+          </p>
+        ) : (
+          <p className="text-center text-xs text-muted-foreground">
+            Never updated — the changelog has not synced yet.
+          </p>
+        )}
+        {/* Directly under the age line: that line is where a reader decides the
+            page is stale, so the one control that can do something about it
+            belongs there. Renders for super admins only. */}
+        <RefreshChangelogButton />
         <p className="text-center text-xs text-muted-foreground">
           Changes you cannot see belong to parts of MyJKKN you do not have access to.
         </p>

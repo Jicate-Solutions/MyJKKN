@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useMemo } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -66,6 +66,10 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
+import {
+  ConsultantDirectoryService,
+  type ConsultantDirectoryResult,
+} from '@/lib/services/admission/consultant-directory-service';
 import { ConsultantService } from '@/lib/services/admission/consultant-service';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { EducationConsultant, ConsultantFilters } from '@/types/education-consultants';
@@ -174,7 +178,7 @@ function ConsultantsPageContent() {
   // Parse filters from URL
   const currentPage = parseInt(searchParams.get('page') || '1', 10);
   // Default sort surfaces top-performing consultants instead of newly-added 0-referral rows
-  const sortBy = searchParams.get('sort_by') || 'total_leads_referred';
+  const sortBy = searchParams.get('sort_by') || 'name';
   const sortOrder = (searchParams.get('sort_order') as 'asc' | 'desc') || 'desc';
   const filters: ConsultantFilters = {
     institution_id: institutionId || '',
@@ -216,6 +220,27 @@ function ConsultantsPageContent() {
   });
 
   // Update filters
+  // Intake year for the referral counts. 'all' keeps the old lifetime view,
+  // but it is no longer the only thing on offer — that was the whole complaint.
+  const yearParam = searchParams.get('admission_year');
+  const selectedYear = yearParam && yearParam !== 'all' ? Number(yearParam) : null;
+
+  const { data: directory } = useQuery<ConsultantDirectoryResult>({
+    queryKey: ['consultant-directory', selectedYear],
+    queryFn: () => ConsultantDirectoryService.get(selectedYear),
+  });
+
+  // consultant_id -> that year's live counts. The stored lifetime columns on the
+  // consultant row are NOT used for these two numbers any more: one overstates
+  // by 213 and the other is 0 for every agency.
+  const byId = useMemo(() => {
+    const m = new Map<string, { referrals: number; enrolled: number }>();
+    for (const a of directory?.agencies ?? []) {
+      m.set(a.consultant_id, { referrals: a.referrals, enrolled: a.enrolled });
+    }
+    return m;
+  }, [directory]);
+
   const updateFilters = useCallback((newFilters: Partial<ConsultantFilters>) => {
     const params = new URLSearchParams(searchParams.toString());
 
@@ -307,9 +332,10 @@ function ConsultantsPageContent() {
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{summaryStats?.total_leads_referred || 0}</div>
+            <div className="text-2xl font-bold">{directory?.summary.referrals ?? 0}</div>
             <p className="text-xs text-muted-foreground">
-              {summaryStats?.total_conversions || 0} converted
+              {directory?.summary.enrolled ?? 0} enrolled
+              {selectedYear ? ` in ${selectedYear}–${String(selectedYear + 1).slice(2)}` : ' across all years'}
             </p>
           </CardContent>
         </Card>
@@ -339,15 +365,17 @@ function ConsultantsPageContent() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Conversion Rate</CardTitle>
+            <CardTitle className="text-sm font-medium">Agencies Active</CardTitle>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {summaryStats?.overall_conversion_rate?.toFixed(1) || 0}%
-            </div>
+            <div className="text-2xl font-bold">{directory?.summary.agencies_active ?? 0}</div>
             <p className="text-xs text-muted-foreground">
-              Referral to enrollment
+              {/* The old card here showed a conversion rate that was 0% for every
+                  agency, because total_conversions has never been written. This
+                  counts agencies that actually sent someone in the selected year. */}
+              of {directory?.summary.agencies_total ?? 0} sent someone
+              {selectedYear ? ' this year' : ' ever'}
             </p>
           </CardContent>
         </Card>
@@ -369,6 +397,28 @@ function ConsultantsPageContent() {
                 />
               </div>
             </div>
+            <Select
+              value={yearParam || 'all'}
+              onValueChange={(value) => {
+                const params = new URLSearchParams(searchParams.toString());
+                if (value === 'all') params.delete('admission_year');
+                else params.set('admission_year', value);
+                params.delete('page');
+                router.push(`?${params.toString()}`);
+              }}
+            >
+              <SelectTrigger className="w-[190px]">
+                <SelectValue placeholder="Admission year" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All admission years</SelectItem>
+                {(directory?.years ?? []).map((y) => (
+                  <SelectItem key={y} value={String(y)}>
+                    {y}–{String(y + 1).slice(2)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Select
               value={searchParams.get('status') || 'all'}
               onValueChange={(value) => updateFilters({ status: value as ConsultantFilters['status'] })}
@@ -481,20 +531,14 @@ function ConsultantsPageContent() {
                       <TableHead>Contact</TableHead>
                       <TableHead>Type</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead
-                        className="text-right cursor-pointer select-none hover:bg-muted/50"
-                        onClick={() => handleSort('total_leads_referred')}
-                      >
-                        Referrals
-                        <SortIndicator column="total_leads_referred" />
-                      </TableHead>
-                      <TableHead
-                        className="text-right cursor-pointer select-none hover:bg-muted/50"
-                        onClick={() => handleSort('conversion_rate')}
-                      >
-                        Commission Rate
-                        <SortIndicator column="conversion_rate" />
-                      </TableHead>
+                      {/* Not sortable on purpose. These two now show LIVE counts for
+                          the selected admission year, while the server sorts the page by
+                          the stored lifetime columns — so a sort here would order rows by
+                          numbers that are no longer on screen. Sorting by the year figure
+                          needs the directory RPC to drive pagination; until then, no
+                          affordance is better than a misleading one. */}
+                      <TableHead className="text-right">Referrals</TableHead>
+                      <TableHead className="text-right">Enrolled</TableHead>
                       <TableHead className="w-[50px]"></TableHead>
                     </TableRow>
                   </TableHeader>
@@ -544,10 +588,10 @@ function ConsultantsPageContent() {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right">
-                          {consultant.total_leads_referred || 0}
+                          {byId.get(consultant.id)?.referrals ?? 0}
                         </TableCell>
                         <TableCell className="text-right">
-                          {consultant.conversion_rate?.toFixed(1) || 0}%
+                          {byId.get(consultant.id)?.enrolled ?? 0}
                         </TableCell>
                         <TableCell>
                           <DropdownMenu>
