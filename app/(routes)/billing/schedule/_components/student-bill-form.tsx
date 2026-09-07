@@ -85,6 +85,7 @@ import {
 import { BillInstalmentEditor } from './bill-instalment-editor';
 import type { Institution } from '@/types/organizations';
 import type { BillingCategory } from '@/types/billing';
+import { toast } from 'sonner';
 import type {
   StudentBill,
   CreateStudentBillDto,

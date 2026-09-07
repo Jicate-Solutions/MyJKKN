@@ -714,7 +714,7 @@ export class LearnerHosteliteService {
         throw error;
       }
       // Flatten accommodation_type from the embed (legacy 'HOSTEL'/'DAY SCHOLAR').
-      return (data ?? []).map((row: Record<string, unknown>) => {
+      return ((data ?? []) as unknown as Record<string, unknown>[]).map((row) => {
         const ref = row.accommodation_ref as { code?: string } | null;
         delete row.accommodation_ref;
         row.accommodation_type = accommodationLegacyFromCode(ref?.code);

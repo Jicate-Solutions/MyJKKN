@@ -2,8 +2,17 @@ import { toast } from "sonner";
 import * as XLSX from "xlsx";
 
 
-// Generic type for exportable data - should have string keys and values that can be converted to string
-export type ExportableData = Record<string, string | number | boolean | null | undefined>;
+// Generic type for exportable data — string keys, values that can be converted
+// to string.
+//
+// `unknown`, not a primitive union: every real domain row (LearnerHostelite,
+// HRRecruitmentJob, …) carries at least one nested object or array, so the
+// narrower union excluded exactly the types this table is used with, and the
+// call sites failed to typecheck while working correctly at runtime. Every
+// exporter already funnels values through String() with a null/undefined guard
+// (see buildExcelRows and the CSV/PDF serialisers below), so a wider value type
+// costs nothing here.
+export type ExportableData = Record<string, unknown>;
 
 // Type for transformation function that developers can provide
 export type DataTransformFunction<T extends ExportableData> = (row: T) => ExportableData;
