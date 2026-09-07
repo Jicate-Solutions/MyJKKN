@@ -8,7 +8,7 @@ import {
   BreadcrumbPage, BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import type { HRRecruitmentJob } from '@/types/hr-recruitment';
-import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useHrInstitutionsWithAccess } from '@/hooks/hr/use-hr-institutions';
 import { JobsBrowser } from './_components/jobs-browser';
 import { JobDetailPanel } from './_components/job-detail-panel';
 import { ApplyWizard } from './_components/apply-wizard';
@@ -19,7 +19,7 @@ export default function JobOpeningsPage() {
   const [view, setView] = useState<View>('listings');
   const [selectedJob, setSelectedJob] = useState<HRRecruitmentJob | null>(null);
 
-  const { institutions } = useInstitutionsWithAccess();
+  const { institutions } = useHrInstitutionsWithAccess();
   const instNameMap: Record<string, string> = {};
   institutions.forEach((i) => { instNameMap[i.id] = i.name; });
 

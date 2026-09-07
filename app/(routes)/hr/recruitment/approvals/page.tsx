@@ -29,7 +29,7 @@ import {
   Search, SlidersHorizontal, Tag, Users,
 } from 'lucide-react';
 import { useApprovalsJobOverview, useCandidates } from '@/hooks/hr/use-recruitment';
-import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useHrInstitutionsWithAccess } from '@/hooks/hr/use-hr-institutions';
 import { useAuth } from '@/hooks/use-auth';
 import { MyPendingCandidates } from './_components/my-pending-candidates';
 import {
@@ -88,7 +88,7 @@ function RecruitmentApprovalsInner() {
   const { data: rows, isLoading, error } = useApprovalsJobOverview();
   const { profile } = useAuth();
   const userId = profile?.id;
-  const { institutions } = useInstitutionsWithAccess();
+  const { institutions } = useHrInstitutionsWithAccess();
   const institutionNameById = useMemo(
     () => new Map(institutions.map((i) => [i.id, i.name] as const)),
     [institutions],

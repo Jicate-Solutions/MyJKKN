@@ -96,7 +96,9 @@ export async function POST(request: NextRequest) {
 
     const { data: institutions, error: instErr } = await svc
       .from('institutions')
-      .select('id, name')
+      // Service-role client: RLS is bypassed, so filter explicitly.
+      .select('id, name, hr_organizations!inner(included_in_hr)')
+      .eq('hr_organizations.included_in_hr', true)
       .limit(500);
     if (instErr) {
       console.error('[biometric-mapping/suggest] institution lookup error:', instErr);
