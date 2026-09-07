@@ -1,0 +1,27 @@
+{
+  "_comment": "Events whose two stored times disagree (clock fields vs timestamptz), recorded so this gate fails on NEW divergence without failing on pre-existing debt. Keyed by event id + field: a baselined row that starts diverging in a SECOND field still fails. SHRINK THIS LIST; DO NOT GROW IT. Each entry is a live or draft event whose rendered page and whose scheduling logic say different things. Regenerate: node scripts/ci/check-event-time-consistency.mjs --update-baseline",
+  "generated": "2026-09-07",
+  "divergent": [
+    {
+      "id": "add54768-0371-4c18-a1b0-e5d93104fe84",
+      "field": "start_time_of_day",
+      "name": "Renewable Energy Day",
+      "status": "draft",
+      "observed": "start_time 09:00:00 IST vs start_date 18:30:00 IST"
+    },
+    {
+      "id": "add54768-0371-4c18-a1b0-e5d93104fe84",
+      "field": "end_time_of_day",
+      "name": "Renewable Energy Day",
+      "status": "draft",
+      "observed": "end_time 13:00:00 IST vs end_date 22:30:00 IST"
+    },
+    {
+      "id": "dceeef19-de9f-49a5-be29-c40cca696ee3",
+      "field": "end_time_of_day",
+      "name": "SEMINAR - LOGISTICS SUPPLY CHAIN MANAGEMENT",
+      "status": "live",
+      "observed": "end_time 14:00:00 IST vs end_date 13:00:00 IST"
+    }
+  ]
+}
