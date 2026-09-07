@@ -261,7 +261,7 @@ export default function ShiftTimingsPage() {
                 <Alert>
                   <Info className="h-4 w-4" />
                   <AlertDescription>
-                    Staff assigned to a <strong>work pattern</strong> keep these hours and
+                    Team members assigned to a <strong>work pattern</strong> keep these hours and
                     work only the pattern&apos;s days.{' '}
                     <Link href="/hr/admin/work-patterns" className="font-medium underline underline-offset-2">
                       Manage work patterns

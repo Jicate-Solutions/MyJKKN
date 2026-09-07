@@ -74,7 +74,7 @@ export default function HRInstitutionsPage() {
               HR module inclusion
             </CardTitle>
             <CardDescription>
-              Excluding an institution removes its staff from every HR screen and
+              Excluding an institution removes its team members from every HR screen and
               turns off HR self-service for them — they can no longer apply for
               leave or see their attendance. Nothing is deleted: balances,
               attendance and applications are kept and hidden, and switching it
@@ -99,7 +99,7 @@ export default function HRInstitutionsPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Institution</TableHead>
-                      <TableHead className="text-right">Staff</TableHead>
+                      <TableHead className="text-right">Team members</TableHead>
                       <TableHead className="text-right">In HR by category</TableHead>
                       <TableHead className="text-right">Pending requests</TableHead>
                       <TableHead>Last change</TableHead>
@@ -229,13 +229,13 @@ function ConfirmToggle({
           <AlertDescription className="text-xs">
             {next ? (
               <>
-                Its <strong>{row.hr_staff}</strong> HR-eligible staff reappear on
+                Its <strong>{row.hr_staff}</strong> HR-eligible team members reappear on
                 every HR screen and regain HR self-service. Any data hidden while
                 it was excluded comes back untouched.
               </>
             ) : (
               <>
-                Its <strong>{row.hr_staff}</strong> HR-eligible staff disappear
+                Its <strong>{row.hr_staff}</strong> HR-eligible team members disappear
                 from every HR screen and lose HR self-service — no applying for
                 leave, no attendance page.
                 {row.pending_requests > 0 && (
@@ -257,7 +257,7 @@ function ConfirmToggle({
             id="inst-reason"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            placeholder="e.g. Not an employing entity — staff are payrolled by Main Office"
+            placeholder="e.g. Not an employing entity — team members are payrolled by Main Office"
             className="mt-1"
             rows={2}
             disabled={busy}

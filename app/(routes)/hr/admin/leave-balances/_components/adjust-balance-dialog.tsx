@@ -217,7 +217,7 @@ function AdjustForm({
             accruing type the two diverge all year — Casual Leave reads 12
             entitled and 4 accrued in September, and only the second is
             spendable. Showing entitled alone is what let this screen contradict
-            the staff member's own apply drawer. */}
+            the team member's own apply drawer. */}
         <Figure
           label="Accrued"
           value={cell.accrued}
@@ -324,7 +324,7 @@ function AdjustForm({
 
           <TabsContent value="ledger" className="pt-3">
             {/* editable ONLY here. The Staff Balances row expander and the
-                staff member's own leave page render the same table read-only —
+                team member's own leave page render the same table read-only —
                 a staff member must never be able to record their own taken
                 days, and the component itself re-checks
                 hr.leave.policies.write before showing any control. */}
