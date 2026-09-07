@@ -239,18 +239,35 @@ export interface DepartmentStatusReview {
 export interface DepartmentStatusReviewWithDetails extends DepartmentStatusReview {
   department_name: string;
   department_code: string | null;
+  institution_id: string | null;
   institution_name: string;
+  /** Display name of whoever decided the review; null while it is still open. */
+  decided_by_name: string | null;
 }
 
 /** Shape returned by the PostgREST embed below, before flattening. */
 interface StatusReviewJoinRow extends DepartmentStatusReview {
   solution_department?: {
     id: string;
+    institution_id: string | null;
     department?: { department_name: string; department_code: string | null } | null;
     institution?: { name: string } | null;
   } | null;
+  decider?: { full_name: string | null } | null;
 }
 
+/**
+ * `!inner` on the department embed is deliberate and is what makes institution
+ * scoping possible at all: `sh_department_status_reviews` carries no
+ * `institution_id` of its own, so the only way to narrow the queue to a
+ * college is to filter on the joined `sh_solution_departments.institution_id`,
+ * and an embedded filter narrows the PARENT rows only when the embed is inner.
+ *
+ * It drops nothing that should be visible: `solution_department_id` is NOT NULL
+ * with `ON DELETE CASCADE`, so a review whose department is gone cannot exist.
+ * (CLAUDE.md warns that `!inner` silently drops rows on a null FK — here the FK
+ * cannot be null, and exclusion is the point.)
+ */
 const STATUS_REVIEW_SELECT = `
   id,
   solution_department_id,
@@ -263,11 +280,13 @@ const STATUS_REVIEW_SELECT = `
   decided_by,
   decided_at,
   decision_note,
-  solution_department:sh_solution_departments!solution_department_id(
+  solution_department:sh_solution_departments!solution_department_id!inner(
     id,
+    institution_id,
     department:departments!department_id(department_name, department_code),
     institution:institutions!institution_id(name)
-  )
+  ),
+  decider:profiles!decided_by(full_name)
 `;
 
 function flattenStatusReview(row: StatusReviewJoinRow): DepartmentStatusReviewWithDetails {
@@ -289,8 +308,43 @@ function flattenStatusReview(row: StatusReviewJoinRow): DepartmentStatusReviewWi
     // so rather than rendering a blank cell that reads as a nameless department.
     department_name: dept?.department_name ?? 'Unknown department',
     department_code: dept?.department_code ?? null,
+    institution_id: row.solution_department?.institution_id ?? null,
     institution_name: inst?.name ?? 'Unknown institution',
+    // The profiles embed can come back null when RLS hides the decider's
+    // profile from this reader, or when the account was deleted. Name that
+    // rather than rendering a decision that appears to have made itself.
+    decided_by_name: row.decided_by
+      ? row.decider?.full_name?.trim() || 'Unknown user'
+      : null,
   };
+}
+
+/**
+ * Narrow a review query to the institutions a reader may see.
+ *
+ * The database does NOT do this. The `SELECT` policy on
+ * `sh_department_status_reviews` is
+ * `is_super_admin() OR is_admin() OR user_has_permission('solutions.societal.view')`
+ * with no institution predicate, and the joined
+ * `sh_solution_departments_select` policy is `FOR SELECT TO authenticated
+ * USING (true)`. So without this filter, any holder of
+ * `solutions.societal.view` reads every college's proposed status changes.
+ *
+ * `null`/`undefined` means "do not narrow" and is for callers the database
+ * itself does not narrow either — super admins and `is_admin()` holders.
+ * An EMPTY array means "this reader may see no institution" and returns
+ * nothing: failing closed, never open.
+ *
+ * The id list is not chunked because it cannot get long: it is bounded by the
+ * number of institutions (14 in production on 2026-09-07), about 0.5 KB of
+ * request line against the ~26 KB cliff that `selectInChunks` exists for. If
+ * this ever filters on department or learner ids instead, chunk it — an
+ * oversized `.in()` returns HTTP 400 and the caller reads it as an empty list.
+ */
+type InstitutionScope = string[] | null | undefined;
+
+function scopeIsEmpty(institutionIds: InstitutionScope): boolean {
+  return Array.isArray(institutionIds) && institutionIds.length === 0;
 }
 
 // ============================================
@@ -448,13 +502,22 @@ export class DepartmentTrackerService extends BaseService {
    * Oldest computation first: a proposal that has sat longest is the one whose
    * department has been mislabelled longest on every page that reads status.
    */
-  static async listOpenStatusReviews(): Promise<DepartmentStatusReviewWithDetails[]> {
-    const { data, error } = await this.supabase
+  static async listOpenStatusReviews(
+    institutionIds: InstitutionScope = null
+  ): Promise<DepartmentStatusReviewWithDetails[]> {
+    if (scopeIsEmpty(institutionIds)) return [];
+
+    let query = this.supabase
       .from('sh_department_status_reviews')
       .select(STATUS_REVIEW_SELECT)
       .is('decision', null)
       .order('computed_at', { ascending: true });
 
+    if (institutionIds) {
+      query = query.in('solution_department.institution_id', institutionIds);
+    }
+
+    const { data, error } = await query;
     if (error) throw error;
     return ((data ?? []) as unknown as StatusReviewJoinRow[]).map(flattenStatusReview);
   }
@@ -466,15 +529,23 @@ export class DepartmentTrackerService extends BaseService {
    * person could not tell "I just accepted three" from "nothing was ever here".
    */
   static async listDecidedStatusReviews(
-    limit = 20
+    limit = 20,
+    institutionIds: InstitutionScope = null
   ): Promise<DepartmentStatusReviewWithDetails[]> {
-    const { data, error } = await this.supabase
+    if (scopeIsEmpty(institutionIds)) return [];
+
+    let query = this.supabase
       .from('sh_department_status_reviews')
       .select(STATUS_REVIEW_SELECT)
       .not('decision', 'is', null)
       .order('decided_at', { ascending: false })
       .limit(limit);
 
+    if (institutionIds) {
+      query = query.in('solution_department.institution_id', institutionIds);
+    }
+
+    const { data, error } = await query;
     if (error) throw error;
     return ((data ?? []) as unknown as StatusReviewJoinRow[]).map(flattenStatusReview);
   }

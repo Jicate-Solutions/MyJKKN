@@ -50,6 +50,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import {
   useDecideDepartmentStatusReview,
   useDecidedDepartmentStatusReviews,
@@ -64,6 +65,21 @@ import {
 // Gating the UI on anything else would draw a button that always fails.
 const REVIEW_VIEW_PERMISSION = 'solutions.societal.view';
 const REVIEW_DECIDE_PERMISSION = 'solutions.societal.approve';
+
+/**
+ * Mirror of the database's own bypass, which both enforcement sites open with:
+ * `is_super_admin() OR is_admin() OR ...`. `is_admin()` reads
+ * `profiles.role`, so a UI gate that only checked the permission key refused
+ * people the database would have accepted.
+ *
+ * Verified against production on 2026-09-07 by calling the live function:
+ * `is_admin()` returned true for role `admin` (1 profile), `administrator`
+ * (2 profiles) and `super_admin` (15) — the first two with
+ * `is_super_admin = false`, so `usePermissions().isSuperAdmin` does not cover
+ * them. Those three people were being told they had no access to a queue the
+ * database would have let them read and decide.
+ */
+const DATABASE_ADMIN_ROLES = ['admin', 'super_admin', 'administrator'];
 
 const STATUS_LABELS: Record<string, string> = {
   active: 'Active',
@@ -221,13 +237,57 @@ function DecisionDialog({
 
 export function DepartmentStatusReviewQueue() {
   const { toast } = useToast();
-  const { can, isLoading: permissionsLoading } = usePermissions();
+  const {
+    can,
+    isSuperAdmin,
+    userProfile,
+    isLoading: permissionsLoading,
+  } = usePermissions();
+  const {
+    getAccessibleInstitutionIds,
+    loading: accessLoading,
+    error: accessError,
+  } = useUserInstitutionAccess();
 
-  const canView = can(REVIEW_VIEW_PERMISSION);
-  const canDecide = can(REVIEW_DECIDE_PERMISSION);
+  // The database bypasses on `is_super_admin() OR is_admin()` before it looks
+  // at any permission key, so the screen must too — see DATABASE_ADMIN_ROLES.
+  const isDatabaseAdmin =
+    isSuperAdmin || DATABASE_ADMIN_ROLES.includes(userProfile?.role ?? '');
 
-  const openQuery = useOpenDepartmentStatusReviews(canView);
-  const decidedQuery = useDecidedDepartmentStatusReviews(20, canView);
+  const canView = isDatabaseAdmin || can(REVIEW_VIEW_PERMISSION);
+  const canDecide = isDatabaseAdmin || can(REVIEW_DECIDE_PERMISSION);
+
+  // ---- Institution scope --------------------------------------------------
+  // Neither RLS policy on this path carries an institution predicate: the
+  // reviews SELECT policy checks only the permission key, and
+  // `sh_solution_departments_select` is `USING (true)`. So the narrowing has
+  // to happen here or it does not happen at all. The ids come from
+  // `get_user_accessible_institutions` — own campus UNION active
+  // `user_institution_access` grants UNION every active institution when a
+  // role carries `institution_scope = 'all'` — which is the same union
+  // `role_has_institution_access()` applies inside the database.
+  const accessibleInstitutionIds = getAccessibleInstitutionIds();
+
+  // Database admins are not narrowed, because the database does not narrow
+  // them either. Everyone else is filtered to what they may see.
+  const institutionIds = isDatabaseAdmin ? null : accessibleInstitutionIds;
+
+  // An empty id list while signed in is ambiguous — a reader with no grants
+  // looks exactly like a read that has not answered — so the queue does not
+  // fire until the scope is known. Failing closed here means a scope we could
+  // not establish shows an explanation, never every college's proposals.
+  const scopeKnown =
+    isDatabaseAdmin ||
+    (!accessLoading && !accessError && accessibleInstitutionIds.length > 0);
+
+  const queriesEnabled = canView && scopeKnown;
+
+  const openQuery = useOpenDepartmentStatusReviews(queriesEnabled, institutionIds);
+  const decidedQuery = useDecidedDepartmentStatusReviews(
+    20,
+    queriesEnabled,
+    institutionIds
+  );
   const decide = useDecideDepartmentStatusReview();
 
   const [pending, setPending] = useState<{
@@ -264,7 +324,7 @@ export function DepartmentStatusReviewQueue() {
   };
 
   // ---- Permission refusal: explained, never a silent empty list -------------
-  if (permissionsLoading) {
+  if (permissionsLoading || accessLoading) {
     return (
       <Card>
         <CardContent className="p-4 space-y-2">
@@ -300,6 +360,41 @@ export function DepartmentStatusReviewQueue() {
               <p>
                 Ask an administrator to add the permission in Role Management if you are
                 meant to decide these.
+              </p>
+            </AlertDescription>
+          </Alert>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // ---- Scope refusal: also explained, and it fails closed ------------------
+  if (!scopeKnown) {
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <ClipboardCheck className="h-4 w-4" />
+            Status review queue
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <Alert>
+            <ShieldAlert className="h-4 w-4" />
+            <AlertTitle>We could not work out which colleges you may see</AlertTitle>
+            <AlertDescription className="space-y-2">
+              <p>
+                This queue is narrowed to the colleges your account has access to, and
+                that list came back{' '}
+                {accessError ? 'with an error' : 'empty'}. Rather than showing you every
+                college&rsquo;s proposals, nothing is loaded.
+              </p>
+              {accessError && (
+                <p className="text-xs font-mono break-words">{accessError}</p>
+              )}
+              <p>
+                If you should be able to see this, ask an administrator to check your
+                institution access in Role Management.
               </p>
             </AlertDescription>
           </Alert>
@@ -373,6 +468,7 @@ export function DepartmentStatusReviewQueue() {
             The monthly sweep no longer changes a department&rsquo;s status by itself. It
             proposes a change here, and a person accepts or rejects it. Accepting writes the
             new status and a history entry; rejecting leaves the department exactly as it is.
+            {!isDatabaseAdmin && ' You are seeing proposals for the colleges your account has access to, not every college.'}
           </p>
 
           {!canDecide && openReviews.length > 0 && (
@@ -391,14 +487,22 @@ export function DepartmentStatusReviewQueue() {
           {openReviews.length === 0 ? (
             <Alert>
               <CheckCircle2 className="h-4 w-4" />
-              <AlertTitle>Nothing is waiting on a decision</AlertTitle>
-              <AlertDescription>
-                No department&rsquo;s computed status currently differs from its recorded
-                status, so the sweep has nothing to propose. This is not the same as
-                &ldquo;no data&rdquo;: the sweep compares months since the last recorded
-                revenue or activity against each department&rsquo;s stored status and writes
-                a row here only when the two disagree. A department that is already recorded
-                as dormant and is still inactive produces no proposal.
+              <AlertTitle>No proposals are waiting on a decision</AlertTitle>
+              <AlertDescription className="space-y-2">
+                <p>
+                  There is no undecided proposal recorded for the colleges you can see.
+                  That is all this screen can tell you: it reads proposals, it does not
+                  recompute any department&rsquo;s status, so an empty queue is not
+                  evidence that every department&rsquo;s status is correct.
+                </p>
+                <p>
+                  Proposals are written by a scheduled sweep
+                  (&nbsp;<span className="font-mono text-xs">update_department_statuses()</span>&nbsp;),
+                  which compares months since recorded activity against each
+                  department&rsquo;s stored status and records a row here when the two
+                  disagree. If that sweep has not run, this queue stays empty whatever
+                  the departments look like.
+                </p>
               </AlertDescription>
             </Alert>
           ) : (
@@ -494,7 +598,9 @@ export function DepartmentStatusReviewQueue() {
                     </span>
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">
-                    {review.institution_name} &middot; decided {formatDate(review.decided_at)}
+                    {review.institution_name} &middot; decided by{' '}
+                    {review.decided_by_name ?? 'Unknown user'} on{' '}
+                    {formatDate(review.decided_at)}
                   </p>
                   {review.decision_note && (
                     <p className="text-xs text-muted-foreground mt-1 italic">

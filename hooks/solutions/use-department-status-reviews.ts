@@ -26,11 +26,29 @@ export type { DepartmentStatusReviewWithDetails };
 // QUERY KEYS
 // ============================================
 
+/**
+ * The institution scope is part of the key, not just an argument.
+ *
+ * These queries are narrowed to the reader's accessible institutions in the
+ * service, so two readers with different scopes must not share one cache
+ * entry — otherwise a cross-institution reader's results could be served to
+ * a single-college reader from cache. `null` means "not narrowed".
+ */
+function scopeKey(institutionIds: string[] | null): string {
+  return institutionIds ? [...institutionIds].sort().join(',') : 'all';
+}
+
 export const departmentStatusReviewKeys = {
   all: ['solutions-hub', 'department-status-reviews'] as const,
-  open: () => [...departmentStatusReviewKeys.all, 'open'] as const,
-  decided: (limit: number) =>
-    [...departmentStatusReviewKeys.all, 'decided', limit] as const,
+  open: (institutionIds: string[] | null = null) =>
+    [...departmentStatusReviewKeys.all, 'open', scopeKey(institutionIds)] as const,
+  decided: (limit: number, institutionIds: string[] | null = null) =>
+    [
+      ...departmentStatusReviewKeys.all,
+      'decided',
+      limit,
+      scopeKey(institutionIds),
+    ] as const,
 };
 
 // ============================================
@@ -46,10 +64,13 @@ export const departmentStatusReviewKeys = {
  * permission would look identical to an empty queue. Not firing it lets the
  * screen say which of the two it is (CLAUDE.md rule 27).
  */
-export function useOpenDepartmentStatusReviews(enabled = true) {
+export function useOpenDepartmentStatusReviews(
+  enabled = true,
+  institutionIds: string[] | null = null
+) {
   return useQuery<DepartmentStatusReviewWithDetails[]>({
-    queryKey: departmentStatusReviewKeys.open(),
-    queryFn: () => DepartmentTrackerService.listOpenStatusReviews(),
+    queryKey: departmentStatusReviewKeys.open(institutionIds),
+    queryFn: () => DepartmentTrackerService.listOpenStatusReviews(institutionIds),
     enabled,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -58,10 +79,15 @@ export function useOpenDepartmentStatusReviews(enabled = true) {
 /**
  * Recently decided reviews — the audit trail beneath the queue.
  */
-export function useDecidedDepartmentStatusReviews(limit = 20, enabled = true) {
+export function useDecidedDepartmentStatusReviews(
+  limit = 20,
+  enabled = true,
+  institutionIds: string[] | null = null
+) {
   return useQuery<DepartmentStatusReviewWithDetails[]>({
-    queryKey: departmentStatusReviewKeys.decided(limit),
-    queryFn: () => DepartmentTrackerService.listDecidedStatusReviews(limit),
+    queryKey: departmentStatusReviewKeys.decided(limit, institutionIds),
+    queryFn: () =>
+      DepartmentTrackerService.listDecidedStatusReviews(limit, institutionIds),
     enabled,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -82,7 +108,18 @@ export interface DecideStatusReviewInput {
  *
  * Invalidates the whole review namespace on success: an accepted proposal moves
  * from the open list to the decided list, so refreshing only one of the two
- * would leave the row visible in both places at once.
+ * would leave the row visible in both places at once. Invalidating `all` also
+ * covers every institution scope, since the scope is part of the key.
+ *
+ * That namespace is the ONLY thing invalidated, because it is the only React
+ * Query data affected. An accepted review does rewrite
+ * `sh_solution_departments.status`, but every other reader of that column —
+ * `useSolutionDepartments`, `useDepartmentSummary`, `useDepartmentCapabilities`
+ * — is a `useState`/`useEffect` hook with no query key at all, so no
+ * invalidation can refresh them; they pick the new status up on their next
+ * mount or page load. (`solutionsHubKeys.departmentTracker` exists in
+ * `lib/query-keys.ts` but no query uses it, so invalidating it would be a
+ * no-op dressed as a refresh.)
  */
 export function useDecideDepartmentStatusReview() {
   const queryClient = useQueryClient();
@@ -92,9 +129,6 @@ export function useDecideDepartmentStatusReview() {
       DepartmentTrackerService.decideStatusReview(reviewId, apply, note),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: departmentStatusReviewKeys.all });
-      // An accepted review rewrites sh_solution_departments.status, which every
-      // department list on the hub renders.
-      queryClient.invalidateQueries({ queryKey: ['solutions-hub', 'departments'] });
     },
   });
 }
