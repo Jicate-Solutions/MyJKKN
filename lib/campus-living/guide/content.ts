@@ -28,7 +28,7 @@ export const REQUIRES = {
   // settings pages. 'campus_living.settings.edit' is the representative config-edit
   // key (enforced on the core settings pages — fee-config, general, maintenance-sla,
   // notification-rules, ac-amenity-audit, …); leave-types uses its own
-  // 'campus_living.leave_types' key, and three pages (block-economics, housekeeping,
+  // 'campus_living.leave_types' key, and two pages (block-economics,
   // choose-your-menu) are additionally super-admin-gated (the lane carries a
   // prerequisite note on each). FOLLOW-UP (separate APP ticket, not a guide issue):
   // a few settings pages (amenities, billable-amenities, categories, hostel-years,
@@ -125,9 +125,15 @@ export const GUIDES: GuideBook = {
           title: 'Book room cleaning',
           steps: [
             {
-              action: 'If your plan includes housekeeping, open **Room Cleaning** and book a slot.',
-              detail: 'Pick a date and an open time slot, confirm, and see your upcoming bookings there.',
+              action: 'Open **Room Cleaning**, pick a cleaning type, then a date and time slot.',
+              detail:
+                "Your room shares a limit for each cleaning type, so a booking uses one of your room's turns, not just yours. Only one cleaning can be live for a room at a time.",
               link: { label: 'Open Room Cleaning', href: '/campus-living/my-hostel/housekeeping' },
+            },
+            {
+              action: 'After the cleaning, rate it.',
+              detail:
+                'Any one of you can rate it, and that closes the job for the whole room. Until someone does, hostel attendance is on hold for everyone in the room.',
             },
           ],
         },
@@ -285,7 +291,7 @@ export const GUIDES: GuideBook = {
               detail:
                 'The settings hub lists all the configuration cards — start here whenever you need to change how Campus Living works. Changes apply on the next page load, no deploy needed.',
               prerequisite:
-                'Most settings need the **Campus Living settings** permission; a few (Bed Economics, Housekeeping, Choose Your Menu) are super-admin only. If a page is blocked, ask your platform admin.',
+                'Most settings need the **Campus Living settings** permission; a few (Bed Economics, Choose Your Menu) are super-admin only. If a page is blocked, ask your platform admin.',
               link: { label: 'Open Settings', href: '/campus-living/settings' },
             },
             {
@@ -427,12 +433,6 @@ export const GUIDES: GuideBook = {
             {
               action: 'Tune **Notification Rules** — which email, SMS and push messages go out.',
               link: { label: 'Notification Rules', href: '/campus-living/settings/notification-rules' },
-            },
-            {
-              action: 'Configure **Housekeeping** slots and quotas residents book against.',
-              detail: 'The slot and quota config behind the resident room-cleaning booking.',
-              prerequisite: 'Housekeeping config is a super-admin screen. If it is blocked, ask your platform admin.',
-              link: { label: 'Housekeeping', href: '/campus-living/settings/housekeeping' },
             },
           ],
         },

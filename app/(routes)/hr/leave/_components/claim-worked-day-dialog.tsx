@@ -27,6 +27,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { LeaveDocumentUpload } from './leave-document-upload';
 import { useClaimWorkedDay } from '@/hooks/hr/use-comp-off';
+import { useDayOccupancy } from '@/hooks/hr/use-day-occupancy';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
 import { useClosedAttendanceMonths } from '@/hooks/hr/use-attendance-records';
 import { closedMonthsInRange, describeClosedMonths } from '@/types/hr-attendance';
@@ -64,6 +65,12 @@ export function ClaimWorkedDayDialog({
   /** Category excluded from HR — trg_hcoc_block_non_hr_staff refuses the claim. */
   const notInHr = !ctx.isLoading && ctx.hasEmployeeRecord && !ctx.hrIncluded;
 
+  // Only one request may exist per day, and a worked-day claim competes with
+  // leave and permissions for it — claiming a day you also took leave on is a
+  // contradiction, and trg_hcoc_day_occupancy refuses it. Same predicate the
+  // trigger uses, so this cannot promise a claim the database will reject.
+  const { data: clash } = useDayOccupancy(ctx.employeeId, workedDate, workedDate);
+
   // Shown so the claimant knows the deadline before submitting, using the same
   // +90 rule the database applies.
   const expiry = useMemo(() => {
@@ -86,7 +93,7 @@ export function ClaimWorkedDayDialog({
 
   const canSubmit =
     !!ctx.employeeId && !!ctx.hrOrgId && !!workedDate && !inFuture && !tooOld &&
-    closedHit.length === 0 && !notInHr && !mutation.isPending && !uploading &&
+    closedHit.length === 0 && !notInHr && !clash && !mutation.isPending && !uploading &&
     // Proof of the worked day is required — CompOffService.claimWorkedDay
     // enforces the same rule; this only spares the round trip.
     documentFiles.length > 0;
@@ -198,6 +205,11 @@ export function ClaimWorkedDayDialog({
                 Too late to claim — a credit for this day expired on{' '}
                 <strong>{expiry?.label}</strong>. Compensatory off must be claimed
                 within 90 days of the day worked.
+              </p>
+            ) : clash ? (
+              <p className="mt-1 text-xs text-destructive">
+                Only one request is allowed per day, and you already have {clash} on
+                this date. Claim another day, or cancel that request first.
               </p>
             ) : expiry ? (
               <p className="mt-1 text-xs text-muted-foreground">

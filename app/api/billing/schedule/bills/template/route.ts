@@ -157,7 +157,11 @@ export async function GET(_request: NextRequest) {
       { header: STUDENT_BILL_TEMPLATE_HEADERS[6], key: 'bill_description', width: 38 },
       { header: STUDENT_BILL_TEMPLATE_HEADERS[7], key: 'due_date', width: 18 },
       { header: STUDENT_BILL_TEMPLATE_HEADERS[8], key: 'billing_amount', width: 18 },
-      { header: STUDENT_BILL_TEMPLATE_HEADERS[9], key: 'remarks', width: 30 }
+      { header: STUDENT_BILL_TEMPLATE_HEADERS[9], key: 'remarks', width: 30 },
+      // Optional. Leave both blank for a plain single-date bill — which is
+      // what every sheet printed before 2026-09-06 does.
+      { header: STUDENT_BILL_TEMPLATE_HEADERS[10], key: 'instalment_shares', width: 22 },
+      { header: STUDENT_BILL_TEMPLATE_HEADERS[11], key: 'instalment_due_dates', width: 34 }
     ];
 
     // Header styling — blue background, white text
@@ -188,7 +192,9 @@ export async function GET(_request: NextRequest) {
       bill_description: 'Semester 1 fee',
       due_date: '2026-06-01',
       billing_amount: 25000,
-      remarks: 'Optional remarks'
+      remarks: 'Optional remarks',
+      instalment_shares: '30/35/35',
+      instalment_due_dates: '2026-06-01|2026-10-30|2027-02-28'
     });
     sheet.getRow(2).font = { name: 'Arial', size: 10, color: { argb: 'FF1F2937' } };
     sheet.getRow(2).fill = {

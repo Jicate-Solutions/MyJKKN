@@ -8,10 +8,12 @@
  */
 
 import { useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Plus } from 'lucide-react';
+import { CalendarRange, Plus } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { LeaveMonthlyLedger } from '@/components/hr/leave-monthly-ledger';
 import { TableCell } from '@/components/ui/table';
 import { Progress } from '@/components/ui/progress';
 import { Card, CardContent } from '@/components/ui/card';
@@ -23,7 +25,7 @@ import { useWithdrawApplication } from '@/hooks/hr/use-leave';
 import { TimeOffShell } from '../_components/time-off-shell';
 import { PeriodFilter, allTimePeriod, type PeriodRange } from '../_components/period-filter';
 import { RequestTable, RequestRow, StatusBadge } from '../_components/request-table';
-import { formatDays } from '../_components/format';
+import { formatDays, stageLabel } from '../_components/format';
 import { ApplyLeaveDrawer } from '../_components/apply-leave-drawer';
 import { useMyApplications } from '@/hooks/hr/use-leave';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
@@ -45,6 +47,14 @@ export default function LeaveRequestsPage() {
   const ctx = useTimeOffContext();
   const [period, setPeriod] = useState<PeriodRange>(allTimePeriod());
   const [applyOpen, setApplyOpen] = useState(false);
+  /**
+   * Which leave type has its month-wise ledger open on the Balance tab.
+   *
+   * Collapsed by default and one at a time: each expansion is its own RPC
+   * call, and the headline figure above already answers the common question.
+   * The ledger answers the follow-up -- "which month did that day come from".
+   */
+  const [ledgerFor, setLedgerFor] = useState<string | null>(null);
   const withdraw = useWithdrawApplication();
 
   const { data, isLoading, refetch, isFetching } = useMyApplications(
@@ -127,6 +137,37 @@ export default function LeaveRequestsPage() {
                           become available as the year goes on.
                         </p>
                       )}
+                      {/* Only day-denominated leave divides into months. Short
+                          Time Off is minute-backed and Compensatory Off is
+                          credit-backed; the RPC returns [] for both, so the
+                          control is hidden rather than opening an empty panel. */}
+                      {b.request_category === 'leave' && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="mt-1 h-7 px-2 text-xs"
+                            onClick={() =>
+                              setLedgerFor((prev) =>
+                                prev === b.leave_type_id ? null : b.leave_type_id
+                              )
+                            }
+                          >
+                            <CalendarRange className="mr-1.5 h-3.5 w-3.5" />
+                            {ledgerFor === b.leave_type_id ? 'Hide' : 'Month-wise breakdown'}
+                          </Button>
+                          {ledgerFor === b.leave_type_id && (
+                            <div className="mt-2 rounded-md border bg-muted/20 p-3">
+                              <LeaveMonthlyLedger
+                                staffId={b.employee_id}
+                                leaveTypeId={b.leave_type_id}
+                                hrAcademicYearId={b.hr_academic_year_id}
+                                leaveTypeName={b.leave_type_name}
+                              />
+                            </div>
+                          )}
+                        </>
+                      )}
                     </div>
                   );
                 })}
@@ -157,6 +198,7 @@ export default function LeaveRequestsPage() {
               { key: 'days', label: 'Total Days', align: 'right' },
               { key: 'duration', label: 'Duration' },
               { key: 'status', label: 'Status' },
+              { key: 'stage', label: 'Stage' },
               { key: 'actions', label: '', align: 'right' },
             ]}
             isLoading={isLoading || ctx.isLoading}
@@ -165,8 +207,19 @@ export default function LeaveRequestsPage() {
           >
             {rows.map((a) => (
               <RequestRow key={a.id} status={a.status}>
+                {/* THE ONLY LINK TO /hr/leave/[id] IN THE APP. That page renders
+                    the full approval timeline — every step, who sits on it, who
+                    has decided and when — and nothing has pointed at it since
+                    the approvals queue moved to a sheet in August, so staff had
+                    no way to see where their request had reached. */}
                 <TableCell className="pl-4 font-medium">
-                  {a.hr_leave_types?.leave_type_name ?? '—'}
+                  <Link
+                    href={`/hr/leave/${a.id}`}
+                    className="underline-offset-4 hover:underline"
+                    title="View approval progress"
+                  >
+                    {a.hr_leave_types?.leave_type_name ?? '—'}
+                  </Link>
                 </TableCell>
                 <TableCell>{fmtDate(a.start_date)}</TableCell>
                 <TableCell>{fmtDate(a.end_date)}</TableCell>
@@ -175,6 +228,17 @@ export default function LeaveRequestsPage() {
                   {LEAVE_DURATION_LABELS[a.duration_type] ?? a.duration_type}
                 </TableCell>
                 <TableCell><StatusBadge status={a.status} /></TableCell>
+                {/* "Pending" says nothing for six days while a request moves up
+                    a three-step chain. This says which step it is on; the leave
+                    name links to the full timeline. */}
+                <TableCell className="text-muted-foreground">
+                  {a.status === 'pending' || a.status === 'escalated'
+                    ? stageLabel({
+                        current_step: a.current_step,
+                        chain_length: a.approval_chain?.length ?? 0,
+                      }) ?? 'Awaiting approval'
+                    : '—'}
+                </TableCell>
                 <TableCell className="text-right">
                   {isCancellable(a.status) && (
                     <CancelRequestAction

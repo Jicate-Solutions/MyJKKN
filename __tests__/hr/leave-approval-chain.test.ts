@@ -25,6 +25,8 @@ import {
   applyDecision,
   approvalProgress,
   buildChain,
+  finalStepIndex,
+  isFinalStep,
   isQuorumMet,
   readApprovers,
   resolveRungsAbove,
@@ -380,5 +382,119 @@ describe('explicit + parallel and de-duplication', () => {
     expect(chain).toHaveLength(1);
     expect(readApprovers(chain[0])).toHaveLength(3);
     expect(chain[0].quorum).toBe('all');
+  });
+});
+
+/**
+ * WHICH STEP GRANTS THE REQUEST.
+ *
+ * A three-step flow (HOD reviews -> Principal reviews -> CAO approves) is the
+ * shape this was reported against: approving at step 1 must NOT approve the
+ * request. approveApplication decided that from the array end until 2026-09-05,
+ * which agrees with the configuration only because the flow editor hardcodes
+ * `step_type: i === steps.length - 1 ? 'final' : 'review'`.
+ *
+ * The database enforces the same rule in trg_hla_final_step_approves, reading
+ * fn_hr_leave_final_step_index — these cases are the TypeScript half of that
+ * pair, so a divergence shows up here rather than as a refused write.
+ */
+describe('only the final step grants the request', () => {
+  const step = (type?: 'review' | 'final'): LeaveApprovalStep =>
+    ({
+      step_order: 1,
+      approver_role: 'hod',
+      approver_user_id: null,
+      status: 'pending',
+      escalate_after_hours: 48,
+      ...(type ? { step_type: type } : {}),
+    }) as LeaveApprovalStep;
+
+  it('picks the step marked final in a review -> review -> final chain', () => {
+    const chain = [step('review'), step('review'), step('final')];
+    expect(finalStepIndex(chain)).toBe(2);
+    expect(isFinalStep(chain, 0)).toBe(false);
+    expect(isFinalStep(chain, 1)).toBe(false);
+    expect(isFinalStep(chain, 2)).toBe(true);
+  });
+
+  it('a single-step chain is its own final step', () => {
+    const chain = [step('final')];
+    expect(finalStepIndex(chain)).toBe(0);
+    expect(isFinalStep(chain, 0)).toBe(true);
+  });
+
+  /**
+   * 1,124 of the 1,220 live chains predate step_type. If this fallback breaks,
+   * every one of them becomes unapprovable.
+   */
+  it('falls back to the last step when nothing is marked', () => {
+    const chain = [step(), step(), step()];
+    expect(finalStepIndex(chain)).toBe(2);
+    expect(isFinalStep(chain, 2)).toBe(true);
+  });
+
+  it('honours a final step that is not last, rather than its position', () => {
+    const chain = [step('review'), step('final'), step('review')];
+    expect(finalStepIndex(chain)).toBe(1);
+    expect(isFinalStep(chain, 2)).toBe(false);
+  });
+
+  it('takes the LAST final step when a flow marks more than one', () => {
+    const chain = [step('final'), step('review'), step('final')];
+    expect(finalStepIndex(chain)).toBe(2);
+  });
+
+  it('reports -1 for an empty chain instead of pointing at step 0', () => {
+    expect(finalStepIndex([])).toBe(-1);
+    expect(isFinalStep([], 0)).toBe(false);
+  });
+
+  /**
+   * The editor writes review/review/final by position, so a chain built from a
+   * three-step flow must finalise on step 3 and nowhere earlier.
+   */
+  it('a chain built from a 3-step flow finalises only on the last step', () => {
+    const flowSteps = [
+      { chain_order: 1, approver_role: 'hod', step_type: 'review' },
+      { chain_order: 2, approver_role: 'principal', step_type: 'review' },
+      { chain_order: 3, approver_role: 'cao', step_type: 'final' },
+    ] as unknown as LeaveApprovalFlowStep[];
+
+    const chain = buildChain({
+      flow: {
+        steps: flowSteps,
+        escalate_after_hours: 48,
+        step_source: 'explicit',
+        run_mode: 'sequential',
+        fallback_approver: null,
+      },
+    });
+
+    expect(chain).toHaveLength(3);
+    expect(finalStepIndex(chain)).toBe(2);
+    expect(chain[0].step_type).toBe('review');
+    expect(chain[2].step_type).toBe('final');
+  });
+
+  /** Parallel collapses to ONE step, which must therefore be the final one. */
+  it('a parallel flow collapses to a single final step', () => {
+    const flowSteps = [
+      { chain_order: 1, approver_role: 'hod', step_type: 'review' },
+      { chain_order: 2, approver_role: 'principal', step_type: 'final' },
+    ] as unknown as LeaveApprovalFlowStep[];
+
+    const chain = buildChain({
+      flow: {
+        steps: flowSteps,
+        escalate_after_hours: 48,
+        step_source: 'explicit',
+        run_mode: 'parallel',
+        fallback_approver: null,
+      },
+    });
+
+    expect(chain).toHaveLength(1);
+    expect(finalStepIndex(chain)).toBe(0);
+    expect(isFinalStep(chain, 0)).toBe(true);
   });
 });

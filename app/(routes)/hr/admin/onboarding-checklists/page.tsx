@@ -74,10 +74,18 @@ export default function OnboardingChecklistsPage() {
     (async () => {
       const sb = supabase as unknown as ReturnType<typeof createClientSupabaseClient>;
 
-      const orgRes = await sb
-        .from('hr_organizations')
+      // The builder is cast before .select() because one more chained filter
+      // tips supabase-js's generics into TS2589 ("type instantiation is
+      // excessively deep") on this doubly-cast client. The result shape is
+      // restated explicitly so nothing is lost by the cast.
+      const orgRes = (await (sb.from('hr_organizations') as any)
         .select('id, name')
-        .order('name');
+        // Excluded institutions are not part of the HR module.
+        .eq('included_in_hr', true)
+        .order('name')) as {
+        data: Array<{ id: string; name: string }> | null;
+        error: { message: string } | null;
+      };
       if (!active) return;
       if (orgRes.error) {
         toast.error(
