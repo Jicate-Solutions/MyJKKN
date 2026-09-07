@@ -55,8 +55,25 @@ decisions:
   fuel:
     first_form: event_feedback_forms/post-seminar
     first_event: SEMINAR - LOGISTICS SUPPLY CHAIN MANAGEMENT (dceeef19-de9f-49a5-be29-c40cca696ee3)
-    opens_at: 2026-09-09T07:30Z   # the seminar's own end time; derived-open, not a job
-    closes_at: 2026-09-16T07:30Z
+    opens_at: 2026-09-09T08:30Z   # 14:00 IST — see time_source_trap below
+    closes_at: 2026-09-16T08:30Z
+    # Openness is DERIVED (is_enabled AND now() inside the window), not flipped
+    # by a job — an expired form left collecting is the failure that design
+    # avoids. Verified rendering on production 2026-09-07 as superadmin: the
+    # coordinator panel shows "Seminar Feedback / Scheduled / 4 questions /
+    # 0 responses".
+    time_source_trap: |
+      THIS ROW DISAGREES WITH ITSELF and the form was armed an hour early
+      because of it. events carries two end times:
+        end_time  (plain clock)   14:00 IST  <- what the UI renders
+        end_date  (timestamptz)   13:00 IST  <- one hour earlier
+      start_time and start_date agree (10:30); only the END diverges. The form
+      was first anchored to end_date, so it would have opened at 13:00 — while
+      the seminar, as every organiser and attendee sees it, was still running.
+      Corrected 2026-09-07 to (event_date + end_time) AT TIME ZONE
+      'Asia/Kolkata'. Anchor any future event-timing logic to the field the UI
+      renders, and check the two agree before trusting either. The data layer
+      alone looked perfectly consistent — only the rendered page exposed it.
 
 # ── Tables ──────────────────────────────────────────────────────────────────
 
@@ -131,6 +148,10 @@ blockers:
       anyone's routine. Building a check-in screen would duplicate a working
       one.
     contributing_factor: |
+      Confirmed at the SCREEN on production 2026-09-07 (persona render probe,
+      superadmin): the event console prints, verbatim,
+        "In-charge  Nobody — only holders of the events manage permission can
+         run it."
       EventLogistics is mounted with canManage={canEdit}, and event-level edit
       comes from fn_is_event_incharge() matching auth.uid() against
       config->incharges[].member_id. Incharges on live events (2026-09-07):
