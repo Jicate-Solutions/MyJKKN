@@ -9190,3 +9190,46 @@ CREATE INDEX IF NOT EXISTS idx_aiu_trails_open
 REVOKE ALL ON TABLE public.aiu_prompt_trails FROM anon, authenticated, PUBLIC;
 GRANT SELECT, INSERT, UPDATE ON TABLE public.aiu_prompt_trails TO authenticated;
 ALTER TABLE public.aiu_prompt_trails ENABLE ROW LEVEL SECURITY;
+
+-- ---------------------------------------------------------------------------
+-- cl_girls_bc_reconcile_log
+-- Evidence trail for the Girls Hostel B/C occupancy reconciliation (2026-09-06
+-- / 2026-09-07). One row per learner touched: the before-state, the target, and
+-- what actually happened, including which upgrade bill was created, topped up,
+-- or found already sufficient. Written by migrations 20260906120200 /
+-- 20260907090000 / 20260907110000 / 20260907120500.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.cl_girls_bc_reconcile_log (
+  id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  run_id                uuid NOT NULL,
+  run_at                timestamptz NOT NULL DEFAULT now(),
+  seq                   integer NOT NULL,
+  phase                 integer NOT NULL,
+  action                text    NOT NULL,
+  learner_name          text    NOT NULL,
+  learner_profile_id    uuid,
+  profile_id            uuid,
+  before_allocation_id  uuid,
+  before_block_id       uuid,
+  before_room_id        uuid,
+  before_bed_id         uuid,
+  before_category_id    uuid,
+  target_block_id       uuid,
+  target_room_id        uuid,
+  target_bed_id         uuid,
+  target_category_id    uuid,
+  after_allocation_id   uuid,
+  after_category_id     uuid,
+  bill_amount           numeric,
+  bill_action           text,
+  bill_id               uuid,
+  outcome               text NOT NULL DEFAULT 'planned',
+  note                  text
+);
+
+CREATE INDEX IF NOT EXISTS idx_cl_girls_bc_reconcile_log_run
+  ON public.cl_girls_bc_reconcile_log (run_id, seq);
+
+REVOKE ALL ON public.cl_girls_bc_reconcile_log FROM anon;
+GRANT SELECT ON public.cl_girls_bc_reconcile_log TO authenticated;
+ALTER TABLE public.cl_girls_bc_reconcile_log ENABLE ROW LEVEL SECURITY;
