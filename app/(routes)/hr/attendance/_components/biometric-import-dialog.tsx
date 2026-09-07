@@ -308,8 +308,8 @@ export function BiometricImportDialog({ open, onOpenChange, onImportComplete }: 
               <Alert>
                 <CalendarDays className="h-4 w-4" />
                 <AlertDescription>
-                  <strong>Working week per person.</strong> Staff on a work pattern follow that
-                  pattern&apos;s days; everyone else follows the institution&apos;s week. The{' '}
+                  <strong>Working week per person.</strong> Team members on a work pattern follow
+                  that pattern&apos;s days; everyone else follows the institution&apos;s week. The{' '}
                   <em>Working week</em> column shows the days actually in force — a dimmed day is a
                   weekly off for that person, whichever rule produced it.
                 </AlertDescription>

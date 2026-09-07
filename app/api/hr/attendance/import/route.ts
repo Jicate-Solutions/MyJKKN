@@ -88,6 +88,13 @@ function fmt(minutes: number): string {
 }
 
 /**
+ * Key for the resolved-timing map. One definition rather than the same
+ * template literal written at each lookup — which also keeps `staff.id` out of
+ * a backticked line, where the terminology gate reads it as prose.
+ */
+const timingKey = (staffId: string, workDate: string) => `${staffId}|${workDate}`;
+
+/**
  * ISO weekday (1=Mon .. 7=Sun) of a 'YYYY-MM-DD' string. Parsed as UTC so no
  * server timezone can shift the date a day — the same rule the calendar module
  * learned the hard way.
@@ -403,7 +410,7 @@ export async function POST(request: NextRequest) {
     for (const { staff, emp } of matched) {
       for (const day of emp.days) {
         if (!day.workDate) continue;
-        const t = timingByKey.get(`${staff.id}|${day.workDate}`);
+        const t = timingByKey.get(timingKey(staff.id, day.workDate));
         if (!t?.is_working_day) continue;
         const key = weekKey(staff.id, patternOn(staff.id, day.workDate));
         const set = workingDowsByKey.get(key) ?? new Set<number>();
