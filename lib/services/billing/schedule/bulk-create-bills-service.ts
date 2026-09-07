@@ -221,6 +221,12 @@ export class BulkCreateBillsService {
         remarks: string;
         due_date: string;
         billing_amount: number;
+        // Carried through from pass 1 so pass 2 can build the payment
+        // schedule. Pass 2 runs in a different scope and cannot see pass 1's
+        // locals — reading them there was a ReferenceError that broke every
+        // bulk import using instalment columns.
+        instalment_shares: string;
+        instalment_due_dates: string;
       } | null;
     }
 
@@ -340,7 +346,9 @@ export class BulkCreateBillsService {
                 bill_description: description,
                 remarks,
                 due_date: dueIso,
-                billing_amount: amount
+                billing_amount: amount,
+                instalment_shares: sharesRaw,
+                instalment_due_dates: datesRaw
               }
             : null
       });
@@ -653,7 +661,11 @@ export class BulkCreateBillsService {
       // Optional payment schedule. Validated HERE, at preview time, so a bad
       // split is a row error the reviewer sees before committing rather than
       // a deferred BL002 after the bill row already exists.
-      const schedule = parseInstalmentColumns(sharesRaw, datesRaw, cellToISODate);
+      const schedule = parseInstalmentColumns(
+        cleaned.instalment_shares,
+        cleaned.instalment_due_dates,
+        cellToISODate
+      );
       if (schedule.errors.length > 0) {
         fail('format', 'Instalment Shares', schedule.errors.join(' '));
         continue;

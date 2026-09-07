@@ -24,7 +24,12 @@ export type VacateReason =
   | 'semester_end'
   | 'medical';
 
-export type FeeStatus = 'pending' | 'partial' | 'paid' | 'overdue' | 'waived';
+// Mirrors the hostel_allocations.fee_status enum EXACTLY. 'overdue' was listed
+// here but does not exist in the database enum (verified 2026-09-07: the enum is
+// pending|partial|paid|waived, and zero rows carry any other value), so any
+// filter passing it queried for a value that cannot exist. Nothing in the app
+// produced or rendered it.
+export type FeeStatus = 'pending' | 'partial' | 'paid' | 'waived';
 
 export type FoodPreference = 'veg' | 'non_veg' | 'vegan' | 'jain';
 
@@ -125,6 +130,9 @@ export interface AllocationFilters {
   allocation_type?: AllocationType;
   fee_status?: FeeStatus;
   learner_id?: string;
+  /** hostel_allocations.academic_year_id — the service already filtered on
+   *  this; it was simply missing from the interface. */
+  academic_year_id?: string;
   search?: string;
 }
 
