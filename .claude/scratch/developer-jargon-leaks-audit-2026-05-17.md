@@ -20,7 +20,7 @@ I audited the merged-to-`main` codebase (the HR recruitment cases Director flagg
 **Top 3 worst offenders (cluster of related leaks):**
 
 1. **Billing `/_actions/{invoice,receipt}-actions.ts`** — `sendInvoice`, `sendReceipt`, `downloadInvoicePDF`, `downloadReceiptPDF` all return `success: true` with body `{ message: 'Email functionality pending implementation' }` or `url: '#'`. UI shows green "Invoice sent successfully" toast. **Three confirmed silent false-positives in production billing.**
-2. **Attendance pending-reminder buttons** (`pending-attendance-data-table.tsx`, `pending-attendance-client.tsx`) — three "Send Reminder" buttons render, click handlers all call `toast.error('Reminder feature coming soon')`. Faculty user clicks, gets ERROR toast that doesn't say "this isn't built yet" — looks like the system failed.
+2. **Attendance pending-reminder buttons** (`pending-attendance-data-table.tsx`, `pending-attendance-client.tsx`) — three "Send Reminder" buttons render, click handlers all call `toast.error('Reminder feature coming soon')`. A Senior Learner clicks, gets ERROR toast that doesn't say "this isn't built yet" — looks like the system failed.
 3. **Export buttons everywhere** — 7 distinct "Export" buttons (audit-trail, course-grades, leave-onduty reports, LTI grade-sync, LTI analytics, resource-management analytics, users activity) use `alert("Export functionality coming soon")` or just `console.log()` — buttons appear functional but do nothing visible.
 
 **Common root cause:** Buttons were wired before the backend was finished, with a "we'll fix the handler later" TODO. The handler shipped to production. Director sees a button, clicks it, nothing happens.
@@ -56,7 +56,7 @@ Bonus context for #16: this is the most dangerous one. User clicks Delete → li
 
 | # | File:Line | Current text | Surface | Suggested fix | Effort |
 |---|---|---|---|---|---|
-| 17 | `app/(routes)/dashboard/page.tsx:162` | `Faculty dashboard coming soon...` (full page replacement) | `/dashboard` for faculty role | Replace with a useful interim view (announcements + today's classes) OR ship to admin dashboard with a banner. | ≤4 hr |
+| 17 | `app/(routes)/dashboard/page.tsx:162` | `Faculty dashboard coming soon...` (full page replacement) | `/dashboard` for the Senior Learner role | Replace with a useful interim view (announcements + today's sessions) OR ship to admin dashboard with a banner. | ≤4 hr |
 | 18 | `app/(routes)/dashboard/page.tsx:183` | `Leadership dashboard coming soon...` | `/dashboard` for leadership role | Same as #17 | ≤4 hr |
 | 19 | `app/(routes)/billing/receipts/templates/page.tsx:85-100` | "Templates Coming Soon" card with planned-features bullet list. | `/billing/receipts/templates` | Either hide the route entirely from the sidebar OR keep card but remove the bullet list (oversells). | ≤30 min |
 | 20 | `app/(routes)/academic/timetables/faculty-calendar/admin/page.tsx:334,351,368` | Three placeholder cards: "Availability Matrix Coming Soon", "Workload Distribution Coming Soon", "Conflict Detection Coming Soon". | `/academic/timetables/faculty-calendar/admin` | Hide tabs that aren't built; show only the tab that works. | ≤1 hr |
@@ -82,7 +82,7 @@ Bonus context for #16: this is the most dangerous one. User clicks Delete → li
 | 33 | `app/(routes)/dashboard/page.tsx:117,133,142` | "Student profile not linked. Please contact administration." × 3 variants on `/dashboard` for student role. | `/dashboard` (student) | Add a "Request profile setup" CTA that pings admin via the new bug-reports table or whatsapp. | ≤2 hr |
 | 34 | `app/(routes)/billing/payment/success/page.tsx:391` | "Payment confirmation email will be sent shortly" — but the email infra is stubbed (#27). The receipt-email path leads to a `success: true` no-op (#3). | `/billing/payment/success` | Either build the email path or change the copy to "Save this page as your receipt — email confirmation is not currently sent." | ≤30 min |
 | 35 | `lib/services/organization/course-service.ts:206,264` | "Database schema needs to be updated. Please refresh the page or contact support." | Course list/details | Replace with operational message: "We're updating our records. Please refresh in a few minutes." | ≤15 min |
-| 36 | `app/(routes)/learners/my-timetable/_components/empty-state.tsx:40,46` | "No timetable has been created for your section yet. Please contact your administration for assistance." | Student my-timetable | OK on phrasing — but the empty state should also link to a contact form, not just say "contact". | ≤30 min |
+| 36 | `app/(routes)/learners/my-timetable/_components/empty-state.tsx:40,46` | "No timetable has been created for your section yet. Please contact your administration for assistance." | Learner my-timetable | OK on phrasing — but the empty state should also link to a contact form, not just say "contact". | ≤30 min |
 | 37 | `lib/services/auth/student-validation-service.ts:186` | "Student portal access is currently unavailable. Please check back later." | `/auth/login` redirect on student status `student_redirect` | Specify what to do next (call admissions office? wait for a specific date?). | ≤15 min |
 | 38 | `components/ui/data-table.tsx:720` | "...contact your administrator." (empty-state for unauthorized table) | Most data tables | Add: "or click here to request access." | ≤30 min |
 | 39 | `components/notifications/push-notification-banner.tsx:82` | `aria-label="Dismiss for now"` — minor; "for now" is fine here but inconsistent with other dismiss labels. | Push notification banner | Change to "Dismiss". | ≤5 min |
@@ -98,7 +98,7 @@ These are `for now` / `TODO` comments in code where the **behavior** is the leak
 **Grouped by file:**
 
 - `app/(routes)/academic/attendance/dashboard/_components/pending-statistics-cards.tsx:95` — `completedPeriods: 0, // For now, we only fetch pending` → dashboard always reads 0 for completed-periods stat.
-- `app/(routes)/academic/attendance/_components/faculty-quick-attendance.tsx:181-182` and `available-periods-cards.tsx:194-195` — `// TODO: Implement proper time restriction logic in future` followed by `always allow attendance marking regardless of time` → faculty can mark attendance any time (likely a policy gap).
+- `app/(routes)/academic/attendance/_components/faculty-quick-attendance.tsx:181-182` and `available-periods-cards.tsx:194-195` — `// TODO: Implement proper time restriction logic in future` followed by `always allow attendance marking regardless of time` → Senior Learners can mark attendance any time (likely a policy gap).
 - `app/(routes)/users/role-management/_components/scholarship-permission-manager.tsx:168` — `// For now, simulating the current state` (UI displays simulated data instead of real permissions).
 - `app/(routes)/billing/schedule/_components/student-bill-form.tsx:354` — `// For now, we'll create separate bills for each item` (when domain probably wanted a single grouped bill).
 - `app/api/admin/notifications/[id]/route.ts:179` — `delivered: totalRecipients || 0, // Assume all are delivered for now` → notification analytics always reads 100% delivered.
@@ -145,7 +145,7 @@ Counts are restricted to user-facing surfaces (UI strings + thrown errors that r
 The highest-leverage cleanup is to **hide buttons that don't do anything**, not to rewrite their handlers. Each line below is one-line-of-code or button-removal.
 
 1. **Billing email/PDF false positives** (`app/(routes)/billing/_actions/invoice-actions.ts:286,352` + `receipt-actions.ts:259` + downloadReceiptPDF) — Change `success: true` to `success: false` with a clear error message in 4 places. **~30 min, prevents 4 silent false positives in money-flow.**
-2. **Attendance Send-Reminder buttons** — Delete the buttons in `pending-attendance-data-table.tsx:180-190` and `pending-attendance-client.tsx:149-161`. **~15 min, removes 3 broken buttons from faculty's most-used surface.**
+2. **Attendance Send-Reminder buttons** — Delete the buttons in `pending-attendance-data-table.tsx:180-190` and `pending-attendance-client.tsx:149-161`. **~15 min, removes 3 broken buttons from Senior Learners' most-used surface.**
 3. **Export buttons (7 of them)** — Delete the Export button trigger in: `audit-trail/page.tsx`, `users/activity/page.tsx`, `resource-management/analytics-dashboard/page.tsx`, `admin/lti/grade-sync/_components/grade-sync-filters.tsx`, `admin/lti/analytics/_components/analytics-filters.tsx`, `academic/course-grades/_components/course-grades-table.tsx`, `academic/leave-onduty/reports/page.tsx`. **~30 min total, removes 7 broken buttons across the platform.**
 4. **Role-change button on `/users`** (`user-list.tsx:184-188`) — Remove or disable the row-menu item. **~5 min, removes the green-checkmark false positive on a permissions surface.**
 5. **Global error boundary** (`app/error.tsx:21` + `components/errors/page-error.tsx:54,90`) — Replace `{error.message}` with a friendly fallback + log raw error to Sentry/logger. **~30 min, fixes the entire error-message leak class platform-wide.**
@@ -158,7 +158,7 @@ The highest-leverage cleanup is to **hide buttons that don't do anything**, not 
 
 1. **HR recruitment branches.** The two cases Director flagged (`/hr/recruitment/submit` UUID-paste, `/hr/recruitment/approvals` chain-exhausted) are on unmerged branches (`feat-admin-hr-recruitment-...`, `docs/wave-5-recruitment-workflow-repair`, etc.). I did not check those branches because the audit scope was `main`. If the fix-PRs for those land before this PR, the patterns may already be addressed. **Recommendation:** re-run this audit after the HR wave-5 PRs merge.
 
-2. **`app/(routes)/application-hub/api-guidelines/b2a/_data/b2a-endpoints.ts`** has ~30 `placeholder: 'UUID'` entries. I treated these as developer-facing (B2A API integrators) and excluded from severity 4-5. If the Director sees this page, the placeholders should be `"Student ID (UUID format)"` or with an example value like `"a1b2c3d4-..."`. Severity 3 candidate but I didn't enumerate.
+2. **`app/(routes)/application-hub/api-guidelines/b2a/_data/b2a-endpoints.ts`** has ~30 `placeholder: 'UUID'` entries. I treated these as developer-facing (B2A API integrators) and excluded from severity 4-5. If the Director sees this page, the placeholders should be `"Learner ID (UUID format)"` or with an example value like `"a1b2c3d4-..."`. Severity 3 candidate but I didn't enumerate.
 
 3. **`app/(routes)/system/api-management/_components/test-endpoint.tsx`** has ~30 raw "Filter by program ID (UUID)" descriptions. Same call as #2 — developer surface, but it lives under `/system` which any admin can navigate to.
 
