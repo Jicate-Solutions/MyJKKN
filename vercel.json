@@ -260,6 +260,10 @@
     {
       "schedule": "14 * * * *",
       "path": "/api/cron/cron-failure-alerts?secret=${CRON_SECRET}"
+    },
+    {
+      "path": "/api/cron/accreditation-owner-invitations?secret=${CRON_SECRET}",
+      "schedule": "42 1 * * *"
     }
   ]
 }
