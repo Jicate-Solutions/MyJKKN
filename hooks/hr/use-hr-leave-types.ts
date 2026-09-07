@@ -19,6 +19,7 @@ const STAFF_BALANCES_KEY = 'hr-leave-staff-balances';
 const CAN_APPROVE_KEY = 'hr-can-approve-leave';
 const STO_USAGE_KEY = 'hr-sto-usage';
 const LEAVE_PERIOD_USAGE_KEY = 'hr-leave-period-usage';
+const ACCRUED_AS_OF_KEY = 'hr-leave-accrued-as-of';
 const MONTHLY_LEDGER_KEY = 'hr-leave-monthly-ledger';
 
 /**
@@ -380,6 +381,33 @@ export function useStoUsage(
  * "2 a month" throttle. Disabled until both ids are known, so the drawer does
  * not fire on open.
  */
+/**
+ * Days accrued by the REQUEST's start date, not by today.
+ *
+ * Same reasoning as useLeavePeriodUsage below, and the same failure it fixes:
+ * trg_hla_balance_guard measures a request against fn_hr_leave_accrued_days at
+ * NEW.start_date, while v_hr_leave_balance can only report CURRENT_DATE. In
+ * September a staff member who has spent June, July and August reads "1 day
+ * available" — September's credit — and the drawer offered it for an August
+ * date the server then refused with 23514.
+ */
+export function useLeaveAccruedAsOf(
+  employeeId: string | undefined,
+  leaveTypeId: string | undefined,
+  hrAcademicYearId: string | null,
+  onDate?: string
+) {
+  const supabase = createClientSupabaseClient();
+  return useQuery({
+    queryKey: [ACCRUED_AS_OF_KEY, employeeId, leaveTypeId, hrAcademicYearId, onDate ?? null],
+    queryFn: () =>
+      HRLeaveTypeService.getAccruedDays(
+        supabase, employeeId!, leaveTypeId!, hrAcademicYearId, onDate
+      ),
+    enabled: !!employeeId && !!leaveTypeId && !!onDate,
+  });
+}
+
 export function useLeavePeriodUsage(
   employeeId: string | undefined,
   leaveTypeId: string | undefined,

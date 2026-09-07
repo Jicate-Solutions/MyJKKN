@@ -28,7 +28,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { useApplyLeave } from '@/hooks/hr/use-leave';
-import { useLeavePeriodUsage } from '@/hooks/hr/use-hr-leave-types';
+import { useLeavePeriodUsage, useLeaveAccruedAsOf } from '@/hooks/hr/use-hr-leave-types';
 import { useDayOccupancy } from '@/hooks/hr/use-day-occupancy';
 import { Progress } from '@/components/ui/progress';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
@@ -115,14 +115,46 @@ export function ApplyLeaveDrawer({
     selected?.allow_half_day && isSingleDay ? durationType : 'full';
 
   /**
+   * ACCRUED BY THE REQUEST'S START DATE, not by today.
+   *
+   * v_hr_leave_balance can only compute accrual at CURRENT_DATE, but
+   * trg_hla_balance_guard measures the request at NEW.start_date. In September
+   * someone who has spent June, July and August reads "1 day available" — that
+   * day is SEPTEMBER's credit — and the drawer happily offered it for a 29
+   * August date, which the server then refused with 23514. Keyed on startDate
+   * for the same reason useLeavePeriodUsage below is.
+   */
+  const { data: accruedAsOfStart } = useLeaveAccruedAsOf(
+    ctx.employeeId || undefined,
+    leaveTypeId || undefined,
+    ctx.hrAcademicYearId || null,
+    startDate || undefined
+  );
+
+  /**
    * READ from the view, not recomputed.
    *
    * This was `entitled + carried_forward - used`, which cannot see a request
    * awaiting approval -- so the drawer offered 12 days while the database, which
    * does count them, refused. The view's `available` nets off pending and caps
    * at what has actually accrued.
+   *
+   * Only the ACCRUED term is re-derived once a start date is picked; carried,
+   * used and pending are the same figures the trigger reads, so the arithmetic
+   * below is trg_hla_balance_guard's, line for line.
    */
-  const available = selected ? selected.available : null;
+  const available = selected
+    ? (accruedAsOfStart !== undefined && startDate
+        ? accruedAsOfStart + selected.carried_forward - selected.used - selected.pending
+        : selected.available)
+    : null;
+
+  /** True when this month's credit has not accrued by the date being requested. */
+  const accruesLater =
+    selected != null &&
+    accruedAsOfStart !== undefined &&
+    !!startDate &&
+    accruedAsOfStart < selected.accrued;
 
   // Inclusive day span, adjusted for a half-day request.
   const requestedDays = useMemo(() => {
@@ -419,6 +451,17 @@ export function ApplyLeaveDrawer({
                       <p className="mt-1 text-[11px] text-muted-foreground">
                         {formatDays(selected.accrued)} of {formatDays(selected.entitled)} day(s)
                         have accrued so far this year; the rest accrue month by month.
+                      </p>
+                    )}
+                    {/* Says WHY the figure above is smaller than the headline
+                        balance. Without it "1 day available" on the type and
+                        "0 available" here read as a contradiction. */}
+                    {accruesLater && (
+                      <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-500">
+                        Only {formatDays(accruedAsOfStart)} day(s) had accrued by{' '}
+                        {new Date(`${startDate}T00:00:00`).toLocaleDateString('en-GB')} — a later
+                        month&apos;s credit cannot pay for an earlier absence. Move the dates
+                        forward, or apply once that month begins.
                       </p>
                     )}
 
