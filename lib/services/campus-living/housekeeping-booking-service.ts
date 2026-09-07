@@ -1,7 +1,7 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { getErrorMessage } from '@/lib/utils';
-import { CL_ROSTER_STATUSES } from './roster-statuses';
+import { CL_LIVE_ALLOCATION_STATUSES } from './roster-statuses';
 import { sendNotification } from '@/lib/services/notification/notification-service';
 import {
   NotificationCategory,
@@ -13,6 +13,9 @@ import type {
   AssignResult,
   BookResult,
   BookingBoardRow,
+  BookingDetail,
+  BookingPerson,
+  BookingStatus,
   BookingPhoto,
   CancelResult,
   CleaningBooking,
@@ -70,7 +73,7 @@ export class HousekeepingBookingService {
         .from('hostel_allocations')
         .select('id, room_id, block_id, institution_id, status, room:hostel_rooms(room_number, category_id)')
         .eq('learner_id', uid)
-        .in('status', CL_ROSTER_STATUSES)
+        .in('status', CL_LIVE_ALLOCATION_STATUSES)
         .order('allocation_date', { ascending: false, nullsFirst: false })
         .limit(1)
         .maybeSingle();
@@ -96,19 +99,34 @@ export class HousekeepingBookingService {
   }
 
   /**
-   * The warden day board. Left joins throughout: an !inner embed would be an
-   * INNER JOIN and would silently drop a booking whose room or block row is
-   * missing — exactly the bookings a warden most needs to see.
+   * The admin bookings table: every booking the caller can see, paged.
+   *
+   * Deliberately NOT date-scoped: this answers "show me the bookings", and the
+   * date range is one more optional filter the table drives. Every filter is
+   * optional and RLS still decides the rows, so omitting institutionId means
+   * "every institution I can reach", never "every institution".
+   *
+   * Search covers the columns a warden actually knows a booking by: the room
+   * number, the block, the cleaner and the type. Room and block live on embedded
+   * tables, so they cannot go in a PostgREST .or() over this table — they are
+   * resolved to ids first and folded into the same .or() as id lists.
    */
-  static async listDayBoard(
-    date: string,
-    institutionId?: string,
-    blockId?: string,
-  ): Promise<BookingBoardRow[]> {
+  static async listBookings(params: {
+    page: number;
+    limit: number;
+    search?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    institutionId?: string;
+    blockId?: string;
+    status?: BookingStatus;
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
+  }): Promise<{ rows: BookingBoardRow[]; total: number }> {
     try {
-      // Cast the builder: four nested embeds push PostgREST's generated types
-      // past TS's instantiation depth limit (TS2589). The shape is asserted by
-      // toBoardRow instead.
+      const { page, limit } = params;
+      const from = (Math.max(1, page) - 1) * limit;
+
       let query = (this.supabase as any)
         .from('hostel_cleaning_bookings')
         .select(
@@ -117,24 +135,238 @@ export class HousekeepingBookingService {
            block:hostel_blocks(name),
            photos:hostel_cleaning_booking_photos(phase),
            feedback:hostel_cleaning_feedback(rating)`,
-        )
-        .eq('booking_date', date)
-        .order('slot_start', { ascending: true });
+          { count: 'exact' },
+        );
 
-      // ?? not ||: '' would travel as a real UUID and match zero rows.
-      if (institutionId != null) query = query.eq('institution_id', institutionId);
-      if (blockId != null) query = query.eq('block_id', blockId);
+      query = this.applyBookingFilters(query, params);
+
+      const term = params.search?.trim();
+      if (term) {
+        // Multi-word search needs one .or() per token; a single .or() with a
+        // space matches only the literal phrase.
+        const roomIds = await this.roomIdsMatching(term);
+        const blockIds = await this.blockIdsMatching(term);
+        const clauses = [`cleaner_name.ilike.%${term}%`, `type_name.ilike.%${term}%`];
+        if (roomIds.length) clauses.push(`room_id.in.(${roomIds.join(',')})`);
+        if (blockIds.length) clauses.push(`block_id.in.(${blockIds.join(',')})`);
+        query = query.or(clauses.join(','));
+      }
+
+      const sortBy = params.sortBy || 'booking_date';
+      const ascending = (params.sortOrder ?? 'desc') === 'asc';
+      query = query
+        .order(sortBy, { ascending })
+        .order('slot_start', { ascending: true })
+        .range(from, from + limit - 1);
+
+      const { data, error, count } = await query;
+      if (error) {
+        logger.error(LOG, 'Failed to list bookings', error);
+        throw error;
+      }
+      return { rows: (data ?? []).map(toBoardRow), total: count ?? 0 };
+    } catch (error) {
+      logger.error(LOG, `Unexpected error in listBookings: ${getErrorMessage(error)}`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Status totals for the WHOLE filtered set, not the visible page.
+   *
+   * The summary tiles are the reason this exists: counted off the page they
+   * would say "3 unassigned" while page 2 held forty more. Reads only the status
+   * column, and `head: true` per status would be five round trips — one select
+   * of a single narrow column and a tally in JS is cheaper and exact.
+   */
+  static async countBookingsByStatus(filters: {
+    dateFrom?: string;
+    dateTo?: string;
+    institutionId?: string;
+    blockId?: string;
+    status?: BookingStatus;
+  }): Promise<Record<BookingStatus, number>> {
+    const empty: Record<BookingStatus, number> = {
+      booked: 0, assigned: 0, in_progress: 0, awaiting_feedback: 0, completed: 0, cancelled: 0,
+    };
+    try {
+      let query = (this.supabase as any)
+        .from('hostel_cleaning_bookings')
+        .select('status');
+      query = this.applyBookingFilters(query, filters);
 
       const { data, error } = await query;
       if (error) {
-        logger.error(LOG, 'Failed to load day board', error);
+        logger.error(LOG, 'Failed to count bookings by status', error);
         throw error;
       }
-      return (data ?? []).map(toBoardRow);
+      const out = { ...empty };
+      for (const r of (data ?? []) as Array<{ status: BookingStatus }>) {
+        if (r.status in out) out[r.status] += 1;
+      }
+      return out;
     } catch (error) {
-      logger.error(LOG, `Unexpected error in listDayBoard: ${getErrorMessage(error)}`, error);
+      logger.error(LOG, `Unexpected error in countBookingsByStatus: ${getErrorMessage(error)}`, error);
       throw error;
     }
+  }
+
+  /**
+   * Everything behind one booking, for the admin detail dialog.
+   *
+   * Fetched on demand, one booking at a time, so the extra round trips cost the
+   * table nothing. Every lookup is independently optional: a deleted room, a
+   * retired type or a learner whose profile has gone comes back null and the
+   * dialog renders the rest. That is the whole reason the booking carries
+   * snapshot columns — the history survives its references.
+   */
+  static async getBookingDetail(bookingId: string): Promise<BookingDetail | null> {
+    try {
+      const { data: row, error } = await (this.supabase as any)
+        .from('hostel_cleaning_bookings')
+        .select(
+          `*,
+           room:hostel_rooms(room_number, floor, room_type, capacity, has_attached_bathroom, category_id),
+           block:hostel_blocks(name, hostel_type),
+           institution:institutions(name),
+           photos:hostel_cleaning_booking_photos(phase),
+           feedback:hostel_cleaning_feedback(rating)`,
+        )
+        .eq('id', bookingId)
+        .maybeSingle();
+
+      if (error) {
+        logger.error(LOG, 'Failed to load booking detail', error);
+        throw error;
+      }
+      if (!row) return null;
+
+      const booking = toBoardRow(row);
+
+      // One profiles read for every person on the booking, not four.
+      const personIds = [
+        row.learner_id,
+        row.assigned_by,
+        row.cancelled_by,
+        row.waived_by,
+      ].filter(Boolean) as string[];
+
+      const [people, categoryName, type, photos, feedback] = await Promise.all([
+        this.peopleByIds(personIds),
+        this.categoryName(row.room?.category_id ?? null),
+        this.currentType(row.type_id),
+        this.listPhotos(bookingId),
+        this.listFeedback(bookingId),
+      ]);
+
+      const raterIds = Array.from(new Set(feedback.map((f) => f.learner_id))).filter(Boolean);
+      const raters = await this.peopleByIds(raterIds);
+
+      return {
+        booking,
+        learner: people.get(row.learner_id) ?? null,
+        assigned_by: row.assigned_by ? people.get(row.assigned_by) ?? null : null,
+        cancelled_by: row.cancelled_by ? people.get(row.cancelled_by) ?? null : null,
+        waived_by: row.waived_by ? people.get(row.waived_by) ?? null : null,
+        room: row.room
+          ? {
+              room_number: row.room.room_number ?? null,
+              floor: row.room.floor ?? null,
+              room_type: row.room.room_type ?? null,
+              capacity: row.room.capacity ?? null,
+              has_attached_bathroom: row.room.has_attached_bathroom ?? null,
+              category_name: categoryName,
+            }
+          : null,
+        block: row.block
+          ? { name: row.block.name ?? null, hostel_type: row.block.hostel_type ?? null }
+          : null,
+        institution_name: row.institution?.name ?? null,
+        type,
+        photos,
+        feedback: feedback.map((f) => ({
+          ...f,
+          learner_name: raters.get(f.learner_id)?.full_name ?? null,
+        })),
+      };
+    } catch (error) {
+      logger.error(LOG, `Unexpected error in getBookingDetail: ${getErrorMessage(error)}`, error);
+      throw error;
+    }
+  }
+
+  private static async peopleByIds(ids: string[]): Promise<Map<string, BookingPerson>> {
+    const unique = Array.from(new Set(ids)).filter(Boolean);
+    if (unique.length === 0) return new Map();
+    const { data, error } = await (this.supabase as any)
+      .from('profiles')
+      .select('id, full_name, email, gender')
+      .in('id', unique);
+    if (error) {
+      // A missing name must not sink the whole dialog.
+      logger.warn(LOG, 'Could not resolve people for booking detail', error);
+      return new Map();
+    }
+    return new Map(((data ?? []) as BookingPerson[]).map((p) => [p.id, p]));
+  }
+
+  private static async categoryName(categoryId: string | null): Promise<string | null> {
+    if (!categoryId) return null;
+    const { data } = await (this.supabase as any)
+      .from('hostel_categories')
+      .select('name')
+      .eq('id', categoryId)
+      .maybeSingle();
+    return (data as { name: string } | null)?.name ?? null;
+  }
+
+  /** The type as it stands TODAY — the booking's own snapshot is on the row. */
+  private static async currentType(typeId: string): Promise<BookingDetail['type']> {
+    const { data } = await (this.supabase as any)
+      .from('hostel_cleaning_types')
+      .select('description, usage_limit_count, usage_period, is_active')
+      .eq('id', typeId)
+      .maybeSingle();
+    return (data as BookingDetail['type']) ?? null;
+  }
+
+  /** The one place the table's filters are translated, so the tiles and the
+   *  rows can never disagree about what "the filtered set" means. */
+  private static applyBookingFilters(
+    query: any,
+    f: {
+      dateFrom?: string;
+      dateTo?: string;
+      institutionId?: string;
+      blockId?: string;
+      status?: BookingStatus;
+    },
+  ) {
+    // ?? not ||: '' would travel as a real UUID and match zero rows.
+    if (f.institutionId != null) query = query.eq('institution_id', f.institutionId);
+    if (f.blockId != null) query = query.eq('block_id', f.blockId);
+    if (f.status != null) query = query.eq('status', f.status);
+    if (f.dateFrom) query = query.gte('booking_date', f.dateFrom);
+    if (f.dateTo) query = query.lte('booking_date', f.dateTo);
+    return query;
+  }
+
+  private static async roomIdsMatching(term: string): Promise<string[]> {
+    const { data } = await (this.supabase as any)
+      .from('hostel_rooms')
+      .select('id')
+      .ilike('room_number', `%${term}%`)
+      .limit(200);
+    return ((data ?? []) as Array<{ id: string }>).map((r) => r.id);
+  }
+
+  private static async blockIdsMatching(term: string): Promise<string[]> {
+    const { data } = await (this.supabase as any)
+      .from('hostel_blocks')
+      .select('id')
+      .ilike('name', `%${term}%`)
+      .limit(200);
+    return ((data ?? []) as Array<{ id: string }>).map((b) => b.id);
   }
 
   /**
@@ -144,7 +376,7 @@ export class HousekeepingBookingService {
    */
   static async listMyBookings(roomId: string, fromDate?: string): Promise<BookingBoardRow[]> {
     try {
-      // Cast for the same TS2589 reason as listDayBoard.
+      // Cast for the same TS2589 reason as listBookings.
       let query = (this.supabase as any)
         .from('hostel_cleaning_bookings')
         .select(
@@ -357,7 +589,7 @@ export class HousekeepingBookingService {
         .from('hostel_allocations')
         .select('learner_id')
         .eq('room_id', booking.room_id)
-        .in('status', CL_ROSTER_STATUSES);
+        .in('status', CL_LIVE_ALLOCATION_STATUSES);
       if (roomErr) {
         logger.warn(LOG, 'Could not load roommates for feedback notification', roomErr);
         return;

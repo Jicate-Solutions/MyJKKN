@@ -56,9 +56,13 @@ export interface CleaningTypeWithDetail extends CleaningType {
   expected_cost_inr: number;
 }
 
+/**
+ * A GLOBAL directory row — cleaners carry no institution_id. hostel_blocks has
+ * none either, and 4 of the 6 blocks house several colleges at once, so a
+ * cleaner's real scope is block_ids.
+ */
 export interface Cleaner {
   id: string;
-  institution_id: string;
   full_name: string;
   phone: string | null;
   gender: 'Male' | 'Female' | 'Other' | null;
@@ -72,9 +76,9 @@ export interface Cleaner {
   block_ids: string[];
 }
 
+/** Per block, per weekday. Global: one window per block, whoever lives in it. */
 export interface CleaningAvailability {
   id: string;
-  institution_id: string;
   block_id: string;
   /** Postgres DOW: 0=Sunday .. 6=Saturday. */
   weekday: number;
@@ -150,6 +154,54 @@ export interface CleaningFeedback {
   rating: number;
   comment: string | null;
   created_at: string;
+}
+
+/** A rating with the rater resolved — any roommate may rate, so the name matters. */
+export interface CleaningFeedbackWithLearner extends CleaningFeedback {
+  learner_name: string | null;
+}
+
+/** The person a profiles.id points at, as the booking detail view needs them. */
+export interface BookingPerson {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  gender: string | null;
+}
+
+/**
+ * Everything behind one booking, for the admin detail dialog.
+ *
+ * `booking` carries the SNAPSHOT columns (type_name, duration_minutes,
+ * expected_cost_inr, cleaner_name) — what was true when it was booked and what
+ * history must keep. `type` is the CURRENT catalogue row, which may since have
+ * been renamed, repriced or deactivated; the dialog labels the two differently
+ * on purpose.
+ */
+export interface BookingDetail {
+  booking: BookingBoardRow;
+  learner: BookingPerson | null;
+  assigned_by: BookingPerson | null;
+  cancelled_by: BookingPerson | null;
+  waived_by: BookingPerson | null;
+  room: {
+    room_number: string | null;
+    floor: number | null;
+    room_type: string | null;
+    capacity: number | null;
+    has_attached_bathroom: boolean | null;
+    category_name: string | null;
+  } | null;
+  block: { name: string | null; hostel_type: string | null } | null;
+  institution_name: string | null;
+  type: {
+    description: string | null;
+    usage_limit_count: number;
+    usage_period: UsagePeriod;
+    is_active: boolean;
+  } | null;
+  photos: BookingPhoto[];
+  feedback: CleaningFeedbackWithLearner[];
 }
 
 /**
@@ -238,7 +290,6 @@ export interface CreateCleaningTypeDto {
 export type UpdateCleaningTypeDto = Partial<CreateCleaningTypeDto>;
 
 export interface CreateCleanerDto {
-  institution_id: string;
   full_name: string;
   phone?: string | null;
   gender?: 'Male' | 'Female' | 'Other' | null;
@@ -251,10 +302,9 @@ export interface CreateCleanerDto {
   block_ids: string[];
 }
 
-export type UpdateCleanerDto = Partial<Omit<CreateCleanerDto, 'institution_id'>>;
+export type UpdateCleanerDto = Partial<CreateCleanerDto>;
 
 export interface UpsertAvailabilityDto {
-  institution_id: string;
   block_id: string;
   weekday: number;
   is_open: boolean;

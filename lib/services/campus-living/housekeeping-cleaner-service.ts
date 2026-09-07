@@ -14,14 +14,18 @@ export class HousekeepingCleanerService {
     return createClientSupabaseClient();
   }
 
-  static async listCleaners(institutionId?: string, includeInactive = false): Promise<Cleaner[]> {
+  /**
+   * The directory is GLOBAL — cleaners carry no institution_id. Their real scope
+   * is hostel_cleaner_blocks, because hostel_blocks has no institution either:
+   * 4 of the 6 blocks house learners from several colleges at once.
+   */
+  static async listCleaners(includeInactive = false): Promise<Cleaner[]> {
     try {
       let query = this.supabase
         .from('hostel_cleaners')
         .select('*, blocks:hostel_cleaner_blocks(block_id)')
         .order('full_name', { ascending: true });
 
-      if (institutionId != null) query = query.eq('institution_id', institutionId);
       if (!includeInactive) query = query.eq('is_active', true);
 
       const { data, error } = await query;
@@ -72,7 +76,6 @@ export class HousekeepingCleanerService {
       const { data, error } = await this.supabase
         .from('hostel_cleaners')
         .insert({
-          institution_id: dto.institution_id,
           full_name: dto.full_name.trim(),
           phone: dto.phone?.trim() || null,
           gender: dto.gender || null,

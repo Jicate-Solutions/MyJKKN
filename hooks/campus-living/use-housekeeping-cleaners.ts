@@ -8,16 +8,17 @@ import type { CreateCleanerDto, UpdateCleanerDto } from '@/types/campus-living/h
 
 export const housekeepingCleanerKeys = {
   all: ['housekeeping-cleaners'] as const,
-  list: (institutionId?: string, includeInactive?: boolean) =>
-    ['housekeeping-cleaners', 'list', institutionId ?? 'all', includeInactive ?? false] as const,
+  // The directory is global, so the list has no institution dimension.
+  list: (includeInactive?: boolean) =>
+    ['housekeeping-cleaners', 'list', includeInactive ?? false] as const,
   assignable: (blockId?: string, date?: string) =>
     ['housekeeping-cleaners', 'assignable', blockId ?? 'none', date ?? 'none'] as const,
 };
 
-export function useHousekeepingCleaners(institutionId?: string, includeInactive = false) {
+export function useHousekeepingCleaners(includeInactive = false) {
   return useQuery({
-    queryKey: housekeepingCleanerKeys.list(institutionId, includeInactive),
-    queryFn: () => HousekeepingCleanerService.listCleaners(institutionId, includeInactive),
+    queryKey: housekeepingCleanerKeys.list(includeInactive),
+    queryFn: () => HousekeepingCleanerService.listCleaners(includeInactive),
   });
 }
 

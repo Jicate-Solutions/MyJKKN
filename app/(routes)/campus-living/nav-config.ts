@@ -357,6 +357,7 @@ const config: ModuleNavConfig = {
         '/campus-living/safety',
         '/campus-living/wellness',
         '/campus-living/health',
+        '/campus-living/housekeeping',
       ],
       children: [
         {
@@ -439,6 +440,42 @@ const config: ModuleNavConfig = {
           label: 'Health',
           icon: 'Stethoscope',
           href: '/campus-living/health',
+        },
+        // Housekeeping. The whole module shipped with no nav entry at all, so
+        // every page below was URL-only — Availability worst of all, since the
+        // hub did not link to it either and an unconfigured block answers every
+        // learner with "No cleaning is scheduled for that day".
+        // Order is the setup order: windows first (nothing is bookable without
+        // them), then who cleans, then what they clean.
+        {
+          label: 'Housekeeping',
+          icon: 'Brush',
+          href: '/campus-living/housekeeping',
+          matchPaths: ['/campus-living/housekeeping'],
+        },
+        {
+          label: 'Cleaning Availability',
+          icon: 'CalendarClock',
+          href: '/campus-living/housekeeping/availability',
+          matchPaths: ['/campus-living/housekeeping/availability'],
+        },
+        {
+          label: 'Cleaners',
+          icon: 'UserCog',
+          href: '/campus-living/housekeeping/cleaners',
+          matchPaths: ['/campus-living/housekeeping/cleaners'],
+        },
+        {
+          label: 'Cleaning Types',
+          icon: 'SprayCan',
+          href: '/campus-living/housekeeping/types',
+          matchPaths: ['/campus-living/housekeeping/types'],
+        },
+        {
+          label: 'Feedback Holds',
+          icon: 'ShieldAlert',
+          href: '/campus-living/housekeeping/holds',
+          matchPaths: ['/campus-living/housekeeping/holds'],
         },
       ],
     },

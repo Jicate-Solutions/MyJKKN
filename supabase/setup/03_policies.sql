@@ -10431,16 +10431,16 @@ USING ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permi
   WHERE (t.id = hostel_cleaning_type_categories.type_id))))));
 
 CREATE POLICY hk_cleaners_select ON public.hostel_cleaners FOR SELECT
-USING ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.view'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT user_has_permission('campus_living.housekeeping.view'::text) AS user_has_permission)));
 
 CREATE POLICY hk_cleaners_insert ON public.hostel_cleaners FOR INSERT
-WITH CHECK ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.cleaners_manage'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+WITH CHECK ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT user_has_permission('campus_living.housekeeping.cleaners_manage'::text) AS user_has_permission)));
 
 CREATE POLICY hk_cleaners_update ON public.hostel_cleaners FOR UPDATE
-USING ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.cleaners_manage'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT user_has_permission('campus_living.housekeeping.cleaners_manage'::text) AS user_has_permission)));
 
 CREATE POLICY hk_cleaners_delete ON public.hostel_cleaners FOR DELETE
-USING ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.cleaners_manage'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT user_has_permission('campus_living.housekeeping.cleaners_manage'::text) AS user_has_permission)));
 
 CREATE POLICY hk_cleaner_blocks_select ON public.hostel_cleaner_blocks FOR SELECT
 USING ((EXISTS ( SELECT 1
@@ -10448,26 +10448,26 @@ USING ((EXISTS ( SELECT 1
   WHERE (c.id = hostel_cleaner_blocks.cleaner_id))));
 
 CREATE POLICY hk_cleaner_blocks_insert ON public.hostel_cleaner_blocks FOR INSERT
-WITH CHECK ((( SELECT is_super_admin() AS is_super_admin) OR (EXISTS ( SELECT 1
+WITH CHECK ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.cleaners_manage'::text) AS user_has_permission) AND (EXISTS ( SELECT 1
    FROM hostel_cleaners c
-  WHERE ((c.id = hostel_cleaner_blocks.cleaner_id) AND ( SELECT user_has_permission('campus_living.housekeeping.cleaners_manage'::text) AS user_has_permission) AND role_has_institution_access(c.institution_id))))));
+  WHERE (c.id = hostel_cleaner_blocks.cleaner_id))))));
 
 CREATE POLICY hk_cleaner_blocks_delete ON public.hostel_cleaner_blocks FOR DELETE
-USING ((( SELECT is_super_admin() AS is_super_admin) OR (EXISTS ( SELECT 1
+USING ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.cleaners_manage'::text) AS user_has_permission) AND (EXISTS ( SELECT 1
    FROM hostel_cleaners c
-  WHERE ((c.id = hostel_cleaner_blocks.cleaner_id) AND ( SELECT user_has_permission('campus_living.housekeeping.cleaners_manage'::text) AS user_has_permission) AND role_has_institution_access(c.institution_id))))));
+  WHERE (c.id = hostel_cleaner_blocks.cleaner_id))))));
 
 CREATE POLICY hk_availability_select ON public.hostel_cleaning_availability FOR SELECT
-USING ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.view'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT user_has_permission('campus_living.housekeeping.view'::text) AS user_has_permission)));
 
 CREATE POLICY hk_availability_insert ON public.hostel_cleaning_availability FOR INSERT
-WITH CHECK ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.availability_manage'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+WITH CHECK ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT user_has_permission('campus_living.housekeeping.availability_manage'::text) AS user_has_permission)));
 
 CREATE POLICY hk_availability_update ON public.hostel_cleaning_availability FOR UPDATE
-USING ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.availability_manage'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT user_has_permission('campus_living.housekeeping.availability_manage'::text) AS user_has_permission)));
 
 CREATE POLICY hk_availability_delete ON public.hostel_cleaning_availability FOR DELETE
-USING ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.availability_manage'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT user_has_permission('campus_living.housekeeping.availability_manage'::text) AS user_has_permission)));
 
 CREATE POLICY hk_bookings_select ON public.hostel_cleaning_bookings FOR SELECT
 USING ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.view'::text) AS user_has_permission) AND role_has_institution_access(institution_id)) OR (EXISTS ( SELECT 1

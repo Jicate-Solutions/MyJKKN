@@ -21,6 +21,33 @@ export const CL_ROSTER_STATUSES = ['active', 'reserved', 'admitted'] as const;
  *  asks for the wider set. */
 export const CL_DEFAULT_ROSTER_STATUSES = ['active'] as const;
 
+/**
+ * The subset of CL_ROSTER_STATUSES that `hostel_allocations.status` can actually
+ * hold. Use this — never CL_ROSTER_STATUSES — when filtering an ALLOCATION.
+ *
+ * Two different columns share the word "status" and they are NOT interchangeable:
+ *
+ *   learners_profiles.lifecycle_status  →  active | reserved | admitted | …
+ *   hostel_allocations.status           →  allocation_status_enum:
+ *                                          active, vacated, transferred, suspended,
+ *                                          pending_vacate, pending_approval, rejected
+ *
+ * 'reserved' and 'admitted' are LEARNER lifecycle values. They are not labels of
+ * allocation_status_enum at all. SQL gets away with mixing them because
+ * fn_cl_roster_statuses() is always compared as `status::text = ANY (…)`, so the
+ * two foreign labels simply never match and the predicate quietly means "active".
+ *
+ * PostgREST does NOT get away with it. `.in('status', […])` coerces every element
+ * to the column's enum type, and Postgres raises
+ *   invalid input value for enum allocation_status_enum: "reserved"   (22P02)
+ * so the whole read fails instead of matching nothing — which is how the learner
+ * housekeeping page died on load for every single resident.
+ *
+ * Filtering by this array is exactly what the SQL predicate already resolves to,
+ * and it cannot 22P02.
+ */
+export const CL_LIVE_ALLOCATION_STATUSES = ['active'] as const;
+
 export type ClRosterStatus = (typeof CL_ROSTER_STATUSES)[number];
 
 /** Labels for the Status filter and badges. */

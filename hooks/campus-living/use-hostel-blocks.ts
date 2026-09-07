@@ -36,6 +36,29 @@ export function useHostelBlocks(institutionId: string | undefined, filters?: Blo
   });
 }
 
+/**
+ * Every block the caller can reach, with no institution filter.
+ *
+ * hostel_blocks has NO institution_id — the relation is the many-to-many
+ * hostel_block_institutions — and the table's own RLS already scopes SELECT via
+ * role_has_hostel_block_scope(id, NULL). An unfiltered read therefore returns
+ * exactly the caller's visible blocks, for a warden as much as for a super admin.
+ *
+ * Separate from useHostelBlocks because that hook is DISABLED without an
+ * institutionId for non-super-admins. That is right where an institution is
+ * genuinely being chosen, and wrong for the housekeeping surfaces, where a block
+ * shared by six colleges is the normal case — passing undefined there would have
+ * handed every warden an empty block list.
+ */
+export function useAllReachableBlocks(filters?: BlockFilters) {
+  return useQuery({
+    // 'reachable' is a sentinel, not an id: it cannot collide with the
+    // {institutionId, isSuperAdmin} keys useHostelBlocks writes.
+    queryKey: hostelBlockKeys.list({ institutionId: 'reachable', ...filters }),
+    queryFn: () => HostelBlockService.getBlocks(undefined, filters),
+  });
+}
+
 export function useHostelBlock(id: string) {
   return useQuery({
     queryKey: hostelBlockKeys.detail(id),

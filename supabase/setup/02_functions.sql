@@ -60959,8 +60959,7 @@ BEGIN
   SELECT c.full_name, c.working_days INTO v_name, v_days
   FROM public.hostel_cleaners c
   WHERE c.id = p_cleaner_id
-    AND c.is_active
-    AND c.institution_id = v_b.institution_id;
+    AND c.is_active;
   IF v_name IS NULL THEN
     RETURN jsonb_build_object('success', false, 'error_code', 'cleaner_unavailable');
   END IF;

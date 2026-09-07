@@ -9302,9 +9302,11 @@ ALTER TABLE public.hostel_cleaning_type_categories ENABLE ROW LEVEL SECURITY;
 
 NO login, NO profile link)
 -- ==========================================================================
+-- GLOBAL directory: no institution_id. hostel_blocks has none either, and 4 of
+-- the 6 blocks house learners from several colleges at once, so a cleaner is
+-- scoped by hostel_cleaner_blocks. See 20260909130000.
 CREATE TABLE public.hostel_cleaners (
   id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  institution_id uuid NOT NULL REFERENCES public.institutions(id),
   full_name      text NOT NULL,
   phone          text,
   gender         text CHECK (gender IN ('Male','Female','Other')),
@@ -9322,8 +9324,6 @@ CREATE TABLE public.hostel_cleaners (
   CONSTRAINT ck_hk_cleaners_working_days
     CHECK (working_days <@ ARRAY[0,1,2,3,4,5,6])
 );
-
-CREATE INDEX idx_hk_cleaners_institution ON public.hostel_cleaners (institution_id);
 
 ALTER TABLE public.hostel_cleaners ENABLE ROW LEVEL SECURITY;
 
@@ -9344,9 +9344,10 @@ ALTER TABLE public.hostel_cleaner_blocks ENABLE ROW LEVEL SECURITY;
 -- ==========================================================================
 -- 6. hostel_cleaning_availability  (per block, per weekday)
 -- ==========================================================================
+-- GLOBAL: one window per block per weekday, whoever lives in it. The UNIQUE
+-- (block_id, weekday) below always made an institution column inert.
 CREATE TABLE public.hostel_cleaning_availability (
   id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  institution_id uuid NOT NULL REFERENCES public.institutions(id),
   block_id       uuid NOT NULL REFERENCES public.hostel_blocks(id) ON DELETE CASCADE,
   weekday        integer NOT NULL CHECK (weekday BETWEEN 0 AND 6),
   is_open        boolean NOT NULL DEFAULT true,
@@ -9358,8 +9359,6 @@ CREATE TABLE public.hostel_cleaning_availability (
   CONSTRAINT ck_hk_availability_window CHECK (window_end > window_start),
   CONSTRAINT ux_hk_availability_block_weekday UNIQUE (block_id, weekday)
 );
-
-CREATE INDEX idx_hk_availability_institution ON public.hostel_cleaning_availability (institution_id);
 
 ALTER TABLE public.hostel_cleaning_availability ENABLE ROW LEVEL SECURITY;
 

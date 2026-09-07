@@ -11,8 +11,12 @@ export const housekeepingBookingKeys = {
   all: ['housekeeping-bookings'] as const,
   slots: (roomId?: string, typeId?: string, date?: string) =>
     ['housekeeping-bookings', 'slots', roomId ?? '-', typeId ?? '-', date ?? '-'] as const,
-  dayBoard: (date: string, institutionId?: string, blockId?: string) =>
-    ['housekeeping-bookings', 'day-board', date, institutionId ?? 'all', blockId ?? 'all'] as const,
+  /** The admin table's status tiles. Keyed on the filters only — the page and
+   *  page size must NOT be in here, or the totals would change as you page. */
+  statusCounts: (filters: Record<string, unknown>) =>
+    ['housekeeping-bookings', 'status-counts', filters] as const,
+  detail: (bookingId?: string) =>
+    ['housekeeping-bookings', 'detail', bookingId ?? 'none'] as const,
   mine: (roomId?: string) => ['housekeeping-bookings', 'mine', roomId ?? 'none'] as const,
   photos: (bookingId: string) => ['housekeeping-bookings', 'photos', bookingId] as const,
   myAllocation: () => ['housekeeping-bookings', 'my-allocation'] as const,
@@ -49,10 +53,30 @@ export function useSlotGrid(roomId?: string, typeId?: string, date?: string) {
   });
 }
 
-export function useDayBoard(date: string, institutionId?: string, blockId?: string) {
+/**
+ * Status totals for the admin table's tiles, over the WHOLE filtered set.
+ *
+ * The table pages server-side, so counting the rows it hands back would report
+ * page 1 as if it were everything. This asks the database instead.
+ */
+export function useBookingStatusCounts(filters: {
+  dateFrom?: string;
+  dateTo?: string;
+  institutionId?: string;
+  blockId?: string;
+}) {
   return useQuery({
-    queryKey: housekeepingBookingKeys.dayBoard(date, institutionId, blockId),
-    queryFn: () => HousekeepingBookingService.listDayBoard(date, institutionId, blockId),
+    queryKey: housekeepingBookingKeys.statusCounts(filters),
+    queryFn: () => HousekeepingBookingService.countBookingsByStatus(filters),
+  });
+}
+
+/** Everything behind one booking. Only fetches once the dialog has a booking. */
+export function useBookingDetail(bookingId?: string) {
+  return useQuery({
+    queryKey: housekeepingBookingKeys.detail(bookingId),
+    queryFn: () => HousekeepingBookingService.getBookingDetail(bookingId as string),
+    enabled: Boolean(bookingId),
   });
 }
 
