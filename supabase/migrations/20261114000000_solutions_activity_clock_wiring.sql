@@ -30,11 +30,19 @@
 --   20261019000000_societal_approval_and_status_review.sql §6 redefined
 --   update_department_statuses(): it still computes exactly the same status,
 --   but it now INSERTs a PROPOSAL into sh_department_status_reviews and never
---   UPDATEs sh_solution_departments.status. Moving a department requires
---   apply_department_status_review(), which raises unless the caller holds
---   `solutions.societal.approve` (or is admin/super-admin). One open review per
---   department, refreshed in place by ON CONFLICT, so a monthly sweep cannot
---   pile up duplicates for the same fact.
+--   UPDATEs sh_solution_departments.status. Moving a department THROUGH THIS
+--   PATH requires apply_department_status_review(), which raises unless the
+--   caller holds `solutions.societal.approve` (or is admin/super-admin). One
+--   open review per department, refreshed in place by ON CONFLICT, so a monthly
+--   sweep cannot pile up duplicates for the same fact.
+--
+--   READ THAT SENTENCE NARROWLY — it is true of THE SWEEP, not of the database.
+--   It does not say a department's status can only change with an approval,
+--   because that is not true today: on_societal_activity_touch_department()
+--   still writes `status = 'active'` directly, with no permission check, and
+--   one of the two triggers reaching it is ungated. See the note at the foot of
+--   this file. That path is pre-existing, out of scope here, and surfaced
+--   separately — but the claim in this header must not be read as covering it.
 --
 --   So the risk that made 2026-08-17 possible was engineered out on
 --   2026-09-02, and scheduling this function today is SAFE IN A WAY IT WAS NOT
@@ -211,3 +219,35 @@ ON CONFLICT (slug) DO NOTHING;
 -- approval workflow at all — and it is not taken here. The value forgone today
 -- is small and worth naming: sh_solutions holds 2 rows, so the path would
 -- reach at most 2 departments.
+--
+-- ⚠️ THE INVARIANT IS NOT UNIFORMLY ENFORCED TODAY, and this file must not be
+--    read as claiming it is. on_societal_activity_touch_department() does more
+--    than stamp last_activity_at: when the department is at_risk or dormant and
+--    the activity is within 30 days it runs
+--    `UPDATE public.sh_solution_departments SET status = 'active'` and writes an
+--    sh_department_status_history row reading 'Reactivated: societal activity
+--    recorded' — no approval step, no permission check
+--    (20261013000000_societal_capture_and_activity_clock.sql, function body).
+--
+--    TWO triggers reach it, and only one is gated:
+--      · trg_community_engagement_touches_dept — RE-GATED by 20261019000000 §4
+--        to AFTER UPDATE OF approval_status ... WHEN (approved). Aligned with
+--        the Director's decision that a department earns 'active' back through
+--        recorded work approved by a Principal or HOD.
+--      · trg_pro_bono_touches_dept on public.sh_solutions
+--        (20261013000000:341) — AFTER INSERT OR UPDATE OF is_pro_bono, FOR EACH
+--        ROW, with NO WHEN clause. Its only guard is the function's own early
+--        return on `NOT NEW.is_pro_bono`. Nothing in any later migration drops
+--        or re-gates it (grep: the only two hits are its own creation).
+--        On this path v_when := now(), so the 30-day recency test always
+--        passes: creating a pro-bono solution — or flipping an existing one to
+--        pro-bono — whose lead department is dormant promotes that department
+--        straight back to 'active' with a permanent history row and no
+--        reviewer.
+--
+--    That is the same shape of hole this file just declined to dig, already
+--    open through a different door. It is PRE-EXISTING and DELIBERATELY OUT OF
+--    SCOPE for this PR — no trigger, function or policy of that path is touched
+--    here, and widening the diff to close it would mix a fix nobody has decided
+--    into a change that is only wiring. It is recorded here and surfaced
+--    separately so the gap is documented rather than discovered.

@@ -9233,28 +9233,3 @@ CREATE INDEX IF NOT EXISTS idx_cl_girls_bc_reconcile_log_run
 REVOKE ALL ON public.cl_girls_bc_reconcile_log FROM anon;
 GRANT SELECT ON public.cl_girls_bc_reconcile_log TO authenticated;
 ALTER TABLE public.cl_girls_bc_reconcile_log ENABLE ROW LEVEL SECURITY;
-
--- ---------------------------------------------------------------------------
--- Updated: 2026-09-07 - sh_solution_types gains a community/outreach kind, so
--- work delivered without a client invoice has a type to be filed under
--- instead of being mis-filed as commercial or not recorded at all.
--- Guarded on BOTH slug (the UNIQUE column the database enforces) and name (the
--- identity a human would recognise), so re-running is safe and a row already
--- added by hand under either identity is left exactly as it is.
--- (migration 20261114000000_solutions_activity_clock_wiring.sql
---  — FILE ONLY / NOT APPLIED)
--- ---------------------------------------------------------------------------
-INSERT INTO public.sh_solution_types (name, slug, description, icon, color, is_default, is_active)
-SELECT 'Community & Outreach',
-       'community',
-       'Community, outreach and public-service work delivered without a client invoice',
-       'heart-handshake',
-       '#8b5cf6',
-       false,
-       true
-WHERE NOT EXISTS (
-    SELECT 1 FROM public.sh_solution_types
-     WHERE slug = 'community'
-        OR lower(name) = lower('Community & Outreach')
-)
-ON CONFLICT (slug) DO NOTHING;
