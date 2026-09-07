@@ -19,7 +19,7 @@
 -- Spec: specs/campus-living-housekeeping-rebuild-spec-2026-09-07.md section 5.5
 --
 -- APPLIED over a direct SQL connection, not scripts/apply-migration-file.mjs.
--- See the header of 20260907090000_housekeeping_teardown.sql for why.
+-- See the header of 20260907085000_housekeeping_teardown.sql for why.
 
 ALTER TABLE public.hostel_notification_rules
   DROP CONSTRAINT IF EXISTS chk_hostel_notification_rules_category;

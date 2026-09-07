@@ -9501,3 +9501,43 @@ CREATE INDEX idx_hk_feedback_room        ON public.hostel_cleaning_feedback (roo
 CREATE INDEX idx_hk_feedback_learner     ON public.hostel_cleaning_feedback (learner_id);
 
 ALTER TABLE public.hostel_cleaning_feedback ENABLE ROW LEVEL SECURITY;
+
+-- ==========================================================================
+-- ANON LOCK
+--
+-- Supabase ships `ALTER DEFAULT PRIVILEGES ... GRANT ALL ON TABLES TO anon`,
+-- so a new public-schema table can be born with SELECT/INSERT/UPDATE/DELETE
+-- granted to the anon key embedded in every page of the public site. RLS is
+-- NOT a substitute: CREATE TABLE AS never enables it, and a policy written
+-- TO PUBLIC still applies to anon.
+--
+-- This project's live grants were already clean when the tables were created,
+-- but the lock has to live in the migration so a replay onto a stock Supabase
+-- project is safe too. Enforced by scripts/ci/check-table-anon-revoke.mjs.
+--
+-- The authenticated grants are the coarse door; RLS decides the rows. Two are
+-- deliberately narrower than the rest:
+--   bookings — no INSERT/DELETE: those are RPC-only (fn_cl_housekeeping_book /
+--              _cancel), and no policy exists for them either.
+--   feedback — no UPDATE/DELETE: a rating is a record of what someone said at
+--              the time, not an editable field.
+-- ==========================================================================
+REVOKE ALL ON TABLE public.hostel_cleaning_types            FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.hostel_cleaning_type_expenses    FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.hostel_cleaning_type_categories  FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.hostel_cleaners                  FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.hostel_cleaner_blocks            FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.hostel_cleaning_availability     FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.hostel_cleaning_bookings         FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.hostel_cleaning_booking_photos   FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.hostel_cleaning_feedback         FROM anon, PUBLIC;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.hostel_cleaning_types            TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.hostel_cleaning_type_expenses    TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.hostel_cleaning_type_categories  TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.hostel_cleaners                  TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.hostel_cleaner_blocks            TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.hostel_cleaning_availability     TO authenticated;
+GRANT SELECT, UPDATE                 ON TABLE public.hostel_cleaning_bookings         TO authenticated;
+GRANT SELECT, INSERT, DELETE         ON TABLE public.hostel_cleaning_booking_photos   TO authenticated;
+GRANT SELECT, INSERT                 ON TABLE public.hostel_cleaning_feedback         TO authenticated;

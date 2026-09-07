@@ -12,10 +12,21 @@
 --     CREATE OR REPLACE silently re-grants EXECUTE to PUBLIC, so the revoke is
 --     not optional and must follow every definition.
 --
+-- ci:allow-secdef-authenticated fn_cl_housekeeping_book authorizes by ALLOCATION
+-- OWNERSHIP, not by a permission key: a learner may book only for the room they
+-- currently live in, which the body derives from auth.uid() via
+-- hostel_allocations and then re-checks against the room's category, the room
+-- lock, and the per-room quota. Learners deliberately hold NO housekeeping
+-- permission key -- granting one to satisfy this gate would widen access, not
+-- narrow it. Every OTHER function in this file does carry an explicit
+-- user_has_permission / is_super_admin check: _slots, _cancel, _assign and
+-- _feedback_holds. _attendance_gate is a trigger function, revoked from
+-- PUBLIC and anon and not callable as an RPC at all.
+--
 -- Spec: specs/campus-living-housekeeping-rebuild-spec-2026-09-07.md sections 6, 8
 --
 -- APPLIED over a direct SQL connection, not scripts/apply-migration-file.mjs.
--- See the header of 20260907090000_housekeeping_teardown.sql for why.
+-- See the header of 20260907085000_housekeeping_teardown.sql for why.
 
 -- ==========================================================================
 -- fn_cl_housekeeping_slots
@@ -461,12 +472,25 @@ STABLE
 SECURITY DEFINER
 SET search_path = ''
 AS $fn$
+  -- AUTHORIZATION. This is DEFINER and its filters are all optional, so
+  -- without a check any signed-in learner could call it with NULLs and
+  -- enumerate every held learner and room in every institution. Callers are
+  -- warden surfaces only: the holds page and the attendance roster.
+  --
+  -- Rows are ALSO scoped per-institution, so a warden of one institution
+  -- cannot read another's even by passing p_institution_id => NULL.
   SELECT a.learner_id, b.room_id, b.id, b.booking_date, b.type_name
   FROM public.hostel_cleaning_bookings b
   JOIN public.hostel_allocations a
     ON a.room_id = b.room_id
    AND a.status::text = ANY (public.fn_cl_roster_statuses())
-  WHERE b.status = 'awaiting_feedback'
+  WHERE (
+          public.is_super_admin()
+          OR public.user_has_permission('campus_living.housekeeping.view')
+          OR public.user_has_permission('campus_living.attendance.view')
+        )
+    AND (public.is_super_admin() OR public.role_has_institution_access(b.institution_id))
+    AND b.status = 'awaiting_feedback'
     AND b.waived_at IS NULL
     AND b.booking_date < COALESCE(p_date, (now() AT TIME ZONE 'Asia/Kolkata')::date)
     AND (p_institution_id IS NULL OR b.institution_id = p_institution_id)
@@ -505,9 +529,25 @@ DECLARE
   v_type text;
   v_when date;
 BEGIN
-  SELECT h.type_name, h.booking_date INTO v_type, v_when
-  FROM public.fn_cl_housekeeping_feedback_holds(NULL, NULL, NEW.date) h
-  WHERE h.learner_id = NEW.learner_id
+  -- Deliberately does NOT call fn_cl_housekeeping_feedback_holds.
+  --
+  -- That function carries an authorization check (it is a grantable read
+  -- surface). A caller who may WRITE attendance but not READ holds would get
+  -- zero rows back and sail straight through — the gate would fail OPEN, which
+  -- is the exact failure this trigger exists to prevent. The predicate is
+  -- therefore inlined here, where it answers about the row being written and
+  -- nothing else, and is never reachable as a query surface.
+  SELECT b.type_name, b.booking_date INTO v_type, v_when
+  FROM public.hostel_cleaning_bookings b
+  JOIN public.hostel_allocations a
+    ON a.room_id = b.room_id
+   AND a.status::text = ANY (public.fn_cl_roster_statuses())
+  WHERE a.learner_id = NEW.learner_id
+    AND b.status = 'awaiting_feedback'
+    AND b.waived_at IS NULL
+    AND b.booking_date < NEW.date
+    AND NOT EXISTS (
+      SELECT 1 FROM public.hostel_cleaning_feedback f WHERE f.booking_id = b.id)
   LIMIT 1;
 
   IF v_type IS NOT NULL THEN

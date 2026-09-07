@@ -80,7 +80,7 @@ These apply to **every** task. Each was measured against this codebase or traced
 
 | File | Responsibility |
 |---|---|
-| `supabase/migrations/20260907090000_housekeeping_teardown.sql` | Drop the old module entirely; revoke its permission keys |
+| `supabase/migrations/20260907085000_housekeeping_teardown.sql` | Drop the old module entirely; revoke its permission keys |
 | `supabase/migrations/20260907090100_housekeeping_schema.sql` | 9 tables, RLS, policies, indexes |
 | `supabase/migrations/20260907090200_housekeeping_rpcs.sql` | 4 DEFINER RPCs, hold function, attendance trigger |
 | `supabase/migrations/20260907090300_housekeeping_permissions.sql` | 8 catalog keys granted to 7 roles |
@@ -345,7 +345,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ## Task 2: Migration M1 — drop the old database objects
 
 **Files:**
-- Create: `supabase/migrations/20260907090000_housekeeping_teardown.sql`
+- Create: `supabase/migrations/20260907085000_housekeeping_teardown.sql`
 - Modify: `types/supabase.ts` (regenerated, never hand-edited)
 
 **Interfaces:**
@@ -376,7 +376,7 @@ Expected: **zero rows.** If any row returns, STOP and report — the blast radiu
 
 - [ ] **Step 2: Write the migration file**
 
-Create `supabase/migrations/20260907090000_housekeeping_teardown.sql`:
+Create `supabase/migrations/20260907085000_housekeeping_teardown.sql`:
 
 ```sql
 -- Housekeeping rebuild, migration 1 of 4: teardown.
@@ -459,7 +459,7 @@ WHERE permissions ?| array[
 ```bash
 export PATH="/usr/bin:/bin:/usr/local/bin:$PATH"
 cd "D:/Projects/MyJKKN"
-node --env-file=.env scripts/apply-migration-file.mjs 20260907090000_housekeeping_teardown.sql
+node --env-file=.env scripts/apply-migration-file.mjs 20260907085000_housekeeping_teardown.sql
 ```
 
 Expected: the script reports success and the recorded statement length. If it reports `ok:false`, read the `error` and `sqlstate` — the whole file rolled back.
@@ -500,7 +500,7 @@ Compare `applied_len` against the local file:
 ```bash
 export PATH="/usr/bin:/bin:/usr/local/bin:$PATH"
 cd "D:/Projects/MyJKKN"
-wc -c supabase/migrations/20260907090000_housekeeping_teardown.sql
+wc -c supabase/migrations/20260907085000_housekeeping_teardown.sql
 ```
 
 The lengths should be within a few bytes (line-ending differences only). A large gap means part of the file did not run.
@@ -528,7 +528,7 @@ Remove the `hostel_cleaning_*` table definitions from `supabase/setup/01_tables.
 ```bash
 export PATH="/usr/bin:/bin:/usr/local/bin:$PATH"
 cd "D:/Projects/MyJKKN"
-git add supabase/migrations/20260907090000_housekeeping_teardown.sql supabase/setup/ types/supabase.ts
+git add supabase/migrations/20260907085000_housekeeping_teardown.sql supabase/setup/ types/supabase.ts
 git commit -m "feat(campus-living)!: drop the old housekeeping database objects
 
 Removes 3 tables (151 rows), 12 functions, 3 enums and 5 platform_policies

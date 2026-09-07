@@ -731,45 +731,45 @@ export default function MarkAttendancePage() {
                           </span>
                         </h4>
                         <div className="space-y-2">
-                          {room.students.map((student) => {
-                            const status = attendance[student.id];
+                          {room.students.map((resident) => {
+                            const status = attendance[resident.id];
                             return (
-                              <Card key={student.id} className={status ? 'border-l-4' : ''} style={{
+                              <Card key={resident.id} className={status ? 'border-l-4' : ''} style={{
                                 borderLeftColor: status === 'present' ? '#16a34a' : status === 'absent' ? '#dc2626' : status === 'on_leave' ? '#d97706' : status === 'late_entry' ? '#ea580c' : status === 'medical' ? '#9333ea' : undefined,
                               }}>
                                 <CardContent className="p-4">
                                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                                     <div className="flex items-center gap-3">
                                       <Checkbox
-                                        checked={selectedIds.has(student.id)}
-                                        onCheckedChange={() => toggleResident(student.id)}
-                                        disabled={!!student.feedback_hold}
-                                        aria-label={`Select ${student.profile?.full_name ?? 'resident'}`}
+                                        checked={selectedIds.has(resident.id)}
+                                        onCheckedChange={() => toggleResident(resident.id)}
+                                        disabled={!!resident.feedback_hold}
+                                        aria-label={`Select ${resident.profile?.full_name ?? 'resident'}`}
                                         className="h-5 w-5"
                                       />
                                       <Avatar className="h-10 w-10">
                                         <AvatarImage
-                                          src={student.profile?.avatar_url ?? student.student_photo_url ?? undefined}
-                                          alt={student.profile?.full_name ?? 'Learner'}
+                                          src={resident.profile?.avatar_url ?? resident.student_photo_url ?? undefined}
+                                          alt={resident.profile?.full_name ?? 'Learner'}
                                         />
                                         <AvatarFallback className="bg-muted text-muted-foreground text-sm font-medium">
-                                          {getInitials(student.profile?.full_name)}
+                                          {getInitials(resident.profile?.full_name)}
                                         </AvatarFallback>
                                       </Avatar>
                                       <div>
-                                        <p className="font-medium">{student.profile?.full_name ?? 'Unknown'}</p>
+                                        <p className="font-medium">{resident.profile?.full_name ?? 'Unknown'}</p>
                                         <p className="text-sm text-muted-foreground">
-                                          {student.id_proof_number ?? student.profile?.email ?? student.id.slice(0, 8)}
+                                          {resident.id_proof_number ?? resident.profile?.email ?? resident.id.slice(0, 8)}
                                         </p>
                                         <p className="text-xs text-muted-foreground">
-                                          {student.allocation
+                                          {resident.allocation
                                             ? [
-                                                student.allocation.block?.name,
-                                                student.allocation.room?.room_number
-                                                  ? `Room ${student.allocation.room.room_number}`
+                                                resident.allocation.block?.name,
+                                                resident.allocation.room?.room_number
+                                                  ? `Room ${resident.allocation.room.room_number}`
                                                   : null,
-                                                student.allocation.bed?.bed_number
-                                                  ? `Bed ${student.allocation.bed.bed_number}`
+                                                resident.allocation.bed?.bed_number
+                                                  ? `Bed ${resident.allocation.bed.bed_number}`
                                                   : null,
                                               ]
                                                 .filter(Boolean)
@@ -784,11 +784,11 @@ export default function MarkAttendancePage() {
                                         refuse the write anyway, so offering
                                         the buttons would only produce a
                                         confusing failure. */}
-                                    {student.feedback_hold ? (
+                                    {resident.feedback_hold ? (
                                       <div className="flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/5 px-3 py-2 text-xs text-destructive">
                                         <AlertTriangle className="h-4 w-4 shrink-0" />
                                         <span>
-                                          {holdMessage(student.feedback_hold)}{' '}
+                                          {holdMessage(resident.feedback_hold)}{' '}
                                           <Link
                                             href="/campus-living/housekeeping/holds"
                                             className="underline underline-offset-2"
@@ -802,7 +802,7 @@ export default function MarkAttendancePage() {
                                         {statusOptions.map((opt) => (
                                           <button
                                             key={opt.value}
-                                            onClick={() => handleMarkStatus(student.id, opt.value)}
+                                            onClick={() => handleMarkStatus(resident.id, opt.value)}
                                             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs font-medium transition-colors ${
                                               status === opt.value ? opt.color + ' border-current' : 'bg-background hover:bg-muted border-border'
                                             }`}

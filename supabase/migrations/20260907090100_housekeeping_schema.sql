@@ -39,7 +39,7 @@
 --
 -- APPLIED over a direct SQL connection, not scripts/apply-migration-file.mjs:
 -- the exec_sql HTTP transport aborts files this size at ~9s with 57014. See
--- the header of 20260907090000_housekeeping_teardown.sql.
+-- the header of 20260907085000_housekeeping_teardown.sql.
 
 -- ==========================================================================
 -- 1. hostel_cleaning_types
@@ -414,3 +414,43 @@ WITH CHECK (((learner_id = ( SELECT auth.uid() AS uid)) AND (EXISTS ( SELECT 1
    FROM (hostel_cleaning_bookings b
      JOIN hostel_allocations a ON ((a.room_id = b.room_id)))
   WHERE ((b.id = hostel_cleaning_feedback.booking_id) AND (b.status = 'awaiting_feedback'::text) AND (a.learner_id = ( SELECT auth.uid() AS uid)) AND ((a.status)::text = ANY (fn_cl_roster_statuses())))))));
+
+-- ==========================================================================
+-- ANON LOCK
+--
+-- Supabase ships `ALTER DEFAULT PRIVILEGES ... GRANT ALL ON TABLES TO anon`,
+-- so a new public-schema table can be born with SELECT/INSERT/UPDATE/DELETE
+-- granted to the anon key embedded in every page of the public site. RLS is
+-- NOT a substitute: CREATE TABLE AS never enables it, and a policy written
+-- TO PUBLIC still applies to anon.
+--
+-- This project's live grants were already clean when the tables were created,
+-- but the lock has to live in the migration so a replay onto a stock Supabase
+-- project is safe too. Enforced by scripts/ci/check-table-anon-revoke.mjs.
+--
+-- The authenticated grants are the coarse door; RLS decides the rows. Two are
+-- deliberately narrower than the rest:
+--   bookings — no INSERT/DELETE: those are RPC-only (fn_cl_housekeeping_book /
+--              _cancel), and no policy exists for them either.
+--   feedback — no UPDATE/DELETE: a rating is a record of what someone said at
+--              the time, not an editable field.
+-- ==========================================================================
+REVOKE ALL ON TABLE public.hostel_cleaning_types            FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.hostel_cleaning_type_expenses    FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.hostel_cleaning_type_categories  FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.hostel_cleaners                  FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.hostel_cleaner_blocks            FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.hostel_cleaning_availability     FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.hostel_cleaning_bookings         FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.hostel_cleaning_booking_photos   FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.hostel_cleaning_feedback         FROM anon, PUBLIC;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.hostel_cleaning_types            TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.hostel_cleaning_type_expenses    TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.hostel_cleaning_type_categories  TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.hostel_cleaners                  TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.hostel_cleaner_blocks            TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.hostel_cleaning_availability     TO authenticated;
+GRANT SELECT, UPDATE                 ON TABLE public.hostel_cleaning_bookings         TO authenticated;
+GRANT SELECT, INSERT, DELETE         ON TABLE public.hostel_cleaning_booking_photos   TO authenticated;
+GRANT SELECT, INSERT                 ON TABLE public.hostel_cleaning_feedback         TO authenticated;

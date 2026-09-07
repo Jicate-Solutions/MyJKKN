@@ -21,7 +21,7 @@
 -- Spec: specs/campus-living-housekeeping-rebuild-spec-2026-09-07.md section 7
 --
 -- APPLIED over a direct SQL connection, not scripts/apply-migration-file.mjs.
--- See the header of 20260907090000_housekeeping_teardown.sql for why.
+-- See the header of 20260907085000_housekeeping_teardown.sql for why.
 
 -- == Full grant: the six administrative roles ==============================
 UPDATE public.custom_roles
