@@ -3420,8 +3420,9 @@ export const PERMISSION_CATEGORIES = [
       { key: 'cohort.school_of_influence.create', label: 'School of Influencer — Create batches, accept applicants' },
       { key: 'cohort.school_of_influence.edit', label: 'School of Influencer — Edit batches and member status' },
       { key: 'cohort.school_of_influence.manage', label: 'School of Influencer — Run the programme (attendance, review queue, remove members)' },
-      // Added 2026-08-02 — the /cohorts/coordinators console (migration
-      // 20260809100000_cohort_coordinators_console.sql).
+      // Added 2026-08-02 — the /cohorts/coordinators console. Its substrate is
+      // live on production and baselined in
+      // supabase/migrations/20260816020001_programme_coordinator_authz.sql.
       //
       // ⚠ THIS KEY OPENS NOTHING ON ITS OWN, AND THAT IS DELIBERATE. The Director
       // decided appointing coordinators is super-administrator-only, so the page,

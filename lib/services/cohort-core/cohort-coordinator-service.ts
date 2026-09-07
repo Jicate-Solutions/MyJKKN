@@ -5,12 +5,12 @@
 // Every call here goes through the API routes in app/api/cohorts/coordinators/*,
 // not straight to PostgREST. That keeps the super-admin gate in one auditable
 // place per operation, and the routes call the SECURITY DEFINER RPCs from
-// 20260809100000_cohort_coordinators_console.sql, which gate again. A caller who
+// 20260816020001_programme_coordinator_authz.sql, which gate again. A caller who
 // is not a super administrator gets an explicit 403 with a message, never an
 // empty list that reads as "no data".
 //
 // Connected to: app/(routes)/cohorts/coordinators/ (the console)
-//               supabase/migrations/20260809100000_cohort_coordinators_console.sql
+//               supabase/migrations/20260816020001_programme_coordinator_authz.sql
 
 /** The six kinds public.cohorts.kind admits. Order is the display order. */
 export const COHORT_PROGRAMME_KINDS = [
