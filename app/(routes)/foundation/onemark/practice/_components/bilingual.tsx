@@ -23,26 +23,34 @@
 // that extraction. The QUESTION text is bilingual from the bank, which is
 // where it matters.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 
 export type Lang = 'ta' | 'en';
 
 const LANG_KEY = 'jkkn.onemark.lang.v1';
 
+/** The learner's chosen language, read from localStorage AFTER hydration.
+ *
+ *  The read cannot happen in the useState initialiser. The server renders 'en',
+ *  and a Tamil-preferring browser would then hydrate 'ta' — a mismatch React
+ *  patches over. That was survivable while the switch only toggled the
+ *  visibility of a second block; under ruling 15 it swaps the whole question
+ *  stem, so it would be a visible flash of the wrong language on every
+ *  question, at the start of a timed paper. So: render 'en' on both sides,
+ *  then move to the stored choice in an effect. */
 export function useLang(): [Lang, (l: Lang) => void] {
-  const [lang, setLangState] = useState<Lang>(() => {
-    if (typeof window === 'undefined') return 'en';
+  const [lang, setLangState] = useState<Lang>('en');
+  useEffect(() => {
     try {
-      const raw = window.localStorage.getItem(LANG_KEY);
       // 'both' is what the previous release stored. It is no longer a
-      // position, so a browser carrying it lands on English rather than on an
-      // empty switch.
-      return raw === 'ta' ? 'ta' : 'en';
+      // position, so a browser carrying it stays on English rather than
+      // landing on an empty switch.
+      if (window.localStorage.getItem(LANG_KEY) === 'ta') setLangState('ta');
     } catch {
-      return 'en';
+      /* private browsing — the choice just does not persist */
     }
-  });
+  }, []);
   function setLang(l: Lang) {
     setLangState(l);
     try {

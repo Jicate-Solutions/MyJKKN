@@ -73,6 +73,38 @@ interface StartBody {
   fromAssessmentId?: string;
 }
 
+/** Drop the questions enough different people have reported as broken.
+ *
+ *  `foundation.item_flag.suppress_threshold` distinct open reporters and an
+ *  item stops being served — the same rule and the same policy key the
+ *  Foundation practice draw applies. Shared by EVERY draw that hands questions
+ *  to a learner, including ruling 13's replay: a question the cohort reported
+ *  as broken must not come back just because it was on a paper.
+ *
+ *  Returns the usable subset, in the order it came. */
+async function withoutFlaggedItems(admin: any, items: any[]): Promise<any[]> {
+  if (!items.length) return items;
+  const threshold = await readPolicyInt(
+    admin,
+    'foundation.item_flag.suppress_threshold',
+    DEFAULT_FLAG_THRESHOLD,
+  );
+  const { data: openFlags } = await admin
+    .from('fp_item_flags')
+    .select('item_id, flagged_by')
+    .eq('status', 'open')
+    .in(
+      'item_id',
+      items.map((it: any) => it.id),
+    );
+  const reportersByItem = new Map<string, Set<string>>();
+  for (const f of openFlags ?? []) {
+    if (!reportersByItem.has(f.item_id)) reportersByItem.set(f.item_id, new Set());
+    reportersByItem.get(f.item_id)!.add(f.flagged_by);
+  }
+  return items.filter((it: any) => (reportersByItem.get(it.id)?.size ?? 0) < threshold);
+}
+
 function isMode(v: unknown): v is OneMarkAttemptMode {
   return typeof v === 'string' && (ONEMARK_MODES as string[]).includes(v);
 }
@@ -519,21 +551,30 @@ export async function POST(request: NextRequest) {
           .select('id, title, exam_definition_id, cohort_id, kind, is_active, config')
           .eq('id', replayOf)
           .maybeSingle();
-        if (!paper || paper.kind !== 'mock' || !paper.cohort_id) {
+        // `is_active` is checked HERE, the way the live path checks it before
+        // opening a sitting. It was selected and ignored, so a paper an
+        // operator had deliberately deactivated was still replayable.
+        if (!paper || paper.kind !== 'mock' || !paper.cohort_id || !paper.is_active) {
           return NextResponse.json({ error: 'That paper could not be found.' }, { status: 404 });
         }
         // Only a learner who actually SAT it, and only once the paper's own
         // review has opened — otherwise a replay with the explanation after
         // every answer would hand the answer key to a group still sitting it
         // (ruling 2 again, from the other side).
-        const { data: mine } = await admin
+        // .limit(1), never .maybeSingle(): two submitted live rows for one
+        // learner on one paper are possible (an auto-close sweep racing a
+        // manual finalize), and PostgREST answers a .maybeSingle() over two
+        // rows with an ERROR — which would leave `mine` null and tell a
+        // learner who definitely sat the paper that they had not.
+        const { data: mineRows } = await admin
           .from('fp_attempts')
           .select('id, status')
           .eq('student_id', learner.id)
           .eq('assessment_id', paper.id)
           .eq('mode', 'live')
           .eq('status', 'submitted')
-          .maybeSingle();
+          .limit(1);
+        const mine = Array.isArray(mineRows) ? mineRows[0] ?? null : mineRows ?? null;
         if (!mine) {
           return NextResponse.json(
             { error: 'You can practise these questions once you have sat the paper.' },
@@ -582,13 +623,22 @@ export async function POST(request: NextRequest) {
         if (paperItemsError) {
           return NextResponse.json({ error: paperItemsError.message }, { status: 400 });
         }
-        questions = (paperItems ?? [])
+        const replayRows = (paperItems ?? [])
           .map((r: any) => r.item)
-          .filter((it: any) => it && it.is_active)
-          .map(projectItemForLearner);
+          .filter((it: any) => it && it.is_active);
+        // A replay is an ORDINARY practice sitting, so it obeys the ordinary
+        // practice rule: a question enough learners have reported as broken is
+        // not served. Without this, the one draw in OneMark that skipped the
+        // suppression was the one drawn from a paper.
+        const replayUsable = await withoutFlaggedItems(admin, replayRows);
+        questions = replayUsable.map(projectItemForLearner);
         if (questions.length === 0) {
           return NextResponse.json(
-            { error: 'None of this paper’s questions are still in the bank.' },
+            {
+              error: replayRows.length
+                ? 'This paper’s questions are all waiting to be checked. Please try again later.'
+                : 'None of this paper’s questions are still in the bank.',
+            },
             { status: 404 },
           );
         }
@@ -660,26 +710,9 @@ export async function POST(request: NextRequest) {
         }
 
         // Drop questions enough different people have reported — the same
-        // rule and the same policy key the Foundation practice draw applies.
-        const threshold = await readPolicyInt(
-          admin,
-          'foundation.item_flag.suppress_threshold',
-          DEFAULT_FLAG_THRESHOLD,
-        );
-        const itemIds = items.map((it: any) => it.id);
-        const { data: openFlags } = await admin
-          .from('fp_item_flags')
-          .select('item_id, flagged_by')
-          .eq('status', 'open')
-          .in('item_id', itemIds);
-        const reportersByItem = new Map<string, Set<string>>();
-        for (const f of openFlags ?? []) {
-          if (!reportersByItem.has(f.item_id)) reportersByItem.set(f.item_id, new Set());
-          reportersByItem.get(f.item_id)!.add(f.flagged_by);
-        }
-        const usable = items.filter(
-          (it: any) => (reportersByItem.get(it.id)?.size ?? 0) < threshold,
-        );
+        // rule, the same policy key and now literally the same code the
+        // replay draw above applies.
+        const usable = await withoutFlaggedItems(admin, items);
         if (usable.length === 0) {
           return NextResponse.json(
             { error: 'Every question in this subject is waiting to be checked. Please try again later.' },
@@ -762,9 +795,10 @@ export async function POST(request: NextRequest) {
       attemptId: attempt.id,
       sessionId: attempt.session_id,
       servedToken,
-      // 'written' once S3 is applied, 'column_missing' until then, and
-      // 'skipped_live' for a paper whose set is fp_assessment_items. Reported
-      // so the switchover can be watched live rather than assumed.
+      // 'written' once S3 is applied, 'column_missing' until then,
+      // 'skipped_live' for a paper whose set is fp_assessment_items, and
+      // 'nothing_to_write' when the draw was empty — which is not a failed
+      // write. Reported so the switchover can be watched live, not assumed.
       servedSetStored: servedStored,
       /** Ruling 13 — a replay of a closed paper, sat as practice. */
       replayOfAssessmentId: replayOf,
