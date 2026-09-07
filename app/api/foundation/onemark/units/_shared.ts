@@ -114,29 +114,56 @@ export async function loadTopics(supabase: AnyClient, topicIds: string[]): Promi
   return (data ?? []) as RawTopic[];
 }
 
+const PAGE = 1000;
+
 /** Every config_key already in the shared taxonomy — the uniqueness set a new
  *  unit key is minted against. The column is UNIQUE, so a race still loses at
- *  the database; this only keeps the common case off that error. */
+ *  the database; this only keeps the common case off that error.
+ *
+ *  PAGED, as of the 2026-09-08 review. It was a single unbounded select, which
+ *  PostgREST silently truncates at 1,000 rows — and this is precisely the read
+ *  the uniqueness of a minted key depends on (`unitConfigKey`). A truncated
+ *  list would hand back a key that already exists and the author would see a
+ *  raw Postgres unique-violation as a 500. 36 topics live today (measured
+ *  2026-09-08), so nothing broke; it would have broken quietly, later, in the
+ *  shared taxonomy that CDC also grows. Ordered so the pages are stable. */
 export async function loadTakenKeys(supabase: AnyClient): Promise<string[]> {
-  const { data, error } = await supabase.from(TOPICS_TABLE).select('config_key');
-  if (error) throw error;
-  return (data ?? []).map((r: { config_key: string }) => r.config_key);
+  const out: string[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from(TOPICS_TABLE)
+      .select('config_key')
+      .order('config_key', { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) throw error;
+    const rows = (data ?? []) as { config_key: string }[];
+    out.push(...rows.map((r) => r.config_key));
+    if (rows.length < PAGE) break;
+  }
+  return out;
 }
 
 /** Per-unit bank counts. Paged past PostgREST's 1,000-row cap because the bank
- *  is meant to reach 300 questions per subject (decision 8) and today holds 1. */
+ *  is meant to reach 300 questions per subject (decision 8) and today holds 1.
+ *
+ *  THE ORDER IS PART OF THE PAGING, not decoration (review finding,
+ *  2026-09-08). `.range()` over an UNORDERED select has no stable row order
+ *  between requests, so once the bank passes 1,000 items the pages can repeat
+ *  and drop rows — and every per-unit count on the screen goes quietly wrong,
+ *  with no error to notice. Decision 8 targets 300 items per subject, so this
+ *  would have started biting at roughly two subjects' worth of growth. */
 export async function loadItemCounts(
   supabase: AnyClient,
   examIds: string[],
 ): Promise<RawItemCount[]> {
   if (examIds.length === 0) return [];
-  const PAGE = 1000;
   const out: RawItemCount[] = [];
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await supabase
       .from('fp_items')
       .select('topic_id, is_active')
       .in('exam_definition_id', examIds)
+      .order('id', { ascending: true })
       .range(from, from + PAGE - 1);
     if (error) throw error;
     const rows = (data ?? []) as RawItemCount[];

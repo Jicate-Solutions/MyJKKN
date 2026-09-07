@@ -69,7 +69,23 @@ export function subjectShortName(displayName: string): string {
  *  always sorts last. A sentinel is never counted when the next free position
  *  is computed (otherwise the next English unit would land at 100 and the
  *  bucket would stop being last) and is never moved by the re-order controls.
- *  90 is the floor because no real unit list reaches it — Physics has 11. */
+ *  90 is the floor because no real unit list reaches it — Physics has 11.
+ *
+ *  KNOWN COLLISION, recorded rather than fixed (review finding, 2026-09-08).
+ *  `exam_topic_map.sort_order` is `integer NOT NULL DEFAULT 100`
+ *  (supabase/migrations/20260706064000_fp_item_bank_assessments.sql:15), which
+ *  sits 10 ABOVE this floor. So a mapping row inserted by any path that omits
+ *  sort_order lands at 100 and is classified here as an immovable sentinel.
+ *  Nothing is broken today — this lane's POST always sets the position
+ *  explicitly, and the 18 live rows are 1-11 / 1-6 / 99 (measured 2026-09-08)
+ *  — but a unit added by some future path that forgets the column would arrive
+ *  un-orderable with no error.
+ *
+ *  Raising the floor above 100 is NOT the fix and would make things worse: the
+ *  grammar bucket is at 99, so a floor of 101 would stop classifying the one
+ *  real sentinel that exists. The actual fix is a CHECK or a default change on
+ *  the column, which is SQL — and Lane S3 is the only Wave 3 lane permitted to
+ *  ship a migration. Carried as a known limitation next to [risky] 6. */
 export const SENTINEL_FLOOR = 90;
 
 export function isSentinelPosition(position: number): boolean {
@@ -324,6 +340,22 @@ export interface ReorderWrite {
  * to the topics table. A sentinel (the 99 grammar bucket) neither moves nor is
  * stepped over: it is not part of the ordered lesson sequence.
  *
+ * NEITHER IS A RETIRED UNIT, and that omission was a real bug (review finding,
+ * fixed 2026-09-08). The screen lists only LIVE units and computes its
+ * enabled/disabled arrows from that live list, so the two sides disagreed the
+ * moment a retired unit sat between two live ones. Reproduced against the
+ * shipped exports: Physics at positions 1-6 with unit 5 retired, "move unit 4
+ * down" planned {p4 -> 5, p5 -> 4} — a real write, HTTP 200, {moved: true},
+ * and a VISIBLE live order (1,2,3,4,6) that had not changed. The user pressed
+ * the button, the list refetched, and nothing appeared to happen. The converse
+ * half was just as wrong: the last LIVE unit had its Move-down arrow disabled
+ * whenever a retired unit sat below it, so a legitimate move was unavailable.
+ *
+ * Filtering on is_active here makes the server's idea of "the movable list"
+ * the same one the screen draws, which is the only way the two can agree.
+ * Retired units keep their stored positions untouched, so bringing one back
+ * restores it where it was.
+ *
  * Returns the two rows to write, or an empty list when the move is a no-op.
  */
 export function reorderPlan(
@@ -331,7 +363,9 @@ export function reorderPlan(
   topicId: string,
   direction: 'up' | 'down',
 ): ReorderWrite[] {
-  const movable = units.filter((u) => !u.is_sentinel).sort((a, b) => a.position - b.position);
+  const movable = units
+    .filter((u) => !u.is_sentinel && u.is_active)
+    .sort((a, b) => a.position - b.position);
   const i = movable.findIndex((u) => u.topic_id === topicId);
   if (i === -1) return [];
   const j = direction === 'up' ? i - 1 : i + 1;

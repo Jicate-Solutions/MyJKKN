@@ -231,6 +231,71 @@ describe('re-ordering', () => {
   it('is a no-op for a unit that is not in the subject', () => {
     expect(reorderPlan(units, 'p1', 'up')).toEqual([]);
   });
+
+  // -------------------------------------------------------------------------
+  // A RETIRED UNIT IS NOT PART OF THE ORDERED LIST EITHER (review, 2026-09-08).
+  //
+  // These four tests pin the bug that shipped in round one. The screen draws
+  // only LIVE units and computed its arrows from that live list, while the
+  // server planned over every unit including retired ones — so the two
+  // disagreed the moment a retired unit sat between two live ones. The user
+  // pressed Move down, a real write went out, HTTP 200 came back with
+  // {moved: true}, and the visible order had not changed.
+  // -------------------------------------------------------------------------
+  const gapped = buildUnitsPayload(
+    exams,
+    [
+      { exam_definition_id: PHY, topic_id: 'g1', sort_order: 1 },
+      { exam_definition_id: PHY, topic_id: 'g2', sort_order: 2 },
+      { exam_definition_id: PHY, topic_id: 'gr', sort_order: 3 }, // RETIRED, in the middle
+      { exam_definition_id: PHY, topic_id: 'g4', sort_order: 4 },
+    ],
+    [
+      { id: 'g1', config_key: 'onemark_phy_a', display_name: 'A', description: null, is_active: true, is_system: false },
+      { id: 'g2', config_key: 'onemark_phy_b', display_name: 'B', description: null, is_active: true, is_system: false },
+      { id: 'gr', config_key: 'onemark_phy_r', display_name: 'R', description: null, is_active: false, is_system: false },
+      { id: 'g4', config_key: 'onemark_phy_d', display_name: 'D', description: null, is_active: true, is_system: false },
+    ],
+    [],
+  ).subjects[0].units;
+
+  it('steps OVER a retired unit instead of swapping with it', () => {
+    // Live order is A(1), B(2), D(4). Moving B down must reach D, not R.
+    expect(reorderPlan(gapped, 'g2', 'down')).toEqual([
+      { topic_id: 'g2', position: 4 },
+      { topic_id: 'g4', position: 2 },
+    ]);
+  });
+
+  it('lets the last LIVE unit move up even when a retired unit sits above it', () => {
+    expect(reorderPlan(gapped, 'g4', 'up')).toEqual([
+      { topic_id: 'g4', position: 2 },
+      { topic_id: 'g2', position: 4 },
+    ]);
+  });
+
+  it('is a no-op at the end of the LIVE list, not the end of the stored list', () => {
+    // Before the fix this returned a write pairing D with the retired R — a
+    // real database write whose only visible effect was none.
+    expect(reorderPlan(gapped, 'g4', 'down')).toEqual([]);
+    expect(reorderPlan(gapped, 'g1', 'up')).toEqual([]);
+  });
+
+  it('never plans a move FOR a retired unit', () => {
+    expect(reorderPlan(gapped, 'gr', 'up')).toEqual([]);
+    expect(reorderPlan(gapped, 'gr', 'down')).toEqual([]);
+  });
+
+  it('agrees with what the screen draws: every plan touches only live units', () => {
+    const liveIds = new Set(gapped.filter((u) => u.is_active).map((u) => u.topic_id));
+    for (const id of ['g1', 'g2', 'g4']) {
+      for (const dir of ['up', 'down'] as const) {
+        for (const w of reorderPlan(gapped, id, dir)) {
+          expect(liveIds.has(w.topic_id)).toBe(true);
+        }
+      }
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

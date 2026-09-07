@@ -80,7 +80,12 @@ export function UnitsBoard() {
       return json as { display_name: string; position: number };
     },
     onSuccess: (u) => {
-      toast.success(`Added "${u.display_name}" at position ${u.position}`);
+      // Deliberately no number. The API returns the STORED position
+      // (exam_topic_map.sort_order), and the badge the user is about to look at
+      // shows the unit's place among the LIVE units — the two differ whenever
+      // an earlier unit is retired, so quoting the stored one made the toast
+      // contradict the screen it was announcing (review finding, 2026-09-08).
+      toast.success(`Added "${u.display_name}" to the end of the unit list`);
       invalidate();
     },
     onError: (e: unknown) => toast.error(e instanceof Error ? e.message : 'The unit could not be added'),
@@ -313,9 +318,13 @@ function AddUnitForm({
           id="new-unit-desc"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          placeholder="Tamil unit name, if you have one a native reviewer has checked"
+          placeholder="Tamil unit name, or a note saying what this unit covers"
           rows={2}
         />
+        <p className="text-[11px] text-muted-foreground">
+          Written in Tamil this becomes the unit&apos;s Tamil name; written in English it is shown as a
+          note under the unit. Either way it stays editable afterwards.
+        </p>
       </div>
       <p className="text-xs text-muted-foreground">
         The unit is added to the end of this subject&apos;s unit list and mapped to the subject in the
@@ -348,23 +357,40 @@ interface UnitLineProps {
 function UnitLine({ unit, busy, canMoveUp, canMoveDown, ordinal, onPatch }: UnitLineProps) {
   const [editing, setEditing] = useState(false);
   const [draftName, setDraftName] = useState(unit.display_name);
+  const [draftDesc, setDraftDesc] = useState(unit.description ?? '');
+
+  // The badge shows the unit's place among the LIVE units of this subject; the
+  // stored exam_topic_map.sort_order can be a larger number whenever an earlier
+  // unit is retired. The tooltip used to quote the stored value while the badge
+  // showed the ordinal, so the two openly disagreed the moment anything was
+  // retired — retire Physics unit 5 and unit 6 rendered badge "5", tooltip
+  // "Position 6" (review finding, 2026-09-08). One number, said once.
+  const positionTitle = unit.is_sentinel
+    ? 'Not anchored to a lesson — always last in the unit list'
+    : ordinal !== undefined
+      ? `Unit ${ordinal} of this subject's unit list`
+      : 'Retired — it keeps its place for when it is brought back';
+
+  const dirty = draftName.trim() !== unit.display_name || draftDesc.trim() !== (unit.description ?? '');
 
   return (
     <li className={cn('flex flex-wrap items-start gap-3 px-4 py-3', !unit.is_active && 'opacity-60')}>
       <span
         className="mt-0.5 inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-md border border-border px-1.5 font-mono text-[11px] tabular-nums text-muted-foreground"
-        title={
-          unit.is_sentinel
-            ? 'Not anchored to a lesson — always last in the unit list'
-            : `Position ${unit.position} in this subject's unit list`
-        }
+        title={positionTitle}
       >
-        {unit.is_sentinel ? '—' : (ordinal ?? unit.position)}
+        {unit.is_sentinel ? '—' : (ordinal ?? '·')}
       </span>
 
       <div className="min-w-0 flex-1">
         {editing ? (
-          <div className="flex flex-wrap items-center gap-2">
+          // Both fields are editable here, and that is the point of the screen.
+          // Spec item 4 asks that unreviewed Tamil names be marked "so the
+          // review can actually be run from this screen" — until this review
+          // (2026-09-08) the badge said which names needed checking and there
+          // was no control anywhere that could correct one. The PATCH route had
+          // accepted `description` all along; nothing ever sent it.
+          <div className="space-y-2">
             <Input
               value={draftName}
               onChange={(e) => setDraftName(e.target.value)}
@@ -372,33 +398,65 @@ function UnitLine({ unit, busy, canMoveUp, canMoveDown, ordinal, onPatch }: Unit
               className="h-8 max-w-md"
               aria-label="Unit name"
             />
-            <Button
-              size="sm"
-              className="h-8"
-              disabled={busy || !draftName.trim() || draftName.trim() === unit.display_name}
-              onClick={() => {
-                onPatch(unit.topic_id, { display_name: draftName.trim() });
-                setEditing(false);
-              }}
-            >
-              <Check className="h-3.5 w-3.5" />
-              <span className="sr-only">Save name</span>
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-8"
-              onClick={() => {
-                setDraftName(unit.display_name);
-                setEditing(false);
-              }}
-            >
-              <X className="h-3.5 w-3.5" />
-              <span className="sr-only">Cancel</span>
-            </Button>
+            <Textarea
+              value={draftDesc}
+              onChange={(e) => setDraftDesc(e.target.value)}
+              rows={2}
+              className="max-w-md text-sm"
+              aria-label="Tamil name or note"
+              placeholder="Tamil unit name, or a note saying what this unit covers"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Written in Tamil, this is shown as the unit&apos;s Tamil name. Written in English, it is
+              shown as a note under the unit. Clearing it removes both.
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                className="h-8"
+                disabled={busy || !draftName.trim() || !dirty}
+                onClick={() => {
+                  onPatch(unit.topic_id, {
+                    display_name: draftName.trim(),
+                    description: draftDesc.trim() || null,
+                  });
+                  setEditing(false);
+                }}
+              >
+                <Check className="mr-1.5 h-3.5 w-3.5" />
+                Save
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8"
+                onClick={() => {
+                  setDraftName(unit.display_name);
+                  setDraftDesc(unit.description ?? '');
+                  setEditing(false);
+                }}
+              >
+                <X className="mr-1.5 h-3.5 w-3.5" />
+                Cancel
+              </Button>
+            </div>
           </div>
         ) : (
           <div className="text-sm font-medium text-foreground">{unit.display_name}</div>
+        )}
+
+        {/*
+          The note line. `description` was in the payload and rendered NOWHERE
+          (review finding, 2026-09-08) — so all seven English rows, whose only
+          content line lives in that field ("Prose: A Nice Cup of Tea (George
+          Orwell) · Poem: All the World's a Stage · ...", seeded by
+          20260917111500), displayed "[TAMIL_TBD] no Tamil name yet" and never
+          showed what the unit actually contains. Worse, the add form invited a
+          note and then swallowed it silently. A non-Tamil description is a
+          note; a Tamil one is the Tamil name, rendered below.
+        */}
+        {!editing && unit.description && !unit.tamil_name && (
+          <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{unit.description}</p>
         )}
 
         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
@@ -467,7 +525,7 @@ function UnitLine({ unit, busy, canMoveUp, canMoveDown, ordinal, onPatch }: Unit
               className="h-7 w-7"
               disabled={busy}
               onClick={() => setEditing(true)}
-              aria-label={`Rename ${unit.display_name}`}
+              aria-label={`Edit ${unit.display_name}`}
             >
               <Pencil className="h-3.5 w-3.5" />
             </Button>

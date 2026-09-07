@@ -156,9 +156,29 @@ export async function POST(request: NextRequest) {
       // BOTH ROWS OR NEITHER. An unmapped topic is invisible to the paper
       // wizard and to the drafter, so a half-written unit is worse than none:
       // roll the taxonomy row back rather than leave one stranded.
-      await admin.from(TOPICS_TABLE).delete().eq('id', created.id);
+      //
+      // AND IF THE ROLLBACK ITSELF FAILS, SAY SO (review finding, 2026-09-08).
+      // This used to discard the delete's error and return only the junction
+      // error, which left the caller reading "the unit could not be added"
+      // while a stranded, unmapped taxonomy row — the exact state the comment
+      // above calls worse than none — sat in a table shared with CDC. Nobody
+      // would go looking for it. The key is named in the message because it is
+      // the only handle anyone has to clean it up.
+      const { error: undoErr } = await admin.from(TOPICS_TABLE).delete().eq('id', created.id);
+      if (undoErr) {
+        return NextResponse.json(
+          {
+            error:
+              `The unit could not be added to the subject: ${mapErr.message}. ` +
+              `A half-written unit was left behind and could not be removed either ` +
+              `(${undoErr.message}). Tell a system administrator and quote the unit key ` +
+              `"${created.config_key}".`,
+          },
+          { status: 500 },
+        );
+      }
       return NextResponse.json(
-        { error: `The unit could not be added to the subject: ${mapErr.message}` },
+        { error: `The unit could not be added to the subject: ${mapErr.message}. Nothing was created.` },
         { status: 500 },
       );
     }

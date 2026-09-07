@@ -93,6 +93,24 @@ export async function PATCH(
       }
       // Session client: exam_topic_map's write policy already admits
       // foundation.items.manage, so RLS authorises this, not the route.
+      //
+      // A SWAP IS TWO WRITES AND THERE IS NO TRANSACTION HERE (review finding,
+      // 2026-09-08). PostgREST gives one statement per request, so if the
+      // second UPDATE fails — RLS, a timeout, a dropped connection — the first
+      // is already committed and the two units share one sort_order. Nothing at
+      // the database stops that persisting: exam_topic_map's only uniqueness is
+      // UNIQUE (exam_definition_id, topic_id) (migration 20260706064000), never
+      // on sort_order. The result would be a silently corrupted unit list.
+      //
+      // The real fix is a transactional RPC, which is SQL, and Lane S3 is the
+      // only Wave 3 lane allowed to ship a migration. So this does what the
+      // POST one file over already does for its own two-row write: COMPENSATE.
+      // If a later write fails, the earlier ones are put back, and the caller
+      // is told which state it ended in. A compensation that itself fails is
+      // reported in the message rather than swallowed — that is the one case
+      // where a human has to look, so it must not be invisible.
+      const done: Array<{ topic_id: string; from: number }> = [];
+      const before = new Map(units.map((u) => [u.topic_id, u.position]));
       for (const w of plan) {
         const { error } = await supabase
           .from(MAP_TABLE)
@@ -100,11 +118,24 @@ export async function PATCH(
           .eq('exam_definition_id', unit.exam_definition_id)
           .eq('topic_id', w.topic_id);
         if (error) {
+          const failedToUndo: string[] = [];
+          for (const d of done) {
+            const { error: undoErr } = await supabase
+              .from(MAP_TABLE)
+              .update({ sort_order: d.from, updated_by: g.userId })
+              .eq('exam_definition_id', unit.exam_definition_id)
+              .eq('topic_id', d.topic_id);
+            if (undoErr) failedToUndo.push(d.topic_id);
+          }
+          const tail = failedToUndo.length
+            ? ` The unit list may now be out of order — ${failedToUndo.length} position(s) could not be put back. Tell a system administrator.`
+            : ' Nothing was changed.';
           return NextResponse.json(
-            { error: `The unit list order could not be saved: ${error.message}` },
+            { error: `The unit list order could not be saved: ${error.message}.${tail}` },
             { status: 500 },
           );
         }
+        done.push({ topic_id: w.topic_id, from: before.get(w.topic_id) ?? w.position });
       }
       return NextResponse.json({ moved: true, writes: plan });
     }
@@ -182,6 +213,9 @@ export async function DELETE() {
       error:
         'A unit is never deleted — questions point at it. Retire it instead: the unit disappears from every picker and keeps its questions.',
     },
-    { status: 405, headers: { Allow: 'GET, PATCH' } },
+    // Allow lists exactly what this route exports — PATCH. It said 'GET, PATCH'
+    // until review caught it (2026-09-08); there is no GET here, so the header
+    // a client is meant to trust was advertising a verb that 405s.
+    { status: 405, headers: { Allow: 'PATCH' } },
   );
 }

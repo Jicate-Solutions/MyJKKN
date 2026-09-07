@@ -67,37 +67,72 @@ async function loadMatrix(): Promise<MatrixData> {
   // 20260704090100_cdc_exam_syllabus_topics.sql §5. The map read below is
   // server-side (route-gated); writes are gated head-only (is_cdc_head_or_super).
   const db = createClientSupabaseClient();
-  // exam_definitions and exam_topic_map are absent from the generated Database
-  // types this client is generic over — the same staleness that already makes
-  // the cdc_exam_syllabus_topics read below report TS2589/TS2769 on clean main
-  // (verified by a baseline scoped tsc, 2026-09-07). Both tables exist in
-  // production and both are read here through an untyped handle so this change
-  // adds NOTHING to that pre-existing red; it is not a claim the tables are
-  // missing.
+  // ── GENERATED-TYPE DRIFT, AND WHY EVERY READ ON THIS PAGE GOES THROUGH dbAny ──
+  //
+  // types/supabase.ts is stale against production for every table this page
+  // touches. Measured 2026-09-08 against the checked-in file:
+  //   * cdc_exam_syllabus_topics — ABSENT entirely (0 occurrences)
+  //   * exam_definitions        — ABSENT entirely (0 occurrences)
+  //   * exam_topic_map          — ABSENT entirely (0 occurrences)
+  //   * cdc_training_types      — present, but WITHOUT its exam_family column
+  //                               (0 occurrences of "exam_family" in the file)
+  // All four exist in production; this is the generated file lagging, not a
+  // claim about the database. TypeScript reported it, as it always does for
+  // this class of drift: a missing table surfaces as TS2589 "instantiation
+  // excessively deep", a missing column as TS2352 on the row cast.
+  //
+  // The consequence is a GATE failure, not a cosmetic one. `TypeCheck
+  // (PR-scoped)` is a REQUIRED context on main and it is a per-FILE ratchet,
+  // not a per-delta one — scripts/ci/filter-tsc-scoped-errors.sh fails on any
+  // error in a file the PR touched, whoever put it there. Baseline measured
+  // both ways 2026-09-08: clean main reports the same 5 errors at lines
+  // 53/61x3/78, this branch reported them at 100/108x3/128. Zero were added
+  // here — and all 5 blocked the PR anyway, because Lane U touched the file.
+  //
+  // So both PRE-EXISTING reads move onto the same untyped handle the new reads
+  // use. This is a TYPE-LEVEL change only: identical PostgREST requests,
+  // identical runtime behaviour, and the row shapes are still asserted by the
+  // ExamType / Topic casts below.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const dbAny = db as any;
   // The school units OneMark owns, resolved from data rather than a key list:
   // exam_definitions -> exam_topic_map. Both reads are RLS "signed in" reads,
-  // the same class as the two below. A failure here is NOT swallowed — hiding
-  // rows on a silent error would be worse than showing them.
+  // the same class as the two below.
+  //
+  // FAILURE MODE (changed after review, 2026-09-08). These two reads used to
+  // rethrow, which put them inside the single queryFn behind the WHOLE grid: a
+  // hiccup on either table took down a page that on main never read them at
+  // all — "the CDC head loses the coaching matrix" as the price of a notice.
+  // They now degrade instead. The safety property that mattered is preserved
+  // and is the reason the fallback is the UNFILTERED list: a failure can only
+  // ever show a CDC head MORE rows than intended (the 18 unticked school units
+  // come back, exactly as on main), never fewer. Silently hiding a row is the
+  // outcome worth preventing; showing a stale extra row is not.
   const oneMarkTopicIds = await (async () => {
-    const { data: subjects, error: subjectsErr } = await dbAny
-      .from('exam_definitions')
-      .select('id')
-      .in('config_key', ONEMARK_SUBJECT_KEYS as string[]);
-    if (subjectsErr) throw subjectsErr;
-    const ids = ((subjects ?? []) as { id: string }[]).map((s) => s.id);
-    if (ids.length === 0) return new Set<string>();
-    const { data: rows, error: mapErr } = await dbAny
-      .from('exam_topic_map')
-      .select('topic_id')
-      .in('exam_definition_id', ids);
-    if (mapErr) throw mapErr;
-    return new Set(((rows ?? []) as { topic_id: string }[]).map((r) => r.topic_id));
+    try {
+      const { data: subjects, error: subjectsErr } = await dbAny
+        .from('exam_definitions')
+        .select('id')
+        .in('config_key', ONEMARK_SUBJECT_KEYS as string[]);
+      if (subjectsErr) throw subjectsErr;
+      const ids = ((subjects ?? []) as { id: string }[]).map((s) => s.id);
+      if (ids.length === 0) return new Set<string>();
+      const { data: rows, error: mapErr } = await dbAny
+        .from('exam_topic_map')
+        .select('topic_id')
+        .in('exam_definition_id', ids);
+      if (mapErr) throw mapErr;
+      return new Set(((rows ?? []) as { topic_id: string }[]).map((r) => r.topic_id));
+    } catch (e) {
+      // Not swallowed silently: it is recorded, and schoolUnitsHidden then
+      // stays 0 so the notice does not claim a filter that did not run.
+      console.warn('[cdc/exam-topic-map] school-unit filter unavailable, showing every topic:', e);
+      return null;
+    }
   })();
 
   const [typesRes, topicsRes, mapRows] = await Promise.all([
-    db.from('cdc_training_types')
+    dbAny.from('cdc_training_types')
       .select('id, display_name, exam_family')
       // exam_family is free-text; exclude blank ('') tags so a blank-tagged
       // type is not rendered as a phantom govt-exam column (deep-review R3 #2).
@@ -105,7 +140,7 @@ async function loadMatrix(): Promise<MatrixData> {
       .neq('exam_family', '')
       .eq('is_active', true)
       .order('sort_order', { ascending: true }),
-    db.from('cdc_exam_syllabus_topics')
+    dbAny.from('cdc_exam_syllabus_topics')
       .select('id, display_name, is_shared')
       .eq('is_active', true)
       .order('is_shared', { ascending: false })
@@ -122,7 +157,9 @@ async function loadMatrix(): Promise<MatrixData> {
   if (topicsRes.error) throw topicsRes.error;
 
   const allTopics = (topicsRes.data ?? []) as Topic[];
-  const topics = allTopics.filter((t) => !oneMarkTopicIds.has(t.id));
+  const topics = oneMarkTopicIds
+    ? allTopics.filter((t) => !oneMarkTopicIds.has(t.id))
+    : allTopics;
 
   return {
     exams: (typesRes.data ?? []) as ExamType[],
@@ -256,16 +293,23 @@ export default function ExamTopicMapPage() {
             {data.schoolUnitsHidden} TN board school {data.schoolUnitsHidden === 1 ? 'unit is' : 'units are'} not
             listed here
           </AlertTitle>
+          {/*
+            NO LINK HERE, deliberately (review finding, 2026-09-08).
+            The obvious affordance — a link to /foundation/onemark/units — is a
+            dead end for this page's entire audience. That screen gates on
+            foundation.items.manage, and read live from custom_roles on
+            2026-09-08 that key is explicitly FALSE on cdc_head and FALSE on
+            cdc_coordinator; this page is itself wrapped in CdcHeadGuard
+            (is_cdc_head_or_super). So every non-super-admin CDC head who
+            followed the link would read the sentence, click, and be handed a
+            PermissionError. A notice that sends its reader to a 403 is worse
+            than a notice that tells them who to ask.
+          */}
           <AlertDescription>
             They belong to the OneMark board subjects, which are not columns on this grid — their rows
-            could never be ticked. They are managed at{' '}
-            <Link
-              href="/foundation/onemark/units"
-              className="text-primary underline underline-offset-2"
-            >
-              OneMark units
-            </Link>
-            . Nothing on this grid changed.
+            could never be ticked. They are managed by a OneMark subject Senior Learner on the OneMark
+            unit list, which is a separate screen with its own access. Ask a OneMark Senior Learner if
+            one of them needs to change. Nothing on this grid changed.
           </AlertDescription>
         </Alert>
       )}
