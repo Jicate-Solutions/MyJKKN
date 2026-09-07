@@ -102,10 +102,17 @@ export function RecruitmentMaintenanceClient() {
   const orgsQuery = useQuery({
     queryKey: ['recruitment-maintenance', 'orgs'],
     queryFn: async (): Promise<OrgRow[]> => {
-      const { data, error } = await supabase
-        .from('hr_organizations')
+      // Builder cast before .select(): the extra chained filter tips
+      // supabase-js's generics into TS2589 here. Result shape restated so the
+      // cast loses nothing.
+      const { data, error } = (await (supabase.from('hr_organizations') as any)
         .select('id, name')
-        .order('name', { ascending: true });
+        // Excluded institutions are not part of the HR module.
+        .eq('included_in_hr', true)
+        .order('name', { ascending: true })) as {
+        data: OrgRow[] | null;
+        error: { message: string } | null;
+      };
       if (error) throw error;
       return (data ?? []) as OrgRow[];
     },

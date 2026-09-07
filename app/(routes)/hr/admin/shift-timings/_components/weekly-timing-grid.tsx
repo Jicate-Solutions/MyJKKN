@@ -46,12 +46,6 @@ interface WeeklyTimingGridProps {
   institutionId: string;
   staffScope: ShiftStaffScope;
   employmentCategoryId?: string | null;
-  /**
-   * With staffScope 'work_pattern': the pattern whose week this is. Part of
-   * `params` AND of `scopeKey`, for the same reason applicableGender is —
-   * missing from either, the grid keeps showing the previous pattern's week.
-   */
-  workPatternId?: string | null;
   /** Human label for the scope, used in the save toast. */
   scopeLabel: string;
   /**
@@ -233,7 +227,6 @@ export function WeeklyTimingGrid({
   institutionId,
   staffScope,
   employmentCategoryId = null,
-  workPatternId = null,
   scopeLabel,
   effectiveFrom,
   onEffectiveFromChange,
@@ -241,8 +234,8 @@ export function WeeklyTimingGrid({
   onSaved,
 }: WeeklyTimingGridProps) {
   const params = useMemo(
-    () => ({ institutionId, staffScope, employmentCategoryId, workPatternId, applicableGender }),
-    [institutionId, staffScope, employmentCategoryId, workPatternId, applicableGender],
+    () => ({ institutionId, staffScope, employmentCategoryId, applicableGender }),
+    [institutionId, staffScope, employmentCategoryId, applicableGender],
   );
 
   const { data, isLoading } = useShiftTimingWeek(params);
@@ -253,7 +246,7 @@ export function WeeklyTimingGrid({
   // Hydrate once per scope, NOT on every `data` identity change. A background
   // refetch (this app refetches on window focus) would otherwise wipe an
   // in-progress edit the moment the user tabs away and back.
-  const scopeKey = `${institutionId}|${staffScope}|${employmentCategoryId ?? ''}|${workPatternId ?? ''}|${applicableGender}`;
+  const scopeKey = `${institutionId}|${staffScope}|${employmentCategoryId ?? ''}|${applicableGender}`;
   const hydratedFor = useRef<string | null>(null);
   useEffect(() => {
     if (!data || hydratedFor.current === scopeKey) return;
@@ -360,7 +353,6 @@ export function WeeklyTimingGrid({
         institutionId,
         staffScope,
         employmentCategoryId,
-        workPatternId,
         applicableGender,
         effectiveFrom,
         days: rows,
@@ -401,7 +393,7 @@ export function WeeklyTimingGrid({
       toast.error(getErrorMessage(err));
     }
   }, [
-    errors.length, save, institutionId, staffScope, employmentCategoryId, workPatternId,
+    errors.length, save, institutionId, staffScope, employmentCategoryId,
     applicableGender, effectiveFrom, rows, isScheduledChange, saveLabel, onSaved,
   ]);
 

@@ -7232,71 +7232,6 @@ CREATE POLICY platform_policies_social_attr_update ON public.platform_policies
     AND user_has_permission('social.attribution.edit')
   );
 
--- ─── Housekeeping (hostel_cleaning_schedules / hostel_cleaning_tasks) ────────
--- 20260611170000: RLS aligned to the permission CATALOG keys
--- (campus_living.housekeeping.view / .schedule / .mark_done). The original
--- policies checked .create/.edit/.delete — keys no role holds and that aren't
--- in lib/constants/permissions.ts, so only super_admin/admin could ever write.
--- SELECT policies (unchanged) gate on campus_living.housekeeping.view.
-
-ALTER POLICY hostel_cleaning_schedules_insert_permission ON public.hostel_cleaning_schedules
-  WITH CHECK (
-    is_super_admin() OR is_admin()
-    OR (user_has_permission('campus_living.housekeeping.schedule')
-        AND role_has_institution_access(institution_id)
-        AND role_has_block_access(block_id))
-  );
-
-ALTER POLICY hostel_cleaning_schedules_update_permission ON public.hostel_cleaning_schedules
-  USING (
-    is_super_admin() OR is_admin()
-    OR (user_has_permission('campus_living.housekeeping.schedule')
-        AND role_has_institution_access(institution_id)
-        AND role_has_block_access(block_id))
-  )
-  WITH CHECK (
-    is_super_admin() OR is_admin()
-    OR (user_has_permission('campus_living.housekeeping.schedule')
-        AND role_has_institution_access(institution_id)
-        AND role_has_block_access(block_id))
-  );
-
-ALTER POLICY hostel_cleaning_schedules_delete_permission ON public.hostel_cleaning_schedules
-  USING (
-    is_super_admin() OR is_admin()
-    OR (user_has_permission('campus_living.housekeeping.schedule')
-        AND role_has_institution_access(institution_id)
-        AND role_has_block_access(block_id))
-  );
-
-ALTER POLICY hostel_cleaning_tasks_insert_permission ON public.hostel_cleaning_tasks
-  WITH CHECK (
-    is_super_admin() OR is_admin()
-    OR (user_has_permission('campus_living.housekeeping.schedule')
-        AND role_has_institution_access(institution_id))
-  );
-
-ALTER POLICY hostel_cleaning_tasks_update_permission ON public.hostel_cleaning_tasks
-  USING (
-    is_super_admin() OR is_admin()
-    OR ((user_has_permission('campus_living.housekeeping.mark_done')
-         OR user_has_permission('campus_living.housekeeping.schedule'))
-        AND role_has_institution_access(institution_id))
-  )
-  WITH CHECK (
-    is_super_admin() OR is_admin()
-    OR ((user_has_permission('campus_living.housekeeping.mark_done')
-         OR user_has_permission('campus_living.housekeeping.schedule'))
-        AND role_has_institution_access(institution_id))
-  );
-
-ALTER POLICY hostel_cleaning_tasks_delete_permission ON public.hostel_cleaning_tasks
-  USING (
-    is_super_admin() OR is_admin()
-    OR (user_has_permission('campus_living.housekeeping.schedule')
-        AND role_has_institution_access(institution_id))
-  );
-
 -- =====================================================================
 -- Global Calendar module (Phase 1) — mirror of 20260623100000_calendar_module_tables.sql
 -- =====================================================================
@@ -10360,6 +10295,45 @@ GRANT ALL ON public.hr_work_patterns                   TO service_role;
 GRANT ALL ON public.hr_staff_work_pattern_assignments  TO service_role;
 GRANT ALL ON public.hr_work_pattern_leave_entitlements TO service_role;
 
+-- ============================================================================
+-- hr_work_pattern_weeks (2026-09-04, 20260904190000_hr_work_patterns_days_only.sql)
+-- ============================================================================
+
+DROP POLICY IF EXISTS hr_wpw_select ON public.hr_work_pattern_weeks;
+CREATE POLICY hr_wpw_select ON public.hr_work_pattern_weeks
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM public.hr_work_patterns p
+       WHERE p.id = work_pattern_id
+         AND (   (SELECT public.is_super_admin())
+              OR (SELECT public.is_admin())
+              OR (((SELECT public.user_has_permission('hr.shift_timings.view'))
+                   OR (SELECT public.user_has_permission('hr.shift_timings.manage')))
+                  AND public.role_has_institution_access(p.institution_id)))
+    )
+  );
+
+-- Writes go through fn_hr_set_work_pattern_days (SECURITY DEFINER); a direct
+-- write is left to super admins only, like the assignments table.
+DROP POLICY IF EXISTS hr_wpw_write ON public.hr_work_pattern_weeks;
+CREATE POLICY hr_wpw_write ON public.hr_work_pattern_weeks
+  FOR ALL USING ((SELECT public.is_super_admin()))
+  WITH CHECK ((SELECT public.is_super_admin()));
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_work_pattern_weeks TO authenticated;
+GRANT ALL ON public.hr_work_pattern_weeks TO service_role;
+
+-- cl_girls_bc_reconcile_log — read-only evidence table. No INSERT/UPDATE/DELETE
+-- policy exists on purpose: only the migrations that own it write to it, as
+-- table owner, and nothing in the app should be able to rewrite the record of
+-- what a data migration did.
+CREATE POLICY cl_girls_bc_reconcile_log_read
+  ON public.cl_girls_bc_reconcile_log
+  FOR SELECT TO authenticated
+  USING (
+    public.is_super_admin()
+    OR public.user_has_permission('campus_living.upgrades.manage')
+  )
 -- Updated: 2026-08-21 - AIU evidence trail policies
 -- (migration 20260922041500_aiu_prompt_trails.sql — FILE ONLY / NOT APPLIED).
 -- Learner reads/inserts/updates ONLY their own rows; admin read for AIU
@@ -10383,14 +10357,144 @@ CREATE POLICY aiu_trails_update_own ON public.aiu_prompt_trails
   USING (learner_id = (SELECT auth.uid()))
   WITH CHECK (learner_id = (SELECT auth.uid()))
 
--- cl_girls_bc_reconcile_log — read-only evidence table. No INSERT/UPDATE/DELETE
--- policy exists on purpose: only the migrations that own it write to it, as
--- table owner, and nothing in the app should be able to rewrite the record of
--- what a data migration did.
-CREATE POLICY cl_girls_bc_reconcile_log_read
-  ON public.cl_girls_bc_reconcile_log
-  FOR SELECT TO authenticated
-  USING (
-    public.is_super_admin()
-    OR public.user_has_permission('campus_living.upgrades.manage')
-  )
+
+-- ==========================================================================
+-- Campus Living - Housekeeping (rebuilt 2026-09-07)
+-- Migration: 20260907090100_housekeeping_schema.sql
+-- Replaces the old hostel_cleaning_schedules / _tasks / _bookings module.
+-- ==========================================================================
+
+-- Housekeeping rebuild 2026-09-07 (migration 20260907090100)
+
+-- ==========================================================================
+-- RLS POLICIES
+--
+-- One permissive policy per table per verb. Every auth call is wrapped in a
+-- scalar subquery so it evaluates once per query (InitPlan) rather than once
+-- per candidate row.
+--
+-- Learner access is deliberately narrow:
+--   types, type_categories     : SELECT yes (they must see what they can book)
+--   type_expenses              : SELECT NO  (institution cost data)
+--   cleaners, cleaner_blocks   : SELECT NO  (phone numbers; RLS is row-level,
+--                                so exposing the row exposes the PII. The
+--                                learner sees bookings.cleaner_name instead.)
+--   availability               : SELECT NO  (the slots RPC is DEFINER)
+--   bookings, photos, feedback : SELECT yes, scoped to their own room
+--
+-- hostel_cleaning_bookings gets NO INSERT and NO DELETE policy on purpose:
+-- both are RPC-only, so PostgREST refuses them for every role.
+--
+-- The bodies below are as Postgres normalised them (dumped from pg_policy
+-- after applying), so this file is exactly what is live.
+-- ==========================================================================
+
+CREATE POLICY hk_types_select ON public.hostel_cleaning_types FOR SELECT
+USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT user_has_permission('campus_living.housekeeping.view'::text) AS user_has_permission) OR (is_active AND (EXISTS ( SELECT 1
+   FROM hostel_allocations a
+  WHERE ((a.learner_id = ( SELECT auth.uid() AS uid)) AND ((a.status)::text = ANY (fn_cl_roster_statuses()))))))));
+
+CREATE POLICY hk_types_insert ON public.hostel_cleaning_types FOR INSERT
+WITH CHECK ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT user_has_permission('campus_living.housekeeping.types_manage'::text) AS user_has_permission)));
+
+CREATE POLICY hk_types_update ON public.hostel_cleaning_types FOR UPDATE
+USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT user_has_permission('campus_living.housekeeping.types_manage'::text) AS user_has_permission)));
+
+CREATE POLICY hk_types_delete ON public.hostel_cleaning_types FOR DELETE
+USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT user_has_permission('campus_living.housekeeping.types_manage'::text) AS user_has_permission)));
+
+CREATE POLICY hk_type_expenses_select ON public.hostel_cleaning_type_expenses FOR SELECT
+USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT user_has_permission('campus_living.housekeeping.view'::text) AS user_has_permission)));
+
+CREATE POLICY hk_type_expenses_insert ON public.hostel_cleaning_type_expenses FOR INSERT
+WITH CHECK ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT user_has_permission('campus_living.housekeeping.types_manage'::text) AS user_has_permission)));
+
+CREATE POLICY hk_type_expenses_update ON public.hostel_cleaning_type_expenses FOR UPDATE
+USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT user_has_permission('campus_living.housekeeping.types_manage'::text) AS user_has_permission)));
+
+CREATE POLICY hk_type_expenses_delete ON public.hostel_cleaning_type_expenses FOR DELETE
+USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT user_has_permission('campus_living.housekeeping.types_manage'::text) AS user_has_permission)));
+
+CREATE POLICY hk_type_categories_select ON public.hostel_cleaning_type_categories FOR SELECT
+USING ((EXISTS ( SELECT 1
+   FROM hostel_cleaning_types t
+  WHERE (t.id = hostel_cleaning_type_categories.type_id))));
+
+CREATE POLICY hk_type_categories_insert ON public.hostel_cleaning_type_categories FOR INSERT
+WITH CHECK ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.types_manage'::text) AS user_has_permission) AND (EXISTS ( SELECT 1
+   FROM hostel_cleaning_types t
+  WHERE (t.id = hostel_cleaning_type_categories.type_id))))));
+
+CREATE POLICY hk_type_categories_delete ON public.hostel_cleaning_type_categories FOR DELETE
+USING ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.types_manage'::text) AS user_has_permission) AND (EXISTS ( SELECT 1
+   FROM hostel_cleaning_types t
+  WHERE (t.id = hostel_cleaning_type_categories.type_id))))));
+
+CREATE POLICY hk_cleaners_select ON public.hostel_cleaners FOR SELECT
+USING ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.view'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+
+CREATE POLICY hk_cleaners_insert ON public.hostel_cleaners FOR INSERT
+WITH CHECK ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.cleaners_manage'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+
+CREATE POLICY hk_cleaners_update ON public.hostel_cleaners FOR UPDATE
+USING ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.cleaners_manage'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+
+CREATE POLICY hk_cleaners_delete ON public.hostel_cleaners FOR DELETE
+USING ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.cleaners_manage'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+
+CREATE POLICY hk_cleaner_blocks_select ON public.hostel_cleaner_blocks FOR SELECT
+USING ((EXISTS ( SELECT 1
+   FROM hostel_cleaners c
+  WHERE (c.id = hostel_cleaner_blocks.cleaner_id))));
+
+CREATE POLICY hk_cleaner_blocks_insert ON public.hostel_cleaner_blocks FOR INSERT
+WITH CHECK ((( SELECT is_super_admin() AS is_super_admin) OR (EXISTS ( SELECT 1
+   FROM hostel_cleaners c
+  WHERE ((c.id = hostel_cleaner_blocks.cleaner_id) AND ( SELECT user_has_permission('campus_living.housekeeping.cleaners_manage'::text) AS user_has_permission) AND role_has_institution_access(c.institution_id))))));
+
+CREATE POLICY hk_cleaner_blocks_delete ON public.hostel_cleaner_blocks FOR DELETE
+USING ((( SELECT is_super_admin() AS is_super_admin) OR (EXISTS ( SELECT 1
+   FROM hostel_cleaners c
+  WHERE ((c.id = hostel_cleaner_blocks.cleaner_id) AND ( SELECT user_has_permission('campus_living.housekeeping.cleaners_manage'::text) AS user_has_permission) AND role_has_institution_access(c.institution_id))))));
+
+CREATE POLICY hk_availability_select ON public.hostel_cleaning_availability FOR SELECT
+USING ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.view'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+
+CREATE POLICY hk_availability_insert ON public.hostel_cleaning_availability FOR INSERT
+WITH CHECK ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.availability_manage'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+
+CREATE POLICY hk_availability_update ON public.hostel_cleaning_availability FOR UPDATE
+USING ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.availability_manage'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+
+CREATE POLICY hk_availability_delete ON public.hostel_cleaning_availability FOR DELETE
+USING ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.availability_manage'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+
+CREATE POLICY hk_bookings_select ON public.hostel_cleaning_bookings FOR SELECT
+USING ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.view'::text) AS user_has_permission) AND role_has_institution_access(institution_id)) OR (EXISTS ( SELECT 1
+   FROM hostel_allocations a
+  WHERE ((a.room_id = hostel_cleaning_bookings.room_id) AND (a.learner_id = ( SELECT auth.uid() AS uid)) AND ((a.status)::text = ANY (fn_cl_roster_statuses())))))));
+
+CREATE POLICY hk_bookings_update ON public.hostel_cleaning_bookings FOR UPDATE
+USING ((( SELECT is_super_admin() AS is_super_admin) OR ((( SELECT user_has_permission('campus_living.housekeeping.execute'::text) AS user_has_permission) OR ( SELECT user_has_permission('campus_living.housekeeping.assign'::text) AS user_has_permission) OR ( SELECT user_has_permission('campus_living.housekeeping.waive'::text) AS user_has_permission)) AND role_has_institution_access(institution_id))));
+
+CREATE POLICY hk_photos_select ON public.hostel_cleaning_booking_photos FOR SELECT
+USING ((EXISTS ( SELECT 1
+   FROM hostel_cleaning_bookings b
+  WHERE (b.id = hostel_cleaning_booking_photos.booking_id))));
+
+CREATE POLICY hk_photos_insert ON public.hostel_cleaning_booking_photos FOR INSERT
+WITH CHECK ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.execute'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+
+CREATE POLICY hk_photos_delete ON public.hostel_cleaning_booking_photos FOR DELETE
+USING ((( SELECT is_super_admin() AS is_super_admin) OR (( SELECT user_has_permission('campus_living.housekeeping.execute'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+
+CREATE POLICY hk_feedback_select ON public.hostel_cleaning_feedback FOR SELECT
+USING ((EXISTS ( SELECT 1
+   FROM hostel_cleaning_bookings b
+  WHERE (b.id = hostel_cleaning_feedback.booking_id))));
+
+CREATE POLICY hk_feedback_insert ON public.hostel_cleaning_feedback FOR INSERT
+WITH CHECK (((learner_id = ( SELECT auth.uid() AS uid)) AND (EXISTS ( SELECT 1
+   FROM (hostel_cleaning_bookings b
+     JOIN hostel_allocations a ON ((a.room_id = b.room_id)))
+  WHERE ((b.id = hostel_cleaning_feedback.booking_id) AND (b.status = 'awaiting_feedback'::text) AND (a.learner_id = ( SELECT auth.uid() AS uid)) AND ((a.status)::text = ANY (fn_cl_roster_statuses())))))));

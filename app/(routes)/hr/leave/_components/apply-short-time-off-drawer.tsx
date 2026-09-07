@@ -59,7 +59,8 @@ import { Progress } from '@/components/ui/progress';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { useApplyLeave, useMyRequestsOnDate } from '@/hooks/hr/use-leave';
+import { useApplyLeave } from '@/hooks/hr/use-leave';
+import { useDayOccupancy } from '@/hooks/hr/use-day-occupancy';
 import { LeaveDocumentUpload } from './leave-document-upload';
 import { leaveDocumentRequirement } from '@/lib/hr/leave-document-rule';
 import type { LeaveDocument } from '@/types/hr';
@@ -270,22 +271,14 @@ export function ApplyShortTimeOffDrawer({
   if (!date && seededFor !== null) setSeededFor(null);
 
   // ---- clashes with what is already live on that date ----------------------
-  const { data: sameDay } = useMyRequestsOnDate(ctx.employeeId || undefined, date || undefined);
-
-  const clash = useMemo(() => {
-    const s = toMinutes(startTime);
-    const e = toMinutes(endTime);
-    if (s === null || e === null || e <= s) return null;
-    return (sameDay ?? []).find((a) => {
-      if ((a.hr_leave_types?.request_category ?? 'leave') !== 'short_time_off') return false;
-      if (!['pending', 'approved', 'escalated'].includes(a.status)) return false;
-      const as = toMinutes(a.start_time);
-      const ae = toMinutes(a.end_time);
-      if (as === null || ae === null) return false;
-      // Half-open: 09:00-09:30 then 09:30-10:00 are adjacent, not overlapping.
-      return as < e && s < ae;
-    }) ?? null;
-  }, [sameDay, startTime, endTime]);
+  //
+  // THE WHOLE DAY, not the time slot. This used to compare clock times and only
+  // objected when they overlapped, so 09:05-09:35 plus 15:30-16:30 passed — the
+  // single largest source of double-booked days in production (10 of 13). One
+  // request per day now, whatever its length, so the times no longer enter into
+  // it and the check fires as soon as a DATE is picked rather than waiting for
+  // both times to be filled in.
+  const { data: clash } = useDayOccupancy(ctx.employeeId, date, date);
 
   const outsideShift = (() => {
     if (boundStart === null || boundEnd === null) return null;
@@ -839,9 +832,8 @@ export function ApplyShortTimeOffDrawer({
                 <Alert variant="destructive">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>
-                    You have already applied for {clock(clash.start_time)}–{clock(clash.end_time)} on
-                    this date ({clash.hr_leave_types?.leave_type_name ?? 'a request'}, {clash.status}).
-                    Choose a different time, or cancel that request first.
+                    Only one request is allowed per day, and you already have {clash} on
+                    this date. Pick another day, or cancel that request first.
                   </AlertDescription>
                 </Alert>
               )}

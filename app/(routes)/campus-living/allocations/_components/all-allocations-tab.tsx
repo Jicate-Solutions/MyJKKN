@@ -137,6 +137,12 @@ export function toAllocatable(c: UnallocatedCandidate): LearnerHostelite {
     current_bed_number: null,
     mess_category_id: null,
     mess_category_name: null,
+    // Carry both through, or the allocate dialog opened from THIS tab loses the
+    // guard that the residents drawer has: `has_profile` false means there is
+    // no profiles row for hostel_allocations.learner_id to FK to, and the
+    // insert would fail with an opaque 23503 (migration 20260905102440).
+    lifecycle_status: c.lifecycle_status,
+    has_login_profile: c.has_profile,
   } as unknown as LearnerHostelite;
 }
 
