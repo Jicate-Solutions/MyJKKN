@@ -268,17 +268,22 @@ const sqlWriters = SYNC_ROOTS.flatMap((r) => walk(r))
   .filter(({ text }) => /INSERT\s+INTO[^;]*changelog_entries/i.test(text));
 
 describe('a re-sync must never un-hide an entry someone took down', () => {
-  it('is only checked here for a sync written in SQL — say so out loud', () => {
-    // This is the honest statement of coverage, not a placeholder. If the list
-    // is empty the rule below asserted nothing, and the reason is printed rather
-    // than left for someone to discover from a green tick.
+  it('has a SQL writer to check — otherwise the rule below is asserting nothing', () => {
+    // This used to read `expect(Array.isArray(sqlWriters)).toBe(true)`, which is
+    // a tautology on a .filter() result: it could not fail, and its message only
+    // prints ON failure, so the "say so out loud" it promised never happened. The
+    // real risk it was reaching for is that the next test is `it.skipIf(length
+    // === 0)` — move the sync to the supabase-js client and the takedown
+    // guarantee silently stops being verified while the suite stays green. So
+    // assert the thing that actually matters: a writer was found.
     const where = SYNC_ROOTS.map((r) => path.relative(REPO, r)).join(', ');
     expect(
-      Array.isArray(sqlWriters),
-      `Searched ${where} for an INSERT INTO changelog_entries. ` +
-        `Found ${sqlWriters.length}. A sync that upserts through the supabase-js ` +
-        `client instead is NOT covered by the next test.`
-    ).toBe(true);
+      sqlWriters.length,
+      `Searched ${where} for an INSERT INTO changelog_entries and found none. ` +
+        `If the sync now upserts through supabase-js, the next test is skipping ` +
+        `and nothing is checking that a re-sync cannot un-hide a takedown. ` +
+        `Port that check rather than deleting this one.`
+    ).toBeGreaterThan(0);
   });
 
   it.skipIf(sqlWriters.length === 0)('leaves hidden and hidden_reason out of its DO UPDATE SET', () => {

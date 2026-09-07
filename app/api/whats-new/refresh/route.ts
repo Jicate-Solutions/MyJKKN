@@ -14,12 +14,17 @@
 // components/changelog/whats-new-view.tsx repeats that distinction to the
 // reader rather than claiming the page is now current.
 //
-// KNOWN LIMIT, verified 2026-09-06 rather than assumed: workflow_dispatch only
-// works for a workflow file that exists on the DEFAULT branch.
-// `git cat-file -e jicate/main:.github/workflows/whats-new-refresh.yml` fails —
-// the workflow is on this feature branch, not yet on main. Until it merges,
-// GitHub answers 404 here, which is why the 404 branch below says so in words
-// instead of surfacing a bare status code.
+// workflow_dispatch only works for a workflow file that exists on the DEFAULT
+// branch. An earlier version of this comment claimed the file was absent from
+// main; that was true when written and is now false — PR #3305 carried
+// whats-new-refresh.yml onto main, so `git cat-file -e
+// jicate/main:.github/workflows/whats-new-refresh.yml` exits 0.
+//
+// The consequence is subtler than a 404, and worth stating plainly: until THIS
+// pull request merges, main's copy is still the old file-based job that opens a
+// pull request full of JSON. Pressing the button before then dispatches that, not
+// the database sync. The 404 branch below is kept because it is still the honest
+// answer if the workflow is ever renamed or removed.
 //
 // RBAC: super admin only, checked server-side against profiles — the same two
 // fields every /api/admin/orchestration/* route checks (role === 'super_admin'

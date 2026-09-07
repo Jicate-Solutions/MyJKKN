@@ -49,6 +49,13 @@ CREATE TABLE IF NOT EXISTS public.changelog_entries (
   author        text NOT NULL,
   pr_number     integer,
   breaking      boolean NOT NULL DEFAULT false,
+  -- Position within the sync's newest-first read of git history. Needed because
+  -- entry_date has only day precision and a dozen changes can share a date, while
+  -- created_at cannot break the tie either: the seed is ONE transaction, so now()
+  -- is identical for every row in it. Without this the page reordered same-day
+  -- entries arbitrarily — a regression against the file-based version, which
+  -- carried git's own order.
+  ordinal       integer NOT NULL DEFAULT 0,
   -- The takedown route (Director, 2026-09-06). Replaces the hidden.mjs file:
   -- hiding an entry is now a row update, not a code change and a rebuild.
   hidden        boolean NOT NULL DEFAULT false,
@@ -60,7 +67,7 @@ CREATE TABLE IF NOT EXISTS public.changelog_entries (
 -- The page reads newest-first, and filters by module. Both are covered here; the
 -- partial index keeps hidden rows out of the hot path entirely.
 CREATE INDEX IF NOT EXISTS changelog_entries_date_idx
-  ON public.changelog_entries (entry_date DESC) WHERE NOT hidden;
+  ON public.changelog_entries (entry_date DESC, ordinal ASC) WHERE NOT hidden;
 CREATE INDEX IF NOT EXISTS changelog_entries_module_idx
   ON public.changelog_entries (module_key) WHERE NOT hidden;
 
@@ -102,9 +109,34 @@ CREATE POLICY changelog_sync_select ON public.changelog_sync
 -- clearest possible statement that nothing else may write.
 
 -- Belt and braces against Supabase's default grant to anon on new objects.
-REVOKE ALL ON public.changelog_modules FROM anon;
-REVOKE ALL ON public.changelog_entries FROM anon;
-REVOKE ALL ON public.changelog_sync    FROM anon;
+REVOKE ALL ON public.changelog_modules FROM anon, PUBLIC;
+REVOKE ALL ON public.changelog_entries FROM anon, PUBLIC;
+REVOKE ALL ON public.changelog_sync    FROM anon, PUBLIC;
 GRANT SELECT ON public.changelog_modules TO authenticated;
 GRANT SELECT ON public.changelog_entries TO authenticated;
 GRANT SELECT ON public.changelog_sync    TO authenticated;
+
+-- ------------------------------------------------- the sync's credential ----
+-- .github/workflows/whats-new-refresh.yml connects with SUPABASE_DB_URL. The
+-- obvious value for that secret is the URI from Supabase Studio → Project
+-- Settings → Database, which is the POSTGRES SUPERUSER: it bypasses RLS on every
+-- table in a multi-tenant institutional database, and any collaborator who can
+-- dispatch a workflow can reach it. The job needs writes on three tables.
+--
+-- Provision a scoped role instead and point the secret at that. Run once, with a
+-- generated password, then set SUPABASE_DB_URL to its connection string:
+--
+--   CREATE ROLE changelog_sync LOGIN PASSWORD '<generated>';
+--   GRANT USAGE ON SCHEMA public TO changelog_sync;
+--   GRANT SELECT, INSERT, UPDATE, DELETE
+--     ON public.changelog_entries, public.changelog_modules, public.changelog_sync
+--     TO changelog_sync;
+--   -- The sync writes with this role and must not be filtered by RLS while doing
+--   -- so; BYPASSRLS is NOT granted, so give it the explicit policy exemption that
+--   -- owning the tables would otherwise imply:
+--   ALTER TABLE public.changelog_entries OWNER TO changelog_sync;
+--   ALTER TABLE public.changelog_modules OWNER TO changelog_sync;
+--   ALTER TABLE public.changelog_sync    OWNER TO changelog_sync;
+--
+-- Left as a comment on purpose: it creates a role and sets a password, which is
+-- an operator action with a secret in it, not something a migration should carry.

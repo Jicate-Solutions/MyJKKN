@@ -298,7 +298,14 @@ export function collectChangelog({ ref = REF } = {}) {
     authorTally.set(who, (authorTally.get(who) || 0) + 1);
 
     entries.push({
-      h: sha.slice(0, 7),
+      // 12, not 7. This is the natural key the database upserts on, so a prefix
+    // collision is not cosmetic: two colliding shas in one batch raise 21000 and
+    // roll back every future sync, and across batches the second silently
+    // overwrites the first, losing an entry permanently. 7 hex chars is 268M
+    // values, which by the birthday bound is already ~4% likely across 4,769
+    // entries and ~27% by 12,000. Git itself auto-grows abbreviations for this
+    // reason; a fixed column cannot, so it starts wide.
+    h: sha.slice(0, 12),
       d: date,
       t: USER_FACING[type],
       m: mod.key,

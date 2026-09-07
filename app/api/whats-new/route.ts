@@ -111,15 +111,17 @@ async function fetchAll<T>(
  * The date alone is not enough. Paging with .range() over a sort that has ties
  * lets two equal rows swap between requests, which silently drops one and
  * repeats another. `sha` is UNIQUE, so ending on it makes the sort total and the
- * paging exact. `created_at` sits in the middle as a best-effort echo of the
- * order the sync wrote the rows in: the table stores no commit sequence, so
- * within a single day nothing can reproduce the order the commits were made in
- * — the generated file used git's own order there.
+ * paging exact. `ordinal` sits in the middle and is the entry's position in the
+ * sync's newest-first read of git history. It replaced `created_at`, which
+ * could not break a same-day tie at all: the whole seed is one transaction, so
+ * now() is identical on every row in it. Ordering by it silently returned
+ * same-day entries in an arbitrary order — a regression against the file the
+ * page used to read, which carried git's own order.
  */
 function newestFirst(query: any) {
   return query
     .order('entry_date', { ascending: false })
-    .order('created_at', { ascending: false })
+    .order('ordinal', { ascending: true })
     .order('sha', { ascending: false });
 }
 
@@ -146,7 +148,13 @@ function recentFrom(): string {
   return new Date(Date.UTC(y, m - 1, d - RECENT_DAYS)).toISOString().slice(0, 10);
 }
 
-const ENTRY_COLUMNS = 'sha,entry_date,kind,module_key,subject,author,pr_number,breaking';
+// `ordinal` is selected but never sent to the page — it exists only so the ORDER
+// BY below has a column it is certainly allowed to sort on. Ordering by a column
+// absent from the projection is a PostgREST detail worth not depending on, and a
+// 400 from it would only appear at runtime against a table that does not exist
+// yet locally. toEntry() drops it, so the payload shape is unchanged.
+const ENTRY_COLUMNS =
+  'sha,entry_date,kind,module_key,subject,author,pr_number,breaking,ordinal';
 
 interface EntryRow {
   sha: string;
@@ -157,6 +165,7 @@ interface EntryRow {
   author: string;
   pr_number: number | null;
   breaking: boolean;
+  ordinal: number;
 }
 
 /** Row -> the short keys the page reads. ~4,700 of these travel to a phone. */
@@ -315,7 +324,17 @@ export async function GET(request: Request) {
 
   // One cutoff for the whole request, so meta.recentFrom always describes the
   // window the same call would return.
-  const cutoff = recentFrom();
+  // The reader may pin the boundary by echoing back the `recentFrom` they were
+  // given with `meta`. Without that, the cutoff is recomputed per request and
+  // moves at IST midnight — so a reader who loads the page at 23:59 and clicks
+  // "show earlier changes" at 00:01 gets one day in BOTH lists, and the page
+  // concatenates them and renders that day twice. Validated hard against the
+  // exact date shape rather than trusted: it goes into a query filter.
+  const pinned = new URL(request.url).searchParams.get('before');
+  const cutoff =
+    pinned && /^\d{4}-\d{2}-\d{2}$/.test(pinned) && !Number.isNaN(Date.parse(pinned))
+      ? pinned
+      : recentFrom();
 
   let body: ChangelogMeta | ChangelogEntry[];
   try {

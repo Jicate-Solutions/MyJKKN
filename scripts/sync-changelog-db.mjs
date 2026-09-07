@@ -63,7 +63,12 @@ function resolveRef() {
   const explicit = process.env.CHANGELOG_REF;
   if (explicit) return explicit;
 
-  const candidates = ['origin/main', 'jicate/main', 'main', 'HEAD'];
+  // HEAD is deliberately NOT a candidate. On a developer machine mid-work HEAD is
+  // by definition the newest commit, so a local run would publish unmerged work —
+  // and then the prune below would DELETE every entry that is on main but not on
+  // that branch. The staleness guard cannot catch it: a branch two weeks behind
+  // main is ~4% short, well inside the 10% tolerance. Only real main lines here.
+  const candidates = ['origin/main', 'jicate/main', 'main'];
   let best = null;
   for (const ref of candidates) {
     try {
@@ -93,7 +98,7 @@ const STALENESS_FLOOR = 0.9;
 /** Absolute floor for a FIRST sync — see the guard for why a ratio cannot work there. */
 const FIRST_SEED_FLOOR = 1000;
 
-/** Rows per INSERT. 8 columns × 500 = 4,000 parameters, well inside Postgres's
+/** Rows per INSERT. 9 columns × 500 = 4,500 parameters, well inside Postgres's
  *  65,535 limit, and ten round trips for the whole history instead of 4,746. */
 const BATCH = 500;
 
@@ -146,7 +151,7 @@ async function main() {
     // Never exit 0 here. A sync that wrote nothing and reported success is
     // indistinguishable from a page that is quietly six months out of date.
     fail('SUPABASE_DB_URL is not set — no route to the database.',
-      'Set the repo secret SUPABASE_DB_URL (Supabase Studio → Project Settings → Database → URI).');
+      'Set the repo secret SUPABASE_DB_URL (the `changelog_sync` role (see the provisioning block at the foot of supabase/migrations/20260906090000_changelog_live_data.sql) — NOT the superuser URI from Studio, which bypasses RLS on every table).');
     return;
   }
 
@@ -185,9 +190,12 @@ async function main() {
     // backstop. It is deliberately far below any real history (the changelog has
     // held 4,700+ entries since it was built) and only ever fires on a ref that
     // is plainly not this project's main line.
-    if (existing === 0 && entries.length < FIRST_SEED_FLOOR) {
+    // Unconditional, not `existing === 0`. Gating it on an empty table left the
+    // band 0 < existing < 1000 covered by neither guard: with existing = 2, three
+    // entries pass the ratio check, get written, and the two real rows are pruned.
+    if (entries.length < FIRST_SEED_FLOOR) {
       fail(
-        `Refusing to seed an empty table with only ${entries.length} entries from ${REF}.`,
+        `Refusing to write only ${entries.length} entries from ${REF}.`,
         `A first sync of this project should carry thousands. ${REF} is probably a stale or ` +
         `wrong remote — check it, then re-run with CHANGELOG_REF set explicitly.`
       );
@@ -197,8 +205,12 @@ async function main() {
     if (existing > 0 && entries.length < existing * STALENESS_FLOOR) {
       fail(
         `Git gave ${entries.length} entries but ${existing} are already stored — refusing to write.`,
-        `That is below ${STALENESS_FLOOR * 100}% of what is published and is what a shallow clone looks like. ` +
-        `Nothing was changed. Re-run on a full checkout (fetch-depth: 0) reading ${REF}.`
+        `That is below ${STALENESS_FLOOR * 100}% of what is published. Nothing was changed.\n` +
+        `Usually this means a shallow clone — re-run on a full checkout (fetch-depth: 0) reading ${REF}.\n` +
+        `But a deliberate rule change can also cross it: tightening the title rules once dropped 543 ` +
+        `entries (11.5%) legitimately. If that is what happened, this guard is doing its job and the ` +
+        `drop needs a human eye, not a bypass — confirm the count is intended, then re-run with ` +
+        `STALENESS_FLOOR lowered for that run.`
       );
       return;
     }
@@ -229,13 +241,16 @@ async function main() {
       const slice = entries.slice(i, i + BATCH);
       const values = [];
       const rows = slice.map((e, n) => {
-        const b = n * 8;
-        values.push(e.h, e.d, e.t, e.m, e.s, e.a, e.p ?? null, e.b === 1);
-        return `($${b + 1}, $${b + 2}::date, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7}::int, $${b + 8}::boolean)`;
+        const b = n * 9;
+        // `i + n` is the entry's position in the whole newest-first read, not just
+        // in this batch — it is the only thing that preserves git's order for the
+        // dozen-odd changes that share a date.
+        values.push(e.h, e.d, e.t, e.m, e.s, e.a, e.p ?? null, e.b === 1, i + n);
+        return `($${b + 1}, $${b + 2}::date, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7}::int, $${b + 8}::boolean, $${b + 9}::int)`;
       });
       await client.query(
         `INSERT INTO public.changelog_entries
-           (sha, entry_date, kind, module_key, subject, author, pr_number, breaking)
+           (sha, entry_date, kind, module_key, subject, author, pr_number, breaking, ordinal)
          VALUES ${rows.join(', ')}
          ON CONFLICT (sha) DO UPDATE
            SET entry_date = EXCLUDED.entry_date,
@@ -245,6 +260,7 @@ async function main() {
                author     = EXCLUDED.author,
                pr_number  = EXCLUDED.pr_number,
                breaking   = EXCLUDED.breaking,
+               ordinal    = EXCLUDED.ordinal,
                updated_at = now()`,
         values
       );
