@@ -3719,7 +3719,7 @@ export async function evaluateLeaveApprovalOverdueTriggers(
         body:
           `${overdue} leave application${overdue === 1 ? '' : 's'} at ${instName} ` +
           `${overdue === 1 ? 'has' : 'have'} been waiting more than ${staleHours} hours ` +
-          `for a decision; the oldest is ${oldestDays} days old. Staff cannot plan until ` +
+          `for a decision; the oldest is ${oldestDays} days old. Team members cannot plan until ` +
           `these are decided. Could you clear them, or tell us what is blocking?` +
           (fallbackToAdmin ? ' (No principal on record yet — routed to administration.)' : ''),
         url: '/hr/leave/approve',
