@@ -3,6 +3,8 @@
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Clock } from 'lucide-react';
+import type { TypeQuota } from '@/lib/services/campus-living/housekeeping-rules';
+import { bookingDateLabel } from './learner-booking-status';
 import type { CleaningTypeWithDetail, UsagePeriod } from '@/types/campus-living/housekeeping';
 
 const PERIOD_LABEL: Record<UsagePeriod, string> = {
@@ -13,17 +15,22 @@ const PERIOD_LABEL: Record<UsagePeriod, string> = {
 
 interface Props {
   types: CleaningTypeWithDetail[];
-  remainingByType: Map<string, number>;
+  quotaByType: Map<string, TypeQuota>;
   selectedId: string | null;
   onSelect: (type: CleaningTypeWithDetail) => void;
 }
 
-export function TypePicker({ types, remainingByType, selectedId, onSelect }: Props) {
+export function TypePicker({ types, quotaByType, selectedId, onSelect }: Props) {
   return (
     <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-3'>
       {types.map((t) => {
-        const remaining = remainingByType.get(t.id) ?? t.usage_limit_count;
-        const exhausted = remaining <= 0;
+        const quota = quotaByType.get(t.id);
+        const remaining = quota?.remainingToday ?? t.usage_limit_count;
+        // Disabled only when NO date in the booking horizon has room. A type that
+        // is full today but free next week stays selectable — the slot grid is
+        // where that later date gets picked.
+        const exhausted = quota ? !quota.bookable : false;
+        const fullToday = remaining <= 0;
         const selected = t.id === selectedId;
 
         return (
@@ -59,10 +66,20 @@ export function TypePicker({ types, remainingByType, selectedId, onSelect }: Pro
               )}
 
               {/* "shared with your roommates" is the part learners misread: the
-                  quota belongs to the ROOM, not to the person booking. */}
+                  quota belongs to the ROOM, not to the person booking.
+                  Three states, not two — "used up right now" and "used up for
+                  good" are different things to a learner. */}
               {exhausted ? (
                 <p className='text-sm text-destructive'>
-                  Your room has used its bookings {PERIOD_LABEL[t.usage_period]}.
+                  Your room has used its {t.usage_limit_count === 1 ? 'booking' : 'bookings'}{' '}
+                  {PERIOD_LABEL[t.usage_period]}.
+                </p>
+              ) : fullToday ? (
+                <p className='text-sm text-amber-700 dark:text-amber-500'>
+                  Used {PERIOD_LABEL[t.usage_period]}
+                  {quota?.nextAvailableDate
+                    ? ` — you can book again from ${bookingDateLabel(quota.nextAvailableDate)}.`
+                    : '.'}
                 </p>
               ) : (
                 <p className='text-sm text-muted-foreground'>

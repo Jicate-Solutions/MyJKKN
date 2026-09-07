@@ -60706,7 +60706,9 @@ DECLARE
   v_type         public.hostel_cleaning_types%ROWTYPE;
   v_category_id  uuid;
   v_slot_end     time;
+  v_window_days  integer;
   v_window_start date;
+  v_window_end   date;
   v_used         integer;
   v_advance_days integer;
   v_slots        jsonb;
@@ -60770,18 +60772,22 @@ BEGIN
     RETURN jsonb_build_object('success', false, 'error_code', 'room_locked');
   END IF;
 
-  -- 6. Quota: per room, per type, rolling window ending on the booking date.
-  v_window_start := CASE v_type.usage_period
-                      WHEN 'day'   THEN p_date
-                      WHEN 'week'  THEN p_date - 6
-                      WHEN 'month' THEN p_date - 29
-                    END;
+  -- 6. Quota: per room, per type, over a window SYMMETRIC about the booking
+  --    date. Counting only backwards let a room book the later date first and
+  --    then squeeze a second cleaning in before it (migration 20260909150000).
+  v_window_days := CASE v_type.usage_period
+                     WHEN 'day'   THEN 0
+                     WHEN 'week'  THEN 6
+                     WHEN 'month' THEN 29
+                   END;
+  v_window_start := p_date - v_window_days;
+  v_window_end   := p_date + v_window_days;
   SELECT count(*)::integer INTO v_used
   FROM public.hostel_cleaning_bookings b
   WHERE b.room_id = v_alloc.room_id
     AND b.type_id = p_type_id
     AND b.status <> 'cancelled'
-    AND b.booking_date BETWEEN v_window_start AND p_date;
+    AND b.booking_date BETWEEN v_window_start AND v_window_end;
   IF v_used >= v_type.usage_limit_count THEN
     RETURN jsonb_build_object('success', false, 'error_code', 'quota_exhausted',
                               'used', v_used, 'allowed', v_type.usage_limit_count);
@@ -61030,6 +61036,33 @@ $fn$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_cl_housekeeping_feedback_holds(uuid, uuid, date) FROM PUBLIC, anon;
 GRANT  EXECUTE ON FUNCTION public.fn_cl_housekeeping_feedback_holds(uuid, uuid, date) TO authenticated;
+
+-- ==========================================================================
+-- fn_cl_housekeeping_feedback_completes_booking
+--
+-- A rated cleaning IS finished, so the transition lives beside the write.
+-- DEFINER because the rater is a learner, who has no update policy on
+-- hostel_cleaning_bookings -- the client-side UPDATE this replaced was filtered
+-- to zero rows by RLS and reported as success, stranding the booking in
+-- awaiting_feedback and locking the room out of booking again.
+-- See 20260909140000_housekeeping_feedback_completes_booking.sql.
+-- ==========================================================================
+CREATE OR REPLACE FUNCTION public.fn_cl_housekeeping_feedback_completes_booking()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $fn$
+BEGIN
+  UPDATE public.hostel_cleaning_bookings
+  SET status = 'completed'
+  WHERE id = NEW.booking_id
+    AND status = 'awaiting_feedback';
+  RETURN NEW;
+END $fn$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_cl_housekeeping_feedback_completes_booking()
+  FROM PUBLIC, anon;
 
 -- ==========================================================================
 -- The attendance gate
