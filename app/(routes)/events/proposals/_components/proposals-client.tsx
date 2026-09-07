@@ -25,9 +25,15 @@ import {
   CalendarDays, MapPin, Users, Wallet, Check, X, ExternalLink, Loader2,
 } from 'lucide-react';
 import type {
+  EventProposalAudience,
+  EventProposalBudgetBand,
   EventProposalStatus,
 } from '@/types/events';
 import { EVENT_PROPOSAL_STATUS_LABELS } from '@/types/events';
+import {
+  ProposalEditDialog,
+  type EditableProposal,
+} from '../../_components/proposal-edit-dialog';
 
 interface ProposalRow {
   id: string;
@@ -72,6 +78,21 @@ function formatDate(iso: string | null): string {
   return new Date(iso).toLocaleDateString('en-IN', {
     day: 'numeric', month: 'short', year: 'numeric',
   });
+}
+
+/** Narrow a list row to the shape the edit dialog reads, so it skips its fetch. */
+function toEditable(p: ProposalRow): EditableProposal {
+  return {
+    id: p.id,
+    title: p.title,
+    event_date: p.event_date,
+    venue: p.venue,
+    audience: (p.audience ?? []) as EventProposalAudience[],
+    expected_attendance: p.expected_attendance,
+    budget_band: p.budget_band as EventProposalBudgetBand | null,
+    status: p.status,
+    proposer_id: p.proposer_id,
+  };
 }
 
 export function ProposalsClient({
@@ -160,6 +181,25 @@ export function ProposalsClient({
     router.refresh();
   };
 
+  /** Reflect a saved edit in the list straight away, without a full refetch. */
+  const applyEdit = (updated: EditableProposal) => {
+    setProposals(prev => prev.map(p =>
+      p.id === updated.id
+        ? {
+            ...p,
+            title: updated.title,
+            event_date: updated.event_date,
+            venue: updated.venue,
+            audience: updated.audience ?? [],
+            expected_attendance: updated.expected_attendance,
+            budget_band: updated.budget_band,
+          }
+        : p,
+    ));
+    toast.success('Event details updated');
+    router.refresh();
+  };
+
   return (
     <div className="space-y-4">
       {/* Status filter pills */}
@@ -237,6 +277,14 @@ export function ProposalsClient({
                           View
                         </Link>
                       </Button>
+                      {/* Direct edit of date + details. Renders itself only for
+                          someone the event_proposals UPDATE policy will accept. */}
+                      <ProposalEditDialog
+                        proposalId={p.id}
+                        initial={toEditable(p)}
+                        viewerIsAdmin={isAdminRole}
+                        onSaved={applyEdit}
+                      />
                       {canDecide && (
                         <>
                           <Button
