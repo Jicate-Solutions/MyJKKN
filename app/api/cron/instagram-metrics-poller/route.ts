@@ -1,4 +1,16 @@
 export const dynamic = 'force-dynamic';
+// Pin the function ceiling explicitly rather than inheriting the platform
+// default. This route previously declared none, so the only thing bounding its
+// strictly-serial per-account loop was an invisible platform timeout — the run
+// died mid-loop with nothing recorded anywhere. POLL_BUDGET_MS below is derived
+// from this number and must stay under it; keeping both in one file stops them
+// drifting apart. 300 matches every sibling cron route in this repo, including
+// ig-accounts-sync and ig-business-discovery-poll. (Raising this to the Fluid
+// ceiling would buy real headroom, but nothing in this repo declares >300 and
+// this session could not verify that Fluid compute is enabled on the project —
+// an unsupported value is a BUILD error that would block every deploy, so it is
+// left as a proposal in the PR body rather than shipped blind.)
+export const maxDuration = 300;
 
 // /api/cron/instagram-metrics-poller
 // Phase 2B: Runs hourly (or per ig.poll_interval_hours policy).
@@ -1245,6 +1257,7 @@ export async function GET(request: Request): Promise<Response> {
 
   const start = Date.now();
   let accountsPolled = 0;
+  let accountsSkipped = 0;
   let accountsDiscovered = 0;
   let accountsSeeded = 0;
   let postsRepolled = 0;
@@ -1328,7 +1341,20 @@ export async function GET(request: Request): Promise<Response> {
       // Skip business_discovery accounts (no Facebook Page → full insights
       // 33-error here). They are handled by ig-business-discovery-poll.
       .eq('metrics_source', 'graph')
-      .or(`last_polled_at.is.null,last_polled_at.lt.${pollCutoff}`);
+      .or(`last_polled_at.is.null,last_polled_at.lt.${pollCutoff}`)
+      // Oldest-first: make the run a FAIR QUEUE instead of a heap-order race.
+      // Without this the rows come back in unstable Postgres heap order, and
+      // since the loop below is strictly serial (~12s/account of Graph calls)
+      // while the function ceiling is maxDuration, the run is truncated
+      // mid-loop every hour. Heap order is stable for a tuple that is never
+      // updated, so an account that falls past the cut never gets its
+      // last_polled_at written, never moves, and stays past the cut FOREVER —
+      // a self-reinforcing starvation trap. Verified in prod 2026-09: 15
+      // accounts all sat at ctid >= (3,29) with last_polled_at frozen at
+      // 2026-09-03/04 while ~25 of ~55 eligible accounts were written per run.
+      // Ordering by last_polled_at makes whoever waited longest go first, so
+      // the truncated tail ROTATES and no account can starve permanently.
+      .order('last_polled_at', { ascending: true, nullsFirst: true });
 
     if (acctErr) throw acctErr;
 
@@ -1351,7 +1377,24 @@ export async function GET(request: Request): Promise<Response> {
       })
     );
 
+    // Stop cleanly BEFORE the function is hard-killed, so a truncated run is
+    // recorded instead of vanishing. Until now the only exit from this loop was
+    // the platform timeout: the 'poll complete' Sentry message below is the
+    // ONLY place the run reports itself, and a hard-kill never reaches it — so
+    // roughly half the eligible accounts were being dropped every hour with no
+    // signal in Sentry, in the JSON response, or in social_instagram_logs.
+    // 270s leaves ~30s of headroom under maxDuration (300s): enough for the one
+    // account already in flight when the check passes (~12s measured) plus the
+    // closing Sentry write and JSON response.
+    const POLL_BUDGET_MS = 270_000;
+
     for (const account of accountList) {
+      if (Date.now() - start > POLL_BUDGET_MS) {
+        // Ordered oldest-first above, so the accounts skipped here are the
+        // most-recently-polled ones — they go to the FRONT of the next run.
+        accountsSkipped = accountList.length - accountsPolled - errorsCount;
+        break;
+      }
       const acctStart = Date.now();
       try {
         // ----------------------------------------------------------------
@@ -1625,6 +1668,7 @@ export async function GET(request: Request): Promise<Response> {
       tags: { feature: 'instagram', event: 'metrics_poller_complete' },
       extra: {
         accounts_polled: accountsPolled,
+        accounts_skipped: accountsSkipped,
         accounts_total: accountList.length,
         accounts_discovered: accountsDiscovered,
         accounts_seeded: accountsSeeded,
@@ -1637,6 +1681,8 @@ export async function GET(request: Request): Promise<Response> {
     return NextResponse.json({
       success: true,
       accounts_polled: accountsPolled,
+      accounts_skipped: accountsSkipped,
+      accounts_total: accountList.length,
       accounts_discovered: accountsDiscovered,
       accounts_seeded: accountsSeeded,
       posts_repolled: postsRepolled,
