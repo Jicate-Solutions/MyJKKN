@@ -519,7 +519,15 @@ export default function AccreditationOwnersPage() {
   >('unassigned');
   const [savingKey, setSavingKey] = useState<string | null>(null);
 
-  const { data: institutions } = useInstitutions();
+  // isLoading and isError are read for the cross-campus card below: that card
+  // describes the accessible-campus set itself, so a set that has not arrived —
+  // or could not be read — must render as loading or as a failure, never as
+  // "nothing is recorded".
+  const {
+    data: institutions,
+    isLoading: institutionsLoading,
+    isError: institutionsUnread,
+  } = useInstitutions();
   const { data: framework, isLoading: frameworkLoading } = useFramework();
 
   // Default to the viewer's own campus; fall back to the first they can read.
@@ -1069,8 +1077,12 @@ export default function AccreditationOwnersPage() {
             empty slots, and the card describes no single campus. */}
         <UnownedBodiesCard
           report={gapReport}
-          loading={gapsLoading}
-          unread={gapsUnread}
+          /* The campus list is an input to the report, so the card is still
+             loading while that list is. Without this the card would print
+             "no campus has recorded which bodies it answers to" for the second
+             or two before the list arrives — a claim, made about nothing. */
+          loading={institutionsLoading || gapsLoading}
+          unread={institutionsUnread || gapsUnread}
           selectedInstitutionId={activeInstitution}
           onSelectInstitution={setInstitutionId}
         />
