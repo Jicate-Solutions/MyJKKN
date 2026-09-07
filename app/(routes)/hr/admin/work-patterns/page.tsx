@@ -42,11 +42,12 @@ export default function WorkPatternsPage() {
     entityType: 'all',
   });
 
-  // No auto-selection of the first institution, same as shift-timings: a
-  // multi-institution HR user picks the one they mean, and nothing is fetched
-  // or shown for an institution they did not choose. ALL_INSTITUTIONS is a
-  // real sentinel because Radix Select reads '' as "no selection".
-  const [institutionId, setInstitutionId] = useState('');
+  // Opens on "All institutions", unlike shift-timings: a work pattern is an
+  // exception a handful of staff hold, so the useful first screen is every
+  // pattern that exists — each card names its institution. Narrowing to one is
+  // the picker's job. ALL_INSTITUTIONS is a real sentinel because Radix Select
+  // reads '' as "no selection".
+  const [institutionId, setInstitutionId] = useState(ALL_INSTITUTIONS);
   const isAll = institutionId === ALL_INSTITUTIONS;
 
   // "All" = every institution this user can reach, passed as ids — never a
@@ -147,7 +148,10 @@ export default function WorkPatternsPage() {
                     institutions={institutions}
                     showInstitution={isAll}
                     patterns={patterns}
-                    isLoading={isLoading}
+                    // Under "All" the query is disabled until the institution
+                    // ids arrive, so its isLoading is false — without this the
+                    // page opens on "No work patterns yet" for a beat.
+                    isLoading={isLoading || institutionsLoading}
                     onSelect={setSelectedId}
                   />
                 )}

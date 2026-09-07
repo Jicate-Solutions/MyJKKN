@@ -95,6 +95,15 @@ export interface SetWorkPatternDaysResult {
   superseded: boolean;
 }
 
+/** A member as named on the pattern card — identity only, no dates. */
+export interface WorkPatternMemberBrief {
+  staff_id: string;
+  /** staff.staff_id — the employee code. */
+  staff_code: string | null;
+  name: string;
+  designation: string | null;
+}
+
 /** A pattern as listed: its row plus what the days, members and figures look like. */
 export interface WorkPatternSummary extends HRWorkPattern {
   /** For the "All institutions" listing; null only if the join was unreadable. */
@@ -103,6 +112,8 @@ export interface WorkPatternSummary extends HRWorkPattern {
   working_days: IsoDayOfWeek[];
   days_effective_from: string | null;
   member_count: number;
+  /** Who holds the pattern on `asOf`, name-sorted — one entry per counted member. */
+  members: WorkPatternMemberBrief[];
   entitlements: Array<{ leave_type_code: string; entitled_days: number }>;
 }
 
