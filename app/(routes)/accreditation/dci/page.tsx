@@ -333,8 +333,12 @@ export default function DCIDashboardPage() {
               hidden from the 6 cards above until the catalog is retagged.
             </p>
             <p>
-              <strong>Coverage formula (placeholder):</strong> evidence_rows /
-              metrics_seeded. Real DCI weighted formula lands when the full DCI
+              {/* Was "evidence_rows / metrics_seeded" — rows over metrics, clamped
+                  to 100%. Fixed 2026-09-07; see coverage-measure.ts. */}
+              <strong>Coverage:</strong> distinct metrics carrying evidence ÷
+              active metrics in this platform&apos;s DCI catalogue, which today
+              holds 2 placeholder entries and not the full DCI schedule.
+              Real DCI weighted formula lands when the full DCI
               catalog is reviewed alongside PCI + INC in a later unification PR.
             </p>
           </CardContent>

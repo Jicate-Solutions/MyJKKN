@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { ArrowRight, BarChart3, Building2, Award } from 'lucide-react';
 import { ACCREDITATION_BODIES } from '@/lib/types/accreditation';
 import { BodyScoreboardCard } from '@/components/accreditation/body-scoreboard-card';
+import { coverageBasisNote } from '@/lib/services/accreditation/coverage-measure';
 import { useAccreditationScoreboard } from '@/hooks/accreditation/use-accreditation-scoreboard';
 import { useAuth } from '@/hooks/use-auth';
 import { useInstitutionBodyScope } from '@/hooks/accreditation/use-institution-bodies';
@@ -139,12 +140,19 @@ export default function AccreditationLandingPage() {
         {/* Footnote */}
         <Card className="bg-muted/30">
           <CardContent className="pt-6 text-xs text-muted-foreground space-y-2">
+            {/*
+              The old wording named the formula it was wrong about —
+              evidence_rows / metrics_seeded — a count of rows divided by a
+              count of metrics, then clamped to 100%. Every body with real
+              evidence therefore showed a full green bar: NAAC on 21 of its 69
+              metrics, NIRF on 4 of 17, NBA on 1 of 9. Fixed 2026-09-07; the
+              measure now lives in coverage-measure.ts and this note states
+              what it is rather than promising a replacement.
+            */}
             <p>
-              <strong>Coverage formula</strong> is a placeholder —
-              <code> evidence_rows / metrics_seeded</code>. The weighted
-              auto-fill % (per <code>docs/one-jkkn-one-data.md §8</code>) lands
-              per-body with each body's dashboard PR (A8–A15) as the full
-              rubric catalog is seeded.
+              <strong>Coverage</strong> — {coverageBasisNote()} Weighted scoring
+              against each body&apos;s own rubric lands per-body with that
+              body&apos;s dashboard; NAAC already reports marks on its own page.
             </p>
             <p>
               <strong>Principal</strong> is IQAC Chairman (NAAC) + NIRF

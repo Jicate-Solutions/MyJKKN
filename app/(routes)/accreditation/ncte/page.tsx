@@ -340,8 +340,12 @@ export default function NCTEDashboardPage() {
               <code>institutions.iqac_code</code> seeding.
             </p>
             <p>
-              <strong>Coverage formula (placeholder):</strong> evidence_rows /
-              metrics_seeded. Real weighted NCTE-specific rubric lands as the
+              {/* Was "evidence_rows / metrics_seeded" — rows over metrics, clamped
+                  to 100%. Fixed 2026-09-07; see coverage-measure.ts. */}
+              <strong>Coverage:</strong> distinct metrics carrying evidence ÷
+              active metrics in this platform&apos;s NCTE catalogue, which today
+              holds 1 placeholder entry and not the full NCTE schedule.
+              Real weighted NCTE-specific rubric lands as the
               catalog is seeded per <code>docs/one-jkkn-one-data.md §8</code>.
             </p>
             <p>
