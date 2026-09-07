@@ -37,7 +37,18 @@ export type VacateReason =
 // produced or rendered it.
 export type FeeStatus = 'pending' | 'partial' | 'paid' | 'waived';
 
-export type FoodPreference = 'veg' | 'non_veg' | 'vegan' | 'jain';
+// Mirrors the hostel_allocations.food_preference enum EXACTLY:
+// vegetarian | non_vegetarian | vegan | jain | eggetarian.
+// This previously read 'veg' | 'non_veg' | 'vegan' | 'jain' — two values the
+// database has never accepted and one ('eggetarian') it does. Saving a food
+// preference from the allocation drawer therefore failed on the enum every
+// time, which is why 0 rows carry one (verified 2026-09-07).
+export type FoodPreference =
+  | 'vegetarian'
+  | 'non_vegetarian'
+  | 'vegan'
+  | 'jain'
+  | 'eggetarian';
 
 // ─── Core row + DTOs ───────────────────────────────────────────────────
 

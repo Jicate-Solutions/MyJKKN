@@ -138,7 +138,7 @@ export class WorkPatternService {
       hr_leave_types: { leave_type_code: string; display_order: number } | null;
     };
     const entByPattern = new Map<string, Array<{ leave_type_code: string; entitled_days: number; order: number }>>();
-    for (const e of (entRes.data ?? []) as EntRow[]) {
+    for (const e of (entRes.data ?? []) as unknown as EntRow[]) {
       const bucket = entByPattern.get(e.work_pattern_id) ?? [];
       bucket.push({
         leave_type_code: e.hr_leave_types?.leave_type_code ?? '?',
@@ -350,7 +350,7 @@ export class WorkPatternService {
       entitled_days: number | string;
       hr_leave_types: { leave_type_code: string; leave_type_name: string; display_order: number } | null;
     };
-    return ((data ?? []) as Row[])
+    return ((data ?? []) as unknown as Row[])
       .sort((a, b) => (a.hr_leave_types?.display_order ?? 0) - (b.hr_leave_types?.display_order ?? 0))
       .map((r) => ({
         id: r.id,
@@ -526,7 +526,7 @@ export class WorkPatternService {
 
     type AssignRow = { staff_id: string; work_pattern_id: string; hr_work_patterns: { name: string } | null };
     const current = new Map<string, { id: string; name: string }>();
-    for (const a of (assignRes.data ?? []) as AssignRow[]) {
+    for (const a of (assignRes.data ?? []) as unknown as AssignRow[]) {
       current.set(a.staff_id, { id: a.work_pattern_id, name: a.hr_work_patterns?.name ?? '' });
     }
 
@@ -579,7 +579,7 @@ export class WorkPatternService {
     if (error) throw error;
     if (!data) return null;
 
-    const row = data as {
+    const row = data as unknown as {
       id: string;
       work_pattern_id: string;
       effective_from: string;
