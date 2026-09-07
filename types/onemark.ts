@@ -138,8 +138,10 @@ export interface FpAttemptOneMarkColumns {
 /** fp_attempts.config (Wave 3). Open-ended on purpose — read what you wrote. */
 export interface OneMarkAttemptConfig {
   /** onemark_item_sources keys the learner picked. Absent or empty = all
-   *  sources. fn_onemark_source_analytics reads this to know what was asked
-   *  for; what was actually SERVED is read from the responses' items. */
+   *  sources. Written by Lane L at draw time; NOTHING in Wave 3 reads it —
+   *  fn_onemark_source_analytics deliberately counts practice from what was
+   *  actually SERVED (fp_responses -> fp_items.source_key), because what a
+   *  learner asked for is not what they answered. */
   source_keys?: string[];
   [key: string]: unknown;
 }
@@ -202,8 +204,14 @@ export type OneMarkUiLocale = 'en' | 'ta';
 export type OneMarkBoardMatchKind = 'exact' | 'near';
 
 /** onemark_board_paper_hits — "this bank question appeared in the real board
- *  paper", ticked once a year after the exam by a question author. Append-only:
- *  a wrong tick is deleted by its author, never edited. */
+ *  paper", ticked once a year after the exam by a question author.
+ *
+ *  Append-only, and enforced as such: `authenticated` holds SELECT, INSERT and
+ *  DELETE but NOT UPDATE, so there is no code path that edits a tick — an
+ *  update is refused at the privilege layer before RLS is even consulted. The
+ *  delete policy is scoped to `noted_by = auth.uid()` (a super admin may always
+ *  clear a row). Do not write an update helper for this table; withdraw the
+ *  wrong tick and insert the right one. */
 export interface OneMarkBoardPaperHit {
   id: string;
   exam_definition_id: string;
@@ -234,6 +242,10 @@ export interface OneMarkCohortResultLearner {
   mode: OneMarkAttemptMode | null;
   started_at: string;
   submitted_at: string | null;
+  /** SUBMITTED sittings only. While a sitting is still in_progress every
+   *  is_correct is null, so an unfinished learner would otherwise show 0
+   *  correct in every unit — a wrong number rather than a missing one. Expect
+   *  {} / [] for any row whose `status` is not 'submitted'. */
   per_tag: Record<string, { correct: number; total: number }>;
   per_unit: Array<{
     topic_id: string | null;
@@ -243,6 +255,17 @@ export interface OneMarkCohortResultLearner {
     correct: number;
     total: number;
   }>;
+}
+
+/** fn_onemark_close_abandoned_live() return shape. Not just a count: a sitting
+ *  finalize refuses (a stray response -> 22023, a null mode, a grade failure)
+ *  stays in_progress and is re-selected on every cron tick, so the sweep has to
+ *  be able to SAY so instead of retrying it forever in silence. */
+export interface OneMarkAutoCloseResult {
+  closed: number;
+  failed: number;
+  failed_attempt_ids: string[];
+  failures: Array<{ attempt_id: string; sqlstate: string; message: string }>;
 }
 
 /** One question's row in fn_onemark_cohort_results. Every statistic is null
@@ -260,8 +283,16 @@ export interface OneMarkCohortResultItem {
   served: number | null;
   correct: number | null;
   skipped: number | null;
-  /** Fraction of submitted sittings that got it right, 0..1. */
+  /** served - skipped: the learners who actually chose an option. */
+  attempted: number | null;
+  /** correct / SERVED — every learner the question reached, skips included.
+   *  On a timed paper where part of the cohort ran out of clock this reads as
+   *  difficulty when it is really the skip rate, so read it beside
+   *  p_value_attempted rather than alone. */
   p_value: number | null;
+  /** correct / ATTEMPTED — the item-analysis convention. Null when nobody
+   *  attempted the question. */
+  p_value_attempted: number | null;
   /** The most-chosen WRONG option, as stored in fp_responses.chosen. */
   top_distractor: unknown | null;
   top_distractor_count: number | null;
@@ -331,8 +362,12 @@ export interface OneMarkSourceAnalyticsRow {
   hits_near: number;
   /** Board hits divided by active questions, for the exam year asked for. */
   hit_rate: number | null;
-  /** Median split on practice share. A CORRELATION, not a cause. Null with a
-   *  reason below onemark.results.min_learners_for_item_stats learners. */
+  /** Median split on practice share. A CORRELATION, not a cause. Null, with a
+   *  reason, in TWO cases: fewer than onemark.results.min_learners_for_item_stats
+   *  learners qualify, OR every qualifying learner practised this source by
+   *  exactly the same amount so the split has an empty side (the shape of a
+   *  source with no questions in it, and of the unrecorded bucket today).
+   *  Render lift_reason whenever lift is null — never a 0 in its place. */
   lift: number | null;
   lift_learners: number;
   lift_reason: string | null;

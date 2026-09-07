@@ -4,12 +4,23 @@
 -- Date: 2026-09-07
 -- Spec: specs/onemark-wave3-2026-09-06.md, "## Lane S3" items 1-11 + header 7.
 -- Rulings of record: specs/onemark-decisions-2026-09-02.md (20 decisions) and
--- the Rulings of 2026-09-06 relayed with this lane's brief — #1 (a bare
--- school_jkkn_owners row grants read on fn_onemark_cohort_results), #2 (full
--- post-close learner review: correct-option KEYS only once the paper's
--- close_at has passed), #3 (auto-close window = 30 minutes), #8 (a withdrawn
--- item is FLAGGED per item; scores are NEVER recomputed), #9
--- (onemark.results.min_learners_for_item_stats = 3).
+-- specs/onemark-wave3-2026-09-06.md, "## Rulings of 2026-09-06 01:20 IST
+-- (Director interview, 15 answers) — DURABLE". That table was given by the
+-- Director on 2026-09-06 but only reached jicate/main on 2026-09-07 (PR #3343),
+-- five minutes after PR #3301 merged; the first review round of THIS PR could
+-- not find it and reasonably called it phantom. It is now in the repository and
+-- every citation below is to that file, not to a prompt:
+--   #1 — "an active school_jkkn_owners row alone grants read of every results
+--        sheet for that school, with no assessments.manage required" (the OR
+--        gate in fn_onemark_cohort_results).
+--   #2 — full post-close learner review; correct-option KEYS only once the
+--        paper's close_at has passed for everyone.
+--   #3 — auto-close window = 30 minutes.
+--   #8 — a withdrawn item is FLAGGED per item; scores are NEVER recomputed.
+--   #9 — "Hide per-question numbers below 3 learners
+--        (onemark.results.min_learners_for_item_stats = 3) ... This OVERRIDES
+--        the 5 written in Lane S3 item 6, which predates the interview."
+--        The Lane S3 item 6 text on jicate/main now carries that override too.
 --
 -- Builds on, and does NOT redefine, the five OneMark migrations already
 -- APPLIED to production: 20260917111500 (Wave 1 schema/seeds/roles),
@@ -23,6 +34,8 @@
 -- WHAT IT DOES
 --   1.  fp_attempts.served_item_ids + fp_attempts.config; the server-side
 --       served-set wall inside record_response and finalize.
+--   1b. fn_onemark_ts_or_null(text) — the safe cast for a free-form close_at
+--       (fix round 2026-09-08; see section 1b for the measurement).
 --   2.  fn_onemark_close_abandoned_live() — the cron's auto-close.
 --   3.  fn_onemark_cohort_results / fn_onemark_learner_report.
 --   4.  onemark_user_prefs — per-person interface language (decision 5).
@@ -42,11 +55,20 @@
 --   * It does not backfill served_item_ids on the 9 existing fp_attempts rows.
 --     Every one of them is mode NULL (a legacy Foundation attempt) — read live
 --     2026-09-07 — so NULL is correct there and the new wall never engages.
---   * It does not touch onemark_question_assets' RLS. Wave 1 already created
---     onemark_question_assets_read / _write with exactly the fp_items
---     predicates; pg_policy was read live 2026-09-07 and confirms it. Step 5
---     ASSERTS them rather than re-creating them (lane spec item 5: "if
---     missing (check pg_policies first)").
+--   * (WITHDRAWN in the 2026-09-08 fix round — it DOES now touch them, and
+--     must.) Wave 1 created onemark_question_assets_read with the fp_items
+--     read predicate: super admin OR foundation.items.view OR
+--     foundation.items.manage. Wave 1 §11a grants the `student` role exactly
+--     one key, foundation.practice.take, and no items.view — measured live
+--     2026-09-08: student = practice.take true, items.view FALSE,
+--     items.manage FALSE. So a learner could read the question-image OBJECT
+--     out of storage (step 5's policy admits practice.take) but got ZERO rows
+--     from the table that holds its storage_path and alt_text, and Lane D's
+--     diagrams would have rendered nothing at all, silently. Lane spec item 5
+--     asks for "read via practice.take". Step 5 now ADDS
+--     onemark_question_assets_read_learner alongside Wave 1's two policies
+--     (which are left exactly as they are) and step 12 asserts that policy by
+--     NAME and by predicate, not just a policy count.
 --   * It does not recompute any score, ever (ruling #8). A withdrawn item is
 --     reported with is_withdrawn = true and its answers stand as recorded.
 --   * It applies nothing. The coordinator applies this file, ledgered, before
@@ -61,11 +83,22 @@
 --   9.  DROP FUNCTION IF EXISTS public.fn_onemark_vault_draw(uuid, uuid, int, text[]);
 --       (the 3-argument version is untouched and must NOT be dropped)
 --   8.  DROP TABLE IF EXISTS public.onemark_board_paper_hits;
---   6.  DELETE FROM public.platform_policies WHERE scope_type = 'global' AND scope_id IS NULL
---         AND policy_key IN ('onemark.paper.question_count.tn_hsc_english',
---           'onemark.live.auto_close_after_minutes','onemark.live.grace_seconds',
---           'onemark.results.min_learners_for_item_stats');
---   5.  DROP POLICY IF EXISTS onemark_question_assets_storage_read   ON storage.objects;
+--   6.  The forward INSERT is guarded by NOT EXISTS, so it spares any of these
+--       four keys that already existed as a global row. The reversal must
+--       therefore delete only rows THIS file created — scope it by the apply
+--       timestamp, the way 20260917111500's own reversal scopes user_roles:
+--         DELETE FROM public.platform_policies WHERE scope_type = 'global' AND scope_id IS NULL
+--           AND policy_key IN ('onemark.paper.question_count.tn_hsc_english',
+--             'onemark.live.auto_close_after_minutes','onemark.live.grace_seconds',
+--             'onemark.results.min_learners_for_item_stats')
+--           AND created_at >= '<the apply timestamp>'::timestamptz;
+--       (Measured 2026-09-08: none of the four exists in production today, so
+--       an unscoped delete would be correct RIGHT NOW — but not after any other
+--       lane seeds one, which is exactly the window a rollback runs in.)
+--   5.  DROP POLICY IF EXISTS onemark_question_assets_read_learner ON public.onemark_question_assets;
+--       (Wave 1's onemark_question_assets_read / _write are NOT dropped —
+--        this file never recreated them.)
+--       DROP POLICY IF EXISTS onemark_question_assets_storage_read   ON storage.objects;
 --       DROP POLICY IF EXISTS onemark_question_assets_storage_write  ON storage.objects;
 --       DROP POLICY IF EXISTS onemark_question_assets_storage_update ON storage.objects;
 --       DROP POLICY IF EXISTS onemark_question_assets_storage_delete ON storage.objects;
@@ -74,6 +107,7 @@
 --   3.  DROP FUNCTION IF EXISTS public.fn_onemark_cohort_results(uuid);
 --       DROP FUNCTION IF EXISTS public.fn_onemark_learner_report(uuid, uuid);
 --   2.  DROP FUNCTION IF EXISTS public.fn_onemark_close_abandoned_live();
+--       DROP FUNCTION IF EXISTS public.fn_onemark_ts_or_null(text);
 --   1.  Re-run 20260918101500 §2 and §4 with 20260918130000's FOR NO KEY
 --       UPDATE lock re-applied, then
 --       DROP FUNCTION IF EXISTS public.fn_onemark_finalize_attempt_unchecked(uuid);
@@ -90,11 +124,15 @@
 -- pre-Wave-3 attempt; the wall engages only when the column is populated, so
 -- nothing in flight breaks.
 --
--- config is added here because the lane spec's own item 10 and Lane Q item 3
--- both read `fp_attempts.config.source_keys`, and the column DOES NOT EXIST in
--- production (information_schema read live 2026-09-07). Without it neither the
--- learner's source pick nor the lift half of the source analytics has anywhere
--- to live. Additive, defaulted, nullable-free.
+-- config is added AHEAD OF LANE L, which writes the learner's source pick at
+-- draw time; the column DOES NOT EXIST in production (information_schema read
+-- live 2026-09-07, re-read 2026-09-08). NOTHING IN THIS FILE READS OR WRITES
+-- IT — an earlier draft of this comment said fn_onemark_source_analytics reads
+-- it, and that was wrong: that function deliberately counts practice from what
+-- was SERVED (fp_responses -> fp_items.source_key, see section 10), because
+-- what a learner asked for is not what they answered. The column is carried
+-- here rather than in Lane L's own migration only because this is the wave's
+-- only lane with SQL. Additive, constant default, no table rewrite.
 ALTER TABLE public.fp_attempts
   ADD COLUMN IF NOT EXISTS served_item_ids uuid[],
   ADD COLUMN IF NOT EXISTS config          jsonb NOT NULL DEFAULT '{}'::jsonb;
@@ -102,7 +140,7 @@ ALTER TABLE public.fp_attempts
 COMMENT ON COLUMN public.fp_attempts.served_item_ids IS
   'The item ids this sitting actually served, persisted at draw time. NULL on a live paper (its set is fp_assessment_items) and on every pre-Wave-3 attempt. When NOT NULL, fn_onemark_record_response and fn_onemark_finalize_attempt refuse any item outside it (22023) — the server-side wall that replaces the HMAC served-set token in lib/services/onemark/attempt-server.ts. Added 2026-09-07 (OneMark Wave 3, Lane S3).';
 COMMENT ON COLUMN public.fp_attempts.config IS
-  'Per-sitting settings recorded at draw time. Today: source_keys (text[] of onemark_item_sources.key the learner picked; absent or empty = all), which fn_onemark_source_analytics reads to know what was practised. Added 2026-09-07 (OneMark Wave 3, Lane S3).';
+  'Per-sitting settings recorded at draw time. Today: source_keys (text[] of onemark_item_sources.key the learner picked; absent or empty = all), written by Lane L. No consumer in Wave 3: fn_onemark_source_analytics deliberately counts practice from what was SERVED (fp_responses -> fp_items.source_key), not from what was asked for. Added 2026-09-07 (OneMark Wave 3, Lane S3), ahead of Lane L.';
 
 CREATE INDEX IF NOT EXISTS idx_fp_attempts_served_items
   ON public.fp_attempts USING gin (served_item_ids)
@@ -370,11 +408,21 @@ BEGIN
   v_reveal  := v_attempt.mode IN ('practice', 'vault_review');
 
   -- 2. Unanswered items of a fixed paper become skipped responses.
+  --    The served-set filter is NOT optional (Wave 3 fix round, 2026-09-08).
+  --    Without it this backfill writes the very rows the wall five lines above
+  --    refuses and record_response rejects at 22023: an attempt that carries a
+  --    served set AND hangs off an assessment with fp_assessment_items rows (a
+  --    mock paper sat in timed mode) would have finalize insert items it was
+  --    never served, which then become eligible for post-close key reveal.
+  --    NULL served_item_ids (every live paper, every pre-Wave-3 attempt) keeps
+  --    the old behaviour exactly.
   WITH ins AS (
     INSERT INTO public.fp_responses (attempt_id, item_id, chosen, is_correct, time_ms, skipped)
     SELECT p_attempt_id, ai.item_id, NULL, NULL, NULL, true
       FROM public.fp_assessment_items ai
      WHERE ai.assessment_id = v_attempt.assessment_id
+       AND (v_attempt.served_item_ids IS NULL
+            OR ai.item_id = ANY (v_attempt.served_item_ids))
        AND NOT EXISTS (
          SELECT 1 FROM public.fp_responses r
           WHERE r.attempt_id = p_attempt_id AND r.item_id = ai.item_id
@@ -496,6 +544,52 @@ GRANT  EXECUTE ON FUNCTION public.fn_onemark_finalize_attempt(uuid) TO authentic
 
 
 -- =============================================================================
+-- 1b. fn_onemark_ts_or_null — a close_at that cannot take the estate down.
+-- =============================================================================
+-- Added in the 2026-09-08 fix round. fp_assessments.config is free-form jsonb
+-- written by Lane W's paper wizard with no CHECK, so config->>'close_at' is
+-- whatever was put there. The first draft of this file guarded the cast with
+-- `~ '^\d{4}-\d{2}-\d{2}'`, which only inspects the first ten characters:
+-- MEASURED on production 2026-09-08, '2026-02-30T10:00:00Z' passes that regex
+-- (so does month 13, so does hour 25) and then raises 22008 date/time field
+-- value out of range on the ::timestamptz cast. In fn_onemark_close_abandoned_live
+-- that cast sits in the FOR loop's DRIVING SELECT, so the error is raised
+-- "at FOR over SELECT rows" BEFORE the per-attempt EXCEPTION handler exists —
+-- also measured — and one malformed row in one paper stops every cohort's
+-- sittings from being auto-closed anywhere. The same cast in
+-- fn_onemark_cohort_results 500s that paper's whole results sheet.
+--
+-- No regex can catch 30 February. The only correct guard is to attempt the
+-- cast and fall back, which is what this does. STRICT (NULL in, NULL out,
+-- body never entered) and STABLE (the cast reads the TimeZone GUC).
+CREATE OR REPLACE FUNCTION public.fn_onemark_ts_or_null(p_text text)
+RETURNS timestamptz
+LANGUAGE plpgsql
+STABLE
+STRICT
+SET search_path = public
+AS $$
+BEGIN
+  RETURN p_text::timestamptz;
+EXCEPTION WHEN others THEN
+  RETURN NULL;
+END;
+$$;
+
+COMMENT ON FUNCTION public.fn_onemark_ts_or_null(text) IS
+  'OneMark: cast text to timestamptz, or NULL if it is not a timestamp. Used wherever a free-form jsonb config value is read as a time (fp_assessments.config -> close_at), so that one malformed string cannot abort an auto-close sweep or a results sheet. Not SECURITY DEFINER — it reads nothing. Added 2026-09-08 (OneMark Wave 3, Lane S3 fix round).';
+
+-- Locked to the machine. Its only callers are fn_onemark_close_abandoned_live
+-- and fn_onemark_cohort_results, both SECURITY DEFINER owned by postgres, so
+-- they reach it as their owner and no signed-in session needs EXECUTE. anon,
+-- authenticated AND PUBLIC are all named: authenticated is a member of PUBLIC,
+-- so revoking one does not undo the other (check-secdef-anon-revoke.mjs
+-- refused the first version of this line, which granted authenticated).
+REVOKE EXECUTE ON FUNCTION public.fn_onemark_ts_or_null(text) FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_onemark_ts_or_null(text) TO service_role;
+
+
+-- =============================================================================
 -- 2. fn_onemark_close_abandoned_live — the cron's auto-close (lane item 2).
 -- =============================================================================
 -- Every live sitting still in_progress whose paper's close_at passed more than
@@ -510,18 +604,36 @@ GRANT  EXECUTE ON FUNCTION public.fn_onemark_finalize_attempt(uuid) TO authentic
 --
 -- A paper with NO close_at in its config is never auto-closed by this
 -- function. That is deliberate: without a close time there is no "past", and
--- guessing one would submit a learner's paper out from under them.
+-- guessing one would submit a learner's paper out from under them. A paper
+-- whose close_at is UNREADABLE is treated the same way, via
+-- fn_onemark_ts_or_null (section 1b) — a wizard typo must not stop the sweep.
+--
+-- RETURN TYPE, 2026-09-08 fix round: jsonb, not int. The first draft swallowed
+-- every per-attempt failure into a RAISE WARNING and returned only the success
+-- count, so an attempt finalize refuses (a stray response -> 22023, a NULL
+-- mode, a grade failure) stays in_progress forever, is re-selected on every
+-- cron tick, and the caller cannot tell "nothing to do" from "four sittings
+-- have been failing for a week" — CLAUDE.md rule #27, permission and machine
+-- failures must be explicit, never silent. The sweep now reports
+-- {closed, failed, failed_attempt_ids, failures[]}; `closed` is still the
+-- count the lane spec's item 2 asks for. Nothing calls this yet — the cron
+-- route /api/cron/onemark-live-autoclose is Lane L's and does not exist on
+-- jicate/main (checked 2026-09-08) — so the shape is free to be the right one
+-- now rather than a breaking change later.
+DROP FUNCTION IF EXISTS public.fn_onemark_close_abandoned_live();
 CREATE OR REPLACE FUNCTION public.fn_onemark_close_abandoned_live()
-RETURNS int
+RETURNS jsonb
 LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_minutes int;
-  v_row     record;
-  v_closed  int := 0;
+  v_minutes  int;
+  v_row      record;
+  v_closed   int := 0;
+  v_failed   int := 0;
+  v_failures jsonb := '[]'::jsonb;
 BEGIN
   v_minutes := public.fn_get_policy_int('onemark.live.auto_close_after_minutes', 30);
   IF v_minutes IS NULL OR v_minutes < 0 THEN
@@ -534,28 +646,31 @@ BEGIN
       JOIN public.fp_assessments s ON s.id = a.assessment_id
      WHERE a.mode = 'live'
        AND a.status = 'in_progress'
-       AND (s.config ->> 'close_at') IS NOT NULL
-       AND (
-             CASE WHEN (s.config ->> 'close_at') ~ '^\d{4}-\d{2}-\d{2}'
-                  THEN (s.config ->> 'close_at')::timestamptz
-             END
-           ) + make_interval(mins => v_minutes) < now()
+       AND public.fn_onemark_ts_or_null(s.config ->> 'close_at')
+             + make_interval(mins => v_minutes) < now()
      ORDER BY a.started_at
   LOOP
     BEGIN
       PERFORM public.fn_onemark_finalize_attempt_unchecked(v_row.id);
       v_closed := v_closed + 1;
     EXCEPTION WHEN OTHERS THEN
+      v_failed   := v_failed + 1;
+      v_failures := v_failures || jsonb_build_object(
+        'attempt_id', v_row.id, 'sqlstate', SQLSTATE, 'message', SQLERRM);
       RAISE WARNING '[onemark auto-close] attempt % could not be closed: % (%)', v_row.id, SQLERRM, SQLSTATE;
     END;
   END LOOP;
 
-  RETURN v_closed;
+  RETURN jsonb_build_object(
+    'closed',             v_closed,
+    'failed',             v_failed,
+    'failed_attempt_ids', COALESCE((SELECT jsonb_agg(f -> 'attempt_id') FROM jsonb_array_elements(v_failures) f), '[]'::jsonb),
+    'failures',           v_failures);
 END;
 $$;
 
 COMMENT ON FUNCTION public.fn_onemark_close_abandoned_live() IS
-  'OneMark: finalise every live sitting still in_progress more than onemark.live.auto_close_after_minutes (default 30) past its paper''s config.close_at, and return how many were closed. Unanswered items become skips through fn_onemark_finalize_attempt_unchecked''s own backfill (decision 18). Idempotent; one failing attempt is a WARNING, not an abort. A paper with no close_at is never touched. service_role only — the cron route at /api/cron/onemark-live-autoclose calls it with the service client; authenticated is REVOKED because no learner or Senior Learner should be able to close every cohort''s sittings at once. Added 2026-09-07 (OneMark Wave 3, Lane S3).';
+  'OneMark: finalise every live sitting still in_progress more than onemark.live.auto_close_after_minutes (default 30) past its paper''s config.close_at. Returns jsonb {closed, failed, failed_attempt_ids, failures} — `closed` is the count the lane spec asks for, and the rest exist so the cron can SEE a sitting it has been failing to close on every tick instead of retrying it forever in silence (CLAUDE.md rule #27). Unanswered items become skips through fn_onemark_finalize_attempt_unchecked''s own backfill (decision 18). Idempotent; one failing attempt is a WARNING, not an abort. A paper with no close_at — or an unreadable one — is never touched. service_role only — the cron route at /api/cron/onemark-live-autoclose calls it with the service client; authenticated is REVOKED because no learner or Senior Learner should be able to close every cohort''s sittings at once. Added 2026-09-07, return shape widened 2026-09-08 (OneMark Wave 3, Lane S3).';
 
 REVOKE EXECUTE ON FUNCTION public.fn_onemark_close_abandoned_live() FROM anon, authenticated, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_onemark_close_abandoned_live() TO service_role;
@@ -629,8 +744,10 @@ BEGIN
     v_min := 3;
   END IF;
 
-  v_close_at := CASE WHEN (v_a.config ->> 'close_at') ~ '^\d{4}-\d{2}-\d{2}'
-                     THEN (v_a.config ->> 'close_at')::timestamptz END;
+  -- Safe cast (section 1b): a wizard typo in this paper's free-form config
+  -- must not 500 the whole results sheet. An unreadable close_at reads as
+  -- "never closed", which withholds the answer keys — the safe direction.
+  v_close_at := public.fn_onemark_ts_or_null(v_a.config ->> 'close_at');
   v_closed   := v_close_at IS NOT NULL AND v_close_at <= now();
 
   SELECT count(DISTINCT a.student_id) INTO v_learners
@@ -657,12 +774,19 @@ BEGIN
            st.full_name,
            (SELECT count(*) FROM resp r WHERE r.attempt_id = t.id AND NOT r.skipped)  AS answered,
            (SELECT count(*) FROM resp r WHERE r.attempt_id = t.id AND r.skipped)      AS skipped,
+           -- per_tag / per_unit are computed for SUBMITTED sittings only
+           -- (2026-09-08 fix round). In a live or timed sitting still running,
+           -- is_correct is NULL on every response until finalize grades it, so
+           -- the old unfiltered version showed a Senior Learner who opened the
+           -- sheet mid-exam every unfinished learner at 0 correct in every unit
+           -- — a wrong number, not a missing one. learner_count and every
+           -- per-item statistic already filtered on status; only these did not.
            (SELECT COALESCE(jsonb_object_agg(x.tag, jsonb_build_object('correct', x.c, 'total', x.n)), '{}'::jsonb)
               FROM (SELECT tg AS tag,
                            count(*) FILTER (WHERE r.is_correct IS TRUE) AS c,
                            count(*)                                     AS n
                       FROM resp r, unnest(r.tags) AS tg
-                     WHERE r.attempt_id = t.id
+                     WHERE r.attempt_id = t.id AND t.status = 'submitted'
                      GROUP BY tg) x)                                                  AS per_tag,
            (SELECT COALESCE(jsonb_agg(jsonb_build_object(
                      'topic_id', y.topic_id, 'unit_no', y.unit_no,
@@ -674,7 +798,7 @@ BEGIN
                            count(*) FILTER (WHERE r.is_correct IS TRUE) AS c,
                            count(*)                                     AS n
                       FROM resp r
-                     WHERE r.attempt_id = t.id
+                     WHERE r.attempt_id = t.id AND t.status = 'submitted'
                      GROUP BY r.topic_id) y)                                          AS per_unit
       FROM att t
       LEFT JOIN public.fp_students st ON st.id = t.student_id
@@ -728,6 +852,8 @@ BEGIN
              ELSE format('fewer than %s learners have submitted (%s) — per-item statistics would identify individuals', v_min, v_learners) END,
     'answer_keys_reason',
         CASE WHEN v_closed THEN NULL
+             WHEN v_close_at IS NULL AND (v_a.config ? 'close_at')
+                  THEN 'this paper''s close time could not be read, so it is treated as never closed — fix it in the paper settings'
              WHEN v_close_at IS NULL THEN 'this paper has no close time, so it has never closed'
              ELSE 'the paper has not closed yet' END,
     'learners', (
@@ -760,8 +886,20 @@ BEGIN
                  'served',       CASE WHEN v_show_items THEN to_jsonb(it.served)  END,
                  'correct',      CASE WHEN v_show_items THEN to_jsonb(it.correct) END,
                  'skipped',      CASE WHEN v_show_items THEN to_jsonb(it.skipped) END,
+                 'attempted',    CASE WHEN v_show_items THEN to_jsonb(it.served - it.skipped) END,
+                 -- p_value is correct / SERVED — every learner the question
+                 -- reached, skips included. On a timed paper where a third of
+                 -- the cohort ran out of clock that reads as difficulty when it
+                 -- is really the skip rate, so p_value_attempted (correct /
+                 -- attempted, the item-analysis convention) is returned beside
+                 -- it and Lane A shows both. Added 2026-09-08; which one the
+                 -- item table leads with is a Director call, and neither key
+                 -- moves without one.
                  'p_value',      CASE WHEN v_show_items AND it.served > 0
                                       THEN to_jsonb(round(it.correct::numeric / it.served, 4)) END,
+                 'p_value_attempted',
+                                 CASE WHEN v_show_items AND (it.served - it.skipped) > 0
+                                      THEN to_jsonb(round(it.correct::numeric / (it.served - it.skipped), 4)) END,
                  'top_distractor',       CASE WHEN v_show_items THEN it.top_distractor END,
                  'top_distractor_count', CASE WHEN v_show_items THEN to_jsonb(it.top_distractor_n) END,
                  -- ruling #2: keys only once the paper has closed.
@@ -903,10 +1041,36 @@ GRANT SELECT, INSERT, UPDATE ON TABLE public.onemark_user_prefs TO authenticated
 -- 5. Question images — the storage bucket (lane item 5).
 -- =============================================================================
 -- The TABLE onemark_question_assets and its RLS already exist (Wave 1,
--- 20260917111500 §6) with exactly the fp_items predicates; pg_policy was read
--- live 2026-09-07 and both policies are present, so this file does NOT
--- re-create them — step 12 asserts them instead.
+-- 20260917111500 §6) with exactly the fp_items predicates. Wave 1's two
+-- policies are left EXACTLY as they are — this file never re-creates them, and
+-- step 12 still asserts they survive.
 --
+-- But the fp_items read predicate is super admin OR foundation.items.view OR
+-- foundation.items.manage, and a learner holds NEITHER. Measured live
+-- 2026-09-08 against custom_roles: `student` = practice.take TRUE,
+-- items.view FALSE, items.manage FALSE (Wave 1 §11a grants it exactly one
+-- key). So a learner sitting a paper could fetch the question IMAGE out of
+-- storage — the bucket policy below admits practice.take — and got zero rows
+-- from the table that holds its storage_path and alt_text. Lane D's diagrams
+-- would have rendered nothing, and the failure is an empty box, not an error.
+-- Lane spec item 5 asks for "read via practice.take". So step 5 ADDS one
+-- policy, additive and read-only:
+DROP POLICY IF EXISTS onemark_question_assets_read_learner ON public.onemark_question_assets;
+CREATE POLICY onemark_question_assets_read_learner
+  ON public.onemark_question_assets FOR SELECT
+  USING (auth.uid() IS NOT NULL
+         AND public.user_has_permission('foundation.practice.take'));
+
+COMMENT ON POLICY onemark_question_assets_read_learner ON public.onemark_question_assets IS
+  'A learner sitting a paper must be able to read the row that points at a question''s diagram (storage_path, alt_text) — the image itself is already readable via the onemark-question-assets bucket''s practice.take arm. Read only: Wave 1''s onemark_question_assets_write still governs every write, and this row carries no stem, option or answer. Added 2026-09-08 (OneMark Wave 3, Lane S3 fix round; lane spec item 5, "read via practice.take").';
+
+-- The table-level grant is already there — measured 2026-09-08, `authenticated`
+-- holds SELECT (and more) on this table and `anon` holds nothing — so RLS was
+-- the only wall in the way. These two lines restate that rather than change it,
+-- so the guarantee survives a future GRANT sweep.
+GRANT SELECT ON TABLE public.onemark_question_assets TO authenticated;
+REVOKE ALL ON TABLE public.onemark_question_assets FROM anon, PUBLIC;
+
 -- What is missing is the bucket. Private, 2 MB, images only.
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 SELECT 'onemark-question-assets', 'onemark-question-assets', false, 2097152,
@@ -974,9 +1138,11 @@ WHERE NOT EXISTS (
 -- =============================================================================
 -- 8. onemark_board_paper_hits — did this question appear in the real exam?
 -- =============================================================================
--- Lane Q item 4. Append-only by design: a wrong tick is DELETED by its author,
--- never edited, so a hit always means "somebody looked at the board paper and
--- said yes", not "somebody edited a row until it agreed".
+-- Lane Q item 4. Append-only by design AND by privilege: a wrong tick is
+-- DELETED by its author, never edited, so a hit always means "somebody looked
+-- at the board paper and said yes", not "somebody edited a row until it
+-- agreed". There is no UPDATE grant and no UPDATE policy (see the policy
+-- block below); DELETE is scoped to noted_by = auth.uid(), or a super admin.
 CREATE TABLE IF NOT EXISTS public.onemark_board_paper_hits (
   id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   exam_definition_id  uuid NOT NULL REFERENCES public.exam_definitions(id) ON DELETE RESTRICT,
@@ -991,7 +1157,7 @@ CREATE TABLE IF NOT EXISTS public.onemark_board_paper_hits (
 );
 
 COMMENT ON TABLE public.onemark_board_paper_hits IS
-  'One tick: "this bank question appeared in the real board paper". Recorded once a year, after the exam, by a question author (foundation.items.manage). exact = the same question; near = the same thing asked differently. Feeds the hit-rate half of fn_onemark_source_analytics — the evidence for Director ruling (a) of 2026-09-06, that a source "worked" only if BOTH its questions appeared AND learners who practised it improved. Append-only: a wrong tick is deleted by its author, never edited. Added 2026-09-07 (OneMark Wave 3, Lane S3).';
+  'One tick: "this bank question appeared in the real board paper". Recorded once a year, after the exam, by a question author (foundation.items.manage). exact = the same question; near = the same thing asked differently. Feeds the hit-rate half of fn_onemark_source_analytics — the evidence for Director ruling (a) of 2026-09-06, that a source "worked" only if BOTH its questions appeared AND learners who practised it improved. Append-only, enforced: authenticated holds SELECT, INSERT and DELETE but NOT UPDATE, and the delete policy scopes a row to noted_by = auth.uid() (a super admin may always clear one). Added 2026-09-07, append-only enforced 2026-09-08 (OneMark Wave 3, Lane S3).';
 COMMENT ON COLUMN public.onemark_board_paper_hits.sitting IS 'Board sitting, e.g. March / June / September. NULL when the year had one sitting.';
 COMMENT ON COLUMN public.onemark_board_paper_hits.match_kind IS 'exact = the identical question; near = the same idea tested in different words.';
 COMMENT ON COLUMN public.onemark_board_paper_hits.board_qno IS 'Question number in the real board paper, when it was recorded.';
@@ -1003,20 +1169,47 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_onemark_board_paper_hits_item_year_sitting
 CREATE INDEX IF NOT EXISTS idx_onemark_board_paper_hits_exam_year
   ON public.onemark_board_paper_hits (exam_definition_id, exam_year);
 
+-- APPEND-ONLY, ENFORCED (2026-09-08 fix round). The first draft said
+-- append-only in three places — the table COMMENT, this file's header and
+-- types/onemark.ts — and then shipped `FOR ALL` plus a full UPDATE grant, so
+-- any foundation.items.manage holder could edit, and delete, anybody else's
+-- tick. Since this table is one half of the evidence Director ruling (a) of
+-- 2026-09-06 rests on ("a source worked only if its questions appeared AND
+-- learners who practised it improved"), an editable provenance record
+-- undermines the ruling it exists to serve. There is now NO update policy and
+-- NO update grant, so an edit is refused at the privilege layer before RLS is
+-- consulted; and delete is scoped to the row's own author, which is what
+-- "deleted by its author" always claimed.
 ALTER TABLE public.onemark_board_paper_hits ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS onemark_board_paper_hits_read  ON public.onemark_board_paper_hits;
-DROP POLICY IF EXISTS onemark_board_paper_hits_write ON public.onemark_board_paper_hits;
+DROP POLICY IF EXISTS onemark_board_paper_hits_read   ON public.onemark_board_paper_hits;
+DROP POLICY IF EXISTS onemark_board_paper_hits_write  ON public.onemark_board_paper_hits;
+DROP POLICY IF EXISTS onemark_board_paper_hits_insert ON public.onemark_board_paper_hits;
+DROP POLICY IF EXISTS onemark_board_paper_hits_delete ON public.onemark_board_paper_hits;
 CREATE POLICY onemark_board_paper_hits_read ON public.onemark_board_paper_hits FOR SELECT
   USING (auth.uid() IS NOT NULL
          AND (public.is_super_admin()
               OR public.user_has_permission('foundation.practice.take')
               OR public.user_has_permission('foundation.items.manage')));
-CREATE POLICY onemark_board_paper_hits_write ON public.onemark_board_paper_hits FOR ALL
-  USING      (public.is_super_admin() OR public.user_has_permission('foundation.items.manage'))
+CREATE POLICY onemark_board_paper_hits_insert ON public.onemark_board_paper_hits FOR INSERT
   WITH CHECK (public.is_super_admin() OR public.user_has_permission('foundation.items.manage'));
+-- A wrong tick is withdrawn by the person who made it. A super admin can
+-- always clear a row (an author who has left, a wrong exam_definition_id);
+-- nobody else can touch another author's.
+CREATE POLICY onemark_board_paper_hits_delete ON public.onemark_board_paper_hits FOR DELETE
+  USING (public.is_super_admin()
+         OR (public.user_has_permission('foundation.items.manage')
+             AND noted_by IS NOT NULL AND noted_by = auth.uid()));
 
-REVOKE ALL ON TABLE public.onemark_board_paper_hits FROM anon, PUBLIC;
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.onemark_board_paper_hits TO authenticated;
+-- REVOKE FROM authenticated FIRST, then grant back the three verbs it may
+-- have. Supabase ships `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON
+-- TABLES TO anon, authenticated, service_role`, so a newly created table
+-- already carries UPDATE for authenticated and a bare GRANT of the other three
+-- does NOT take it away — the rehearsal of 2026-09-08 proved exactly that, by
+-- failing on the assertion below. Same class of trap as the anon EXECUTE
+-- default that CLAUDE.md's "lock new RPCs from anon" rule exists for.
+REVOKE ALL ON TABLE public.onemark_board_paper_hits FROM anon, authenticated, PUBLIC;
+GRANT SELECT, INSERT, DELETE ON TABLE public.onemark_board_paper_hits TO authenticated;
+-- Deliberately NOT granted: UPDATE. Append-only is a privilege, not a comment.
 
 
 -- =============================================================================
@@ -1116,8 +1309,11 @@ GRANT  EXECUTE ON FUNCTION public.fn_onemark_vault_draw(uuid, uuid, int, text[])
 -- not from what they asked for. Their live result is normalised to a fraction
 -- (score ÷ questions on the paper) so papers of different lengths compare.
 -- lift = mean fraction of the learners above the median share minus the mean of
--- those at or below it. It is NULL, with a reason, while fewer than
--- onemark.results.min_learners_for_item_stats learners qualify.
+-- those at or below it. It is NULL, with a reason, in TWO cases: fewer than
+-- onemark.results.min_learners_for_item_stats learners qualify, or every
+-- qualifying learner practised the source by exactly the same amount so the
+-- median split has an empty side. Never a number substituted for an empty
+-- group — see the lift CTE for the measurement that forced this.
 --
 -- The NULL source bucket is kept and labelled, never dropped: with 126 items
 -- and 0 source_key values in production on 2026-09-07 it is, today, the only
@@ -1255,13 +1451,28 @@ BEGIN
      WHERE s.practice_share IS NOT NULL
      GROUP BY s.source_key
   ),
+  -- A median split needs BOTH sides to be non-empty. When every learner has
+  -- the same practice share on a source — share 0 for a source with no items,
+  -- share 1.0 for the NULL bucket, which is today's exact production shape
+  -- (126 items, 0 non-NULL source_key) — the above-median arm is empty. The
+  -- first draft wrapped each arm in COALESCE(...,0), so lift collapsed to
+  -- 0 - mean(live_frac): MEASURED on production 2026-09-08 with a four-learner
+  -- fixture, the shipped expression returned -0.5825 and told a Senior Learner
+  -- that a source with no questions in it made learners 58 points worse, with
+  -- lift_reason NULL because lift_value was not NULL. The same fixture through
+  -- the expression below returns NULL, and the reason says why.
+  -- The non-degenerate case is unchanged (measured +0.6667 / -0.6667).
   lift AS (
     SELECT m.source_key,
            m.learners,
+           count(*) FILTER (WHERE s.practice_share >  m.med) AS n_above,
+           count(*) FILTER (WHERE s.practice_share <= m.med) AS n_at_or_below,
            CASE WHEN m.learners >= v_min
+                 AND count(*) FILTER (WHERE s.practice_share >  m.med) > 0
+                 AND count(*) FILTER (WHERE s.practice_share <= m.med) > 0
                 THEN round(
-                       COALESCE(avg(s.live_frac) FILTER (WHERE s.practice_share >  m.med), 0)
-                     - COALESCE(avg(s.live_frac) FILTER (WHERE s.practice_share <= m.med), 0), 4)
+                       avg(s.live_frac) FILTER (WHERE s.practice_share >  m.med)
+                     - avg(s.live_frac) FILTER (WHERE s.practice_share <= m.med), 4)
            END AS lift_value
       FROM med m
       JOIN share s ON s.source_key IS NOT DISTINCT FROM m.source_key
@@ -1290,11 +1501,27 @@ BEGIN
                                      THEN round((a.hits_exact + a.hits_near)::numeric / a.items_active, 4) END,
                'lift',          (SELECT f.lift_value FROM lift f WHERE f.source_key IS NOT DISTINCT FROM a.source_key),
                'lift_learners', COALESCE((SELECT f.learners FROM lift f WHERE f.source_key IS NOT DISTINCT FROM a.source_key), 0),
-               'lift_reason',   CASE WHEN (SELECT f.lift_value FROM lift f WHERE f.source_key IS NOT DISTINCT FROM a.source_key) IS NULL
-                                     THEN format('fewer than %s learners have both practised and sat a live paper on this subject (%s)',
-                                                 v_min,
-                                                 COALESCE((SELECT f.learners FROM lift f WHERE f.source_key IS NOT DISTINCT FROM a.source_key), 0))
-                                END)
+               -- Two different reasons a lift cannot be computed, and they say
+               -- different things to a Senior Learner: too few learners, or
+               -- enough learners who all practised this source identically so
+               -- there is nothing to compare. Never report a number instead.
+               'lift_reason',
+                 CASE WHEN (SELECT f.lift_value FROM lift f
+                             WHERE f.source_key IS NOT DISTINCT FROM a.source_key) IS NOT NULL
+                      THEN NULL
+                      ELSE COALESCE(
+                        (SELECT CASE
+                           WHEN f.learners < v_min
+                             THEN format('fewer than %s learners have both practised and sat a live paper on this subject (%s)',
+                                         v_min, f.learners)
+                           ELSE format('all %s learners practised this source the same amount, so there is no "practised more" group to compare against',
+                                       f.learners)
+                         END
+                           FROM lift f WHERE f.source_key IS NOT DISTINCT FROM a.source_key),
+                        -- No row in `lift` at all: nobody has both practised
+                        -- this subject and sat a live paper on it.
+                        format('fewer than %s learners have both practised and sat a live paper on this subject (0)', v_min))
+                 END)
              ORDER BY a.items_active DESC, a.source_key NULLS LAST)
         FROM agg a), '[]'::jsonb),
     'notes', jsonb_build_object(
@@ -1397,13 +1624,81 @@ BEGIN
       'public.fn_onemark_vault_draw(uuid, uuid, integer)',
       'public.fn_onemark_source_analytics(uuid, integer)',
       'public.fn_onemark_item_sources_no_delete()',
-      'public.fn_onemark_finalize_attempt_unchecked(uuid)'
+      'public.fn_onemark_finalize_attempt_unchecked(uuid)',
+      'public.fn_onemark_ts_or_null(text)'
     ]) AS x
   LOOP
     IF to_regprocedure(v_src) IS NULL THEN
       RAISE EXCEPTION 'w3: % does not exist', v_src;
     END IF;
   END LOOP;
+
+  -- FIX ROUND 2026-09-08 — the four properties this round exists to guarantee.
+  --
+  -- (a) The auto-close sweep reports its failures instead of swallowing them.
+  IF (SELECT pg_catalog.format_type(p.prorettype, NULL) FROM pg_proc p
+       JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE n.nspname = 'public' AND p.proname = 'fn_onemark_close_abandoned_live') <> 'jsonb' THEN
+    RAISE EXCEPTION 'w3: fn_onemark_close_abandoned_live must return jsonb {closed, failed, failed_attempt_ids}';
+  END IF;
+  SELECT p.prosrc INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = 'fn_onemark_close_abandoned_live';
+  IF v_src !~ 'failed_attempt_ids' THEN
+    RAISE EXCEPTION 'w3: the auto-close sweep does not report failed attempts';
+  END IF;
+  --
+  -- (b) NO raw ::timestamptz cast of a free-form config value survives, in
+  --     either function. A malformed close_at must never abort a sweep or a
+  --     results sheet (measured 2026-09-08: 2026-02-30 passes ^\d{4}-\d{2}-\d{2}
+  --     and then raises 22008 in the FOR loop's driving SELECT, before the
+  --     per-attempt handler exists).
+  FOR v_src IN
+    SELECT p.prosrc FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public'
+       AND p.proname IN ('fn_onemark_close_abandoned_live', 'fn_onemark_cohort_results')
+  LOOP
+    IF v_src ~ 'close_at.{0,4}\)::timestamptz' THEN
+      RAISE EXCEPTION 'w3: a raw close_at cast survives — use fn_onemark_ts_or_null';
+    END IF;
+    IF v_src !~ 'fn_onemark_ts_or_null' THEN
+      RAISE EXCEPTION 'w3: close_at is not read through the safe cast';
+    END IF;
+  END LOOP;
+  IF public.fn_onemark_ts_or_null('2026-02-30T10:00:00Z') IS NOT NULL THEN
+    RAISE EXCEPTION 'w3: fn_onemark_ts_or_null accepted 30 February';
+  END IF;
+  IF public.fn_onemark_ts_or_null('2026-09-01T10:00:00Z') IS NULL THEN
+    RAISE EXCEPTION 'w3: fn_onemark_ts_or_null rejected a valid timestamp';
+  END IF;
+  IF public.fn_onemark_ts_or_null(NULL) IS NOT NULL THEN
+    RAISE EXCEPTION 'w3: fn_onemark_ts_or_null is not NULL-safe';
+  END IF;
+  --
+  -- (c) The lift median split never substitutes 0 for an empty arm.
+  SELECT p.prosrc INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = 'fn_onemark_source_analytics';
+  IF v_src ~ 'COALESCE\(avg\(s\.live_frac\)' THEN
+    RAISE EXCEPTION 'w3: lift still zero-fills an empty median-split arm (a source nobody practised would report a false negative)';
+  END IF;
+  IF v_src !~ 'n_at_or_below' THEN
+    RAISE EXCEPTION 'w3: lift does not require both sides of the median split to be non-empty';
+  END IF;
+  --
+  -- (d) R2.9: the wrapper and the body it delegates to must share an owner.
+  --     fn_onemark_finalize_attempt is CREATE OR REPLACE'd and keeps its
+  --     Wave-2 owner; _unchecked is created fresh, owned by whoever applies
+  --     this file. If they differ, every learner submission fails at the first
+  --     call with "permission denied for function ..._unchecked" — and the
+  --     migration would have applied perfectly cleanly.
+  SELECT count(DISTINCT p.proowner) INTO v_n
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public'
+     AND p.proname IN ('fn_onemark_finalize_attempt',
+                       'fn_onemark_finalize_attempt_unchecked',
+                       'fn_onemark_close_abandoned_live');
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'w3: fn_onemark_finalize_attempt, its _unchecked body and the auto-close sweep have % distinct owners — the wrapper cannot call the body', v_n;
+  END IF;
 
   -- 4, 8: the two new tables, with RLS on.
   IF NOT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -1441,6 +1736,42 @@ BEGIN
   IF v_n < 2 THEN
     RAISE EXCEPTION 'w3: onemark_question_assets lost its Wave 1 RLS (% policies)', v_n;
   END IF;
+  -- FIX ROUND: assert the learner read policy BY NAME and BY PREDICATE, not by
+  -- a count. A count of 2 was already true before this policy existed, which is
+  -- exactly how the gap survived the first round: the learner could read the
+  -- image object and not the row that names it, so a diagram rendered as
+  -- nothing at all.
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policy
+     WHERE polrelid = 'public.onemark_question_assets'::regclass
+       AND polname  = 'onemark_question_assets_read_learner'
+       AND polcmd   = 'r'
+       AND pg_get_expr(polqual, polrelid) LIKE '%foundation.practice.take%') THEN
+    RAISE EXCEPTION 'w3: onemark_question_assets has no practice.take read policy — a learner cannot see a question''s diagram';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policy
+     WHERE polrelid = 'public.onemark_question_assets'::regclass
+       AND polname IN ('onemark_question_assets_read', 'onemark_question_assets_write')
+     GROUP BY polrelid HAVING count(*) = 2) THEN
+    RAISE EXCEPTION 'w3: Wave 1''s own onemark_question_assets policies were altered — this file must only ADD';
+  END IF;
+  --
+  -- 8 (fix round): onemark_board_paper_hits is append-only by PRIVILEGE.
+  IF has_table_privilege('authenticated', 'public.onemark_board_paper_hits', 'UPDATE') THEN
+    RAISE EXCEPTION 'w3: onemark_board_paper_hits is documented append-only but authenticated can UPDATE it';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_policy
+              WHERE polrelid = 'public.onemark_board_paper_hits'::regclass
+                AND polcmd IN ('*', 'w')) THEN
+    RAISE EXCEPTION 'w3: onemark_board_paper_hits still carries a FOR ALL / FOR UPDATE policy';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policy
+                  WHERE polrelid = 'public.onemark_board_paper_hits'::regclass
+                    AND polname = 'onemark_board_paper_hits_delete'
+                    AND pg_get_expr(polqual, polrelid) LIKE '%noted_by%') THEN
+    RAISE EXCEPTION 'w3: the board-hit delete policy is not scoped to the tick''s own author';
+  END IF;
 
   -- 6: the four policy rows, published.
   SELECT count(*) INTO v_n FROM public.platform_policies
@@ -1477,7 +1808,8 @@ BEGIN
       'public.fn_onemark_item_sources_no_delete()',
       'public.fn_onemark_finalize_attempt_unchecked(uuid)',
       'public.fn_onemark_record_response(uuid, uuid, jsonb, boolean, integer)',
-      'public.fn_onemark_finalize_attempt(uuid)'
+      'public.fn_onemark_finalize_attempt(uuid)',
+      'public.fn_onemark_ts_or_null(text)'
     ]) AS x
   LOOP
     IF has_function_privilege('anon', v_src, 'EXECUTE') THEN
@@ -1489,6 +1821,9 @@ BEGIN
   -- person either.
   IF has_function_privilege('authenticated', 'public.fn_onemark_close_abandoned_live()', 'EXECUTE') THEN
     RAISE EXCEPTION 'w3: authenticated can close every live sitting';
+  END IF;
+  IF has_function_privilege('authenticated', 'public.fn_onemark_ts_or_null(text)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'w3: fn_onemark_ts_or_null is reachable by a signed-in session — only its two definer callers need it';
   END IF;
   IF has_function_privilege('authenticated', 'public.fn_onemark_finalize_attempt_unchecked(uuid)', 'EXECUTE')
      OR has_function_privilege('service_role', 'public.fn_onemark_finalize_attempt_unchecked(uuid)', 'EXECUTE') THEN
