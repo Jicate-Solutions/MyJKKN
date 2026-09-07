@@ -7,7 +7,7 @@
     "dev": "next dev --turbopack",
     "dev:webpack": "next dev --webpack",
     "dev:sentry": "cross-env LOCAL_SENTRY=1 next dev --turbopack",
-    "build": "npm run gen:routes && npm run check:sidebar && npm run check:reachability && npm run check:audit-coverage && cross-env NODE_OPTIONS=\"--max-old-space-size=12288 --max-semi-space-size=128\" next build --turbopack && serwist build serwist.config.mjs",
+    "build": "npm run changelog && npm run gen:routes && npm run check:sidebar && npm run check:reachability && npm run check:audit-coverage && cross-env NODE_OPTIONS=\"--max-old-space-size=12288 --max-semi-space-size=128\" next build --turbopack && serwist build serwist.config.mjs",
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",
@@ -26,7 +26,7 @@
     "check:tier2-coverage": "node scripts/check-tier2-route-coverage.mjs",
     "check:audit-coverage": "tsx scripts/check-permission-audit-coverage.ts",
     "check:menus": "npm run check:permissions && npm run check:menu-coverage && npm run check:tier2-coverage && npm run check:audit-coverage",
-    "check:nav": "echo '[deprecated] check:nav retired — superseded by check:reachability (#441, #442). Script retained for historical/debug; removed from build gate 2026-04-24.' && node scripts/assert-nav-coverage.mjs --max-unverified 99 --max-orphans 99 || true",
+    "check:nav": "echo '[deprecated] check:nav retired \u2014 superseded by check:reachability (#441, #442). Script retained for historical/debug; removed from build gate 2026-04-24.' && node scripts/assert-nav-coverage.mjs --max-unverified 99 --max-orphans 99 || true",
     "check:reachability": "tsx scripts/check-nav-reachability.ts --max-unreachable 58",
     "check:guide-smoke": "tsx scripts/guide-smoke.ts",
     "check:guide-labels": "tsx scripts/guide-labels-guard.ts",
@@ -48,7 +48,8 @@
     "gen:guide-e2e": "tsx scripts/e2e-nav.ts",
     "gen:guide-load": "tsx scripts/load-profile.ts",
     "check:anon-exposure": "node scripts/ci/check-anon-exposure-live.mjs",
-    "check:ungrantable": "node scripts/ci/check-ungrantable-permissions.mjs"
+    "check:ungrantable": "node scripts/ci/check-ungrantable-permissions.mjs",
+    "changelog": "node scripts/generate-changelog.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",

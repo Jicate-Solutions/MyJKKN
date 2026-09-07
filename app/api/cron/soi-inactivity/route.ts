@@ -82,7 +82,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       {
         success: false,
         error:
-          'The "batch" parameter must be a batch id. Leave it off to evaluate every School of Influence batch.',
+          'The "batch" parameter must be a batch id. Leave it off to evaluate every School of Influencer batch.',
       },
       { status: 400 }
     );

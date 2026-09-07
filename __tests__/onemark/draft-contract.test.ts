@@ -5,6 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   parseDraftOutput,
+  buildDraftPayload,
   parsePayload,
   toDraftRow,
   validateBatch,
@@ -42,7 +43,58 @@ function good(over: Record<string, unknown> = {}) {
   };
 }
 
+describe('buildDraftPayload', () => {
+  // The Max seat runner substitutes ONE slot, {{prompt}}, from payload.prompt,
+  // and validates input_schema keys at the top level. Two production failures
+  // taught this: a flat payload left {{payload}} empty (ai_jobs 1096542b), and
+  // an _ctx-only payload was refused as "missing required input(s)"
+  // (ai_jobs bbbf0cbc). The data must therefore be IN the prompt text.
+  it('puts the run data in prompt, where the runner actually substitutes', () => {
+    const built = buildDraftPayload(physics);
+    expect(typeof built.prompt).toBe('string');
+    const echoed = JSON.parse(built.prompt);
+    expect(echoed).toEqual(physics);
+  });
+
+  it('keeps the fields under _ctx so the collect pass can read them', () => {
+    const built = buildDraftPayload(physics);
+    expect(built._ctx).toEqual(physics);
+    expect(parsePayload(built)).toEqual(physics);
+  });
+
+  it('round-trips a null topic_id (chapter-agnostic English tag sets)', () => {
+    const built = buildDraftPayload({ ...physics, topic_id: null });
+    expect(JSON.parse(built.prompt).topic_id).toBeNull();
+    expect(parsePayload(built)!.topic_id).toBeNull();
+  });
+});
+
 describe('parsePayload', () => {
+  // Regression guard, 2026-09-06. The Max-lane seat runner substitutes
+  // payload._ctx into the template's {{payload}} slot. Lane I first sent its
+  // fields at the top level, so the model received an empty slot and replied
+  // "I don't see the actual input payload" (ai_jobs 1096542b). The route now
+  // nests under _ctx; both shapes must parse, because a job queued before the
+  // change still has to file.
+  it('reads the fields from _ctx (the Max-lane payload convention)', () => {
+    const p = parsePayload({ _ctx: { ...physics }, prompt: 'draft them' });
+    expect(p).not.toBeNull();
+    expect(p!.exam_definition_id).toBe(physics.exam_definition_id);
+    expect(p!.count).toBe(physics.count);
+    expect(p!.bloom_level).toBe(physics.bloom_level);
+  });
+
+  it('still reads a flat payload queued before the _ctx change', () => {
+    const p = parsePayload({ ...physics });
+    expect(p).not.toBeNull();
+    expect(p!.exam_definition_id).toBe(physics.exam_definition_id);
+  });
+
+  it('rejects an _ctx that is not an object rather than reading around it', () => {
+    expect(parsePayload({ _ctx: 'nope', prompt: 'x' })).toBeNull();
+    expect(parsePayload({ _ctx: [1, 2, 3] })).toBeNull();
+  });
+
   it('accepts the shape Lane I enqueues and dedupes tag keys', () => {
     const p = parsePayload({ ...physics, tag_keys: ['a', 'a', 'b'] });
     expect(p?.tag_keys).toEqual(['a', 'b']);

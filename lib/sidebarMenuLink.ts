@@ -287,6 +287,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // ======================================================================
   '/director-desk': 'director.handover.view_all',
   '/my-desk': 'view_profile',
+  // What's New (the product changelog) is open to everyone signed in — the
+  // Director's decision, 2026-09-05. `view_profile` is the documented universal
+  // sentinel (isPageAccessible returns true for it unconditionally); an entry
+  // here is REQUIRED because the sidebar's filter is default-deny, so a route
+  // with no mapping is silently super-admin-only. The page scopes its own
+  // CONTENT by role.
+  '/whats-new': 'view_profile',
 
   // Bug Reports (Student Self-Service)
   '/my-bug-reports': 'learners.bug_reports.view',
@@ -527,6 +534,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // /hr/admin landing (see PermissionGuard in app/(routes)/hr/admin/page.tsx).
   '/hr/admin': 'hr.dashboard.view',
   '/hr/admin/automation-rules': 'hr.dashboard.view',
+  // Sorting a job title rewrites hr_staff_details for everyone who carries it,
+  // so this mirrors the page's own PermissionGuard (hr.employees.edit) rather
+  // than the cluster's read-only hr.dashboard.view.
+  '/hr/admin/designation-mapping': 'hr.employees.edit',
   '/hr/admin/disciplinary': 'hr.dashboard.view',
   '/hr/admin/fdp': 'hr.dashboard.view',
   '/hr/admin/forms': 'hr.dashboard.view',
@@ -557,6 +568,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/hr/admin/leave-balances': 'hr.leave.balance.manage',
   '/hr/admin/academic-years': 'hr.academic_years.manage',
   '/hr/admin/sanctioned-posts': 'hr.sanctioned_posts.view',
+  // The page itself is super-admin only (it switches whole institutions out of
+  // the HR module). Mapped to hr.dashboard.view like its siblings so the nav
+  // reachability gate resolves it; the server RPCs are the real boundary.
+  '/hr/admin/institutions': 'hr.dashboard.view',
 
   // Staff Counseling (Phase 1 — placeholder gate; module pages land in Phase 2)
   // Spec: specs/counselor-taxonomy-spec.md. Role seed:
@@ -1300,8 +1315,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/campus-living/laundry/settings': 'campus_living.laundry.view',
   '/campus-living/maintenance/contracts': 'campus_living.maintenance.view',
   '/campus-living/housekeeping': 'campus_living.housekeeping.view',
-  '/campus-living/housekeeping/schedules': 'campus_living.housekeeping.view',
-  '/campus-living/housekeeping/tasks': 'campus_living.housekeeping.view',
+  '/campus-living/housekeeping/types': 'campus_living.housekeeping.types_manage',
+  '/campus-living/housekeeping/cleaners': 'campus_living.housekeeping.cleaners_manage',
+  '/campus-living/housekeeping/availability': 'campus_living.housekeeping.availability_manage',
+  '/campus-living/housekeeping/holds': 'campus_living.housekeeping.view',
   '/campus-living/health': 'campus_living.health.view',
   '/campus-living/dashboard': 'campus_living.dashboard.view',
   '/campus-living/activity': 'campus_living.activity.view',
@@ -1935,6 +1952,18 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Guide',
           active: pathname === '/guide' || pathname.startsWith('/guide/'),
           icon: BookOpen,
+          submenus: []
+        },
+        {
+          // What's New — the product changelog. Deliberately has NO
+          // MENU_PERMISSIONS entry: the Director's decision (2026-09-05) is that
+          // everyone signed in can open it. The page scopes its own CONTENT by
+          // role, so a student sees student-relevant changes rather than a
+          // locked door.
+          href: '/whats-new',
+          label: "What's New",
+          active: pathname === '/whats-new',
+          icon: Megaphone,
           submenus: []
         },
         {
@@ -2880,6 +2909,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: [
             { href: '/hr/admin', label: 'Dashboard', active: pathname === '/hr/admin' },
             { href: '/hr/admin/automation-rules', label: 'Automation Rules', active: pathname.startsWith('/hr/admin/automation-rules') },
+            { href: '/hr/admin/designation-mapping', label: 'Designation Mapping', active: pathname.startsWith('/hr/admin/designation-mapping') },
             { href: '/hr/admin/disciplinary', label: 'Disciplinary', active: pathname.startsWith('/hr/admin/disciplinary') },
             { href: '/hr/admin/fdp', label: 'FDP', active: pathname.startsWith('/hr/admin/fdp') },
             { href: '/hr/admin/forms', label: 'Forms', active: pathname.startsWith('/hr/admin/forms') },
@@ -2902,6 +2932,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/admin/leave-balances', label: 'Leave Balances', active: pathname.startsWith('/hr/admin/leave-balances') },
             { href: '/hr/admin/academic-years', label: 'HR Academic Years', active: pathname.startsWith('/hr/admin/academic-years') },
             { href: '/hr/admin/sanctioned-posts', label: 'Sanctioned Posts', active: pathname.startsWith('/hr/admin/sanctioned-posts') },
+            { href: '/hr/admin/institutions', label: 'Institutions in HR', active: pathname.startsWith('/hr/admin/institutions') },
           ]
         }
       ]
@@ -3627,7 +3658,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           // appointment for nav purposes only (see
           // hooks/school-of-influence/use-soi-coordinator-nav-access.ts).
           href: '/startup-studio/school-of-influence/admin/applications',
-          label: 'School of Influence',
+          label: 'School of Influencer',
           active: pathname.startsWith('/startup-studio/school-of-influence'),
           icon: GraduationCap,
           submenus: []

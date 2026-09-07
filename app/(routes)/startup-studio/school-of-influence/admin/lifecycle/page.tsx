@@ -35,12 +35,12 @@ import { LifecycleWorkspace } from './_components/lifecycle-workspace';
 // listed under its folder name alone — "Lifecycle", a word that describes
 // nothing anybody would search for (BUG-005799 / BUG-005800).
 export const navMeta = {
-  label: 'School of Influence Inactivity Dry Run',
+  label: 'School of Influencer Inactivity Dry Run',
   icon: 'Activity',
 } as const;
 
 export const metadata: Metadata = {
-  title: 'School of Influence — Inactivity dry run',
+  title: 'School of Influencer — Inactivity dry run',
   description:
     'See who the inactivity engine would remind, pause or remove — before it is ever switched on.',
 };
@@ -53,12 +53,12 @@ export default async function SoiLifecyclePage({ searchParams }: PageProps) {
   const { event, batch } = await searchParams;
 
   return (
-    <ContentLayout title="School of Influence">
+    <ContentLayout title="School of Influencer">
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
           { label: 'Startup Studio', href: '/startup-studio' },
-          { label: 'School of Influence' },
+          { label: 'School of Influencer' },
           { label: 'Inactivity dry run' },
         ]}
       />

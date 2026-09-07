@@ -19,12 +19,13 @@
  *   'teaching'     — every category with employment_categories.is_teaching = true
  *   'non_teaching' — every category with is_teaching = false
  *   'category'     — one specific employment_category_id (beats the two above)
- *   'work_pattern' — the seven rows of one hr_work_patterns row (2026-09-04).
- *                    EXCLUSIVE for anyone assigned to the pattern on that date:
- *                    the resolver matches the pattern's rows or nothing, it
- *                    never falls back to the three above. Always gender 'all'.
+ *
+ * Work patterns (2026-09-04) are NOT a scope here. A pattern holds working
+ * days only (hr_work_pattern_weeks); the resolver takes the member's row from
+ * this ladder and switches the day off when it is not one of the pattern's.
+ * Hours are never configured per pattern.
  */
-export type ShiftStaffScope = 'teaching' | 'non_teaching' | 'category' | 'work_pattern';
+export type ShiftStaffScope = 'teaching' | 'non_teaching' | 'category';
 
 /**
  * What the resolvers report in `matched_by`. Wider than the writable scope:
@@ -59,8 +60,6 @@ export interface HRShiftTiming {
   staff_scope: ShiftStaffScope;
   /** Non-null iff staff_scope === 'category'. */
   employment_category_id: string | null;
-  /** Non-null iff staff_scope === 'work_pattern'. */
-  work_pattern_id: string | null;
   /** Defaults to 'all'. Composes with staff_scope — see ShiftApplicableGender. */
   applicable_gender: ShiftApplicableGender;
   day_of_week: IsoDayOfWeek;
@@ -97,7 +96,6 @@ export interface HRShiftTimingInsert {
   institution_id: string;
   staff_scope: ShiftStaffScope;
   employment_category_id?: string | null;
-  work_pattern_id?: string | null;
   /** Omitted means 'all' — the database default. */
   applicable_gender?: ShiftApplicableGender;
   day_of_week: IsoDayOfWeek;
@@ -132,8 +130,6 @@ export interface ShiftTimingFilters {
   institutionId: string;
   staffScope?: ShiftStaffScope;
   employmentCategoryId?: string | null;
-  /** Required with staffScope 'work_pattern'. Must reach the React Query key too. */
-  workPatternId?: string | null;
   /**
    * Defaults to 'all'. MUST be part of any React Query key built from these
    * filters — without it the Female week is served from the 'all' week's cache.

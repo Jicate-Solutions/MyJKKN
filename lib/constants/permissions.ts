@@ -1378,7 +1378,7 @@ export const PERMISSION_CATEGORIES = [
       // page guard AND by MENU_PERMISSIONS, so the nav chip and the page never
       // disagree. Super admins bypass both.
       // -----------------------------------------------------------------
-      { key: 'startup_studio.school_of_influence.configure', label: 'School of Influence — Configure programme settings' },
+      { key: 'startup_studio.school_of_influence.configure', label: 'School of Influencer — Configure programme settings' },
 
       // NIF Pipeline (Nattraja Incubation Forum)
       { key: 'startup_studio.nif.view', label: 'NIF — View Pipeline' },
@@ -2013,6 +2013,8 @@ export const PERMISSION_CATEGORIES = [
       // either unregistered would make the table permanently super-admin-only.
       { key: 'solutions.societal.view', label: 'View Community Engagements' },
       { key: 'solutions.societal.record', label: 'Record Community Engagements' },
+      { key: 'solutions.societal.submit', label: 'Submit Community Engagements' },
+      { key: 'solutions.societal.approve', label: 'Approve Community Engagements' },
 
       // Settings (tier-2 chip-leak sweep 2026-04-27)
       { key: 'solutions.settings.view', label: 'View Solutions Settings' }
@@ -2150,9 +2152,14 @@ export const PERMISSION_CATEGORIES = [
       { key: 'campus_living.maintenance.approve_payment', label: 'Approve Vendor Payment' },
 
       // Housekeeping
-      { key: 'campus_living.housekeeping.view', label: 'View Housekeeping Schedules' },
-      { key: 'campus_living.housekeeping.schedule', label: 'Create/Edit Schedule' },
-      { key: 'campus_living.housekeeping.mark_done', label: 'Mark Task Done' },
+      { key: 'campus_living.housekeeping.view', label: 'View Housekeeping' },
+      { key: 'campus_living.housekeeping.types_manage', label: 'Manage Cleaning Types' },
+      { key: 'campus_living.housekeeping.cleaners_manage', label: 'Manage Cleaner Directory' },
+      { key: 'campus_living.housekeeping.availability_manage', label: 'Manage Booking Availability' },
+      { key: 'campus_living.housekeeping.assign', label: 'Assign Cleaner to Booking' },
+      { key: 'campus_living.housekeeping.execute', label: 'Record Cleaning (photos, start/finish)' },
+      { key: 'campus_living.housekeeping.cancel', label: "Cancel Another's Booking" },
+      { key: 'campus_living.housekeeping.waive', label: 'Waive Feedback Hold' },
 
       // Laundry
       { key: 'campus_living.laundry.view', label: 'View Laundry Config' },
@@ -3409,10 +3416,10 @@ export const PERMISSION_CATEGORIES = [
       { key: 'cohort.create', label: 'Create Cohorts (ALL programmes)' },
       { key: 'cohort.edit', label: 'Edit Cohorts (ALL programmes)' },
       { key: 'cohort.manage', label: 'Manage Cohorts (ALL programmes — delete, remove members, admin)' },
-      { key: 'cohort.school_of_influence.view', label: 'School of Influence — View batches and members' },
-      { key: 'cohort.school_of_influence.create', label: 'School of Influence — Create batches, accept applicants' },
-      { key: 'cohort.school_of_influence.edit', label: 'School of Influence — Edit batches and member status' },
-      { key: 'cohort.school_of_influence.manage', label: 'School of Influence — Run the programme (attendance, review queue, remove members)' }
+      { key: 'cohort.school_of_influence.view', label: 'School of Influencer — View batches and members' },
+      { key: 'cohort.school_of_influence.create', label: 'School of Influencer — Create batches, accept applicants' },
+      { key: 'cohort.school_of_influence.edit', label: 'School of Influencer — Edit batches and member status' },
+      { key: 'cohort.school_of_influence.manage', label: 'School of Influencer — Run the programme (attendance, review queue, remove members)' }
     ]
   },
   {

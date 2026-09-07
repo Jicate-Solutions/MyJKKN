@@ -3,8 +3,15 @@
 -- HOW MANY CLASSES WERE MARKED THE SAME DAY — the one instrument that can tell
 -- whether a change to the marking screen makes marking LATER.
 --
--- FILE ONLY / NOT APPLIED — Director-gated. Ships DELIBERATELY BEFORE the
--- lesson gate it is meant to measure: a before/after reading needs the BEFORE.
+-- ⚠️ APPLIED TO PRODUCTION 2026-08-08. This header previously read "FILE ONLY /
+-- NOT APPLIED — Director-gated" and that stopped being true when an earlier
+-- version of this same file was applied shortly after #2924 merged. The version
+-- that went live is the one whose timestamp guard is corrected below, so
+-- RE-APPLYING this file is the intended remedy — the §0 guard makes that a safe
+-- no-op-or-upgrade rather than a blind overwrite.
+--
+-- Shipped DELIBERATELY BEFORE the lesson gate it is meant to measure: a
+-- before/after reading needs the BEFORE.
 --
 -- THE PROBLEM. `fn_work_signals_for` derives every marking number from
 -- `sa.attendance_date` alone, so a class marked twenty-one days late is
@@ -38,7 +45,7 @@
 --   3. One row in the inline VALUES list.
 --   4. One row in the work_signal_types registry.
 --   Parts 3 and 4 MUST land together — see the emitter note below.
---   Plus one helper, fn_try_timestamptz_ist — see the cast note below.
+--   Plus one helper, fn_try_ist_date — see the cast note below.
 --
 -- 🔴 THE EMITTER IS AN INNER JOIN, AND IT IS ALREADY BITING. Signals are
 --    emitted by joining work_signal_types against the inline VALUES list, so a
@@ -77,14 +84,18 @@
 --    exception leaves this function, WorkSignalsService resolves any error to
 --    null, and the card renders nothing on null — so ONE poisoned string would
 --    silently blank My Pulse, with no error shown to anyone.
---    An earlier draft guarded the cast with `~ '^\d{4}-\d{2}-\d{2}'`. That is
---    NOT sufficient and the claim has been withdrawn: a prefix regex tests
---    SHAPE, not VALIDITY, so '2026-13-40', '2026-02-30' and '2026-08-08junk'
---    all pass it and then raise anyway. No regex can exclude 31 February.
---    The cast therefore goes through fn_try_timestamptz_ist, which traps the
---    two datetime SQLSTATEs and returns NULL instead of raising. A NULL simply
---    fails the day comparison, so a malformed value is not counted and is not
---    called late either.
+--    Two earlier drafts got this wrong the SAME way — by enumerating.
+--    Draft 1 guarded with `~ '^\d{4}-\d{2}-\d{2}'` and claimed that made a
+--    raise impossible. A prefix regex tests SHAPE, not VALIDITY: '2026-13-40',
+--    '2026-02-30' and '2026-08-08junk' all pass it and raise anyway, and no
+--    regex can exclude 31 February.
+--    Draft 2 — THE VERSION THAT MERGED AND WAS APPLIED TO PRODUCTION — trapped
+--    22007 and 22008 by name. Review then found '+99:00' raises 22009 and a
+--    misspelt zone 'Asia/Kolkatta' raises 22023, both escaping. Verified.
+--    A list that needed extending twice is the wrong shape of rule, so the
+--    cast now goes through fn_try_ist_date, which swallows class 22 and
+--    re-raises everything else. A NULL simply fails the day comparison, so a
+--    malformed value is not counted and is not called late either.
 --    Scope is settled by the query shape, not by the planner: the marker test
 --    lives in the WHERE and the day test in an aggregate FILTER, and FILTER is
 --    applied only to rows the WHERE already admitted. Another marker's poisoned
@@ -116,52 +127,173 @@
 -- number only, no comparison, no score. It is an instrument, not an evaluation.
 -- =============================================================================
 
+-- ⚠️ THIS FILE IS ONE TRANSACTION, AND THAT IS WHAT MAKES §0 A GUARD.
+-- A RAISE inside a standalone DO block aborts that block — it does NOT stop the
+-- next statement from being pasted and executed, and this file reaches the
+-- database out-of-band, statement by statement. Without the BEGIN/COMMIT below,
+-- §0 could refuse and the CREATE OR REPLACE could still overwrite a drifted
+-- engine one statement later, which is the exact hazard §0 exists to prevent.
+-- The check and the write have to be structurally indivisible, not merely
+-- adjacent. If your apply path already opens a transaction, strip these two
+-- lines — do not leave the file un-wrapped in one that does not.
+BEGIN;
+
 -- ---------------------------------------------------------------------------
--- Helper: parse a client-written timestamp WITHOUT ever raising.
+-- §0 DRIFT GUARD — refuse to apply on top of a body this file did not read.
 --
--- Postgres has no TRY_CAST, and a regex cannot stand in for one — '2026-02-30'
--- is well-shaped and still invalid. Trapping the datetime SQLSTATEs is the only
--- way to make a text→timestamptz conversion total.
+-- The CREATE OR REPLACE below rewrites the WHOLE ~7,027-char engine from a
+-- snapshot taken 2026-08-08. Application is Director-gated to an unknown later
+-- date, six files define this function, and DDL reaches this database
+-- out-of-band through the Management API without always landing in the ledger.
+-- Applying a stale body weeks later would silently revert whatever shipped in
+-- between, with no error and no signal — the exact hazard this file's header
+-- warns about, which would be an odd thing to then walk into.
 --
--- Catches 22007 invalid_datetime_format and 22008 datetime_field_overflow by
--- NAME rather than WHEN others, deliberately: `others` would also swallow
--- query_canceled and statement-timeout, turning a timed-out engine into a
--- silently wrong count instead of an error.
+-- So: proceed only if the live body is one this file KNOWS — either the
+-- 2026-08-08 snapshot, or the body that an earlier version of this file already
+-- installed, or this exact revision (making a re-run a no-op). Anything else
+-- aborts, and whoever applies it re-reads the live body first.
 --
--- A value carrying no offset is anchored to IST, not to the session zone. The
--- engine sets search_path and statement_timeout but not timezone, so a naive
--- '2026-08-08T23:30:00' would otherwise be read as UTC and then shifted to the
--- 9th, mis-dating a late-evening mark. Every one of the 31,037 values on
--- production today ends in 'Z'; this is for the write path that does not.
+-- ⚠️ THE IDEMPOTENCY TEST IS A REVISION TAG, NOT A FEATURE SUBSTRING, and that
+-- distinction is the whole guard. A first version asked
+-- `position('v_personal_same_day' in v_def) = 0` — but once this feature is
+-- applied that substring is present FOREVER, so the guard would pass for every
+-- future body containing it and silently overwrite whatever shipped next. A
+-- guard that disarms itself the first time it succeeds is worse than none: it
+-- tells whoever re-applies that the overwrite is safe. The tag below changes
+-- whenever this file's body changes, so a genuinely different engine fails it.
 --
--- STABLE, not IMMUTABLE: parsing text that carries an offset is independent of
--- session state, but this function is not — and mislabelling it IMMUTABLE would
--- license the planner to fold it into an index expression or cache it wrongly.
+-- KEEP THE TAG AND THE BODY IN LOCKSTEP: if you edit the function, bump the tag
+-- in BOTH places (the DECLARE below and the marker inside the body).
 -- ---------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.fn_try_timestamptz_ist(p_text text)
-RETURNS timestamptz
+DO $guard$
+DECLARE
+  v_def text;
+  v_n   int;
+  -- Must match the marker inside the function body below, exactly.
+  v_rev constant text := 'work-signals engine rev: same-day-2026-08-08-r3';
+BEGIN
+  -- Schema-qualified and counted. An unqualified `WHERE proname = …` would also
+  -- match a same-named function in ANOTHER schema, and plpgsql SELECT INTO takes
+  -- the first row of a multi-row result WITHOUT complaining — so the guard could
+  -- silently compare the wrong body and wave a genuinely drifted engine through.
+  SELECT count(*) INTO v_n
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' AND p.proname = 'fn_work_signals_for';
+
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'REFUSING TO APPLY: expected exactly one public.fn_work_signals_for, found %. An overload changes which body this file is replacing; resolve that first.', v_n;
+  END IF;
+
+  SELECT pg_get_functiondef(p.oid) INTO v_def
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' AND p.proname = 'fn_work_signals_for';
+
+  IF v_def IS NULL THEN
+    RAISE EXCEPTION 'REFUSING TO APPLY: public.fn_work_signals_for does not exist — this file REPLACES an engine, it does not create one from nothing.';
+  END IF;
+
+  IF md5(v_def) <> '09432834a331932fbae2d5a90d607d12'          -- the snapshot
+     AND md5(v_def) <> '96dff97bb405f2448c88b23dd6e760ad'      -- what r1 installed
+     AND position(v_rev in v_def) = 0 THEN                     -- this exact revision
+    RAISE EXCEPTION
+      'REFUSING TO APPLY: the live fn_work_signals_for body is none of the three this file knows — the 2026-08-08 snapshot (md5 09432834a331932fbae2d5a90d607d12), the body an earlier version of this file installed (md5 96dff97bb405f2448c88b23dd6e760ad), or revision %. It has md5 % and length %. Something shipped in between; re-read pg_get_functiondef and rebase this migration onto it rather than overwriting it.',
+      v_rev, md5(v_def), length(v_def);
+  END IF;
+END
+$guard$;
+
+-- ---------------------------------------------------------------------------
+-- Helper: turn a client-written timestamp into the IST CALENDAR DATE it fell
+-- on, and NEVER raise while doing it.
+--
+-- It returns a date, not a timestamptz, on purpose. An earlier draft returned
+-- the instant and left the caller to do `… AT TIME ZONE 'Asia/Kolkata')::date`
+-- — which put datetime arithmetic on client-supplied text OUTSIDE the trap, so
+-- a value near the type ceiling ('294276-12-31T23:59:59Z') parsed fine inside
+-- and then overflowed on the +05:30 shift, raising 22008 in the engine. Every
+-- step that can fail now happens in here, behind the handler.
+--
+-- WHAT IT SWALLOWS: class 22 (data exception) ONLY, and it re-raises everything
+-- else. Enumerating datetime SQLSTATEs by name does not work — verified on
+-- production 2026-08-08, the cast raises 22007 (invalid_datetime_format),
+-- 22008 (datetime_field_overflow), 22009 (invalid_time_zone_displacement_value,
+-- e.g. '+99:00') and 22023 (invalid_parameter_value, e.g. a misspelt zone name
+-- 'Asia/Kolkatta'). Two review rounds each found a member the previous list had
+-- missed, which is the signature of a rule that should not be a list. Class 22
+-- is the SQL standard's "the data is bad" class and covers all of them.
+-- The re-raise is the other half. NOTE, corrected after review and verified on
+-- production 2026-08-08: plpgsql's OTHERS already excludes QUERY_CANCELED and
+-- ASSERT_FAILURE, so a statement timeout propagates on its own — an earlier
+-- version of this comment claimed the re-raise was what protected 57014, and
+-- that was simply wrong. What the re-raise actually covers is everything else
+-- OTHERS does catch: class 53 (out of memory, disk full, connection limits),
+-- class 40 (serialization failure, deadlock), classes 58/XX (system and
+-- internal errors) and class 42 should this function ever be changed to touch
+-- an object it may not. Swallowing any of those would turn a real failure into
+-- "not marked that day" — a silently wrong count, which is worse than an error.
+--
+-- ZONE HANDLING. The naive branch is taken ONLY for a strictly zone-free form.
+-- Anything else goes through ::timestamptz, which understands 'Z', '+05',
+-- '+05:30', '+0530' and named zones alike. The earlier draft asked "does this
+-- look like it has an offset?" with a narrow regex and fell back to ::timestamp
+-- otherwise — and ::timestamp SILENTLY DISCARDS a zone it was not asked about.
+-- Verified on production: '…T20:00:00z' (lowercase), '…T23:50:00+05' (two-digit
+-- offset) and '2026-08-07 23:00:00 UTC' all missed that detector, lost their
+-- zone, and were re-anchored as IST wall-clock — a 5.5-hour shift that moves
+-- the calendar day at exactly the late-evening boundary this branch exists to
+-- get right. Now the doubtful cases go the SAFE way, not the lossy way.
+-- A genuinely zone-free value is treated as local campus time, because the
+-- engine sets search_path and statement_timeout but never timezone, so the
+-- session default (UTC) would push a 23:30 IST mark onto the next day.
+--
+-- STABLE, not IMMUTABLE: parsing depends on session state, and mislabelling it
+-- IMMUTABLE would license the planner to fold or cache it wrongly.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_try_ist_date(p_text text)
+RETURNS date
 LANGUAGE plpgsql
 STABLE
 SET search_path = public
 AS $function$
+DECLARE
+  -- btrim/1 strips ONLY spaces. A tab, CR, LF, form-feed or vertical tab would
+  -- otherwise survive, miss the zone-free pattern, and take the zoned branch —
+  -- the same "unrecognised silently means assume UTC" day-late bug this helper
+  -- exists to close, left half-open. The character set is explicit.
+  v_t text := btrim(p_text, E' \t\r\n\f\v');
 BEGIN
-  IF p_text IS NULL THEN
+  IF v_t IS NULL OR v_t = '' THEN
     RETURN NULL;
   END IF;
-  -- Explicit instant (…Z or …±HH[:]MM) — parse as given.
-  IF p_text ~ '(Z|[+-][0-9]{2}:?[0-9]{2})[[:space:]]*$' THEN
-    RETURN p_text::timestamptz;
+  -- Zone-free ⇒ the writer meant local campus time.
+  -- btrim, and 1-2 digits for month/day/hour, are BOTH load-bearing. A first
+  -- version of this test was exact-width and untrimmed, which made it REJECT
+  -- genuinely zone-free values it merely failed to recognise — '2026-08-08
+  -- 23:30:00 ' (trailing space) and '2026-8-8 23:30:00' fell through to the
+  -- zoned branch and were read in the session zone (UTC), landing on the 9th.
+  -- Verified on production: that is a day out, and it was a REGRESSION against
+  -- the version already running. Being unrecognised must not silently mean
+  -- "assume UTC".
+  -- [Tt] because the separator is case-insensitive in practice and a lowercase
+  -- 't' would otherwise fall to the zoned branch and land a day late.
+  IF v_t ~ '^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}([Tt ][0-9]{1,2}:[0-9]{2}(:[0-9]{2}(\.[0-9]+)?)?)?$' THEN
+    RETURN (v_t::timestamp)::date;
   END IF;
-  -- No offset — the writer meant local campus time.
-  RETURN (p_text::timestamp AT TIME ZONE 'Asia/Kolkata');
+  -- Everything else carries (or claims) a zone — let Postgres read it.
+  RETURN ((v_t::timestamptz) AT TIME ZONE 'Asia/Kolkata')::date;
 EXCEPTION
-  WHEN invalid_datetime_format OR datetime_field_overflow THEN
+  WHEN others THEN
+    -- Bad DATA is not counted. Anything else is a real failure and must travel.
+    IF left(SQLSTATE, 2) <> '22' THEN
+      RAISE;
+    END IF;
     RETURN NULL;
 END;
 $function$;
 
-REVOKE EXECUTE ON FUNCTION public.fn_try_timestamptz_ist(text) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_try_timestamptz_ist(text) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_try_ist_date(text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_try_ist_date(text) TO authenticated, service_role;
 
 CREATE OR REPLACE FUNCTION public.fn_work_signals_for(p_from date DEFAULT NULL::date, p_to date DEFAULT NULL::date)
  RETURNS jsonb
@@ -192,6 +324,10 @@ DECLARE
   v_clarifications_open int := 0;
   v_acts_recorded     int := 0;
 BEGIN
+  -- work-signals engine rev: same-day-2026-08-08-r3
+  -- ^ Read by the §0 drift guard in 20260816020000 to recognise its own output.
+  --   Bump it whenever this body changes, and bump v_rev in that guard to match,
+  --   or the guard stops being able to tell this engine from a later one.
   IF v_uid IS NULL THEN
     RAISE EXCEPTION 'fn_work_signals_for: not authenticated';
   END IF;
@@ -252,14 +388,15 @@ BEGIN
   -- unlike the row's created_at, which belongs to whichever period of that day
   -- happened to be inserted first and is therefore punctual for all of them.
   --
-  -- fn_try_timestamptz_ist returns NULL rather than raising on a malformed
-  -- value; NULL fails the comparison, so such a period is not counted — and is
-  -- not called late either. It is simply unknown.
+  -- fn_try_ist_date returns NULL rather than raising on a malformed value, and
+  -- does the zone shift internally so no datetime arithmetic on client text
+  -- happens out here. NULL fails the comparison, so such a period is not
+  -- counted — and is not called late either. It is simply unknown.
   SELECT
     count(*)::int,
     count(*) FILTER (
-      WHERE (public.fn_try_timestamptz_ist(period.value->'marked_by_details'->>'marked_at')
-               AT TIME ZONE 'Asia/Kolkata')::date = sa.attendance_date
+      WHERE public.fn_try_ist_date(period.value->'marked_by_details'->>'marked_at')
+              = sa.attendance_date
     )::int
   INTO v_personal_marked, v_personal_same_day
   FROM public.student_attendance sa, jsonb_each(sa.attendance_data) AS period
@@ -375,6 +512,13 @@ BEGIN
 END;
 $function$;
 
+-- ci:allow-secdef-authenticated fn_work_signals_for is self-scoped: it takes no user id, reads
+--   v_uid := auth.uid() and returns ONLY the caller's own work signals (the My Pulse card,
+--   work-signals-card.tsx via WorkSignalsService, called as the signed-in user). A caller cannot
+--   name anyone else, so there is nothing for an authz check to gate. Granted to authenticated
+--   since 20260717170852; this file only rewrites the body. Same shape as
+--   fn_scf_my_confirmed_attendance (20260921053000). Marker added 2026-09-06 because the
+--   authz-guard assertion (#3136) landed on main after this PR was opened.
 REVOKE EXECUTE ON FUNCTION public.fn_work_signals_for(date, date) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_work_signals_for(date, date) TO authenticated, service_role;
 
@@ -403,4 +547,60 @@ ON CONFLICT (signal_key) DO UPDATE SET
   sort_order=EXCLUDED.sort_order, action_route=EXCLUDED.action_route,
   action_label=EXCLUDED.action_label, is_active=true, updated_at=now();
 
+-- ---------------------------------------------------------------------------
+-- Retire the superseded helper.
+--
+-- An earlier version of THIS FILE shipped `fn_try_timestamptz_ist` and was
+-- applied to production on 2026-08-08 before its corrections had merged. Once
+-- the engine above is replaced, nothing calls it — verified on production the
+-- same day: `fn_work_signals_for` was its ONLY caller in the whole catalog, and
+-- the repository mentions it nowhere outside this file's own history.
+--
+-- It is dropped rather than left lying around because it is not merely
+-- redundant, it is WRONG: it raises on '+99:00' and on a misspelt zone name,
+-- and it silently discards a lowercase 'z' or a two-digit offset. A retired
+-- function that still parses timestamps is an invitation to call it.
+--
+-- ⚠️ IT REFUSES TO DROP WHILE ANYTHING STILL CALLS IT. A plpgsql body is stored
+-- as TEXT, so Postgres records no dependency and a bare DROP would succeed even
+-- while the live engine still called it — the engine would then fail at runtime,
+-- WorkSignalsService would resolve the error to null, and My Pulse would go
+-- blank for everyone. That is not hypothetical here: this file reaches the
+-- database out-of-band, statement by statement, so "the replace above already
+-- ran" is an assumption, not a fact. The check makes the DROP conditional on
+-- the engine actually having been replaced.
+--
+-- IF EXISTS so this is a no-op on any database that never had the earlier
+-- version, and so re-running the file is idempotent.
+-- ---------------------------------------------------------------------------
+DO $retire$
+DECLARE
+  v_refs int;
+BEGIN
+  SELECT count(*) INTO v_refs
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public'
+    -- prokind IS LOAD-BEARING: pg_get_functiondef raises 42809 on aggregates
+    -- and window functions, so scanning every pg_proc row in `public` would
+    -- abort this block the day anyone installs an extension that adds one —
+    -- AFTER the engine was replaced, leaving a half-applied migration with a
+    -- misleading unrelated error. Only plain functions and procedures have a
+    -- body that could call anything. (Verified 2026-08-08: `public` currently
+    -- holds prokind 'f' only, so this changes nothing today and prevents a
+    -- future abort.)
+    AND p.prokind IN ('f', 'p')
+    AND p.proname <> 'fn_try_timestamptz_ist'
+    AND pg_get_functiondef(p.oid) LIKE '%fn_try_timestamptz_ist%';
+
+  IF v_refs > 0 THEN
+    RAISE EXCEPTION
+      'REFUSING TO DROP public.fn_try_timestamptz_ist: % function(s) still call it. Dropping now would break them at runtime and blank My Pulse. Apply the engine replacement above first, then re-run.', v_refs;
+  END IF;
+
+  EXECUTE 'DROP FUNCTION IF EXISTS public.fn_try_timestamptz_ist(text)';
+END
+$retire$;
+
 NOTIFY pgrst, 'reload schema';
+
+COMMIT;

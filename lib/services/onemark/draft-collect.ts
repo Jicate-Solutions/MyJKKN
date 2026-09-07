@@ -277,12 +277,21 @@ export async function runItemDraftNow(admin: Admin, jobId: string): Promise<RunN
     return { ok: false, jobId, reason: 'claim_lost' };
   }
 
-  // Render the template the way the seat runner does: {{payload}} → the
-  // payload as JSON, {{prompt}} → payload.prompt (Lane I sends none).
+  // Render the template the way the seat runner does: {{payload}} → the job's
+  // _ctx as JSON (the lane's convention — see parsePayload; a pre-2026-09-06
+  // job carries its fields flat and is rendered whole), {{prompt}} →
+  // payload.prompt.
   const payload = (job as { payload: unknown }).payload;
   const payloadObj = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
   const prompt = template
-    .replace(/\{\{payload\}\}/g, JSON.stringify(payloadObj, null, 2))
+    .replace(
+      /\{\{payload\}\}/g,
+      JSON.stringify(
+        payloadObj._ctx && typeof payloadObj._ctx === 'object' ? payloadObj._ctx : payloadObj,
+        null,
+        2,
+      ),
+    )
     .replace(/\{\{prompt\}\}/g, typeof payloadObj.prompt === 'string' ? payloadObj.prompt : '');
 
   let text: string;

@@ -339,6 +339,9 @@ export class HRAnalyticsService {
     const { data: orgs, error: orgsError } = await supabase
       .from('hr_organizations')
       .select('id, institution_id, institutions!hr_organizations_institution_id_fkey(name)')
+      // Excluded institutions are not part of the HR module and must not
+      // appear in HR analytics or its institution dropdown.
+      .eq('included_in_hr', true)
       .not('institution_id', 'is', null);
     if (orgsError) throw orgsError;
 

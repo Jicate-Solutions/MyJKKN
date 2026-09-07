@@ -59,7 +59,17 @@ apply_one() {  # $1 = version → 0 applied · 3 skipped (in history) · 4 DRY_R
   # 3. additive only — comments AND quoted strings stripped first: #2806 says "truncate" in a remark, and
   #    20260905010000 checks has_table_privilege(…, 'TRUNCATE') as a security self-test — neither is a statement
   if sed -E "s/--.*\$//; s/'[^']*'//g" "$file" | grep -iqE '\b(DROP[[:space:]]+(TABLE|COLUMN|SCHEMA)|TRUNCATE|DELETE[[:space:]]+FROM)\b'; then
-    freeze "migration $v: destructive statement in $base — a human applies this one after review"; return 1; fi
+    # Director 2026-09-06 07:12: after review he can allow ONE version by writing it to $STATE/allow-destructive
+    # (one per line). Consumed on apply and written to the ledger — never a standing permission. The wave stays
+    # the only actor that touches production; the human stays the one who decides.
+    if grep -qx "$v" "$STATE/allow-destructive" 2>/dev/null; then
+      say "  $v: destructive statement ALLOWED by the Director after review (allow-destructive) — applying"
+      type -t ledger_record >/dev/null 2>&1 && ledger_record resolved "destructive migration $v applied on an explicit allow" "allow-destructive"
+      grep -vx "$v" "$STATE/allow-destructive" > "$STATE/allow-destructive.new"; mv "$STATE/allow-destructive.new" "$STATE/allow-destructive"
+    else
+      freeze "migration $v: destructive statement in $base — a human applies this one after review"; return 1
+    fi
+  fi
   # 4. dry-run inside a rolled-back transaction: catches a missing dependency without persisting anything
   { echo "BEGIN;"; cat "$file"; echo "ROLLBACK;"; } > "$file.dry"
   r=$(mgmt_sql "$file.dry"); err=$(resp_error "$r")
@@ -91,6 +101,11 @@ apply_migrations() {  # $1 = merged-files.txt → sets APPLY_RESULT; returns 0 o
   mv "$STATE/migrations-pending.new" "$STATE/migrations-pending"
   pending=$(cat "$STATE/migrations-pending")
   if [ -z "$pending" ]; then rm -f "$STATE/migrations-pending"; APPLY_RESULT="no migration pending"; return 0; fi
+  # Refresh jicate/main BEFORE resolving any file. apply_one reads the .sql out of the jicate/main ref,
+  # and this stage runs seconds after the merge that added it — so the local ref is always one commit
+  # stale here and the file is invisible. On 2026-09-05 22:32 that froze the wave on the very first
+  # migration it ever tried to apply ("0 files on jicate/main match"), with the file plainly on main.
+  git -C "$WT" fetch jicate main -q 2>/dev/null || say "  warn: could not refresh jicate/main — file resolution may be stale"
   say "  pending versions: $(printf '%s' "$pending" | tr '\n' ' ')  (project $PROD_REF)"
   for v in $pending; do
     apply_one "$v"; rc=$?

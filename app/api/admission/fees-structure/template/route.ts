@@ -14,7 +14,7 @@ import {
   UNIFIED_HEADERS,
   DUE_ANCHOR_LABELS,
   APPLIES_TO_LABELS,
-  REQUIRED_PROMOTIONS,
+  PROMOTION_RUNGS,
   DATE_HEADERS,
   headerColumn,
 } from '@/lib/utils/mappings/fee-structure-excel-mappings';
@@ -107,11 +107,11 @@ export async function GET(_req: NextRequest) {
     const tuition = categoryNames[0] ?? '1 Year Tuition Fee';
     const otherFee = categoryNames[1] ?? 'Uniform Fee';
     const statusLabels = (statuses.data ?? []).map((r: any) => r.label as string);
-    // The two rungs every structure must promote to, named explicitly. The
-    // samples used to take statusLabels[0] and [1], which the alphabetical
-    // order above made "Account" and "Admitted" — a shape the importer now
-    // rejects (no Reserved). The samples must be something it accepts.
-    const [reservedLabel, admittedLabel] = REQUIRED_PROMOTIONS.map(
+    // The two rungs of the ladder, named explicitly. The samples used to take
+    // statusLabels[0] and [1], which the alphabetical order above made
+    // "Account" and "Admitted" — and "Account" is not a rung a fee may reach.
+    // The samples must be something the importer accepts.
+    const [reservedLabel, admittedLabel] = PROMOTION_RUNGS.map(
       (p) => statusLabels.find((l) => l.toLowerCase() === p.label.toLowerCase()) ?? p.label,
     );
 
@@ -373,10 +373,10 @@ export async function GET(_req: NextRequest) {
       'S7. "Promotes To": the lifecycle status the learner reaches when THAT instalment is',
       '    settled (e.g. Reserved, Admitted). Blank = no rule. Statuses that grant a portal',
       '    login can never be reached automatically and are rejected.',
-      'S7a. EVERY structure must promote to BOTH Reserved and Admitted — on any fee, any',
-      '     instalment, in any combination (Reserved on instalment 1 of Tuition and Admitted',
-      '     on instalment 2, or on a different fee altogether). A structure on the sheet that',
-      '     is missing either one is rejected.',
+      'S7a. EVERY structure must promote a learner SOMEWHERE — Reserved or Admitted, on any',
+      '     fee, any instalment. ONE is enough: a government-quota structure whose fees only',
+      '     reserve the seat is fine, and so is a single fee that admits outright. A structure',
+      '     that names neither rung anywhere is rejected — it takes money and moves nobody.',
       'S8. To SPLIT a fee that is currently one payment, replace its single blank-# row with',
       '    2+ numbered rows. To UN-split it, replace its numbered rows with one blank-# row.',
       '',

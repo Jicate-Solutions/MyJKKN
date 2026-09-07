@@ -19,12 +19,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { getRoutineById } from '@/lib/ai-routines/registry';
 import { summarizeRoutineResult } from '@/lib/ai-routines/summarize-routine-result';
+import { withCronRun } from '@/lib/cron/run-log';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 export const maxDuration = 300;
 
-export async function GET(request: NextRequest) {
+// Run-logged (2026-09-10). The dispatcher is the single clock for ~45 routines,
+// so its OWN silence is the most expensive failure on the platform — and it was
+// the one fire nothing recorded: fn_ai_routine_record_fire logs the routines it
+// fires, never the tick that fired them. withCronRun opens a cron_run_log row
+// before the claim and closes it after, so a dispatcher that dies mid-tick
+// leaves an unclosed row rather than no trace at all.
+async function handler(request: NextRequest) {
   // 1) Authorize — same CRON_SECRET pattern as every other cron.
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
@@ -122,3 +129,5 @@ export async function GET(request: NextRequest) {
     elapsed_ms: Date.now() - started,
   });
 }
+
+export const GET = withCronRun('ai-routine-dispatcher', handler);
