@@ -61196,7 +61196,7 @@ BEGIN
 END
 $function$;
 -- Events · institutional event number
--- Updated: 2026-09-07 — see supabase/migrations/20261114000000_events_institutional_number_and_target_classes.sql
+-- Updated: 2026-09-07 — see supabase/migrations/20261118093000_events_institutional_number_and_target_classes.sql
 -- ============================================================================
 
 -- Which academic year a date falls in, for one college. Resolved by DATE

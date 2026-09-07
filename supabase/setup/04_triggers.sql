@@ -2646,7 +2646,7 @@ CREATE TRIGGER trg_b_induction_require_session_started
 
 -- ============================================================================
 -- Events · institutional event number + target-class tenant guard
--- Updated: 2026-09-07 — see supabase/migrations/20261114000000_events_institutional_number_and_target_classes.sql
+-- Updated: 2026-09-07 — see supabase/migrations/20261118093000_events_institutional_number_and_target_classes.sql
 -- ============================================================================
 
 -- UPDATE OF <cols> so an ordinary event edit does not pay for this trigger; it

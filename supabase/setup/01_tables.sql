@@ -9540,7 +9540,7 @@ GRANT SELECT, INSERT                 ON TABLE public.hostel_cleaning_feedback   
 
 -- ============================================================================
 -- Events · institutional event number + target classes + two empty catalogues
--- Updated: 2026-09-07 — see supabase/migrations/20261114000000_events_institutional_number_and_target_classes.sql
+-- Updated: 2026-09-07 — see supabase/migrations/20261118093000_events_institutional_number_and_target_classes.sql
 -- ============================================================================
 
 -- The institutional event number, e.g. 26-001: per college, per academic year.
