@@ -10548,4 +10548,115 @@ CREATE POLICY "sh_department_status_reviews_update"
           AND public.role_has_institution_access(d.institution_id)
       )
     )
+  );
+-- ============================================================================
+-- Events · event_number_counters · event_target_classes · the two catalogues
+-- Updated: 2026-09-07 — see supabase/migrations/20261118093000_events_institutional_number_and_target_classes.sql
+-- No role name is hardcoded anywhere below.
+-- ============================================================================
+
+DROP POLICY IF EXISTS event_number_counters_select ON public.event_number_counters;
+CREATE POLICY event_number_counters_select ON public.event_number_counters
+  FOR SELECT TO authenticated
+  USING (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR (public.user_has_permission('events.view')
+        AND public.role_has_institution_access(institution_id))
+  );
+
+DROP POLICY IF EXISTS event_target_classes_select ON public.event_target_classes;
+CREATE POLICY event_target_classes_select ON public.event_target_classes
+  FOR SELECT TO authenticated
+  USING (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR (public.user_has_permission('events.view')
+        AND public.role_has_institution_access(institution_id))
+  );
+
+DROP POLICY IF EXISTS event_target_classes_insert ON public.event_target_classes;
+CREATE POLICY event_target_classes_insert ON public.event_target_classes
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR (public.user_has_permission('events.target_classes.manage')
+        AND public.role_has_institution_access(institution_id))
+  );
+
+DROP POLICY IF EXISTS event_target_classes_update ON public.event_target_classes;
+CREATE POLICY event_target_classes_update ON public.event_target_classes
+  FOR UPDATE TO authenticated
+  USING (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR (public.user_has_permission('events.target_classes.manage')
+        AND public.role_has_institution_access(institution_id))
+  );
+
+DROP POLICY IF EXISTS event_target_classes_delete ON public.event_target_classes;
+CREATE POLICY event_target_classes_delete ON public.event_target_classes
+  FOR DELETE TO authenticated
+  USING (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR (public.user_has_permission('events.target_classes.manage')
+        AND public.role_has_institution_access(institution_id))
+  );
+
+-- The two catalogues. institution_id IS NULL means "every college", so it is
+-- readable by anyone who can see events at all — a catalogue nobody can read is
+-- a dropdown that is always empty.
+DROP POLICY IF EXISTS event_academic_types_select ON public.event_academic_types;
+CREATE POLICY event_academic_types_select ON public.event_academic_types
+  FOR SELECT TO authenticated
+  USING (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR (public.user_has_permission('events.view')
+        AND (institution_id IS NULL OR public.role_has_institution_access(institution_id)))
+  );
+
+DROP POLICY IF EXISTS event_academic_types_write ON public.event_academic_types;
+CREATE POLICY event_academic_types_write ON public.event_academic_types
+  FOR ALL TO authenticated
+  USING (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR (public.user_has_permission('events.catalogues.manage')
+        AND (institution_id IS NULL OR public.role_has_institution_access(institution_id)))
   )
+  WITH CHECK (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR (public.user_has_permission('events.catalogues.manage')
+        AND (institution_id IS NULL OR public.role_has_institution_access(institution_id)))
+  );
+
+DROP POLICY IF EXISTS event_impact_categories_select ON public.event_impact_categories;
+CREATE POLICY event_impact_categories_select ON public.event_impact_categories
+  FOR SELECT TO authenticated
+  USING (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR (public.user_has_permission('events.view')
+        AND (institution_id IS NULL OR public.role_has_institution_access(institution_id)))
+  );
+
+DROP POLICY IF EXISTS event_impact_categories_write ON public.event_impact_categories;
+CREATE POLICY event_impact_categories_write ON public.event_impact_categories
+  FOR ALL TO authenticated
+  USING (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR (public.user_has_permission('events.catalogues.manage')
+        AND (institution_id IS NULL OR public.role_has_institution_access(institution_id)))
+  )
+  WITH CHECK (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR (public.user_has_permission('events.catalogues.manage')
+        AND (institution_id IS NULL OR public.role_has_institution_access(institution_id)))
+  );
+

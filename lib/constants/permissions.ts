@@ -2688,7 +2688,19 @@ export const PERMISSION_CATEGORIES = [
       // from Role Management. The DELETE it unlocks cascades through 43 child
       // tables (registrations, payment transactions, tournament matches …), so
       // it is deliberately not bundled into any existing events key.
-      { key: 'events.delete', label: 'Delete Events (permanent — cascades registrations & payments)' }
+      { key: 'events.delete', label: 'Delete Events (permanent — cascades registrations & payments)' },
+      // Target sections (2026-09-07). Grants writing event_target_classes — the
+      // sections an event is aimed at. Reading them rides events.view, so a
+      // coordinator who can see an event can see who it is for; only changing
+      // that list needs this key. The label says "sections", not the everyday
+      // word, because the JKKN terminology gate reserves the plural of that
+      // word for teaching sessions (Director correction, 2026-07-14).
+      { key: 'events.target_classes.manage', label: 'Set Which Sections an Event Is For' },
+      // The two institutional event catalogues (2026-09-07): the academic
+      // event-type list and the outcome/impact taxonomy. Both ship EMPTY —
+      // their content is a Director decision against the JKKN IQAC SOP — so
+      // this key opens an editor for lists that do not exist yet, on purpose.
+      { key: 'events.catalogues.manage', label: 'Maintain Event Type & Impact Catalogues' }
     ]
   },
   // Course Events (2026-08-13). Paid, multi-session learning courses open to

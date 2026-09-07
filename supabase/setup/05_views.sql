@@ -680,8 +680,50 @@ ORDER BY i.name, p.program_name, clp.current_semester;
 -- REST endpoints; after that, these views can be dropped.
 -- ================================================================================
 
-CREATE OR REPLACE VIEW public.marathon_events AS
-  SELECT * FROM public.events WHERE event_type = 'marathon';
+-- marathon_events is an APPROVED anon-readable relation (see
+-- scripts/ci/anon-exposure-allowlist.json) serving an external public marathon
+-- site, and it was `SELECT * FROM public.events`. `CREATE OR REPLACE VIEW`
+-- APPENDS trailing columns, so the next run of supabase/setup/05_views.sql
+-- after this migration would have published event_number, event_number_year and
+-- event_number_seq to anonymous internet users, silently.
+--
+-- The column list is therefore PINNED. It is resolved at apply time rather than
+-- typed out because a hand-written list cannot be verified against production
+-- from inside this repository: `CREATE OR REPLACE VIEW` may only APPEND, so any
+-- list that does not exactly reproduce the view's current columns IN ORDER
+-- fails outright, and public.events has drifted across ~2,800 migrations.
+-- Reading the columns back is the only way to be certain.
+--   * View already exists  -> reuse ITS OWN column list verbatim. The result is
+--     identical to what consumers see today, and because the definition is now
+--     explicit the view can never silently gain a column again.
+--   * View does not exist (fresh rebuild from setup) -> every column on
+--     public.events EXCEPT the three institutional-numbering columns.
+DO $marathon_events_pin$
+DECLARE
+  v_cols TEXT;
+BEGIN
+  SELECT string_agg(format('e.%I', column_name), ', ' ORDER BY ordinal_position)
+    INTO v_cols
+    FROM information_schema.columns
+   WHERE table_schema = 'public' AND table_name = 'marathon_events';
+
+  IF v_cols IS NULL THEN
+    SELECT string_agg(format('e.%I', column_name), ', ' ORDER BY ordinal_position)
+      INTO v_cols
+      FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'events'
+       AND column_name NOT IN ('event_number', 'event_number_year', 'event_number_seq');
+  END IF;
+
+  IF v_cols IS NULL THEN
+    RAISE EXCEPTION 'marathon_events: public.events reports no columns — refusing to build the view';
+  END IF;
+
+  EXECUTE format(
+    'CREATE OR REPLACE VIEW public.marathon_events AS SELECT %s FROM public.events e WHERE e.event_type = ''marathon''',
+    v_cols
+  );
+END $marathon_events_pin$;
 
 CREATE OR REPLACE VIEW public.marathon_categories AS
   SELECT ec.*
