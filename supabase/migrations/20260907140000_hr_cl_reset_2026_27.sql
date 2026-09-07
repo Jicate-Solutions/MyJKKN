@@ -25,7 +25,8 @@
 --
 -- "Eligible" is by date_of_joining: someone who joined in July gets July but
 -- not June, someone who joined in August gets neither. You cannot consume a
--- month's credit you were never employed to earn.
+-- month's credit you were never employed to earn — and a staff member whose
+-- effective entitlement is ZERO is charged nothing at all.
 --
 -- June and July are written as MONTH OVERRIDES, not as applications. An
 -- override is the month's TOTAL and absorbs that month's approved requests
@@ -103,17 +104,40 @@ BEGIN
   END IF;
 
   -- ---- 1. Every CL balance row in the year, with its month targets ---------
+  -- NOBODY IS CHARGED CL THEY DO NOT HAVE. A row whose effective entitlement is
+  -- zero gets no June or July charge, so its `used` settles at whatever its own
+  -- approved applications come to — zero for all 11 such rows today. Charging
+  -- them the monthly accrual would put their balance at -2 for leave they were
+  -- never granted.
+  --
+  -- Effective entitlement is COALESCE(override, balances.entitled, type
+  -- default) — the same ladder the balance screens resolve. The order matters:
+  -- one Dental row carries entitled = 0 AND a per-staff override of 12, and the
+  -- override wins, so reading balances.entitled alone would wrongly exempt them.
   CREATE TEMP TABLE _cl_target ON COMMIT DROP AS
   SELECT
     b.employee_id,
     b.leave_type_id,
     b.hr_organization_id,
     b.used AS used_now,
-    (CASE WHEN s.date_of_joining < DATE '2026-07-01' THEN 1 ELSE 0 END)::numeric AS jun_days,
-    (CASE WHEN s.date_of_joining < DATE '2026-08-01' THEN 1 ELSE 0 END)::numeric AS jul_days
+    (CASE WHEN ent.days > 0 AND s.date_of_joining < DATE '2026-07-01'
+          THEN 1 ELSE 0 END)::numeric AS jun_days,
+    (CASE WHEN ent.days > 0 AND s.date_of_joining < DATE '2026-08-01'
+          THEN 1 ELSE 0 END)::numeric AS jul_days
   FROM public.hr_leave_balances b
   JOIN public.staff s          ON s.id = b.employee_id
   JOIN public.hr_leave_types t ON t.id = b.leave_type_id
+  CROSS JOIN LATERAL (
+    SELECT COALESCE(
+      (SELECT o.entitled_days
+         FROM public.hr_leave_entitlement_overrides o
+        WHERE o.employee_id         = b.employee_id
+          AND o.leave_type_id       = b.leave_type_id
+          AND o.hr_academic_year_id = b.hr_academic_year_id),
+      b.entitled,
+      t.default_entitled_days,
+      0) AS days
+  ) ent
   WHERE b.hr_academic_year_id = v_year_id
     AND t.leave_type_code = 'CL';
 
