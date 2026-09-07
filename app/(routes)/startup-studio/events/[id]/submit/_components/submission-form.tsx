@@ -38,7 +38,7 @@ import {
   Activity,
 } from 'lucide-react';
 import { calculateScore, getTierColor } from '@/lib/utils/tier-calculator';
-import { useSSEvent, useUpdateMetrics } from '@/hooks/startup-studio';
+import { useEvent, useUpdateMetrics } from '@/hooks/startup-studio';
 import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/hooks/use-auth-provider';
 import { toast } from 'sonner';
@@ -358,7 +358,7 @@ function MetricsUpdateCard({ submission }: { submission: any }) {
 export function SubmissionForm({ eventId }: SubmissionFormProps) {
   const router = useRouter();
   const { profile, isLoading: authLoading } = useAuth();
-  const { data: eventRaw, isLoading: eventLoading, error: eventError } = useSSEvent(eventId);
+  const { data: eventRaw, isLoading: eventLoading, error: eventError } = useEvent(eventId);
   const event = eventRaw as any;
   const createSubmission = useCreateSubmission();
   const { data: submissionsRaw, isLoading: subsLoading } = useMySubmissions(eventId, profile?.id);
