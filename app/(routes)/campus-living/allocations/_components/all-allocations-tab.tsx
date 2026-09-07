@@ -274,10 +274,23 @@ export function AllAllocationsTab() {
   // Same tight audience the removed tabs' actions used.
   const canManage = isSuperAdmin || !!permissions?.['campus_living.upgrades.manage'];
 
-  // `useAllAllocations` gates on isSuperAdmin internally; the unallocated feed
-  // takes an explicit undefined for super-admins (all institutions).
-  const allocInstitutionId = profile?.institution_id ?? '';
-  const candInstitutionId = isSuperAdmin ? undefined : (profile?.institution_id ?? undefined);
+  // `useAllAllocations` resolves college-wide scope internally; the unallocated
+  // feed has no such logic — it passes the id straight through to
+  // fn_hostel_unallocated_candidates as p_institution_id — so the same decision
+  // has to be repeated here, or "Not Allocated" stays 0 while "Allocated" fills.
+  //
+  // Both feeds were institution-scoped to profile.institution_id, which for a
+  // chief_warden is an administrative office rather than a college, so both
+  // matched nothing and every counter read 0. Note this was never an RLS
+  // symptom: fn_hostel_unallocated_candidates is SECURITY DEFINER and bypasses
+  // RLS entirely, which is what pinned the cause to the institution id.
+  //
+  // See the useAllAllocations comment for why campus_living.settings.view is
+  // the marker for a college-wide hostel role.
+  const isCollegeWide =
+    isSuperAdmin || permissions?.['campus_living.settings.view'] === true;
+  const allocInstitutionId = isCollegeWide ? undefined : (profile?.institution_id ?? '');
+  const candInstitutionId = isCollegeWide ? undefined : (profile?.institution_id ?? undefined);
 
   const { data: allocations = [], isLoading: allocLoading } = useAllAllocations(allocInstitutionId);
   const { data: candidates = [], isLoading: candLoading } = useUnallocatedCandidates(candInstitutionId);
