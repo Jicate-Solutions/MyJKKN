@@ -79,9 +79,9 @@
 -- by that check -- it just happened not to matter in practice, because a
 -- learner from another institution is not usually recorded in that section's
 -- registers. Restructuring learner-first requires deriving the institution
--- from the learner in the first place (`students.institution_id`), which
--- closes that gap as a side effect rather than as a separate fix: the guard
--- now grounds on the same institution the data actually belongs to.
+-- from the learner in the first place (`learners_profiles.institution_id`),
+-- which closes that gap as a side effect rather than as a separate fix: the
+-- guard now grounds on the same institution the data actually belongs to.
 --
 -- SHAPE OF THE DATA IT READS
 -- --------------------------
@@ -173,9 +173,13 @@ BEGIN
 
   -- Grounded on the LEARNER's own institution, not the section's -- see the
   -- "SECURITY SIDE EFFECT" note above the CREATE FUNCTION statement.
-  SELECT s.institution_id INTO v_institution_id
-  FROM public.students s
-  WHERE s.id = p_learner_id;
+  -- learners_profiles is the real identity table here (verified: 200/200 live
+  -- student_id values sampled from attendance_data resolve in
+  -- learners_profiles.id; 0/200 in profiles.id; public.students does not
+  -- exist in production -- see the PR body for the sampling method).
+  SELECT lp.institution_id INTO v_institution_id
+  FROM public.learners_profiles lp
+  WHERE lp.id = p_learner_id;
 
   IF v_institution_id IS NULL THEN
     -- Says which of the two it is, rather than returning an empty list that
@@ -184,8 +188,18 @@ BEGIN
       USING ERRCODE = 'P0002';
   END IF;
 
-  IF NOT EXISTS (SELECT 1 FROM public.sections sc WHERE sc.id = p_section_id) THEN
-    RAISE EXCEPTION 'Section not found, so its attendance context cannot be read'
+  -- Bound to the LEARNER's own institution, not merely "exists somewhere" --
+  -- otherwise a caller legitimately scoped to this learner's institution
+  -- could pass a p_section_id from a different institution and receive that
+  -- section's schedule metadata (section/period names, times, course names)
+  -- for the window. Folded into one check with a single message so it never
+  -- discloses whether the section exists in another institution.
+  IF NOT EXISTS (
+    SELECT 1 FROM public.sections sc
+    WHERE sc.id = p_section_id
+      AND sc.institution_id = v_institution_id
+  ) THEN
+    RAISE EXCEPTION 'Section not found in this learner''s institution, so its attendance context cannot be read'
       USING ERRCODE = 'P0002';
   END IF;
 
@@ -388,7 +402,7 @@ REVOKE EXECUTE ON FUNCTION public.fn_learner_attendance_history(uuid, uuid, date
 GRANT  EXECUTE ON FUNCTION public.fn_learner_attendance_history(uuid, uuid, date, date) TO authenticated;
 
 COMMENT ON FUNCTION public.fn_learner_attendance_history(uuid, uuid, date, date) IS
-'Learner-first per-learner attendance history over a date range, read from the marking screen. Attended/absent/on-duty rows come from EVERY register in the learner''s own institution where this learner has an entry in attendance_data, regardless of which section filed it (fixes: a combined/practical register filed under a sibling section used to be invisible). p_section_id is context ONLY, for the "no register marked for this learner" rows: registers filed under that section in range where the learner has no entry. lah_status is the saved status string (Present / Absent / OnDuty) when recorded, NULL when unmarked-for-this-learner -- NULL never means Absent. A date with no register at all returns no row. lah_section_id/lah_section_name identify which section each row came from. No rollup and no percentage: those live in lib/utils/academic/learner-attendance-history.ts so they can be unit tested, including the 2026-09-07 ruling that OnDuty counts as attended. Adds no permission key -- gated on academic.attendance.mark / .view plus role_has_institution_access on the LEARNER''s own institution (students.institution_id), not the section''s.';
+'Learner-first per-learner attendance history over a date range, read from the marking screen. Attended/absent/on-duty rows come from EVERY register in the learner''s own institution where this learner has an entry in attendance_data, regardless of which section filed it (fixes: a combined/practical register filed under a sibling section used to be invisible). p_section_id is context ONLY, for the "no register marked for this learner" rows: registers filed under that section in range where the learner has no entry. lah_status is the saved status string (Present / Absent / OnDuty) when recorded, NULL when unmarked-for-this-learner -- NULL never means Absent. A date with no register at all returns no row. lah_section_id/lah_section_name identify which section each row came from. No rollup and no percentage: those live in lib/utils/academic/learner-attendance-history.ts so they can be unit tested, including the 2026-09-07 ruling that OnDuty counts as attended. Adds no permission key -- gated on academic.attendance.mark / .view plus role_has_institution_access on the LEARNER''s own institution (learners_profiles.institution_id), not the section''s. p_section_id is additionally validated to belong to that same institution before any query runs.';
 
 -- Added 2026-09-07 for the learner-first read above. There was previously no
 -- index leading with institution_id on this table at all -- only
