@@ -3,6 +3,27 @@
   "generated": "2026-09-07",
   "divergent": [
     {
+      "id": "582f0d38-b909-49b7-89f6-e8527dadef6c",
+      "field": "start_calendar_day",
+      "name": "Government job fair",
+      "status": "draft",
+      "observed": "event_date 2026-07-22 vs start_date's day 2026-07-21 IST"
+    },
+    {
+      "id": "582f0d38-b909-49b7-89f6-e8527dadef6c",
+      "field": "end_calendar_day",
+      "name": "Government job fair",
+      "status": "draft",
+      "observed": "end_date's day 2026-07-21 IST is BEFORE event_date 2026-07-22"
+    },
+    {
+      "id": "4dc7f67b-43a4-43c5-a16e-99a3f8bc8a81",
+      "field": "start_calendar_day",
+      "name": "tsese",
+      "status": "draft",
+      "observed": "event_date 2026-08-05 vs start_date's day 2026-08-04 IST"
+    },
+    {
       "id": "add54768-0371-4c18-a1b0-e5d93104fe84",
       "field": "start_time_of_day",
       "name": "Renewable Energy Day",
@@ -15,13 +36,6 @@
       "name": "Renewable Energy Day",
       "status": "draft",
       "observed": "end_time 13:00:00 IST vs end_date 22:30:00 IST"
-    },
-    {
-      "id": "dceeef19-de9f-49a5-be29-c40cca696ee3",
-      "field": "end_time_of_day",
-      "name": "SEMINAR - LOGISTICS SUPPLY CHAIN MANAGEMENT",
-      "status": "live",
-      "observed": "end_time 14:00:00 IST vs end_date 13:00:00 IST"
     }
   ]
 }

@@ -22,9 +22,20 @@ name: Event time consistency
 #   'SEMINAR - LOGISTICS SUPPLY CHAIN MANAGEMENT', 9 Sep, live.
 #     end_time  14:00 IST   ← what attendees were shown
 #     end_date  13:00 IST   ← what the scheduler believed
-#   A feedback form anchored to end_date was armed to open an hour BEFORE the
-#   seminar ended — asking people to rate a session still running. Found by
-#   reading the page; every data-layer check was green.
+#   Found by reading the page; every data-layer check was green.
+#
+#   WHAT DID NOT HAPPEN: the seminar's feedback form opens 9 Sep 14:00 IST — the
+#   CLOCK value. Whoever set it by hand picked the column the page shows, so the
+#   form did not open early and nobody was asked to rate a running session. No
+#   code derives that window from end_date; starts_at/ends_at are plain columns.
+#
+#   That is the point rather than a reason to relax: the row still says two
+#   different things, nothing decided which is authoritative, and the next reader
+#   has an even chance of taking the other one. Four code paths already do —
+#   fn_person_availability treats end_date as a person's busy window, the
+#   calendar and .ics feeds prefer it over the clock the page renders,
+#   fn_induction_my_enrollments reads it, and the NAAC evidence emitter derives
+#   an event's academic year from it.
 #
 # WHY A SCHEDULED SWEEP AND NOT A PR GATE
 #   This is a DATA defect, not a code defect. Event rows are edited through the
@@ -39,18 +50,34 @@ name: Event time consistency
 #   run its own offline self-test instead.
 #
 # IT MUST NOT CRY WOLF ON MULTI-DAY EVENTS. A multi-day event legitimately ends
-# on a later DATE than event_date while its clock times are exactly right — two
-# exist in production right now (CERTIFICATE COURSES 1 Aug -> 15 Sep, the
-# Business Analytics workshop 10-11 Aug). The guard therefore compares TIME OF
-# DAY, in Asia/Kolkata, and leaves the end DATE free. That single decision is
-# what makes this gate usable; the self-test pins it with real production shapes.
+# on a LATER DATE than event_date while its clock times are exactly right — seven
+# rows in production do (CERTIFICATE COURSES 1 Aug -> 15 Sep, the Business
+# Analytics workshop 10-11 Aug, and five more). A later end date is therefore
+# never flagged and only the end TIME OF DAY is compared. An end date EARLIER
+# than event_date is the opposite case — no multi-day reading explains an event
+# that ends before it starts — and is always reported. The self-test pins both
+# halves with real production shapes.
 #
-# THE BASELINE IS A DEBT LEDGER, NOT A PARDON. Three divergences (two events)
-# already existed when this shipped. Failing on them would have failed the first
-# run on untouched main and blocked every open PR, so they are recorded in
-# scripts/ci/event-time-divergence-baseline.json, printed as a warning every run,
-# and only NEW arrivals fail. Keyed by event id + field, so a baselined row that
-# starts diverging in a SECOND field still fails.
+# THE BASELINE IS A DEBT LEDGER, AND IT NEVER COVERS A LIVE EVENT.
+# The original justification for baselining every pre-existing divergence was
+# that failing would "block every open PR". That was false — see the `sweep` job
+# below: `if: github.event_name != 'pull_request'` means the sweep NEVER runs on
+# a PR, so a red sweep blocks nothing. Only the self-test runs on PRs. The
+# argument protected nothing and downgraded a live, currently-wrong event to a
+# yellow warning under a green exit code.
+#
+# The ledger is kept for the reason that does hold — a permanently red sweep gets
+# ignored as thoroughly as a disabled one, so new divergence must stand out from
+# old — but the line is drawn at LIVE, not at OLD:
+#   draft / archived / cancelled / completed  may be enrolled; they warn.
+#   live                                      never enrolled, never pardoned,
+#                                             always fails.
+# An unrecognised status counts as live, so a new status value makes this gate
+# louder, not quieter. --update-baseline enforces the same rule when it writes.
+#
+# Consequence, deliberately: this sweep is RED today on two live events. That is
+# the gate working. It goes green when someone fixes them in the Events UI, and
+# no pull request is affected either way.
 #
 # IT NEVER WRITES. One read-only SELECT over public.events.
 
@@ -152,20 +179,27 @@ jobs:
           fi
           node scripts/ci/check-event-time-consistency.mjs
 
+      # No `github.event_name != 'pull_request'` guard here: the whole job already
+      # carries it, so repeating it would only suggest this step can run on a PR.
       - name: Explain a failure
-        if: failure() && github.event_name != 'pull_request'
+        if: failure()
         run: |
           echo "::error::An event's clock fields and its timestamptz fields disagree."
           echo "The clock fields (event_date + start_time/end_time) are what the event page"
           echo "shows people. The timestamptz fields (start_date/end_date) are what"
-          echo "scheduling logic compares to now(). When they differ, something fires at the"
-          echo "wrong moment and nothing errors — a feedback form opening before the session"
-          echo "has ended, a registration window closing early."
+          echo "scheduling logic compares to now(). When they differ, a person or a query"
+          echo "reading one of them acts on a moment the other half of the row denies —"
+          echo "a feedback window set an hour early, a busy slot booked at the wrong time,"
+          echo "a calendar invite that does not match the printed programme."
           echo ""
           echo "Fix in the Events UI: open the event, set the clock fields and the start/end"
           echo "date-time to the same moment, and save. Ask the organiser which one is right."
           echo "Do NOT assume the timestamptz is correct just because it is what the code reads."
           echo ""
-          echo "A multi-day event is NOT this bug and is never reported: a later end DATE is"
-          echo "expected and only the end TIME OF DAY is compared. If you are looking at a"
-          echo "multi-day event here, its clock time really did drift."
+          echo "A LIVE event is never baselined away. If this run is red on a live event, that"
+          echo "is the gate doing its job — the row is wrong in production now. Draft and"
+          echo "archived debt is listed as a warning instead and does not fail the run."
+          echo ""
+          echo "A multi-day event is NOT this bug: a LATER end DATE is expected and only the"
+          echo "end TIME OF DAY is compared. An end date EARLIER than event_date is always"
+          echo "reported — no multi-day event ends before the day it starts."

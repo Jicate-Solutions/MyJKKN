@@ -31,67 +31,147 @@
  *   'SEMINAR - LOGISTICS SUPPLY CHAIN MANAGEMENT', 9 Sep, a live event.
  *     end_time  says 14:00 IST   ← what the page shows attendees
  *     end_date  says 13:00 IST   ← what the scheduler believes
- *   A feedback form anchored to end_date was therefore armed to open a full hour
- *   BEFORE the seminar ended: attendees would have been asked to rate a session
- *   that was still running. The bug was found by reading the page, not by any
- *   query — every data-layer check passed.
+ *   Found by reading the page. Every data-layer check was green, because from
+ *   inside the data both columns are perfectly valid.
+ *
+ *   WHAT DID NOT HAPPEN, stated plainly so nobody re-derives a scarier story
+ *   from this comment. The seminar's feedback form
+ *   (event_feedback_forms a708a6a8-1d20-44e0-a8d7-274158f987d7, the only row in
+ *   that table) opens 9 Sep 14:00 IST and closes 16 Sep 14:00 IST. That is the
+ *   CLOCK value. Whoever set it picked the column the page shows, so the form
+ *   did NOT open early and no attendee was asked to rate a running session.
+ *   The window is set by hand — starts_at / ends_at are plain columns and no
+ *   code derives them from end_date — so this was a human choosing between two
+ *   disagreeing columns and, this once, choosing the right one.
+ *
+ *   THAT IS THE POINT, NOT A REASON TO RELAX. The row still says two different
+ *   things, nothing decided which is authoritative, and the next reader — human
+ *   or query — has an even chance of taking the other one. Four code paths
+ *   already take the other one:
+ *     fn_person_availability (20260629120000_person_availability_brain.sql)
+ *       treats ev.start_date/ev.end_date as a person's busy window for anyone
+ *       holding an event human role, so a wrong end_date books them free or busy
+ *       at the wrong hour.
+ *     The calendar and .ics feeds (20260623120000, 20260623130000, 20260623160000)
+ *       take COALESCE(e.end_date, e.start_date, e.event_date) — end_date FIRST,
+ *       so it, not the clock the page renders, is what lands in people's calendars.
+ *     fn_induction_my_enrollments (20260730110000) reads e.end_date::date.
+ *     The NAAC evidence emitter (20260726110000) derives an event's academic-year
+ *       label from COALESCE(e.end_date, e.start_date).
+ *   Every one of those reads the copy nobody is looking at, and none of them can
+ *   tell that the copy people ARE looking at says something else.
  *
  * WHAT THIS GUARD COMPARES (and, more importantly, what it does NOT)
- *   For each event it compares TIME OF DAY, in Asia/Kolkata, between the two
- *   shapes:
- *     start   start_time            vs (start_date AT TIME ZONE 'Asia/Kolkata')::time
- *     end     end_time              vs (end_date   AT TIME ZONE 'Asia/Kolkata')::time
- *   and the START calendar day:
- *     start   event_date            vs (start_date AT TIME ZONE 'Asia/Kolkata')::date
+ *   Four comparisons, each gated ONLY by the fields it actually reads:
+ *     start_time_of_day   start_time  vs (start_date AT TIME ZONE IST)::time
+ *     end_time_of_day     end_time    vs (end_date   AT TIME ZONE IST)::time
+ *     start_calendar_day  event_date  vs (start_date AT TIME ZONE IST)::date
+ *     end_calendar_day    event_date  vs (end_date   AT TIME ZONE IST)::date,
+ *                                        EARLIER direction only — see below
  *
- *   IT DELIBERATELY DOES NOT COMPARE THE END CALENDAR DAY. A multi-day event
- *   legitimately ends on a later date than event_date while its clock times are
- *   exactly right, and two such events exist in production today:
- *     CERTIFICATE COURSES              1 Aug -> 15 Sep, 09:00-15:30 both shapes
- *     HANDS-ON WORKSHOP "BUSINESS …"  10 Aug -> 11 Aug, 09:45-15:45 both shapes
- *   Flagging those would make this gate cry wolf on every multi-day event, and a
- *   gate that cries wolf gets switched off. The end DATE is therefore treated as
- *   free: only the end TIME OF DAY has to match. That is the check that catches
- *   the seminar (14:00 vs 13:00 on the same day) and it is the check that leaves
- *   both multi-day events alone.
+ *   The four predicates are independent on purpose, and the first version of
+ *   this gate got it wrong: a single shared predicate required event_date AND
+ *   the clock AND both timestamptz parts before ANY start-side check ran, so the
+ *   calendar-day comparison — which reads no clock field — was vetoed whenever
+ *   start_time happened to be NULL. Ten production rows have exactly that shape
+ *   and three of them disagree about the start day, including a LIVE event six
+ *   days out. The gate called them "nothing to compare" and exited 0. A
+ *   precondition wider than the check it guards does not harden the check, it
+ *   silences it.
  *
- *   The START day is not given the same freedom, because multi-day does not
- *   explain it: an event that starts on a day other than its own event_date is
- *   the same defect, not a longer event.
+ *   THE END CALENDAR DAY IS COMPARED IN ONE DIRECTION ONLY. A multi-day event
+ *   legitimately ends on a LATER date than event_date, so a later end date is
+ *   never flagged. An end date EARLIER than event_date is a different animal: no
+ *   multi-day reading explains an event that ends before the day it starts, so
+ *   that direction is always a defect. One production row has it today
+ *   (Government job fair, 22 Jul with an end day of 21 Jul) and its end_time is
+ *   NULL, which is why the original end-side check never saw it either.
  *
- *   ACCEPTED BLIND SPOT: a single-day event whose end_date lands on the wrong
- *   DAY at the right time of day reads, from here, exactly like a multi-day
- *   event. There is no column saying "this event is multi-day", so the two are
- *   genuinely indistinguishable. Missing that case is the price of never
- *   false-positiving on the real multi-day events, and that trade is deliberate.
+ *   A LATER end date is never flagged because a multi-day event legitimately has
+ *   one while its clock times are exactly right — seven rows in production do,
+ *   including CERTIFICATE COURSES (1 Aug -> 15 Sep, 09:00-15:30 in both shapes)
+ *   and the Business Analytics workshop (10 -> 11 Aug, 09:45-15:45 in both).
+ *   Flagging those would make the gate cry wolf on every multi-day event, and a
+ *   gate that cries wolf gets switched off. Only the end TIME OF DAY has to
+ *   match, which is the check that catches the seminar (14:00 vs 13:00 on the
+ *   same day) while leaving every multi-day event alone.
+ *
+ *   The START day gets no such freedom: an event that starts on a day other than
+ *   its own event_date is the same defect, not a longer event.
+ *
+ *   ACCEPTED BLIND SPOT: a single-day event whose end_date lands on a LATER day
+ *   at the right time of day reads, from here, exactly like a multi-day event.
+ *   There is no column saying "this event is multi-day", so the two are genuinely
+ *   indistinguishable. Missing that case is the price of never false-positiving
+ *   on real multi-day events, and that trade is deliberate. It costs nothing in
+ *   the earlier direction, which is why that half is now checked.
  *
  *   Asia/Kolkata is fixed at +05:30 and observes no DST, so the conversion is
  *   unambiguous. It is done in Postgres, not in JS, so the runner's own timezone
  *   cannot change the answer.
  *
  * AUDITED AGAINST PRODUCTION 2026-09-07 — all 51 events:
- *     9   comparable (both shapes populated)
- *    42   skipped — 41 carry no clock fields at all, 1 has a start_time and no
- *         timestamptz. Nothing to compare is not a pass and not a failure; it is
- *         counted and printed, never silently dropped.
- *     2   of the 9 differ only in end DATE (the multi-day pair above) — NOT flagged
- *     2   genuinely divergent, both recorded in the baseline:
- *           SEMINAR - LOGISTICS SUPPLY CHAIN MANAGEMENT  end 14:00 vs 13:00  (live)
- *           Renewable Energy Day                         09:00-13:00 vs 18:30-22:30  (draft)
+ *    19   comparable (at least one field pair populated on both sides)
+ *    32   skipped — no field pair populated on both sides. Nothing to compare is
+ *         not a pass and not a failure; it is counted and printed, never silently
+ *         dropped. NOTE: the first version of this gate reported 9 comparable and
+ *         42 skipped, and asserted the 42 had "nothing to compare". That was
+ *         wrong — 10 of them carried event_date and a start timestamptz, three of
+ *         those disagreed, and the gate could not see any of it. The claim, not
+ *         just the count, is what this audit corrects.
+ *     7   recognised as multi-day (later end DATE) — NOT flagged
+ *     7   divergences across 5 events:
+ *           SEMINAR - LOGISTICS SUPPLY CHAIN MANAGEMENT  end 14:00 vs 13:00       (live)  FAILS
+ *           JKKN School of Influencer      start day 4 Aug vs 29 Jul, 6 days apart (live)  FAILS
+ *           Renewable Energy Day           09:00-13:00 vs 18:30-22:30            (draft) ledger
+ *           Government job fair            start AND end day both a day early     (draft) ledger
+ *           tsese                          start day 5 Aug vs 4 Aug               (draft) ledger
+ *         The two live ones fail the sweep by design; see the baseline note below.
  *
- * THE BASELINE IS A DEBT LEDGER, NOT A PARDON
+ * THE BASELINE IS A DEBT LEDGER, NOT A PARDON — AND IT NEVER COVERS A LIVE EVENT
  *   (scripts/ci/event-time-divergence-baseline.json — same precedent as
- *   ungrantable-permissions-baseline.json.) Two divergences already existed when
- *   this gate was written. Failing on them would fail the first run on untouched
- *   main, which blocks every open PR and gets the gate deleted within a day. So
- *   they are recorded, printed as a warning on EVERY run, and only NEW arrivals
- *   fail. An entry that stops diverging is reported as stale so the ledger
- *   shrinks instead of rotting.
+ *   ungrantable-permissions-baseline.json.)
  *
- *   The ledger is keyed by event id + which field diverges, not by the values. A
- *   baselined row that starts diverging in a SECOND field is a new finding and
- *   fails, which is the behaviour you want: the debt is "this row's end time is
- *   known-wrong", not "this row is exempt".
+ *   The first version of this gate justified the ledger by saying that failing on
+ *   pre-existing divergence "would fail the first run on untouched main and block
+ *   every open PR". THAT WAS FALSE, and the workflow next to it proves it: the
+ *   sweep job carries `if: github.event_name != 'pull_request'`, so it never runs
+ *   on a PR and a red sweep cannot block one. Only the offline self-test runs on
+ *   PRs. The argument protected nothing — and it bought its imagined safety by
+ *   downgrading the 9 Sep seminar, whose end time is wrong in production RIGHT
+ *   NOW, to a yellow warning under a green exit code.
+ *
+ *   The ledger still earns its place, for a different reason: a sweep that is
+ *   permanently red because of debt nobody is acting on gets ignored just as
+ *   surely as one that is switched off, and then a genuinely new divergence
+ *   arrives into a channel no one reads. Separating "known, already logged" from
+ *   "new since yesterday" keeps the red signal meaningful.
+ *
+ *   So the line is drawn at LIVE, not at OLD:
+ *     draft / archived / cancelled / completed   may be enrolled. Nobody is being
+ *                                                shown a wrong time; it is real
+ *                                                debt and it warns on every run.
+ *     live                                       NEVER enrolled, never pardoned,
+ *                                                always fails — however long it
+ *                                                has been wrong. A live event's
+ *                                                wrong time is being acted on
+ *                                                today, and a red scheduled run
+ *                                                is exactly the alarm wanted.
+ *   An unrecognised status counts as live, so a new status value makes this gate
+ *   louder rather than quietly widening the pardon. --update-baseline enforces
+ *   the same rule when it writes, so nobody can silence a live event by
+ *   regenerating the ledger.
+ *
+ *   Consequence, deliberately: the scheduled sweep is RED today, on the seminar
+ *   and on JKKN School of Influencer. That is the gate working, not the gate
+ *   misconfigured. It goes green when someone fixes those two rows in the Events
+ *   UI. No pull request is affected either way.
+ *
+ *   An entry that stops diverging is reported as stale so the ledger shrinks
+ *   instead of rotting. The ledger is keyed by event id + which field diverges,
+ *   not by the values: a baselined row that starts diverging in a SECOND field is
+ *   a new finding and fails. The debt is "this row's end time is known-wrong",
+ *   not "this row is exempt".
  *
  * IT NEVER WRITES. One read-only SELECT over public.events. No DDL, no update,
  * no migration. A false positive costs a red scheduled run, never a changed row.
@@ -223,56 +303,82 @@ const present = (v) => v !== null && v !== undefined && v !== '';
 /**
  * Classify one event row.
  *
- * Returns { comparable, multiDay, findings[] }. A pair (start, end) is compared
- * only when BOTH shapes are populated for it — a row carrying only one shape is
- * not evidence of anything and is counted as skipped, never as clean.
+ * Returns { comparable, multiDay, findings[] }.
+ *
+ * FOUR COMPARISONS, FOUR INDEPENDENT PREDICATES. Each check requires exactly
+ * the fields it reads and nothing more:
+ *
+ *   start_time_of_day    clock_start  + tz_start_clock          (no date needed)
+ *   end_time_of_day      clock_end    + tz_end_clock            (no date needed)
+ *   start_calendar_day   event_date   + tz_start_date           (no clock needed)
+ *   end_calendar_day     event_date   + tz_end_date             (no clock needed)
+ *
+ * This is deliberate and was a REAL BUG in the first version of this gate: one
+ * shared predicate demanded all four of event_date, clock_start, tz_start_date
+ * and tz_start_clock before ANY start-side check ran. Ten production rows carry
+ * event_date and a start timestamptz but no start_time, so the calendar-day
+ * check — which never needed the clock at all — was vetoed by a missing field
+ * it does not read. Three of those ten disagree about the start day, one of them
+ * a LIVE event six days out, and the gate reported them as "nothing to compare"
+ * and exited green. A precondition wider than the check it guards does not make
+ * the check safer; it makes it silent.
+ *
+ * A row with neither shape populated for any pair is counted as skipped —
+ * never as clean.
  */
 export function classifyEvent(row) {
   const findings = [];
 
-  const startComparable =
-    present(row.event_date) && present(row.clock_start) &&
-    present(row.tz_start_date) && present(row.tz_start_clock);
+  const startClockComparable = present(row.clock_start) && present(row.tz_start_clock);
+  const endClockComparable   = present(row.clock_end)   && present(row.tz_end_clock);
+  const startDayComparable   = present(row.event_date)  && present(row.tz_start_date);
+  const endDayComparable     = present(row.event_date)  && present(row.tz_end_date);
 
-  const endComparable =
-    present(row.event_date) && present(row.clock_end) &&
-    present(row.tz_end_date) && present(row.tz_end_clock);
-
-  const comparable = startComparable || endComparable;
+  const comparable =
+    startClockComparable || endClockComparable || startDayComparable || endDayComparable;
 
   // A later end DATE is what a multi-day event looks like. Recognised, counted,
   // and never flagged — see the header for why this carve-out is the whole point.
-  const multiDay = Boolean(
-    present(row.event_date) && present(row.tz_end_date) && row.tz_end_date > row.event_date,
-  );
+  const multiDay = Boolean(endDayComparable && row.tz_end_date > row.event_date);
 
-  if (startComparable) {
-    if (row.clock_start !== row.tz_start_clock) {
-      findings.push({
-        field: 'start_time_of_day',
-        clock: row.clock_start,
-        timestamptz: row.tz_start_clock,
-        detail: `start_time ${row.clock_start} IST vs start_date ${row.tz_start_clock} IST`,
-      });
-    }
-    if (row.event_date !== row.tz_start_date) {
-      // Multi-day explains a later END date. It never explains a start on a day
-      // other than the event's own date.
-      findings.push({
-        field: 'start_calendar_day',
-        clock: row.event_date,
-        timestamptz: row.tz_start_date,
-        detail: `event_date ${row.event_date} vs start_date's day ${row.tz_start_date} IST`,
-      });
-    }
+  if (startClockComparable && row.clock_start !== row.tz_start_clock) {
+    findings.push({
+      field: 'start_time_of_day',
+      clock: row.clock_start,
+      timestamptz: row.tz_start_clock,
+      detail: `start_time ${row.clock_start} IST vs start_date ${row.tz_start_clock} IST`,
+    });
   }
 
-  if (endComparable && row.clock_end !== row.tz_end_clock) {
+  if (startDayComparable && row.event_date !== row.tz_start_date) {
+    // Multi-day explains a later END date. It never explains a start on a day
+    // other than the event's own date.
+    findings.push({
+      field: 'start_calendar_day',
+      clock: row.event_date,
+      timestamptz: row.tz_start_date,
+      detail: `event_date ${row.event_date} vs start_date's day ${row.tz_start_date} IST`,
+    });
+  }
+
+  if (endClockComparable && row.clock_end !== row.tz_end_clock) {
     findings.push({
       field: 'end_time_of_day',
       clock: row.clock_end,
       timestamptz: row.tz_end_clock,
       detail: `end_time ${row.clock_end} IST vs end_date ${row.tz_end_clock} IST`,
+    });
+  }
+
+  if (endDayComparable && row.tz_end_date < row.event_date) {
+    // ONLY the earlier direction. A LATER end date is the multi-day carve-out
+    // and is never flagged; an event that ENDS before the day it starts cannot
+    // be a longer event, so no carve-out can explain it. Asymmetric on purpose.
+    findings.push({
+      field: 'end_calendar_day',
+      clock: row.event_date,
+      timestamptz: row.tz_end_date,
+      detail: `end_date's day ${row.tz_end_date} IST is BEFORE event_date ${row.event_date}`,
     });
   }
 
@@ -284,6 +390,20 @@ export function classifyEvent(row) {
 // Keyed by event id + field. "This row's end time is known-wrong" — NOT "this
 // row is exempt". A second field going wrong on a baselined row still fails.
 const sigOf = (id, field) => `${id}|${field}`;
+
+/**
+ * A LIVE EVENT IS NEVER PARDONED — see the header. The ledger only ever covers
+ * an event nobody is currently being shown a wrong time for.
+ *
+ * Pardonable statuses are named explicitly, and anything unrecognised counts as
+ * live. Erring toward the alarm is the correct direction for a gate: a new
+ * status value ('published', 'ongoing') arriving later should make this gate
+ * louder, not quietly widen the pardon. Production today holds exactly three
+ * values — live (25), draft (21), archived (5).
+ */
+const PARDONABLE_STATUSES = new Set(['draft', 'archived', 'cancelled', 'completed']);
+const isPardonable = (status) =>
+  PARDONABLE_STATUSES.has(String(status ?? '').trim().toLowerCase());
 
 function loadBaseline() {
   if (NO_BASELINE) return new Set();
@@ -366,14 +486,95 @@ const SELF_TEST_CASES = [
     expect: { comparable: true, multiDay: true, fields: ['end_time_of_day'] },
   },
   {
-    name: 'start lands on a different day → flag; multi-day never explains this',
+    name: 'whole event shifted a day earlier → flag BOTH days; multi-day explains neither',
     row: {
       id: 'g', name: 'hypothetical shifted start', status: 'draft',
       event_date: '2026-07-22', clock_start: '10:00:00', clock_end: '16:30:00',
       tz_start_date: '2026-07-21', tz_start_clock: '10:00:00',
       tz_end_date: '2026-07-21', tz_end_clock: '16:30:00',
     },
-    expect: { comparable: true, multiDay: false, fields: ['start_calendar_day'] },
+    // Both clock times match exactly; only the calendar days moved. The end day
+    // is EARLIER than event_date, which no multi-day reading can account for.
+    expect: {
+      comparable: true, multiDay: false,
+      fields: ['start_calendar_day', 'end_calendar_day'],
+    },
+  },
+  /* ── THE SHAPE THE FIRST VERSION OF THIS GATE WAS BLIND TO ──────────────
+   * event_date and the timestamptz day are both populated; start_time is NULL.
+   * The calendar-day comparison needs neither clock field, but the original
+   * shared predicate demanded clock_start before any start-side check ran, so
+   * these rows were reported as "nothing to compare" and the gate exited green.
+   * Ten production rows have this shape and THREE of them disagree.
+   *
+   * The self-test could not catch it because every case was built from a shape
+   * that already passed: case 'g' supplies clock_start (so it reached the day
+   * check through the clock gate) and case 'h' nulls event_date (where skipping
+   * is correct). 10/10 green coexisted with a blind guard. These are the real
+   * production rows.
+   */
+  {
+    name: 'BLIND SPOT: no start_time, start day disagrees → flag (was silently skipped)',
+    row: {
+      id: 'k', name: 'JKKN School of Influencer', status: 'live',
+      event_date: '2026-08-04', clock_start: null, clock_end: null,
+      tz_start_date: '2026-07-29', tz_start_clock: '10:00:00',
+      tz_end_date: '2026-09-30', tz_end_clock: '17:00:00',
+    },
+    expect: { comparable: true, multiDay: true, fields: ['start_calendar_day'] },
+  },
+  {
+    name: 'BLIND SPOT: no start_time, start day agrees → clean, still comparable',
+    row: {
+      id: 'l', name: 'Onam Celebration 2k26', status: 'live',
+      event_date: '2026-08-20', clock_start: null, clock_end: null,
+      tz_start_date: '2026-08-20', tz_start_clock: '09:00:00',
+      tz_end_date: '2026-08-20', tz_end_clock: '17:00:00',
+    },
+    expect: { comparable: true, multiDay: false, fields: [] },
+  },
+  {
+    name: 'BLIND SPOT (end side): no end_time, end day BEFORE event_date → flag',
+    row: {
+      id: 'm', name: 'Government job fair', status: 'draft',
+      event_date: '2026-07-22', clock_start: null, clock_end: null,
+      tz_start_date: '2026-07-21', tz_start_clock: '10:00:00',
+      tz_end_date: '2026-07-21', tz_end_clock: '16:30:00',
+    },
+    expect: {
+      comparable: true, multiDay: false,
+      fields: ['start_calendar_day', 'end_calendar_day'],
+    },
+  },
+  {
+    name: 'end date EARLIER than event_date → flag; multi-day cannot explain it',
+    row: {
+      id: 'n', name: 'hypothetical backwards end', status: 'live',
+      event_date: '2026-09-10', clock_start: '09:00:00', clock_end: '17:00:00',
+      tz_start_date: '2026-09-10', tz_start_clock: '09:00:00',
+      tz_end_date: '2026-09-09', tz_end_clock: '17:00:00',
+    },
+    expect: { comparable: true, multiDay: false, fields: ['end_calendar_day'] },
+  },
+  {
+    name: 'end date LATER stays free even with no clocks → multi-day, no finding',
+    row: {
+      id: 'o', name: 'CERTIFICATE COURSES, clock-free', status: 'live',
+      event_date: '2026-08-01', clock_start: null, clock_end: null,
+      tz_start_date: '2026-08-01', tz_start_clock: '09:00:00',
+      tz_end_date: '2026-09-15', tz_end_clock: '15:30:00',
+    },
+    expect: { comparable: true, multiDay: true, fields: [] },
+  },
+  {
+    name: 'no event_date but both clocks present → compared on time of day alone',
+    row: {
+      id: 'p', name: 'hypothetical dateless row', status: 'live',
+      event_date: null, clock_start: '09:00:00', clock_end: '17:00:00',
+      tz_start_date: '2026-08-18', tz_start_clock: '09:00:00',
+      tz_end_date: '2026-08-18', tz_end_clock: '16:00:00',
+    },
+    expect: { comparable: true, multiDay: false, fields: ['end_time_of_day'] },
   },
   {
     name: 'no clock fields at all → skipped, not clean',
@@ -489,19 +690,25 @@ credentials or the project ref is wrong — not that every event is consistent.`
     compared++;
     if (isMulti) multiDay++;
     for (const f of findings) {
+      // In the ledger is not the same as pardoned: a live event is never
+      // pardoned, however long its divergence has been on the books.
+      const inLedger = baseline.has(sigOf(row.id, f.field));
+      const pardoned = inLedger && isPardonable(row.status);
       divergent.push({
         id: row.id,
         name: row.name,
         status: row.status,
         multiDay: isMulti,
         ...f,
-        baselined: baseline.has(sigOf(row.id, f.field)),
+        baselined: pardoned,
+        pardonRefused: inLedger && !pardoned,
       });
     }
   }
 
   const fresh = divergent.filter((d) => !d.baselined);
   const known = divergent.filter((d) => d.baselined);
+  const refused = divergent.filter((d) => d.pardonRefused);
   const live = new Set(divergent.map((d) => sigOf(d.id, d.field)));
   const stale = [...baseline].filter((s) => !live.has(s)).sort();
 
@@ -509,22 +716,37 @@ credentials or the project ref is wrong — not that every event is consistent.`
     const payload = {
       _comment:
         'Events whose two stored times disagree (clock fields vs timestamptz), recorded so ' +
-        'this gate fails on NEW divergence without failing on pre-existing debt. Keyed by ' +
+        'a NEW divergence stands out from debt that was already on the books. Keyed by ' +
         'event id + field: a baselined row that starts diverging in a SECOND field still ' +
-        'fails. SHRINK THIS LIST; DO NOT GROW IT. Each entry is a live or draft event whose ' +
-        'rendered page and whose scheduling logic say different things. ' +
+        'fails. SHRINK THIS LIST; DO NOT GROW IT. ' +
+        'A LIVE EVENT IS NEVER LISTED HERE and is never pardoned — people are being shown ' +
+        'its wrong time today, so it fails the sweep until someone fixes it in the Events ' +
+        'UI. Only draft/archived/cancelled/completed events are enrolled. ' +
         'Regenerate: node scripts/ci/check-event-time-consistency.mjs --update-baseline',
       generated: new Date().toISOString().slice(0, 10),
-      divergent: divergent.map((d) => ({
-        id: d.id,
-        field: d.field,
-        name: d.name,
-        status: d.status,
-        observed: d.detail,
-      })),
+      // Only pardonable statuses are written. Regenerating the ledger must never
+      // be able to silence a live event: if --update-baseline could enrol one,
+      // the documented "a live divergence always fails" rule would last exactly
+      // until the next person ran this flag to get a green run.
+      divergent: divergent
+        .filter((d) => isPardonable(d.status))
+        .map((d) => ({
+          id: d.id,
+          field: d.field,
+          name: d.name,
+          status: d.status,
+          observed: d.detail,
+        })),
     };
     writeFileSync(BASELINE_PATH, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
-    console.log(`${GREEN}wrote${RESET} ${BASELINE_PATH} — ${divergent.length} entries`);
+    const notEnrolled = divergent.length - payload.divergent.length;
+    console.log(`${GREEN}wrote${RESET} ${BASELINE_PATH} — ${payload.divergent.length} entries`);
+    if (notEnrolled > 0) {
+      console.log(
+        `${YELLOW}${notEnrolled} live divergence(s) deliberately NOT enrolled${RESET} — ` +
+        `a live event is never pardoned; fix it in the Events UI.`,
+      );
+    }
     process.exit(0);
   }
 
@@ -537,16 +759,20 @@ credentials or the project ref is wrong — not that every event is consistent.`
       multi_day_recognised: multiDay,
       divergent_new: fresh,
       divergent_baselined: known,
+      divergent_pardon_refused: refused,
       baseline_stale: stale,
     }, null, 2));
   } else {
     console.log(`${DIM}event-time-consistency — clock fields vs timestamptz, in ${TZ}${RESET}`);
     console.log(`  events in table          ${rows.length}`);
-    console.log(`  ${BOLD}events compared          ${compared}${RESET}   ${DIM}both shapes populated${RESET}`);
-    console.log(`  skipped not-comparable   ${skipped}   ${DIM}one shape or neither — nothing to compare${RESET}`);
+    console.log(`  ${BOLD}events compared          ${compared}${RESET}   ${DIM}at least one field pair populated on both sides${RESET}`);
+    console.log(`  skipped not-comparable   ${skipped}   ${DIM}no field pair populated on both sides${RESET}`);
     console.log(`  multi-day recognised     ${multiDay}   ${DIM}later end DATE, not flagged${RESET}`);
     console.log(`  ${BOLD}divergent (new)          ${fresh.length}${RESET}   ${DIM}blocks this run${RESET}`);
-    console.log(`  divergent (baselined)    ${known.length}   ${DIM}known debt — warns${RESET}`);
+    console.log(`  divergent (baselined)    ${known.length}   ${DIM}known debt on a non-live event — warns${RESET}`);
+    if (refused.length > 0) {
+      console.log(`  ${BOLD}pardon refused (live)    ${refused.length}${RESET}   ${DIM}in the ledger, but the event is live — fails${RESET}`);
+    }
 
     if (fresh.length > 0) {
       console.log(`\n${RED}DIVERGENT${RESET} — the page and the scheduler disagree about this event.`);
@@ -557,6 +783,9 @@ credentials or the project ref is wrong — not that every event is consistent.`
         console.log(`  ${RED}✗${RESET} ${d.name} ${DIM}(${d.status})${RESET}`);
         console.log(`      ${d.detail}`);
         console.log(`      ${DIM}${d.field} · events.id ${d.id}${d.multiDay ? ' · multi-day' : ''}${RESET}`);
+        if (d.pardonRefused) {
+          console.log(`      ${YELLOW}in the baseline ledger, but this event is ${d.status} — a live event is never pardoned.${RESET}`);
+        }
       }
       console.log(`\n${DIM}Fix in the Events UI: open the event, set the clock fields and the`);
       console.log(`start/end date-time to the same moment, and save. Decide which one is`);
@@ -587,7 +816,7 @@ credentials or the project ref is wrong — not that every event is consistent.`
   }
 
   if (!JSON_OUT) {
-    console.log(`\n${GREEN}OK${RESET}: ${compared} event(s) compared, ${skipped} skipped as not-comparable, ${fresh.length} newly divergent.`);
+    console.log(`\n${GREEN}OK${RESET}: ${compared} event(s) compared, ${skipped} carrying no comparable field pair, ${fresh.length} newly divergent.`);
   }
   process.exit(0);
 }
