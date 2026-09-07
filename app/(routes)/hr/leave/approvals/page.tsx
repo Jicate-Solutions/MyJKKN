@@ -64,6 +64,7 @@ import { TimeOffShell } from '../_components/time-off-shell';
 import { PeriodFilter, allTimePeriod } from '../_components/period-filter';
 import { CompOffClaimsQueue } from '../_components/comp-off-claims-queue';
 import { ApprovalDetailSheet } from '../_components/approval-detail-sheet';
+import { LeaveDocumentViewer } from '../_components/leave-document-viewer';
 import {
   ApprovalsDataTable, approvalFiltersActive, emptyApprovalFilters,
   type ApprovalFilterState, type ToolbarSelection,
@@ -74,6 +75,7 @@ import { useCanApproveLeave } from '@/hooks/hr/use-hr-leave-types';
 import { useLeaveApprovalQueue } from '@/hooks/hr/use-leave-approval-flows';
 import { usePendingCompOffClaims } from '@/hooks/hr/use-comp-off';
 import { getErrorMessage } from '@/lib/utils';
+import { approveLabel, isReviewStep } from '../_components/format';
 import type { HRLeaveApprovalQueueRow } from '@/types/hr';
 
 export default function LeaveApprovalsPage() {
@@ -113,6 +115,13 @@ export default function LeaveApprovalsPage() {
     };
   });
   const [detailRow, setDetailRow] = useState<HRLeaveApprovalQueueRow | null>(null);
+  /**
+   * Whose supporting documents the viewer is showing. null = closed.
+   *
+   * One viewer for the whole table, opened with a row, rather than one mounted
+   * per cell: a 240-row queue would otherwise carry 240 Radix dialogs.
+   */
+  const [docsRow, setDocsRow] = useState<HRLeaveApprovalQueueRow | null>(null);
   /** What the approve confirmation is about. null = closed. */
   const [approving, setApproving] = useState<
     | { kind: 'single'; row: HRLeaveApprovalQueueRow }
@@ -178,7 +187,13 @@ export default function LeaveApprovalsPage() {
     if (approving.kind === 'single') {
       try {
         await decide.mutateAsync({ applicationId: approving.row.id, decision: 'approve' });
-        toast.success(`Approved — ${approving.row.staff_name ?? 'request'}`);
+        // A review step forwards the request; saying "Approved" there is the
+        // same lie the button used to tell.
+        toast.success(
+          isReviewStep(approving.row)
+            ? `Reviewed and forwarded — ${approving.row.staff_name ?? 'request'}`
+            : `Approved — ${approving.row.staff_name ?? 'request'}`
+        );
         setApproving(null);
       } catch (err) {
         const msg = getErrorMessage(err);
@@ -241,6 +256,9 @@ export default function LeaveApprovalsPage() {
       // the stuck `pointer-events: none` body in
       // .claude/skills/radix-dialog-race-fix.
       onView: (row) => { setTimeout(() => setDetailRow(row), 0); },
+      // Opened from a plain cell button rather than from inside a menu, so
+      // there is no Radix teardown to wait for and no defer needed.
+      onViewDocuments: (row) => setDocsRow(row),
       onApprove: confirmApprove,
       onReject: (row) => {
         setRejectReason('');
@@ -483,7 +501,9 @@ export default function LeaveApprovalsPage() {
             <AlertDialogTitle>
               {approving?.kind === 'bulk'
                 ? `Approve ${approving.rows.length} request(s)?`
-                : 'Approve this request?'}
+                : approving && isReviewStep(approving.row)
+                  ? 'Record your review?'
+                  : 'Approve this request?'}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {approving?.kind === 'single' ? (
@@ -499,10 +519,25 @@ export default function LeaveApprovalsPage() {
               ) : (
                 <>Every selected request will be approved, one after another.</>
               )}
-              <span className="mt-2 block">
-                Approving records the decision, draws down the balance and re-judges the
-                day&rsquo;s attendance. It cannot be undone from this screen.
-              </span>
+              {/* A review step writes NO balance and NO attendance stamp — only
+                  the final step's approval does. Promising those consequences on
+                  a review is what made a reviewer believe they had granted the
+                  leave. */}
+              {approving?.kind === 'single' && isReviewStep(approving.row) ? (
+                <span className="mt-2 block">
+                  This records your review and passes the request to{' '}
+                  {approving.row.chain_length - approving.row.current_step - 1 === 1
+                    ? 'the final approver'
+                    : 'the next approver'}
+                  . It does <strong>not</strong> grant the leave, draw down any balance
+                  or change the attendance record.
+                </span>
+              ) : (
+                <span className="mt-2 block">
+                  Approving records the decision, draws down the balance and re-judges the
+                  day&rsquo;s attendance. It cannot be undone from this screen.
+                </span>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -514,7 +549,11 @@ export default function LeaveApprovalsPage() {
               disabled={bulkBusy || decide.isPending}
             >
               {(bulkBusy || decide.isPending) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {approving?.kind === 'bulk' ? 'Approve all' : 'Approve'}
+              {approving?.kind === 'bulk'
+                ? 'Approve all'
+                : approving
+                  ? approveLabel(approving.row)
+                  : 'Approve'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -524,6 +563,18 @@ export default function LeaveApprovalsPage() {
         row={detailRow}
         onOpenChange={(open) => { if (!open) setDetailRow(null); }}
         handlers={actions}
+      />
+
+      {/* Opened from the Document column. View only — no download affordance. */}
+      <LeaveDocumentViewer
+        documents={docsRow?.documents}
+        open={Boolean(docsRow)}
+        onOpenChange={(open) => { if (!open) setDocsRow(null); }}
+        title={
+          docsRow
+            ? [docsRow.staff_name, docsRow.leave_type_name].filter(Boolean).join(' · ')
+            : undefined
+        }
       />
 
       <Dialog open={!!rejectRow} onOpenChange={(v) => { if (!v) setRejectRow(null); }}>
