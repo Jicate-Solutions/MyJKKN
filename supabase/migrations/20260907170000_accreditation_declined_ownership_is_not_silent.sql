@@ -184,7 +184,26 @@ BEGIN
         SELECT uid FROM scoped
         UNION
         -- Whoever made the assignment, whether or not they still hold the key.
-        SELECT NEW.created_by WHERE NEW.created_by IS NOT NULL
+        --
+        -- The EXISTS is load-bearing, not defensive noise.
+        -- accreditation_metric_owners.created_by is the ONE user column on this
+        -- table with no foreign key — owner_user_id, acknowledged_by and
+        -- previous_owner_user_id all reference profiles(id), created_by does
+        -- not. user_notifications.user_id DOES carry
+        -- "FOREIGN KEY (user_id) REFERENCES profiles(id) ON DELETE CASCADE".
+        --
+        -- So a created_by pointing at a deleted profile makes the fan-out INSERT
+        -- violate that key. The EXCEPTION handler below then downgrades the
+        -- violation to a WARNING to protect the owner's answer — and the entire
+        -- decline notice is lost, silently, to every recipient including the
+        -- valid ones. That is exactly the failure this migration exists to end,
+        -- reintroduced by the recipient list itself.
+        --
+        -- Dormant on today's data (all 14 rows carry created_by d28a9913, which
+        -- resolves) and live the moment that assigner's profile is removed.
+        SELECT NEW.created_by
+         WHERE NEW.created_by IS NOT NULL
+           AND EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = NEW.created_by)
       ) r(uid)
      WHERE uid IS DISTINCT FROM v_decliner;
 
