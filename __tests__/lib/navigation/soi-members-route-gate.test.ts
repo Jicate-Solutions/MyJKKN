@@ -42,22 +42,52 @@ describe('the batch roster route admits everyone the write predicate admits', ()
     expect(visible({ 'cohort.edit': true })).toBe(true);
   });
 
-  it('refuses someone holding neither', () => {
+  // fn_soi_can_manage_batch admits the first; fn_cohort_can_set_status's branch 2
+  // admits the second (mirroring cohorts_soi_scoped_update). Both were refused
+  // here for the same reason cohort.edit was.
+  it.each([
+    'cohort.school_of_influence.manage',
+    'cohort.school_of_influence.edit',
+  ])('admits %s — the database does', (key) => {
+    expect(accessible({ [key]: true })).toBe(true);
+    expect(visible({ [key]: true })).toBe(true);
+  });
+
+  it('refuses someone holding none of the four', () => {
     expect(accessible({ 'cohort.view': true })).toBe(false);
     expect(visible({ 'cohort.view': true })).toBe(false);
   });
 
   it('refuses a key present but set to false', () => {
-    expect(accessible({ 'cohort.manage': false, 'cohort.edit': false })).toBe(false);
-    expect(visible({ 'cohort.manage': false, 'cohort.edit': false })).toBe(false);
+    const denied = {
+      'cohort.manage': false,
+      'cohort.edit': false,
+      'cohort.school_of_influence.manage': false,
+      'cohort.school_of_influence.edit': false,
+    };
+    expect(accessible(denied)).toBe(false);
+    expect(visible(denied)).toBe(false);
   });
 
-  it('the sidebar and the route guard agree on every combination', () => {
-    for (const manage of [true, false]) {
-      for (const edit of [true, false]) {
-        const perms = { 'cohort.manage': manage, 'cohort.edit': edit };
-        expect(visible(perms), `manage=${manage} edit=${edit}`).toBe(accessible(perms));
-      }
+  // A key whose value is not literally `true` must not open the page — the
+  // permission map is merged from several sources and a truthy string would
+  // otherwise be enough.
+  it('refuses a truthy non-boolean value', () => {
+    expect(accessible({ 'cohort.edit': 'yes' as unknown as boolean })).toBe(false);
+  });
+
+  it('the sidebar and the route guard agree on every combination of the four', () => {
+    const keys = [
+      'cohort.manage',
+      'cohort.edit',
+      'cohort.school_of_influence.manage',
+      'cohort.school_of_influence.edit',
+    ];
+    for (let mask = 0; mask < 1 << keys.length; mask += 1) {
+      const perms = Object.fromEntries(
+        keys.map((k, i) => [k, Boolean(mask & (1 << i))])
+      );
+      expect(visible(perms), JSON.stringify(perms)).toBe(accessible(perms));
     }
   });
 
