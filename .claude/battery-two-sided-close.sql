@@ -353,11 +353,33 @@ BEGIN
   -- hours. Both are read from the SAME jsonb so they cannot race each other.
   --
   -- CONDITIONAL BY DESIGN: 20260816020000 is FILE ONLY / NOT APPLIED, so this
-  -- probes for the key instead of demanding it. Absent ⇒ skip and say so;
-  -- present ⇒ assert for real. A battery that fails on a database where the
-  -- migration was never applied is testing the deployment, not the behaviour.
-  IF EXISTS (SELECT 1 FROM jsonb_array_elements(j->'signals') s
-              WHERE s->>'key' = 'sessions_marked_same_day') THEN
+  -- skips rather than demanding the key. A battery that fails on a database
+  -- where the migration was never applied is testing the deployment, not the
+  -- behaviour.
+  --
+  -- ⚠️ THE SKIP IS GATED ON THE REGISTRY, NOT ON THE RESPONSE — and that
+  -- distinction is the whole point. Probing the response for the key would make
+  -- "never applied" and "registered but dropped by the emitter's inner join"
+  -- look identical, so a typo'd or deleted VALUES row would print
+  -- "skipped, not applied" and PASS — reproducing marks_coverage, the exact
+  -- failure this check exists to detect. Registered ⇒ it MUST be emitted.
+  -- …and the registry read itself is proved VISIBLE before its answer is
+  -- trusted. work_signal_types is read through a direct SELECT while the RPC it
+  -- is compared against is SECURITY DEFINER, so a role that can call the RPC but
+  -- cannot see the table (RLS, missing grant) would read zero rows, conclude
+  -- "not applied", and PASS — the same silent green, entered through a different
+  -- door. The table is never legitimately empty.
+  SELECT count(*)::int INTO n FROM public.work_signal_types;
+  IF n = 0 THEN
+    RAISE EXCEPTION 'A10b cannot see public.work_signal_types (0 rows visible) — this is an access problem, not an empty registry; the skip below would be a false pass';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM public.work_signal_types
+              WHERE signal_key = 'sessions_marked_same_day' AND is_active) THEN
+    IF NOT EXISTS (SELECT 1 FROM jsonb_array_elements(j->'signals') s
+                    WHERE s->>'key' = 'sessions_marked_same_day') THEN
+      RAISE EXCEPTION 'A10b sessions_marked_same_day is registered + active but ABSENT from fn_work_signals_for — the emitter inner-join is dropping it (this is the marks_coverage failure)';
+    END IF;
     IF (SELECT (s->>'value')::int FROM jsonb_array_elements(j->'signals') s
          WHERE s->>'key' = 'sessions_marked_same_day')
        > COALESCE((SELECT (s->>'value_personal')::int FROM jsonb_array_elements(j->'signals') s
@@ -365,7 +387,7 @@ BEGIN
     THEN
       RAISE EXCEPTION 'A10b same_day exceeds personally-marked — the FILTER is no longer a subset of its own scan';
     END IF;
-    RAISE NOTICE 'A10b ok — same-day present, subset holds';
+    RAISE NOTICE 'A10b ok — registered, emitted, and the subset holds';
   ELSE
     RAISE NOTICE 'A10b skipped — 20260816020000 not applied on this database';
   END IF;

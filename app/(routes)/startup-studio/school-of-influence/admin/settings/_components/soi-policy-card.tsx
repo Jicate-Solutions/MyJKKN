@@ -448,7 +448,7 @@ export function SoiPolicyCard({ view, scope, batchName, batchCount }: Props) {
         scope="platform"
         scopeLabel={
           scope.kind === 'programme'
-            ? 'every School of Influence batch'
+            ? 'every School of Influencer batch'
             : `the ${batchName ?? 'selected'} batch`
         }
         onConfirm={handleConfirm}

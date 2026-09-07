@@ -256,6 +256,10 @@
     {
       "schedule": "22,52 * * * *",
       "path": "/api/cron/orchestration-sync?secret=${CRON_SECRET}"
+    },
+    {
+      "schedule": "14 * * * *",
+      "path": "/api/cron/cron-failure-alerts?secret=${CRON_SECRET}"
     }
   ]
 }
