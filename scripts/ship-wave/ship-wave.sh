@@ -704,6 +704,8 @@ if [ -n "$GOAL" ]; then
     [ "$rc" -eq 0 ] || { say "=== round $round aborted before it could plan — goal loop ends (nothing was merged) ==="; break; }
     left=$(cat "$STATE/last-open-count" 2>/dev/null || echo 1)
     movable=$(python3 -c "import json,glob;p=sorted(glob.glob('$STATE/run-*/plan.json'))[-1];c=json.load(open(p))['counts'];print(c['ready']+c['conflicted']+c['quiet_wait'])" 2>/dev/null || echo 1)
+    # Director 2026-09-07 05:55: drafts DO count toward the goal — he un-drafts them when they are ready to
+    # ship, so the number he sees is the number he owns. (Excluding them was proposed and declined.)
     say "=== goal round $round/$GOAL_ROUNDS · open=$left · movable=$movable ==="
     [ "$left" = "0" ] && { say "=== GOAL MET: open PRs = 0 ==="; break; }
     [ -f "$FREEZE" ] && { say "=== FROZEN — goal loop ends; Director must look, then --unfreeze ==="; break; }
