@@ -223,13 +223,18 @@ export default function HousekeepingCleanersPage() {
         )}
       </div>
 
+      {/* Keyed so a different cleaner (or a fresh create) MOUNTS a new dialog
+          with state initialised from props, instead of an effect resetting it
+          — which would cascade a render on every open. */}
       <CleanerDialog
+        key={`create-${creating}-${scopedInstitution ?? 'all'}`}
         mode='create'
         open={creating}
         onOpenChange={setCreating}
         defaultInstitutionId={scopedInstitution}
       />
       <CleanerDialog
+        key={`edit-${editing?.id ?? 'none'}`}
         mode='edit'
         cleaner={editing}
         open={editing !== null}

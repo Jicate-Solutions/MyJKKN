@@ -65,6 +65,11 @@ export function RateCleaningCard({ booking, allocation, learnerId, isOverdue }: 
           <div className='flex gap-3'>
             {before && (
               <figure className='flex-1'>
+                {/* Plain <img>, not next/image: the source is an AUTHENTICATED
+                    proxy route. next/image would fetch it through Next's
+                    optimizer server-side, without the viewer's cookies, and
+                    every photo would 401. */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={`/api/campus-living/housekeeping/photos/${before.id}/image`}
                   alt='Room before cleaning'
@@ -75,6 +80,7 @@ export function RateCleaningCard({ booking, allocation, learnerId, isOverdue }: 
             )}
             {after && (
               <figure className='flex-1'>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={`/api/campus-living/housekeeping/photos/${after.id}/image`}
                   alt='Room after cleaning'

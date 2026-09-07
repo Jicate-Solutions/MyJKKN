@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -35,11 +35,10 @@ export function WaiveHoldDialog({ booking, open, onOpenChange }: Props) {
   // auth.uid() / profiles.id that waived_by references.
   const { profile } = useAuth();
   const waive = useWaiveHold();
+  // No effect resets this: the parent keys the dialog on the booking id, so a
+  // different booking mounts a fresh component with an empty reason. Resetting
+  // from an effect instead would trigger a cascading render on every open.
   const [reason, setReason] = useState('');
-
-  useEffect(() => {
-    if (open) setReason('');
-  }, [open, booking?.id]);
 
   const trimmed = reason.trim();
 

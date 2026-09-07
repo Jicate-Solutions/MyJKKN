@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -147,7 +147,7 @@ export default function HousekeepingAvailabilityPage() {
             <CardContent className='space-y-3 p-4'>
               {rows.map((row) => (
                 <WeekdayRow
-                  key={row.weekday}
+                  key={`${row.block_id}-${row.weekday}-${row.is_open}-${row.window_start}-${row.window_end}-${row.capacity}`}
                   row={row}
                   institutionId={institutionId}
                   blockId={scopedBlock}
@@ -186,18 +186,13 @@ function WeekdayRow({
     capacity: number;
   }) => void;
 }) {
+  // Initialised from props, never re-synced by an effect: the parent keys each
+  // row on block + weekday + saved values, so a changed row MOUNTS fresh.
+  // Syncing in an effect would cascade a render on every refetch.
   const [isOpen, setIsOpen] = useState(row.is_open);
   const [start, setStart] = useState(row.window_start?.slice(0, 5) ?? '09:00');
   const [end, setEnd] = useState(row.window_end?.slice(0, 5) ?? '17:00');
   const [capacity, setCapacity] = useState(row.capacity);
-
-  // Re-sync when the block changes under us.
-  useEffect(() => {
-    setIsOpen(row.is_open);
-    setStart(row.window_start?.slice(0, 5) ?? '09:00');
-    setEnd(row.window_end?.slice(0, 5) ?? '17:00');
-    setCapacity(row.capacity);
-  }, [row.block_id, row.weekday, row.is_open, row.window_start, row.window_end, row.capacity]);
 
   const invalidWindow = end <= start;
 

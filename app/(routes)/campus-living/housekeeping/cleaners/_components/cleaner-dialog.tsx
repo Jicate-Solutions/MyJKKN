@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -77,36 +77,36 @@ export function CleanerDialog({
   defaultInstitutionId,
 }: Props) {
   const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess();
-  const [institutionId, setInstitutionId] = useState<string>(defaultInstitutionId ?? '');
-  const [form, setForm] = useState({ ...EMPTY });
+
+  // State is INITIALISED from props, never synced from them in an effect: the
+  // page keys this dialog on the cleaner id, so editing a different cleaner
+  // mounts a fresh component. An effect that reset state on open would cascade
+  // a render every time the dialog appeared.
+  const [institutionId, setInstitutionId] = useState<string>(
+    mode === 'edit' && cleaner ? cleaner.institution_id : defaultInstitutionId ?? '',
+  );
+  const [form, setForm] = useState(() =>
+    mode === 'edit' && cleaner
+      ? {
+          full_name: cleaner.full_name,
+          phone: cleaner.phone ?? '',
+          gender: (cleaner.gender ?? '') as '' | 'Male' | 'Female' | 'Other',
+          employee_code: cleaner.employee_code ?? '',
+          working_days: cleaner.working_days ?? [],
+          shift_start: cleaner.shift_start?.slice(0, 5) ?? '',
+          shift_end: cleaner.shift_end?.slice(0, 5) ?? '',
+          is_active: cleaner.is_active,
+          notes: cleaner.notes ?? '',
+          block_ids: cleaner.block_ids ?? [],
+        }
+      : { ...EMPTY },
+  );
 
   const create = useCreateCleaner();
   const update = useUpdateCleaner();
 
   const { data: blocksData } = useHostelBlocks(institutionId);
   const blocks: any[] = (blocksData as any)?.data ?? [];
-
-  useEffect(() => {
-    if (!open) return;
-    if (mode === 'edit' && cleaner) {
-      setInstitutionId(cleaner.institution_id);
-      setForm({
-        full_name: cleaner.full_name,
-        phone: cleaner.phone ?? '',
-        gender: (cleaner.gender ?? '') as '' | 'Male' | 'Female' | 'Other',
-        employee_code: cleaner.employee_code ?? '',
-        working_days: cleaner.working_days ?? [],
-        shift_start: cleaner.shift_start?.slice(0, 5) ?? '',
-        shift_end: cleaner.shift_end?.slice(0, 5) ?? '',
-        is_active: cleaner.is_active,
-        notes: cleaner.notes ?? '',
-        block_ids: cleaner.block_ids ?? [],
-      });
-    } else {
-      setInstitutionId(defaultInstitutionId ?? '');
-      setForm({ ...EMPTY });
-    }
-  }, [open, mode, cleaner, defaultInstitutionId]);
 
   const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
     setForm((f) => ({ ...f, [key]: value }));

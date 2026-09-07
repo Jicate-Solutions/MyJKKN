@@ -250,12 +250,17 @@ export default function HousekeepingDayBoardPage() {
         ))}
       </div>
 
+      {/* Keyed on the booking id so opening a different booking MOUNTS a fresh
+          dialog with clean local state, instead of an effect resetting it (which
+          would cascade a render on every open). */}
       <AssignCleanerDialog
+        key={`assign-${assignTarget?.id ?? 'none'}`}
         booking={assignTarget}
         open={assignTarget !== null}
         onOpenChange={(o) => !o && setAssignTarget(null)}
       />
       <WaiveHoldDialog
+        key={`waive-${waiveTarget?.id ?? 'none'}`}
         booking={waiveTarget}
         open={waiveTarget !== null}
         onOpenChange={(o) => !o && setWaiveTarget(null)}
