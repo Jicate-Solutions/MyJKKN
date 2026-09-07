@@ -61195,3 +61195,253 @@ BEGIN
   RETURN NEW;
 END
 $function$;
+-- Events · institutional event number
+-- Updated: 2026-09-07 — see supabase/migrations/20261118093000_events_institutional_number_and_target_classes.sql
+-- ============================================================================
+
+-- Which academic year a date falls in, for one college. Resolved by DATE
+-- CONTAINMENT against academic_years, NOT by is_active — is_active is true on
+-- 41 rows across 11 colleges and cannot identify a current year (surveyed live
+-- in 20260710120000_induction_mentorship_academic_year_lifecycle.sql).
+-- SECURITY DEFINER because academic_years is RLS-gated and an event coordinator
+-- is not guaranteed to be able to read their own college's rows.
+CREATE OR REPLACE FUNCTION public.fn_event_academic_year_start(
+  p_institution_id UUID,
+  p_on_date        DATE
+)
+RETURNS INTEGER
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT COALESCE(
+    (
+      SELECT EXTRACT(YEAR FROM ay.start_date)::int
+        FROM public.academic_years ay
+       WHERE ay.institution_id = p_institution_id
+         AND p_on_date BETWEEN ay.start_date AND ay.end_date
+       ORDER BY ay.start_date DESC
+       LIMIT 1
+    ),
+    -- The JKKN academic year opens on 1 June (AY 2026-2027 ends 2027-05-31).
+    CASE WHEN EXTRACT(MONTH FROM p_on_date) >= 6
+         THEN EXTRACT(YEAR FROM p_on_date)::int
+         ELSE EXTRACT(YEAR FROM p_on_date)::int - 1
+    END
+  );
+$$;
+
+-- Narrowed after scripts/ci/check-secdef-anon-revoke.mjs flagged it: a
+-- SECURITY DEFINER function reachable by every signed-in account with no
+-- authorization check in its body. Nothing in the application calls it — this
+-- phase adds no pages — and the only real caller is the BEFORE INSERT trigger,
+-- which runs as the table owner and does not need a grant at all. So the grant
+-- is narrowed rather than justified. `authenticated` is a member of PUBLIC, so
+-- both are named; a later phase that needs it from a route should grant it
+-- deliberately, with a guard in the body.
+REVOKE EXECUTE ON FUNCTION public.fn_event_academic_year_start(UUID, DATE) FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_event_academic_year_start(UUID, DATE) TO service_role;
+
+-- Hands out the next institutional event number, atomically. The ON CONFLICT
+-- DO UPDATE takes a row lock on the (college, year) counter, so two
+-- coordinators creating an event in the same instant never receive the same
+-- number — which a SELECT max(seq)+1 cannot promise.
+CREATE OR REPLACE FUNCTION public.fn_events_allocate_number(
+  p_institution_id UUID,
+  p_year           INTEGER
+)
+RETURNS INTEGER
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_seq INTEGER;
+BEGIN
+  IF p_institution_id IS NULL OR p_year IS NULL THEN
+    RAISE EXCEPTION 'fn_events_allocate_number: institution and year are both required'
+      USING ERRCODE = '22004';
+  END IF;
+
+  INSERT INTO public.event_number_counters AS c (institution_id, year_start, last_seq)
+  VALUES (p_institution_id, p_year, 1)
+  ON CONFLICT (institution_id, year_start) DO UPDATE
+    SET last_seq   = c.last_seq + 1,
+        updated_at = now()
+  RETURNING c.last_seq INTO v_seq;
+
+  RETURN v_seq;
+END;
+$$;
+
+-- `authenticated` named explicitly: Supabase's ALTER DEFAULT PRIVILEGES gives it
+-- a DIRECT grant on every new function, separate from PUBLIC.
+REVOKE EXECUTE ON FUNCTION public.fn_events_allocate_number(UUID, INTEGER) FROM anon, authenticated, PUBLIC;
+-- Deliberately NOT granted to `authenticated`: a signed-in caller who could call
+-- this directly could burn numbers or bump last_seq past every real event.
+GRANT  EXECUTE ON FUNCTION public.fn_events_allocate_number(UUID, INTEGER) TO service_role;
+
+-- Trigger body: assign the number on insert, freeze both halves thereafter.
+CREATE OR REPLACE FUNCTION public.fn_events_stamp_event_number()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_year INTEGER;
+BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    -- An institutional number is quoted in letters, minutes and reports. Once
+    -- issued it is not re-derivable from a later edit to the date or the
+    -- college, so both halves are frozen. NULL -> value is still allowed, so a
+    -- row that escaped numbering can still be numbered; that is the path the
+    -- backfill in 1f travels.
+    IF OLD.event_number_year IS NOT NULL THEN
+      NEW.event_number_year := OLD.event_number_year;
+    END IF;
+    IF OLD.event_number_seq IS NOT NULL THEN
+      NEW.event_number_seq := OLD.event_number_seq;
+    END IF;
+
+    -- ── A COLLEGE CHANGE ────────────────────────────────────────────────────
+    -- Director decision (2026-09-07): permitted while the event is still a
+    -- DRAFT, refused once it has left draft. The freeze exists to protect a
+    -- number that has been quoted in a circular, a brochure or in minutes, and
+    -- a draft event has not been announced, so nothing can be quoting it yet.
+    --
+    -- `draft` is the real gate: public.events.status is NOT NULL DEFAULT
+    -- 'draft' over ('draft','planning','preparation','execution','live',
+    -- 'post_event','archived','cancelled'), and there is no published_at
+    -- column. The pre-existing `events_public_read` policy already treats
+    -- draft as off the public surface. The test is OLD.status — the state the
+    -- event was in when the move was asked for. Publishing and moving in one
+    -- statement is therefore allowed, and correctly so: the number that
+    -- reaches the public is the destination college's.
+    --
+    -- Note this branch is reached only when the value actually CHANGES.
+    -- `UPDATE OF institution_id` fires whenever the column is named in SET even
+    -- if the value is identical, and edit-tournament-dialog.tsx sends
+    -- institution_id on EVERY save, so the IS DISTINCT FROM test is what keeps
+    -- an ordinary same-college save free.
+    IF NEW.institution_id IS DISTINCT FROM OLD.institution_id THEN
+      IF OLD.status IS DISTINCT FROM 'draft' THEN
+        RAISE EXCEPTION
+          'events: event % already carries institutional number % issued by college %, and is no longer a draft (status %). Changing its college would re-home that number and desync the counter of the receiving college.',
+          OLD.id, OLD.event_number, OLD.institution_id, OLD.status
+          USING ERRCODE = '23514',
+                HINT = 'Only a draft event can change college. Once it leaves draft the number is fixed; moving it needs a database change by a system administrator.';
+      END IF;
+
+      -- Permitted. RE-ALLOCATE from the DESTINATION college's counter rather
+      -- than carrying the old number across. A number issued under college A is
+      -- wrong in college B, and carrying it is precisely the desync the freeze
+      -- exists to prevent.
+      --
+      -- WHY RE-ALLOCATE AND NOT CLEAR THE HALVES: clearing has no working path.
+      -- The stamp only runs on INSERT, so there is no later event to re-issue a
+      -- number, and the freeze below restores OLD in the same statement, so the
+      -- halves cannot even be set to NULL from SQL. Clearing would leave the row
+      -- permanently unnumbered and break this migration's own end-state
+      -- invariant that every event carries a number.
+      --
+      -- The year is re-resolved against the DESTINATION college, because
+      -- academic_years is per-college and the two colleges need not share term
+      -- dates.
+      --
+      -- THE SOURCE COLLEGE'S COUNTER IS DELIBERATELY NOT TOUCHED. last_seq
+      -- never goes backwards; the vacated sequence simply becomes a gap in the
+      -- source college, exactly like a deleted event. Returning it would mean
+      -- lowering last_seq, which the event_number_counters COMMENT warns
+      -- against: it would hand out a number that is already on another event
+      -- unless the vacated one happened to be the highest.
+      v_year := public.fn_event_academic_year_start(
+        NEW.institution_id,
+        COALESCE(
+          NEW.event_date,
+          (NEW.start_date AT TIME ZONE 'Asia/Kolkata')::date,
+          OLD.event_date,
+          (OLD.start_date AT TIME ZONE 'Asia/Kolkata')::date,
+          CURRENT_DATE
+        )
+      );
+
+      NEW.event_number_year := v_year;
+      NEW.event_number_seq  := public.fn_events_allocate_number(NEW.institution_id, v_year);
+      RETURN NEW;
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  -- INSERT
+  IF NEW.institution_id IS NULL THEN
+    -- events.institution_id is NOT NULL, so this row dies on its own constraint
+    -- a moment from now. Nothing to number, and nothing to raise about here.
+    RETURN NEW;
+  END IF;
+
+  -- Caller-supplied halves are deliberately NOT consulted -- see the header.
+  v_year := public.fn_event_academic_year_start(
+    NEW.institution_id,
+    COALESCE(
+      NEW.event_date,
+      (NEW.start_date AT TIME ZONE 'Asia/Kolkata')::date,
+      CURRENT_DATE
+    )
+  );
+
+  NEW.event_number_year := v_year;
+  NEW.event_number_seq  := public.fn_events_allocate_number(NEW.institution_id, v_year);
+  RETURN NEW;
+END;
+$$;
+
+-- Trigger-only. PostgreSQL checks EXECUTE on a trigger function at CREATE
+-- TRIGGER time (done here by the owner, who keeps the privilege regardless) and
+-- never again when the trigger fires, so no role needs a grant. `authenticated`
+-- is revoked explicitly because Supabase's ALTER DEFAULT PRIVILEGES hands it a
+-- direct grant on every new function, separate from PUBLIC.
+REVOKE EXECUTE ON FUNCTION public.fn_events_stamp_event_number() FROM anon, authenticated, PUBLIC;
+
+-- Trigger body: stamp event_target_classes.institution_id from the event and
+-- refuse a class that belongs to a different college. Without this the RLS on
+-- the table is decorative.
+CREATE OR REPLACE FUNCTION public.fn_event_target_class_scope()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_event_institution   UUID;
+  v_section_institution UUID;
+BEGIN
+  SELECT e.institution_id INTO v_event_institution
+    FROM public.events e WHERE e.id = NEW.event_id;
+
+  SELECT s.institution_id INTO v_section_institution
+    FROM public.sections s WHERE s.id = NEW.section_id;
+
+  IF v_event_institution IS NULL THEN
+    RAISE EXCEPTION 'event_target_classes: event % does not exist', NEW.event_id
+      USING ERRCODE = '23503';
+  END IF;
+
+  NEW.institution_id := v_event_institution;
+
+  IF v_section_institution IS DISTINCT FROM v_event_institution THEN
+    RAISE EXCEPTION 'event_target_classes: class % belongs to a different college than event %',
+      NEW.section_id, NEW.event_id
+      USING ERRCODE = '23514';
+  END IF;
+
+  NEW.updated_at := now();
+  RETURN NEW;
+END;
+$$;
+
+-- Trigger-only: EXECUTE is checked at CREATE TRIGGER time, not per firing.
+REVOKE EXECUTE ON FUNCTION public.fn_event_target_class_scope() FROM anon, authenticated, PUBLIC;

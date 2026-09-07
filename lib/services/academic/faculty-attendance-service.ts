@@ -10,6 +10,7 @@ import type {
   StaffBasic,
   CourseBasic,
 } from '@/types/academic/timetable-queries';
+import type { LearnerAttendanceHistoryRow } from '@/lib/utils/academic/learner-attendance-history';
 
 export class FacultyAttendanceService {
   private static supabase = createClientSupabaseClient();
@@ -1102,6 +1103,62 @@ export class FacultyAttendanceService {
       logger.error('academic/faculty-attendance', 'Error fetching all faculty periods', error);
       return { periodsByDay: {}, searchContext: {} };
     }
+  }
+
+  /**
+   * One learner's attendance history for the section currently being marked.
+   *
+   * Updated: 2026-09-07 - The marking screen could show today's roster and
+   * nothing else, so the Senior Learner marking the register had no way to see
+   * which days a learner actually came.
+   *
+   * Returns the raw per-period rows from fn_learner_attendance_history. The
+   * day-level rollup and the percentage are deliberately NOT done here — they
+   * live in lib/utils/academic/learner-attendance-history.ts, under unit test,
+   * because "which days count toward this percentage" is the part that must not
+   * drift.
+   *
+   * `error` is surfaced, never swallowed. Returning `data || []` on a failed
+   * read is how this repo has repeatedly turned an RLS denial or a network
+   * error into a dialog that says "no attendance recorded" — which reads as a
+   * fact about the learner rather than a failure of the read.
+   */
+  static async getLearnerAttendanceHistory(params: {
+    learnerId: string;
+    sectionId: string;
+    /** yyyy-MM-dd, inclusive. */
+    fromDate: string;
+    /** yyyy-MM-dd, inclusive. */
+    toDate: string;
+  }): Promise<{
+    rows: LearnerAttendanceHistoryRow[];
+    error: string | null;
+  }> {
+    const { data, error } = await (this.supabase as any).rpc(
+      'fn_learner_attendance_history',
+      {
+        p_learner_id: params.learnerId,
+        p_section_id: params.sectionId,
+        p_from: params.fromDate,
+        p_to: params.toDate
+      }
+    );
+
+    if (error) {
+      logger.error(
+        'academic/faculty-attendance',
+        'fn_learner_attendance_history failed',
+        error
+      );
+      return {
+        rows: [],
+        error:
+          error.message ||
+          'Attendance history could not be read. Please try again.'
+      };
+    }
+
+    return { rows: (data ?? []) as LearnerAttendanceHistoryRow[], error: null };
   }
 
   private static getDayOfWeekFromDate(dateString: string): string {

@@ -4789,6 +4789,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/improvement-board/placements",
+        "label": "Placements",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/improvement-board/postings",
         "label": "Postings",
         "iconName": "FileText",

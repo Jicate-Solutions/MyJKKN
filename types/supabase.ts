@@ -48271,6 +48271,50 @@ export type Database = {
         }
         Relationships: []
       }
+      event_academic_types: {
+        Row: {
+          code: string
+          created_at: string
+          description: string | null
+          display_order: number
+          id: string
+          institution_id: string | null
+          is_active: boolean
+          label: string
+          updated_at: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          description?: string | null
+          display_order?: number
+          id?: string
+          institution_id?: string | null
+          is_active?: boolean
+          label: string
+          updated_at?: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          description?: string | null
+          display_order?: number
+          id?: string
+          institution_id?: string | null
+          is_active?: boolean
+          label?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_academic_types_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_budget_approvals: {
         Row: {
           approved_at: string | null
@@ -49964,6 +50008,50 @@ export type Database = {
           },
         ]
       }
+      event_impact_categories: {
+        Row: {
+          code: string
+          created_at: string
+          description: string | null
+          display_order: number
+          id: string
+          institution_id: string | null
+          is_active: boolean
+          label: string
+          updated_at: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          description?: string | null
+          display_order?: number
+          id?: string
+          institution_id?: string | null
+          is_active?: boolean
+          label: string
+          updated_at?: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          description?: string | null
+          display_order?: number
+          id?: string
+          institution_id?: string | null
+          is_active?: boolean
+          label?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_impact_categories_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_incidents: {
         Row: {
           bib_number: string | null
@@ -50070,6 +50158,38 @@ export type Database = {
             columns: ["reported_by"]
             isOneToOne: false
             referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_number_counters: {
+        Row: {
+          created_at: string
+          institution_id: string
+          last_seq: number
+          updated_at: string
+          year_start: number
+        }
+        Insert: {
+          created_at?: string
+          institution_id: string
+          last_seq?: number
+          updated_at?: string
+          year_start: number
+        }
+        Update: {
+          created_at?: string
+          institution_id?: string
+          last_seq?: number
+          updated_at?: string
+          year_start?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_number_counters_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
             referencedColumns: ["id"]
           },
         ]
@@ -52376,6 +52496,65 @@ export type Database = {
             columns: ["submitted_by"]
             isOneToOne: false
             referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_target_classes: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          event_id: string
+          id: string
+          institution_id: string
+          section_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          event_id: string
+          id?: string
+          institution_id?: string
+          section_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          event_id?: string
+          id?: string
+          institution_id?: string
+          section_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_target_classes_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_target_classes_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_target_classes_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_target_classes_section_id_fkey"
+            columns: ["section_id"]
+            isOneToOne: false
+            referencedRelation: "sections"
             referencedColumns: ["id"]
           },
         ]
