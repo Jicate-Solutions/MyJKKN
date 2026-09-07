@@ -1,0 +1,5 @@
+#
+# Local dictionary for the smoke harness. Deliberately empty: the shipped
+# dictionaries under @@PREFIX@@/share/freeradius (including dictionary.mikrotik)
+# already define Mikrotik-Rate-Limit and Mikrotik-Group.
+#
