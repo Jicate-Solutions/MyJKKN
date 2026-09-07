@@ -51,6 +51,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { ADMIN_BYPASS_ROLES } from '@/lib/navigation/permission-filter';
 import {
   useDecideDepartmentStatusReview,
   useDecidedDepartmentStatusReviews,
@@ -67,7 +68,7 @@ const REVIEW_VIEW_PERMISSION = 'solutions.societal.view';
 const REVIEW_DECIDE_PERMISSION = 'solutions.societal.approve';
 
 /**
- * Mirror of the database's own bypass, which both enforcement sites open with:
+ * The database's own bypass, which both enforcement sites open with:
  * `is_super_admin() OR is_admin() OR ...`. `is_admin()` reads
  * `profiles.role`, so a UI gate that only checked the permission key refused
  * people the database would have accepted.
@@ -78,8 +79,11 @@ const REVIEW_DECIDE_PERMISSION = 'solutions.societal.approve';
  * `is_super_admin = false`, so `usePermissions().isSuperAdmin` does not cover
  * them. Those three people were being told they had no access to a queue the
  * database would have let them read and decide.
+ *
+ * ADMIN_BYPASS_ROLES is imported rather than restated: it is the same list the
+ * route guard on this very page already uses (`isPageAccessible` →
+ * `hasAdminBypass`). Two copies of a bypass list is how they drift apart.
  */
-const DATABASE_ADMIN_ROLES = ['admin', 'super_admin', 'administrator'];
 
 const STATUS_LABELS: Record<string, string> = {
   active: 'Active',
@@ -250,9 +254,9 @@ export function DepartmentStatusReviewQueue() {
   } = useUserInstitutionAccess();
 
   // The database bypasses on `is_super_admin() OR is_admin()` before it looks
-  // at any permission key, so the screen must too — see DATABASE_ADMIN_ROLES.
+  // at any permission key, so the screen must too — see ADMIN_BYPASS_ROLES.
   const isDatabaseAdmin =
-    isSuperAdmin || DATABASE_ADMIN_ROLES.includes(userProfile?.role ?? '');
+    isSuperAdmin || ADMIN_BYPASS_ROLES.includes(userProfile?.role ?? '');
 
   const canView = isDatabaseAdmin || can(REVIEW_VIEW_PERMISSION);
   const canDecide = isDatabaseAdmin || can(REVIEW_DECIDE_PERMISSION);
