@@ -1,188 +1,79 @@
 -- ============================================================================
--- 2026-09-07 · Connect the solution-department activity clock to the ONE
---              surface that already records use — and give the sweep a caller
+-- 2026-09-07 · Give the dormancy sweep a caller, and give un-invoiced work a
+--              type to be filed under
 --
 -- 🛑 FILE ONLY / NOT APPLIED TO ANY DATABASE — the operator applies migrations.
---    Nothing below has been run. Every claim in this header is about the file
---    and about read-only observations of production made on 2026-09-07; no
---    claim here is about an object this change created.
+--    Nothing below has been run.
 --
--- WHAT IS ACTUALLY BROKEN, stated plainly.
---   `update_department_statuses()` is correct and is NOT touched by this file.
---   Since 20261013000000 it anchors dormancy on
---   GREATEST(last_revenue_at, last_activity_at) and writes the honest reason
---   string 'N months without recorded activity'. The rule is right. What is
---   missing is everything that would let the rule ever see a fact:
+-- ⚠️ CORRECTION TO THE FIRST DRAFT OF THIS FILE, kept visible on purpose.
+--    An earlier version of this migration said the sweep "has never fired" and
+--    that "a clock nobody winds does not tell the time". BOTH STATEMENTS WERE
+--    FALSE, and the second one was the argument for the change. The sweep HAS
+--    fired — once — and it caused an incident. The correct facts are below.
 --
---     (1) NOTHING WRITES last_activity_at IN PRACTICE. The only writer is
---         on_societal_activity_touch_department(), whose only live caller is a
---         trigger on sh_community_engagements — a table holding 0 rows whose
---         capture UI is still being built. Meanwhile sh_solution_first_use —
---         "somebody outside the producing team actually USED this" — has had a
---         working capture card since PR #3083 and writable permissions for
---         seven roles since PR #3148, and is wired to nothing. The one surface
---         that can record real use is the one surface the clock cannot hear.
+-- WHAT ACTUALLY HAPPENED, and why it matters for this file.
+--   sh_department_status_history holds exactly two events in its whole life:
+--     · 2026-04-14                    — 44 departments → 'active'
+--     · 2026-08-17 13:58:09.091614+00 — 44 departments → 'dormant'
+--   All forty-four of the second batch carry that ONE timestamp (span
+--   0.000000s), changed_by NULL — no human — and one reason string for all 44:
+--   'Auto-dormant: 4.2 months without revenue'. That was
+--   update_department_statuses() writing `status` unattended. The Cluster
+--   Academic Council funnel joined on `status = 'active'`, matched nothing from
+--   that moment, and reported that no college had ever activated a solution
+--   department. Eight colleges' work left the record because one job moved one
+--   column. 20261019000000 records the same event in its own header.
 --
---     (2) NOTHING CALLS THE SWEEP. Read on production 2026-09-07, `cron.job`
---         carries no entry for update_department_statuses, and the only
---         application entry point, DepartmentTrackerService.refreshStatuses(),
---         has no caller. A clock nobody winds does not tell the time.
+-- WHY SCHEDULING IT IS NEVERTHELESS THE RIGHT CHANGE — this is the whole
+-- argument, and it is not the one the first draft made.
+--   The function that caused that incident NO LONGER EXISTS in that form.
+--   20261019000000_societal_approval_and_status_review.sql §6 redefined
+--   update_department_statuses(): it still computes exactly the same status,
+--   but it now INSERTs a PROPOSAL into sh_department_status_reviews and never
+--   UPDATEs sh_solution_departments.status. Moving a department requires
+--   apply_department_status_review(), which raises unless the caller holds
+--   `solutions.societal.approve` (or is admin/super-admin). One open review per
+--   department, refreshed in place by ON CONFLICT, so a monthly sweep cannot
+--   pile up duplicates for the same fact.
 --
---     (3) EVERY SOLUTION TYPE IS COMMERCIAL. sh_solution_types holds exactly
---         four active rows — Content Production, Healthcare Solutions,
---         Software Development, Training & Workshops. A department doing
---         community or outreach work has no type to file it under, so the work
---         is either mis-filed or not recorded, and then the clock cannot see
---         that either.
+--   So the risk that made 2026-08-17 possible was engineered out on
+--   2026-09-02, and scheduling this function today is SAFE IN A WAY IT WAS NOT
+--   THEN: the worst a monthly fire can now do is put a row in front of a human.
+--   That is the argument for this job. What is missing is only the caller —
+--   read on production 2026-09-07, cron.job carries NO entry for
+--   update_department_statuses, and the sole application entry point,
+--   DepartmentTrackerService.refreshStatuses(), has no caller in app/ or
+--   hooks/. A review queue nobody fills has nothing to review.
 --
 -- WHAT THIS CHANGE WILL AND WILL NOT DO ON THE DAY IT IS APPLIED.
---   It will NOT move any department. On all 44 rows of
---   sh_solution_departments, `last_revenue_at` and `last_activity_at` are both
---   NULL and only `activated_at` is set, so every department falls back to its
---   activation date, computes 'dormant', and already RECORDS 'dormant'. The
---   sweep therefore proposes nothing for any of them — before this change and
---   after it. That is the correct outcome of re-judging 44 departments under a
---   rule that asks "has anyone recorded activity or revenue?", because for all
---   44 the honest answer today is no. It is not a bug and it is not this file
---   failing; it is the register being empty. The clock starts telling a
---   different story the first time somebody records a first use.
+--   It will propose NOTHING for the 44 existing solution departments. All 44
+--   carry NULL last_revenue_at AND NULL last_activity_at and fall back to
+--   activated_at, so each computes 'dormant' — and each ALREADY records
+--   'dormant' after 2026-08-17, so the function's own
+--   `CONTINUE WHEN v_new_status = v_dept.status` skips every one of them. No
+--   review rows, no history rows, no status writes. That is the correct and
+--   honest outcome of re-judging 44 departments under a rule that asks "has
+--   anyone recorded activity or revenue?" — for all 44, today, the answer is
+--   no. It is not a bug and it is not this file failing; it is the register
+--   being empty. The queue starts filling the first time a department's clock
+--   moves and then stops again.
 --
--- ORDERING NOTE, because it is easy to get wrong.
---   This file depends on objects created in
---   20261013000000_societal_capture_and_activity_clock.sql
---   (`sh_solution_departments.last_activity_at`) and in
---   20260907120000_sh_solution_first_use.sql (`sh_solution_first_use`). Its
---   version token 20261114000000 sorts AFTER both, which is what makes a
---   replay from empty apply them in the right order. The token is unique on
---   jicate/main as of this commit — checked, because two files sharing a
---   version merge cleanly, pass every gate, and the second is silently SKIPPED
---   on apply.
+-- WHAT WAS IN THE FIRST DRAFT AND IS DELIBERATELY NOT HERE — see the section
+--   at the foot of this file. Short version: an AFTER INSERT trigger on
+--   sh_solution_first_use was removed because it violated a deliberate
+--   invariant.
+--
+-- ORDERING NOTE.
+--   This file depends on update_department_statuses() as redefined in
+--   20261019000000 and on sh_solution_types from 20260209000001. Its version
+--   token 20261114000000 sorts after both, which is what makes a replay from
+--   empty apply them in the right order. The token is unique on jicate/main as
+--   of this commit — checked, because two files sharing a version merge
+--   cleanly, pass every gate, and the second is silently SKIPPED on apply.
 -- ============================================================================
 
 -- ---------------------------------------------------------------------------
--- 1. Recording a solution's first real user touches its department's clock
--- ---------------------------------------------------------------------------
--- WHY A SIBLING FUNCTION RATHER THAN REUSING THE EXISTING ONE.
---   on_societal_activity_touch_department() branches on TG_TABLE_NAME and, in
---   its else-branch, reads NEW.is_pro_bono and NEW.lead_department_id. Those
---   columns exist on sh_community_engagements and sh_solutions and do NOT
---   exist on sh_solution_first_use, so attaching it to this table would raise
---   at runtime on the very first insert. Adding a third branch to it would
---   also mean re-issuing a function three unrelated triggers depend on. This
---   sibling follows the SAME pattern — same clock semantics, same
---   never-move-backwards guard, same reactivation window — against the one
---   shape it actually reads.
---
--- HOW THE DEPARTMENT IS RESOLVED.
---   sh_solution_first_use.solution_id → sh_solutions.lead_department_id →
---   sh_solution_departments.department_id. `lead_department_id` is NOT NULL on
---   sh_solutions, and sh_solution_departments carries UNIQUE (department_id),
---   so the second hop returns at most one row. A solution whose lead
---   department is not an activated solution department resolves to nothing and
---   the trigger returns quietly — that is a department outside the tracker,
---   not an error.
-CREATE OR REPLACE FUNCTION public.on_first_use_touch_department()
-RETURNS TRIGGER
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-    v_dept_id UUID;
-    v_sd_id   UUID;
-    v_old     TEXT;
-    v_when    timestamptz;
-BEGIN
-    -- The date the use HAPPENED, not now(): an entry filed today for a first
-    -- use back in March must not read as activity today.
-    v_when := NEW.used_on::timestamptz;
-
-    SELECT s.lead_department_id
-      INTO v_dept_id
-      FROM public.sh_solutions s
-     WHERE s.id = NEW.solution_id;
-
-    IF v_dept_id IS NULL THEN
-        RETURN NEW;
-    END IF;
-
-    SELECT sd.id, sd.status
-      INTO v_sd_id, v_old
-      FROM public.sh_solution_departments sd
-     WHERE sd.department_id = v_dept_id;
-
-    IF v_sd_id IS NULL THEN
-        RETURN NEW;
-    END IF;
-
-    -- Never move the clock backwards: a late entry for old work must not
-    -- shorten a department's standing.
-    UPDATE public.sh_solution_departments
-       SET last_activity_at = GREATEST(COALESCE(last_activity_at, v_when), v_when),
-           updated_at = now()
-     WHERE id = v_sd_id;
-
-    -- Reactivate only when the use is recent enough to mean it. An entry for a
-    -- first use four months ago should not clear a dormant flag today.
-    IF v_old IN ('at_risk', 'dormant') AND v_when > now() - interval '30 days' THEN
-        UPDATE public.sh_solution_departments
-           SET status = 'active',
-               updated_at = now()
-         WHERE id = v_sd_id;
-
-        INSERT INTO public.sh_department_status_history
-            (solution_department_id, previous_status, new_status, reason, changed_at)
-        VALUES (v_sd_id, v_old, 'active', 'Reactivated: first real use recorded', now());
-    END IF;
-
-    RETURN NEW;
-END;
-$$;
-
-COMMENT ON FUNCTION public.on_first_use_touch_department() IS
-  'Trigger function. When a solution''s FIRST REAL USE is recorded, moves the '
-  'owning solution department''s last_activity_at forward to the date of that '
-  'use (never backwards), and reactivates an at_risk/dormant department when '
-  'the use is within the last 30 days. Sibling of '
-  'on_societal_activity_touch_department(), which cannot serve this table '
-  'because its else-branch reads is_pro_bono / lead_department_id, columns '
-  'sh_solution_first_use does not have.';
-
--- ── Grant lockdown ──────────────────────────────────────────────────────────
--- This is a trigger function: PostgreSQL does not consult EXECUTE when a
--- trigger fires, so the NARROWEST GRANT THAT WORKS IS NO GRANT AT ALL, and
--- none is issued below. The revoke is still explicit and still names all three
--- grantees, because Supabase's ALTER DEFAULT PRIVILEGES gives anon a direct
--- EXECUTE grant on every new function SEPARATELY from PUBLIC, and
--- `authenticated` is itself a member of PUBLIC — so revoking one does not
--- remove the other. Without this, any holder of the public anon key (embedded
--- in every Next.js bundle) could call it directly; the call would fail with
--- "trigger functions can only be called as triggers", but the reachability is
--- the thing being closed, not the error message.
-REVOKE EXECUTE ON FUNCTION public.on_first_use_touch_department() FROM anon, authenticated, PUBLIC;
-
-DO $lockcheck$
-BEGIN
-  IF has_function_privilege('anon', 'public.on_first_use_touch_department()', 'EXECUTE')
-     OR has_function_privilege('authenticated', 'public.on_first_use_touch_department()', 'EXECUTE') THEN
-    RAISE EXCEPTION 'on_first_use_touch_department is still EXECUTE-able by anon or authenticated';
-  END IF;
-END $lockcheck$;
-
--- AFTER INSERT only, deliberately. Recording the first use is a once-ever
--- event (sh_solution_first_use.solution_id is UNIQUE); the UPDATE path exists
--- only to correct a typo in an existing row, and the clock's
--- never-move-backwards rule means a correction to an EARLIER date must not
--- move it anyway. Firing on UPDATE would let a correction to a LATER date move
--- the clock, which is a separate decision nobody has taken.
-DROP TRIGGER IF EXISTS trg_first_use_touches_dept ON public.sh_solution_first_use;
-CREATE TRIGGER trg_first_use_touches_dept
-    AFTER INSERT
-    ON public.sh_solution_first_use
-    FOR EACH ROW EXECUTE FUNCTION public.on_first_use_touch_department();
-
--- ---------------------------------------------------------------------------
--- 2. Something that winds the clock: the monthly sweep
+-- 1. Something that winds the clock: the monthly sweep
 -- ---------------------------------------------------------------------------
 -- Cadence: monthly, because the thresholds the sweep enforces are monthly
 -- (1 month → at_risk, 3 months → dormant). A daily job would re-read the same
@@ -190,17 +81,42 @@ CREATE TRIGGER trg_first_use_touches_dept
 -- at most one month late, which is inside the resolution of the rule itself.
 --
 -- 03:00 UTC on the 1st = 08:30 IST on the 1st. Off-hours for this estate, and
--- a status flip lands before anyone opens the tracker that morning.
+-- a proposal lands before anyone opens the tracker that morning.
 --
--- WHO IT RUNS AS. cron.schedule records the scheduling role and runs the
--- command as that role. In this project migrations are applied as the database
--- superuser, which owns these functions; a function's OWNER always retains
--- EXECUTE regardless of the REVOKE FROM anon, authenticated, PUBLIC that
--- 20261013000000 placed on update_department_statuses(). So the job runs
--- without widening anyone's grant — no GRANT is added here, deliberately. This
--- matches how 20260606103000_auto_complete_past_due_reservations.sql and
--- 20260503083153_cron_refresh_dashboard_views_30min.sql schedule their own.
+-- ── CAN THE JOB ACTUALLY EXECUTE THE FUNCTION? ──────────────────────────────
+-- This is the one thing about a cron job that fails SILENTLY, and it is worth
+-- the ten lines below. cron.schedule records the SCHEDULING role in
+-- cron.job.username and the background worker runs the command as that role.
+-- update_department_statuses() is SECURITY DEFINER and 20261019000000 revoked
+-- EXECUTE from anon, authenticated and PUBLIC. If the applying role is neither
+-- the owner, nor a member of the owner, nor separately granted, the job is
+-- created successfully, fires every month, and does nothing — and the failure
+-- appears only in cron.job_run_details, which nobody reads.
 --
+-- Neither cron migration in this repo is a precedent for that combination:
+-- 20260606103000_auto_complete_past_due_reservations.sql schedules a function
+-- carrying NO revoke at all, and 20260503083153_cron_refresh_dashboard_views_
+-- 30min.sql calls fn_refresh_dashboard_views, which has no CREATE in any
+-- migration file, so its grants cannot be read from this repository. Neither
+-- can be copied here. So this file VERIFIES instead of assuming: the check
+-- below tests the exact role cron will record, and it runs BEFORE the schedule
+-- so a failing check cannot leave a dead job behind. No GRANT is issued —
+-- widening EXECUTE to fix a check would be widening it for everyone holding
+-- that role, and the honest fix is for the operator to apply as a role that
+-- already has it.
+DO $execcheck$
+BEGIN
+  IF NOT has_function_privilege(
+            current_user, 'public.update_department_statuses()', 'EXECUTE') THEN
+    RAISE EXCEPTION
+      'Refusing to schedule a job that cannot run: role % has no EXECUTE on '
+      'public.update_department_statuses(). Scheduling it anyway would create a '
+      'silent monthly no-op visible only in cron.job_run_details. Apply this '
+      'migration as the function owner (or a member of it), or grant EXECUTE '
+      'to the applying role first.', current_user;
+  END IF;
+END $execcheck$;
+
 -- Idempotent: unschedule any prior job of the same name first, tolerating the
 -- first run where it does not exist yet.
 DO $$
@@ -217,19 +133,20 @@ SELECT cron.schedule(
   $$ SELECT public.update_department_statuses(); $$
 );
 
--- NOTE, so nobody reads the first run as a failure: on the day this is applied
--- all 44 solution departments have NULL last_revenue_at AND NULL
--- last_activity_at, fall back to activated_at, compute 'dormant', and already
--- record 'dormant'. The first fire will therefore change nothing and write no
--- history rows. That is the sweep agreeing with the record, not the sweep
--- being broken.
+-- NOTE, so nobody reads the first fire as a failure: on the day this is applied
+-- all 44 solution departments record 'dormant' and compute 'dormant', so the
+-- function skips every one of them and writes no proposal. That is the sweep
+-- agreeing with the record, not the sweep being broken.
 
 -- ---------------------------------------------------------------------------
--- 3. A solution is not always commercial
+-- 2. A solution is not always commercial
 -- ---------------------------------------------------------------------------
 -- Director decision: community and outreach work is real solution work and
--- needs a type of its own. Without one it is filed under a commercial type or
--- not filed at all, and unfiled work is invisible to every count the hub makes.
+-- needs a type of its own. sh_solution_types holds exactly four active rows —
+-- Content Production, Healthcare Solutions, Software Development, Training &
+-- Workshops — all client work. Without a type of its own, community work is
+-- filed under a commercial type or not filed at all, and unfiled work is
+-- invisible to every count the hub makes.
 --
 -- Idempotent on BOTH identifying columns. `slug` is the UNIQUE constraint and
 -- is what the database enforces; `name` is what a human would recognise and is
@@ -238,6 +155,11 @@ SELECT cron.schedule(
 -- FALSE: is_default marks the originally-seeded set, and flipping a default
 -- would change which type a new solution lands on — not something this file
 -- decides.
+--
+-- Columns checked against the table's own CREATE in
+-- 20260209000001_solution_department_tracker.sql: id, name, slug, description,
+-- icon, color, is_default, is_active, created_by, created_at, updated_at. The
+-- seven named below all exist; the rest take their defaults.
 INSERT INTO public.sh_solution_types (name, slug, description, icon, color, is_default, is_active)
 SELECT 'Community & Outreach',
        'community',
@@ -252,3 +174,43 @@ WHERE NOT EXISTS (
         OR lower(name) = lower('Community & Outreach')
 )
 ON CONFLICT (slug) DO NOTHING;
+
+-- ---------------------------------------------------------------------------
+-- 3. REMOVED FROM THIS FILE: the first-use trigger
+-- ---------------------------------------------------------------------------
+-- The first draft added `on_first_use_touch_department()` plus
+-- `CREATE TRIGGER trg_first_use_touches_dept AFTER INSERT ON
+-- public.sh_solution_first_use`, so that recording a solution's first real user
+-- moved the owning department's last_activity_at and could reactivate an
+-- at_risk/dormant department. It is removed, and this note is the record of
+-- why, so nobody re-adds it by reading the gap as an oversight.
+--
+-- IT VIOLATED A DELIBERATE INVARIANT. The sibling trigger it claimed to mirror
+-- is not an unconditional AFTER INSERT. 20261019000000 §4 defines it as:
+--
+--     AFTER UPDATE OF approval_status ON public.sh_community_engagements
+--     FOR EACH ROW
+--     WHEN (NEW.approval_status = 'approved'
+--           AND OLD.approval_status IS DISTINCT FROM 'approved')
+--
+-- The draft mirrored the function BODY and not the FIRING CONDITION, and the
+-- firing condition is where the gate lives. That migration states the rule in
+-- its own words, on the column comment for approval_status: "Only an APPROVED
+-- engagement moves the department's activity clock — an unreviewed entry must
+-- never be able to clear a dormant flag, or the approval step is decorative."
+--
+-- NO EQUIVALENT GATE CAN BE WRITTEN HERE. sh_solution_first_use has no
+-- approval column at all — its columns are id, solution_id, used_on, used_by,
+-- note, recorded_by, created_at, updated_at — and its INSERT policy admits
+-- every role holding `solutions.first_use.record`, which is every role already
+-- holding `solutions.dashboard.view`: 137 people across 7 roles. Wiring it
+-- ungated would let any one of them silently clear a department's dormant flag
+-- and write a permanent history row, which is precisely the outcome the review
+-- queue exists to prevent.
+--
+-- Connecting first use to the dormancy clock therefore needs an approval step
+-- on that table first. That is a separate decision with its own scope — who
+-- approves a recorded first use, and whether a once-ever entry should carry an
+-- approval workflow at all — and it is not taken here. The value forgone today
+-- is small and worth naming: sh_solutions holds 2 rows, so the path would
+-- reach at most 2 departments.
