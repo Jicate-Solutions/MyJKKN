@@ -316,6 +316,12 @@ export default function SocialDepartmentAccountsPage() {
   const [rows, setRows] = useState<DeptAccountRow[]>([]);
   const [connections, setConnections] = useState<IgConnectionRow[]>([]);
   const [igAccounts, setIgAccounts] = useState<IgAccountRow[]>([]);
+  // ig_accounts.id values that have at least one row in ig_posts. The loop reads
+  // the last N posts with NO date filter, so "has ever posted" is exactly the
+  // condition for a loop that can show something. Deliberately NOT read from
+  // ig_accounts.last_post_at: that column is null on 54 of 71 accounts and
+  // disagrees with ig_posts on 16 of 50 live departments (checked 2026-09-07).
+  const [accountsWithPosts, setAccountsWithPosts] = useState<Set<string> | null>(null);
   const [igLoaded, setIgLoaded] = useState(false);
   const [igError, setIgError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -375,6 +381,30 @@ export default function SocialDepartmentAccountsPage() {
         setIgError(e instanceof Error ? e.message : String(e));
         setIgLoaded(true);
       });
+
+    // Which handles have any post at all. ig_posts carries the same policy pair
+    // as ig_accounts (institution scope OR social.instagram.view), so a caller
+    // who can see the accounts above can see these. On any failure this stays
+    // null, which renders the Loop cell as "unknown" (a link, as before) rather
+    // than fabricating "no posts" for every department.
+    // Paged deliberately: ig_posts is already 1,009 rows and grows, while
+    // PostgREST caps a single response (commonly at 1,000). An unpaged read
+    // would silently truncate and mark a posting department "No posts yet".
+    // Any error abandons the read and leaves the state null = unknown.
+    void (async () => {
+      const PAGE = 1000;
+      const found = new Set<string>();
+      for (let from = 0; ; from += PAGE) {
+        const { data, error: err } = await supabase
+          .from('ig_posts')
+          .select('account_id')
+          .range(from, from + PAGE - 1);
+        if (err || !data) return; // stays null → link shown, never a false "no posts"
+        for (const row of data as { account_id: string }[]) found.add(row.account_id);
+        if (data.length < PAGE) break;
+      }
+      setAccountsWithPosts(found);
+    })();
   }, []);
 
   useEffect(() => {
@@ -406,6 +436,27 @@ export default function SocialDepartmentAccountsPage() {
   // Ground truth is only usable once the ig_accounts fetch resolved WITH rows.
   // Empty (RLS denied for a role lacking social.instagram.view) or not-yet-loaded
   // must render as "unavailable", never as "0 live / everything is drift".
+  /** dept row id -> resolved ig_accounts.id, matched exactly as insightByDept
+   *  does (ig_account_id first, then username). Used only to ask "has this
+   *  handle ever posted", which decides whether its loop can show anything. */
+  const acctIdByDept = useMemo(() => {
+    const byUsername = new Map<string, string>();
+    const ids = new Set<string>();
+    for (const a of igAccounts) {
+      ids.add(a.id);
+      byUsername.set(a.username.toLowerCase(), a.id);
+    }
+    const map = new Map<string, string>();
+    for (const r of rows) {
+      if (r.ig_account_id && ids.has(r.ig_account_id)) map.set(r.id, r.ig_account_id);
+      else {
+        const viaName = byUsername.get(r.username.toLowerCase());
+        if (viaName) map.set(r.id, viaName);
+      }
+    }
+    return map;
+  }, [rows, igAccounts]);
+
   const igAvailable = igLoaded && !igError && igAccounts.length > 0;
 
   // dept row id -> real insight state (only meaningful when igAvailable):
@@ -664,23 +715,42 @@ export default function SocialDepartmentAccountsPage() {
                           Meta feeds fully — so the link is offered only where
                           live insights are on. */}
                       <TableCell>
-                        {insightByDept.get(r.id) === 'live' ? (
-                          <Link
-                            href={`/admission/social/loop?account=${encodeURIComponent(r.username)}`}
-                            className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
-                            aria-label={`Open the weekly loop for @${r.username}`}
-                          >
-                            <Repeat className="h-3.5 w-3.5" aria-hidden="true" />
-                            Open loop
-                          </Link>
-                        ) : (
-                          <span
-                            className="text-sm text-muted-foreground"
-                            title="The loop scores saves, shares and comments — Meta only exposes those once full insights are on."
-                          >
-                            —
-                          </span>
-                        )}
+                        {(() => {
+                          if (insightByDept.get(r.id) !== 'live') {
+                            return (
+                              <span
+                                className="text-sm text-muted-foreground"
+                                title="The loop scores saves, shares and comments — Meta only exposes those once full insights are on."
+                              >
+                                —
+                              </span>
+                            );
+                          }
+                          // Post presence is unknown until the ig_posts read lands
+                          // (or if it failed). Offer the link rather than claim silence.
+                          const acctId = acctIdByDept.get(r.id);
+                          const known = accountsWithPosts !== null && acctId !== undefined;
+                          if (known && !accountsWithPosts.has(acctId)) {
+                            return (
+                              <span
+                                className="text-sm text-muted-foreground"
+                                title="This handle has never posted, so its loop has nothing to read yet. That silence is the finding — the loop is ready the moment it posts."
+                              >
+                                No posts yet
+                              </span>
+                            );
+                          }
+                          return (
+                            <Link
+                              href={`/admission/social/loop?account=${encodeURIComponent(r.username)}`}
+                              className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+                              aria-label={`Open the weekly loop for @${r.username}`}
+                            >
+                              <Repeat className="h-3.5 w-3.5" aria-hidden="true" />
+                              Open loop
+                            </Link>
+                          );
+                        })()}
                       </TableCell>
                     </TableRow>
                   ))}
