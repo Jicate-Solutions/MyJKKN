@@ -184,6 +184,20 @@ export type AssignResult =
   | { success: true; status: BookingStatus; cleaner_name?: string }
   | { success: false; error_code: string };
 
+/**
+ * Narrowing helper for the RPC result unions.
+ *
+ * `if (result.success) {} else { result.error_code }` does NOT narrow in this
+ * repo: tsconfig has `strict` (and so `strictNullChecks`) off, which weakens
+ * discriminated-union narrowing on a boolean discriminant. This predicate
+ * narrows explicitly and works regardless of the strictness setting.
+ */
+export function isRpcFailure<T extends { success: boolean }>(
+  result: T,
+): result is Extract<T, { success: false }> {
+  return result.success === false;
+}
+
 // ── DTOs ──────────────────────────────────────────────────────────────────
 
 export type CleaningExpenseInput = Pick<

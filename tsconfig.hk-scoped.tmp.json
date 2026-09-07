@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "files": [
+    "lib/services/campus-living/housekeeping-type-service.ts",
+    "lib/services/campus-living/housekeeping-cleaner-service.ts",
+    "hooks/campus-living/use-housekeeping-types.ts",
+    "hooks/campus-living/use-housekeeping-cleaners.ts"
+  ]
+}
