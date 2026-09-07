@@ -164,11 +164,62 @@ export interface RecordStatusEventDto {
 
 /** Options for a lifecycle status transition (membership or cohort). */
 export interface TransitionOptions {
+  /**
+   * Who acted. Still used by the MEMBERSHIP transition path, which writes the
+   * event from the browser. It is IGNORED for a COHORT status change: that goes
+   * through fn_cohort_set_status, which stamps actor_id from auth.uid() server
+   * side so the actor on an audit row cannot be supplied by its caller.
+   */
   actorId?: string | null;
   reason?: string | null;
   metadata?: Record<string, unknown>;
   /** Custom event_type; defaults to 'status_change'. */
   eventType?: string;
+}
+
+// ── Cohort status change (the human control) ──────────────────────────────────
+// Shapes returned by fn_cohort_status_control / fn_cohort_set_status
+// (migration 20261115043000_cohort_status_change_control.sql).
+
+/** One cohort-level entry of the change log, with the actor resolved to a name. */
+export interface CohortStatusHistoryEntry {
+  id: string;
+  event_type: string;
+  from_status: string | null;
+  to_status: string | null;
+  reason: string | null;
+  created_at: string;
+  actor_id: string | null;
+  /** null when the actor has no name on record, or the row predates the control. */
+  actor_name: string | null;
+}
+
+/**
+ * Everything a screen needs to render the status control for one cohort.
+ *
+ * `canChange` is the DATABASE's verdict, not a permission key read on the
+ * client — so a screen gating on it can never be narrower than the write it
+ * guards. When it is false the other fields are empty by design: the refusal
+ * carries no cohort detail with it.
+ */
+export interface CohortStatusControl {
+  canChange: boolean;
+  /** Current status as the database sees it; null when canChange is false. */
+  status: CohortStatus | null;
+  /** Legal next statuses from here. Empty at a terminal status. */
+  nextStatuses: CohortStatus[];
+  history: CohortStatusHistoryEntry[];
+}
+
+/** What fn_cohort_set_status reports back about the change it made. */
+export interface CohortStatusChangeResult {
+  cohortId: string;
+  cohortName: string | null;
+  fromStatus: CohortStatus;
+  toStatus: CohortStatus;
+  reason: string;
+  eventId: string | null;
+  message: string;
 }
 
 /** Paginated list envelope (matches the repo XxxListResponse shape). */

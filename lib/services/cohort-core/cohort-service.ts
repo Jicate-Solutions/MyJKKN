@@ -5,6 +5,7 @@
 // route handler (browser client has no auth cookie context server-side and RLS
 // silently returns 0 rows). Connected to:
 //   supabase/migrations/20260731040000_cohort_core_spine.sql
+//   supabase/migrations/20261115043000_cohort_status_change_control.sql
 //   lib/services/cohort-core/lifecycle.ts
 //   hooks/cohort-core/index.ts
 
@@ -19,7 +20,10 @@ import type {
   Cohort,
   CohortListResponse,
   CohortMembership,
+  CohortStatusChangeResult,
+  CohortStatusControl,
   CohortStatusEvent,
+  CohortStatusHistoryEntry,
   CohortFilters,
   CohortCloseStatus,
   CreateCohortDto,
@@ -29,8 +33,30 @@ import type {
   RecordStatusEventDto,
   TransitionOptions,
   MembershipStatus,
+  // Used by IDENTITY_MEMBER_TYPES and assertMemberIdentity below and NEVER
+  // imported until now: `tsc` reports 3 × TS2304 on jicate/main for this file.
+  // It has been invisible because next.config.ts sets
+  // typescript.ignoreBuildErrors: true (so the build is green regardless) and
+  // the scoped typecheck gate only inspects files a PR touches. Touching this
+  // file is what surfaced it; adding the missing import is the fix.
+  MembershipType,
   CohortStatus,
 } from '@/lib/types/cohort-core';
+
+/**
+ * Turn a PostgREST RPC error into something a person can act on: keep the
+ * database's own sentence when it wrote one (these functions RAISE in plain
+ * English) and map 42501 to a 403 so a screen can tell a refusal apart from a
+ * fault — the difference between "ask an administrator" and "try again".
+ */
+function explainCohortRpcError(error: unknown, fallback: string): Error {
+  const message = (error as { message?: string })?.message?.trim();
+  const explained = new Error(message && message.length > 0 ? message : fallback);
+  (explained as Error & { status?: number }).status =
+    (error as { code?: string })?.code === '42501' ? 403 : 400;
+  (explained as Error & { cause?: unknown }).cause = error;
+  return explained;
+}
 
 export class CohortService {
   private static supabase = createClientSupabaseClient();
@@ -424,41 +450,122 @@ export class CohortService {
   }
 
   /**
-   * Transition a COHORT container to `toStatus` (draft → enrolling → active →
-   * completed → archived), validated + audited the same way as memberships.
+   * What a screen needs to render the status control for one cohort: the
+   * DATABASE's verdict on whether this caller may change it, the moves that are
+   * legal from where it stands, and the change log with each actor's name.
+   *
+   * THE VERDICT IS ASKED FOR, NOT INFERRED. Gating a button on a permission key
+   * read in the browser is how a screen ends up narrower than the write it
+   * guards — it locks out somebody the database would have accepted (here, the
+   * appointed coordinator, who holds no key at all). This returns the same
+   * predicate the write enforces, so the two cannot disagree.
+   *
+   * Never throws for a refusal: `canChange: false` comes back as a value so the
+   * screen can say who to ask instead of showing an empty log, which looks
+   * exactly like a cohort nobody has ever moved (CLAUDE.md rule 27).
+   */
+  static async getStatusControl(cohortId: string): Promise<CohortStatusControl> {
+    const empty: CohortStatusControl = {
+      canChange: false,
+      status: null,
+      nextStatuses: [],
+      history: [],
+    };
+
+    const { data, error } = await (this.supabase as any).rpc('fn_cohort_status_control', {
+      p_cohort_id: cohortId,
+    });
+    if (error) throw explainCohortRpcError(error, 'The stage of this group could not be read.');
+
+    const payload = (data ?? {}) as {
+      can_change?: boolean;
+      status?: CohortStatus | null;
+      next_statuses?: CohortStatus[] | null;
+      history?: CohortStatusHistoryEntry[] | null;
+    };
+    if (payload.can_change !== true) return empty;
+
+    return {
+      canChange: true,
+      status: payload.status ?? null,
+      nextStatuses: payload.next_statuses ?? [],
+      history: payload.history ?? [],
+    };
+  }
+
+  /**
+   * Move a COHORT container to `toStatus` (draft → enrolling → active →
+   * completed → archived) with a WRITTEN REASON, recording the
+   * cohort_status_events row in the same database transaction.
+   *
+   * REPOINTED 2026-09-07 at fn_cohort_set_status
+   * (20261115043000_cohort_status_change_control.sql). It used to do an UPDATE
+   * here and then insert the audit row in a try/catch that swallowed failures —
+   * which meant a cohort could move with nothing on the record saying why, the
+   * one outcome this whole path exists to prevent. PostgREST gives a browser
+   * client no transaction, so the two writes could only be made indivisible by
+   * moving them into a function. The RPC also stamps actor_id from auth.uid(),
+   * so who changed a status is no longer whatever its caller passed, and it
+   * admits the appointed programme coordinator, whom the table's own UPDATE
+   * policy has no branch for.
+   *
+   * `opts.actorId` is therefore IGNORED here, and `opts.metadata` is no longer
+   * written: the audit row's metadata is the server's own record of the cohort,
+   * its kind and its size at the moment of the decision.
+   *
+   * THE TRANSITION MAP IS NOT RE-READ HERE. It used to be checked by fetching
+   * the cohort first, and that read needs 'cohort.view' — which the coordinator
+   * this path now admits does not hold, so the pre-check would have refused the
+   * very caller the database accepts. The map is enforced in the function (one
+   * definition, in fn_cohort_next_statuses) and surfaced to screens through
+   * getStatusControl().nextStatuses, so a screen only ever offers a legal move.
+   *
+   * The blank-reason check IS kept here: it saves a round trip, and it makes "a
+   * reason is required" true of every future caller rather than only of the
+   * screens that remember to ask.
    */
   static async transitionCohortStatus(
     cohortId: string,
     toStatus: CohortStatus,
     opts: TransitionOptions = {}
-  ): Promise<Cohort> {
-    const current = await this.getCohort(cohortId);
-    if (!canTransition('cohort', current.status, toStatus)) {
-      throw new Error(`Illegal cohort transition: ${current.status} → ${toStatus}`);
+  ): Promise<CohortStatusChangeResult> {
+    const reason = (opts.reason ?? '').trim();
+    if (reason.length === 0) {
+      const err = new Error(
+        'Write why this group is moving to a new stage. The reason is kept with the ' +
+          'change so anyone reading it later can see who decided and why.'
+      );
+      (err as Error & { status?: number }).status = 400;
+      throw err;
     }
 
-    const patch: UpdateCohortDto = { status: toStatus };
-    if (toStatus === 'archived') {
-      patch.archived_at = new Date().toISOString();
-      patch.archived_by = opts.actorId ?? null;
-    }
-    const updated = await this.updateCohort(cohortId, patch);
+    const { data, error } = await (this.supabase as any).rpc('fn_cohort_set_status', {
+      p_cohort_id: cohortId,
+      p_to_status: toStatus,
+      p_reason: reason,
+      p_event_type: opts.eventType ?? 'status_change',
+    });
+    if (error) throw explainCohortRpcError(error, 'This group could not be moved to the new stage.');
 
-    try {
-      await this.recordStatusEvent({
-        cohort_id: cohortId,
-        event_type: opts.eventType ?? 'status_change',
-        from_status: current.status,
-        to_status: toStatus,
-        actor_id: opts.actorId ?? null,
-        reason: opts.reason ?? null,
-        metadata: opts.metadata ?? {},
-      });
-    } catch (eventError) {
-      console.error('CohortService: transitionCohortStatus audit-event failed:', eventError);
-    }
+    const result = (data ?? {}) as {
+      cohort_id?: string;
+      cohort_name?: string | null;
+      from_status?: CohortStatus;
+      to_status?: CohortStatus;
+      reason?: string;
+      event_id?: string | null;
+      message?: string;
+    };
 
-    return updated;
+    return {
+      cohortId: result.cohort_id ?? cohortId,
+      cohortName: result.cohort_name ?? null,
+      fromStatus: (result.from_status ?? 'draft') as CohortStatus,
+      toStatus: (result.to_status ?? toStatus) as CohortStatus,
+      reason: result.reason ?? reason,
+      eventId: result.event_id ?? null,
+      message: result.message ?? 'The group has been moved to its new stage.',
+    };
   }
 
   static async getStatusEvents(
@@ -656,15 +763,20 @@ export class CohortService {
     //    above is still allowed to run to completion.
     //    (The cascade does not change the container status, so the pre-cascade read
     //    is still authoritative for this decision.)
-    const cohort =
-      preCohort.status === toStatus
-        ? preCohort
-        : await this.transitionCohortStatus(cohortId, toStatus, {
-            actorId: opts.actorId ?? null,
-            reason: opts.reason ?? null,
-            metadata: opts.metadata ?? {},
-            eventType: opts.eventType ?? 'round_close',
-          });
+    //
+    //    transitionCohortStatus now reports the change rather than the row (it goes
+    //    through fn_cohort_set_status), so the updated cohort is re-read here to
+    //    keep this method's contract. A reason is REQUIRED by that path, so the
+    //    round-close default below is not cosmetic — without it a close would be
+    //    refused for having nothing on the record.
+    let cohort = preCohort;
+    if (preCohort.status !== toStatus) {
+      await this.transitionCohortStatus(cohortId, toStatus, {
+        reason: opts.reason ?? `Round closed — the cohort was moved to ${toStatus}.`,
+        eventType: opts.eventType ?? 'round_close',
+      });
+      cohort = await this.getCohort(cohortId);
+    }
 
     return { cohort, membershipsClosed };
   }
