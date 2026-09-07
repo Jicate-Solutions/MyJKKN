@@ -254,18 +254,28 @@ function describeWriteFailure(error: PostgrestLikeError, action: 'record' | 'dec
     return new Error(error.message);
   }
 
-  // 42501 on a RECORD does NOT prove the caller lacks the write key, and the
-  // message must not say it does. PostgREST asks for the inserted row back, so
-  // `INSERT ... RETURNING` filters that row through the SELECT policy: a
-  // submit-only faculty member passes the INSERT WITH CHECK, fails SELECT on
-  // the row being returned, and the whole statement errors 42501 and rolls
-  // back. The old text sent them to request `solutions.societal.submit` — the
-  // permission they already hold — which is the worst kind of refusal message:
+  // 42501 does NOT prove the caller lacks the write key, on EITHER action, and
+  // neither message may say it does. PostgREST asks for the affected row back,
+  // so `INSERT ... RETURNING` and `UPDATE ... RETURNING` both filter that row
+  // through the SELECT policy: a caller can pass the write policy, fail SELECT
+  // on the row being returned, and get 42501 with the whole statement rolled
+  // back.
+  //
+  // On RECORD that is live today — a submit-only Senior Learner hits it on every
+  // attempt, and the old text sent them to request `solutions.societal.submit`,
+  // the permission they already hold. The worst kind of refusal message:
   // confidently wrong, and it makes the reader doubt their own grid.
+  //
+  // On DECIDE it is unreachable under the CURRENT grid, because every `approve`
+  // holder also holds `view` — which is precisely the "theoretical gap meets a
+  // changed permission grid" that 20261120143000's own comment (b) warns about,
+  // and how the four lockouts in this feature happened. Both branches therefore
+  // name what was refused and let an administrator work out which half, rather
+  // than asserting which key is missing.
+  //
   // 20261120143000 adds the missing own-row SELECT branch; until it is applied
-  // this message is the only thing standing between a submitter and a wild
-  // goose chase, so it names what was refused and lets an administrator work
-  // out which half.
+  // these messages are the only thing standing between a submitter and a wild
+  // goose chase.
   if (error.code === RLS_DENIED) {
     return new Error(
       action === 'record'
@@ -276,9 +286,13 @@ function describeWriteFailure(error: PostgrestLikeError, action: 'record' | 'dec
           'back. Show this to your Solutions Hub administrator: writing needs ' +
           'solutions.societal.submit or solutions.societal.record, reading back ' +
           'needs solutions.societal.view.'
-        : 'You do not have permission to approve or reject engagements for this ' +
-          'department. Ask your Solutions Hub administrator for ' +
-          'solutions.societal.approve on this institution.'
+        : 'The decision was not saved — the database refused it. Deciding has to ' +
+          'update the row AND read it back, and this register grants those two ' +
+          'separately, so this means either your role cannot approve or reject ' +
+          'engagements for this institution, or it can decide but cannot read the ' +
+          'entry back. Show this to your Solutions Hub administrator: deciding ' +
+          'needs solutions.societal.approve, reading back needs ' +
+          'solutions.societal.view.'
     );
   }
 

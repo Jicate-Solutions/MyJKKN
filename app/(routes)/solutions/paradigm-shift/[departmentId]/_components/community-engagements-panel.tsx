@@ -247,13 +247,15 @@ export function CommunityEngagementsPanel({
   /**
    * A submitter without `view` must never be shown a colleague's entry.
    *
-   * RLS is the control, not this line: the SELECT policy requires
-   * `solutions.societal.view`, so for a faculty member this array is already
-   * empty and the filter removes nothing today. It is here because a UI that
-   * would start displaying other people's work the moment a policy widened is a
-   * UI trusting the policy to stay narrow. It NARROWS and cannot contradict RLS
-   * — it can only ever show fewer rows than the database returned, never more,
-   * and it is switched off entirely for anyone who does hold `view`.
+   * RLS is the control, not this line. Before 20261120143000 is applied the
+   * SELECT policy requires `solutions.societal.view` outright, so this array is
+   * empty for a submitter and the filter removes nothing; after it is applied
+   * the policy returns their OWN rows and the filter still removes nothing,
+   * because own rows are all it keeps. It earns its place in a third case: a UI
+   * that would start displaying other people's work the moment a policy widened
+   * is a UI trusting the policy to stay narrow. It NARROWS and cannot contradict
+   * RLS — it can only ever show fewer rows than the database returned, never
+   * more — and it is switched off entirely for anyone who does hold `view`.
    */
   const engagements: CommunityEngagement[] = canView
     ? allReturned

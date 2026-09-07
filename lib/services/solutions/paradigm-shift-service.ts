@@ -642,6 +642,13 @@ export class ParadigmShiftService extends BaseService {
      * Build one department's societal block, or `null` when the register itself
      * could not be read. Pro-bono is independently nullable: its column can be
      * missing while the engagement table is present.
+     *
+     * NOTE FOR THE SUMMARY BELOW. This whole block is `null` when the REGISTER is
+     * unreadable, which drags `pro_bono_solutions` down with it even though
+     * pro-bono has its own, different gate. That is safe HERE — a `null` says
+     * "not measured", which is true — but it is NOT safe to sum: adding up nulls
+     * produces a `0` that looks measured. The pro-bono total therefore reads the
+     * accumulator directly rather than this block. See `total_pro_bono`.
      */
     const buildSocietal = (deptId: string): SocietalMetrics | null => {
       if (!societalReadable) return null;
@@ -817,8 +824,39 @@ export class ParadigmShiftService extends BaseService {
       total_community_engagements: societalReadable
         ? finalResult.reduce((sum, d) => sum + (d.societal?.community_engagements ?? 0), 0)
         : null,
+      /**
+       * Read from the ACCUMULATOR, not from `d.societal`, and this is the whole
+       * point of the line.
+       *
+       * `buildSocietal` returns `null` for every department when the REGISTER is
+       * unreadable — a different gate from pro-bono's own
+       * (`sh_has_management_access() OR sh_is_staff() OR sh_is_builder()`, where
+       * `sh_is_staff()` covers role IN ('staff','faculty','teaching_staff',
+       * 'non_teaching_staff')). So for exactly the population this feature was
+       * built for — a Senior Learner holding `submit` and not `view` — pro-bono
+       * was `measured` while every `d.societal` was `null`, `?? 0` swallowed all
+       * of them, and the card printed a bold `0` it had not measured. The card's
+       * own comment forbids that: "a `0` that arrived while the register was
+       * invisible is not a measurement, and must never print as one."
+       *
+       * It was only ever coincidentally right — 0 of 2 solutions are pro-bono
+       * today — and would have become a wrong number in a dashboard the day
+       * anyone flagged one.
+       *
+       * `societalMap` is populated from `proBonoRows` regardless of the
+       * register's readability, so summing it makes the value and the verdict
+       * (`proBonoAvailability`) come from the same gate. The two verdicts stay
+       * independent, which was the right call; only the VALUE had to move.
+       *
+       * The two totals above do NOT have this split: both are gated on
+       * `societalReadable`, the same condition that governs `buildSocietal`, so
+       * their value and their verdict already agree. Checked, not assumed.
+       */
       total_pro_bono: proBonoReadable
-        ? finalResult.reduce((sum, d) => sum + (d.societal?.pro_bono_solutions ?? 0), 0)
+        ? finalResult.reduce(
+            (sum, d) => sum + (societalMap[d.department_id]?.pro_bono_solutions ?? 0),
+            0
+          )
         : null,
       societal_availability: societalAvailability,
       pro_bono_availability: proBonoAvailability,
