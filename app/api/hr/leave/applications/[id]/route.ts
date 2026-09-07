@@ -24,7 +24,8 @@ import type { LeaveApprovalStep, LeaveChainNames } from '@/types/hr';
  */
 async function resolveChainNames(
   chain: LeaveApprovalStep[] | null | undefined,
-  finalApproverId: string | null
+  finalApproverId: string | null,
+  appliedBy: string | null
 ): Promise<LeaveChainNames> {
   const uids = new Set<string>();
   const keys = new Set<string>();
@@ -40,6 +41,10 @@ async function resolveChainNames(
     for (const d of s.decisions ?? []) if (d.by) uids.add(d.by);
   }
   if (finalApproverId) uids.add(finalApproverId);
+  // The person who FILED it. Without this the detail surfaces printed a raw
+  // uuid under "Applied by" — the same lookup that already names every
+  // decider answers it, so it costs nothing extra.
+  if (appliedBy) uids.add(appliedBy);
 
   const people: Record<string, string> = {};
   const roles: Record<string, string> = {};
@@ -63,6 +68,39 @@ async function resolveChainNames(
     console.error('[hr/leave/applications/:id] chain name lookup failed', err);
   }
   return { people, roles };
+}
+
+/**
+ * The staff member the leave is FOR.
+ *
+ * employee_id points at `staff`, NOT at `profiles`, so the chain-name lookup
+ * above cannot resolve it — the detail surfaces printed a raw uuid under
+ * "Employee". Service-role, and only after GET's RLS-gated read has already
+ * authorised the caller to see this application. Best-effort: a failure
+ * degrades to the id rather than to a 500.
+ */
+async function resolveApplicant(
+  employeeId: string | null
+): Promise<{ name: string; staff_code: string | null } | null> {
+  if (!employeeId) return null;
+  try {
+    const admin = createServiceRoleClient();
+    const { data, error } = await admin
+      .from('staff')
+      .select('first_name, last_name, staff_id')
+      .eq('id', employeeId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    const row = data as { first_name: string | null; last_name: string | null; staff_id: string | null };
+    return {
+      name: `${row.first_name ?? ''} ${row.last_name ?? ''}`.trim() || employeeId,
+      staff_code: row.staff_id,
+    };
+  } catch (err) {
+    console.error('[hr/leave/applications/:id] applicant lookup failed', err);
+    return null;
+  }
 }
 
 async function getClient() {
@@ -97,8 +135,11 @@ export async function GET(
 
     const app = await LeaveService.getApplication(supabase, id);
     if (!app) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    const chain_names = await resolveChainNames(app.approval_chain, app.final_approver_id);
-    return NextResponse.json({ data: { ...app, chain_names } });
+    const [chain_names, applicant] = await Promise.all([
+      resolveChainNames(app.approval_chain, app.final_approver_id, app.applied_by),
+      resolveApplicant(app.employee_id),
+    ]);
+    return NextResponse.json({ data: { ...app, chain_names, applicant } });
   } catch (err) {
     console.error('[hr/leave/applications/:id] GET error', err);
     return NextResponse.json({ error: err instanceof Error ? err.message : 'Unknown error' }, { status: 500 });

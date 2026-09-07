@@ -441,6 +441,12 @@ export interface LeaveChainNames {
 /** What GET /api/hr/leave/applications/[id] returns: the row plus the names. */
 export interface HRLeaveApplicationDetail extends HRLeaveApplication {
   chain_names?: LeaveChainNames;
+  /**
+   * The staff member the leave is for, resolved server-side. `employee_id`
+   * points at `staff` and not at `profiles`, so nothing in `chain_names` can
+   * name it. Null when the lookup failed — render the id rather than nothing.
+   */
+  applicant?: { name: string; staff_code: string | null } | null;
 }
 
 export interface HRLeaveApplicationInsert {
