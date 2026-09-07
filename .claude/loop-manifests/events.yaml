@@ -22,6 +22,42 @@ status: decisions_recorded_not_registered
 
 # ── The four decisions ──────────────────────────────────────────────────────
 
+# Answered in the 2026-09-07 interview. Recorded here because a loop that
+# cannot say who decided what, and what the alternative was, silently becomes
+# whatever the last person to touch it assumed.
+interview_2026_09_07:
+  anonymity:
+    decided: "hide respondent names from the organiser"
+    why: |
+      The form asks how clearly a NAMED guest speaker explained things; people
+      soften criticism when the speaker's host can see who said it. The
+      registration is still recorded (it has to be — it is the one-answer-per-
+      person key), it is simply not shown. Applied live: is_anonymous = true.
+  who_may_answer:
+    decided: "only people marked present — with a fallback"
+    why: |
+      Turnout is the metric and rating is its counter-metric, so both must
+      come from the same population; a no-show rating corrupts both. The plain
+      version of this rule has a trap (see the migration header): it would
+      silence EVERYONE if check-in is forgotten. Frozen at the form's opening
+      instant instead. Ships as migration 20260907160000 — a FILE, not applied.
+  trust_floor:
+    decided: "10 responses"
+    why: |
+      45 registered; below 10 a single strong opinion moves the mean enough
+      to flip a verdict. Under the floor, show the answers and decline to
+      declare an outcome. NOTE this is a DECISION, not yet enforced anywhere —
+      whatever renders the verdict must implement it.
+  check_in_owner:
+    decided: "the event's creator, prithiviraja.ak@jkkn.ac.in"
+    applied: "appointed to events.config->incharges 2026-09-07"
+    caveat: |
+      NECESSARY BUT DEMONSTRABLY NOT SUFFICIENT. He was ALREADY in-charge of the
+      Business Analytics workshop (181 registered) and that event still recorded
+      0 check-ins. Appointing someone grants the ability, not the habit. The
+      appointment is also SILENT — no trigger notifies him — so the Director
+      tells him separately.
+
 decisions:
   # Director, asked what counts as an event having gone well: "All of the
   # above" (turnout AND rating AND repeat attendance). Recorded as a SEQUENCE,
@@ -124,7 +160,12 @@ blockers:
         SEMINAR - LOGISTICS                   7 of    45
         School of Influencer                  2 of    76
     clears_when: A registration-scoped public feedback door exists.
-    status: open — design decision needed, see open_questions.
+    status: |
+      DESIGNED, NOT BUILT (Director 2026-09-07: "design it, don't build it
+      yet"). See docs/architecture/2026-09-07-DESIGN-event-feedback-external-participants.md
+      — a one-time link keyed on the registration, redeemed through ONE
+      SECURITY DEFINER function, with no blanket anon grant on any table.
+      Five decisions are pending in that doc; nothing is built until they land.
 
   - id: B3-turnout-has-no-data
     what: events_registrations.checked_in is the turnout mechanism and it works,
