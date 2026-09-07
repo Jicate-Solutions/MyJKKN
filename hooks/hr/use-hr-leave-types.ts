@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { HRLeaveTypeService } from '@/lib/services/hr/leave-type-service';
 import type {
@@ -14,6 +14,29 @@ const KEY = 'hr-leave-types';
 const ANALYTICS_KEY = 'hr-leave-balance-analytics';
 const STAFF_BALANCES_KEY = 'hr-leave-staff-balances';
 const CAN_APPROVE_KEY = 'hr-can-approve-leave';
+const STO_USAGE_KEY = 'hr-sto-usage';
+const LEAVE_PERIOD_USAGE_KEY = 'hr-leave-period-usage';
+
+/**
+ * Refresh the per-period allowance figures the apply drawers quote.
+ *
+ * BOTH RPCs behind these keys already count 'pending' and 'escalated' beside
+ * 'approved' — an undecided request is held against the allowance exactly as
+ * hr_trig_sto_enforce_limits and hr_leave_period_usage hold it, so the server
+ * has never been wrong here. The number on screen was, because nothing
+ * invalidated these keys: with staleTime 5 min and focus refetch off, the
+ * drawer re-served the answer it cached BEFORE the request existed. Applying
+ * did not reduce the remaining hours, and rejecting, cancelling or
+ * withdrawing did not give them back until the entry aged out.
+ *
+ * Every mutation that moves an application into or out of
+ * ('pending','approved','escalated') must call this.
+ */
+export function invalidateAllowanceViews(qc: QueryClient) {
+  for (const key of [STO_USAGE_KEY, LEAVE_PERIOD_USAGE_KEY]) {
+    qc.invalidateQueries({ queryKey: [key] });
+  }
+}
 
 /**
  * Whether the Approvals tab should render. Mirrors the hla_update RLS policy
@@ -243,7 +266,7 @@ export function useStoUsage(
 ) {
   const supabase = createClientSupabaseClient();
   return useQuery({
-    queryKey: ['hr-sto-usage', employeeId, leaveTypeId, hrAcademicYearId, onDate ?? null],
+    queryKey: [STO_USAGE_KEY, employeeId, leaveTypeId, hrAcademicYearId, onDate ?? null],
     queryFn: () =>
       HRLeaveTypeService.getStoUsage(
         supabase, employeeId!, leaveTypeId!, hrAcademicYearId, onDate
@@ -266,7 +289,7 @@ export function useLeavePeriodUsage(
 ) {
   const supabase = createClientSupabaseClient();
   return useQuery({
-    queryKey: ['hr-leave-period-usage', employeeId, leaveTypeId, hrAcademicYearId, onDate ?? null],
+    queryKey: [LEAVE_PERIOD_USAGE_KEY, employeeId, leaveTypeId, hrAcademicYearId, onDate ?? null],
     queryFn: () =>
       HRLeaveTypeService.getLeavePeriodUsage(
         supabase, employeeId!, leaveTypeId!, hrAcademicYearId, onDate

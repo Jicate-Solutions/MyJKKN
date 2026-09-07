@@ -67,6 +67,43 @@ export interface MonthQuery {
 }
 
 export class AttendanceRecordService {
+  /**
+   * Which holiday each HOLIDAY day is, keyed `yyyy-MM-dd` → title.
+   *
+   * The attendance row records the verdict, not the reason: all 810 HOLIDAY
+   * rows carry no name (2026-09-04), so the log and calendar could only ever
+   * say "Holiday". fn_hr_calendar_holiday_dates() is the ONE resolver the
+   * stamping trigger and the import already use, so the name shown is by
+   * construction the entry that produced the row. Every HOLIDAY row today is
+   * matched by it; none come only from institution_leaves.
+   *
+   * Two entries on one date are joined with " / " rather than one hiding the
+   * other.
+   */
+  static async holidayNames(
+    supabase: SupabaseClient,
+    { institutionId, month }: { institutionId: string; month: MonthKey },
+  ): Promise<Map<string, string>> {
+    const { from, to } = monthRange(month);
+    const { data, error } = await supabase.rpc('fn_hr_calendar_holiday_dates', {
+      p_institution_id: institutionId,
+      p_from: from,
+      p_to: to,
+    });
+    if (error) throw error;
+
+    const byDate = new Map<string, string>();
+    for (const row of (data ?? []) as Array<{ holiday_date: string; title: string | null }>) {
+      // A title stored as "Milad-un-Nabi" (literal quotes) would render with
+      // them; that is the calendar's data, not something to show.
+      const title = (row.title ?? '').replace(/^"+|"+$/g, '').trim();
+      if (!title) continue;
+      const prev = byDate.get(row.holiday_date);
+      byDate.set(row.holiday_date, prev ? `${prev} / ${title}` : title);
+    }
+    return byDate;
+  }
+
   /** Every record for one staff member in one calendar month. */
   static async listMonth(
     supabase: SupabaseClient,

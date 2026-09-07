@@ -194,6 +194,7 @@ export const POLICY_KEYS = {
   NAV_ADMIN_DEFAULT_LANDING: 'nav.admin.default_landing',
   NAV_ADMIN_LTI_DEFAULT_LANDING: 'nav.admin.lti.default_landing',
   NAV_ADMIN_PDE_DEFAULT_LANDING: 'nav.admin.pde.default_landing',
+  NAV_CAMPUS_WALK_SCOREBOARD_DEFAULT_LANDING: 'nav.campus_walk.scoreboard.default_landing',
   NAV_ADMIN_PDE_RUBRICS_DEFAULT_LANDING: 'nav.admin.pde.rubrics.default_landing',
   NAV_ADMIN_PDE_ACCREDITATION_EVIDENCE_DEFAULT_LANDING: 'nav.admin.pde.accreditation_evidence.default_landing',
   NAV_ADMIN_PDE_TRANSCRIPT_DEFAULT_LANDING: 'nav.admin.pde.transcript.default_landing',

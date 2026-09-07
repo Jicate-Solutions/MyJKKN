@@ -20,6 +20,7 @@ import {
   DUE_ANCHOR_LABELS,
   APPLIES_TO_LABELS,
   type BulkResolveLookups,
+  type BulkUpsertPayload,
   type FeeAppliesTo,
   type ItemScheduleConfig,
   type RowResolution,
@@ -524,4 +525,107 @@ export async function buildChangeSets(
   }
 
   return changes;
+}
+
+// ============================================================================
+// CREATE rows that would duplicate a structure that already exists
+// ============================================================================
+// A blank Fee Structure ID means "create". Nothing on the sheet can tell the
+// operator that the structure it describes was created by the LAST import of
+// this same file, so the row asks for the same create again and the database's
+// overlap trigger refuses it at Apply — per row, after everything else has been
+// written, with advice to change a dimension. This predicts that refusal at
+// Validate, and names the structure the row is really talking about.
+
+/** What the Validate step says about the structure a CREATE row collides with. */
+export interface DuplicateOfExisting {
+  id: string;
+  name: string;
+  created_at: string | null;
+}
+
+/** The columns of a stored structure that make up the overlap trigger's key. */
+export interface ExistingStructureKey {
+  id: string;
+  name: string;
+  created_at: string | null;
+  status: string;
+  institution_id: string;
+  degree_id: string;
+  department_id: string;
+  programme_id: string;
+  quota_id: string;
+  admission_year_id: string;
+  accommodation_type_id: string | null;
+  gender: string | null;
+  communities: Array<{ community_category_id: string }> | null;
+}
+
+/**
+ * Would inserting `p` trip _fee_structure_community_no_overlap against
+ * `existing`? Mirrored column for column from that trigger so the Validate
+ * step predicts exactly what Apply would hit: institution, degree, department,
+ * programme, quota, admission year, accommodation type (null only equals
+ * null), gender where either side is "Any" or both agree, and at least one
+ * community in common. Hostel and mess categories are NOT in the trigger's
+ * key, so two hostel structures differing only by room tier DO collide — and
+ * this says so rather than pretending otherwise. Pure, so it is unit-tested.
+ */
+export function collidesWithExisting(p: BulkUpsertPayload, existing: ExistingStructureKey): boolean {
+  if (existing.status === 'archived') return false;
+  if (
+    existing.institution_id !== p.institution_id ||
+    existing.degree_id !== p.degree_id ||
+    existing.department_id !== p.department_id ||
+    existing.programme_id !== p.programme_id ||
+    existing.quota_id !== p.quota_id ||
+    existing.admission_year_id !== p.admission_year_id
+  ) {
+    return false;
+  }
+  if ((existing.accommodation_type_id ?? null) !== (p.accommodation_type_id ?? null)) return false;
+  const genderAgrees = existing.gender == null || p.gender == null || existing.gender === p.gender;
+  if (!genderAgrees) return false;
+  const theirs = new Set((existing.communities ?? []).map((c) => c.community_category_id));
+  return p.community_category_ids.some((id) => theirs.has(id));
+}
+
+/**
+ * For every CREATE row (blank Fee Structure ID) on the sheet, the stored
+ * structure it would duplicate, keyed by sheet row number. Reads every
+ * non-archived structure of the institutions involved once and matches in
+ * memory — a few dozen to a few hundred rows. Rows the sheet itself marks
+ * archived are skipped, exactly as the trigger skips them.
+ */
+export async function findDuplicateCreates(
+  supabase: SupabaseClient,
+  resolutions: readonly RowResolution[],
+): Promise<Map<number, DuplicateOfExisting>> {
+  const out = new Map<number, DuplicateOfExisting>();
+  const creates = resolutions.filter(
+    (r) => r.payload && !r.payload.structure_id && r.payload.status !== 'archived',
+  );
+  if (creates.length === 0) return out;
+
+  const institutionIds = [...new Set(creates.map((r) => r.payload!.institution_id))];
+  // Left join on communities: a structure with none is never a collision, but
+  // it must still come back rather than vanish from the comparison set.
+  const { data, error } = await supabase
+    .from('admission_fee_structures')
+    .select(`
+      id, name, created_at, status,
+      institution_id, degree_id, department_id, programme_id, quota_id, admission_year_id,
+      accommodation_type_id, gender,
+      communities:admission_fee_structure_communities(community_category_id)
+    `)
+    .in('institution_id', institutionIds)
+    .neq('status', 'archived');
+  if (error) throw error;
+
+  const existing = (data ?? []) as unknown as ExistingStructureKey[];
+  for (const res of creates) {
+    const hit = existing.find((e) => collidesWithExisting(res.payload!, e));
+    if (hit) out.set(res.rowNumber, { id: hit.id, name: hit.name, created_at: hit.created_at });
+  }
+  return out;
 }

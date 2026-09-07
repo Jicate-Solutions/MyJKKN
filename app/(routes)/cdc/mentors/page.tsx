@@ -66,7 +66,7 @@ export default function MentorPairingsPage() {
                 Activity
               </Link>
             </Button>
-            <PermissionGuard module="cdc.mentors" action="create">
+            <PermissionGuard module="cdc.mentors" action="create" fallback={null}>
               <Button asChild>
                 <Link href="/cdc/mentors/new">
                   <Plus className="w-4 h-4 mr-1" />

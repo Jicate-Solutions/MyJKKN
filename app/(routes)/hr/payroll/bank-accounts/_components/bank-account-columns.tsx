@@ -8,10 +8,12 @@
  * screenshot away from being a payroll leak — last four digits identify the row
  * to a human without reproducing the number.
  *
- * THREE STATES, NOT TWO: none on file, recorded but never checked, and verified.
- * The middle one is the whole reason `verified_at` exists — a wrong account
- * number does not error, so "somebody typed this" and "somebody checked this"
- * have to look different.
+ * FOUR STATES, NOT TWO: none on file, incomplete (no IFSC, so unpayable),
+ * recorded but never checked, and verified. The last two are the whole reason
+ * `verified_at` exists — a wrong account number does not error, so "somebody
+ * typed this" and "somebody checked this" have to look different. Incomplete
+ * was added on 2026-09-02 when IFSC became optional: a row can now exist that
+ * no transfer could ever route to, and that must not read as merely unverified.
  *
  * EVERY COLUMN CARRIES AN EXPLICIT `size`: DataTable renders cells as
  * `px-4 py-2 truncate max-w-0`, so a column left at the 150px default clips its
@@ -36,7 +38,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
-import { maskAccountNumber } from '@/lib/hr/payroll/bank-account-validation';
+import { isPayable, maskAccountNumber } from '@/lib/hr/payroll/bank-account-validation';
 import type { StaffBankDirectoryRow } from '@/lib/services/hr/payroll/staff-bank-account-service';
 
 function formatDate(iso: string | null): string {
@@ -165,6 +167,19 @@ export function getBankAccountColumns(
         const r = row.original;
         if (!r.account_id) {
           return <Badge variant='secondary' className='font-normal'>No account</Badge>;
+        }
+        // Ranked ahead of Unverified: an account nobody can pay into is a bigger
+        // problem than one nobody has checked, and saying "Unverified" here would
+        // imply the only thing missing is a passbook comparison.
+        if (!isPayable(r)) {
+          return (
+            <Badge
+              variant='outline'
+              className='border-orange-300 font-normal text-orange-700 dark:border-orange-800 dark:text-orange-400'
+            >
+              Incomplete — no IFSC
+            </Badge>
+          );
         }
         if (!r.verified_at) {
           return (

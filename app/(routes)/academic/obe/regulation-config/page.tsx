@@ -14,7 +14,7 @@ import { toast } from 'react-hot-toast';
 
 export default function RegulationConfigPage() {
   const { config, loading, updateConfig } = useMockRegulationConfig();
-  const [taxonomyType, setTaxonomyType] = useState<'blooms' | 'finks'>(config.taxonomy_type);
+  const [taxonomyType, setTaxonomyType] = useState<'blooms' | 'finks' | 'jkkn_advanced'>(config.taxonomy_type);
   const [directWeightage, setDirectWeightage] = useState(config.direct_weightage);
   const [bloomsLevels, setBloomsLevels] = useState<BloomsLevel[]>(config.blooms_active_levels);
   const [finksLevels, setFinksLevels] = useState<FinksDimension[]>(config.finks_active_dimensions);
@@ -63,13 +63,13 @@ export default function RegulationConfigPage() {
         <CardHeader>
           <CardTitle>Taxonomy Type</CardTitle>
           <CardDescription>
-            Choose between Bloom's Taxonomy (UGC regulations) or Fink's Taxonomy (Management regulations)
+            Choose the framework this regulation is assessed under. JKKN Advanced is the institution's own framework for the 2026-27 intake onward.
           </CardDescription>
         </CardHeader>
         <CardContent className='space-y-6'>
           <div className='space-y-4'>
             <div className='flex items-center space-x-4 p-4 border rounded-lg hover:bg-gray-50 cursor-pointer'>
-              <RadioGroup value={taxonomyType} onValueChange={(val) => setTaxonomyType(val as 'blooms' | 'finks')}>
+              <RadioGroup value={taxonomyType} onValueChange={(val) => setTaxonomyType(val as 'blooms' | 'finks' | 'jkkn_advanced')}>
                 <div className='flex items-center space-x-2'>
                   <RadioGroupItem value='blooms' id='blooms' />
                   <Label htmlFor='blooms' className='cursor-pointer flex-1'>
@@ -85,7 +85,23 @@ export default function RegulationConfigPage() {
             </div>
 
             <div className='flex items-center space-x-4 p-4 border rounded-lg hover:bg-gray-50 cursor-pointer'>
-              <RadioGroup value={taxonomyType} onValueChange={(val) => setTaxonomyType(val as 'blooms' | 'finks')}>
+              <RadioGroup value={taxonomyType} onValueChange={(val) => setTaxonomyType(val as 'blooms' | 'finks' | 'jkkn_advanced')}>
+                <div className='flex items-center space-x-2'>
+                  <RadioGroupItem value='jkkn_advanced' id='jkkn_advanced' />
+                  <Label htmlFor='jkkn_advanced' className='cursor-pointer flex-1'>
+                    <div>
+                      <p className='font-medium'>JKKN Advanced Bloom's Taxonomy</p>
+                      <p className='text-sm text-muted-foreground mt-1'>
+                        Bloom's six cognitive levels retained unchanged, extended by Krathwohl's affective ladder (AF1–AF5, absorbing Fink's Caring), three psychomotor bands after Simpson (PS-a/b/c), and a flat rail — Human Dimension (HD), Learning How to Learn (L2L), Accountable AI Use (AIU). Active elements vary by college family. In force for the 2026-27 intake.
+                      </p>
+                    </div>
+                  </Label>
+                </div>
+              </RadioGroup>
+            </div>
+
+            <div className='flex items-center space-x-4 p-4 border rounded-lg hover:bg-gray-50 cursor-pointer'>
+              <RadioGroup value={taxonomyType} onValueChange={(val) => setTaxonomyType(val as 'blooms' | 'finks' | 'jkkn_advanced')}>
                 <div className='flex items-center space-x-2'>
                   <RadioGroupItem value='finks' id='finks' />
                   <Label htmlFor='finks' className='cursor-pointer flex-1'>

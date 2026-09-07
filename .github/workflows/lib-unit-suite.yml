@@ -59,6 +59,14 @@ on:
       - 'supabase/migrations/**'
       # Imported directly by that same test.
       - 'app/(routes)/admin/ai-routines/**'
+      # __tests__/lib/ci/terminology-quote-boundary.test.ts runs the blocking
+      # terminology gate as a subprocess against a throwaway repo, so a change
+      # to that script — or to the dictionary it imports — flips its verdict
+      # without touching lib/. Without these two paths the test would be
+      # present, passing on paper, and never executed on the pull request that
+      # changes what it guards: the exact failure this workflow exists to end.
+      - 'scripts/ci/check-terminology-delta.py'
+      - '.claude/skills/jkkn-terminologies/scripts/validate_terminology.py'
 
 permissions:
   contents: read

@@ -2479,3 +2479,84 @@ DROP TRIGGER IF EXISTS trg_hr_tds_slabs_updated_at ON public.hr_tds_slabs;
 CREATE TRIGGER trg_hr_tds_slabs_updated_at
   BEFORE UPDATE ON public.hr_tds_slabs
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- ===========================================================================
+-- calendar_entries -> attendance (2026-09-02)
+-- No WHEN clause: it would reference OLD, which Postgres refuses on a trigger
+-- that also fires for INSERT. The kind='holiday' check is the first thing the
+-- function does instead.
+-- ===========================================================================
+DROP TRIGGER IF EXISTS tr_recompute_attendance_on_calendar_holiday ON public.calendar_entries;
+CREATE TRIGGER tr_recompute_attendance_on_calendar_holiday
+  AFTER INSERT OR UPDATE OR DELETE ON public.calendar_entries
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_recompute_attendance_on_calendar_holiday();
+
+-- ===========================================================================
+-- hr_leave_applications balance guard (2026-09-02)
+-- Sits alongside trg_hla_leave_period_cap: the cap limits days per PERIOD, this
+-- limits days against the ENTITLEMENT, and pending requests count toward both.
+-- ===========================================================================
+DROP TRIGGER IF EXISTS trg_hla_balance_guard ON public.hr_leave_applications;
+CREATE TRIGGER trg_hla_balance_guard
+  BEFORE INSERT OR UPDATE OF start_date, end_date, duration_type, leave_type_id, status
+  ON public.hr_leave_applications
+  FOR EACH ROW EXECUTE FUNCTION public.hr_trig_leave_enforce_balance();
+
+-- =====================================================================
+-- hr_work_patterns, hr_staff_work_pattern_assignments,
+-- hr_work_pattern_leave_entitlements (2026-09-04)
+-- Source: 20260904120000_hr_work_patterns.sql
+-- =====================================================================
+
+-- updated_at, same helper every HR table uses.
+DROP TRIGGER IF EXISTS hr_work_patterns_updated_at ON public.hr_work_patterns;
+CREATE TRIGGER hr_work_patterns_updated_at
+  BEFORE UPDATE ON public.hr_work_patterns
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS hr_swpa_updated_at ON public.hr_staff_work_pattern_assignments;
+CREATE TRIGGER hr_swpa_updated_at
+  BEFORE UPDATE ON public.hr_staff_work_pattern_assignments
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS hr_wple_updated_at ON public.hr_work_pattern_leave_entitlements;
+CREATE TRIGGER hr_wple_updated_at
+  BEFORE UPDATE ON public.hr_work_pattern_leave_entitlements
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- The assignment's institution is the pattern's, and it must be the staff
+-- member's too. A wrong institution_id here would grant cross-institution
+-- visibility through role_has_institution_access, which is the only scope
+-- predicate in the table's RLS.
+DROP TRIGGER IF EXISTS t10_wpa_stamp_institution ON public.hr_staff_work_pattern_assignments;
+CREATE TRIGGER t10_wpa_stamp_institution
+  BEFORE INSERT OR UPDATE OF staff_id, work_pattern_id, institution_id
+  ON public.hr_staff_work_pattern_assignments
+  FOR EACH ROW EXECUTE FUNCTION public.trg_wpa_stamp_institution();
+
+-- A pattern's leave figures must name leave types of the pattern's own
+-- institution (hr_organizations map 1:1 to institutions), and only day-based
+-- ones.
+DROP TRIGGER IF EXISTS t10_wple_same_institution ON public.hr_work_pattern_leave_entitlements;
+CREATE TRIGGER t10_wple_same_institution
+  BEFORE INSERT OR UPDATE OF work_pattern_id, leave_type_id
+  ON public.hr_work_pattern_leave_entitlements
+  FOR EACH ROW EXECUTE FUNCTION public.trg_wple_same_institution();
+
+-- Retiring a pattern that people still hold would leave them resolving to
+-- nothing (the pattern is exclusive). End their assignments first.
+DROP TRIGGER IF EXISTS t10_wp_guard_deactivate ON public.hr_work_patterns;
+CREATE TRIGGER t10_wp_guard_deactivate
+  BEFORE UPDATE OF is_active ON public.hr_work_patterns
+  FOR EACH ROW EXECUTE FUNCTION public.trg_wp_guard_deactivate();
+
+-- ---------------------------------------------------------------------------
+-- aiu_prompt_trails: capture-column immutability + write-once finalization
+-- (migration 20260922041500_aiu_prompt_trails.sql — FILE ONLY / NOT APPLIED)
+-- ---------------------------------------------------------------------------
+DROP TRIGGER IF EXISTS trg_aiu_prompt_trails_guard ON public.aiu_prompt_trails;
+
+CREATE TRIGGER trg_aiu_prompt_trails_guard
+  BEFORE UPDATE ON public.aiu_prompt_trails
+  FOR EACH ROW EXECUTE FUNCTION public.tg_aiu_prompt_trails_guard();

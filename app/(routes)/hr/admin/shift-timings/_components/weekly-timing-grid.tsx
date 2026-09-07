@@ -32,6 +32,7 @@ import {
   APPLICABLE_GENDER_OPTIONS,
   DEFAULT_WORKING_DAY,
   computeGraceDeadline,
+  firstSessionStart,
   timeToMinutes,
   toHHMM,
   validateTimingRow,
@@ -45,6 +46,12 @@ interface WeeklyTimingGridProps {
   institutionId: string;
   staffScope: ShiftStaffScope;
   employmentCategoryId?: string | null;
+  /**
+   * With staffScope 'work_pattern': the pattern whose week this is. Part of
+   * `params` AND of `scopeKey`, for the same reason applicableGender is —
+   * missing from either, the grid keeps showing the previous pattern's week.
+   */
+  workPatternId?: string | null;
   /** Human label for the scope, used in the save toast. */
   scopeLabel: string;
   /**
@@ -175,13 +182,20 @@ function dailyWorkingMinutes(row: WeekDayInput): {
   gapMinutes: number;
 } | null {
   if (!row.is_working_day) return null;
+  if (validateTimingRow(row)) return null;
 
-  const fs = timeToMinutes(row.first_half_start);
-  const fe = timeToMinutes(row.first_half_end);
-  const ss = timeToMinutes(row.second_half_start);
-  const se = timeToMinutes(row.second_half_end);
-  if (fs === null || fe === null || ss === null || se === null) return null;
-  if (fe <= fs || se <= ss) return null;
+  const first = halfMinutes(row.first_half_start, row.first_half_end);
+  const second = halfMinutes(row.second_half_start, row.second_half_end);
+
+  // One half only (2026-09-04): that half is the whole day.
+  if (first !== null && second === null) return { minutes: first, overlapMinutes: 0, gapMinutes: 0 };
+  if (second !== null && first === null) return { minutes: second, overlapMinutes: 0, gapMinutes: 0 };
+  if (first === null || second === null) return null;
+
+  const fs = timeToMinutes(row.first_half_start) as number;
+  const fe = timeToMinutes(row.first_half_end) as number;
+  const ss = timeToMinutes(row.second_half_start) as number;
+  const se = timeToMinutes(row.second_half_end) as number;
 
   // Halves touch or overlap -> one continuous stretch.
   if (ss <= fe) {
@@ -219,6 +233,7 @@ export function WeeklyTimingGrid({
   institutionId,
   staffScope,
   employmentCategoryId = null,
+  workPatternId = null,
   scopeLabel,
   effectiveFrom,
   onEffectiveFromChange,
@@ -226,8 +241,8 @@ export function WeeklyTimingGrid({
   onSaved,
 }: WeeklyTimingGridProps) {
   const params = useMemo(
-    () => ({ institutionId, staffScope, employmentCategoryId, applicableGender }),
-    [institutionId, staffScope, employmentCategoryId, applicableGender],
+    () => ({ institutionId, staffScope, employmentCategoryId, workPatternId, applicableGender }),
+    [institutionId, staffScope, employmentCategoryId, workPatternId, applicableGender],
   );
 
   const { data, isLoading } = useShiftTimingWeek(params);
@@ -238,7 +253,7 @@ export function WeeklyTimingGrid({
   // Hydrate once per scope, NOT on every `data` identity change. A background
   // refetch (this app refetches on window focus) would otherwise wipe an
   // in-progress edit the moment the user tabs away and back.
-  const scopeKey = `${institutionId}|${staffScope}|${employmentCategoryId ?? ''}|${applicableGender}`;
+  const scopeKey = `${institutionId}|${staffScope}|${employmentCategoryId ?? ''}|${workPatternId ?? ''}|${applicableGender}`;
   const hydratedFor = useRef<string | null>(null);
   useEffect(() => {
     if (!data || hydratedFor.current === scopeKey) return;
@@ -345,6 +360,7 @@ export function WeeklyTimingGrid({
         institutionId,
         staffScope,
         employmentCategoryId,
+        workPatternId,
         applicableGender,
         effectiveFrom,
         days: rows,
@@ -385,7 +401,7 @@ export function WeeklyTimingGrid({
       toast.error(getErrorMessage(err));
     }
   }, [
-    errors.length, save, institutionId, staffScope, employmentCategoryId,
+    errors.length, save, institutionId, staffScope, employmentCategoryId, workPatternId,
     applicableGender, effectiveFrom, rows, isScheduledChange, saveLabel, onSaved,
   ]);
 
@@ -485,16 +501,23 @@ export function WeeklyTimingGrid({
               <th className="py-2 font-medium">First half</th>
               <th className="py-2 font-medium">Second half</th>
               <th className="w-36 py-2 font-medium">Working hours</th>
-              <th className="w-40 py-2 font-medium">Grace (first half)</th>
+              <th className="w-40 py-2 font-medium">Grace (first session)</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => {
               const day = DAY_OF_WEEK_OPTIONS.find((d) => d.value === row.day_of_week)!;
-              const deadline = computeGraceDeadline(row.first_half_start, row.grace_minutes ?? 0);
+              // Grace runs from the day's FIRST session, which on a
+              // second-half-only day is the afternoon — same as evaluateDay.
+              const deadline = computeGraceDeadline(firstSessionStart(row), row.grace_minutes ?? 0);
               const worked = dailyWorkingMinutes(row);
               const firstHalf = halfMinutes(row.first_half_start, row.first_half_end);
               const secondHalf = halfMinutes(row.second_half_start, row.second_half_end);
+              // A half with neither time is a half the day does not work. Both
+              // fields cleared is the only way to say so, which also means a
+              // field cleared mid-edit does not flip the half off by itself.
+              const firstOff = !row.first_half_start && !row.first_half_end;
+              const secondOff = !row.second_half_start && !row.second_half_end;
               const rowError = errors.find((e) => e.dow === row.day_of_week);
 
               return (
@@ -525,32 +548,60 @@ export function WeeklyTimingGrid({
                   <td className="py-3">
                     {row.is_working_day ? (
                       <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <Input
-                            type="time"
-                            className="w-32"
-                            value={row.first_half_start ?? ''}
-                            onChange={(e) =>
-                              patchDay(row.day_of_week, { first_half_start: e.target.value })
-                            }
-                            aria-label={`${day.label} first half start`}
-                          />
-                          <span className="text-muted-foreground">–</span>
-                          <Input
-                            type="time"
-                            className="w-32"
-                            value={row.first_half_end ?? ''}
-                            onChange={(e) =>
-                              patchDay(row.day_of_week, { first_half_end: e.target.value })
-                            }
-                            aria-label={`${day.label} first half end`}
-                          />
-                        </div>
+                        {firstOff ? (
+                          <p className="text-xs text-muted-foreground">No first half</p>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <Input
+                              type="time"
+                              className="w-32"
+                              value={row.first_half_start ?? ''}
+                              onChange={(e) =>
+                                patchDay(row.day_of_week, { first_half_start: e.target.value })
+                              }
+                              aria-label={`${day.label} first half start`}
+                            />
+                            <span className="text-muted-foreground">–</span>
+                            <Input
+                              type="time"
+                              className="w-32"
+                              value={row.first_half_end ?? ''}
+                              onChange={(e) =>
+                                patchDay(row.day_of_week, { first_half_end: e.target.value })
+                              }
+                              aria-label={`${day.label} first half end`}
+                            />
+                          </div>
+                        )}
                         {firstHalf !== null && (
                           <p className="text-[11px] leading-snug text-muted-foreground tabular-nums">
                             {formatHM(firstHalf)}
                           </p>
                         )}
+                        {/* One half may be switched off (2026-09-04) — a 09:00–14:00
+                            Saturday with no afternoon. Off = both times blank;
+                            on = the group default for that half. Never both off:
+                            that is a non-working day, and the toggle above is
+                            the way to say so. */}
+                        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <Checkbox
+                            checked={!firstOff}
+                            disabled={!firstOff && secondOff}
+                            onCheckedChange={(checked) =>
+                              patchDay(
+                                row.day_of_week,
+                                checked === true
+                                  ? {
+                                      first_half_start: DEFAULT_WORKING_DAY.first_half_start,
+                                      first_half_end: DEFAULT_WORKING_DAY.first_half_end,
+                                    }
+                                  : { first_half_start: '', first_half_end: '' },
+                              )
+                            }
+                            aria-label={`${day.label} works a first half`}
+                          />
+                          First half worked
+                        </label>
                       </div>
                     ) : (
                       <span className="text-muted-foreground">—</span>
@@ -560,32 +611,55 @@ export function WeeklyTimingGrid({
                   <td className="py-3">
                     {row.is_working_day ? (
                       <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <Input
-                            type="time"
-                            className="w-32"
-                            value={row.second_half_start ?? ''}
-                            onChange={(e) =>
-                              patchDay(row.day_of_week, { second_half_start: e.target.value })
-                            }
-                            aria-label={`${day.label} second half start`}
-                          />
-                          <span className="text-muted-foreground">–</span>
-                          <Input
-                            type="time"
-                            className="w-32"
-                            value={row.second_half_end ?? ''}
-                            onChange={(e) =>
-                              patchDay(row.day_of_week, { second_half_end: e.target.value })
-                            }
-                            aria-label={`${day.label} second half end`}
-                          />
-                        </div>
+                        {secondOff ? (
+                          <p className="text-xs text-muted-foreground">No second half</p>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <Input
+                              type="time"
+                              className="w-32"
+                              value={row.second_half_start ?? ''}
+                              onChange={(e) =>
+                                patchDay(row.day_of_week, { second_half_start: e.target.value })
+                              }
+                              aria-label={`${day.label} second half start`}
+                            />
+                            <span className="text-muted-foreground">–</span>
+                            <Input
+                              type="time"
+                              className="w-32"
+                              value={row.second_half_end ?? ''}
+                              onChange={(e) =>
+                                patchDay(row.day_of_week, { second_half_end: e.target.value })
+                              }
+                              aria-label={`${day.label} second half end`}
+                            />
+                          </div>
+                        )}
                         {secondHalf !== null && (
                           <p className="text-[11px] leading-snug text-muted-foreground tabular-nums">
                             {formatHM(secondHalf)}
                           </p>
                         )}
+                        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <Checkbox
+                            checked={!secondOff}
+                            disabled={!secondOff && firstOff}
+                            onCheckedChange={(checked) =>
+                              patchDay(
+                                row.day_of_week,
+                                checked === true
+                                  ? {
+                                      second_half_start: DEFAULT_WORKING_DAY.second_half_start,
+                                      second_half_end: DEFAULT_WORKING_DAY.second_half_end,
+                                    }
+                                  : { second_half_start: '', second_half_end: '' },
+                              )
+                            }
+                            aria-label={`${day.label} works a second half`}
+                          />
+                          Second half worked
+                        </label>
                       </div>
                     ) : (
                       <span className="text-muted-foreground">—</span>

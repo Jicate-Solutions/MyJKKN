@@ -36,21 +36,31 @@ function scan(wb: XLSX.WorkBook, depth = 12): SheetCandidate[] {
   }));
 }
 
-/** A minimal but realistic unified data row. */
-const dataRow = (name: string) => ({
-  'Fee Structure ID': '',
-  Institution: 'Test College',
-  Degree: 'Undergraduate',
-  Department: 'CSE',
-  Programme: 'BE CSE',
-  'Admission Year': '2026 - 2027',
-  Quota: 'Management Quota',
-  Communities: 'BC',
-  Name: name,
-  Status: 'draft',
-  'Fee Category': '1 Year Tuition Fee',
-  Amount: 100000,
-});
+/**
+ * A minimal but realistic structure: ONE fee, split 50/50. Two rows rather
+ * than one because every structure must promote to both Reserved and
+ * Admitted, and a single row can only name one of them.
+ */
+const dataRows = (name: string) => {
+  const base = {
+    'Fee Structure ID': '',
+    Institution: 'Test College',
+    Degree: 'Undergraduate',
+    Department: 'CSE',
+    Programme: 'BE CSE',
+    'Admission Year': '2026 - 2027',
+    Quota: 'Management Quota',
+    Communities: 'BC',
+    Name: name,
+    Status: 'draft',
+    'Fee Category': '1 Year Tuition Fee',
+    Amount: 100000,
+  };
+  return [
+    { ...base, 'Instalment #': 1, 'Share %': 50, 'Due After (Days)': 15, 'Promotes To': 'Reserved' },
+    { ...base, 'Instalment #': 2, 'Share %': 50, 'Due After (Days)': 90, 'Promotes To': 'Admitted' },
+  ];
+};
 
 /** Builds a workbook with one data tab under the given name, plus decoy tabs. */
 async function buildWorkbook(opts: {
@@ -64,8 +74,9 @@ async function buildWorkbook(opts: {
   for (const line of opts.preamble ?? []) sheet.addRow(line);
   sheet.addRow([...UNIFIED_HEADERS]);
   for (const name of ['Structure A', 'Structure B']) {
-    const row = dataRow(name);
-    sheet.addRow(UNIFIED_HEADERS.map((h) => (row as Record<string, unknown>)[h] ?? ''));
+    for (const row of dataRows(name)) {
+      sheet.addRow(UNIFIED_HEADERS.map((h) => (row as Record<string, unknown>)[h] ?? ''));
+    }
   }
   for (const tab of opts.extraTabs ?? []) {
     const ws = wb.addWorksheet(tab.name);
@@ -156,7 +167,7 @@ describe('pickDataSheet', () => {
       wb.Sheets[pick.name],
       { defval: '', range: pick.headerRowIndex },
     );
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(4); // two structures, two instalment rows each
     expect(rows[0]['Name']).toBe('Structure A');
     expect(rows[0]['Institution']).toBe('Test College');
 
@@ -216,7 +227,10 @@ const testLookups = {
   communities: new Map([['bc', COMM]]),
   categoriesByName: new Map([['1 year tuition fee', TUITION]]),
   amountHeaders: ['1 Year Tuition Fee'],
-  learnerStatuses: new Map<string, string>(),
+  learnerStatuses: new Map([
+    ['reserved', 'reserved'],
+    ['admitted', 'admitted'],
+  ]),
 } as unknown as BulkResolveLookups;
 
 describe('read path: tab → header row → resolved rows', () => {
@@ -234,15 +248,16 @@ describe('read path: tab → header row → resolved rows', () => {
     const { resolutions } = resolveUnifiedSheet(rawRows, testLookups, pick.headerRowIndex + 2);
 
     expect(resolutions).toHaveLength(2);
-    // Headers on sheet row 3 → the two data rows are 4 and 5.
-    expect(resolutions.map((r) => r.rowNumber)).toEqual([4, 5]);
+    // Headers on sheet row 3 → structure A starts on row 4 and, two rows
+    // later, structure B on row 6.
+    expect(resolutions.map((r) => r.rowNumber)).toEqual([4, 6]);
     expect(resolutions.every((r) => r.errors.length === 0)).toBe(true);
     expect(resolutions[0].payload!.institution_id).toBe(INST);
     // The operator's own text survives for the change preview to name.
     expect(resolutions[0].source?.Institution).toBe('Test College');
   });
 
-  it('still reports rows 2 and 3 for an ordinary template', async () => {
+  it('still reports real rows (2 and 4) for an ordinary template', async () => {
     const wb = await buildWorkbook({ dataSheetName: FEE_STRUCTURE_SHEET_NAME });
     const pick = pickDataSheet(scan(wb))!;
     const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[pick.name], {
@@ -250,6 +265,6 @@ describe('read path: tab → header row → resolved rows', () => {
       range: pick.headerRowIndex,
     });
     const { resolutions } = resolveUnifiedSheet(rawRows, testLookups, pick.headerRowIndex + 2);
-    expect(resolutions.map((r) => r.rowNumber)).toEqual([2, 3]);
+    expect(resolutions.map((r) => r.rowNumber)).toEqual([2, 4]); // two rows per structure
   });
 });

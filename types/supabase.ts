@@ -48287,6 +48287,7 @@ export type Database = {
           staff_scope: string
           updated_at: string
           updated_by: string | null
+          work_pattern_id: string | null
         }
         Insert: {
           created_at?: string
@@ -48309,6 +48310,7 @@ export type Database = {
           staff_scope: string
           updated_at?: string
           updated_by?: string | null
+          work_pattern_id?: string | null
         }
         Update: {
           created_at?: string
@@ -48331,6 +48333,7 @@ export type Database = {
           staff_scope?: string
           updated_at?: string
           updated_by?: string | null
+          work_pattern_id?: string | null
         }
         Relationships: [
           {
@@ -48359,6 +48362,186 @@ export type Database = {
             columns: ["updated_by"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_shift_timings_work_pattern_id_fkey"
+            columns: ["work_pattern_id"]
+            isOneToOne: false
+            referencedRelation: "hr_work_patterns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hr_work_patterns: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          institution_id: string
+          is_active: boolean
+          name: string
+          sort_order: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          institution_id: string
+          is_active?: boolean
+          name: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          institution_id?: string
+          is_active?: boolean
+          name?: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_work_patterns_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_work_patterns_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_work_patterns_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hr_staff_work_pattern_assignments: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          effective_from: string
+          effective_until: string | null
+          id: string
+          institution_id: string
+          notes: string | null
+          staff_id: string
+          updated_at: string
+          updated_by: string | null
+          work_pattern_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          effective_from: string
+          effective_until?: string | null
+          id?: string
+          institution_id: string
+          notes?: string | null
+          staff_id: string
+          updated_at?: string
+          updated_by?: string | null
+          work_pattern_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          effective_from?: string
+          effective_until?: string | null
+          id?: string
+          institution_id?: string
+          notes?: string | null
+          staff_id?: string
+          updated_at?: string
+          updated_by?: string | null
+          work_pattern_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_staff_work_pattern_assignments_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_staff_work_pattern_assignments_work_pattern_id_fkey"
+            columns: ["work_pattern_id"]
+            isOneToOne: false
+            referencedRelation: "hr_work_patterns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_staff_work_pattern_assignments_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hr_work_pattern_leave_entitlements: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          entitled_days: number
+          id: string
+          leave_type_id: string
+          updated_at: string
+          updated_by: string | null
+          work_pattern_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          entitled_days: number
+          id?: string
+          leave_type_id: string
+          updated_at?: string
+          updated_by?: string | null
+          work_pattern_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          entitled_days?: number
+          id?: string
+          leave_type_id?: string
+          updated_at?: string
+          updated_by?: string | null
+          work_pattern_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_work_pattern_leave_entitlements_work_pattern_id_fkey"
+            columns: ["work_pattern_id"]
+            isOneToOne: false
+            referencedRelation: "hr_work_patterns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_work_pattern_leave_entitlements_leave_type_id_fkey"
+            columns: ["leave_type_id"]
+            isOneToOne: false
+            referencedRelation: "hr_leave_types"
             referencedColumns: ["id"]
           },
         ]

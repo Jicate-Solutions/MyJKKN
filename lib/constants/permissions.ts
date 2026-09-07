@@ -567,6 +567,14 @@ export const PERMISSION_CATEGORIES = [
       { key: 'academic.staff.planning.create', label: 'Create Employee Planning' },
       { key: 'academic.staff.planning.edit', label: 'Edit Employee Planning' },
       { key: 'academic.staff.planning.delete', label: 'Delete Employee Planning' },
+      {
+        key: 'academic.shared_teaching.label.view',
+        label: 'View Shared Teaching Labels'
+      },
+      {
+        key: 'academic.shared_teaching.label.manage',
+        label: 'Label Shared Teaching Received'
+      },
       { key: 'academic.timetables.view', label: 'View Timetables' },
       { key: 'academic.timetables.create', label: 'Create Timetables' },
       { key: 'academic.timetables.edit', label: 'Edit Timetables' },
@@ -1370,7 +1378,7 @@ export const PERMISSION_CATEGORIES = [
       // page guard AND by MENU_PERMISSIONS, so the nav chip and the page never
       // disagree. Super admins bypass both.
       // -----------------------------------------------------------------
-      { key: 'startup_studio.school_of_influence.configure', label: 'School of Influence — Configure programme settings' },
+      { key: 'startup_studio.school_of_influence.configure', label: 'School of Influencer — Configure programme settings' },
 
       // NIF Pipeline (Nattraja Incubation Forum)
       { key: 'startup_studio.nif.view', label: 'NIF — View Pipeline' },
@@ -2005,6 +2013,8 @@ export const PERMISSION_CATEGORIES = [
       // either unregistered would make the table permanently super-admin-only.
       { key: 'solutions.societal.view', label: 'View Community Engagements' },
       { key: 'solutions.societal.record', label: 'Record Community Engagements' },
+      { key: 'solutions.societal.submit', label: 'Submit Community Engagements' },
+      { key: 'solutions.societal.approve', label: 'Approve Community Engagements' },
 
       // Settings (tier-2 chip-leak sweep 2026-04-27)
       { key: 'solutions.settings.view', label: 'View Solutions Settings' }
@@ -3401,10 +3411,10 @@ export const PERMISSION_CATEGORIES = [
       { key: 'cohort.create', label: 'Create Cohorts (ALL programmes)' },
       { key: 'cohort.edit', label: 'Edit Cohorts (ALL programmes)' },
       { key: 'cohort.manage', label: 'Manage Cohorts (ALL programmes — delete, remove members, admin)' },
-      { key: 'cohort.school_of_influence.view', label: 'School of Influence — View batches and members' },
-      { key: 'cohort.school_of_influence.create', label: 'School of Influence — Create batches, accept applicants' },
-      { key: 'cohort.school_of_influence.edit', label: 'School of Influence — Edit batches and member status' },
-      { key: 'cohort.school_of_influence.manage', label: 'School of Influence — Run the programme (attendance, review queue, remove members)' }
+      { key: 'cohort.school_of_influence.view', label: 'School of Influencer — View batches and members' },
+      { key: 'cohort.school_of_influence.create', label: 'School of Influencer — Create batches, accept applicants' },
+      { key: 'cohort.school_of_influence.edit', label: 'School of Influencer — Edit batches and member status' },
+      { key: 'cohort.school_of_influence.manage', label: 'School of Influencer — Run the programme (attendance, review queue, remove members)' }
     ]
   },
   {

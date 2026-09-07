@@ -3,6 +3,7 @@ import {
   createServerSupabaseClient,
   createServiceRoleClient
 } from '@/lib/supabase/server';
+import { filterPushRecipients } from '@/lib/push/opt-out';
 import webpush from 'web-push';
 
 // Configure web-push with VAPID keys
@@ -440,12 +441,17 @@ async function sendEscalationPush(
       return;
     }
 
-    // is_active=false is how an unsubscribe is recorded, so pushing to those rows
-    // would buzz learners who explicitly opted out.
+    // Drop anyone who switched push off before looking up any subscription.
+    // is_active alone cannot carry that answer: unsubscribing destroys the
+    // browser endpoint, so the next page load mints a NEW row that is
+    // is_active=true and passes the filter below perfectly.
+    const pushUserIds = await filterPushRecipients(serviceClient, targetUserIds);
+    if (pushUserIds.length === 0) return;
+
     const { data: subscriptions } = await serviceClient
       .from('push_subscriptions')
       .select('id, subscription, user_id')
-      .in('user_id', targetUserIds)
+      .in('user_id', pushUserIds)
       .eq('is_active', true);
 
     if (!subscriptions || subscriptions.length === 0) return;

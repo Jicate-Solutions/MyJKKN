@@ -97,7 +97,7 @@ export default function CdcDrivesListPage() {
               Recruiter-led placement and internship drives across all institutions.
             </p>
           </div>
-          <PermissionGuard module="cdc.drives" action="create">
+          <PermissionGuard module="cdc.drives" action="create" fallback={null}>
             <Button asChild>
               <Link href="/cdc/drives/new">
                 <Plus className="h-4 w-4 mr-2" />

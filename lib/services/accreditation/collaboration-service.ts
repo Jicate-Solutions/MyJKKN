@@ -23,6 +23,15 @@ export interface CollaborationRow {
   institution_id: string;
   title: string;
   partner_name: string;
+  /**
+   * The other signatory WHEN IT IS A JKKN COLLEGE. Null for every external
+   * partner, who is named in `partner_name` and has no row in `institutions`
+   * (whose id is the multi-tenant RLS key). Set ALONGSIDE `partner_name`, never
+   * instead of it — the form copies the chosen college's name into
+   * `partner_name`, so the NOT NULL column and every existing reader are
+   * unaffected. Migration 20260921040000.
+   */
+  partner_institution_id: string | null;
   scope: CollaborationScope | null;
   signed_on: string;
   valid_till: string | null;
@@ -40,6 +49,8 @@ export interface CollaborationInput {
   institution_id: string;
   title: string;
   partner_name: string;
+  /** A JKKN college on the other side, or null for an external partner. */
+  partner_institution_id?: string | null;
   scope?: CollaborationScope | null;
   signed_on: string;
   valid_till?: string | null;
@@ -65,11 +76,20 @@ export const COLLABORATION_STATUS_LABELS: Record<CollaborationStatus, string> = 
 export class CollaborationService {
   private static supabase = createClientSupabaseClient();
 
+  /**
+   * Every record this institution is a party to — the ones it FILED, and the
+   * ones another JKKN college filed naming it as the partner.
+   *
+   * BOTH SIDES, deliberately (Director ruling, 2026-09-21): one agreement, one
+   * record, visible to both signatories. Widening the RLS policy alone would
+   * not have done it — this query filtered on `institution_id` only, so the
+   * partner college was permitted to read a row the page never asked for.
+   */
   static async list(institutionId: string): Promise<CollaborationRow[]> {
     const { data, error } = await (this.supabase as any)
       .from('institution_collaborations')
       .select('*')
-      .eq('institution_id', institutionId)
+      .or(`institution_id.eq.${institutionId},partner_institution_id.eq.${institutionId}`)
       .order('signed_on', { ascending: false });
     if (error) throw error;
     return (data ?? []) as CollaborationRow[];
@@ -83,6 +103,7 @@ export class CollaborationService {
         institution_id: input.institution_id,
         title: input.title,
         partner_name: input.partner_name,
+        partner_institution_id: input.partner_institution_id ?? null,
         scope: input.scope ?? null,
         signed_on: input.signed_on,
         valid_till: input.valid_till ?? null,
@@ -108,12 +129,25 @@ export class CollaborationService {
     return data as CollaborationRow;
   }
 
+  /**
+   * Deleting stays with the FILING college — `ic_delete` was deliberately not
+   * widened to the partner (migration 20260921040000). RLS refuses by matching
+   * zero rows rather than by raising, and a bare `.delete()` reports no error
+   * on zero rows, so without the `.select()` below a partner college would be
+   * told a record was deleted that is still there. Say no out loud instead.
+   */
   static async delete(id: string): Promise<void> {
-    const { error } = await (this.supabase as any)
+    const { data, error } = await (this.supabase as any)
       .from('institution_collaborations')
       .delete()
-      .eq('id', id);
+      .eq('id', id)
+      .select('id');
     if (error) throw error;
+    if (!data || data.length === 0) {
+      throw new Error(
+        'Nothing was deleted. A record filed by the partner college can be viewed and edited here, but only the college that filed it can delete it.',
+      );
+    }
   }
 
   static async bulkDelete(ids: string[]): Promise<{ success: string[]; failed: { id: string; error: string }[] }> {

@@ -13,6 +13,11 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import {
+  recordPushOptIn,
+  recordPushOptOut,
+  shouldRefusePushSubscribe
+} from '@/lib/push/opt-out';
 
 export async function POST(req: NextRequest) {
   try {
@@ -36,6 +41,22 @@ export async function POST(req: NextRequest) {
         { ok: false, error: 'not_authenticated' },
         { status: 401 }
       );
+    }
+
+    // ── The opt-out gate ──────────────────────────────────────────────────
+    // This upsert sets `is_active: true` explicitly, so unlike the other
+    // subscribe endpoint it force-reactivates even a MATCHING endpoint. The 160
+    // is_active=false rows on production are written by this route's DELETE and
+    // undone by this POST. The preference is what the person actually asked for,
+    // so it decides, and only an explicit click may clear it.
+    const isDeliberate = body?.deliberate === true;
+
+    if (isDeliberate) {
+      await recordPushOptIn(supabase as never, user.id);
+    } else if (await shouldRefusePushSubscribe(supabase as never, user.id)) {
+      // 200 by design — an opted-out person loading the dashboard is an
+      // expected state, not a failure the UI should surface.
+      return NextResponse.json({ ok: true, skipped: 'user_opted_out' });
     }
 
     // Upsert: one active subscription per (user_id, endpoint)
@@ -102,6 +123,12 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
+    // Record the opt-out on the PERSON as well as the row. The soft-delete below
+    // survives only until the endpoint rotates, at which point the next POST
+    // upserts a different (user_id, endpoint) pair carrying is_active=true and
+    // the signal is gone. The preference has no endpoint to be tied to.
+    const preferenceRecorded = await recordPushOptOut(supabase as never, user.id);
+
     // Soft-delete: mark inactive (per Round 3.12 decision — keep history)
     const { error } = await supabase
       .from('push_subscriptions')
@@ -117,7 +144,7 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, preference_recorded: preferenceRecorded });
   } catch (err) {
     console.error('[push-subscribe] unexpected DELETE error:', err);
     return NextResponse.json(

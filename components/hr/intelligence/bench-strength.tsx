@@ -22,6 +22,7 @@ import {
   ShieldCheck,
   UserPlus,
   BarChart3,
+  Info,
 } from 'lucide-react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
@@ -68,36 +69,53 @@ export function BenchStrengthTab() {
   const metrics = useMemo(() => {
     if (!staff || staff.length === 0) return null;
 
-    // Department depth: how many staff per department
+    // Department depth: how many staff per department.
+    // Staff with no department_id are NOT a department — they are counted
+    // separately as `unassignedStaff` and surfaced as an explicit caveat, so a
+    // data-completeness gap is never rendered as a real (or an at-risk) department.
     const deptCounts: Record<string, number> = {};
     const designationCounts: Record<string, number> = {};
-    const byInstitution: Record<string, { total: number; departments: Set<string>; singlePersonDepts: number }> = {};
+    const byInstitution: Record<
+      string,
+      { total: number; departments: Set<string>; singlePersonDepts: number; unassigned: number }
+    > = {};
+
+    let unassignedStaff = 0;
 
     for (const s of staff) {
-      const deptId = s.department_id ?? 'unassigned';
-      deptCounts[deptId] = (deptCounts[deptId] ?? 0) + 1;
+      const deptId = s.department_id || null;
+      if (deptId) {
+        deptCounts[deptId] = (deptCounts[deptId] ?? 0) + 1;
+      } else {
+        unassignedStaff += 1;
+      }
 
       const designation = s.designation ?? 'Not Specified';
       designationCounts[designation] = (designationCounts[designation] ?? 0) + 1;
 
       const orgId = s.institution_id;
       if (!byInstitution[orgId]) {
-        byInstitution[orgId] = { total: 0, departments: new Set(), singlePersonDepts: 0 };
+        byInstitution[orgId] = { total: 0, departments: new Set(), singlePersonDepts: 0, unassigned: 0 };
       }
       byInstitution[orgId].total += 1;
-      byInstitution[orgId].departments.add(deptId);
+      if (deptId) {
+        byInstitution[orgId].departments.add(deptId);
+      } else {
+        byInstitution[orgId].unassigned += 1;
+      }
     }
 
     // Single-person departments = bench strength risk
     const singlePersonDepts = Object.values(deptCounts).filter((c) => c === 1).length;
     const totalDepts = Object.keys(deptCounts).length;
 
-    // Calculate per-institution single-person dept count
+    // Calculate per-institution single-person dept count (departments only)
     for (const orgId of Object.keys(byInstitution)) {
       const instStaff = staff.filter((s) => s.institution_id === orgId);
       const instDeptCounts: Record<string, number> = {};
       for (const s of instStaff) {
-        const deptId = s.department_id ?? 'unassigned';
+        const deptId = s.department_id || null;
+        if (!deptId) continue;
         instDeptCounts[deptId] = (instDeptCounts[deptId] ?? 0) + 1;
       }
       byInstitution[orgId].singlePersonDepts = Object.values(instDeptCounts).filter((c) => c === 1).length;
@@ -112,6 +130,7 @@ export function BenchStrengthTab() {
       totalStaff: staff.length,
       totalDepts,
       singlePersonDepts,
+      unassignedStaff,
       benchStrengthScore: totalDepts > 0 ? (((totalDepts - singlePersonDepts) / totalDepts) * 100) : 0,
       topDesignations,
       byInstitution,
@@ -173,7 +192,14 @@ export function BenchStrengthTab() {
     );
   }
 
-  const scoreColor = metrics.benchStrengthScore >= 80 ? 'text-green-600' : metrics.benchStrengthScore >= 60 ? 'text-amber-600' : 'text-red-600';
+  const hasDepartmentData = metrics.totalDepts > 0;
+  const scoreColor = !hasDepartmentData
+    ? 'text-muted-foreground'
+    : metrics.benchStrengthScore >= 80
+      ? 'text-green-600'
+      : metrics.benchStrengthScore >= 60
+        ? 'text-amber-600'
+        : 'text-red-600';
 
   return (
     <div className="space-y-4">
@@ -188,10 +214,12 @@ export function BenchStrengthTab() {
           </CardHeader>
           <CardContent>
             <div className={`text-2xl font-bold ${scoreColor}`}>
-              {metrics.benchStrengthScore.toFixed(0)}%
+              {hasDepartmentData ? `${metrics.benchStrengthScore.toFixed(0)}%` : '—'}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              Departments with 2+ staff members
+              {hasDepartmentData
+                ? 'Departments with 2+ team members'
+                : 'No record carries a department'}
             </p>
           </CardContent>
         </Card>
@@ -205,7 +233,10 @@ export function BenchStrengthTab() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{metrics.totalStaff}</div>
-            <p className="text-xs text-muted-foreground mt-1">Across {metrics.totalDepts} departments</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Across {metrics.totalDepts} departments
+              {metrics.unassignedStaff > 0 && ` · ${metrics.unassignedStaff} in none`}
+            </p>
           </CardContent>
         </Card>
 
@@ -218,7 +249,11 @@ export function BenchStrengthTab() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-red-600">{metrics.singlePersonDepts}</div>
-            <p className="text-xs text-muted-foreground mt-1">No backup coverage</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {metrics.unassignedStaff > 0
+                ? 'No backup coverage on record'
+                : 'No backup coverage'}
+            </p>
           </CardContent>
         </Card>
 
@@ -240,6 +275,21 @@ export function BenchStrengthTab() {
         </Card>
       </div>
 
+      {/* Coverage caveat — only rendered when some staff carry no department */}
+      {metrics.unassignedStaff > 0 && (
+        <div className="flex items-start gap-2.5 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
+          <Info className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            <span className="font-medium text-foreground">
+              {metrics.unassignedStaff} of {metrics.totalStaff} active team members
+            </span>{' '}
+            are not attached to any department, so they are not counted in the figures on this tab.
+            A department can therefore appear to have a single person because colleagues are
+            unassigned rather than because no one else does that work.
+          </p>
+        </div>
+      )}
+
       {/* Institution bench strength */}
       <Card>
         <CardHeader>
@@ -256,7 +306,8 @@ export function BenchStrengthTab() {
               .map(([orgId, data]) => {
                 const deptCount = data.departments.size;
                 const riskDepts = data.singlePersonDepts;
-                const depthScore = deptCount > 0 ? (((deptCount - riskDepts) / deptCount) * 100) : 0;
+                const hasDepts = deptCount > 0;
+                const depthScore = hasDepts ? (((deptCount - riskDepts) / deptCount) * 100) : 0;
                 const barColor = depthScore >= 80 ? 'bg-green-500' : depthScore >= 60 ? 'bg-amber-500' : 'bg-red-500';
 
                 return (
@@ -268,20 +319,33 @@ export function BenchStrengthTab() {
                       <div className="flex items-center gap-3 text-xs text-muted-foreground">
                         <span>{data.total} staff</span>
                         <span>{deptCount} depts</span>
+                        {data.unassigned > 0 && (
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-normal">
+                            {data.unassigned} unassigned
+                          </Badge>
+                        )}
                         {riskDepts > 0 && (
                           <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
                             {riskDepts} at risk
                           </Badge>
                         )}
-                        <span className="font-medium text-foreground">{depthScore.toFixed(0)}%</span>
+                        <span className="font-medium text-foreground">
+                          {hasDepts ? `${depthScore.toFixed(0)}%` : '—'}
+                        </span>
                       </div>
                     </div>
-                    <div className="h-2 rounded-full bg-muted overflow-hidden">
-                      <div
-                        className={`h-full rounded-full ${barColor} transition-all duration-300`}
-                        style={{ width: `${depthScore}%` }}
-                      />
-                    </div>
+                    {hasDepts ? (
+                      <div className="h-2 rounded-full bg-muted overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${barColor} transition-all duration-300`}
+                          style={{ width: `${depthScore}%` }}
+                        />
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-muted-foreground">
+                        No departmental data — every active record here is unassigned.
+                      </p>
+                    )}
                   </div>
                 );
               })}

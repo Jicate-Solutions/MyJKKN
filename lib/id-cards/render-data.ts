@@ -120,6 +120,16 @@ export type CardPersonData = {
   departmentName: string | null;
   institutionName: string | null;
   /**
+   * True when this card belongs to a SCHOOL (institutions.entity_type ===
+   * 'school'), not a college. Schools use different vocabulary for the same
+   * columns — lib/utils/school-label-adapter.ts maps Program → Class and
+   * Department → Wing — so a school card must not print "COURSE: Standard 12".
+   * The VALUE is correct either way; only the printed label changes.
+   * Defaults false, so an unreadable institution degrades to college wording
+   * rather than throwing.
+   */
+  isSchool: boolean;
+  /**
    * QR payload: the person's permanent JKKN ID (e.g. '348295-7') when they
    * hold an active one, otherwise the internal UUID the card carried before —
    * learners_profiles.id for learners, profiles.id for employees. Never blank.
@@ -1193,12 +1203,12 @@ export async function assembleCardData(
   // learners_profiles.institution_id, then the account's profiles.institution_id,
   // and only then the template's institution_id — so a template picked for the
   // wrong college can never relabel a student's card.
-  let institutionName: string | null = null;
   let institutionEmail: string | null = null;
   let institutionPhone: string | null = null;
   let institutionAddress: string | null = null;
   let institutionWebsite: string | null = null;
   let institutionLogoUrl: string | null = null;
+  let isSchool = false;
   const learnerInstitutionId =
     (learnerRowInstitutionId ?? '').trim() !== '' ? learnerRowInstitutionId : null;
   const institutionId = learnerInstitutionId ?? p.institution_id ?? templateInstitutionId;
@@ -1206,7 +1216,7 @@ export async function assembleCardData(
     const { data: inst, error: instError } = await supabase
       .from('institutions')
       .select(
-        'name, display_name, email, phone, website, logo_url, address_line1, address_line2, address_line3, city, state, pin_code'
+        'name, display_name, entity_type, email, phone, website, logo_url, address_line1, address_line2, address_line3, city, state, pin_code'
       )
       .eq('id', institutionId)
       .maybeSingle();
@@ -1216,6 +1226,7 @@ export async function assembleCardData(
       const row = inst as {
         name: string | null;
         display_name: string | null;
+        entity_type: string | null;
         email: string | null;
         phone: string | null;
         website: string | null;
@@ -1228,6 +1239,7 @@ export async function assembleCardData(
         pin_code: string | null;
       };
       institutionName = row.name?.trim() || row.display_name?.trim() || null;
+      isSchool = (row.entity_type ?? '').trim() === 'school';
       institutionEmail = row.email?.trim() || null;
       institutionPhone = row.phone?.trim() || null;
       institutionWebsite = row.website?.trim() || null;
@@ -1272,6 +1284,7 @@ export async function assembleCardData(
       courseName,
       departmentName,
       institutionName,
+      isSchool,
       institutionId: institutionId ?? null,
       institutionEmail,
       institutionPhone,

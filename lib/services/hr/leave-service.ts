@@ -432,12 +432,23 @@ export class LeaveService {
       resolvedYearId = yearRow?.id ?? null;
     }
 
-    let balance: { entitled?: number; carried_forward?: number; used?: number } | null = null;
+    let balance: {
+      entitled?: number;
+      carried_forward?: number;
+      used?: number;
+      accrued?: number;
+      pending?: number;
+      available?: number;
+    } | null = null;
 
     if (resolvedYearId) {
       const { data, error: balanceError } = await supabase
         .from('v_hr_leave_balance')
-        .select('entitled, carried_forward, used')
+        // `available` is now authoritative and is read rather than recomputed.
+        // The view nets off BOTH what has been taken and what is awaiting a
+        // decision, and caps at what has actually accrued — three rules this
+        // service would otherwise have to restate and could get wrong.
+        .select('entitled, carried_forward, used, accrued, pending, available')
         .eq('employee_id', payload.employee_id)
         .eq('leave_type_id', payload.leave_type_id)
         .eq('hr_academic_year_id', resolvedYearId)
@@ -481,12 +492,28 @@ export class LeaveService {
     // credit ledger — the drawer blocks at zero credits and the database refuses
     // an approval with no credit behind it.
     const tracksDayEntitlement = leaveType.request_category === 'leave';
+
+    // READ, NOT RECOMPUTED. This used to be entitled + carried - used, which
+    // could not see an unapproved request: apply for two days, apply again, and
+    // the second request saw the full balance. 354 applications / 371 days were
+    // invisible to it. The view's `available` now subtracts pending too.
+    const pending = balance.pending ?? 0;
     const available =
-      (balance.entitled ?? 0) + (balance.carried_forward ?? 0) - (balance.used ?? 0);
+      balance.available ??
+      (balance.accrued ?? balance.entitled ?? 0) +
+        (balance.carried_forward ?? 0) -
+        (balance.used ?? 0) -
+        pending;
+
     if (tracksDayEntitlement && estimatedDays > available) {
       // hr_leave_types has no `name` column — it is `leave_type_name`.
+      // The pending figure is named: "you have 10 left" is baffling when the
+      // person believes they have 12, and the two days they cannot see are the
+      // ones they filed themselves an hour ago.
+      const pendingNote =
+        pending > 0 ? ` (${pending.toFixed(1)} day(s) already awaiting approval)` : '';
       throw new Error(
-        `Insufficient balance. You have ${available.toFixed(1)} day(s) of ${leaveType.leave_type_name} available; requested ${estimatedDays}.`
+        `Insufficient balance. You have ${available.toFixed(1)} day(s) of ${leaveType.leave_type_name} available${pendingNote}; requested ${estimatedDays}.`
       );
     }
 
@@ -867,6 +894,9 @@ export class LeaveService {
       entitled: Number(row.entitled),
       used: Number(row.used),
       carried_forward: Number(row.carried_forward),
+      accrued: Number(row.accrued ?? row.entitled ?? 0),
+      pending: Number(row.pending ?? 0),
+      available: Number(row.available ?? 0),
       // Null for a derived row that has no ledger row behind it yet.
       created_at: (row.created_at ?? null) as string,
       updated_at: (row.updated_at ?? null) as string,

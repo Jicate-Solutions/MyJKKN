@@ -8,9 +8,11 @@ export const dynamic = 'force-dynamic';
 //         Roles: super_admin / registrar / admission.
 //         Rejects duplicates (existing pending|rendering|sent_to_agent for same person) → 409.
 //         Rejects a person who has LEFT (learner lifecycle status / team-member
-//         active flag) → 422, and a replacement card that is unpriced or whose
-//         charge has not been accepted → 409. See
-//         lib/services/id-cards/reprint-eligibility.ts for both rules.
+//         active flag) → 422, a person with NO INSTITUTIONAL PHOTOGRAPH on file
+//         → 422 (a login-account picture does not qualify and there is no
+//         override), and a replacement card that is unpriced or whose charge
+//         has not been accepted → 409. See
+//         lib/services/id-cards/reprint-eligibility.ts for all three rules.
 //
 // GET   — list jobs, filter by status, paginated by limit (default 50, max 200).
 //         Reachable from EITHER a user session (super_admin / registrar / admission)
@@ -30,6 +32,7 @@ import {
 import {
   countPriorPrintedCards,
   describeReplacement,
+  judgeCardPhoto,
   judgeCardSubject,
   judgeReplacement,
   lookupCardSubject,
@@ -127,6 +130,20 @@ export async function POST(request: NextRequest) {
     const eligibility = judgeCardSubject(subjectLookup.subject, policy.allowedLearnerStatuses);
     if (eligibility.kind === 'refused') {
       return jsonError(eligibility.message, eligibility.code, 422);
+    }
+
+    // GUARD 3 — a card with no institutional photograph never reaches the
+    // printer. Runs BEFORE the fee guard deliberately: an un-overridable
+    // refusal must resolve before anyone is asked for ₹200, or a person pays
+    // and only then learns the card was never printable.
+    // Photo column came back with the subject lookup — no extra query.
+    const photoGate = judgeCardPhoto({
+      photo: subjectLookup.photo,
+      required: policy.photoRequired
+    });
+
+    if (photoGate.kind === 'refused') {
+      return jsonError(photoGate.message, photoGate.code, 422);
     }
 
     // GUARD 2 — the first card is free; a replacement is counted and chargeable.

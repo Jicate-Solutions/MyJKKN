@@ -162,6 +162,40 @@ export interface AttendanceSummaryRow {
   payable_days: number;
   leave_by_type: Record<string, number>;
   unprocessed_days: number;
+  /**
+   * Days the resolver expected this person to work in the month, pattern-aware
+   * (2026-09-04). NULL on months closed before the column existed.
+   */
+  scheduled_days: number | null;
+  /**
+   * The work pattern held on any day of the month. When set, the day rate
+   * divides by scheduled_days — the person's own week — instead of the
+   * institution standard. See registerBasisFor.
+   */
+  work_pattern_id: string | null;
+}
+
+/**
+ * The divisor for one register line.
+ *
+ * A person on a work pattern (a 3-day or 5-day week at an institution that
+ * otherwise runs six) is paid on THEIR scheduled days, not the institution's
+ * month standard — dividing a Tue/Wed/Thu person's salary by 26 would charge
+ * them ~13 unpaid days every month. Everyone else keeps the period basis.
+ *
+ * scheduled_days is the resolver's full-month expectation, NOT the person's
+ * recorded working days, for the same reason the institution basis is used for
+ * everyone else: a mid-month joiner is unpaid for the days before they joined,
+ * not paid a full month for half of one.
+ */
+export function registerBasisFor(
+  summary: Pick<AttendanceSummaryRow, 'scheduled_days' | 'work_pattern_id'>,
+  periodBasis: number,
+): number {
+  if (summary.work_pattern_id && (summary.scheduled_days ?? 0) > 0) {
+    return summary.scheduled_days as number;
+  }
+  return periodBasis;
 }
 
 /** The computed half of a register row — everything that is not identity. */
@@ -637,7 +671,7 @@ export class SalaryRegisterService {
       for (const ids of chunk(staffIds)) {
         const { data, error } = await (supabase as any)
           .from('hr_attendance_period_summaries')
-          .select('period_id, staff_id, present_days, half_days, leave_days, on_duty_days, comp_off_days, lop_days, payable_days, leave_by_type, unprocessed_days')
+          .select('period_id, staff_id, present_days, half_days, leave_days, on_duty_days, comp_off_days, lop_days, payable_days, leave_by_type, unprocessed_days, scheduled_days, work_pattern_id')
           .in('period_id', lockedPeriodIds)
           .in('staff_id', ids);
 
@@ -655,6 +689,8 @@ export class SalaryRegisterService {
             payable_days: num(s.payable_days),
             leave_by_type: (s.leave_by_type ?? {}) as Record<string, number>,
             unprocessed_days: num(s.unprocessed_days),
+            scheduled_days: s.scheduled_days == null ? null : num(s.scheduled_days),
+            work_pattern_id: (s.work_pattern_id as string | null) ?? null,
           });
         }
       }
@@ -888,6 +924,29 @@ export class SalaryRegisterService {
     const ctx = await SalaryRegisterService.loadContext(supabase, input);
     const runBasis = pre.working_days_basis as number;
 
+    // Names for the Remarks column of anyone paid on their own week. One query
+    // for the whole run; an unreadable name only blanks the remark.
+    const patternIds = Array.from(
+      new Set(
+        Array.from(ctx.summaryByStaff.values())
+          .map((s) => s.work_pattern_id)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    );
+    const patternNameById = new Map<string, string>();
+    if (patternIds.length > 0) {
+      const { data: patterns, error: patternErr } = await (supabase as any)
+        .from('hr_work_patterns')
+        .select('id, name')
+        .in('id', patternIds);
+      if (patternErr) {
+        throw new Error(`Failed to load work pattern names: ${getErrorMessage(patternErr)}`);
+      }
+      for (const p of (patterns ?? []) as Array<{ id: string; name: string }>) {
+        patternNameById.set(p.id, p.name);
+      }
+    }
+
     /**
      * Working days per SOURCE MONTH, so each person is measured against the
      * calendar they actually worked.
@@ -958,15 +1017,21 @@ export class SalaryRegisterService {
           adjustment_amount: 0,
           is_included: false,
           exclusion_reason: reason,
+          // Same key set as an included row — see the batch-shape note above.
+          remarks: null,
         });
         continue;
       }
 
       const s = summary as AttendanceSummaryRow;
       const statutory = ctx.statutoryByStaff.get(member.staff_id);
+      // A person on a work pattern is measured against THEIR week (see
+      // registerBasisFor); everyone else against the source month's standard.
+      const basis = registerBasisFor(s, workingDaysByPeriod.get(s.period_id) || runBasis);
+      const patternName = s.work_pattern_id ? patternNameById.get(s.work_pattern_id) : undefined;
       const figures = computeRegisterLine({
         monthlyGross: salary as number,
-        workingDaysBasis: workingDaysByPeriod.get(s.period_id) || runBasis,
+        workingDaysBasis: basis,
         epfAmount: statutory?.epf ?? 0,
         esiAmount: statutory?.esi ?? 0,
         allowance: statutory?.allowance ?? 0,
@@ -982,6 +1047,9 @@ export class SalaryRegisterService {
       lines.push({
         ...base,
         ...figures,
+        // The register HR reads has no other place to say WHY this row's
+        // Business Working Days differs from the rest of the sheet.
+        remarks: s.work_pattern_id ? `Work pattern: ${patternName ?? 'yes'}` : null,
         adjustment_amount: 0,
         is_included: true,
         exclusion_reason: null,

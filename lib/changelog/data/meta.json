@@ -1,0 +1,406 @@
+{
+  "generatedAt": "2026-09-06",
+  "ref": "jicate/main",
+  "total": 4746,
+  "first": "2026-03-25",
+  "latest": "2026-09-06",
+  "months": [
+    "2026-09",
+    "2026-08",
+    "2026-07",
+    "2026-06",
+    "2026-05",
+    "2026-04",
+    "2026-03"
+  ],
+  "recentFrom": "2026-06-08",
+  "recentCount": 2547,
+  "archiveCount": 2199,
+  "contributors": [
+    {
+      "name": "Ommsharravana",
+      "count": 1975
+    },
+    {
+      "name": "Boobalan",
+      "count": 1713
+    },
+    {
+      "name": "JKKN AI Engineering",
+      "count": 693
+    },
+    {
+      "name": "Viswanathan Shanmugam",
+      "count": 156
+    },
+    {
+      "name": "Roja Sundharam",
+      "count": 94
+    },
+    {
+      "name": "Sangeetha V",
+      "count": 77
+    },
+    {
+      "name": "Janani",
+      "count": 26
+    },
+    {
+      "name": "Kayalvizhi S",
+      "count": 9
+    },
+    {
+      "name": "Deepak Kumar",
+      "count": 3
+    }
+  ],
+  "modules": {
+    "academic": {
+      "label": "Academic",
+      "perm": "academic",
+      "href": "/academic"
+    },
+    "accreditation": {
+      "label": "Accreditation",
+      "perm": "accreditation",
+      "href": "/accreditation"
+    },
+    "administration": {
+      "label": "Administration",
+      "perm": "admin",
+      "href": "/admin/ai-models"
+    },
+    "admission": {
+      "label": "Admission",
+      "perm": "admission",
+      "href": "/admission"
+    },
+    "admission-fees": {
+      "label": "Admission Fees",
+      "perm": "admission_fees",
+      "href": "/admission"
+    },
+    "ai-pulse": {
+      "label": "AI Pulse",
+      "perm": "ai_pulse",
+      "href": "/ai-pulse"
+    },
+    "ai-query": {
+      "label": "AI Query",
+      "perm": "ai_query",
+      "href": "/ai-query"
+    },
+    "ai-routines": {
+      "label": "AI Routines",
+      "perm": "admin",
+      "href": "/admin/ai-routines"
+    },
+    "application-hub": {
+      "label": "Application Hub",
+      "perm": "application_hub",
+      "href": "/application-hub"
+    },
+    "applications": {
+      "label": "Applications",
+      "perm": "applications",
+      "href": "/applications"
+    },
+    "audit-trail": {
+      "label": "Audit Trail",
+      "perm": "audit",
+      "href": "/audit-trail"
+    },
+    "billing": {
+      "label": "Billing",
+      "perm": "billing",
+      "href": "/billing"
+    },
+    "board-of-studies": {
+      "label": "Board of Studies",
+      "perm": "bos",
+      "href": "/bos"
+    },
+    "bug-reports": {
+      "label": "Bug Reports",
+      "perm": "learners.bug_reports",
+      "href": "/my-bug-reports"
+    },
+    "calendar": {
+      "label": "Calendar",
+      "perm": "calendar",
+      "href": "/calendar"
+    },
+    "campus-living": {
+      "label": "Campus Living",
+      "perm": "campus_living",
+      "href": "/campus-living"
+    },
+    "campus-walk": {
+      "label": "Campus Walk",
+      "perm": "projects",
+      "href": "/campus-walk"
+    },
+    "career-development": {
+      "label": "Career Development",
+      "perm": "cdc",
+      "href": "/cdc"
+    },
+    "ceo-rounds": {
+      "label": "CEO Rounds",
+      "perm": "ceo_rounds",
+      "href": "/ceo-rounds"
+    },
+    "cohort-programmes": {
+      "label": "Cohort Programmes",
+      "perm": "cohort",
+      "href": null
+    },
+    "courses": {
+      "label": "Courses",
+      "perm": "courses",
+      "href": "/courses"
+    },
+    "director-s-desk": {
+      "label": "Director's Desk",
+      "perm": "director",
+      "href": "/director-desk"
+    },
+    "events": {
+      "label": "Events",
+      "perm": "events",
+      "href": "/events"
+    },
+    "external-api": {
+      "label": "External API",
+      "perm": "system.api",
+      "href": "/system/api-management"
+    },
+    "faculty": {
+      "label": "Faculty",
+      "perm": [
+        "faculty",
+        "faculty_innovation"
+      ],
+      "href": "/staff"
+    },
+    "feedback": {
+      "label": "Feedback",
+      "perm": "feedback",
+      "href": "/feedback"
+    },
+    "foundation": {
+      "label": "Foundation",
+      "perm": "foundation",
+      "href": "/foundation"
+    },
+    "grievance": {
+      "label": "Grievance",
+      "perm": "grievance",
+      "href": "/service-requests"
+    },
+    "guide": {
+      "label": "Guide",
+      "perm": null,
+      "href": "/guide"
+    },
+    "health": {
+      "label": "Health",
+      "perm": [
+        "health",
+        "sports"
+      ],
+      "href": "/health/dashboard"
+    },
+    "hr": {
+      "label": "HR",
+      "perm": "hr",
+      "href": "/hr"
+    },
+    "id-cards": {
+      "label": "ID Cards",
+      "perm": "id_cards",
+      "href": "/id-cards"
+    },
+    "improvement-board": {
+      "label": "Improvement Board",
+      "perm": "improvement",
+      "href": "/improvement-board"
+    },
+    "induction": {
+      "label": "Induction",
+      "perm": "induction",
+      "href": "/induction"
+    },
+    "internships": {
+      "label": "Internships",
+      "perm": "internship",
+      "href": "/internships"
+    },
+    "inventory": {
+      "label": "Inventory",
+      "perm": "ims",
+      "href": "/ims"
+    },
+    "learn": {
+      "label": "Learn",
+      "perm": "learn",
+      "href": "/learn"
+    },
+    "learners": {
+      "label": "Learners",
+      "perm": "learners",
+      "href": "/learners"
+    },
+    "learners-council": {
+      "label": "Learners Council",
+      "perm": "learners_council",
+      "href": "/learners"
+    },
+    "meetings": {
+      "label": "Meetings",
+      "perm": "meetings",
+      "href": "/meetings"
+    },
+    "moments": {
+      "label": "Moments",
+      "perm": "moments",
+      "href": "/moments"
+    },
+    "my-desk": {
+      "label": "My Desk",
+      "perm": null,
+      "href": "/my-desk"
+    },
+    "notifications": {
+      "label": "Notifications",
+      "perm": "notifications",
+      "href": "/notifications/admin"
+    },
+    "okr": {
+      "label": "OKR",
+      "perm": "okr",
+      "href": "/okr"
+    },
+    "organisation": {
+      "label": "Organisation",
+      "perm": "organizations",
+      "href": "/organizations/dashboard"
+    },
+    "parent-portal": {
+      "label": "Parent Portal",
+      "perm": "academic.parent_portal",
+      "href": "/parent"
+    },
+    "pde": {
+      "label": "PDE",
+      "perm": "pde",
+      "href": "/pde"
+    },
+    "platform": {
+      "label": "Platform",
+      "perm": null,
+      "href": null
+    },
+    "procurement": {
+      "label": "Procurement",
+      "perm": "procurement",
+      "href": "/procurement"
+    },
+    "projects": {
+      "label": "Projects",
+      "perm": "projects",
+      "href": "/projects"
+    },
+    "rcltp": {
+      "label": "RCLTP",
+      "perm": "rcltp",
+      "href": "/rcltp"
+    },
+    "reference-data": {
+      "label": "Reference Data",
+      "perm": "reference",
+      "href": "/reference"
+    },
+    "referrals": {
+      "label": "Referrals",
+      "perm": [
+        "referrals",
+        "admission"
+      ],
+      "href": "/admission"
+    },
+    "resources": {
+      "label": "Resources",
+      "perm": "resources",
+      "href": "/resource-management"
+    },
+    "scf": {
+      "label": "SCF",
+      "perm": "scf",
+      "href": "/scf"
+    },
+    "schools-network": {
+      "label": "Schools Network",
+      "perm": "schools_network",
+      "href": "/admission/schools-network"
+    },
+    "service-requests": {
+      "label": "Service Requests",
+      "perm": "service_requests",
+      "href": "/service-requests"
+    },
+    "social": {
+      "label": "Social",
+      "perm": "social",
+      "href": "/admin/social"
+    },
+    "solutions-hub": {
+      "label": "Solutions Hub",
+      "perm": "solutions",
+      "href": "/solutions"
+    },
+    "staff": {
+      "label": "Staff",
+      "perm": "staff",
+      "href": "/staff"
+    },
+    "startup-studio": {
+      "label": "Startup Studio",
+      "perm": "startup_studio",
+      "href": "/startup-studio"
+    },
+    "telephony": {
+      "label": "Telephony",
+      "perm": "admission",
+      "href": "/admission"
+    },
+    "tms": {
+      "label": "TMS",
+      "perm": "tms",
+      "href": "/tms"
+    },
+    "users-roles": {
+      "label": "Users & Roles",
+      "perm": [
+        "users",
+        "roles"
+      ],
+      "href": "/users"
+    },
+    "value-added-courses": {
+      "label": "Value-Added Courses",
+      "perm": "vac",
+      "href": "/vac"
+    },
+    "what-s-new": {
+      "label": "What's New",
+      "perm": null,
+      "href": "/whats-new"
+    },
+    "work-pulse": {
+      "label": "Work Pulse",
+      "perm": "work_pulse",
+      "href": "/work-pulse"
+    }
+  }
+}

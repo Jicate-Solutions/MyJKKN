@@ -92,6 +92,7 @@ import {
 import { TransferDialog } from './transfer-dialog';
 import { ResetAllocationDialog } from './reset-allocation-dialog';
 import { AllocateRoomDialog } from '../../residents/_components/allocate-room-dialog';
+import { LearnerDetailDrawer } from '../../residents/_components/learner-detail-drawer';
 import {
   MoreHorizontal,
   Eye,
@@ -170,7 +171,11 @@ const statusConfig: Record<
 > = {
   active: { label: 'Active', variant: 'success' },
   vacated: { label: 'Past Allocation', variant: 'secondary' },
-  transferred: { label: 'Transferred', variant: 'outline' },
+  // Dropdown label only — no row ever holds status='transferred', so the row
+  // badge below never renders this entry. Named 'Transfers' because the option
+  // now scopes the table by allocation_type='transfer' (see
+  // statusScopedAllocations), i.e. the rows a learner was transferred INTO.
+  transferred: { label: 'Transfers', variant: 'outline' },
   pending_approval: { label: 'Pending', variant: 'default' },
   pending_vacate: { label: 'Pending Vacate', variant: 'default' },
   suspended: { label: 'Suspended', variant: 'destructive' },
@@ -312,12 +317,21 @@ export function AllAllocationsTab() {
   const [transferTarget, setTransferTarget] = useState<Alloc | null>(null);
   const [resetTarget, setResetTarget] = useState<Alloc | null>(null);
   const [allocateTarget, setAllocateTarget] = useState<UnallocatedCandidate | null>(null);
+  const [detailLearnerId, setDetailLearnerId] = useState<string | null>(null);
   // Bulk reset: the rows to act on plus the table's own selection-clearing
   // callback, captured together when the confirm dialog opens.
   const [pendingBulk, setPendingBulk] = useState<
     { rows: UnifiedRow[]; clearSelection: () => void } | null
   >(null);
   const bulkReset = useResetAllocationsBulk();
+
+  // The candidate behind the open detail drawer, so the drawer's own
+  // "Allocate to a block" CTA can hand back a real row to allocate.
+  const detailCandidate = useMemo(
+    () =>
+      (candidates as UnallocatedCandidate[]).find((c) => c.learner_id === detailLearnerId) ?? null,
+    [candidates, detailLearnerId]
+  );
 
   // Active allocations only — the cascade filter OPTIONS derive from these, so
   // the Type/Block/Floor and academic lists stay stable whichever Status is
@@ -331,13 +345,20 @@ export function AllAllocationsTab() {
   // The allocated half of the table, scoped by the Status filter. 'active' is
   // the default, so the table opens on exactly the set it showed before the
   // tabs were folded in.
-  const statusScopedAllocations = useMemo(
-    () =>
-      statusFilter === 'all'
-        ? (allocations as Alloc[])
-        : (allocations as Alloc[]).filter((a) => a.status === statusFilter),
-    [allocations, statusFilter]
-  );
+  const statusScopedAllocations = useMemo(() => {
+    // 'transferred' is a TYPE, not a status: a transfer writes a NEW row with
+    // allocation_type='transfer' whose status is active (or vacated once
+    // superseded again) — no row ever carries status='transferred'. Filtering
+    // on that nonexistent status made the Status dropdown's Transfers option
+    // return an empty table (BUG-005810). Matching by type, with no status
+    // narrowing, is what makes the option show the transfers that exist.
+    if (statusFilter === 'transferred') {
+      return (allocations as Alloc[]).filter((a) => a.allocation_type === 'transfer');
+    }
+    return statusFilter === 'all'
+      ? (allocations as Alloc[])
+      : (allocations as Alloc[]).filter((a) => a.status === statusFilter);
+  }, [allocations, statusFilter]);
 
   // Merge the two shapes into one normalised row list.
   const allRows = useMemo<UnifiedRow[]>(() => {
@@ -829,24 +850,40 @@ export function AllAllocationsTab() {
             </div>
           );
         }
-        if (!canManage) return null;
+        // Unplaced rows get the SAME ⋮ menu as allocated ones. Two inline
+        // buttons (eye + Allocate) did not survive contact with the real table:
+        // the actions cell is sticky-pinned at a fixed width, so the second
+        // button was clipped off the right edge and the view action was
+        // effectively invisible. One 32px trigger always fits.
         const c = r.raw as UnallocatedCandidate;
         return (
           <div className="flex justify-end">
-            {r.readiness === 'ready' ? (
-              <Button size="sm" className="h-7 text-xs gap-1" onClick={() => setAllocateTarget(c)}>
-                <BedDouble className="h-3.5 w-3.5" /> Allocate
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 text-xs text-muted-foreground"
-                onClick={() => setAllocateTarget(c)}
-              >
-                Assign anyway
-              </Button>
-            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                  <span className="sr-only">Open actions menu</span>
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {/* An unplaced learner has no allocation row, so
+                    /allocations/[id] does not exist for them — the drawer keyed
+                    on their learners_profiles.id is the only detail view they
+                    have. Outside the canManage gate, which used to return null
+                    and leave a view-only role staring at an empty cell. */}
+                <DropdownMenuItem onClick={() => setDetailLearnerId(c.learner_id)}>
+                  <Eye className="mr-2 h-4 w-4" /> View details
+                </DropdownMenuItem>
+                {canManage && (
+                  <DropdownMenuItem onClick={() => setAllocateTarget(c)}>
+                    <BedDouble className="mr-2 h-4 w-4" />
+                    {/* "Assign anyway" keeps the warning that this learner
+                        still has unmet readiness conditions. */}
+                    {r.readiness === 'ready' ? 'Allocate' : 'Assign anyway'}
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         );
       },
@@ -1002,7 +1039,10 @@ export function AllAllocationsTab() {
         unplaced ones.
       </p>
 
-      <div className="pinned-actions-col">
+      {/* allocations-wide-table: folding the tabs in took this table to 14
+          columns, and <table class="w-full"> squeezed every one of them below
+          its declared size with no scrollbar to recover them. See globals.css. */}
+      <div className="pinned-actions-col allocations-wide-table">
         <DataTable
           fetchDataFn={fetchData}
           fetchAllItemsFn={canManage ? fetchAllItems : undefined}
@@ -1124,7 +1164,53 @@ export function AllAllocationsTab() {
         />
       )}
 
-      {/* Not-allocated-row action — same dialog as the Not Allocated tab. */}
+      {/* Read-only detail for an UNPLACED learner. Keyed on
+          learners_profiles.id, which is exactly what
+          fn_hostel_unallocated_candidates returns as `learner_id`.
+          An ALLOCATED row deliberately does NOT open this: its
+          hostel_allocations.learner_id is a profiles.id, a disjoint key space,
+          so it links to /allocations/[id] instead.
+
+          `onAllocate` routes the drawer's "Allocate to a block" CTA into the
+          same inline dialog this table uses — without it the drawer falls back
+          to /allocations/new?learner=, a wizard that ignores the learner and
+          has a broken submit. */}
+      <LearnerDetailDrawer
+        learnerId={detailLearnerId}
+        onClose={() => setDetailLearnerId(null)}
+        // Rule-resolved categories + readiness, so the drawer agrees with the
+        // row it was opened from. Without this the drawer falls back to the
+        // learner's PROFILE category, which disagreed with the resolved one for
+        // 14 of 61 unplaced learners (measured 2026-09-02) — mostly a profile
+        // saying Deluxe against a rule resolving Classic. `blockers` is built
+        // from the same BILL_STATE_LABEL the table column uses, so the two can
+        // never word the same reason differently.
+        placement={
+          detailCandidate
+            ? {
+                readiness: detailCandidate.readiness,
+                resolvedRoomCategory: detailCandidate.resolved_room_category_name,
+                resolvedMessCategory: detailCandidate.resolved_mess_category_name,
+                blockers:
+                  (detailCandidate.missing_items ?? []).length > 0
+                    ? detailCandidate.missing_items
+                    : detailCandidate.bill_state && detailCandidate.bill_state !== 'matched'
+                      ? [BILL_STATE_LABEL[detailCandidate.bill_state] ?? detailCandidate.bill_state]
+                      : [],
+              }
+            : null
+        }
+        onAllocate={
+          canManage && detailCandidate
+            ? () => {
+                setAllocateTarget(detailCandidate);
+                setDetailLearnerId(null);
+              }
+            : undefined
+        }
+      />
+
+      {/* Not-allocated-row action — the same dialog the removed tab used. */}
       <AllocateRoomDialog
         learner={allocateTarget ? toAllocatable(allocateTarget) : null}
         onClose={() => setAllocateTarget(null)}

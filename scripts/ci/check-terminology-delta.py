@@ -38,6 +38,9 @@ EXfP = (".tsx", ".jsx", ".ts", ".md", ".mdx")
 # code/identifier lines, imports, and comments.
 QUOTE_OR_JSX = re.compile(r"""["'`]|>[^<>]*[A-Za-z]{2,}[^<>]*<""")
 SKIP_LINE = re.compile(r"""^\s*(import\s|//|/\*|\*\s|\*/)""")
+# Quote characters. A quote is an identifier signal only when it wraps BOTH
+# sides of the match — see the neighbour test in main().
+QUOTES = "'\"`"
 # Multiline JSX text carries NO quotes ("Answer honestly; that is what improves
 # the classes." escaped the 2049 scan) — treat a 4+-word pure-prose line in
 # .tsx/.jsx as copy too. Prose tokens only: any code char ({}<>=`$) disqualifies.
@@ -126,13 +129,20 @@ def main():
                 ):
                     continue
                 # Identifier/path context, not prose (2026-07-15 — the gate's
-                # own docstring calls these "unactionable noise"): the match is
-                # glued to a quote, backtick, bracket, hyphen, slash, or dot —
-                # e.g. ['student'], '/api/v1/student-cia-view', `student`,
-                # "children":, .student, student?: — never how copy uses a word.
+                # own docstring calls these "unactionable noise").
                 prev_ch = text[m.start() - 1] if m.start() > 0 else ""
                 next_ch = text[m.end()] if m.end() < len(text) else ""
-                if prev_ch in "'\"`[/-." or next_ch in "'\"`]/-?":
+                # A quote/backtick is an identifier signal only when it wraps
+                # BOTH sides — ['student'], `student`, "student". A quote on
+                # ONE side means the term is merely the first or last word of a
+                # longer string, which is copy: 'Faculty & tutor hires …' and
+                # `… ${n} students` both escaped this gate that way (2026-08).
+                if prev_ch in QUOTES and next_ch in QUOTES:
+                    continue
+                # Bracket, slash, hyphen, dot, question mark: genuinely
+                # one-sided path/identifier markers — '/api/v1/student-cia-view',
+                # "children":, .student, student?: — unchanged.
+                if prev_ch in "[/-." or next_ch in "]/-?":
                     continue
                 hits.append((f, ln, m.group(), repl, text.strip()[:100]))
                 break  # one report per (line, term) is enough

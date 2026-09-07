@@ -19,6 +19,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   computeRegisterLine,
+  registerBasisFor,
   ZERO_FIGURES,
   type AttendanceSummaryRow,
 } from '@/lib/services/hr/payroll/salary-register-service';
@@ -502,5 +503,54 @@ describe('computeRegisterLine — TDS', () => {
 
     expect(r.paid_days).toBe(r.business_working_days - r.unpaid_leave_days);
     expect(r.paid_days).toBe(r.worked_days + r.paid_leave_days + r.on_duty_days);
+  });
+});
+
+/**
+ * Work patterns (2026-09-04): a person on a 3-day or 5-day week at a 6-day
+ * institution is paid on THEIR scheduled days. The basis choice is a pure
+ * function so it can be pinned here; the arithmetic on top is unchanged.
+ */
+describe('registerBasisFor — a work pattern replaces the institution basis', () => {
+  it("uses the pattern member's own scheduled days", () => {
+    expect(registerBasisFor({ work_pattern_id: 'p1', scheduled_days: 13 }, 26)).toBe(13);
+  });
+
+  it('keeps the period basis for everyone without a pattern', () => {
+    expect(registerBasisFor({ work_pattern_id: null, scheduled_days: 13 }, 26)).toBe(26);
+    expect(registerBasisFor({ work_pattern_id: null, scheduled_days: null }, 26)).toBe(26);
+  });
+
+  it('falls back to the period basis when the pattern month has no scheduled days recorded', () => {
+    // A month closed before the column existed, or a pattern week of all-off
+    // days: dividing by zero is never the answer.
+    expect(registerBasisFor({ work_pattern_id: 'p1', scheduled_days: null }, 26)).toBe(26);
+    expect(registerBasisFor({ work_pattern_id: 'p1', scheduled_days: 0 }, 26)).toBe(26);
+  });
+
+  it('prices a 3-day week person against 13 scheduled days, not 26', () => {
+    // 26,000 gross over 13 scheduled days = 2,000/day. Worked 12 -> 1 unpaid.
+    const r = computeRegisterLine({
+      monthlyGross: 26000,
+      workingDaysBasis: registerBasisFor({ work_pattern_id: 'p1', scheduled_days: 13 }, 26),
+      summary: summary({ present_days: 12, payable_days: 12 }),
+    });
+    expect(r.business_working_days).toBe(13);
+    expect(r.unpaid_leave_days).toBe(1);
+    expect(r.unpaid_leave_deduction).toBe(2000);
+    expect(r.net_pay).toBe(24000);
+  });
+
+  it('still charges a mid-month joiner on a pattern for the scheduled days before they joined', () => {
+    // scheduled_days is the FULL month's expectation, never clamped to the
+    // joining date — the same rule the institution basis follows.
+    const r = computeRegisterLine({
+      monthlyGross: 26000,
+      workingDaysBasis: registerBasisFor({ work_pattern_id: 'p1', scheduled_days: 13 }, 26),
+      summary: summary({ present_days: 6, payable_days: 6 }),
+    });
+    expect(r.unpaid_leave_days).toBe(7);
+    expect(r.unpaid_leave_deduction).toBe(14000);
+    expect(r.net_pay).toBe(12000);
   });
 });

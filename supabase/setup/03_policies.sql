@@ -10137,3 +10137,260 @@ CREATE POLICY hr_tds_slabs_service_role ON public.hr_tds_slabs
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_tds_slabs TO authenticated;
 GRANT ALL ON public.hr_tds_slabs TO service_role;
+
+
+-- ── Event feedback forms (coordinator-editable questions per event) ──
+-- Migration: supabase/migrations/event_feedback_forms.sql
+-- ============================================================================
+-- RLS
+-- ============================================================================
+
+ALTER TABLE public.event_feedback_forms     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.event_feedback_sections  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.event_feedback_questions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.event_feedback_responses ENABLE ROW LEVEL SECURITY;
+
+-- Table privileges, restated explicitly.
+--
+-- Supabase ships ALTER DEFAULT PRIVILEGES ... GRANT ALL ON TABLES TO anon,
+-- authenticated, service_role, so these four tables arrive with ANON already
+-- holding INSERT and DELETE. Every policy below is `TO authenticated`, so RLS
+-- denies anon today regardless — a role with no matching policy is refused.
+-- But that safety is one permissive policy away from evaporating, and a
+-- feedback table is exactly where a `USING (true)` gets added by someone
+-- wiring up a public link later. Revoke the grant rather than rely on the
+-- absence of a policy.
+--
+-- `authenticated` is revoked alongside anon deliberately: it also arrives
+-- holding DELETE from those default privileges, so revoking only anon would
+-- leave that in place and make the GRANT below a no-op restating privileges
+-- already held.
+REVOKE ALL ON public.event_feedback_forms     FROM anon, authenticated, PUBLIC;
+REVOKE ALL ON public.event_feedback_sections  FROM anon, authenticated, PUBLIC;
+REVOKE ALL ON public.event_feedback_questions FROM anon, authenticated, PUBLIC;
+REVOKE ALL ON public.event_feedback_responses FROM anon, authenticated, PUBLIC;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.event_feedback_forms     TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.event_feedback_sections  TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.event_feedback_questions TO authenticated;
+-- Responses: no UPDATE/DELETE restriction at the GRANT level because both are
+-- needed — a respondent corrects their own row, a manager moderates one — and
+-- the policies above are what separate those two cases.
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.event_feedback_responses TO authenticated;
+
+-- Read: a manager, or a registered participant of the event (who needs the
+-- questions in order to answer them). Note this is NOT the registration
+-- builder's `visibility IN ('public','all_jkkn')` clause — a feedback form is
+-- never anonymous-readable, because only registrants may answer it.
+DROP POLICY IF EXISTS "event_feedback_forms_select" ON public.event_feedback_forms;
+CREATE POLICY "event_feedback_forms_select" ON public.event_feedback_forms
+  FOR SELECT TO authenticated USING (
+    public.fn_can_manage_event_feedback(event_id)
+    OR public.fn_my_event_registration(event_id) IS NOT NULL
+  );
+
+DROP POLICY IF EXISTS "event_feedback_forms_manage" ON public.event_feedback_forms;
+CREATE POLICY "event_feedback_forms_manage" ON public.event_feedback_forms
+  FOR ALL TO authenticated
+  USING (public.fn_can_manage_event_feedback(event_id))
+  WITH CHECK (public.fn_can_manage_event_feedback(event_id));
+
+DROP POLICY IF EXISTS "event_feedback_sections_select" ON public.event_feedback_sections;
+CREATE POLICY "event_feedback_sections_select" ON public.event_feedback_sections
+  FOR SELECT TO authenticated USING (
+    public.fn_can_manage_event_feedback(event_id)
+    OR public.fn_my_event_registration(event_id) IS NOT NULL
+  );
+
+DROP POLICY IF EXISTS "event_feedback_sections_manage" ON public.event_feedback_sections;
+CREATE POLICY "event_feedback_sections_manage" ON public.event_feedback_sections
+  FOR ALL TO authenticated
+  USING (public.fn_can_manage_event_feedback(event_id))
+  WITH CHECK (public.fn_can_manage_event_feedback(event_id));
+
+DROP POLICY IF EXISTS "event_feedback_questions_select" ON public.event_feedback_questions;
+CREATE POLICY "event_feedback_questions_select" ON public.event_feedback_questions
+  FOR SELECT TO authenticated USING (
+    public.fn_can_manage_event_feedback(event_id)
+    OR public.fn_my_event_registration(event_id) IS NOT NULL
+  );
+
+DROP POLICY IF EXISTS "event_feedback_questions_manage" ON public.event_feedback_questions;
+CREATE POLICY "event_feedback_questions_manage" ON public.event_feedback_questions
+  FOR ALL TO authenticated
+  USING (public.fn_can_manage_event_feedback(event_id))
+  WITH CHECK (public.fn_can_manage_event_feedback(event_id));
+
+-- Responses. A participant may read and write ONLY their own row, and only for
+-- the registration that is actually theirs — checking registration_id against
+-- fn_my_event_registration() rather than trusting the id the client sent is
+-- what stops one registrant from answering as another. Managers read every
+-- response but never write one: feedback is not editable by the people it is
+-- about.
+DROP POLICY IF EXISTS "event_feedback_responses_select" ON public.event_feedback_responses;
+CREATE POLICY "event_feedback_responses_select" ON public.event_feedback_responses
+  FOR SELECT TO authenticated USING (
+    public.fn_can_manage_event_feedback(event_id)
+    OR registration_id = public.fn_my_event_registration(event_id)
+  );
+
+-- The window is enforced HERE, not only in the UI: a closed form must refuse
+-- answers even when the write arrives straight at PostgREST.
+DROP POLICY IF EXISTS "event_feedback_responses_insert" ON public.event_feedback_responses;
+CREATE POLICY "event_feedback_responses_insert" ON public.event_feedback_responses
+  FOR INSERT TO authenticated WITH CHECK (
+    registration_id = public.fn_my_event_registration(event_id)
+    AND public.fn_event_feedback_form_open(form_id)
+  );
+
+-- Update is the respondent's own correction, and only while the form is still
+-- open — reopening the edit door after a survey closes would let someone revise
+-- an answer the coordinator has already reported on. Deliberately no manager
+-- branch either way: feedback is not editable by the people it is about.
+DROP POLICY IF EXISTS "event_feedback_responses_update" ON public.event_feedback_responses;
+CREATE POLICY "event_feedback_responses_update" ON public.event_feedback_responses
+  FOR UPDATE TO authenticated
+  USING (
+    registration_id = public.fn_my_event_registration(event_id)
+    AND public.fn_event_feedback_form_open(form_id)
+  )
+  WITH CHECK (
+    registration_id = public.fn_my_event_registration(event_id)
+    AND public.fn_event_feedback_form_open(form_id)
+  );
+
+-- Only a manager may delete a response (moderating abuse). A respondent
+-- withdrawing their feedback would silently distort the counts.
+DROP POLICY IF EXISTS "event_feedback_responses_delete" ON public.event_feedback_responses;
+CREATE POLICY "event_feedback_responses_delete" ON public.event_feedback_responses
+  FOR DELETE TO authenticated USING (
+    public.fn_can_manage_event_feedback(event_id)
+  );
+
+
+-- =====================================================================
+-- hr_work_patterns, hr_staff_work_pattern_assignments,
+-- hr_work_pattern_leave_entitlements (2026-09-04)
+-- Source: 20260904120000_hr_work_patterns.sql
+-- =====================================================================
+
+DROP POLICY IF EXISTS hr_work_patterns_select ON public.hr_work_patterns;
+CREATE POLICY hr_work_patterns_select ON public.hr_work_patterns
+  FOR SELECT USING (
+       (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (((SELECT public.user_has_permission('hr.shift_timings.view'))
+         OR (SELECT public.user_has_permission('hr.shift_timings.manage')))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+DROP POLICY IF EXISTS hr_work_patterns_write ON public.hr_work_patterns;
+CREATE POLICY hr_work_patterns_write ON public.hr_work_patterns
+  FOR ALL USING (
+       (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('hr.shift_timings.manage'))
+        AND public.role_has_institution_access(institution_id))
+  ) WITH CHECK (
+       (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('hr.shift_timings.manage'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+-- Assignments: HR reads by institution; a staff member reads their own row.
+-- Writes are the RPC's job (SECURITY DEFINER, so it is not subject to this);
+-- a direct write is left to super admins only.
+DROP POLICY IF EXISTS hr_swpa_select ON public.hr_staff_work_pattern_assignments;
+CREATE POLICY hr_swpa_select ON public.hr_staff_work_pattern_assignments
+  FOR SELECT USING (
+       (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (((SELECT public.user_has_permission('hr.shift_timings.view'))
+         OR (SELECT public.user_has_permission('hr.shift_timings.manage')))
+        AND public.role_has_institution_access(institution_id))
+    OR staff_id = ANY (public.fn_my_staff_ids())
+  );
+
+DROP POLICY IF EXISTS hr_swpa_write ON public.hr_staff_work_pattern_assignments;
+CREATE POLICY hr_swpa_write ON public.hr_staff_work_pattern_assignments
+  FOR ALL USING ((SELECT public.is_super_admin()))
+  WITH CHECK ((SELECT public.is_super_admin()));
+
+DROP POLICY IF EXISTS hr_wple_select ON public.hr_work_pattern_leave_entitlements;
+CREATE POLICY hr_wple_select ON public.hr_work_pattern_leave_entitlements
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM public.hr_work_patterns p
+       WHERE p.id = work_pattern_id
+         AND (   (SELECT public.is_super_admin())
+              OR (SELECT public.is_admin())
+              OR (((SELECT public.user_has_permission('hr.shift_timings.view'))
+                   OR (SELECT public.user_has_permission('hr.shift_timings.manage')))
+                  AND public.role_has_institution_access(p.institution_id)))
+    )
+  );
+
+DROP POLICY IF EXISTS hr_wple_write ON public.hr_work_pattern_leave_entitlements;
+CREATE POLICY hr_wple_write ON public.hr_work_pattern_leave_entitlements
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM public.hr_work_patterns p
+       WHERE p.id = work_pattern_id
+         AND (   (SELECT public.is_super_admin())
+              OR (SELECT public.is_admin())
+              OR ((SELECT public.user_has_permission('hr.shift_timings.manage'))
+                  AND public.role_has_institution_access(p.institution_id)))
+    )
+  ) WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.hr_work_patterns p
+       WHERE p.id = work_pattern_id
+         AND (   (SELECT public.is_super_admin())
+              OR (SELECT public.is_admin())
+              OR ((SELECT public.user_has_permission('hr.shift_timings.manage'))
+                  AND public.role_has_institution_access(p.institution_id)))
+    )
+  );
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_work_patterns                    TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_staff_work_pattern_assignments   TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_work_pattern_leave_entitlements  TO authenticated;
+GRANT ALL ON public.hr_work_patterns                   TO service_role;
+GRANT ALL ON public.hr_staff_work_pattern_assignments  TO service_role;
+GRANT ALL ON public.hr_work_pattern_leave_entitlements TO service_role;
+
+-- Updated: 2026-08-21 - AIU evidence trail policies
+-- (migration 20260922041500_aiu_prompt_trails.sql — FILE ONLY / NOT APPLIED).
+-- Learner reads/inserts/updates ONLY their own rows; admin read for AIU
+-- marking; deliberately NO DELETE policy (and no DELETE grant).
+ALTER TABLE public.aiu_prompt_trails ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY aiu_trails_select ON public.aiu_prompt_trails
+  FOR SELECT TO authenticated
+  USING (
+    learner_id = (SELECT auth.uid())
+    OR is_super_admin()
+    OR is_admin()
+  )
+
+CREATE POLICY aiu_trails_insert_own ON public.aiu_prompt_trails
+  FOR INSERT TO authenticated
+  WITH CHECK (learner_id = (SELECT auth.uid()))
+
+CREATE POLICY aiu_trails_update_own ON public.aiu_prompt_trails
+  FOR UPDATE TO authenticated
+  USING (learner_id = (SELECT auth.uid()))
+  WITH CHECK (learner_id = (SELECT auth.uid()))
+
+-- cl_girls_bc_reconcile_log — read-only evidence table. No INSERT/UPDATE/DELETE
+-- policy exists on purpose: only the migrations that own it write to it, as
+-- table owner, and nothing in the app should be able to rewrite the record of
+-- what a data migration did.
+CREATE POLICY cl_girls_bc_reconcile_log_read
+  ON public.cl_girls_bc_reconcile_log
+  FOR SELECT TO authenticated
+  USING (
+    public.is_super_admin()
+    OR public.user_has_permission('campus_living.upgrades.manage')
+  )

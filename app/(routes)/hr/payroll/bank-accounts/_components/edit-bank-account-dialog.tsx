@@ -46,6 +46,7 @@ import { useSetStaffBankAccount } from '@/hooks/hr/use-staff-bank-accounts';
 import {
   errorsByField,
   normaliseAccountNumber,
+  normaliseIfsc,
   validateBankAccount,
 } from '@/lib/hr/payroll/bank-account-validation';
 import type { StaffBankDirectoryRow } from '@/lib/services/hr/payroll/staff-bank-account-service';
@@ -112,6 +113,12 @@ export function EditBankAccountDialog({ row, onOpenChange }: Props) {
 
   const isReplacement = Boolean(row?.account_id);
   const canSave = Object.keys(errors).length === 0 && !setAccount.isPending;
+  /**
+   * Saving without an IFSC is allowed but leaves the record unpayable, so it is
+   * said out loud at the moment of saving rather than discovered at a payout run.
+   */
+  const willBeUnpayable =
+    normaliseAccountNumber(accountNumber).length > 0 && !normaliseIfsc(ifsc);
   const show = (field: keyof typeof errors) => (touched ? errors[field] : undefined);
 
   const handleSave = useCallback(async () => {
@@ -216,7 +223,7 @@ export function EditBankAccountDialog({ row, onOpenChange }: Props) {
 
           <div className='grid grid-cols-2 gap-3'>
             <div className='space-y-2'>
-              <Label htmlFor='bank-ifsc'>IFSC</Label>
+              <Label htmlFor='bank-ifsc'>IFSC (optional)</Label>
               <Input
                 id='bank-ifsc'
                 autoComplete='off'
@@ -242,7 +249,7 @@ export function EditBankAccountDialog({ row, onOpenChange }: Props) {
 
           <div className='grid grid-cols-2 gap-3'>
             <div className='space-y-2'>
-              <Label htmlFor='bank-name'>Bank</Label>
+              <Label htmlFor='bank-name'>Bank (optional)</Label>
               <Input
                 id='bank-name'
                 value={bankName}
@@ -260,6 +267,18 @@ export function EditBankAccountDialog({ row, onOpenChange }: Props) {
               />
             </div>
           </div>
+
+          {willBeUnpayable && (
+            <Alert>
+              <AlertTriangle className='h-4 w-4' />
+              <AlertDescription className='text-xs'>
+                Saved without an IFSC, this account is recorded but{' '}
+                <span className='font-medium'>not payable</span> — a transfer needs the
+                IFSC to route. It will show as <span className='font-medium'>Incomplete</span>{' '}
+                until one is added.
+              </AlertDescription>
+            </Alert>
+          )}
 
           <div className='space-y-2'>
             <Label htmlFor='bank-notes'>Notes (optional)</Label>

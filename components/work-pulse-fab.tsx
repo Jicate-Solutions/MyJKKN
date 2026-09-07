@@ -76,7 +76,7 @@ export function WorkPulseFab() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 30, scale: 0.9 }}
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-            className="fixed right-4 bottom-4 z-[200]"
+            className="fixed right-4 bottom-nav-safe lg:bottom-4 z-[200] modal-open:hidden"
           >
             <Card className="w-80 shadow-2xl border">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -181,7 +181,12 @@ export function WorkPulseFab() {
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0 }}
             transition={{ type: 'spring', damping: 20, stiffness: 300 }}
-            className="fixed right-4 bottom-20 z-[100]"
+            // Fourth slot of the right-edge floating column: the bug reporter
+            // (nav-safe-2) and the Director handover launcher (nav-safe-3)
+            // mount alongside this button on every authenticated page.
+            // `modal-open:hidden` (tailwind.config.ts) keeps this z-[100]
+            // button from painting over a modal bottom sheet.
+            className="fixed right-4 bottom-nav-safe-4 lg:bottom-20 z-[100] modal-open:hidden"
           >
             <Button
               onClick={() => setIsOpen(true)}

@@ -6835,8 +6835,16 @@ CREATE TABLE IF NOT EXISTS public.hr_shift_timings (
   --   'category'     -> exact employment_category_id
   --   'teaching'     -> employment_categories.is_teaching = true
   --   'non_teaching' -> employment_categories.is_teaching = false
-  staff_scope text NOT NULL CHECK (staff_scope IN ('teaching','non_teaching','category')),
+  staff_scope text NOT NULL CHECK (staff_scope IN ('teaching','non_teaching','category','work_pattern')),
   employment_category_id uuid NULL REFERENCES public.employment_categories(id) ON DELETE CASCADE,
+  -- Added 2026-09-04 (20260904120000_hr_work_patterns.sql): staff_scope='work_pattern'
+  -- rows carry their own weekly grid, keyed to a hr_work_patterns row instead of an
+  -- employment category.
+  work_pattern_id uuid NULL REFERENCES public.hr_work_patterns(id) ON DELETE RESTRICT,
+  -- Added 2026-08-30 (20260830100000_hr_shift_timings_applicable_gender.sql), mirrored
+  -- here 2026-09-04: 'all' matches everyone; an exact match beats 'all' for that person.
+  applicable_gender text NOT NULL DEFAULT 'all'
+    CONSTRAINT hr_shift_timings_applicable_gender_chk CHECK (applicable_gender IN ('all','male','female','bigender')),
 
   -- ISO-8601: 1=Mon .. 7=Sun. Matches EXTRACT(ISODOW FROM date) exactly.
   day_of_week smallint NOT NULL CHECK (day_of_week BETWEEN 1 AND 7),
@@ -6869,28 +6877,36 @@ CREATE TABLE IF NOT EXISTS public.hr_shift_timings (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
 
-  CONSTRAINT hr_shift_timings_scope_category_chk CHECK (
-    (staff_scope =  'category' AND employment_category_id IS NOT NULL) OR
-    (staff_scope <> 'category' AND employment_category_id IS NULL)
+  -- Added 2026-09-04: one scope, one target. Was a two-way category check;
+  -- now three-way with staff_scope='work_pattern'.
+  CONSTRAINT hr_shift_timings_scope_target_chk CHECK (
+       (staff_scope = 'category'     AND employment_category_id IS NOT NULL AND work_pattern_id IS NULL)
+    OR (staff_scope = 'work_pattern' AND work_pattern_id IS NOT NULL AND employment_category_id IS NULL)
+    OR (staff_scope IN ('teaching', 'non_teaching') AND employment_category_id IS NULL AND work_pattern_id IS NULL)
   ),
 
+  -- A working day has ONE half or both, each all-or-nothing (2026-09-04,
+  -- 20260904170000_hr_shift_timings_single_half.sql): a 09:00-14:00 Saturday
+  -- with no afternoon is a real row now. A non-working day has none.
   CONSTRAINT hr_shift_timings_times_present_chk CHECK (
-    (is_working_day = false
-       AND first_half_start IS NULL AND first_half_end IS NULL
-       AND second_half_start IS NULL AND second_half_end IS NULL)
-    OR
-    (is_working_day = true
-       AND first_half_start IS NOT NULL AND first_half_end IS NOT NULL
-       AND second_half_start IS NOT NULL AND second_half_end IS NOT NULL)
+       (is_working_day = false
+        AND first_half_start IS NULL AND first_half_end IS NULL
+        AND second_half_start IS NULL AND second_half_end IS NULL)
+    OR (is_working_day = true
+        AND (first_half_start  IS NULL) = (first_half_end  IS NULL)
+        AND (second_half_start IS NULL) = (second_half_end IS NULL)
+        AND (first_half_start IS NOT NULL OR second_half_start IS NOT NULL))
   ),
 
-  -- Overlap between the halves is ALLOWED; inversion is not.
+  -- Overlap between the halves is ALLOWED; inversion is not. Ordering applies
+  -- within a half, and between the halves only when both exist.
   CONSTRAINT hr_shift_timings_order_chk CHECK (
-    is_working_day = false OR (
-      first_half_end    >  first_half_start  AND
-      second_half_end   >  second_half_start AND
-      second_half_start >= first_half_start  AND
-      second_half_end   >= first_half_end
+       is_working_day = false
+    OR (
+          (first_half_start  IS NULL OR first_half_end  > first_half_start)
+      AND (second_half_start IS NULL OR second_half_end > second_half_start)
+      AND (first_half_start IS NULL OR second_half_start IS NULL
+           OR (second_half_start >= first_half_start AND second_half_end >= first_half_end))
     )
   ),
 
@@ -6900,6 +6916,16 @@ CREATE TABLE IF NOT EXISTS public.hr_shift_timings (
 
   CONSTRAINT hr_shift_timings_effective_chk CHECK (
     effective_until IS NULL OR effective_until > effective_from
+  ),
+
+  -- Added 2026-09-04 (20260904120000_hr_work_patterns.sql): a pattern is
+  -- already per person, so a gender split on top of it has no meaning.
+  -- NOTE: references applicable_gender, which the live table has (added by
+  -- 20260830100000_hr_shift_timings_applicable_gender.sql) but which was
+  -- never mirrored into this CREATE TABLE block -- a pre-existing gap in
+  -- this file, not introduced by this migration.
+  CONSTRAINT hr_shift_timings_pattern_gender_chk CHECK (
+    staff_scope <> 'work_pattern' OR applicable_gender = 'all'
   )
 );
 
@@ -6920,6 +6946,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS hr_shift_timings_current_uq
     institution_id,
     staff_scope,
     COALESCE(employment_category_id, '00000000-0000-0000-0000-000000000000'::uuid),
+    COALESCE(work_pattern_id, '00000000-0000-0000-0000-000000000000'::uuid),
+    applicable_gender,
     day_of_week
   )
   WHERE effective_until IS NULL AND is_active;
@@ -6931,6 +6959,102 @@ CREATE INDEX IF NOT EXISTS hr_shift_timings_lookup
 CREATE INDEX IF NOT EXISTS hr_shift_timings_category
   ON public.hr_shift_timings (employment_category_id)
   WHERE employment_category_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS hr_shift_timings_work_pattern_idx
+  ON public.hr_shift_timings (work_pattern_id)
+  WHERE work_pattern_id IS NOT NULL;
+
+-- =====================================================================
+-- hr_work_patterns, hr_staff_work_pattern_assignments,
+-- hr_work_pattern_leave_entitlements (2026-09-04)
+-- Source: 20260904120000_hr_work_patterns.sql
+-- =====================================================================
+
+CREATE TABLE IF NOT EXISTS public.hr_work_patterns (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id  uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  name            text NOT NULL,
+  description     text,
+  is_active       boolean NOT NULL DEFAULT true,
+  sort_order      integer NOT NULL DEFAULT 0,
+  created_by      uuid REFERENCES public.profiles(id),
+  updated_by      uuid REFERENCES public.profiles(id),
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hr_work_patterns_name_chk CHECK (length(btrim(name)) BETWEEN 1 AND 80)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS hr_work_patterns_name_uq
+  ON public.hr_work_patterns (institution_id, lower(btrim(name)))
+  WHERE is_active;
+CREATE INDEX IF NOT EXISTS hr_work_patterns_institution_idx
+  ON public.hr_work_patterns (institution_id);
+
+ALTER TABLE public.hr_work_patterns ENABLE ROW LEVEL SECURITY;
+
+COMMENT ON TABLE public.hr_work_patterns IS
+  'A named working week for one institution (e.g. "3-day Tue/Wed/Thu"). Its hours are the hr_shift_timings rows with staff_scope=work_pattern; its leave figures are hr_work_pattern_leave_entitlements; who is on it is hr_staff_work_pattern_assignments.';
+
+-- Who is on which pattern, from when. effective_until is EXCLUSIVE, like
+-- hr_shift_timings. One pattern per person per day is a constraint, not a
+-- convention, because the resolver has to give one answer.
+CREATE TABLE IF NOT EXISTS public.hr_staff_work_pattern_assignments (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  staff_id         uuid NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
+  work_pattern_id  uuid NOT NULL REFERENCES public.hr_work_patterns(id) ON DELETE RESTRICT,
+  -- Denormalised from the pattern by t10_wpa_stamp_institution so RLS can
+  -- scope on it without a join. The trigger also refuses a pattern from
+  -- another institution than the staff member's.
+  institution_id   uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  effective_from   date NOT NULL,
+  effective_until  date,
+  notes            text,
+  created_by       uuid REFERENCES public.profiles(id),
+  updated_by       uuid REFERENCES public.profiles(id),
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  updated_at       timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hr_swpa_effective_chk CHECK (effective_until IS NULL OR effective_until > effective_from),
+  CONSTRAINT hr_swpa_no_overlap EXCLUDE USING gist (
+    staff_id WITH =,
+    daterange(effective_from, effective_until, '[)') WITH &&
+  )
+);
+
+CREATE INDEX IF NOT EXISTS hr_swpa_staff_idx
+  ON public.hr_staff_work_pattern_assignments (staff_id, effective_from DESC);
+CREATE INDEX IF NOT EXISTS hr_swpa_pattern_idx
+  ON public.hr_staff_work_pattern_assignments (work_pattern_id);
+CREATE INDEX IF NOT EXISTS hr_swpa_institution_idx
+  ON public.hr_staff_work_pattern_assignments (institution_id);
+
+ALTER TABLE public.hr_staff_work_pattern_assignments ENABLE ROW LEVEL SECURITY;
+
+COMMENT ON TABLE public.hr_staff_work_pattern_assignments IS
+  'Effective-dated membership of a staff member in a work pattern. Written ONLY by fn_hr_assign_work_pattern, which also resyncs open leave balances. effective_until is exclusive.';
+
+-- Days per leave type for a pattern. Only request_category=leave types belong
+-- here: short time off is minute-backed and comp-off is credit-backed, and a
+-- day figure on either would be a lie nothing reads (see
+-- 20260828190000_hr_sto_entitled_days_uncapped.sql).
+CREATE TABLE IF NOT EXISTS public.hr_work_pattern_leave_entitlements (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  work_pattern_id  uuid NOT NULL REFERENCES public.hr_work_patterns(id) ON DELETE CASCADE,
+  leave_type_id    uuid NOT NULL REFERENCES public.hr_leave_types(id) ON DELETE CASCADE,
+  entitled_days    numeric(6,2) NOT NULL CHECK (entitled_days >= 0),
+  created_by       uuid REFERENCES public.profiles(id),
+  updated_by       uuid REFERENCES public.profiles(id),
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  updated_at       timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hr_wple_pattern_type_uq UNIQUE (work_pattern_id, leave_type_id)
+);
+
+CREATE INDEX IF NOT EXISTS hr_wple_leave_type_idx
+  ON public.hr_work_pattern_leave_entitlements (leave_type_id);
+
+ALTER TABLE public.hr_work_pattern_leave_entitlements ENABLE ROW LEVEL SECURITY;
+
+COMMENT ON TABLE public.hr_work_pattern_leave_entitlements IS
+  'Entitled days per (work pattern, leave type). Read by generate_hr_leave_balances (between a staff-level assignment and department/organization ones) and by fn_hr_assign_work_pattern when it resyncs open balances.';
 
 -- Campus Living — Settle Then Bill (Director 2026-08-09)
 -- Added: 2026-08-09 (migration 20260815060000_hostel_settle_then_bill.sql —
@@ -8237,12 +8361,18 @@ CREATE TABLE IF NOT EXISTS public.hr_staff_bank_accounts (
   -- quantity -- numeric would eat leading zeros and overflow on longer numbers.
   account_number      text NOT NULL CHECK (account_number ~ '^[0-9]{6,20}$'),
 
-  -- Indian IFSC: 4 letters, then a literal 0, then 6 alphanumerics. Enforced
-  -- here as well as in the UI because a malformed code does not bounce loudly;
-  -- it fails the payout quietly or pays the wrong branch.
-  ifsc_code           text NOT NULL CHECK (ifsc_code ~ '^[A-Z]{4}0[A-Z0-9]{6}$'),
+  -- Indian IFSC: 4 letters, then a literal 0, then 6 alphanumerics.
+  -- OPTIONAL since 2026-09-02 (20261020000000): the account number alone is
+  -- enough to record a row, because salary registers arrive with nothing else.
+  -- A PRESENT value is still format-checked -- absent means "not known yet",
+  -- malformed means "confidently wrong", and only the latter pays a wrong branch.
+  -- A row with no IFSC is RECORDED BUT NOT PAYABLE; any payout or bank-file
+  -- query must filter on ifsc_code IS NOT NULL.
+  ifsc_code           text CONSTRAINT hr_staff_bank_accounts_ifsc_format
+                        CHECK (ifsc_code IS NULL OR ifsc_code ~ '^[A-Z]{4}0[A-Z0-9]{6}$'),
 
-  bank_name           text NOT NULL CHECK (length(trim(bank_name)) > 0),
+  bank_name           text CONSTRAINT hr_staff_bank_accounts_bank_name_nonblank
+                        CHECK (bank_name IS NULL OR length(trim(bank_name)) > 0),
   branch_name         text,
   account_type        text NOT NULL DEFAULT 'savings'
                         CHECK (account_type IN ('savings', 'current')),
@@ -8432,8 +8562,17 @@ CREATE TABLE IF NOT EXISTS public.hr_attendance_period_summaries (
 
   computed_at            timestamptz  NOT NULL DEFAULT now(),
 
+  -- Added 2026-09-04 (20260904120000_hr_work_patterns.sql).
+  scheduled_days         numeric(5,1),
+  work_pattern_id        uuid REFERENCES public.hr_work_patterns(id) ON DELETE SET NULL,
+
   CONSTRAINT hr_attendance_period_summaries_unique UNIQUE (period_id, staff_id)
 );
+
+COMMENT ON COLUMN public.hr_attendance_period_summaries.scheduled_days IS
+  'Days the shift-timing resolver expected this person to work in the month (pattern-aware, full month, holidays removed). NULL on periods closed before 2026-09.';
+COMMENT ON COLUMN public.hr_attendance_period_summaries.work_pattern_id IS
+  'The work pattern held on any day of the month (most recent if several). When set, the salary register divides by scheduled_days instead of the period standard.';
 
 CREATE INDEX IF NOT EXISTS hr_attendance_period_summaries_staff_idx
   ON public.hr_attendance_period_summaries (staff_id);
@@ -8840,3 +8979,257 @@ CREATE INDEX IF NOT EXISTS idx_bill_cancellations_institution
 
 REVOKE ALL ON TABLE public.billing_bill_cancellations FROM anon, PUBLIC;
 ALTER TABLE public.billing_bill_cancellations ENABLE ROW LEVEL SECURITY;
+
+
+-- ── Event feedback forms (coordinator-editable questions per event) ──
+-- Migration: supabase/migrations/event_feedback_forms.sql
+-- ============================================================================
+-- Event Feedback Forms — coordinator-editable feedback questions per event
+-- ============================================================================
+-- Every event (general, tournament, marathon, induction) may carry one or more
+-- FEEDBACK forms whose questions the event coordinator writes and rewrites at
+-- will. Structurally this is the registration form builder again
+-- (form -> sections -> questions, answers in jsonb keyed by a stable key), and
+-- it deliberately copies that pattern rather than sharing its tables.
+--
+-- WHY NOT reuse event_registration_form* with a `purpose` discriminator:
+--   listForms(), the /p/event/[id]/register public route, the fee columns
+--   (fee_enabled/fee_amount) and the responses viewer all read those tables
+--   UNFILTERED. A feedback row added there surfaces as a registration form on
+--   the event console and inherits a payment model that makes no sense for a
+--   survey. Independent tables also match the precedent already recorded in
+--   event-registration-form-service.ts ("independent tables, not shared with
+--   Admission — design decision #6").
+--
+-- WHO MAY ANSWER: registered participants only. A response therefore keys on
+-- events_registrations.id, NOT on a profile: events_registrations holds
+-- participant_type='external' rows (marathon runners, outside guests) that have
+-- no auth.users account at all, so the registration row is the only identity
+-- that exists for every respondent across all four event types. It doubles as
+-- the dedup key — UNIQUE (form_id, registration_id) is one response per
+-- participant per form, enforced by the database rather than by the UI.
+--
+-- WHO MAY EDIT: super admin / admin / fn_is_event_incharge(event_id) — the
+-- existing "event coordinator" primitive that reads events.config->'incharges'
+-- — or events.view holders with institution access. Same OR-chain the
+-- event_registration_form*_manage policies already use, reused verbatim so the
+-- two builders can never drift apart on who is allowed to touch them.
+-- ============================================================================
+
+-- ── event_feedback_forms ────────────────────────────────────────────────────
+-- An event holds MANY feedback forms on purpose (a 3-day conference wants one
+-- per day; a recurring event wants one per run). Each is addressed by
+-- (event_id, slug) so an old link keeps resolving to the run it belonged to.
+-- There is deliberately NO unique on event_id alone.
+CREATE TABLE IF NOT EXISTS public.event_feedback_forms (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id uuid NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+  name text NOT NULL DEFAULT 'Event Feedback',
+  slug text NOT NULL,
+  description text,
+  -- The coordinator's manual open/closed switch. A new form starts CLOSED so
+  -- creating one never begins collecting by surprise.
+  is_enabled boolean NOT NULL DEFAULT false,
+  display_order int NOT NULL DEFAULT 0,
+  -- Hides respondent identity in the coordinator's responses viewer. The
+  -- registration_id is STILL stored — it has to be, or one-response-per-person
+  -- cannot be enforced — so this is a presentation promise, not cryptographic
+  -- anonymity. The UI says exactly that where the switch is shown, because a
+  -- coordinator who believes otherwise would promise their attendees more than
+  -- the system delivers.
+  is_anonymous boolean NOT NULL DEFAULT false,
+  -- Active window. Openness is DERIVED at read time
+  -- (is_enabled AND now() within [starts_at, ends_at]) rather than by a job
+  -- flipping is_enabled: a stored flag leaves an expired form collecting
+  -- whenever the job fails, never reopens when the end date is extended, and
+  -- makes "closed by hand" indistinguishable from "closed by time".
+  starts_at timestamptz,
+  ends_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (event_id, slug),
+  CONSTRAINT event_feedback_forms_slug_format_check
+    CHECK (slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$'),
+  CONSTRAINT event_feedback_forms_window_check
+    CHECK (starts_at IS NULL OR ends_at IS NULL OR ends_at >= starts_at)
+);
+
+-- ── event_feedback_sections ─────────────────────────────────────────────────
+-- event_id is denormalized onto sections and questions (not just the form) so
+-- every RLS policy stays a single-join EXISTS instead of a 3-way join through
+-- form_id/section_id. Same reason event_registration_form_sections does it.
+CREATE TABLE IF NOT EXISTS public.event_feedback_sections (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  form_id uuid NOT NULL REFERENCES public.event_feedback_forms(id) ON DELETE CASCADE,
+  event_id uuid NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+  title text NOT NULL,
+  display_order int NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- ── event_feedback_questions ────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.event_feedback_questions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  section_id uuid NOT NULL REFERENCES public.event_feedback_sections(id) ON DELETE CASCADE,
+  form_id uuid NOT NULL REFERENCES public.event_feedback_forms(id) ON DELETE CASCADE,
+  event_id uuid NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+  -- Stable answer key. Assigned from the label when a question is first saved
+  -- and then NEVER changed, because event_feedback_responses.answers is keyed
+  -- by it — rewording a question must not orphan the answers already given to
+  -- it. Unique per FORM, not per event (an event holds many forms).
+  question_key text NOT NULL,
+  question_label text NOT NULL,
+  -- 'rating' is the type the registration builder has no equivalent of: a 1..N
+  -- star/scale answer stored as a plain integer, which is what makes a mean
+  -- score computable without parsing prose. 'section_note' asks nothing and
+  -- renders as read-only guidance between questions.
+  question_type text NOT NULL CHECK (question_type IN (
+    'rating','text','textarea','select','multi_select','radio','checkbox',
+    'number','date','section_note'
+  )),
+  is_required boolean NOT NULL DEFAULT false,
+  display_order int NOT NULL DEFAULT 0,
+  placeholder text,
+  help_text text,
+  min_length int,
+  max_length int,
+  min_value numeric,
+  max_value numeric,
+  pattern text,
+  -- [{label, value}] for select / multi_select / radio.
+  options jsonb,
+  -- {field, op, value} — show this question only when another question on the
+  -- same form answers a certain way. Same shape as the registration builder's.
+  condition jsonb,
+  -- Top of the scale for a 'rating' question (5 stars, 10-point NPS-ish, …).
+  -- NULL for every other type. Constrained rather than free so the responses
+  -- viewer can always normalise a score to a percentage.
+  rating_scale int,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (form_id, question_key),
+  CONSTRAINT event_feedback_questions_rating_scale_check
+    CHECK (rating_scale IS NULL OR rating_scale BETWEEN 2 AND 10),
+  -- A question that asks nothing can never be satisfied, so a required one
+  -- would make the form permanently unsubmittable.
+  CONSTRAINT event_feedback_questions_note_not_required_check
+    CHECK (question_type <> 'section_note' OR is_required = false)
+);
+
+-- ── event_feedback_responses ────────────────────────────────────────────────
+-- One row per (form, registration). answers is keyed by question_key, exactly
+-- as events_registrations.custom_fields is keyed by field_key — which is what
+-- lets save_event_feedback_form() delete and reinsert question ROWS on every
+-- edit without touching a single stored answer.
+CREATE TABLE IF NOT EXISTS public.event_feedback_responses (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  form_id uuid NOT NULL REFERENCES public.event_feedback_forms(id) ON DELETE CASCADE,
+  event_id uuid NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+  registration_id uuid NOT NULL REFERENCES public.events_registrations(id) ON DELETE CASCADE,
+  -- The auth identity that submitted, when there was one. NULL for an external
+  -- participant answering through their registration link — they have no
+  -- profiles row. Never the dedup key; registration_id is.
+  profile_id uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
+  answers jsonb NOT NULL DEFAULT '{}'::jsonb,
+  submitted_at timestamptz NOT NULL DEFAULT now(),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT event_feedback_responses_form_registration_uniq
+    UNIQUE (form_id, registration_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_event_feedback_forms_event
+  ON public.event_feedback_forms(event_id);
+CREATE INDEX IF NOT EXISTS idx_event_feedback_sections_form
+  ON public.event_feedback_sections(form_id);
+CREATE INDEX IF NOT EXISTS idx_event_feedback_questions_form
+  ON public.event_feedback_questions(form_id);
+CREATE INDEX IF NOT EXISTS idx_event_feedback_questions_section
+  ON public.event_feedback_questions(section_id);
+CREATE INDEX IF NOT EXISTS idx_event_feedback_responses_form
+  ON public.event_feedback_responses(form_id);
+CREATE INDEX IF NOT EXISTS idx_event_feedback_responses_event
+  ON public.event_feedback_responses(event_id);
+CREATE INDEX IF NOT EXISTS idx_event_feedback_responses_registration
+  ON public.event_feedback_responses(registration_id);
+
+
+
+-- Updated: 2026-08-21 - AIU (Accountable AI Use) evidence trail
+-- (migration 20260922041500_aiu_prompt_trails.sql — FILE ONLY / NOT APPLIED).
+-- One row per AI output delivered to a learner: prompt sent, AI output AS
+-- PRODUCED (immutable via trg_aiu_prompt_trails_guard), the learner's version
+-- at delivery, and — closed at submission — learner_final + changed flag.
+-- learner_id is profiles.id (auth.users.id), NOT learners_profiles.id.
+CREATE TABLE IF NOT EXISTS public.aiu_prompt_trails (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  learner_id     uuid NOT NULL REFERENCES public.profiles(id),  -- profiles.id
+  institution_id uuid,
+  surface        text NOT NULL,      -- e.g. 'pde.clinical_reasoning.coach'
+  prompt_sent    text NOT NULL,      -- may embed ground_truth; never echo to client
+  ai_output      text NOT NULL,      -- immutable
+  learner_input  text,               -- learner's version when the AI saw it
+  learner_final  text,               -- write-once, closed at submission
+  changed        boolean,            -- true=revised after AI, false=kept, NULL=open
+  context        jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  updated_at     timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT aiu_prompt_trails_surface_chk CHECK (length(trim(surface)) > 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_aiu_trails_learner_created
+  ON public.aiu_prompt_trails (learner_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_aiu_trails_open
+  ON public.aiu_prompt_trails (learner_id, surface)
+  WHERE learner_final IS NULL;
+
+-- Grants: revoke anon AND PUBLIC AND authenticated, then re-grant without
+-- DELETE — an evidence table a client can delete from is not evidence.
+REVOKE ALL ON TABLE public.aiu_prompt_trails FROM anon, authenticated, PUBLIC;
+GRANT SELECT, INSERT, UPDATE ON TABLE public.aiu_prompt_trails TO authenticated;
+ALTER TABLE public.aiu_prompt_trails ENABLE ROW LEVEL SECURITY;
+
+-- ---------------------------------------------------------------------------
+-- cl_girls_bc_reconcile_log
+-- Evidence trail for the Girls Hostel B/C occupancy reconciliation (2026-09-06
+-- / 2026-09-07). One row per learner touched: the before-state, the target, and
+-- what actually happened, including which upgrade bill was created, topped up,
+-- or found already sufficient. Written by migrations 20260906120200 /
+-- 20260907090000 / 20260907110000 / 20260907120500.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.cl_girls_bc_reconcile_log (
+  id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  run_id                uuid NOT NULL,
+  run_at                timestamptz NOT NULL DEFAULT now(),
+  seq                   integer NOT NULL,
+  phase                 integer NOT NULL,
+  action                text    NOT NULL,
+  learner_name          text    NOT NULL,
+  learner_profile_id    uuid,
+  profile_id            uuid,
+  before_allocation_id  uuid,
+  before_block_id       uuid,
+  before_room_id        uuid,
+  before_bed_id         uuid,
+  before_category_id    uuid,
+  target_block_id       uuid,
+  target_room_id        uuid,
+  target_bed_id         uuid,
+  target_category_id    uuid,
+  after_allocation_id   uuid,
+  after_category_id     uuid,
+  bill_amount           numeric,
+  bill_action           text,
+  bill_id               uuid,
+  outcome               text NOT NULL DEFAULT 'planned',
+  note                  text
+);
+
+CREATE INDEX IF NOT EXISTS idx_cl_girls_bc_reconcile_log_run
+  ON public.cl_girls_bc_reconcile_log (run_id, seq);
+
+REVOKE ALL ON public.cl_girls_bc_reconcile_log FROM anon;
+GRANT SELECT ON public.cl_girls_bc_reconcile_log TO authenticated;
+ALTER TABLE public.cl_girls_bc_reconcile_log ENABLE ROW LEVEL SECURITY;
