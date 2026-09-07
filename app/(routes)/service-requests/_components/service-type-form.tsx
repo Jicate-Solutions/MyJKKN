@@ -27,6 +27,7 @@ import {
   CommandList,
 } from '@/components/ui/command';
 import { useRoles } from '@/hooks/organization/use-roles';
+import { CERTIFICATE_TEMPLATES, type CertificateTemplateKey } from '@/lib/certificates/registry';
 import { FieldBuilder } from './field-builder';
 import { ApprovalStepBuilder } from './approval-step-builder';
 import { ScopeSelector } from './scope-selector';
@@ -78,6 +79,11 @@ export function ServiceTypeForm({ initialData, onSubmit, isSubmitting }: Service
     })) || []
   );
 
+  // Certificates office staff may issue once a request of this type is approved.
+  const [certificateKeys, setCertificateKeys] = useState<CertificateTemplateKey[]>(
+    initialData?.certificate_template_keys ?? []
+  );
+
   // Scope state
   const [scopeLevel, setScopeLevel] = useState<ServiceTypeScopeLevel>(
     initialData?.scope_level || 'common'
@@ -122,6 +128,7 @@ export function ServiceTypeForm({ initialData, onSubmit, isSubmitting }: Service
       degree_ids: initialData?.degree_ids || [],
       department_ids: initialData?.department_ids || [],
       program_ids: initialData?.program_ids || [],
+      certificate_template_keys: initialData?.certificate_template_keys ?? [],
       fields: fields,
       approval_steps: approvalSteps,
     },
@@ -140,6 +147,7 @@ export function ServiceTypeForm({ initialData, onSubmit, isSubmitting }: Service
       degree_ids: scopeLevel === 'degree' ? scopeDegreeIds : null as any,
       department_ids: scopeLevel === 'department' ? scopeDepartmentIds : null as any,
       program_ids: scopeLevel === 'program' ? scopeProgramIds : null as any,
+      certificate_template_keys: certificateKeys,
       fields,
       approval_steps: approvalSteps,
     });
@@ -516,6 +524,52 @@ export function ServiceTypeForm({ initialData, onSubmit, isSubmitting }: Service
           {errors.approval_steps && (
             <p className="text-xs text-red-500 mt-2">{errors.approval_steps.message}</p>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Certificates */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Certificates</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Once a request of this type is approved, office staff can generate the
+            selected certificates for the requester as print-ready A4 PDFs (laid out
+            for the pre-printed letterhead). Learner details are filled automatically.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {CERTIFICATE_TEMPLATES.map((tpl) => {
+              const checked = certificateKeys.includes(tpl.key);
+              return (
+                <label
+                  key={tpl.key}
+                  htmlFor={`cert_${tpl.key}`}
+                  className={cn(
+                    'flex items-start gap-3 rounded-lg border-2 p-4 cursor-pointer transition-colors',
+                    checked ? 'border-primary bg-primary/5' : 'border-muted hover:border-muted-foreground/30'
+                  )}
+                >
+                  <Checkbox
+                    id={`cert_${tpl.key}`}
+                    checked={checked}
+                    onCheckedChange={(c) => {
+                      const next = c
+                        ? Array.from(new Set([...certificateKeys, tpl.key]))
+                        : certificateKeys.filter((k) => k !== tpl.key);
+                      setCertificateKeys(next);
+                      setValue('certificate_template_keys', next, { shouldValidate: false });
+                    }}
+                    className="mt-0.5"
+                  />
+                  <span className="flex flex-col gap-1">
+                    <span className="font-medium text-sm">{tpl.label}</span>
+                    <span className="text-xs text-muted-foreground">{tpl.description}</span>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
         </CardContent>
       </Card>
 

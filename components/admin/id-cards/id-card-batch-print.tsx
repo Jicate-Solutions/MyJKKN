@@ -6,9 +6,14 @@
 //
 // Two cohort modes, one flow:
 //   • "Freshers batch"   — institution + admission year (whole intake cohort).
-//   • "Class / section"  — institution + program (+ optional section). At the
-//     school tier (Nattraja Vidhyalya CBSE etc.) classes like LKG or GRADE 3
-//     ARE programs rows, so this same picker covers school class-wise printing.
+//   • "Class / section"  — institution + program (+ optional semester, +
+//     optional section). At the school tier (Nattraja Vidhyalya CBSE etc.)
+//     classes like LKG or GRADE 3 ARE programs rows, so this same picker
+//     covers school class-wise printing.
+//     Sections are rows PER SEMESTER (sections.semester_id), so a programme
+//     with eight semesters holds eight "A" rows. The Semester picker narrows
+//     them; with "All semesters" the picker collapses same-named rows into one
+//     choice and filters on every id behind it (2026-09-07).
 //
 // Select-all-MATCHING semantics: the cohort filter drives a live count query,
 // then the full matching set is fetched (paged) and learner→account mapping
@@ -24,8 +29,11 @@
 // non-empty. A checkbox restores the old include-everyone behavior.
 // (student_photo_url is an existing DB identifier — terminology-exempt.)
 //
-// The actual confirm → sequential enqueue → results flow reuses the existing
-// BulkPrintDialog (shipped in the Phase 2 bulk substrate) unchanged.
+// Preview is the gate (Director 2026-09-07): "Preview & print" opens the
+// IdCardPreviewDialog — every card rendered student-wise (front, back, next
+// learner …), missing or wrong data framed red, PDF download and A4 print —
+// and the Evolis card-printer queue (BulkPrintDialog, unchanged) is reachable
+// ONLY from inside that preview, with the learners in the previewed order.
 //
 // Access: the page shell gates on id_cards.jobs.manage; POST /api/id-cards/jobs
 // enforces writer roles server-side regardless.
@@ -54,6 +62,7 @@ import {
   BulkPrintDialog,
   type BulkPrintLearner
 } from '@/components/id-cards/bulk-print-dialog';
+import { IdCardPreviewDialog } from '@/components/id-cards/id-card-preview-dialog';
 import { resolveAccountsForLearners } from '@/lib/services/id-cards/print-jobs-client';
 import type { LifecycleStatus } from '@/types/learner-profile';
 
@@ -98,6 +107,7 @@ type StatusChoiceValue = (typeof STATUS_CHOICES)[number]['value'];
 export const DEFAULT_STATUS_CHOICE: StatusChoiceValue = 'active_admitted';
 
 const ALL_SECTIONS = 'all';
+const ALL_SEMESTERS = 'all';
 const FETCH_PAGE_SIZE = 1000;
 
 interface ProgramOption {
@@ -156,9 +166,44 @@ export function buildProgramLabels(
   return labels;
 }
 
-interface SectionOption {
+interface SemesterOption {
+  id: string;
+  semester_name: string;
+  semester_order: number | null;
+}
+
+interface SectionRow {
   id: string;
   section_name: string;
+  semester_id: string | null;
+}
+
+/** One picker choice: a section NAME and every sections.id that carries it. */
+export interface SectionChoice {
+  /** Picker value — the section name (unique within the list). */
+  name: string;
+  ids: string[];
+}
+
+/**
+ * Collapse section rows into one choice per name, keeping every id so the
+ * learner filter can match any of them. Sections are stored per semester, so a
+ * programme's "A" exists once per semester; without this the picker showed
+ * "Section A" eight times over (screenshot 2026-09-07). Natural sort keeps
+ * "Section 2" ahead of "Section 10". (Exported for unit tests.)
+ */
+export function groupSectionsByName(rows: readonly SectionRow[]): SectionChoice[] {
+  const byName = new Map<string, string[]>();
+  for (const row of rows) {
+    const name = row.section_name.trim();
+    if (name === '') continue;
+    const ids = byName.get(name) ?? [];
+    ids.push(row.id);
+    byName.set(name, ids);
+  }
+  return [...byName.entries()]
+    .map(([name, ids]) => ({ name, ids }))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
 }
 
 /** A matched learner left out of the batch because no photo is on record. */
@@ -208,7 +253,9 @@ export function IdCardBatchPrint() {
   const [mode, setMode] = useState<CohortMode>('freshers');
   const [admissionYearId, setAdmissionYearId] = useState('');
   const [programId, setProgramId] = useState('');
-  const [sectionId, setSectionId] = useState<string>(ALL_SECTIONS);
+  const [semesterId, setSemesterId] = useState<string>(ALL_SEMESTERS);
+  // Section NAME ('all' = every section) — see groupSectionsByName.
+  const [sectionName, setSectionName] = useState<string>(ALL_SECTIONS);
   const [statusChoice, setStatusChoice] = useState<StatusChoiceValue>(
     DEFAULT_STATUS_CHOICE
   );
@@ -217,12 +264,17 @@ export function IdCardBatchPrint() {
     null
   );
   const [programs, setPrograms] = useState<ProgramOption[] | null>(null);
-  const [sections, setSections] = useState<SectionOption[] | null>(null);
+  const [semesters, setSemesters] = useState<SemesterOption[] | null>(null);
+  const [sections, setSections] = useState<SectionChoice[] | null>(null);
 
   const [matchCount, setMatchCount] = useState<number | null>(null);
   const [countLoading, setCountLoading] = useState(false);
   const [preparing, setPreparing] = useState(false);
 
+  // Preview first (the gate), then — from inside the preview only — the
+  // card-printer queue dialog with the learners in previewed order.
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewLearners, setPreviewLearners] = useState<BulkPrintLearner[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogLearners, setDialogLearners] = useState<BulkPrintLearner[]>([]);
   const [skippedNoAccount, setSkippedNoAccount] = useState(0);
@@ -317,36 +369,78 @@ export function IdCardBatchPrint() {
     };
   }, [institutionId]);
 
-  // Sections for the chosen program (optional narrowing; default all).
+  // Semesters for the chosen program (optional narrowing; default all).
   useEffect(() => {
     if (!programId) {
-      setSections(null);
-      setSectionId(ALL_SECTIONS);
+      setSemesters(null);
+      setSemesterId(ALL_SEMESTERS);
       return;
     }
     let cancelled = false;
-    setSections(null);
+    setSemesters(null);
+    setSemesterId(ALL_SEMESTERS);
     const supabase = createClientSupabaseClient();
     supabase
-      .from('sections')
-      .select('id, section_name')
+      .from('semesters')
+      .select('id, semester_name, semester_order')
       .eq('program_id', programId)
       .eq('is_active', true)
-      .order('section_name')
+      .order('semester_order', { ascending: true, nullsFirst: false })
+      .order('semester_name')
       .then(({ data, error }) => {
         if (cancelled) return;
         if (error) {
-          console.error('[id-cards] Failed to load sections:', error);
-          setSections([]);
+          console.error('[id-cards] Failed to load semesters:', error);
+          setSemesters([]);
           return;
         }
-        setSections((data ?? []) as SectionOption[]);
-        setSectionId(ALL_SECTIONS);
+        setSemesters((data ?? []) as SemesterOption[]);
       });
     return () => {
       cancelled = true;
     };
   }, [programId]);
+
+  // Sections for the chosen program + semester, collapsed to one choice per
+  // name. A section row with no semester_id (older data) belongs to every
+  // semester, so it is kept whichever semester is chosen.
+  useEffect(() => {
+    if (!programId) {
+      setSections(null);
+      setSectionName(ALL_SECTIONS);
+      return;
+    }
+    let cancelled = false;
+    setSections(null);
+    setSectionName(ALL_SECTIONS);
+    const supabase = createClientSupabaseClient();
+    let query = supabase
+      .from('sections')
+      .select('id, section_name, semester_id')
+      .eq('program_id', programId)
+      .eq('is_active', true);
+    if (semesterId !== ALL_SEMESTERS) {
+      query = query.or(`semester_id.eq.${semesterId},semester_id.is.null`);
+    }
+    query.then(({ data, error }) => {
+      if (cancelled) return;
+      if (error) {
+        console.error('[id-cards] Failed to load sections:', error);
+        setSections([]);
+        return;
+      }
+      setSections(groupSectionsByName((data ?? []) as SectionRow[]));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [programId, semesterId]);
+
+  /** sections.id values behind the chosen section name (null = no filter). */
+  const sectionIds = useMemo<string[] | null>(() => {
+    if (sectionName === ALL_SECTIONS) return null;
+    return sections?.find((choice) => choice.name === sectionName)?.ids ?? null;
+  }, [sectionName, sections]);
 
   // ── Live cohort count ──────────────────────────────────────────────────────
 
@@ -371,7 +465,8 @@ export function IdCardBatchPrint() {
       query = query.eq('admission_year_id', admissionYearId);
     } else {
       query = query.eq('program_id', programId);
-      if (sectionId !== ALL_SECTIONS) query = query.eq('section_id', sectionId);
+      if (semesterId !== ALL_SEMESTERS) query = query.eq('semester_id', semesterId);
+      if (sectionIds) query = query.in('section_id', sectionIds);
     }
     query.then(({ count, error }) => {
       if (cancelled) return;
@@ -386,7 +481,7 @@ export function IdCardBatchPrint() {
     return () => {
       cancelled = true;
     };
-  }, [cohortReady, institutionId, mode, admissionYearId, programId, sectionId, statuses]);
+  }, [cohortReady, institutionId, mode, admissionYearId, programId, semesterId, sectionIds, statuses]);
 
   // ── Review & print ─────────────────────────────────────────────────────────
 
@@ -424,8 +519,8 @@ export function IdCardBatchPrint() {
           query = query.eq('admission_year_id', admissionYearId);
         } else {
           query = query.eq('program_id', programId);
-          if (sectionId !== ALL_SECTIONS)
-            query = query.eq('section_id', sectionId);
+          if (semesterId !== ALL_SEMESTERS) query = query.eq('semester_id', semesterId);
+          if (sectionIds) query = query.in('section_id', sectionIds);
         }
         const { data, error } = await query;
         if (error) throw error;
@@ -476,7 +571,7 @@ export function IdCardBatchPrint() {
         });
       }
 
-      setDialogLearners(printable);
+      setPreviewLearners(printable);
       setSkippedNoAccount(noAccount);
       setSkippedNoPhoto(noPhoto);
 
@@ -505,7 +600,7 @@ export function IdCardBatchPrint() {
           `${noPhoto.length} learner${noPhoto.length === 1 ? '' : 's'} without a photo left out — see the list below the dialog to chase photos.`
         );
       }
-      setDialogOpen(true);
+      setPreviewOpen(true);
     } catch (err) {
       console.error('[id-cards] Failed to prepare batch:', err);
       toast.error('Failed to load the cohort. Please try again.');
@@ -600,7 +695,7 @@ export function IdCardBatchPrint() {
             </p>
           </div>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-3">
             <div className="space-y-1.5">
               <Label>Class / program</Label>
               <Select
@@ -629,10 +724,30 @@ export function IdCardBatchPrint() {
               </Select>
             </div>
             <div className="space-y-1.5">
+              <Label>Semester</Label>
+              <Select
+                value={semesterId}
+                onValueChange={setSemesterId}
+                disabled={!programId || semesters === null}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="All semesters" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_SEMESTERS}>All semesters</SelectItem>
+                  {(semesters ?? []).map((sem) => (
+                    <SelectItem key={sem.id} value={sem.id}>
+                      {sem.semester_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
               <Label>Section</Label>
               <Select
-                value={sectionId}
-                onValueChange={setSectionId}
+                value={sectionName}
+                onValueChange={setSectionName}
                 disabled={!programId || sections === null}
               >
                 <SelectTrigger>
@@ -640,9 +755,9 @@ export function IdCardBatchPrint() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={ALL_SECTIONS}>All sections</SelectItem>
-                  {(sections ?? []).map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      Section {s.section_name}
+                  {(sections ?? []).map((choice) => (
+                    <SelectItem key={choice.name} value={choice.name}>
+                      Section {choice.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -717,7 +832,7 @@ export function IdCardBatchPrint() {
           ) : (
             <Printer className="mr-2 h-4 w-4" />
           )}
-          Review &amp; print
+          Preview &amp; print
         </Button>
       </div>
 
@@ -771,6 +886,18 @@ export function IdCardBatchPrint() {
         </div>
       )}
 
+      <IdCardPreviewDialog
+        open={previewOpen}
+        onOpenChange={setPreviewOpen}
+        learners={previewLearners}
+        title="Batch ID Card Preview"
+        onSendToPrinter={(ordered) => {
+          // Hand the previewed set — same learners, same order — to the queue.
+          setDialogLearners(ordered);
+          setPreviewOpen(false);
+          setDialogOpen(true);
+        }}
+      />
       <BulkPrintDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}

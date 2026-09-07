@@ -64,11 +64,18 @@ import { pickPreferredAdminTemplateId } from '@/lib/services/id-cards/template-p
 import {
   CARD_FIELD_LABELS,
   DB_COLUMN_OPTIONS,
+  MAPPABLE_CARD_FIELDS,
   type FieldMappingRow,
   type CardField,
 } from '@/app/(routes)/admin/id-cards/_types';
 import { IdCardDesignTab } from '@/components/admin/id-cards/id-card-design-tab';
 import { IdCardBackDesignTab } from '@/components/admin/id-cards/id-card-back-design-tab';
+import { IdCardInstitutionTab } from '@/components/admin/id-cards/id-card-institution-tab';
+import {
+  TemplatePicker,
+  TemplateSelectionProvider,
+  useTemplateSelection
+} from '@/components/admin/id-cards/template-selection';
 
 // Display order for mapping rows = the order fields appear on the card.
 const CARD_FIELD_ORDER = Object.keys(CARD_FIELD_LABELS) as CardField[];
@@ -202,7 +209,9 @@ function buildMappingFormSchema(
       englishHint: 'Which zone on the printed card this data appears in.',
       required: true,
       disabled: !!editing, // can't change the card field on an existing mapping
-      options: CARD_FIELD_ORDER.map((f) => ({
+      // Only text zones are offered for NEW rows; image zones stay listed if a
+      // template already carries one so it can be seen and deleted.
+      options: (MAPPABLE_CARD_FIELDS as readonly CardField[]).map((f) => ({
         value: f,
         label: CARD_FIELD_LABELS[f],
       })),
@@ -264,10 +273,17 @@ const mappingConfig: LookupConfig<FieldMappingRow> = {
 // Main component
 // ──────────────────────────────────────────────────────────────────────────────
 export function IdCardTemplateEditor() {
+  return (
+    <TemplateSelectionProvider>
+      <IdCardTemplateEditorInner />
+    </TemplateSelectionProvider>
+  );
+}
+
+function IdCardTemplateEditorInner() {
   const { profile, isLoading: authLoading } = useAuth();
   const [sides, setSides] = useState<1 | 2 | null>(null);
-  const [templates, setTemplates] = useState<TemplateDesignRow[] | null>(null);
-  const [selectedId, setSelectedId] = useState<string>('');
+  const { templates, selectedId, selected: selectedTemplate } = useTemplateSelection();
 
   const institutionId = profile?.institution_id ?? null;
 
@@ -282,27 +298,6 @@ export function IdCardTemplateEditor() {
       cancelled = true;
     };
   }, [authLoading, institutionId]);
-
-  // Template list for the mappings tab picker (session client, RLS applies).
-  useEffect(() => {
-    let cancelled = false;
-    fetchTemplatesWithLayout()
-      .then((rows) => {
-        if (cancelled) return;
-        setTemplates(rows);
-        // Full list stays (dark templates must be mappable); only the default
-        // prefers an active template.
-        setSelectedId((prev) => pickPreferredAdminTemplateId(rows, prev));
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        console.warn('[id-cards/template-editor] template list load failed:', err);
-        setTemplates([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   // Memoized so LookupTable's load effect doesn't re-fire every render.
   const mappingHandlers = useMemo<PolicyHandlers<FieldMappingRow>>(
@@ -337,7 +332,6 @@ export function IdCardTemplateEditor() {
     [selectedId]
   );
 
-  const selectedTemplate = templates?.find((t) => t.id === selectedId) ?? null;
   const sidesNotice = sidesNoticeText(sides);
 
   return (
@@ -345,7 +339,7 @@ export function IdCardTemplateEditor() {
       {/* Sides indicator */}
       <div className="flex items-center gap-3">
         <span className="text-sm text-muted-foreground">
-          Printer configured as:
+          Printer policy (informational only):
         </span>
         {sides === null ? (
           <span className="text-xs text-muted-foreground">Loading…</span>
@@ -362,12 +356,23 @@ export function IdCardTemplateEditor() {
         )}
       </div>
 
+      {/* ONE template selection shared by every tab below. */}
+      <TemplatePicker />
+
       <Tabs defaultValue="design">
         <TabsList>
           <TabsTrigger value="design">Card design</TabsTrigger>
           <TabsTrigger value="back">Back side</TabsTrigger>
+          <TabsTrigger value="institution">Institution</TabsTrigger>
           <TabsTrigger value="mappings">Field mappings</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="institution" className="mt-4">
+          {/* Institution assignment + header/contact/principal data kept IN the
+              template (front_layout_json.institution) — the render route reads
+              it first, so preview and print show the same institution data. */}
+          <IdCardInstitutionTab />
+        </TabsContent>
 
         <TabsContent value="design" className="mt-4">
           <div className="mb-3 text-sm text-muted-foreground">
@@ -406,27 +411,6 @@ export function IdCardTemplateEditor() {
             </div>
           ) : (
             <div className="space-y-4">
-              <div className="flex flex-wrap items-center gap-3">
-                <span className="text-sm text-muted-foreground">Template:</span>
-                <Select value={selectedId} onValueChange={setSelectedId}>
-                  <SelectTrigger className="w-72">
-                    <SelectValue placeholder="Choose a template" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {templates.map((t) => (
-                      <SelectItem key={t.id} value={t.id}>
-                        {(t.name ?? 'Untitled template') +
-                          (t.active ? '' : ' (inactive)')}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {selectedTemplate && !selectedTemplate.active && (
-                  <Badge variant="destructive">
-                    Not switched on — will not be offered for printing
-                  </Badge>
-                )}
-              </div>
               {selectedTemplate && (
                 <LookupTable
                   key={selectedId}
