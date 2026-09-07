@@ -12,6 +12,7 @@
 import { Archive, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useMyVault } from '@/hooks/onemark/use-vault';
+import { useOneMarkT } from '@/lib/onemark/i18n/use-onemark-t';
 import {
   upcomingVaultDays,
   type OneMarkSubject,
@@ -45,6 +46,7 @@ export function VaultPanel({
   starting: boolean;
 }) {
   const rows = useMyVault(learnerId);
+  const { t } = useOneMarkT();
   const upcoming = upcomingVaultDays(rows.data ?? []);
   const byExam = new Map(vault.map((v) => [v.examDefinitionId, v]));
   const anything = vault.some((v) => v.active + v.mastered > 0);
@@ -53,16 +55,13 @@ export function VaultPanel({
     <section className="rounded-2xl bg-card p-5">
       <div className="mb-4 flex items-center gap-2">
         <Archive className="h-4 w-4 text-muted-foreground" />
-        <h2 className="text-lg font-semibold text-foreground">Mistake Vault</h2>
+        <h2 className="text-lg font-semibold text-foreground">{t('vault.title')}</h2>
       </div>
-      <p className="mb-5 text-sm text-muted-foreground">
-        Every question you get wrong comes back here. Answer it correctly in two
-        separate sittings, at least two days apart, and it leaves the vault.
-      </p>
+      <p className="mb-5 text-sm text-muted-foreground">{t('vault.intro')}</p>
 
       {!anything && (
         <p className="rounded-xl border border-dashed border-border p-5 text-center text-sm text-muted-foreground">
-          Nothing in your vault yet. It fills in as you practise.
+          {t('vault.empty')}
         </p>
       )}
 
@@ -76,10 +75,13 @@ export function VaultPanel({
                 <div>
                   <p className="text-sm text-foreground">{s.name}</p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    <span className="tabular-nums">{v.active}</span> in the vault ·{' '}
-                    <span className="tabular-nums">{v.mastered}</span> mastered
+                    <span className="tabular-nums">{v.active}</span> {t('vault.inVault')} ·{' '}
+                    <span className="tabular-nums">{v.mastered}</span> {t('vault.mastered')}
                     {v.eligibleNow === 0 && v.nextEligibleAt && (
-                      <> · next due {formatDay(v.nextEligibleAt)}</>
+                      <>
+                        {' '}
+                        · {t('vault.nextDue')} {formatDay(v.nextEligibleAt)}
+                      </>
                     )}
                   </p>
                 </div>
@@ -90,14 +92,16 @@ export function VaultPanel({
                   onClick={() => onReview(s)}
                   title={
                     !s.poolReady
-                      ? 'Vault review is not set up for this subject yet.'
+                      ? t('vault.notSetUp')
                       : v.eligibleNow === 0
-                        ? 'Nothing is due yet.'
+                        ? t('vault.nothingDueTitle')
                         : undefined
                   }
                 >
                   {starting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  {v.eligibleNow > 0 ? `Review ${v.eligibleNow} due now` : 'Nothing due yet'}
+                  {v.eligibleNow > 0
+                    ? t('vault.reviewDue', { count: v.eligibleNow })
+                    : t('vault.nothingDue')}
                 </Button>
               </li>
             );
@@ -108,7 +112,7 @@ export function VaultPanel({
       {upcoming.length > 0 && (
         <div className="mt-5 border-t border-border pt-4">
           <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Coming back
+            {t('vault.comingBack')}
           </p>
           <ul className="flex flex-wrap gap-2">
             {upcoming.slice(0, 6).map((u) => (
