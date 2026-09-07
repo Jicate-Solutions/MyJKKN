@@ -65,12 +65,53 @@ export interface SocietalMetrics {
 }
 
 /**
+ * Why a societal figure is absent. There are three different absences and they
+ * mean opposite things to whoever is reading the dashboard.
+ *
+ * THE DEFECT THIS EXISTS TO CLOSE. An RLS SELECT policy does not raise — it
+ * FILTERS. A reader without `solutions.societal.view` gets HTTP 200, an empty
+ * array and no error, which the previous `extractOrNull` treated as a
+ * successful read of nothing and rendered as a measured `0`. That is the exact
+ * fake-zero this axis was rebuilt to stop reporting, arriving through the
+ * permission layer instead of the schema layer.
+ */
+export type SocietalAvailability =
+  /** The caller may read the register and these numbers came out of it. */
+  | 'measured'
+  /** The table or its columns are absent here — the migration has not been applied. */
+  | 'source_unavailable'
+  /** The caller definitively lacks the key; the register is hidden, not empty. */
+  | 'not_visible'
+  /** Whether the caller may read it could not be established. Claim nothing. */
+  | 'unconfirmed';
+
+/**
  * Shown to the reader wherever a societal figure would otherwise appear — now only
  * when the register itself cannot be read, not as a standing statement about the
  * platform.
  */
 export const SOCIETAL_METRICS_UNAVAILABLE_REASON =
   'Societal value could not be read — the community engagement register is not available in this environment yet.';
+
+/** Shown when the register exists and the reader's role is not allowed to see it. */
+export const SOCIETAL_METRICS_NOT_VISIBLE_REASON =
+  'Societal value is hidden from your role, not measured as nil — reading the community ' +
+  'engagement register needs solutions.societal.view. Ask your Solutions Hub administrator.';
+
+/** Shown when the permission check itself did not answer. */
+export const SOCIETAL_METRICS_UNCONFIRMED_REASON =
+  'Societal value is not shown — whether your role may read the community engagement ' +
+  'register could not be checked just now, and a zero here would be a guess. Reload to retry.';
+
+/** The one sentence that goes with each non-measured outcome. */
+export const SOCIETAL_AVAILABILITY_REASONS: Record<
+  Exclude<SocietalAvailability, 'measured'>,
+  string
+> = {
+  source_unavailable: SOCIETAL_METRICS_UNAVAILABLE_REASON,
+  not_visible: SOCIETAL_METRICS_NOT_VISIBLE_REASON,
+  unconfirmed: SOCIETAL_METRICS_UNCONFIRMED_REASON,
+};
 
 /** Shown against the pro-bono figure alone when only that column is missing. */
 export const PRO_BONO_UNAVAILABLE_REASON =
@@ -116,6 +157,12 @@ export interface ParadigmShiftOverview {
     total_community_engagements: number | null;
     /** `null` = not measured. */
     total_pro_bono: number | null;
+    /**
+     * WHY the three societal totals above are `null`, when they are. Without
+     * this the caller cannot tell "the register is not installed" from "you are
+     * not allowed to see it" — and rendering either as `0` is the fake zero.
+     */
+    societal_availability: SocietalAvailability;
   };
 }
 
@@ -334,6 +381,10 @@ export class ParadigmShiftService extends BaseService {
 
     const filteredDepts = departments;
 
+    // Started BEFORE the metric queries so its round trip overlaps theirs and
+    // costs no wall-clock time. Awaited after them.
+    const societalVisibility = this.probeSocietalVisibility();
+
     // 2. Run all metric queries in parallel using allSettled for graceful degradation
     const results = await Promise.allSettled([
       // Discovery visits by department
@@ -449,8 +500,28 @@ export class ParadigmShiftService extends BaseService {
     const engagementRows = extractOrNull(results[8]);
     const proBonoRows = extractOrNull(results[9]);
 
-    const societalReadable = engagementRows !== null;
-    const proBonoReadable = proBonoRows !== null;
+    /**
+     * An empty engagement result set is only a MEASUREMENT if the caller was
+     * allowed to read the table. Under RLS it is otherwise a denial wearing a
+     * successful response, and reporting it as `0` tells a head of department
+     * their college did no community work when the truth is that the register
+     * was never shown to them.
+     */
+    const canSeeRegister = await societalVisibility;
+    const societalAvailability: SocietalAvailability =
+      engagementRows === null
+        ? 'source_unavailable'
+        : canSeeRegister === true
+          ? 'measured'
+          : canSeeRegister === false
+            ? 'not_visible'
+            : 'unconfirmed';
+
+    const societalReadable = societalAvailability === 'measured';
+    // Pro-bono is still independently nullable — its column can be missing while
+    // the register is present — but it can never outlive the visibility check
+    // above, because `sh_solutions` is filtered by the same kind of policy.
+    const proBonoReadable = societalReadable && proBonoRows !== null;
 
     // Per-department societal accumulation, from approved engagements only.
     const societalMap: Record<string, SocietalAccumulator> = {};
@@ -663,9 +734,57 @@ export class ParadigmShiftService extends BaseService {
       total_pro_bono: proBonoReadable
         ? finalResult.reduce((sum, d) => sum + (d.societal?.pro_bono_solutions ?? 0), 0)
         : null,
+      societal_availability: societalAvailability,
     };
 
     return { departments: finalResult, summary };
+  }
+
+  /**
+   * May this caller read the community engagement register at all?
+   *
+   * `true` / `false` are answers; `null` means the question could not be asked
+   * and the caller must claim nothing either way.
+   *
+   * TWO probes, because ONE is not the policy. The SELECT policy on
+   * `sh_community_engagements` is `is_super_admin() OR is_admin() OR
+   * (user_has_permission('solutions.societal.view') AND
+   * role_has_institution_access(institution_id))`, and
+   * `user_has_permission()` bypasses ONLY `is_super_admin = true` — it knows
+   * nothing about `is_admin()`, which also covers role IN ('admin',
+   * 'administrator'). Asking the permission alone would report "hidden from
+   * your role" to an administrator who can in fact read every row, hiding real
+   * data behind an honest-sounding sentence. `is_admin()` is true for super
+   * admins too, so these two together are the whole policy minus its
+   * per-row institution filter — which is a filter, not a gate, and is the
+   * same scoping the department list itself is already under.
+   */
+  private static async probeSocietalVisibility(): Promise<boolean | null> {
+    type ProbeResult = PromiseSettledResult<{ data: unknown; error: unknown }>;
+
+    const readProbe = (result: ProbeResult): boolean | null => {
+      if (result.status !== 'fulfilled') return null;
+      if (result.value.error) return null;
+      if (typeof result.value.data !== 'boolean') return null;
+      return result.value.data;
+    };
+
+    const [adminProbe, keyProbe] = (await Promise.allSettled([
+      this.supabase.rpc('is_admin'),
+      this.supabase.rpc('user_has_permission', {
+        permission_name: 'solutions.societal.view',
+      }),
+    ])) as [ProbeResult, ProbeResult];
+
+    const isAdmin = readProbe(adminProbe);
+    const hasKey = readProbe(keyProbe);
+
+    // Either yes is a yes.
+    if (isAdmin === true || hasKey === true) return true;
+    // A definite no requires BOTH to have answered no. One unanswered probe
+    // leaves the question open, and an open question is not a denial.
+    if (isAdmin === false && hasKey === false) return false;
+    return null;
   }
 
   /**

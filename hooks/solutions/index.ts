@@ -724,7 +724,9 @@ export {
   useDecideCommunityEngagement,
   communityEngagementKeys,
   type CommunityEngagement,
+  type DepartmentActivityReadout,
   type DepartmentSolutionOption,
   type EngagementApprovalStatus,
+  type EngagementDecisionOutcome,
   type RecordEngagementInput,
 } from './use-community-engagements';

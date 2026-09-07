@@ -30,17 +30,21 @@ import {
   X,
 } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
+import { hasDbAdminBypass } from '@/lib/navigation/permission-filter';
 import {
   useCommunityEngagements,
   useDecideCommunityEngagement,
   type CommunityEngagement,
+  type DepartmentActivityReadout,
 } from '@/hooks/solutions/use-community-engagements';
 import {
+  DEPARTMENT_STATUS_LABELS,
   ENGAGEMENT_STATUS_LABELS,
   EngagementRegisterMissingError,
   describeSdgGoal,
   shortSdgLabel,
   type EngagementApprovalStatus,
+  type SolutionDepartmentStatus,
 } from '@/lib/services/solutions/societal-service';
 import { RecordEngagementDialog } from './record-engagement-dialog';
 
@@ -68,12 +72,49 @@ function formatHours(hours: number): string {
   return Number.isInteger(hours) ? String(hours) : hours.toFixed(1);
 }
 
+/**
+ * What to tell the approver, using only what the database confirmed.
+ *
+ * The previous message — "Approved. This department now counts as active on
+ * non-revenue work." — was asserted on a resolved promise and was wrong on three
+ * of the trigger's four paths: a department with no `sh_solution_departments`
+ * row is returned from early, `last_activity_at` moves under GREATEST so a
+ * backdated entry can move nothing, and `status` is only set to 'active' when
+ * the previous status was at_risk/dormant AND the work is inside 30 days. The
+ * approval is the fact; the consequence is read back, and where it cannot be
+ * read, nothing is claimed.
+ */
+function describeApproval(departmentName: string, activity: DepartmentActivityReadout): string {
+  if (activity.kind === 'not_a_solution_department') {
+    return (
+      `Approved. ${departmentName} is not registered as a solution department, so no ` +
+      'dormancy clock is tracking it — the entry is on the record but moves nothing.'
+    );
+  }
+
+  if (activity.kind === 'unreadable') {
+    return "Approved. Its effect on the department's activity clock could not be read back from here.";
+  }
+
+  const label =
+    DEPARTMENT_STATUS_LABELS[activity.status as SolutionDepartmentStatus] ?? activity.status;
+
+  if (activity.status === 'at_risk' || activity.status === 'dormant') {
+    return (
+      `Approved. ${departmentName} is still ${label} — only work dated inside the last ` +
+      '30 days lifts a department out of that.'
+    );
+  }
+
+  return `Approved. ${departmentName}'s status now reads ${label}.`;
+}
+
 export function CommunityEngagementsPanel({
   departmentId,
   institutionId,
   departmentName,
 }: CommunityEngagementsPanelProps) {
-  const { can, isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
+  const { can, isSuperAdmin, isLoading: permissionsLoading, userProfile } = usePermissions();
   const { data, isLoading, error } = useCommunityEngagements(departmentId);
   const decide = useDecideCommunityEngagement();
 
@@ -82,13 +123,21 @@ export function CommunityEngagementsPanel({
   const [reviewNote, setReviewNote] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const canView = isSuperAdmin || can('solutions.societal.view');
+  // Every policy on sh_community_engagements opens `is_super_admin() OR
+  // is_admin() OR ...`, and `is_admin()` covers role IN ('admin','super_admin',
+  // 'administrator'). Gating on `isSuperAdmin` alone made this panel STRICTER
+  // than the database: an `administrator` was shown "you don't have access to
+  // this register" over rows RLS would have handed them. `user_has_permission()`
+  // does not close the gap either — it bypasses only `is_super_admin = true`.
+  const adminBypass = hasDbAdminBypass(userProfile?.role, isSuperAdmin);
+
+  const canView = adminBypass || can('solutions.societal.view');
   // The INSERT policy accepts EITHER key, so the button must too — gating on
   // `record` alone would hide the form from every faculty member the submit key
   // was created for.
   const canRecord =
-    isSuperAdmin || can('solutions.societal.record') || can('solutions.societal.submit');
-  const canApprove = isSuperAdmin || can('solutions.societal.approve');
+    adminBypass || can('solutions.societal.record') || can('solutions.societal.submit');
+  const canApprove = adminBypass || can('solutions.societal.approve');
 
   if (permissionsLoading || isLoading) {
     return (
@@ -190,10 +239,14 @@ export function CommunityEngagementsPanel({
   ) => {
     setActionError(null);
     try {
-      await decide.mutateAsync({ engagementId, decision, reviewNote: note ?? null });
+      const outcome = await decide.mutateAsync({
+        engagementId,
+        decision,
+        reviewNote: note ?? null,
+      });
       toast.success(
         decision === 'approved'
-          ? 'Approved. This department now counts as active on non-revenue work.'
+          ? describeApproval(departmentName, outcome.department_activity)
           : 'Marked as not approved. The person who recorded it can see your note.'
       );
       setRejectingId(null);

@@ -82,6 +82,31 @@ export function shortSdgLabel(code: string): string {
 }
 
 // ============================================
+// TIME
+// ============================================
+
+/**
+ * Today, as YYYY-MM-DD in the reader's own timezone.
+ *
+ * Deliberately NOT `new Date().toISOString().slice(0, 10)`, which is the UTC
+ * date: between 00:00 and 05:30 IST that string is YESTERDAY, so a camp run this
+ * morning would be refused as "in the future" and the form's own max would
+ * forbid today. `engagement_date` is a plain `date` column with no timezone, so
+ * the calendar day the reader is living in is the one to compare against.
+ */
+export function todayLocalISO(): string {
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
+}
+
+/**
+ * One sentence, used by the form and by the service, so the two cannot drift
+ * into telling a reader different things about the same refusal.
+ */
+export const FUTURE_ENGAGEMENT_DATE_MESSAGE =
+  'Community work cannot be recorded before it happens. Pick today or an earlier date.';
+
+// ============================================
 // TYPES
 // ============================================
 
@@ -134,6 +159,41 @@ export interface DepartmentSolutionOption {
   solution_code: string | null;
 }
 
+/** The four states sh_solution_departments.status is CHECK-constrained to. */
+export type SolutionDepartmentStatus = 'pending_approval' | 'active' | 'at_risk' | 'dormant';
+
+export const DEPARTMENT_STATUS_LABELS: Record<SolutionDepartmentStatus, string> = {
+  pending_approval: 'waiting for approval',
+  active: 'active',
+  at_risk: 'at risk',
+  dormant: 'dormant',
+};
+
+/**
+ * What the department's activity clock says AFTER a decision — read back rather
+ * than assumed.
+ *
+ * An approval does NOT reliably make a department active, and saying it does is
+ * a claim the database frequently does not honour. `on_societal_activity_touch_department()`
+ * returns early when the department has no `sh_solution_departments` row at all;
+ * it moves `last_activity_at` with GREATEST, so a backdated entry can move
+ * nothing; and it only sets `status = 'active'` when the previous status was
+ * `at_risk` or `dormant` AND the engagement date is inside 30 days. Three of
+ * those four paths leave the department exactly where it was.
+ */
+export type DepartmentActivityReadout =
+  | { kind: 'read'; status: SolutionDepartmentStatus | string; last_activity_at: string | null }
+  /** The department is not registered as a solution department, so no clock exists. */
+  | { kind: 'not_a_solution_department' }
+  /** The row could not be read from here — claim nothing about it. */
+  | { kind: 'unreadable' };
+
+/** What `decide()` hands back: the row it changed, and what that changed. */
+export interface EngagementDecisionOutcome {
+  engagement: CommunityEngagement;
+  department_activity: DepartmentActivityReadout;
+}
+
 // ============================================
 // FAILURE TRANSLATION — CLAUDE.md rule 27
 // ============================================
@@ -161,6 +221,10 @@ function isRelationMissing(error: { code?: string | null } | null | undefined): 
 
 const RLS_DENIED = '42501';
 const CHECK_VIOLATION = '23514';
+/** A referenced row is gone — solution_id, department_id or institution_id. */
+const FK_VIOLATION = '23503';
+/** A NOT NULL column arrived empty. */
+const NOT_NULL_VIOLATION = '23502';
 /** A RAISE EXCEPTION from a trigger — guard_societal_self_approval uses this. */
 const RAISED_BY_TRIGGER = 'P0001';
 
@@ -203,6 +267,27 @@ function describeWriteFailure(error: PostgrestLikeError, action: 'record' | 'dec
     );
   }
 
+  // 23503 and 23502 are reachable from a form that was open while something
+  // moved underneath it: a linked solution deleted, a department retired, an
+  // institution unset. Postgres answers both with a sentence naming a
+  // constraint ("violates foreign key constraint
+  // sh_community_engagements_solution_id_fkey"), which tells a head of
+  // department nothing they can act on.
+  if (error.code === FK_VIOLATION) {
+    return new Error(
+      'This entry points at a record that no longer exists — most likely the ' +
+        'linked solution or the department was removed while this form was open. ' +
+        'Reload the page and record it again.'
+    );
+  }
+
+  if (error.code === NOT_NULL_VIOLATION) {
+    return new Error(
+      'A value the register requires arrived empty, so nothing was saved. Check ' +
+        'that the title and the date are filled in, then try again.'
+    );
+  }
+
   return new Error(error.message || 'The change could not be saved.');
 }
 
@@ -213,13 +298,19 @@ function describeWriteFailure(error: PostgrestLikeError, action: 'record' | 'dec
  * success and the reader sees nothing change. Zero rows returned from a write
  * that named one row is a refusal, and has to be reported as one.
  */
-function refusedSilently(action: 'decide'): Error {
+function refusedSilently(action: 'record' | 'decide'): Error {
+  if (action === 'record') {
+    return new Error(
+      'The engagement was not saved. The database accepted the request and then ' +
+        'returned no row, which means the insert policy refused it for this ' +
+        'institution. Ask your Solutions Hub administrator for ' +
+        'solutions.societal.submit on it. Nothing was recorded.'
+    );
+  }
   return new Error(
-    action === 'decide'
-      ? 'That decision was not saved. Either the entry has already been decided ' +
-        'by someone else, or your role cannot approve engagements for this ' +
-        "institution. Reload the list to see the entry's current state."
-      : 'The change was not saved.'
+    'That decision was not saved. Either the entry has already been decided ' +
+      'by someone else, or your role cannot approve engagements for this ' +
+      "institution. Reload the list to see the entry's current state."
   );
 }
 
@@ -347,9 +438,18 @@ export class SocietalService extends BaseService {
       .order('created_at', { ascending: false })
       .limit(100);
 
-    // A failure here must not block recording — the link is optional. Return an
-    // empty option list and let the form save without one.
-    if (error) return [];
+    // This used to `return []` on any error. An empty picker is a STATEMENT —
+    // "this department leads no solutions" — and a failed read is not entitled
+    // to make it. The link is still optional: the form catches this, says the
+    // list could not be loaded, and lets the entry be saved unlinked.
+    if (error) {
+      if (isRelationMissing(error)) throw new EngagementRegisterMissingError();
+      throw new Error(
+        error.message
+          ? `The list of this department's solutions could not be read: ${error.message}`
+          : "The list of this department's solutions could not be read."
+      );
+    }
     return (data ?? []) as DepartmentSolutionOption[];
   }
 
@@ -363,6 +463,21 @@ export class SocietalService extends BaseService {
     const title = input.title.trim();
     if (!title) throw new Error('Give the engagement a title.');
     if (!input.engagement_date) throw new Error('Give the engagement a date.');
+    // A future date is not a typo with cosmetic consequences. `engagement_date`
+    // is what `on_societal_activity_touch_department()` writes into
+    // `last_activity_at`, and `update_department_statuses()` measures dormancy
+    // from that column — so one entry dated 2030 holds the department out of
+    // dormancy until 2030, and the sweep that exists to catch silent departments
+    // never fires for it again.
+    //
+    // LIMIT, STATED RATHER THAN IMPLIED: this service runs in the browser (the
+    // static `createClientSupabaseClient()` singleton), so this and the form's
+    // `max` are the same trust boundary — anyone posting straight to PostgREST
+    // clears both. The only control that cannot be walked around is a CHECK on
+    // the column, which needs a migration this change is not authorised to write.
+    if (input.engagement_date > todayLocalISO()) {
+      throw new Error(FUTURE_ENGAGEMENT_DATE_MESSAGE);
+    }
     if (!Number.isFinite(input.hours_spent) || input.hours_spent < 0) {
       throw new Error('Hours spent cannot be negative.');
     }
@@ -403,7 +518,7 @@ export class SocietalService extends BaseService {
       .single();
 
     if (error) throw describeWriteFailure(error as PostgrestLikeError, 'record');
-    if (!data) throw refusedSilently('decide');
+    if (!data) throw refusedSilently('record');
 
     return mapRow(data as unknown as JoinedEngagementRow);
   }
@@ -425,7 +540,7 @@ export class SocietalService extends BaseService {
     engagementId: string,
     decision: Extract<EngagementApprovalStatus, 'approved' | 'rejected'>,
     reviewNote?: string | null
-  ): Promise<CommunityEngagement> {
+  ): Promise<EngagementDecisionOutcome> {
     if (decision === 'rejected' && !reviewNote?.trim()) {
       throw new Error('Say why it was not approved, so the person who recorded it can fix it.');
     }
@@ -446,6 +561,52 @@ export class SocietalService extends BaseService {
     const rows = (data ?? []) as unknown as JoinedEngagementRow[];
     if (rows.length === 0) throw refusedSilently('decide');
 
-    return mapRow(rows[0]);
+    const engagement = mapRow(rows[0]);
+
+    // Read what the decision actually did, instead of announcing what it was
+    // supposed to do. The trigger runs inside the UPDATE's own transaction, so
+    // by the time that statement has returned this read sees the committed
+    // result — including the common case where it committed no change at all.
+    const department_activity =
+      decision === 'approved'
+        ? await this.readDepartmentActivity(engagement.department_id)
+        : ({ kind: 'unreadable' } as const);
+
+    return { engagement, department_activity };
+  }
+
+  /**
+   * The department's activity clock, read back so the caller can report what
+   * happened rather than assert it.
+   *
+   * This one DOES collapse its failures, and that is the opposite of the defect
+   * fixed in `listDepartmentSolutions`: there, a swallowed error became a claim
+   * ("no solutions"); here, every failure resolves to `unreadable`, which is the
+   * instruction to claim NOTHING. `sh_solution_departments` is readable by every
+   * authenticated user (`USING (true)`), so `unreadable` in practice means
+   * `last_activity_at` is absent — the environment is behind on
+   * 20261013000000 — and that is precisely when a confident sentence would lie.
+   */
+  static async readDepartmentActivity(departmentId: string): Promise<DepartmentActivityReadout> {
+    const { data, error } = await this.supabase
+      .from('sh_solution_departments')
+      .select('status, last_activity_at')
+      .eq('department_id', departmentId)
+      .maybeSingle();
+
+    if (error) return { kind: 'unreadable' };
+    // uq_solution_department makes department_id unique, so no row here means
+    // the department was never activated as a solution department — nothing in
+    // the schema is tracking its dormancy, and approving work cannot change that.
+    if (!data) return { kind: 'not_a_solution_department' };
+
+    const row = data as { status?: string | null; last_activity_at?: string | null };
+    if (typeof row.status !== 'string') return { kind: 'unreadable' };
+
+    return {
+      kind: 'read',
+      status: row.status,
+      last_activity_at: row.last_activity_at ?? null,
+    };
   }
 }

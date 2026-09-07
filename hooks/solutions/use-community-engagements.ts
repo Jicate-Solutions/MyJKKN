@@ -24,15 +24,19 @@ import { QUERY_CONFIG } from '@/lib/config/query-config';
 import {
   SocietalService,
   type CommunityEngagement,
+  type DepartmentActivityReadout,
   type DepartmentSolutionOption,
   type EngagementApprovalStatus,
+  type EngagementDecisionOutcome,
   type RecordEngagementInput,
 } from '@/lib/services/solutions/societal-service';
 
 export type {
   CommunityEngagement,
+  DepartmentActivityReadout,
   DepartmentSolutionOption,
   EngagementApprovalStatus,
+  EngagementDecisionOutcome,
   RecordEngagementInput,
 };
 
@@ -98,6 +102,10 @@ export function useRecordCommunityEngagement() {
  * Approve or reject a pending engagement. An approval is the only event in the
  * platform that writes last_activity_at, so the paradigm-shift figures are
  * invalidated alongside the register itself.
+ *
+ * Resolves with the department's activity clock READ BACK after the decision,
+ * not with an assumption about it — three of the trigger's four paths leave the
+ * department exactly where it was, and the panel has to be able to say so.
  */
 export function useDecideCommunityEngagement() {
   const queryClient = useQueryClient();
@@ -112,9 +120,9 @@ export function useDecideCommunityEngagement() {
       decision: 'approved' | 'rejected';
       reviewNote?: string | null;
     }) => SocietalService.decide(engagementId, decision, reviewNote),
-    onSuccess: (engagement: CommunityEngagement) => {
+    onSuccess: (outcome: EngagementDecisionOutcome) => {
       queryClient.invalidateQueries({
-        queryKey: communityEngagementKeys.byDepartment(engagement.department_id),
+        queryKey: communityEngagementKeys.byDepartment(outcome.engagement.department_id),
       });
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.paradigmShift.all });
     },

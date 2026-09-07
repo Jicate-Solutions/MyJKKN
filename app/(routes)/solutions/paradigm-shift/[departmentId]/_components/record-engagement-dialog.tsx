@@ -38,7 +38,11 @@ import {
   useDepartmentSolutionOptions,
   useRecordCommunityEngagement,
 } from '@/hooks/solutions/use-community-engagements';
-import { SDG_GOALS } from '@/lib/services/solutions/societal-service';
+import {
+  FUTURE_ENGAGEMENT_DATE_MESSAGE,
+  SDG_GOALS,
+  todayLocalISO,
+} from '@/lib/services/solutions/societal-service';
 
 /** Radix Select rejects value=""; this is the "no solution linked" option. */
 const NO_SOLUTION = '__none__';
@@ -50,10 +54,6 @@ interface RecordEngagementDialogProps {
   institutionId: string | null;
 }
 
-function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
 export function RecordEngagementDialog({
   open,
   onOpenChange,
@@ -62,20 +62,24 @@ export function RecordEngagementDialog({
 }: RecordEngagementDialogProps) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [engagementDate, setEngagementDate] = useState(todayISO);
+  // Recomputed on every render rather than frozen at mount: a form left open
+  // across midnight would otherwise cap the input at yesterday.
+  const maxEngagementDate = todayLocalISO();
+  const [engagementDate, setEngagementDate] = useState(todayLocalISO);
   const [hours, setHours] = useState('');
   const [beneficiaries, setBeneficiaries] = useState('');
   const [goals, setGoals] = useState<string[]>([]);
   const [solutionId, setSolutionId] = useState<string>(NO_SOLUTION);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const { data: solutionOptions = [] } = useDepartmentSolutionOptions(departmentId, open);
+  const { data: solutionOptions = [], error: solutionOptionsError } =
+    useDepartmentSolutionOptions(departmentId, open);
   const record = useRecordCommunityEngagement();
 
   const reset = () => {
     setTitle('');
     setDescription('');
-    setEngagementDate(todayISO());
+    setEngagementDate(todayLocalISO());
     setHours('');
     setBeneficiaries('');
     setGoals([]);
@@ -104,6 +108,15 @@ export function RecordEngagementDialog({
     }
     if (!engagementDate) {
       setFormError('Give the engagement a date.');
+      return;
+    }
+    // Mirrors the identical guard in SocietalService.record(). Neither is the
+    // control on its own — this one is convenience, that one is the last line
+    // the application owns — but a date ahead of today would set the
+    // department's activity clock into the future and hold it out of dormancy
+    // until that date arrives.
+    if (engagementDate > maxEngagementDate) {
+      setFormError(FUTURE_ENGAGEMENT_DATE_MESSAGE);
       return;
     }
     if (!Number.isFinite(hoursValue) || hoursValue < 0) {
@@ -177,6 +190,7 @@ export function RecordEngagementDialog({
               <Input
                 id="engagement-date"
                 type="date"
+                max={maxEngagementDate}
                 value={engagementDate}
                 onChange={(e) => setEngagementDate(e.target.value)}
               />
@@ -225,9 +239,21 @@ export function RecordEngagementDialog({
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">
-              Most community work has no solution behind it. Leave this alone if that is the case.
-            </p>
+            {solutionOptionsError ? (
+              // The list failing to load and the department leading no solutions
+              // produce the same empty picker, and they mean opposite things.
+              // Say which one happened; the link is optional, so the entry can
+              // still be saved without it.
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                The list of this department&apos;s solutions could not be loaded, so this picker is
+                empty for a reason that is not &ldquo;there are none&rdquo;. You can still save the
+                entry without a link.
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Most community work has no solution behind it. Leave this alone if that is the case.
+              </p>
+            )}
           </div>
 
           <div className="space-y-2">
