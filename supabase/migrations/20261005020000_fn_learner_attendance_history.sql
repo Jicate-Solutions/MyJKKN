@@ -199,7 +199,7 @@ BEGIN
     WHERE sc.id = p_section_id
       AND sc.institution_id = v_institution_id
   ) THEN
-    RAISE EXCEPTION 'Section not found in this learner''s institution, so its attendance context cannot be read'
+    RAISE EXCEPTION 'Section not found, so its attendance context cannot be read'
       USING ERRCODE = 'P0002';
   END IF;
 
