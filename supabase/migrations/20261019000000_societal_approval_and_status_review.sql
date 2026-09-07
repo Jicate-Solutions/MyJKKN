@@ -260,6 +260,14 @@ COMMENT ON FUNCTION public.update_department_statuses() IS
   'sh_solution_departments.status — that requires apply_department_status_review(). '
   'Changed 2026-09-02 after the 2026-08-17 sweep moved all 44 departments at once.';
 
+-- The sweep is administrative: nothing a signed-in user should be able to fire.
+-- Postgres grants EXECUTE to PUBLIC on every new function and authenticated is a
+-- member of PUBLIC, so revoking authenticated alone would not lock it — name all
+-- three. service_role holds EXECUTE independently, so a cron or server route is
+-- unaffected. (The pre-existing definition in 20260209000001 was never locked;
+-- redefining it here is the moment that debt becomes mine.)
+REVOKE EXECUTE ON FUNCTION public.update_department_statuses() FROM anon, authenticated, PUBLIC;
+
 CREATE OR REPLACE FUNCTION public.apply_department_status_review(
     p_review_id uuid,
     p_apply boolean,
