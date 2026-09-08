@@ -13,7 +13,7 @@
  * later change cannot rewrite months already judged.
  */
 
-import type { IsoDayOfWeek } from '@/types/hr-shift-timings';
+import type { IsoDayOfWeek, ShiftAttendanceMode } from '@/types/hr-shift-timings';
 
 export interface HRWorkPattern {
   id: string;
@@ -84,15 +84,47 @@ export interface HRWorkPatternWeek {
   /** Exclusive. */
   effective_until: string | null;
   notes: string | null;
+  /**
+   * Per-day hour overrides, for the days that have one.
+   *
+   * OPTIONAL BY DESIGN, and usually empty: `working_days` decides WHICH days
+   * are worked, and a day with no entry here keeps the institution's shift
+   * timing for that weekday. An entry only exists where the pattern also needs
+   * to restate the hours — the visiting consultant who owes an hour on a
+   * Wednesday rather than the institution's full Wednesday.
+   */
+  day_hours?: HRWorkPatternDayHours[];
+}
+
+/**
+ * The hours a pattern imposes on one weekday.
+ *
+ * Mirrors hr_work_pattern_week_days, whose CHECK makes the two modes exclusive:
+ * a 'duration' row carries `required_minutes` and no windows, a 'span' row
+ * carries windows and no minutes. Anything else is a half-configured day.
+ */
+export interface HRWorkPatternDayHours {
+  day_of_week: IsoDayOfWeek;
+  attendance_mode: ShiftAttendanceMode;
+  /** Minutes owed on a 'duration' day; null on a 'span' day. */
+  required_minutes: number | null;
+  first_half_start: string | null;
+  first_half_end: string | null;
+  second_half_start: string | null;
+  second_half_end: string | null;
+  grace_minutes: number;
 }
 
 /** fn_hr_set_work_pattern_days */
 export interface SetWorkPatternDaysResult {
   pattern_id: string;
+  week_id: string;
   working_days: IsoDayOfWeek[];
   effective_from: string;
   /** True when a previous days row was closed at the date (a future change). */
   superseded: boolean;
+  /** How many of the working days ended up carrying an hour override. */
+  days_with_hours: number;
 }
 
 /** A member as named on the pattern card — identity only, no dates. */

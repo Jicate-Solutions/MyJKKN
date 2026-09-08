@@ -250,6 +250,32 @@ export class HRLeaveTypeService {
    * applications list would drift the first time hr_calc_leave_days changes how
    * it treats weekends or holidays.
    */
+  /**
+   * How much of the annual entitlement has ACCRUED by a given date.
+   *
+   * The same function trg_hla_balance_guard calls with NEW.start_date. The
+   * balance view can only answer for CURRENT_DATE, so a request dated in an
+   * earlier month was being measured against credit that had not accrued when
+   * it starts — the drawer offered a day the trigger then refused.
+   */
+  static async getAccruedDays(
+    supabase: SupabaseClient,
+    employeeId: string,
+    leaveTypeId: string,
+    hrAcademicYearId: string | null,
+    /** Request start date. Omitted means today. */
+    onDate?: string
+  ): Promise<number> {
+    const { data, error } = await supabase.rpc('fn_hr_leave_accrued_days', {
+      p_staff_id: employeeId,
+      p_leave_type_id: leaveTypeId,
+      p_hr_academic_year_id: hrAcademicYearId,
+      ...(onDate ? { p_on: onDate } : {}),
+    });
+    if (error) throw error;
+    return Number(data ?? 0);
+  }
+
   static async getLeavePeriodUsage(
     supabase: SupabaseClient,
     employeeId: string,
@@ -406,6 +432,25 @@ export class HRLeaveTypeService {
     });
     if (error) throw error;
     return data as HRBalanceAdjustResult;
+  }
+
+  /**
+   * ONE-OFF 2026-09-07 repair of Casual Leave consumption for HR year
+   * 2026-2027 (migration 20260907140000). Super-admin only, inside the RPC.
+   *
+   * `dryRun` writes nothing and returns the same shaped summary as a real run,
+   * so the two can be compared before committing. Guard cache invalidation on
+   * the REQUEST, never on the response — a refused run returns no marker.
+   */
+  static async resetCasualLeave2026_27(
+    supabase: SupabaseClient,
+    dryRun: boolean
+  ): Promise<Record<string, unknown>> {
+    const { data, error } = await supabase.rpc('fn_hr_cl_reset_2026_27', {
+      p_dry_run: dryRun,
+    });
+    if (error) throw error;
+    return data as Record<string, unknown>;
   }
 
   static async generateBalances(

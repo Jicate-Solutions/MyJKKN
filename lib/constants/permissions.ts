@@ -2014,6 +2014,14 @@ export const PERMISSION_CATEGORIES = [
       { key: 'solutions.societal.view', label: 'View Community Engagements' },
       { key: 'solutions.societal.record', label: 'Record Community Engagements' },
       { key: 'solutions.societal.submit', label: 'Submit Community Engagements' },
+      // `solutions.societal.approve` gained a SECOND enforcement site on
+      // 2026-10-19: it is the key `apply_department_status_review()` checks
+      // before a person may accept or reject a proposed dormancy change, and
+      // `solutions.societal.view` is what the SELECT policy on
+      // `sh_department_status_reviews` requires. No separate status-review key
+      // was added, because a key the database does not check would draw a
+      // button that always fails. Renaming or removing either of these two
+      // closes the department status review queue on /solutions/departments.
       { key: 'solutions.societal.approve', label: 'Approve Community Engagements' },
 
       // Settings (tier-2 chip-leak sweep 2026-04-27)
@@ -2680,7 +2688,19 @@ export const PERMISSION_CATEGORIES = [
       // from Role Management. The DELETE it unlocks cascades through 43 child
       // tables (registrations, payment transactions, tournament matches …), so
       // it is deliberately not bundled into any existing events key.
-      { key: 'events.delete', label: 'Delete Events (permanent — cascades registrations & payments)' }
+      { key: 'events.delete', label: 'Delete Events (permanent — cascades registrations & payments)' },
+      // Target sections (2026-09-07). Grants writing event_target_classes — the
+      // sections an event is aimed at. Reading them rides events.view, so a
+      // coordinator who can see an event can see who it is for; only changing
+      // that list needs this key. The label says "sections", not the everyday
+      // word, because the JKKN terminology gate reserves the plural of that
+      // word for teaching sessions (Director correction, 2026-07-14).
+      { key: 'events.target_classes.manage', label: 'Set Which Sections an Event Is For' },
+      // The two institutional event catalogues (2026-09-07): the academic
+      // event-type list and the outcome/impact taxonomy. Both ship EMPTY —
+      // their content is a Director decision against the JKKN IQAC SOP — so
+      // this key opens an editor for lists that do not exist yet, on purpose.
+      { key: 'events.catalogues.manage', label: 'Maintain Event Type & Impact Catalogues' }
     ]
   },
   // Course Events (2026-08-13). Paid, multi-session learning courses open to
@@ -3511,6 +3531,26 @@ export const PERMISSION_CATEGORIES = [
       { key: 'referrals.categories.manage', label: 'Manage Referral Categories' },
       { key: 'referrals.eligibility.manage', label: 'Manage Referral Category Eligibility' },
       { key: 'referrals.forms.manage', label: 'Manage Referral Forms & Fields' }
+    ]
+  },
+  {
+    // Added 2026-09-06 — Campus Wi-Fi captive-portal SSO foundation
+    // (migration 20260906020000, supersedes Draft PR #792). These nine keys
+    // are the ONLY predicates the network_* RLS policies and the two
+    // learner-reachable RPCs use; no role name appears in that SQL. No page
+    // exists yet, so nothing in lib/sidebarMenuLink.ts points at them.
+    name: 'Network (Campus Wi-Fi)',
+    key: 'network',
+    permissions: [
+      { key: 'network.view', label: 'View Campus Wi-Fi (routers, overview)' },
+      { key: 'network.sessions.view', label: 'View Who Is Connected (sessions)' },
+      { key: 'network.sessions.manage', label: 'End Sessions & Register Devices for Others' },
+      { key: 'network.devices.view', label: 'View Registered Devices (learners & Senior Learners)' },
+      { key: 'network.routers.manage', label: 'Register & Edit Routers and RADIUS Servers' },
+      { key: 'network.lockouts.manage', label: 'View & Clear Sign-in Lockouts' },
+      { key: 'network.audit.view', label: 'View the Wi-Fi Audit Trail' },
+      { key: 'network.settings.manage', label: 'Manage Wi-Fi Settings (sign-in methods, speed tiers, block reasons)' },
+      { key: 'network.panic.manage', label: 'Emergency Open Wi-Fi (panic switch)' }
     ]
   }
 ];

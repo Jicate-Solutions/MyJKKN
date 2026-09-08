@@ -248,12 +248,14 @@ describe('back address element — live Engineering geometry (556px @ 18px)', ()
     expect(renderAddressElement(SHORT_ADDRESS, LIVE_ADDRESS_ELEMENT)).toBe(SHORT_ADDRESS);
   });
 
-  it('keeps the generic cap when the template pins no width (a box that cannot wrap)', () => {
+  it('gives an element with no pinned width the room to the canvas edge and wraps it there', () => {
+    // Responsive text (2026-09-05): an unbounded box is sized to the canvas
+    // edge and to the next element below, so the worst case wraps in full.
     const unbounded: BackLayoutElement = { ...LIVE_ADDRESS_ELEMENT, width: undefined };
     const out = renderAddressElement(WORST_ADDRESS, unbounded);
-    expect(out.length).toBeLessThanOrEqual(80);
-    // Still deliverable, even at the narrow cap.
+    expect(out).toContain('NO 2/124');
     expect(out).toContain('638501');
+    expect(out.endsWith('638501')).toBe(true);
   });
 
   it('scales the budget down for a narrow box, never below the generic cap', () => {
@@ -269,7 +271,7 @@ describe('back address element — live Engineering geometry (556px @ 18px)', ()
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('the address fix does not reach any other field', () => {
-  it('leaves a long NON-address back element on the generic 80-char head-cut', () => {
+  it('wraps a long NON-address back element in full instead of head-cutting it', () => {
     const longCourse = 'BACHELOR OF ENGINEERING IN ELECTRONICS AND COMMUNICATION ENGINEERING (AUTONOMOUS PROGRAMME)';
     const layout: BackLayout = {
       show_blood_group: false,
@@ -285,16 +287,18 @@ describe('the address fix does not reach any other field', () => {
       backInput({ person: { ...person, courseName: longCourse }, layout })
     );
     const rendered = collectText(tree).find((s) => s.startsWith('BACHELOR OF'));
-    expect(rendered).toBe(truncateForCard(longCourse, 80));
-    expect(rendered!.endsWith('…')).toBe(true);
+    // 556px wide, 3 lines allowed, floor 17px: the 91-char course fits whole.
+    expect(rendered).toBe(longCourse);
+    expect(rendered!.endsWith('…')).toBe(false);
   });
 
-  it('keeps the default back address row deliverable too (the 60-char path)', () => {
+  it('keeps the default back address row deliverable too (wraps up to 4 lines, tail kept)', () => {
     const tree = buildBackElement(backInput({ layout: { footer_text: 'ZZFOOTER' } }));
     const rendered = collectText(tree).find((s) => s.startsWith('NO 2/124'));
     expect(rendered).toBeDefined();
-    expect(rendered!.length).toBeLessThanOrEqual(60);
+    expect(rendered!.length).toBeLessThanOrEqual(WORST_ADDRESS.length);
     expect(rendered).toContain('638501');
+    expect(rendered!.endsWith('638501')).toBe(true);
   });
 
   it('the FRONT cannot render an address at all — it is not a front card field', () => {

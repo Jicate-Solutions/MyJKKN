@@ -111,8 +111,9 @@ export function CreateFromTemplateDialog({
                 <div className="flex items-center gap-1.5 text-xs">
                   <CheckSquare className="h-3.5 w-3.5" />
                   <span>
-                    {taskCount} task{taskCount !== 1 ? 's' : ''} will be seeded (status
-                    reset to &ldquo;todo&rdquo;).
+                    {taskCount} task{taskCount !== 1 ? 's' : ''}
+                    {' '}
+                    will be seeded (status reset to &ldquo;todo&rdquo;).
                   </span>
                 </div>
               )}

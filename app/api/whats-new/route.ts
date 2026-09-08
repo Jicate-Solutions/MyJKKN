@@ -110,9 +110,13 @@ async function fetchAll<T>(
  *
  * The date alone is not enough. Paging with .range() over a sort that has ties
  * lets two equal rows swap between requests, which silently drops one and
- * repeats another. `sha` is UNIQUE, so ending on it makes the sort total and the
- * paging exact. `ordinal` sits in the middle and is the entry's position in the
- * sync's newest-first read of git history. It replaced `created_at`, which
+ * repeats another. The entries table's unique key is (app_key, sha), so ending
+ * on BOTH of those makes the sort total and the paging exact. Ending on `sha`
+ * alone would not: a short hash is unique inside one repository and nowhere
+ * else, so the moment a second application writes here two rows could tie on
+ * every term of this sort. `ordinal` sits in the middle and is the entry's
+ * position in the sync's newest-first read of git history. It replaced
+ * `created_at`, which
  * could not break a same-day tie at all: the whole seed is one transaction, so
  * now() is identical on every row in it. Ordering by it silently returned
  * same-day entries in an arbitrary order — a regression against the file the
@@ -122,6 +126,7 @@ function newestFirst(query: any) {
   return query
     .order('entry_date', { ascending: false })
     .order('ordinal', { ascending: true })
+    .order('app_key', { ascending: true })
     .order('sha', { ascending: false });
 }
 

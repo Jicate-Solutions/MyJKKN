@@ -145,6 +145,43 @@ export function useClearLeaveApprovalFlow() {
 }
 
 /**
+ * How many in-flight requests still route to the approvers this flow named
+ * before it was edited. A mutation rather than a query: it is asked once, at the
+ * moment of saving, about a flow id that only exists after the save returns.
+ */
+export function usePreviewLeaveChainDrift() {
+  const supabase = createClientSupabaseClient();
+  return useMutation({
+    mutationFn: (flowId: string) =>
+      LeaveApprovalFlowService.previewChainDrift(supabase, flowId),
+  });
+}
+
+/**
+ * Re-route this flow's in-flight requests onto the chain it names now.
+ *
+ * NOTHING IN THIS APP SELF-REFRESHES — staleTime is 5 minutes and there is no
+ * refetch on focus — so a mutation that rewrites rows another module reads has
+ * to invalidate that module's keys itself. These rows drive the whole Leave
+ * surface, not just the screen the admin is standing on, so all four families go.
+ */
+export function useResyncPendingLeaveChains() {
+  const supabase = createClientSupabaseClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (flowId: string) =>
+      LeaveApprovalFlowService.resyncPendingChains(supabase, flowId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['hr-leave-applications'] }); // queue, inbox, mine
+      qc.invalidateQueries({ queryKey: ['hr-leave-application'] }); // the detail sheet
+      qc.invalidateQueries({ queryKey: ['hr-leave-calendar'] });
+      // Covers this file's own 'approval-queue' and 'my-queue' entries.
+      qc.invalidateQueries({ queryKey: [KEY] });
+    },
+  });
+}
+
+/**
  * May THIS caller approve the request outright, ahead of the reviews below it?
  *
  * The final authority may act at any point (decision 2026-09-05), but whether

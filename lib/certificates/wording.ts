@@ -1,0 +1,183 @@
+// lib/certificates/wording.ts
+// ============================================================================
+// Pure helpers that turn learner data into the exact certificate sentences.
+// No I/O, no react-pdf — unit-tested in __tests__/lib/certificates.
+// ============================================================================
+
+import type { CertificateOverrides } from './registry';
+
+/** Everything a certificate can print, resolved from the request + learner. */
+export interface CertificateData {
+  /** "C. Manijothi" — initial-first display name as the college prints it. */
+  learnerName: string;
+  /** Register / roll number, e.g. "C24JPGCHE006". May be empty. */
+  registerNumber: string;
+  /** "P. Chandrasekar". May be empty when the record has no parent name. */
+  parentName: string;
+  /** Raw gender text from the learner record ('female', 'Male', 'F', ...). */
+  gender: string;
+  /** "M.Sc. Chemistry" — programme display name. */
+  programName: string;
+  /** "2024-2026" — batch span; empty when unknown. */
+  batchSpan: string;
+  /** Batch end date (ISO) when known — drives the default completion month. */
+  batchEndDate: string | null;
+  /** Year-of-study label already resolved ("I", "II") — may be empty. */
+  yearOfStudy: string;
+  /** Free-text purpose captured on the request form (bonafide), may be empty. */
+  requestPurpose: string;
+  /** Current academic year label like "2025-2026" for bonafide; empty when unknown. */
+  currentAcademicYear: string;
+}
+
+export type GenderForm = 'female' | 'male' | 'unknown';
+
+export function normalizeGender(raw: string | null | undefined): GenderForm {
+  const g = (raw ?? '').trim().toLowerCase();
+  if (!g) return 'unknown';
+  if (g === 'f' || g.startsWith('fem') || g === 'girl' || g === 'woman') return 'female';
+  if (g === 'm' || g.startsWith('male') || g === 'boy' || g === 'man') return 'male';
+  return 'unknown';
+}
+
+/** Selvi (female) / Selvan (male) — printed with a trailing period per the college style. */
+export function salutation(g: GenderForm): string {
+  if (g === 'female') return 'Selvi';
+  if (g === 'male') return 'Selvan';
+  return 'Selvi/Selvan';
+}
+
+/** D/o (daughter of) / S/o (son of). */
+export function childOf(g: GenderForm): string {
+  if (g === 'female') return 'D/o';
+  if (g === 'male') return 'S/o';
+  return 'D/o / S/o';
+}
+
+export function pronouns(g: GenderForm): { subject: string; possessive: string } {
+  if (g === 'female') return { subject: 'She', possessive: 'Her' };
+  if (g === 'male') return { subject: 'He', possessive: 'His' };
+  return { subject: 'He/She', possessive: 'His/Her' };
+}
+
+/** "27/08/2026" — the dd/mm/yyyy style used on the printed certificate. */
+export function formatIssueDate(iso: string | undefined): string {
+  const d = iso && /^\d{4}-\d{2}-\d{2}/.test(iso) ? new Date(`${iso.slice(0, 10)}T00:00:00`) : new Date();
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  return `${dd}/${mm}/${d.getFullYear()}`;
+}
+
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+/** "April 2026" from an ISO date; null when the date is unusable. */
+export function monthYearLabel(iso: string | null | undefined): string | null {
+  const m = /^(\d{4})-(\d{2})/.exec((iso ?? '').trim());
+  if (!m) return null;
+  const month = Number(m[2]);
+  if (month < 1 || month > 12) return null;
+  return `${MONTHS[month - 1]} ${m[1]}`;
+}
+
+/**
+ * Collapse whitespace and trim — learner records are hand-entered and often
+ * carry double spaces or trailing blanks that would show up as odd gaps in a
+ * justified paragraph.
+ */
+export function clean(value: string | null | undefined): string {
+  return (value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Join first/last name the way the college prints learners: "C. Manijothi".
+ * learners_profiles stores the initial in last_name for most CAS records, so a
+ * single-letter last_name is treated as the initial and moved in front.
+ */
+export function displayLearnerName(first: string | null | undefined, last: string | null | undefined): string {
+  const f = clean(first);
+  const l = clean(last).replace(/\.$/, '');
+  if (!l) return f;
+  if (/^[A-Za-z]$/.test(l)) return `${l.toUpperCase()}. ${f}`;
+  return `${f} ${l}`;
+}
+
+// ── Sentence builders ─────────────────────────────────────────────────────────
+
+export interface RenderedParagraph {
+  /** Segments in order; `bold` marks the learner name + register number run. */
+  runs: Array<{ text: string; bold?: boolean }>;
+}
+
+/**
+ * Course Completion body, matching the approved reference:
+ *   "This is to certify that Selvi. C. Manijothi (C24JPGCHE006), D/o P. Chandrasekar
+ *    was a bonafide learner of M.Sc. Chemistry degree of our college during the
+ *    academic year 2024-2026. She has completed the course in April 2026."
+ */
+export function courseCompletionParagraph(
+  data: CertificateData,
+  overrides: CertificateOverrides = {}
+): RenderedParagraph {
+  const g = normalizeGender(data.gender);
+  const { subject } = pronouns(g);
+  const reg = clean(data.registerNumber);
+  const nameRun = reg ? `${clean(data.learnerName)} (${reg})` : clean(data.learnerName);
+  const parent = clean(data.parentName);
+  const completion =
+    clean(overrides.completionMonth) || monthYearLabel(data.batchEndDate) || '________';
+  const span = clean(data.batchSpan) || '________';
+
+  const runs: RenderedParagraph['runs'] = [
+    { text: `This is to certify that ${salutation(g)}. ` },
+    { text: nameRun, bold: true },
+    { text: parent ? `, ${childOf(g)} ${parent} ` : ' ' },
+    {
+      text:
+        `was a bonafide learner of ${clean(data.programName) || '________'} degree of our college ` +
+        `during the academic year ${span}. ${subject} has completed the course in ${completion}.`,
+    },
+  ];
+  return { runs };
+}
+
+/**
+ * Bonafide body — ONE justified paragraph (office-confirmed 2026-09-05):
+ *   "This is to certify that Selvi. B. Dhivyadharshini, D/o Thiru K. Balasamy is a
+ *    I - M.Sc Chemistry Degree learner of this College during the academic year
+ *    2025 - 2026. Her Conduct and Character are Good. This certificate is issued
+ *    only for the purpose of availing Scholarship."
+ */
+export function bonafideParagraphs(
+  data: CertificateData,
+  overrides: CertificateOverrides = {}
+): RenderedParagraph[] {
+  const g = normalizeGender(data.gender);
+  const { possessive } = pronouns(g);
+  const reg = clean(data.registerNumber);
+  const nameRun = reg ? `${clean(data.learnerName)} (${reg})` : clean(data.learnerName);
+  const parent = clean(data.parentName);
+  const year = clean(overrides.yearOfStudy) || clean(data.yearOfStudy);
+  const programme = clean(data.programName) || '________';
+  const classLabel = year ? `${year} - ${programme}` : programme;
+  const academicYear = clean(data.currentAcademicYear) || '________';
+  const purpose = clean(overrides.purpose) || clean(data.requestPurpose) || '________';
+
+  return [
+    {
+      runs: [
+        { text: `This is to certify that ${salutation(g)}. ` },
+        { text: nameRun, bold: true },
+        { text: parent ? `, ${childOf(g)} Thiru ${parent} ` : ' ' },
+        {
+          text:
+            `is a ${classLabel} Degree learner of this College during the academic year ${academicYear}. ` +
+            `${possessive} Conduct and Character are Good. ` +
+            `This certificate is issued only for the purpose of availing ${purpose}.`,
+        },
+      ],
+    },
+  ];
+}

@@ -47,6 +47,8 @@ import {
   useUnallocatedCandidates,
   unallocatedCandidatesKeys,
 } from '@/hooks/campus-living/use-unallocated-candidates';
+import { useMyBlockAccess } from '@/hooks/campus-living/use-hostel-attendance';
+import { useInstitutionsForBlocks } from '@/hooks/campus-living/use-hostel-blocks';
 import { DataTable } from '@/components/data-table/data-table';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import { Badge } from '@/components/ui/badge';
@@ -91,6 +93,7 @@ import {
 } from './allocation-filters';
 import { TransferDialog } from './transfer-dialog';
 import { ResetAllocationDialog } from './reset-allocation-dialog';
+import { VacateDialog } from './vacate-dialog';
 import { AllocateRoomDialog } from '../../residents/_components/allocate-room-dialog';
 import { LearnerDetailDrawer } from '../../residents/_components/learner-detail-drawer';
 import {
@@ -105,6 +108,7 @@ import {
   CheckCircle2,
   XCircle,
   IndianRupee,
+  LogOut,
 } from 'lucide-react';
 import type { LearnerHostelite, UnallocatedCandidate } from '@/types/campus-living';
 
@@ -273,14 +277,40 @@ export function AllAllocationsTab() {
 
   // Same tight audience the removed tabs' actions used.
   const canManage = isSuperAdmin || !!permissions?.['campus_living.upgrades.manage'];
+  // Vacate is keyed separately because fn_cl_vacate_allocation is — it gates on
+  // allocations.edit, not upgrades.manage. Same key the detail page uses.
+  const canVacate = isSuperAdmin || !!permissions?.['campus_living.allocations.edit'];
+
+  // Block scope. A warden assigned to a block reaches it INDEPENDENTLY of their
+  // institution: every warden's profile sits in JKKN Main Office, which owns no
+  // block and no learner, so filtering them by profile institution matched zero
+  // rows and this table rendered empty — while RLS had been returning their
+  // blocks' allocations the whole time. Detect the grant and swap the scope,
+  // exactly as residents/_components/learners-tab.tsx does; never branch on
+  // isSuperAdmin alone to decide scope.
+  const { data: myBlockIds = [] } = useMyBlockAccess();
+  const blockScoped = !isSuperAdmin && myBlockIds.length > 0;
+  const { data: myBlockInstitutionIds = [] } = useInstitutionsForBlocks(
+    blockScoped ? myBlockIds : undefined,
+  );
 
   // `useAllAllocations` gates on isSuperAdmin internally; the unallocated feed
   // takes an explicit undefined for super-admins (all institutions).
-  const allocInstitutionId = profile?.institution_id ?? '';
-  const candInstitutionId = isSuperAdmin ? undefined : (profile?.institution_id ?? undefined);
+  const allocInstitutionId = blockScoped ? undefined : (profile?.institution_id ?? '');
+  // An unplaced learner holds no block, so block scope cannot reach them —
+  // the colleges behind the warden's blocks are the equivalent scope.
+  const candInstitutionId =
+    isSuperAdmin || blockScoped ? undefined : (profile?.institution_id ?? undefined);
 
-  const { data: allocations = [], isLoading: allocLoading } = useAllAllocations(allocInstitutionId);
-  const { data: candidates = [], isLoading: candLoading } = useUnallocatedCandidates(candInstitutionId);
+  const { data: allocations = [], isLoading: allocLoading } = useAllAllocations(
+    allocInstitutionId,
+    undefined,
+    blockScoped ? myBlockIds : undefined,
+  );
+  const { data: candidates = [], isLoading: candLoading } = useUnallocatedCandidates(
+    candInstitutionId,
+    blockScoped ? myBlockInstitutionIds : undefined,
+  );
 
   const [placement, setPlacement] = useTabParam<Placement>('all', PLACEMENTS);
 
@@ -322,6 +352,7 @@ export function AllAllocationsTab() {
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [transferTarget, setTransferTarget] = useState<Alloc | null>(null);
   const [resetTarget, setResetTarget] = useState<Alloc | null>(null);
+  const [vacateTarget, setVacateTarget] = useState<Alloc | null>(null);
   const [allocateTarget, setAllocateTarget] = useState<UnallocatedCandidate | null>(null);
   const [detailLearnerId, setDetailLearnerId] = useState<string | null>(null);
   // Bulk reset: the rows to act on plus the table's own selection-clearing
@@ -338,6 +369,19 @@ export function AllAllocationsTab() {
       (candidates as UnallocatedCandidate[]).find((c) => c.learner_id === detailLearnerId) ?? null,
     [candidates, detailLearnerId]
   );
+
+  // Block names for the scope note. Read off the rows already loaded rather
+  // than fetching the blocks again — a warden's rows all come from their own
+  // blocks by construction.
+  const scopedBlockNames = useMemo(() => {
+    if (!blockScoped) return [] as string[];
+    const names = new Set<string>();
+    for (const a of allocations as Alloc[]) {
+      const n = a?.hostel_blocks?.name;
+      if (n) names.add(n as string);
+    }
+    return Array.from(names).sort();
+  }, [blockScoped, allocations]);
 
   // Active allocations only — the cascade filter OPTIONS derive from these, so
   // the Type/Block/Floor and academic lists stay stable whichever Status is
@@ -843,6 +887,11 @@ export function AllAllocationsTab() {
                       <ArrowRightLeft className="mr-2 h-4 w-4" /> Change room / bed
                     </DropdownMenuItem>
                   )}
+                  {canVacate && a.status === 'active' && (
+                    <DropdownMenuItem onClick={() => setVacateTarget(a)}>
+                      <LogOut className="mr-2 h-4 w-4" /> Vacate…
+                    </DropdownMenuItem>
+                  )}
                   {canManage && ['active', 'pending_approval'].includes(a.status) && (
                     <DropdownMenuItem
                       onClick={() => setResetTarget(a)}
@@ -899,7 +948,7 @@ export function AllAllocationsTab() {
     });
 
     return cols;
-  }, [canManage, isSuperAdmin]);
+  }, [canManage, canVacate, isSuperAdmin]);
 
   const exportConfig = useMemo(
     () => ({
@@ -1037,6 +1086,15 @@ export function AllAllocationsTab() {
         open={showAdvancedFilters}
         onOpenChange={setShowAdvancedFilters}
       />
+      {blockScoped && (
+        <p className="text-xs text-muted-foreground">
+          Scoped to your assigned {scopedBlockNames.length === 1 ? 'block' : 'blocks'}:{' '}
+          <span className="font-medium text-foreground">
+            {scopedBlockNames.length > 0 ? scopedBlockNames.join(', ') : '—'}
+          </span>
+          . Unplaced learners are shown for the colleges these blocks serve.
+        </p>
+      )}
       <p className="text-xs text-muted-foreground">
         Unplaced learners aren&apos;t in a room yet, so Block, floor and
         program/semester filters hide them — they&apos;re matched only by
@@ -1167,6 +1225,17 @@ export function AllAllocationsTab() {
           open={!!resetTarget}
           onOpenChange={(o) => { if (!o) setResetTarget(null); }}
           onSuccess={() => { invalidateFeeds(); setResetTarget(null); }}
+        />
+      )}
+
+      {/* Vacate lived only on /allocations/[id] until 2026-09-09, so ending a
+          stay meant opening a row first. Same dialog, mounted here. */}
+      {vacateTarget && (
+        <VacateDialog
+          allocationId={vacateTarget.id}
+          open={!!vacateTarget}
+          onOpenChange={(o) => { if (!o) setVacateTarget(null); }}
+          onSuccess={() => { invalidateFeeds(); setVacateTarget(null); }}
         />
       )}
 

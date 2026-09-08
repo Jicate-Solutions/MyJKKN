@@ -103,7 +103,10 @@ export interface MarathonCommittee {
 
 export interface MarathonTask {
   id: string;
-  committee_id: string;
+  /** NULL for an EVENT-LEVEL task (the detail page Pending Tasks card).
+   *  Nullable since the 20261112000000_event_level_tasks migration — the write
+   *  RLS policies branch on it, so do not treat it as merely cosmetic. */
+  committee_id: string | null;
   event_id: string;
   title: string;
   description: string | null;

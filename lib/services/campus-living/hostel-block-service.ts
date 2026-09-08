@@ -635,6 +635,29 @@ export class HostelBlockService {
     }));
   }
 
+  // The colleges served by a set of blocks — the institution scope of a
+  // block-scoped warden.
+  //
+  // A warden's own profile institution is NOT this set. Every warden's profile
+  // sits in JKKN Main Office, which owns no block and no learner, so scoping
+  // them by profile institution matches zero rows. Their real reach is the
+  // colleges their assigned blocks serve, which is what this returns.
+  static async getInstitutionIdsForBlocks(blockIds: string[]): Promise<string[]> {
+    if (blockIds.length === 0) return [];
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase
+      .from('hostel_block_institutions')
+      .select('institution_id')
+      .in('block_id', blockIds);
+    if (error) {
+      logger.error('campus-living/blocks', 'Failed to fetch institutions for blocks', error);
+      throw error;
+    }
+    return Array.from(
+      new Set((data ?? []).map((r) => r.institution_id as string).filter(Boolean)),
+    );
+  }
+
   // Add a college to a block. The block's FIRST college is made primary so a
   // freshly-linked block always has exactly one primary (the bed-attribution
   // and legacy "owning college" semantics rely on a primary existing).

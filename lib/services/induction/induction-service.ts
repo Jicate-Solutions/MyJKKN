@@ -106,7 +106,11 @@ export class InductionService {
    *  catcher: it surfaces a wrong scope (e.g. extra colleges or PG mixed into a UG
    *  induction) before any enroll INSERT. */
   static async previewEnroll(params: {
-    institutionId: string;
+    /** Optional because the MULTI-institution scope passes `institutionIds`
+     *  instead and no single id exists. The body already reflects that
+     *  (`params.institutionId ?? params.institutionIds?.[0] ?? null`); the type
+     *  said `string` and required, so the multi call site did not type-check. */
+    institutionId?: string;
     admissionYear: number;
     enrollScope?: 'institution' | 'group';
     degreeTypeFilter?: 'ug' | 'pg' | null;

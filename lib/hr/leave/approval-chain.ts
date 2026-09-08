@@ -165,6 +165,13 @@ export interface BuildChainInput {
  * existing "no approval flow is configured" error, which names the exact screen
  * to fix it on. Never invent an approver here; an empty chain that silently
  * self-approves is the failure this whole module is built to avoid.
+ *
+ * MIRRORED BY fn_hr_leave_build_chain() IN POSTGRES (and toChainStep() by
+ * fn_hr_leave_chain_step), which the flow editor's "re-route pending requests"
+ * runs to rebuild chains that were frozen under an older version of the flow.
+ * Two builders of one shape that disagree would write a chain the preview never
+ * showed, so WHEN ONE CHANGES, CHANGE THE OTHER — same rule as
+ * readApprovers() vs fn_leave_step_approvers().
  */
 export function buildChain({ flow, rungsAbove = [] }: BuildChainInput): LeaveApprovalStep[] {
   const escalate = flow.escalate_after_hours ?? 48;

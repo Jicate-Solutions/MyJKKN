@@ -436,11 +436,32 @@ export interface LeaveChainNames {
   people: Record<string, string>;
   /** custom_roles.role_key → role_name. */
   roles: Record<string, string>;
+  /**
+   * custom_roles.role_key → the people who actually hold it for THIS request.
+   *
+   * A step routed to a role froze no name, so the chain could say "Principal"
+   * and never who that is — the applicant had no one to chase. `names` is
+   * capped server-side; `total` is the real count, so the UI can say "+11 more"
+   * without shipping fourteen names it will not draw.
+   *
+   * Scoped the way fn_leave_step_admits() scopes: holders staffed in this
+   * request's institution, PLUS holders of a role whose institution_scope is
+   * 'all'. That second clause is not a nicety — the only CAO in the group is
+   * staffed at College of Education and would otherwise be missing from every
+   * other institution's chain, which is precisely the person people chase.
+   */
+  roleHolders?: Record<string, { names: string[]; total: number }>;
 }
 
 /** What GET /api/hr/leave/applications/[id] returns: the row plus the names. */
 export interface HRLeaveApplicationDetail extends HRLeaveApplication {
   chain_names?: LeaveChainNames;
+  /**
+   * The staff member the leave is for, resolved server-side. `employee_id`
+   * points at `staff` and not at `profiles`, so nothing in `chain_names` can
+   * name it. Null when the lookup failed — render the id rather than nothing.
+   */
+  applicant?: { name: string; staff_code: string | null } | null;
 }
 
 export interface HRLeaveApplicationInsert {
@@ -706,6 +727,10 @@ export interface HRLeaveApprovalQueueRow {
   staff_code: string | null;
   institution_id: string | null;
   institution_name: string | null;
+  /** The APPLICANT's department. Null for staff whose record has none — 318
+   *  of 733 active staff — which is also why a HOD never sees those rows. */
+  department_id: string | null;
+  department_name: string | null;
   hr_organization_id: string;
   hr_organization_name: string | null;
   leave_type_id: string;
