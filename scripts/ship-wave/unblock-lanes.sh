@@ -178,7 +178,16 @@ Your evidence field must quote the exact workflow line, script line, or file:lin
     say "  D  #$n  codex returned '$verdict' with EMPTY evidence — discarded unread"
     ledger_record unblocked "second-opinion #$n discarded: empty evidence" "lane d empty evidence"; return 0
   fi
-  : > "$STATE/second-opinion/$n" 2>/dev/null || { mkdir -p "$STATE/second-opinion"; : > "$STATE/second-opinion/$n"; }
+  # The marker was an empty file whose only job was "already asked". It now CARRIES the answer,
+  # because the answer was being thrown away: a FIXABLE verdict with a concrete proposed_fix was
+  # posted as a comment and then the wave sent a fix tab that started from nothing. Same file, same
+  # "already asked" semantics ([ -f ] is unchanged) — it just stops discarding what it learned.
+  #   line 1: <verdict>\t<the check it was asked about>
+  #   line 2+: proposed_fix, verbatim
+  mkdir -p "$STATE/second-opinion"
+  { printf '%s\t%s\n' "$verdict" "$why"
+    python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('proposed_fix','').strip())" "$out" 2>/dev/null
+  } > "$STATE/second-opinion/$n"
   say "  D  #$n  codex says $verdict — posted to the PR as evidence (no status change)"
   python3 - "$out" "$n" "$why" "$REPO" "$trig" <<'POST'
 import json, subprocess, sys
@@ -211,6 +220,23 @@ dispatch_fix_lane() {  # $1 = run dir  $2 = "#n #m …"  $3 = failing check name
   nm="⚙ W12 · fixing red CI ($3) — $2"
   printf '%s\t%s\t%s\t%s\n' "" "$LOCAL" "$(date -u +%FT%TZ)" "JKKNKB" > "$_CFG/v5-tab-sessions/$u8"
   printf '%s @ %s\n' "$nm" "$LOCAL" > "$_CFG/v5-tab-names/$u8"
+  # A second opinion that nobody acts on is a comment. If codex already read one of these PRs and
+  # proposed something concrete, hand it over — as a HYPOTHESIS TO TEST FIRST, never as an
+  # instruction. Its characteristic failure is being right about the code and wrong about whether
+  # that code runs, so a tab that adopts it without reproducing has learned nothing.
+  local hint="" hp hv hf
+  for hp in $2; do
+    hp="${hp#\#}"
+    [ -s "$STATE/second-opinion/$hp" ] || continue
+    hv=$(head -1 "$STATE/second-opinion/$hp" | cut -f1)
+    hf=$(sed -n '2,$p' "$STATE/second-opinion/$hp" | grep -v '^outcome\b' | tr '\n' ' ' | sed 's/  */ /g;s/^ //;s/ $//')
+    [ -n "$hf" ] || continue
+    hint="$hint
+  #$hp — a different model family read it cold and called it $hv, proposing: $hf"
+  done
+  [ -z "$hint" ] || hint="
+A SECOND OPINION ALREADY EXISTS on some of these PRs. Treat each one as a HYPOTHESIS TO TEST FIRST, not as an instruction, and never as permission to skip a gate — that model reads the code well but cannot see whether the code it is describing actually runs. Reproduce it with the check's ORIGINAL invocation (same shell flags, same working directory, same file state) before you adopt any of it, and say in your PR comment whether it held up:$hint
+"
   prompt="First invoke the /myjkkn-chain skill and follow it as written — every rule of that skill applies to you. You own ONE job: turn these MyJKKN PRs green and KEEP them green — $2. They currently fail '$3', and a W12 merge of main into each branch has ALREADY run, so this is not stale-base drift.
 Work each PR to that skill's Step 2.7 Build Depth Gate standard: green-on-first-push, never red-then-fix. Fixing only the named check is the failure mode that put these PRs here — each earlier fix satisfied one gate and CI then revealed the next (PR 2975: terminology, then migration-rename plus Vitest plus SDK review). So for EACH PR:
   cd $LOCAL && git fetch jicate main && git fetch jicate HEADREF && git worktree add $LOCAL/.claude/worktrees/ship-fix-N HEADREF
@@ -222,7 +248,7 @@ then inside that worktree:
   5. RE-RUN the whole gate set until it is green LOCALLY, then push once to the PR branch.
   6. Comment on the PR with the Step 2.7 receipt: one line per gate with its exit status, plus what you changed and why.
 Then check GitHub: if a check the local mirror does not cover fails, fix that too and push again — at most three push rounds per PR.
-The local checkout at $LOCAL is far behind production: trust ONLY jicate/main and your worktree. NEVER merge, never push to main, never deploy, never touch a production database. If a failure is real product behaviour only the author can decide, stop and end your PR comment with one line exactly W12-VERDICT: UNFIXABLE — the wave reads it and asks the author instead of sending another tab. Finish with ONE summary per PR: GREEN with the gate list, or still red plus which gate and why. Then run /remote-control so the Director can see you from the phone."
+The local checkout at $LOCAL is far behind production: trust ONLY jicate/main and your worktree. NEVER merge, never push to main, never deploy, never touch a production database. If a failure is real product behaviour only the author can decide, stop and end your PR comment with one line exactly W12-VERDICT: UNFIXABLE — the wave reads it and asks the author instead of sending another tab. Finish with ONE summary per PR: GREEN with the gate list, or still red plus which gate and why. Then run /remote-control so the Director can see you from the phone.$hint"
   printf '%s' "$prompt" > "$1/prompt-$slug.txt"
   $T -f "$_CFG/tmux-obsidian.conf" new-session -d -s "$sname" -c "$LOCAL" \
     "bash -c 'export PATH=\"/opt/homebrew/bin:/usr/local/bin:\$HOME/.local/bin:\$PATH\" OBS_TAB_UUID=\"$uuid\" OBS_TAB_VAULT=\"JKKNKB\" CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX=\"JKKNKB $u8\"; \"$CLAUDE\" --name \"$nm\" \"\$(cat \"$1/prompt-$slug.txt\")\"; exec /opt/homebrew/bin/bash -i'"
@@ -243,6 +269,28 @@ unblock_lanes() {  # $1 = run dir (plan.json already written by sweep)
   local run="$1" lane n br why st res stage age human_v
   local fz fz_id fz_pr
   say; say "--- 1b. unblock lanes: stale heads → merge main · red checks → merge main, then a CI-fix tab · once per PR per ${LANE_TTL_H}h ---"
+
+  # ── Lane D, TRACK RECORD: did the second opinion hold up? (Director 2026-09-08) ───────────
+  # "with Astra's capabilities should we not believe it" — the honest answer this morning was that
+  # the lane had produced ZERO verdicts, so there was nothing to believe or disbelieve. Nobody could
+  # say whether it is right 95% of the time or 60%, because nothing ever checked. This records the
+  # OBSERVATION, once per verdict: the wall it was asked about is either still there or it is gone.
+  # It deliberately does NOT claim the model was right — a PR can go green for reasons unrelated to
+  # what codex said. It is a numerator and a denominator, which is what raising any ceiling needs.
+  local so_n so_f so_still
+  so_still=" $(python3 -c "import json,sys;print(' '.join(str(r['number']) for r in json.load(open(sys.argv[1]))['blocked']))" "$run/plan.json" 2>/dev/null) "
+  for so_f in "$STATE"/second-opinion/*; do
+    [ -f "$so_f" ] || continue
+    so_n=$(basename "$so_f")
+    case "$so_n" in freeze-*) continue;; esac
+    grep -q '^outcome' "$so_f" 2>/dev/null && continue
+    case "$so_still" in
+      *" $so_n "*) : ;;                       # still blocked — no outcome yet, ask again next round
+      *) printf 'outcome\t%s\twall-gone\n' "$(date '+%F %T')" >> "$so_f"
+         say "  D  #$so_n  the wall its second opinion was asked about is gone (verdict: $(head -1 "$so_f" | cut -f1))"
+         ledger_record unblocked "second-opinion #$so_n outcome: wall-gone (called $(head -1 "$so_f" | cut -f1))" "lane d outcome";;
+    esac
+  done
 
   # ── Lane D firing point 2 of 4: A FREEZE NOBODY HAS DIAGNOSED (Director 2026-09-08) ────────
   # A freeze stops every merge until a human clears it, and the only record of why is one line of
