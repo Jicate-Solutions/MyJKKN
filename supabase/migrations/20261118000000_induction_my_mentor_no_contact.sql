@@ -110,6 +110,13 @@ BEGIN
   LIMIT 1;
 END $function$;
 
+-- ci:allow-secdef-authenticated Every signed-in learner may call this: it is the
+--   mentee side of their OWN mentor assignment. It takes an event id and NEVER a
+--   learner id -- the caller is resolved server-side (get_my_learner_id(), falling
+--   back to learners_profiles.profile_id = auth.uid()), it RAISEs when auth.uid()
+--   is NULL, and it returns only `WHERE g.learner_id = v_learner` plus a
+--   same-institution guard. There is no parameter a caller could bend to read
+--   someone else's mentor, so the caller resolution IS the authority check.
 -- Anon-lock: SECURITY DEFINER functions get EXECUTE granted to anon by default
 -- in Supabase.
 REVOKE ALL ON FUNCTION public.fn_induction_my_mentor_for_event(uuid) FROM PUBLIC;

@@ -233,6 +233,14 @@ BEGIN
   ORDER BY 5, 6, 2;  -- no-account first (col5 has_account), then uncaptured (col6), then name (col2)
 END $function$;
 
+-- ci:allow-secdef-authenticated Every signed-in learner may call these, and each
+--   one resolves the caller server-side rather than trusting a parameter, so the
+--   authority check IS the caller resolution and the static scanner cannot see it.
+--   fn_induction_my_feedback_group takes a session id, never a learner id: it
+--   RAISEs unless auth.uid() is set, unless get_my_learner_id() resolves, and
+--   unless that learner is an ACTIVE assigned feedback volunteer on the session's
+--   event, then returns only `WHERE g.volunteer_id = v_vol` -- the caller's own
+--   group. The two admin RPCs above carry their own coordinator checks.
 -- Anon-lock (SECURITY DEFINER -- Supabase grants anon EXECUTE by default).
 REVOKE EXECUTE ON FUNCTION public.fn_induction_my_feedback_group(UUID) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_induction_my_feedback_group(UUID) TO authenticated;
