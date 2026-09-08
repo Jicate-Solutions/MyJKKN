@@ -2721,7 +2721,7 @@ export default function AttendanceMarkPage() {
                         <Avatar className='h-16 w-16 ring-4 ring-white shadow-lg'>
                           <AvatarImage
                             src={student.avatar_url}
-                            alt={`${student.first_name} ${student.last_name}`}
+                            alt={student.student_name || 'Unknown Student'}
                           />
                           <AvatarFallback className='bg-gradient-to-br from-blue-500 to-purple-600 text-white font-semibold text-lg'>
                             {student.first_name?.[0]?.toUpperCase()}
@@ -2749,7 +2749,7 @@ export default function AttendanceMarkPage() {
                       <div className='w-full'>
                         <div className='flex items-center justify-center gap-2'>
                           <h3 className='font-semibold text-gray-900 dark:text-gray-100 text-sm leading-tight'>
-                            {student.first_name} {student.last_name}
+                            {student.student_name || 'Unknown Student'}
                           </h3>
                           {/* Updated: 2026-01-29 - Show leave indicator if student has approved leave */}
                           {approvedLeaveMap.has(student.id) && (
