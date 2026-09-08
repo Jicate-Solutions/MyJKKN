@@ -9677,3 +9677,27 @@ REVOKE ALL ON public.event_impact_categories FROM anon, PUBLIC;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.event_impact_categories TO authenticated;
 ALTER TABLE public.event_impact_categories ENABLE ROW LEVEL SECURITY;
 
+
+
+-- ---------------------------------------------------------------------------
+-- Mirrored from supabase/migrations/20260908170000_leave_approval_org_scope.sql
+-- ---------------------------------------------------------------------------
+-- How far an approver role sees in the leave queue, and -- because the levels
+-- are ordered -- who outranks whom. A department-scoped approver (hod) never
+-- sees an applicant holding a role with a broader level, which is what keeps
+-- the Principal's own leave request out of every HOD queue. A role absent here
+-- defaults to 'institution'.
+
+CREATE TABLE IF NOT EXISTS public.hr_leave_approver_scopes (
+  role_key    text PRIMARY KEY
+                REFERENCES public.custom_roles(role_key) ON DELETE CASCADE,
+  scope_level text NOT NULL
+                CHECK (scope_level IN ('department', 'institution', 'group')),
+  notes       text,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+
+REVOKE ALL ON public.hr_leave_approver_scopes FROM anon, PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_leave_approver_scopes TO authenticated;
+ALTER TABLE public.hr_leave_approver_scopes ENABLE ROW LEVEL SECURITY;

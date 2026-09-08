@@ -10835,3 +10835,32 @@ USING (
     AND (SELECT public.fn_cl_my_block_learner_ids()) @> ARRAY[learners_profiles.id]
   )
 );
+
+
+-- ---------------------------------------------------------------------------
+-- hr_leave_approver_scopes -- mirrored from
+-- supabase/migrations/20260908170000_leave_approval_org_scope.sql
+-- ---------------------------------------------------------------------------
+-- Read is open to every authenticated user because this is the config that
+-- every leave gate consults, per row, from inside SECURITY DEFINER functions.
+-- Write follows the screen that owns it (/hr/admin/leave-types), so no new
+-- permission key -- and therefore no role-grant migration -- was needed.
+-- One permissive policy per verb: multiple permissive policies are ORed and
+-- all of them are evaluated per row.
+
+DROP POLICY IF EXISTS hlas_select ON public.hr_leave_approver_scopes;
+CREATE POLICY hlas_select ON public.hr_leave_approver_scopes
+  FOR SELECT TO authenticated
+  USING (true);
+
+DROP POLICY IF EXISTS hlas_write ON public.hr_leave_approver_scopes;
+CREATE POLICY hlas_write ON public.hr_leave_approver_scopes
+  FOR ALL TO authenticated
+  USING (
+    public.is_super_admin()
+    OR public.user_has_permission('hr.leave.types.manage')
+  )
+  WITH CHECK (
+    public.is_super_admin()
+    OR public.user_has_permission('hr.leave.types.manage')
+  );
