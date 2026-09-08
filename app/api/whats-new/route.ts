@@ -48,7 +48,7 @@
 //
 // Every read below is now confined to the modules the CALLER may see, decided
 // by fn_changelog_visible_modules() (supabase/migrations/
-// 20261121090000_changelog_visible_modules.sql) rather than by anything this
+// 20261123090000_changelog_visible_modules.sql) rather than by anything this
 // file remembers to filter on. The page's canSeeModule() stays exactly as it
 // was: it is now the second, cosmetic pass over a list the database has already
 // narrowed, not the only one.
