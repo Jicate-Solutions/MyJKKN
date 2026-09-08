@@ -285,7 +285,7 @@ unblock_lanes() {  # $1 = run dir (plan.json already written by sweep)
   # OBSERVATION, once per verdict: the wall it was asked about is either still there or it is gone.
   # It deliberately does NOT claim the model was right — a PR can go green for reasons unrelated to
   # what codex said. It is a numerator and a denominator, which is what raising any ceiling needs.
-  local so_n so_f so_still
+  local so_n so_f so_still so_st so_out
   so_still=" $(python3 -c "import json,sys;print(' '.join(str(r['number']) for r in json.load(open(sys.argv[1]))['blocked']))" "$run/plan.json" 2>/dev/null) "
   for so_f in "$STATE"/second-opinion/*; do
     [ -f "$so_f" ] || continue
@@ -294,9 +294,23 @@ unblock_lanes() {  # $1 = run dir (plan.json already written by sweep)
     grep -q '^outcome' "$so_f" 2>/dev/null && continue
     case "$so_still" in
       *" $so_n "*) : ;;                       # still blocked — no outcome yet, ask again next round
-      *) printf 'outcome\t%s\twall-gone\n' "$(date '+%F %T')" >> "$so_f"
-         say "  D  #$so_n  the wall its second opinion was asked about is gone (verdict: $(head -1 "$so_f" | cut -f1))"
-         ledger_record unblocked "second-opinion #$so_n outcome: wall-gone (called $(head -1 "$so_f" | cut -f1))" "lane d outcome";;
+      *) # "no longer blocked" is THREE different outcomes, and only one of them is a point.
+         # plan.json's blocked list is built from `gh pr list --state open`, so a PR that someone
+         # simply CLOSED and walked away from disappears exactly like one that was fixed. Scoring
+         # that as a win would inflate the very number this record exists to make trustworthy —
+         # the score would be part real and part abandoned work, and nobody could tell which.
+         # (Director 2026-09-08: count it only if the change actually shipped.)
+         so_st=$(gh pr view "$so_n" --repo "$REPO" --json state -q .state 2>/dev/null)
+         case "$so_st" in
+           MERGED) so_out="shipped";;       # finished and landed — the wall genuinely went
+           CLOSED) so_out="abandoned";;     # someone gave up; NOT evidence the opinion was right
+           OPEN)   so_out="green-again";;   # still open, no longer blocked — its checks pass now
+           *)      so_out="";;              # unreadable: record NOTHING and ask again next round,
+         esac                               # because a failed read must never score as a success
+         [ -n "$so_out" ] || { say "  D  #$so_n  could not read its state — outcome left open"; continue; }
+         printf 'outcome\t%s\t%s\n' "$(date '+%F %T')" "$so_out" >> "$so_f"
+         say "  D  #$so_n  second opinion called it $(head -1 "$so_f" | cut -f1) — outcome: $so_out"
+         ledger_record unblocked "second-opinion #$so_n outcome: $so_out (called $(head -1 "$so_f" | cut -f1))" "lane d outcome";;
     esac
   done
 
@@ -311,7 +325,9 @@ unblock_lanes() {  # $1 = run dir (plan.json already written by sweep)
   if [ -f "$FREEZE" ]; then
     fz=$(tail -1 "$FREEZE" 2>/dev/null)
     fz_id=$(printf '%s' "$fz" | shasum | cut -c1-12)
-    fz_pr=$(printf '%s' "$fz" | grep -oE '#[0-9]+' | head -1 | tr -d '#')
+    # the LAST PR named is the one that landed most recently, and a freeze fires right after a
+    # deploy — so it is the better suspect than whichever happened to merge first that round.
+    fz_pr=$(printf '%s' "$fz" | grep -oE '#[0-9]+' | tail -1 | tr -d '#')
     if [ -n "$fz_pr" ] && [ ! -f "$STATE/second-opinion/freeze-$fz_id" ]; then
       : > "$STATE/second-opinion/freeze-$fz_id" 2>/dev/null
       codex_second_opinion "$fz_pr" "main" "the wave froze: ${fz#*$'\t'}" "$run" \
