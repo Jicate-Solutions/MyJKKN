@@ -1,6 +1,6 @@
 # hr_scope_gate — how the migration was verified
 
-`supabase/migrations/20261121090000_hr_scope_gate_institution_access.sql` adds
+`supabase/migrations/20261121164500_hr_scope_gate_institution_access.sql` adds
 three RESTRICTIVE SELECT policies. RLS is not exercised by CI (no database in
 the workflow), and it is the class of change where "the tests pass" is worth
 very little — a policy that grants everything passes every test that only checks
@@ -15,7 +15,7 @@ export LC_ALL=C LANG=C                 # else: "postmaster became multithreaded"
 initdb -D /tmp/pgt/data -U postgres --auth=trust
 pg_ctl -D /tmp/pgt/data -o "-p 54399 -k /tmp -c listen_addresses=127.0.0.1" -l /tmp/pgt/log start
 psql -h 127.0.0.1 -p 54399 -U postgres -f stub-schema.sql
-psql -h 127.0.0.1 -p 54399 -U postgres -f ../../migrations/20261121090000_hr_scope_gate_institution_access.sql
+psql -h 127.0.0.1 -p 54399 -U postgres -f ../../migrations/20261121164500_hr_scope_gate_institution_access.sql
 psql -h 127.0.0.1 -p 54399 -U app_user -d postgres -f assert.sql
 ```
 
