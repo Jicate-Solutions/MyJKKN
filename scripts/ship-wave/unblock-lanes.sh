@@ -31,7 +31,7 @@
 # database. Tiering (UNSTABLE stays blocked — Director: "fix the tests first") is unchanged.
 # Sourced by ship-wave.sh after rebase-remaining.sh (needs say, ledger_record, STATE, REPO, T, MODE, MAX_DISPATCH).
 
-UNBLOCK_DIR="$STATE/unblocked"; mkdir -p "$UNBLOCK_DIR" "$STATE/retried"
+UNBLOCK_DIR="$STATE/unblocked"; mkdir -p "$UNBLOCK_DIR" "$STATE/retried" "$STATE/second-opinion"
 LANE_TTL_H="${LANE_TTL_H:-24}"
 REQUIRED_CHECKS='TypeCheck (PR-scoped)|JKKN terminology|Nav-config hrefs match page.tsx|No Radix SelectItem with empty value'
 
@@ -72,6 +72,119 @@ lane_retry_allowed() {  # $1 = PR number → 0 if this UNRESOLVABLE PR may get i
   python3 -c "import sys,datetime;t=datetime.datetime.fromisoformat(sys.argv[1].replace('Z','+00:00'));h=(datetime.datetime.now(datetime.timezone.utc)-t).total_seconds()/3600;sys.exit(0 if h>=float(sys.argv[2]) else 1)" "$vage" "$LANE_TTL_H"
 }
 lane_retry_mark() { local n="${1#\#}"; [ "$MODE" = "go" ] && printf '%s\n' "$(date '+%F %T')" > "$STATE/retried/$n"; }
+
+# ── Lane D: SECOND OPINION on a terminal verdict (Director 2026-09-08) ────────
+# "if a PR is not green why can't it be made green" — the honest answer was that a Claude tab's
+# UNFIXABLE/UNRESOLVABLE parked a PR forever with nobody ever re-examining it. Two safeguards make
+# a second opinion safe rather than a reopen-everything machine:
+#
+#   STEP 0  MEMORY FIRST. Grep the fleet's memory for this PR number and the failing workflow before
+#           spending a model. On 2026-09-08 the correct diagnosis of #3323 had been in memory since
+#           09-07 and three tabs still read the red as a fault in the PR. 200 ms beats 90 s, always.
+#   STEP 1  CODEX, READ-ONLY, SCHEMA'D. A different model family (codex/GPT-6 on the Director's
+#           ChatGPT team seat — subscription, not metered) reads the PR's worktree and returns
+#           {verdict, reason, evidence, proposed_fix}. `evidence` must quote the line it overturns;
+#           an empty one is discarded unread.
+#   STEP 2  NEVER AUTO-REOPEN. The verdict is posted to the PR as EVIDENCE and recorded in the
+#           ledger. A status change still needs a reproduction against the real failure — codex's
+#           characteristic failure shape is plausible-and-dormant (correct about the code, wrong
+#           about whether it executes), so an elegant argument is a hypothesis, not a reversal.
+#
+# GRADING RULE, learned the hard way the same morning: reproduce with the ORIGINAL invocation —
+# same shell flags, same cwd, same file state — and log the command. The first grading of #3323 ran
+# the pipeline WITHOUT `set -euo pipefail`, got exit 0, and nearly dismissed a correct finding;
+# pipefail was the entire mechanism. A grader that changes the environment can falsely acquit the
+# code and falsely convict the model.
+CODEX_BIN="${CODEX_BIN:-/opt/homebrew/bin/codex}"
+MEMDIRS="${MEMDIRS:-$HOME/.claude/projects/-Users-omm-PROJECTS-MyJKKN/memory $HOME/.claude/projects/-Users-omm-Vaults-Claude-Setup/memory}"
+
+memory_hit() {  # $1 = PR number  $2 = failing check text → prints the file(s) that already answer this
+  # PRECISION MATTERS MORE THAN RECALL HERE: a false hit silently skips the second opinion, so this
+  # matches only (a) the PR number as a whole token — "#3323" not "#33231" — or (b) the FULL check
+  # name as a phrase. A first-word match ("Module") hit three unrelated files in testing. Backup and
+  # index files are excluded: a name in MEMORY.md.bak is not an answer to anything.
+  local d hits="" pr_rx chk_rx
+  pr_rx="#$1([^0-9]|$)"
+  chk_rx=$(printf '%s' "$2" | sed 's/[][\.*^$(){}?+|/]/\\&/g')
+  for d in $MEMDIRS; do
+    [ -d "$d" ] || continue
+    hits="$hits $(grep -rlE -e "$pr_rx" -e "$chk_rx" --include='*.md' "$d" 2>/dev/null \
+                  | grep -v -E '\.bak|MEMORY\.md$' | head -3)"
+  done
+  printf '%s' "$(printf '%s' "$hits" | tr ' ' '\n' | grep -v '^$' | sort -u | head -3 | tr '\n' ' ')"
+}
+
+codex_second_opinion() {  # $1 = PR number  $2 = branch  $3 = failing check(s)  $4 = run dir
+  local n="$1" br="$2" why="$3" run="$4" wt out err schema rc verdict evidence mem
+  # STEP 0 — the fleet may already know
+  mem=$(memory_hit "$n" "$why")
+  if [ -n "$mem" ]; then
+    say "  D  #$n  memory already answers this: $mem — skipping the model"
+    ledger_record unblocked "second-opinion #$n skipped, memory hit: $mem" "lane d memory hit"
+    return 0
+  fi
+  [ -x "$CODEX_BIN" ] || { say "  D  #$n  no codex at $CODEX_BIN — skipped"; return 0; }
+  [ "$MODE" = "go" ] || { say "  D  #$n  would ask codex for a second opinion on '$why'"; return 0; }
+
+  wt="$LOCAL/.claude/worktrees/codex-$n"
+  if [ ! -d "$wt" ]; then
+    git -C "$LOCAL" fetch -q jicate "$br" 2>/dev/null || { say "  D  #$n  cannot fetch $br — skipped"; return 0; }
+    git -C "$LOCAL" worktree add -q --detach "$wt" FETCH_HEAD 2>/dev/null || { say "  D  #$n  cannot make a worktree — skipped"; return 0; }
+  fi
+  schema="$run/codex-schema.json"
+  cat > "$schema" <<'SCHEMA'
+{"type":"object","additionalProperties":false,
+ "required":["verdict","reason","evidence","proposed_fix"],
+ "properties":{
+  "verdict":{"type":"string","enum":["FIXABLE","UNFIXABLE","UNCLEAR"]},
+  "reason":{"type":"string"},
+  "evidence":{"type":"string","description":"the exact failing log line, file:line or config line this verdict rests on — empty is not acceptable"},
+  "proposed_fix":{"type":"string","description":"concrete change, or empty if UNFIXABLE"}}}
+SCHEMA
+  out="$run/codex-$n.json"; err="$run/codex-$n.err"
+  # stdin MUST be closed: `codex exec` reads stdin by default and would block inside this loop,
+  # and in a `while read` loop it would eat the rest of the list (peer receipt, 2026-09-08).
+  timeout 600 "$CODEX_BIN" exec --skip-git-repo-check --sandbox read-only -C "$wt" \
+      --output-schema "$schema" -o "$out" \
+      "A Claude agent tried to make this MyJKKN pull request pass CI and gave up with a terminal verdict. You are the second opinion, from a different model family. Do not trust that verdict; do not assume it is wrong either.
+
+PR #$n, branch $br. The failing check is '$why'. Find that check's workflow under .github/workflows/ and the script it runs, read them in this repo, and work out the ACTUAL cause. Distinguish three cases: (a) the PR's own diff genuinely violates the rule; (b) the gate or its scanner is itself broken or unsatisfiable for a PR of this shape; (c) the gate has an exemption or configuration path that would let this PR pass with its meaning intact.
+
+Before answering UNFIXABLE, actively probe for (c): read the scanner for exemptions, allowlists, adjacency rules and file-type filters. A wall that has a documented escape hatch is not a wall.
+
+Your evidence field must quote the exact workflow line, script line, or file:line your verdict rests on. Vague evidence makes the verdict worthless and it will be discarded. Never write to any file; you are read-only." \
+      < /dev/null > "$run/codex-$n.stdout" 2>"$err"
+  rc=$?
+  # judge by EXIT CODE, never by stderr: `failed to load models cache: missing field base_instructions`
+  # is printed on every healthy run.
+  [ "$rc" -eq 0 ] && [ -s "$out" ] || { say "  D  #$n  codex failed (exit $rc) — see $err"; ledger_record unblocked "second-opinion #$n failed exit $rc" "lane d codex failed"; return 0; }
+  verdict=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('verdict',''))" "$out" 2>/dev/null)
+  evidence=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('evidence','').strip())" "$out" 2>/dev/null)
+  if [ -z "$evidence" ]; then
+    say "  D  #$n  codex returned '$verdict' with EMPTY evidence — discarded unread"
+    ledger_record unblocked "second-opinion #$n discarded: empty evidence" "lane d empty evidence"; return 0
+  fi
+  : > "$STATE/second-opinion/$n" 2>/dev/null || { mkdir -p "$STATE/second-opinion"; : > "$STATE/second-opinion/$n"; }
+  say "  D  #$n  codex says $verdict — posted to the PR as evidence (no status change)"
+  python3 - "$out" "$n" "$why" "$REPO" <<'POST'
+import json, subprocess, sys
+d = json.load(open(sys.argv[1])); n, why, repo = sys.argv[2], sys.argv[3], sys.argv[4]
+body = (
+ "**Second opinion — a different model family read this PR cold.**\n\n"
+ f"A Claude agent had filed a terminal verdict on the failing check `{why}`. This is not a status change: "
+ "it is evidence, and it must be reproduced against the real failure before anything is reopened.\n\n"
+ f"**Verdict:** `{d.get('verdict','')}`\n\n"
+ f"**Reasoning:** {d.get('reason','')}\n\n"
+ f"**Evidence it rests on:**\n\n```\n{d.get('evidence','')}\n```\n"
+ + (f"\n**Proposed fix:**\n\n{d['proposed_fix']}\n" if d.get('proposed_fix') else "")
+ + "\n_Grading rule: reproduce with the original invocation — same shell flags, same working directory, "
+   "same file state — before believing this. A reproduction that changes the environment can acquit broken "
+   "code and convict a correct finding._"
+)
+subprocess.run(["gh","pr","comment",n,"--repo",repo,"--body",body], capture_output=True)
+POST
+  ledger_record unblocked "second-opinion #$n: $verdict (evidence posted)" "lane d $(printf '%s' "$verdict" | tr 'A-Z' 'a-z')"
+}
 
 # ── the CI-FIX helper tab (Lane B, attempt 2) ─────────────────────────────────
 dispatch_fix_lane() {  # $1 = run dir  $2 = "#n #m …"  $3 = failing check name(s)  → bumps DISPATCHED
@@ -141,6 +254,9 @@ PY
           fix-dispatched)
             human_v=$(gh pr view "$n" --repo "$REPO" --json comments -q '[.comments[].body | capture("W12-VERDICT: (?<v>[A-Z]+)")?.v] | last // ""' 2>/dev/null)
             if [ "$human_v" = "UNFIXABLE" ]; then
+              # Lane D: one second opinion from another model family BEFORE the PR is handed to its
+              # author. Memory is consulted first; the verdict is posted as evidence, never acted on.
+              [ -f "$STATE/second-opinion/$n" ] || codex_second_opinion "$n" "$br" "$why" "$run"
               if [ ! -f "$STATE/nudged/$n" ]; then
                 if [ "$MODE" = "go" ] && gh pr comment "$n" --repo "$REPO" --body "A W12 helper tab tried to make the check '$why' pass on this PR and concluded the failure is real product behaviour only you can decide (W12-VERDICT: UNFIXABLE). The ship wave will pick the PR up automatically once its checks are green — it will not close it, and it will not ask again." >/dev/null 2>&1; then : > "$STATE/nudged/$n"; say "  B  #$n  UNFIXABLE — asked its author once"; else say "  B  #$n  UNFIXABLE — would ask its author once"; fi
               else say "  B  #$n  UNFIXABLE — author already asked; the wave leaves it"; fi

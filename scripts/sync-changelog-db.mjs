@@ -98,6 +98,12 @@ const STALENESS_FLOOR = 0.9;
 /** Absolute floor for a FIRST sync — see the guard for why a ratio cannot work there. */
 const FIRST_SEED_FLOOR = 1000;
 
+/** Which application's history this job writes. changelog_entries is keyed by
+ *  (app_key, sha), so this value is what keeps MyJKKN's entries from colliding
+ *  with — or being pruned by — any other application that later syncs into the
+ *  same table. It must match the column's DEFAULT in the migration. */
+const APP_KEY = 'myjkkn';
+
 /** Rows per INSERT. 9 columns × 500 = 4,500 parameters, well inside Postgres's
  *  65,535 limit, and ten round trips for the whole history instead of 4,746. */
 const BATCH = 500;
@@ -232,8 +238,13 @@ async function main() {
     }
     console.log(`Upserted ${Object.keys(modules).length} modules.`);
 
-    // Entries, in batches. ON CONFLICT (sha) DO UPDATE makes a re-run idempotent:
-    // the same commit is written once and then corrected in place, never doubled.
+    // Entries, in batches. ON CONFLICT (app_key, sha) DO UPDATE makes a re-run
+    // idempotent: the same commit is written once and then corrected in place,
+    // never doubled. The conflict target is the PAIR, because a bare sha is only
+    // unique inside one repository — see the UNIQUE in the migration.
+    //
+    // app_key is not listed in the INSERT: the column defaults to APP_KEY's value
+    // and this job only ever writes MyJKKN's own history.
     //
     // `hidden` and `hidden_reason` are ABSENT from the SET list on purpose. That
     // omission is the takedown guarantee — read the header before adding them.
@@ -252,7 +263,7 @@ async function main() {
         `INSERT INTO public.changelog_entries
            (sha, entry_date, kind, module_key, subject, author, pr_number, breaking, ordinal)
          VALUES ${rows.join(', ')}
-         ON CONFLICT (sha) DO UPDATE
+         ON CONFLICT (app_key, sha) DO UPDATE
            SET entry_date = EXCLUDED.entry_date,
                kind       = EXCLUDED.kind,
                module_key = EXCLUDED.module_key,
@@ -268,11 +279,18 @@ async function main() {
     console.log(`Upserted ${entries.length} entries.`);
 
     // Drop what the rules no longer produce — never a hidden row, see the header.
+    //
+    // SCOPED TO THIS APP, and that is load-bearing rather than tidy. The list
+    // being compared against is MyJKKN's git history and nothing else, so
+    // without `app_key = $2` this statement reads "delete every entry I did not
+    // just write" and a second application's entire changelog disappears on the
+    // first MyJKKN sync after it arrives — silently, inside the same transaction
+    // that looks like it succeeded.
     const pruned = await client.query(
       `DELETE FROM public.changelog_entries
-        WHERE NOT hidden AND NOT (sha = ANY($1::text[]))
+        WHERE app_key = $2 AND NOT hidden AND NOT (sha = ANY($1::text[]))
         RETURNING sha, entry_date, subject`,
-      [entries.map((e) => e.h)]
+      [entries.map((e) => e.h), APP_KEY]
     );
     if (pruned.rowCount) {
       console.log(`Removed ${pruned.rowCount} entries the rules no longer produce:`);
@@ -284,6 +302,9 @@ async function main() {
 
     // What the page can actually show — hidden rows are excluded by the read
     // policy, so counting them here would print a number nobody can reach.
+    // Counted across every app_key on purpose: changelog_sync is one row for the
+    // whole table, so its entry_count is a platform figure. If a second app ever
+    // writes here and the stamp needs to be per-app, that row becomes per-app too.
     const after = await client.query(
       `SELECT count(*) FILTER (WHERE NOT hidden)::int AS visible,
               count(*)::int AS total

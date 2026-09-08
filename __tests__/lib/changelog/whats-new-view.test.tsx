@@ -185,3 +185,87 @@ describe('WhatsNewView — a failed request', () => {
     );
   });
 });
+
+describe("WhatsNewView — a failed archive must not take the page with it", () => {
+  /** meta that advertises an archive, so the "show earlier" control renders. */
+  const META_WITH_ARCHIVE = { ...META, archiveCount: 4 };
+
+  const ARCHIVE = [
+    { h: 'ddd4444', d: '2026-05-30', t: 'fixed', m: 'billing', s: 'An older billing fix', a: 'Boobalan' },
+  ];
+
+  /** meta + recent always succeed; the archive fails until `failArchive` flips. */
+  function stubFetch(state: { failArchive: boolean }) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.includes('part=archive')) {
+          return state.failArchive
+            ? Promise.resolve({
+                ok: false,
+                status: 500,
+                json: () => Promise.resolve({ error: 'Internal Server Error' }),
+              } as Response)
+            : Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(ARCHIVE) } as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve(url.includes('part=meta') ? META_WITH_ARCHIVE : RECENT),
+        } as Response);
+      })
+    );
+  }
+
+  beforeEach(() => {
+    permissionsMock.current = { permissions: {}, isSuperAdmin: true, isLoading: false };
+  });
+
+  it('keeps the entries that DID load when the archive fetch fails', async () => {
+    // The regression, and it is a page-destroying one: the archive's catch wrote
+    // the same `error` field the initial load uses, and the view early-returns on
+    // `error`. So a reader who had the last 90 days on screen, filtered and
+    // scrolled, clicked "show earlier", and watched all of it be replaced by a
+    // card about the entries they did not have. The half that worked was thrown
+    // away to report the half that did not.
+    stubFetch({ failArchive: true });
+    render(<WhatsNewView />);
+
+    await waitFor(() =>
+      expect(screen.getByText('A receipt total ignored the discount')).toBeInTheDocument()
+    );
+    fireEvent.click(screen.getByRole('button', { name: /show changes before/i }));
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+
+    // The whole point: still there, alongside the warning.
+    expect(screen.getByText('A receipt total ignored the discount')).toBeInTheDocument();
+    expect(screen.getByText('Bulk import for employee records')).toBeInTheDocument();
+    expect(screen.getByText('Sign-in remembers your last screen')).toBeInTheDocument();
+  });
+
+  it('offers a retry that actually re-fetches, rather than telling the reader to refresh', async () => {
+    // The second half of the bug. The catch left the in-flight latch set and
+    // `wantArchive` true, so the control was permanently disabled and a second
+    // click changed no effect dependency — nothing could re-run. The advice was
+    // "Please refresh", which discards and re-fetches the half that succeeded.
+    const state = { failArchive: true };
+    stubFetch(state);
+    render(<WhatsNewView />);
+
+    await waitFor(() =>
+      expect(screen.getByText('A receipt total ignored the discount')).toBeInTheDocument()
+    );
+    fireEvent.click(screen.getByRole('button', { name: /show changes before/i }));
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+
+    const retry = screen.getByRole('button', { name: /try again/i });
+    expect(retry).not.toBeDisabled();
+
+    state.failArchive = false;
+    fireEvent.click(retry);
+
+    await waitFor(() => expect(screen.getByText('An older billing fix')).toBeInTheDocument());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+});

@@ -151,6 +151,19 @@ export function useBlockInstitutions(blockId: string) {
   });
 }
 
+// The colleges a set of blocks serves — the institution scope of a block-scoped
+// warden, whose own profile institution (JKKN Main Office) owns no learner.
+// Feed it useMyBlockAccess()'s grants.
+export function useInstitutionsForBlocks(blockIds: string[] | undefined) {
+  const ids = blockIds?.length ? [...blockIds].sort() : [];
+  return useQuery({
+    queryKey: [...hostelBlockKeys.all, 'institutions-for-blocks', ids.join(',')] as const,
+    queryFn: () => HostelBlockService.getInstitutionIdsForBlocks(ids),
+    enabled: ids.length > 0,
+    staleTime: 5 * 60_000,
+  });
+}
+
 export function useAddBlockInstitution(blockId: string) {
   const queryClient = useQueryClient();
   return useMutation({

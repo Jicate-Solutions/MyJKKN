@@ -214,6 +214,7 @@ export function WhatsNewView() {
     error,
     hasArchive,
     loadingArchive,
+    archiveError,
     loadArchive,
   } = useChangelog();
 
@@ -561,16 +562,36 @@ export function WhatsNewView() {
           </Button>
         )}
         {shown >= filtered.length && hasArchive && (
-          <Button
-            variant="outline"
-            className="h-auto max-w-full whitespace-normal py-2 text-center"
-            onClick={loadArchive}
-            disabled={loadingArchive}
-            aria-busy={loadingArchive}
-          >
-            {loadingArchive && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />}
-            Show changes before {formatDay(meta.recentFrom)}
-          </Button>
+          <>
+            {/* Reported HERE, beside the control that failed, rather than as the
+                whole page. Everything above this line loaded and is still
+                usable; only the older entries are missing. role="alert" because
+                it appears after a click, and text-amber-600 needs its dark
+                counterpart to stay legible in both themes. */}
+            {archiveError && (
+              <p
+                role="alert"
+                className="flex items-start gap-2 text-center text-sm text-amber-600 dark:text-amber-500"
+              >
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                <span>{archiveError} The changes above are unaffected.</span>
+              </p>
+            )}
+            <Button
+              variant="outline"
+              className="h-auto max-w-full whitespace-normal py-2 text-center"
+              onClick={loadArchive}
+              disabled={loadingArchive}
+              aria-busy={loadingArchive}
+            >
+              {loadingArchive && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
+              )}
+              {archiveError
+                ? 'Try again'
+                : `Show changes before ${formatDay(meta.recentFrom)}`}
+            </Button>
+          </>
         )}
         {/* The age is shown ALWAYS, not only when it is bad (Director, 2026-09-06).
             The list can stop moving while still looking perfectly healthy, and a
