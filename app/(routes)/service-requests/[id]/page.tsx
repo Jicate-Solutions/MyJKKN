@@ -98,9 +98,15 @@ export default function ServiceRequestDetailPage({
   const isClosed = request?.status === 'closed';
   // Certificates are issued once the request is approved (or already
   // fulfilled/closed) and the service type has at least one template enabled.
+  // Anyone who recorded an approval on this request (e.g. the final approver)
+  // may issue the certificate, alongside office staff and super admins.
+  const isRequestApprover =
+    request?.approvals?.some((a) => a.approver_id === profile?.id && a.action === 'approved') ??
+    false;
   const canIssueCertificate =
     (isApproved || isFulfilled || isClosed) &&
-    (request?.service_type?.certificate_template_keys?.length ?? 0) > 0;
+    (request?.service_type?.certificate_template_keys?.length ?? 0) > 0 &&
+    (isSuperAdmin || can('service_requests.manage') || isRequestApprover);
   const isCancellable = ['draft', 'returned', 'submitted'].includes(request?.status || '');
 
   const handleProcessApproval = (data: ProcessApprovalDto) => {
@@ -241,19 +247,20 @@ export default function ServiceRequestDetailPage({
                 )}
 
                 {/* Admin / staff actions */}
+                {canIssueCertificate && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCertificateOpen(true)}
+                    className="gap-2"
+                  >
+                    <Award className="h-4 w-4" />
+                    Download Certificate
+                  </Button>
+                )}
+
                 {(isSuperAdmin || can('service_requests.manage')) && (
                   <>
-                    {canIssueCertificate && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setCertificateOpen(true)}
-                        className="gap-2"
-                      >
-                        <Award className="h-4 w-4" />
-                        Download Certificate
-                      </Button>
-                    )}
                     {isApproved && (
                       <Button
                         size="sm"

@@ -5,10 +5,11 @@
 //     &year_of_study=I&download=1
 //
 // Streams a print-ready A4 PDF certificate for an APPROVED service request.
-// Office staff (service_requests.manage) or super admins only, and only for
-// requests visible to the caller under RLS (their institution / CAS siblings;
-// super admins see all); the template must be enabled on the request's
-// service type. `download=1` sets a
+// Office staff (service_requests.manage), super admins, or an approver of the
+// request (someone who recorded an approval on it, or who is listed on any
+// approval step of its service type) — and only for requests visible to the
+// caller under RLS (their institution / CAS siblings; super admins see all);
+// the template must be enabled on the request's service type. `download=1` sets a
 // Content-Disposition attachment and records the issue on the timeline —
 // preview loads (no flag) render inline and are not logged.
 // ============================================================================
@@ -20,7 +21,10 @@ export const dynamic = 'force-dynamic';
 import { NextResponse, connection } from 'next/server';
 import { z } from 'zod';
 import { currentUser } from '@/lib/utils/parent-admin-auth';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import {
+  createServerSupabaseClient,
+  createServiceRoleClient,
+} from '@/lib/supabase/server';
 import { ServiceRequestTimelineService } from '@/lib/services/service-requests/service-request-timeline-service';
 import {
   CERTIFICATE_TEMPLATE_KEYS,
@@ -54,7 +58,22 @@ export async function GET(
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    if (!user.isSuperAdmin && user.permissions[CERTIFICATE_PERMISSION] !== true) {
+    // Office staff (service_requests.manage), super admins, or anyone who
+    // APPROVED this request (its recorded approvers) may issue the certificate.
+    const db = createServiceRoleClient() as any;
+    let allowed = user.isSuperAdmin || user.permissions[CERTIFICATE_PERMISSION] === true;
+    if (!allowed) {
+      const { data: myApproval } = await db
+        .from('service_request_approvals')
+        .select('id')
+        .eq('service_request_id', id)
+        .eq('approver_id', user.id)
+        .eq('action', 'approved')
+        .limit(1)
+        .maybeSingle();
+      allowed = Boolean(myApproval);
+    }
+    if (!allowed) {
       return NextResponse.json(
         { error: 'You do not have permission to issue certificates' },
         { status: 403 }
