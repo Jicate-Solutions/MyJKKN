@@ -43,6 +43,14 @@
 
 UNBLOCK_DIR="$STATE/unblocked"; mkdir -p "$UNBLOCK_DIR" "$STATE/retried" "$STATE/second-opinion"
 LANE_TTL_H="${LANE_TTL_H:-24}"
+# Most PRs a single CI-fix tab may be handed. A helper tab is a ONE-SHOT invocation — it receives its
+# whole job in one prompt and works until finished — so it is BUSY from birth to death and never
+# presents the idle moment the W13 rollover needs. Nothing outside it can hand it over: if the job
+# does not fit in one context the tab compacts mid-run and then finishes work it can no longer
+# remember. Job size is therefore the only lever, and Step 2.7 made each PR heavier (enumerate every
+# bespoke gate and run it, per PR). "The same broken check on eight PRs is ONE job" is still true —
+# it is just no longer one TAB. (Director 2026-09-08, on tabs compacting past 75%.)
+FIX_CAP="${FIX_CAP:-5}"
 REQUIRED_CHECKS='TypeCheck (PR-scoped)|JKKN terminology|Nav-config hrefs match page.tsx|No Radix SelectItem with empty value'
 
 _lane_age_h() {  # $1 = marker file → hours since written, or 9999
@@ -394,9 +402,15 @@ PY
     esac
   done < "$run/lanes.tsv"
   # fix tabs: one per failing-check group (the same broken test file on eight PRs is ONE job)
+  local grp defer
   for why in "${!FIXQ[@]}"; do
-    [ "$MODE" = "go" ] || { say "  B  would send a CI-fix tab for${FIXQ[$why]} ('$why')"; continue; }
-    dispatch_fix_lane "$run" "$(printf '%s' "${FIXQ[$why]}" | sed 's/^ //')" "$why"
+    grp=$(printf '%s' "${FIXQ[$why]}" | tr ' ' '\n' | grep -v '^$' | head -"$FIX_CAP"     | tr '\n' ' ' | sed 's/ *$//')
+    defer=$(printf '%s' "${FIXQ[$why]}" | tr ' ' '\n' | grep -v '^$' | tail -n +$((FIX_CAP+1)) | tr '\n' ' ' | sed 's/ *$//')
+    # the overflow is NOT lane-marked (dispatch_fix_lane marks only what it is given), so the next
+    # round re-queues it through the normal path rather than losing it.
+    [ -z "$defer" ] || say "  B  '$why' exceeds the $FIX_CAP-PR cap — sending $grp now; $defer waits for the next round"
+    [ "$MODE" = "go" ] || { say "  B  would send a CI-fix tab for $grp ('$why')"; continue; }
+    dispatch_fix_lane "$run" "$grp" "$why"
   done
   say "  lanes: $(grep -c . "$run/lanes.tsv" 2>/dev/null || echo 0) PRs examined · $acted acted on now"
 }
