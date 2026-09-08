@@ -72,9 +72,25 @@ interface DraftStep {
   escalate_after_hours: number;
 }
 
-let seq = 0;
+/*
+ * A MODULE-LEVEL COUNTER IS NOT AN IDENTITY. This was `let seq = 0` with
+ * `s${++seq}`, which is monotonic only for as long as the module instance
+ * lives. Turbopack re-evaluates the module on every Fast Refresh while React
+ * keeps the `steps` state, so editing this file and then adding a step handed
+ * out `s1` a second time — "Encountered two children with the same key, `s1`",
+ * and React then reconciles two different steps onto one node.
+ *
+ * Mirrors lib/utils/question-papers/sub-questions.ts: randomUUID where the
+ * context allows it, and a fallback for the http:// LAN origins where
+ * crypto.randomUUID is simply undefined.
+ */
+const draftKey = (prefix: string): string => {
+  const c: any = (globalThis as any).crypto;
+  return `${prefix}${c?.randomUUID ? c.randomUUID() : `${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`}`;
+};
+
 const newStep = (p?: Partial<DraftStep>): DraftStep => ({
-  key: `s${++seq}`,
+  key: draftKey('s'),
   approvers: [newApprover()],
   quorum: 'any',
   escalate_after_hours: 48,
@@ -526,22 +542,45 @@ export function LeaveApprovalFlowDialog({
             <DrawerTitle>{title}</DrawerTitle>
             <DrawerDescription>{description}</DrawerDescription>
           </DrawerHeader>
-          <div className="space-y-4 overflow-y-auto px-4 pb-2">{body}</div>
+          {/* min-h-0 flex-1 for the same reason as the dialog below: DrawerContent
+              is `flex h-auto flex-col`, so without them this body grows to fit its
+              content and pushes DrawerFooter — Save included — past the 90vh cap. */}
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-2">{body}</div>
           <DrawerFooter className="gap-2">{footer}</DrawerFooter>
         </DrawerContent>
       </Drawer>
     );
   }
 
+  /*
+   * A FLEX SHELL, NOT A SCROLLING ROOT. The base DialogContent is `grid … p-6`
+   * with no height cap, and the obvious fix — `max-h-[90vh] overflow-y-auto` on
+   * the root — is wrong twice over. It scrolls the footer away with the body,
+   * and it makes the dialog the nearest CLIPPING ancestor. RolePicker portals
+   * its popover INTO this element on purpose (see role-picker.tsx: outside it
+   * the focus trap eats keystrokes and react-remove-scroll eats wheel events),
+   * so a clipping root cuts the role dropdown off at the dialog's bottom edge —
+   * the list is rendered and focused, just invisible, which is what a step's
+   * role field looked like once the flow grew past a couple of steps.
+   *
+   * Only the BODY scrolls. The root keeps `overflow: visible`, so the popover
+   * can escape the dialog and Radix can flip it against the viewport.
+   *
+   * min-h-0 is load-bearing, not decoration: a flex child defaults to
+   * `min-height: auto` and refuses to shrink below its content, so without it
+   * the body never scrolls and max-h-[90vh] silently does nothing. The -mx-6/px-6
+   * pair is what keeps the scrollbar on the dialog's edge while the content
+   * keeps the p-6 gutter.
+   */
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[90vh] max-w-2xl flex-col">
+        <DialogHeader className="shrink-0">
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        {body}
-        <DialogFooter className="gap-2 sm:justify-between">{footer}</DialogFooter>
+        <div className="-mx-6 min-h-0 flex-1 space-y-4 overflow-y-auto px-6">{body}</div>
+        <DialogFooter className="shrink-0 gap-2 sm:justify-between">{footer}</DialogFooter>
       </DialogContent>
     </Dialog>
   );
