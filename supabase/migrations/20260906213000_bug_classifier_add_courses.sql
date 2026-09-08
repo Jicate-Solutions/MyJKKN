@@ -45,6 +45,21 @@
 
 DROP VIEW IF EXISTS public.bug_reports_with_details;
 
+-- ci:allow-anon-table bug_reports_ready_for_repro is NOT a new relation — it
+-- already exists in production and is dropped and restored here only so the
+-- generated column beneath it can be replaced. Its REVOKE is real but lives as
+-- EXECUTE 'REVOKE ...' inside the restoring DO block, which this guard's own
+-- header documents as its deliberate false positive ("a string literal inside a
+-- DO body is treated as executable ... -- ci:allow-anon-table covers it"). The
+-- statement matcher needs a statement that STARTS with REVOKE, and one cannot
+-- be written at the top level here: the restore is conditional on the view
+-- having existed, so an unconditional top-level REVOKE would raise 42P01 and
+-- roll the whole migration back in any environment that never had the view.
+-- The lock is instead asserted at RUNTIME in the closing DO block — a stronger
+-- check than this one, because it reads has_table_privilege on the rebuilt view
+-- rather than looking for the presence of a statement. The sibling view
+-- bug_reports_with_details keeps its plain top-level REVOKE either way; this
+-- marker waives the check, not the revoke.
 -- ---------------------------------------------------------------------------
 -- The SECOND dependent view. Added 2026-09-08 after this file froze the ship
 -- wave at 11:24 with:
