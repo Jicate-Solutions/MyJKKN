@@ -101,8 +101,12 @@ export default function ServiceRequestDetailPage({
   // Anyone who recorded an approval on this request (e.g. the final approver)
   // may issue the certificate, alongside office staff and super admins.
   const isRequestApprover =
-    request?.approvals?.some((a) => a.approver_id === profile?.id && a.action === 'approved') ??
-    false;
+    (request?.approvals?.some((a) => a.approver_id === profile?.id && a.action === 'approved') ??
+      false) ||
+    (request?.service_type?.approval_steps?.some((st) =>
+      (st.approver_user_ids ?? []).includes(profile?.id ?? '')
+    ) ??
+      false);
   const canIssueCertificate =
     (isApproved || isFulfilled || isClosed) &&
     (request?.service_type?.certificate_template_keys?.length ?? 0) > 0 &&

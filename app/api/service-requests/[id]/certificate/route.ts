@@ -58,20 +58,31 @@ export async function GET(
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    // Office staff (service_requests.manage), super admins, or anyone who
-    // APPROVED this request (its recorded approvers) may issue the certificate.
+    // Who may issue: super admins, office staff (service_requests.manage),
+    // anyone who recorded an approval on this request, or anyone listed as an
+    // approver on ANY step of the request's service type.
     const db = createServiceRoleClient() as any;
     let allowed = user.isSuperAdmin || user.permissions[CERTIFICATE_PERMISSION] === true;
     if (!allowed) {
-      const { data: myApproval } = await db
-        .from('service_request_approvals')
-        .select('id')
-        .eq('service_request_id', id)
-        .eq('approver_id', user.id)
-        .eq('action', 'approved')
-        .limit(1)
-        .maybeSingle();
-      allowed = Boolean(myApproval);
+      const [{ data: myApproval }, { data: srType }] = await Promise.all([
+        db
+          .from('service_request_approvals')
+          .select('id')
+          .eq('service_request_id', id)
+          .eq('approver_id', user.id)
+          .eq('action', 'approved')
+          .limit(1)
+          .maybeSingle(),
+        db
+          .from('service_requests')
+          .select('service_type:service_types(approval_steps:service_request_approval_steps(approver_user_ids))')
+          .eq('id', id)
+          .maybeSingle(),
+      ]);
+      const steps: Array<{ approver_user_ids: string[] | null }> =
+        srType?.service_type?.approval_steps ?? [];
+      allowed =
+        Boolean(myApproval) || steps.some((st) => (st.approver_user_ids ?? []).includes(user.id));
     }
     if (!allowed) {
       return NextResponse.json(
