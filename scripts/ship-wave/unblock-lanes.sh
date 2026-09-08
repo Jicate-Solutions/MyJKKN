@@ -19,6 +19,16 @@
 #                         ≤ HELPER_CAP alive), same machinery as the conflict lane, different job:
 #                         reproduce the named failing check, fix it on the PR branch, push, comment.
 #                         Terminal verdict `W12-VERDICT: UNFIXABLE` = the author's, one nudge, never again.
+#   Lane D  SECOND OPINION — a different model family re-reads a wall the fleet has stopped making
+#                         progress against. FOUR firing points, each one a place the wave would
+#                         otherwise spend another tab on a question it has already failed:
+#                           1. a tab filed W12-VERDICT: UNFIXABLE
+#                           2. the wave is FROZEN and its own one-line account is all anyone has
+#                           3. merging main conflicted twice on the same branch
+#                           4. a PR has been red past 3× the lane TTL with no verdict from anyone
+#                         All four go through codex_second_opinion, so all four inherit its three
+#                         safeguards: memory is grepped first, empty evidence is discarded unread,
+#                         and the verdict is posted as evidence — nothing is ever auto-reopened.
 #   Lane C  ONE RETRY   — a helper's UNRESOLVABLE verdict older than 24 h earns ONE fresh tab with the
 #                         previous verdict as a hint (Director: "one more helper try"). After that the
 #                         existing once-only author nudge applies. Implemented inside dispatch_clusters
@@ -114,8 +124,12 @@ memory_hit() {  # $1 = PR number  $2 = failing check text → prints the file(s)
   printf '%s' "$(printf '%s' "$hits" | tr ' ' '\n' | grep -v '^$' | sort -u | head -3 | tr '\n' ' ')"
 }
 
-codex_second_opinion() {  # $1 = PR number  $2 = branch  $3 = failing check(s)  $4 = run dir
-  local n="$1" br="$2" why="$3" run="$4" wt out err schema rc verdict evidence mem
+codex_second_opinion() {  # $1 = PR number  $2 = branch  $3 = failing check(s)  $4 = run dir  $5 = what triggered the ask
+  local n="$1" br="$2" why="$3" run="$4" wt out err schema rc verdict evidence mem trig
+  # $5 is the one sentence the PR comment opens with. It exists because a reader must be able to
+  # tell WHICH condition summoned the second opinion — "a tab gave up" and "this has been red for
+  # a week with nobody looking" deserve different weight from whoever reads the comment.
+  trig="${5:-A Claude agent had filed a terminal verdict on the failing check \`$why\`.}"
   # STEP 0 — the fleet may already know
   mem=$(memory_hit "$n" "$why")
   if [ -n "$mem" ]; then
@@ -166,12 +180,12 @@ Your evidence field must quote the exact workflow line, script line, or file:lin
   fi
   : > "$STATE/second-opinion/$n" 2>/dev/null || { mkdir -p "$STATE/second-opinion"; : > "$STATE/second-opinion/$n"; }
   say "  D  #$n  codex says $verdict — posted to the PR as evidence (no status change)"
-  python3 - "$out" "$n" "$why" "$REPO" <<'POST'
+  python3 - "$out" "$n" "$why" "$REPO" "$trig" <<'POST'
 import json, subprocess, sys
-d = json.load(open(sys.argv[1])); n, why, repo = sys.argv[2], sys.argv[3], sys.argv[4]
+d = json.load(open(sys.argv[1])); n, why, repo, trig = sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
 body = (
  "**Second opinion — a different model family read this PR cold.**\n\n"
- f"A Claude agent had filed a terminal verdict on the failing check `{why}`. This is not a status change: "
+ f"{trig} This is not a status change: "
  "it is evidence, and it must be reproduced against the real failure before anything is reopened.\n\n"
  f"**Verdict:** `{d.get('verdict','')}`\n\n"
  f"**Reasoning:** {d.get('reason','')}\n\n"
@@ -227,7 +241,27 @@ The local checkout at $LOCAL is far behind production: trust ONLY jicate/main an
 # ── stage 1b: cause → action ──────────────────────────────────────────────────
 unblock_lanes() {  # $1 = run dir (plan.json already written by sweep)
   local run="$1" lane n br why st res stage age human_v
+  local fz fz_id fz_pr
   say; say "--- 1b. unblock lanes: stale heads → merge main · red checks → merge main, then a CI-fix tab · once per PR per ${LANE_TTL_H}h ---"
+
+  # ── Lane D firing point 2 of 4: A FREEZE NOBODY HAS DIAGNOSED (Director 2026-09-08) ────────
+  # A freeze stops every merge until a human clears it, and the only record of why is one line of
+  # the wave's own prose — written by the code that failed, about itself. That is the weakest
+  # possible witness, and it is the line the Director reads on his phone. Ask the other model
+  # family what actually broke while the evidence is still on disk.
+  # The marker is written BEFORE the call, not after: a freeze persists until a human acts, so a
+  # retry-on-failure here would re-spend a model every round for hours. One ask per distinct
+  # freeze line; a new freeze has a new hash and gets its own.
+  if [ -f "$FREEZE" ]; then
+    fz=$(tail -1 "$FREEZE" 2>/dev/null)
+    fz_id=$(printf '%s' "$fz" | shasum | cut -c1-12)
+    fz_pr=$(printf '%s' "$fz" | grep -oE '#[0-9]+' | head -1 | tr -d '#')
+    if [ -n "$fz_pr" ] && [ ! -f "$STATE/second-opinion/freeze-$fz_id" ]; then
+      : > "$STATE/second-opinion/freeze-$fz_id" 2>/dev/null
+      codex_second_opinion "$fz_pr" "main" "the wave froze: ${fz#*$'\t'}" "$run" \
+        "The ship wave FROZE and stopped merging. Its own account of why is: ${fz#*$'\t'}"
+    fi
+  fi
   REQ="$REQUIRED_CHECKS" QUIET="$QUIET_MIN" python3 - "$run/plan.json" <<'PY' > "$run/lanes.tsv"
 import json, sys, os, re
 p = json.load(open(sys.argv[1])); req = set(os.environ["REQ"].split("|")); quiet = int(os.environ.get("QUIET", "30"))
@@ -257,7 +291,16 @@ PY
         case "$res" in
           merged)  _lane_mark "$n" merged-main; acted=$((acted+1)); say "  A  #$n  merged main into $br — CI re-running"; ledger_record unblocked "stale head #$n: merged main into $br" "lane a merge main";;
           current) _lane_mark "$n" current; say "  A  #$n  already current with main and still BLOCKED — a required check is missing from its head; needs a human look";;
-          conflict) _lane_mark "$n" conflict; say "  A  #$n  merging main CONFLICTS — it turns DIRTY, the conflict lane takes it next round";;
+          conflict)
+            # ── Lane D firing point 3 of 4: A CONFLICT THE WAVE ALREADY LOST ────────────────
+            # The first conflict is ordinary drift. The second means merging main is not the
+            # answer for this branch, and the conflict lane is about to spend another tab
+            # discovering that again. Ask what the real overlap is before it does.
+            if [ "$stage" = "conflict" ] && [ ! -f "$STATE/second-opinion/$n" ]; then
+              codex_second_opinion "$n" "$br" "merge conflict with main, on the second attempt" "$run" \
+                "The wave merged main into this branch, hit a conflict, waited, and hit a conflict again on the next attempt."
+            fi
+            _lane_mark "$n" conflict; say "  A  #$n  merging main CONFLICTS — it turns DIRTY, the conflict lane takes it next round";;
           *) say "  A  #$n  $res";;
         esac;;
       B)
@@ -272,7 +315,16 @@ PY
                 if [ "$MODE" = "go" ] && gh pr comment "$n" --repo "$REPO" --body "A W12 helper tab tried to make the check '$why' pass on this PR and concluded the failure is real product behaviour only you can decide (W12-VERDICT: UNFIXABLE). The ship wave will pick the PR up automatically once its checks are green — it will not close it, and it will not ask again." >/dev/null 2>&1; then : > "$STATE/nudged/$n"; say "  B  #$n  UNFIXABLE — asked its author once"; else say "  B  #$n  UNFIXABLE — would ask its author once"; fi
               else say "  B  #$n  UNFIXABLE — author already asked; the wave leaves it"; fi
             elif [ "$age" -lt "$LANE_TTL_H" ]; then say "  B  #$n  fix tab sent ${age}h ago — waiting"
-            else say "  B  #$n  fix tab is ${age}h old with no verdict — queued for a fresh tab"; FIXQ["$why"]="${FIXQ[$why]:-} #$n"; fi;;
+            else
+              # ── Lane D firing point 4 of 4: RED FOR DAYS WITH NO VERDICT ──────────────────
+              # A tab was sent, said nothing, and the wave is about to send another. Past three
+              # lane TTLs that is not a slow tab — it is a question no tab has been able to
+              # answer, and the next one will meet the same wall. Ask first.
+              if [ "$age" -ge $(( LANE_TTL_H * 3 )) ] && [ ! -f "$STATE/second-opinion/$n" ]; then
+                codex_second_opinion "$n" "$br" "$why" "$run" \
+                  "This PR has been red on \`$why\` for ${age}h and no helper tab has ever filed a verdict on it."
+              fi
+              say "  B  #$n  fix tab is ${age}h old with no verdict — queued for a fresh tab"; FIXQ["$why"]="${FIXQ[$why]:-} #$n"; fi;;
           merged-main|current)
             if [ "$age" -lt "$LANE_TTL_H" ] && [ "$stage" = "merged-main" ]; then say "  B  #$n  main merged ${age}h ago, still red on '$why' — a fix tab goes out once ${LANE_TTL_H}h have passed"
             else FIXQ["$why"]="${FIXQ[$why]:-} #$n"; fi;;
@@ -282,7 +334,12 @@ PY
             case "$res" in
               merged)  _lane_mark "$n" merged-main; acted=$((acted+1)); say "  B  #$n  red on '$why' — merged main into $br first (attempt 1); CI re-running"; ledger_record unblocked "red check #$n ($why): merged main into $br" "lane b merge main";;
               current) _lane_mark "$n" current; say "  B  #$n  already current with main and red on '$why' — queued for a fix tab"; FIXQ["$why"]="${FIXQ[$why]:-} #$n";;
-              conflict) _lane_mark "$n" conflict; say "  B  #$n  merging main CONFLICTS — the conflict lane takes it next round";;
+              conflict)
+                if [ "$stage" = "conflict" ] && [ ! -f "$STATE/second-opinion/$n" ]; then
+                  codex_second_opinion "$n" "$br" "merge conflict with main, on the second attempt" "$run" \
+                    "The wave merged main into this branch, hit a conflict, waited, and hit a conflict again on the next attempt."
+                fi
+                _lane_mark "$n" conflict; say "  B  #$n  merging main CONFLICTS — the conflict lane takes it next round";;
               *) say "  B  #$n  $res";;
             esac;;
         esac;;
