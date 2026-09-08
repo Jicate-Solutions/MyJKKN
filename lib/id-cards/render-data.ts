@@ -38,7 +38,16 @@ export type CardField =
   //   study_period — learner batch span like "2025-2028" (batches via batch_id)
   //   staff_id     — team-member id code (staff.staff_id)
   | 'study_period'
-  | 'staff_id';
+  | 'staff_id'
+  // Institution block (2026-09-05) — values come from the template's own
+  // front_layout_json.institution (maintained by the ID-card in-charge), with
+  // the `institutions` table only as a fallback. Images are allowlisted URLs.
+  | 'institution_logo'
+  | 'principal_signature'
+  | 'principal_name'
+  | 'institution_email'
+  | 'institution_phone'
+  | 'institution_address';
 
 export const CARD_FIELDS: readonly CardField[] = [
   'name_line_1',
@@ -49,7 +58,13 @@ export const CARD_FIELDS: readonly CardField[] = [
   'qr_code',
   'photo',
   'study_period',
-  'staff_id'
+  'staff_id',
+  'institution_logo',
+  'principal_signature',
+  'principal_name',
+  'institution_email',
+  'institution_phone',
+  'institution_address'
 ] as const;
 
 export type FieldMapping = { card_field: CardField; db_column: string };
@@ -69,7 +84,13 @@ export type BackCardField =
   | 'guardian'
   | 'address'
   | 'contact_phone'
-  | 'barcode';
+  | 'barcode'
+  // Institution contact block (2026-09-05) — resolved from `institutions` for
+  // the LEARNER's own college, so templates place these instead of static text.
+  | 'institution_email'
+  | 'institution_phone'
+  | 'institution_address'
+  | 'institution_website';
 
 export const BACK_CARD_FIELDS: readonly BackCardField[] = [
   'name_line_1',
@@ -82,7 +103,11 @@ export const BACK_CARD_FIELDS: readonly BackCardField[] = [
   'guardian',
   'address',
   'contact_phone',
-  'barcode'
+  'barcode',
+  'institution_email',
+  'institution_phone',
+  'institution_address',
+  'institution_website'
 ] as const;
 
 export type CardPersonData = {
@@ -126,6 +151,18 @@ export type CardPersonData = {
   guardianPhone: string | null;
   /** Joined permanent address (learners) / staff.address. */
   address: string | null;
+  /**
+   * The five raw permanent-address columns (learners only), so the field
+   * report can run the address-quality check (lib/id-cards/address-quality.ts)
+   * on the SAME values the card joins. Absent for team members.
+   */
+  addressParts?: {
+    street: string | null;
+    taluk: string | null;
+    district: string | null;
+    state: string | null;
+    pinCode: string | null;
+  } | null;
   /** Person's own contact: student_mobile (learners) / staff.phone. */
   contactPhone: string | null;
   /**
@@ -152,6 +189,44 @@ export type CardPersonData = {
    * deriveStudyPeriodLabel short-circuits on batch_name and never reads end_date.
    */
   courseEndDate: string | null;
+
+  // ── Institution details (2026-09-05; all fail-soft, resolved from the
+  // learner's OWN institution: learners_profiles.institution_id →
+  // profiles.institution_id → the template's institution_id) ────────────────
+  /** institutions.id the card's institution details were read from. */
+  institutionId?: string | null;
+  /** institutions.email */
+  institutionEmail?: string | null;
+  /** institutions.phone */
+  institutionPhone?: string | null;
+  /** address_line1..3, city, state, pin_code joined for print. */
+  institutionAddress?: string | null;
+  /** institutions.website */
+  institutionWebsite?: string | null;
+  /** Logo URL: template institution block first, then institutions.logo_url. */
+  institutionLogoUrl?: string | null;
+  /** Principal block — template institution block only (no DB column exists). */
+  principalName?: string | null;
+  principalDesignation?: string | null;
+  principalSignatureUrl?: string | null;
+};
+
+/**
+ * Institution details maintained INSIDE a template (front_layout_json.institution).
+ * The ID-card in-charge keeps one template per institution, so this is the
+ * authoritative source for header/contact/principal data on that card.
+ */
+export type TemplateInstitutionData = {
+  name?: string;
+  header_text?: string;
+  email?: string;
+  phone?: string;
+  website?: string;
+  address?: string;
+  logo_image?: string;
+  principal_name?: string;
+  principal_designation?: string;
+  principal_signature_image?: string;
 };
 
 export type AssembleFailure = {
@@ -477,6 +552,35 @@ export function coverPlacement(
 }
 
 /**
+ * Placement for card ARTWORK: the design is the card, so nothing may be cut
+ * off. Within 3% of the box's aspect ratio the bitmap fills the box exactly
+ * (a stretch too small to see); otherwise it is CONTAINED and centred, so a
+ * frame drawn into the artwork always survives. Photos keep coverPlacement.
+ */
+export function artworkPlacement(
+  boxW: number,
+  boxH: number,
+  imgW: number,
+  imgH: number
+): CoverPlacement | null {
+  if (boxW <= 0 || boxH <= 0 || imgW <= 0 || imgH <= 0) return null;
+  const boxRatio = boxW / boxH;
+  const imgRatio = imgW / imgH;
+  if (Math.abs(imgRatio - boxRatio) / boxRatio <= 0.03) {
+    return { left: 0, top: 0, width: boxW, height: boxH };
+  }
+  const scale = Math.min(boxW / imgW, boxH / imgH);
+  const width = Math.round(imgW * scale);
+  const height = Math.round(imgH * scale);
+  return {
+    left: Math.round((boxW - width) / 2),
+    top: Math.round((boxH - height) / 2),
+    width,
+    height
+  };
+}
+
+/**
  * Wrap a bitmap data URL in an SVG data URL that performs the cover-crop via
  * its own viewport: the inner <image> is drawn at the computed cover size and
  * offset, and everything outside the viewBox is cut by the SVG itself. The
@@ -491,11 +595,15 @@ export function svgCoverImageDataUrl(
   dataUrl: string,
   boxW: number,
   boxH: number,
-  cornerRadius: number = 0
+  cornerRadius: number = 0,
+  mode: 'cover' | 'artwork' = 'cover'
 ): string | null {
   const dims = imageDimensionsFromDataUrl(dataUrl);
   if (!dims) return null;
-  const placement = coverPlacement(boxW, boxH, dims.width, dims.height);
+  const placement =
+    mode === 'artwork'
+      ? artworkPlacement(boxW, boxH, dims.width, dims.height)
+      : coverPlacement(boxW, boxH, dims.width, dims.height);
   if (!placement) return null;
   // Corner rounding also happens INSIDE the SVG (resvg-side clipPath) —
   // satori-side overflow:'hidden' clips mispaint under the rotated wrapper,
@@ -821,6 +929,7 @@ type LearnerRow = {
   permanent_address_district: string | null;
   permanent_address_state: string | null;
   permanent_address_pin_code: string | null;
+  institution_id?: string | null;
   program: { program_name: string | null; card_short_name: string | null } | null;
   department: { department_name: string | null } | null;
   // fk_learners_profiles_batch (batch_id → batches.id) — verified in prod
@@ -863,7 +972,8 @@ export async function assembleCardData(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: SupabaseClient<any, any, any>,
   profileId: string,
-  templateInstitutionId: string | null
+  templateInstitutionId: string | null,
+  templateInstitution: TemplateInstitutionData | null = null
 ): Promise<AssembleResult> {
   // 1. The universal person anchor.
   const { data: profile, error: profileError } = await supabase
@@ -904,6 +1014,7 @@ export async function assembleCardData(
   let guardianName: string | null = null;
   let guardianPhone: string | null = null;
   let address: string | null = null;
+  let addressParts: CardPersonData['addressParts'] = null;
   let contactPhone: string | null = null;
   let idCode: string | null = null;
   let studyPeriod: string | null = null;
@@ -922,6 +1033,7 @@ export async function assembleCardData(
     'profiles.avatar_url': p.avatar_url ?? ''
   };
 
+  let learnerRowInstitutionId: string | null = null;
   if (p.learner_id) {
     // 2a. Learner path — join learners_profiles + cheap display-name joins.
     kind = 'learner';
@@ -930,7 +1042,7 @@ export async function assembleCardData(
       .from('learners_profiles')
       .select(
         `id, first_name, last_name, roll_number, register_number, student_photo_url,
-         blood_group, date_of_birth, father_name, father_mobile, mother_name,
+         institution_id, blood_group, date_of_birth, father_name, father_mobile, mother_name,
          mother_mobile, student_mobile, permanent_address_street,
          permanent_address_taluk, permanent_address_district,
          permanent_address_state, permanent_address_pin_code,
@@ -946,6 +1058,7 @@ export async function assembleCardData(
       console.warn('[id-cards/render] learner read failed, degrading:', learnerError.message);
     } else {
       learner = learnerData as unknown as LearnerRow | null;
+      learnerRowInstitutionId = learner?.institution_id ?? null;
     }
 
     if (learner) {
@@ -988,6 +1101,13 @@ export async function assembleCardData(
           .map((part) => (part ?? '').trim())
           .filter(Boolean)
           .join(', ') || null;
+      addressParts = {
+        street: learner.permanent_address_street ?? null,
+        taluk: learner.permanent_address_taluk ?? null,
+        district: learner.permanent_address_district ?? null,
+        state: learner.permanent_address_state ?? null,
+        pinCode: learner.permanent_address_pin_code ?? null
+      };
       contactPhone = learner.student_mobile?.trim() || null;
       idCode = learner.roll_number?.trim() || null;
       studyPeriod = deriveStudyPeriodLabel(learner.batch);
@@ -1079,24 +1199,77 @@ export async function assembleCardData(
   // 3. Remaining photo fallbacks (chain: learner photo -> staff picture -> avatar).
   if (p.avatar_url) photoCandidates.push(p.avatar_url);
 
-  // 4. Institution display name for the header band (fail-soft).
+  // 4. Institution details (fail-soft). The LEARNER's own institution wins:
+  // learners_profiles.institution_id, then the account's profiles.institution_id,
+  // and only then the template's institution_id — so a template picked for the
+  // wrong college can never relabel a student's card.
   let institutionName: string | null = null;
+  let institutionEmail: string | null = null;
+  let institutionPhone: string | null = null;
+  let institutionAddress: string | null = null;
+  let institutionWebsite: string | null = null;
+  let institutionLogoUrl: string | null = null;
   let isSchool = false;
-  const institutionId = templateInstitutionId ?? p.institution_id;
+  const learnerInstitutionId =
+    (learnerRowInstitutionId ?? '').trim() !== '' ? learnerRowInstitutionId : null;
+  const institutionId = learnerInstitutionId ?? p.institution_id ?? templateInstitutionId;
   if (institutionId) {
     const { data: inst, error: instError } = await supabase
       .from('institutions')
-      .select('name, entity_type')
+      .select(
+        'name, display_name, entity_type, email, phone, website, logo_url, address_line1, address_line2, address_line3, city, state, pin_code'
+      )
       .eq('id', institutionId)
       .maybeSingle();
     if (instError) {
       console.warn('[id-cards/render] institution read failed, degrading:', instError.message);
-    } else {
-      const row = inst as { name: string | null; entity_type: string | null } | null;
-      institutionName = row?.name?.trim() || null;
-      isSchool = (row?.entity_type ?? '').trim() === 'school';
+    } else if (inst) {
+      const row = inst as {
+        name: string | null;
+        display_name: string | null;
+        entity_type: string | null;
+        email: string | null;
+        phone: string | null;
+        website: string | null;
+        logo_url: string | null;
+        address_line1: string | null;
+        address_line2: string | null;
+        address_line3: string | null;
+        city: string | null;
+        state: string | null;
+        pin_code: string | null;
+      };
+      institutionName = row.name?.trim() || row.display_name?.trim() || null;
+      isSchool = (row.entity_type ?? '').trim() === 'school';
+      institutionEmail = row.email?.trim() || null;
+      institutionPhone = row.phone?.trim() || null;
+      institutionWebsite = row.website?.trim() || null;
+      institutionLogoUrl = row.logo_url?.trim() || null;
+      institutionAddress =
+        [row.address_line1, row.address_line2, row.address_line3, row.city, row.state, row.pin_code]
+          .map((v) => (v ?? '').trim())
+          .filter((v) => v !== '')
+          .join(', ') || null;
     }
   }
+  // Template-maintained institution block wins over the table (the in-charge
+  // owns one template per institution — see TemplateInstitutionData).
+  const t = templateInstitution ?? {};
+  const pick = (a: string | undefined, b: string | null): string | null =>
+    (a ?? '').trim() !== '' ? (a as string).trim() : b;
+  institutionName = pick(t.header_text ?? t.name, institutionName);
+  institutionEmail = pick(t.email, institutionEmail);
+  institutionPhone = pick(t.phone, institutionPhone);
+  institutionWebsite = pick(t.website, institutionWebsite);
+  institutionAddress = pick(t.address, institutionAddress);
+  institutionLogoUrl = pick(t.logo_image, institutionLogoUrl);
+  const principalName = pick(t.principal_name, null);
+  const principalDesignation = pick(t.principal_designation, null) ?? (principalName ? 'PRINCIPAL' : null);
+  const principalSignatureUrl = pick(t.principal_signature_image, null);
+  if (institutionEmail) valueBag['institutions.email'] = institutionEmail;
+  if (institutionPhone) valueBag['institutions.phone'] = institutionPhone;
+  if (institutionAddress) valueBag['institutions.address'] = institutionAddress;
+  if (institutionWebsite) valueBag['institutions.website'] = institutionWebsite;
 
   if (fullName === '') fullName = 'Name unavailable';
   valueBag['profiles.full_name'] = valueBag['profiles.full_name'] || fullName;
@@ -1113,6 +1286,15 @@ export async function assembleCardData(
       departmentName,
       institutionName,
       isSchool,
+      institutionId: institutionId ?? null,
+      institutionEmail,
+      institutionPhone,
+      institutionAddress,
+      institutionWebsite,
+      institutionLogoUrl,
+      principalName,
+      principalDesignation,
+      principalSignatureUrl,
       qrValue,
       photoCandidates,
       valueBag,
@@ -1121,6 +1303,7 @@ export async function assembleCardData(
       guardianName,
       guardianPhone,
       address,
+      addressParts,
       contactPhone,
       idCode,
       studyPeriod,
