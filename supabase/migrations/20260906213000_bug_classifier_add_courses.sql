@@ -45,6 +45,52 @@
 
 DROP VIEW IF EXISTS public.bug_reports_with_details;
 
+-- ---------------------------------------------------------------------------
+-- The SECOND dependent view. Added 2026-09-08 after this file froze the ship
+-- wave at 11:24 with:
+--     2BP01: cannot drop column module_name of table bug_reports because other
+--     objects depend on it
+--     DETAIL: view bug_reports_ready_for_repro depends on column module_name
+-- The DEPENDENCY note above reasoned about bug_reports_with_details and that
+-- half is right; bug_reports_ready_for_repro selects module_name too and was
+-- missed. Both must be gone before DROP COLUMN, or the whole file rolls back --
+-- which is why nothing in the repo could merge or apply for the rest of the day.
+--
+-- It is captured at RUNTIME rather than transcribed, because unlike its sibling
+-- this view HAS NO DEFINITION IN THIS REPOSITORY: `git grep` over jicate/main
+-- finds it only in 20260808190000's REVOKE line and in generated types/supabase.ts,
+-- never in a CREATE. It was created out of band, so production is its only source
+-- of truth and pg_get_viewdef is the only faithful way to put it back. Writing
+-- one by hand here would be inventing a view and calling it a restoration.
+--
+-- reloptions are carried across verbatim, so a view that is security_invoker
+-- comes back security_invoker and one that is not is not -- this file must fix
+-- a dependency, not silently change who a view runs as.
+DO $$
+DECLARE
+  v_def  text;
+  v_opts text;
+BEGIN
+  IF to_regclass('public.bug_reports_ready_for_repro') IS NULL THEN
+    RAISE NOTICE 'bug_reports_ready_for_repro absent - nothing to preserve';
+    RETURN;
+  END IF;
+
+  SELECT pg_get_viewdef('public.bug_reports_ready_for_repro'::regclass, true),
+         COALESCE(array_to_string(c.reloptions, ', '), '')
+    INTO v_def, v_opts
+    FROM pg_class c
+   WHERE c.oid = 'public.bug_reports_ready_for_repro'::regclass;
+
+  IF v_def IS NULL OR btrim(v_def) = '' THEN
+    RAISE EXCEPTION 'could not read the definition of bug_reports_ready_for_repro; refusing to drop a view this file could not put back';
+  END IF;
+
+  PERFORM set_config('jkkn.repro_viewdef',  v_def,  true);   -- true = transaction-local,
+  PERFORM set_config('jkkn.repro_viewopts', v_opts, true);   -- so a rolled-back rehearsal leaves nothing behind
+  EXECUTE 'DROP VIEW public.bug_reports_ready_for_repro';
+END $$;
+
 ALTER TABLE public.bug_reports DROP COLUMN IF EXISTS module_name;
 ALTER TABLE public.bug_reports DROP COLUMN IF EXISTS sub_module_name;
 
@@ -210,6 +256,33 @@ REVOKE ALL ON TABLE public.bug_reports_with_details FROM anon, PUBLIC;
 GRANT  SELECT ON TABLE public.bug_reports_with_details TO authenticated;
 GRANT  ALL    ON TABLE public.bug_reports_with_details TO service_role;
 
+-- ---------------------------------------------------------------------------
+-- Put the second view back, from the definition captured above. Same ACL
+-- reasoning as its sibling and for the same reason: DROP VIEW destroyed this
+-- view's grants too, and Supabase's ALTER DEFAULT PRIVILEGES re-grants a newly
+-- created view to anon. 20260808190000 revoked anon on this exact view; without
+-- these three lines this file would silently undo that.
+DO $$
+DECLARE
+  v_def  text := current_setting('jkkn.repro_viewdef',  true);
+  v_opts text := current_setting('jkkn.repro_viewopts', true);
+BEGIN
+  IF v_def IS NULL OR btrim(v_def) = '' THEN
+    RAISE NOTICE 'no captured definition - view was absent before this file ran';
+    RETURN;
+  END IF;
+
+  IF btrim(v_opts) = '' THEN
+    EXECUTE format('CREATE VIEW public.bug_reports_ready_for_repro AS %s', v_def);
+  ELSE
+    EXECUTE format('CREATE VIEW public.bug_reports_ready_for_repro WITH (%s) AS %s', v_opts, v_def);
+  END IF;
+
+  EXECUTE 'REVOKE ALL ON TABLE public.bug_reports_ready_for_repro FROM anon, PUBLIC';
+  EXECUTE 'GRANT  SELECT ON TABLE public.bug_reports_ready_for_repro TO authenticated';
+  EXECUTE 'GRANT  ALL    ON TABLE public.bug_reports_ready_for_repro TO service_role';
+END $$;
+
 -- End-state assert: the new expression knows /courses/, the view is back, both indexes exist.
 DO $$
 DECLARE
@@ -224,6 +297,23 @@ BEGIN
   END IF;
   IF to_regclass('public.bug_reports_with_details') IS NULL THEN
     RAISE EXCEPTION 'bug_reports_with_details view was not re-created';
+  END IF;
+  -- Same three questions for the second dependent view. It is asserted only
+  -- when a definition was actually captured: on an environment that never had
+  -- the view there is nothing to restore and nothing to check.
+  IF current_setting('jkkn.repro_viewdef', true) IS NOT NULL
+     AND btrim(current_setting('jkkn.repro_viewdef', true)) <> '' THEN
+    IF to_regclass('public.bug_reports_ready_for_repro') IS NULL THEN
+      RAISE EXCEPTION 'bug_reports_ready_for_repro was dropped and not put back';
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon')
+       AND has_table_privilege('anon', 'public.bug_reports_ready_for_repro', 'SELECT') THEN
+      RAISE EXCEPTION 'anon can still SELECT bug_reports_ready_for_repro - this file just undid 20260808190000';
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated')
+       AND NOT has_table_privilege('authenticated', 'public.bug_reports_ready_for_repro', 'SELECT') THEN
+      RAISE EXCEPTION 'authenticated lost SELECT on bug_reports_ready_for_repro';
+    END IF;
   END IF;
   -- The view existing is not the same as the view being safe: assert the two
   -- properties the DROP destroyed, or this migration silently un-does 20251210.
