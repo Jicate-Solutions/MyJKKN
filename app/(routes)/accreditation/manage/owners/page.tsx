@@ -1,7 +1,7 @@
 // app/(routes)/accreditation/manage/owners/page.tsx
 // ============================================================================
-// /accreditation/manage/owners — where IQAC assigns accountability and the
-// named person accepts it.
+// /accreditation/manage/owners — where IQAC assigns accountability, a body
+// owner delegates inside their own body, and every such change stays readable.
 //
 // Production carries 107 metrics across 10 bodies and ZERO owner rows, so every
 // metric is currently somebody-else's-problem. This page is what turns "here is
@@ -18,10 +18,36 @@
 // two answers to one question. This page shows what that roster says and links
 // to the committee that owns editing it.
 //
-// An assignment is PENDING until the named person confirms it — accountability
-// accepted, not imposed (decision 8). The live CHECK
-// `(assignment_status = 'pending') = (acknowledged_at IS NULL)` makes the two
-// facts inseparable, so every write here sets them as a pair.
+// ASSIGNMENT IS OWNERSHIP (Director, 2026-09-08). There is no Accept step and
+// nothing on this screen may reintroduce one. `assignment_status` survives as a
+// record of whether the named person has OPENED their page — 'pending' now reads
+// "not opened yet", never "has not agreed" — and it gates nothing: zero RLS
+// policies reference it, so an unopened owner already holds exactly the access a
+// confirmed one holds. The live CHECK
+// `(assignment_status = 'pending') = (acknowledged_at IS NULL)` still pairs the
+// two columns, so every write here sets them as a pair.
+//
+// A BODY OWNER MAY DELEGATE INSIDE THEIR OWN BODY, and remains accountable for
+// what they delegated. Both facts have to be on the screen at once: the person
+// doing metric 3.1.1, and the NAAC owner still answerable for NAAC 3.1.1. A
+// delegation rendered as a handover would quietly move accountability that
+// nobody moved. `accountabilityNote` is what keeps the second name visible.
+//
+// Delegation cannot go through the upsert below. The FOR ALL policy on
+// accreditation_metric_owners demands accreditation.naac.narrative.manage for
+// every write, so a body owner without it gets a silent zero-row refusal — which
+// is why that path routes through fn_accreditation_assign_metric_owner, which
+// derives the caller from auth.uid() and checks body ownership server-side. The
+// .manage path deliberately keeps the direct upsert: that RPC is built by a
+// sibling lane and is not on this database yet, and re-routing the working path
+// through a function that may be absent would break assignment for the people
+// who can do it today in order to enable people who cannot yet.
+//
+// Every ownership change is meant to be readable afterwards — who assigned whom,
+// and when. That trail lives in `accreditation_ownership_events`, also a sibling
+// lane's table. Until it lands, the history panel says "no history recorded yet"
+// rather than erroring; see ownership-trail.ts for why that is deliberately NOT
+// the same rendering as a failed read.
 //
 // Deliberately absent: no overall grade, no total score, no ranking of colleges
 // or of people. The CAC and IQAC dashboards both made that call and this page
@@ -93,6 +119,7 @@ import {
   X,
   Layers,
   ArrowRight,
+  History,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -116,6 +143,18 @@ import {
   type AssignmentStatus,
 } from './_lib/owner-inheritance';
 import {
+  isMissingRelation,
+  sortEventsNewestFirst,
+  filterEventsForScope,
+  ownershipEventSentence,
+  eventScopeLabel,
+  accountabilityNote,
+  assignRefusalReason,
+  clearRefusalReason,
+  type OwnershipEvent,
+  type TrailRead,
+} from './_lib/ownership-trail';
+import {
   filterMetricsToScope,
   bodiesForScope,
   appliesToNobody,
@@ -137,6 +176,11 @@ const OWNER_CANDIDATE_ROLES = [
 
 const CANDIDATE_LIMIT = 500;
 const UNASSIGNED_VALUE = '__unassigned__';
+/** Non-empty by necessity: an empty-string Radix item value crashes the
+ * dropdown on first open, which no build or type check would catch. */
+const ALL_METRICS_VALUE = '__all_metrics__';
+/** One campus can accumulate a lot of history; the panel reads the recent end. */
+const TRAIL_LIMIT = 200;
 
 /**
  * The conflict target must name every column of the live constraint
@@ -290,6 +334,47 @@ function useAssignedOwnerNames(ownerIds: string[]) {
 }
 
 /**
+ * Every recorded ownership change on this campus — who assigned whom, when, and
+ * whether the person doing it was the body owner.
+ *
+ * `accreditation_ownership_events` is a sibling lane's table and is not on this
+ * database yet. A missing relation is therefore an EXPECTED outcome, not a
+ * failure, and resolves to `unavailable` so the panel can say "no history
+ * recorded yet". Anything else still throws: a read that FAILED must never be
+ * rendered as the claim that nothing ever happened.
+ *
+ * The one case this cannot distinguish is an RLS refusal, which PostgREST
+ * answers with zero rows and no error — indistinguishable from a genuinely
+ * empty trail. The panel therefore never says "nothing has happened"; it says
+ * "no history recorded yet", which stays true either way.
+ */
+function useOwnershipTrail(institutionId: string | null) {
+  return useQuery({
+    queryKey: ['accreditation', 'ownership-trail', institutionId],
+    enabled: !!institutionId,
+    // A table that does not exist will not exist on the next render either.
+    retry: false,
+    queryFn: async (): Promise<TrailRead> => {
+      const sb = createClientSupabaseClient() as any;
+      const { data, error } = await sb
+        .from('accreditation_ownership_events')
+        .select(
+          'id, owner_row_id, institution_id, body_code, metric_code, action, from_user_id, to_user_id, actor_user_id, actor_is_body_owner, note, created_at',
+        )
+        .eq('institution_id', institutionId)
+        .order('created_at', { ascending: false })
+        .limit(TRAIL_LIMIT);
+      if (error) {
+        if (isMissingRelation(error)) return { kind: 'unavailable' };
+        throw error;
+      }
+      return { kind: 'ok', events: (data ?? []) as OwnershipEvent[] };
+    },
+    staleTime: 30 * 1000,
+  });
+}
+
+/**
  * Level 2 — who convenes each committee, read from the roster that already
  * records it. `accreditation_committee_members.role` carries chair /
  * coordinator / secretary / member / observer; only the first two lead.
@@ -373,7 +458,7 @@ function StatusBadge({ status }: { status: AssignmentStatus | null }) {
   if (status === 'confirmed') {
     return (
       <Badge className="border-emerald-300 bg-emerald-50 font-normal text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
-        Accepted
+        Opened
       </Badge>
     );
   }
@@ -387,7 +472,7 @@ function StatusBadge({ status }: { status: AssignmentStatus | null }) {
   if (status === 'pending') {
     return (
       <Badge className="border-amber-300 bg-amber-50 font-normal text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
-        Awaiting acceptance
+        Not opened yet
       </Badge>
     );
   }
@@ -438,6 +523,10 @@ export default function AccreditationOwnersPage() {
     'unassigned' | 'all' | 'assigned' | 'mine'
   >('unassigned');
   const [savingKey, setSavingKey] = useState<string | null>(null);
+  // History panel scope. Null body = "whichever body is first" once they load;
+  // holding it in state before that would pin a body this campus may not have.
+  const [trailBody, setTrailBody] = useState<string | null>(null);
+  const [trailMetric, setTrailMetric] = useState<string>(ALL_METRICS_VALUE);
 
   const { data: institutions } = useInstitutions();
   const { data: framework, isLoading: frameworkLoading } = useFramework();
@@ -466,6 +555,11 @@ export default function AccreditationOwnersPage() {
     useOwnerRows(activeInstitution);
   const { data: candidates } = useCandidateOwners();
   const { data: committeeLeads } = useCommitteeLeads(activeInstitution);
+  const {
+    data: trail,
+    isLoading: trailLoading,
+    error: trailError,
+  } = useOwnershipTrail(activeInstitution);
 
   // Which awarding bodies this campus actually answers to (Director decisions,
   // 2026-08-06). Until migration 20260816010000 is applied this resolves to
@@ -512,10 +606,55 @@ export default function AccreditationOwnersPage() {
     [bodyScope, metrics],
   );
 
-  const assignedIds = useMemo(
-    () => rows.map((r) => r.owner_user_id).filter(Boolean),
-    [rows],
-  );
+  /**
+   * The bodies whose owner IS the signed-in person — the bodies they may
+   * delegate inside (Director, 2026-09-08).
+   *
+   * A DECLINED body row is excluded. Someone who has said the body is not
+   * theirs is not the person to be handing its metrics around, and the RPC
+   * refuses them server-side anyway; offering the control would only produce a
+   * refusal the user could not have predicted.
+   *
+   * This decides what to DRAW. The permission itself is enforced by
+   * fn_accreditation_assign_metric_owner, which takes the caller from auth.uid()
+   * rather than from anything this component can send it.
+   */
+  const bodiesIOwn = useMemo(() => {
+    if (!currentUserId || !activeInstitution) return new Set<string>();
+    const owned = new Set<string>();
+    for (const r of rows) {
+      if (
+        r.institution_id === activeInstitution &&
+        r.metric_code === null &&
+        r.programme_id === null &&
+        r.owner_user_id === currentUserId &&
+        r.assignment_status !== 'declined'
+      ) {
+        owned.add(r.body_code);
+      }
+    }
+    return owned;
+  }, [rows, currentUserId, activeInstitution]);
+
+  /** Whether this viewer may set METRIC owners inside one body. */
+  const canAssignInBody = (bodyCode: string) =>
+    canManage || bodiesIOwn.has(bodyCode);
+
+  const assignedIds = useMemo(() => {
+    const ids = rows.map((r) => r.owner_user_id).filter(Boolean) as string[];
+    // Everyone the TRAIL names too. A coordinator who assigned somebody, or a
+    // previous owner since replaced, holds no current owner row and is outside
+    // the candidate pool — so without this every such sentence would read
+    // "Owner assigned made Bob the owner".
+    if (trail?.kind === 'ok') {
+      for (const e of trail.events) {
+        for (const id of [e.actor_user_id, e.from_user_id, e.to_user_id]) {
+          if (id) ids.push(id);
+        }
+      }
+    }
+    return ids;
+  }, [rows, trail]);
   const { data: assignedProfiles } = useAssignedOwnerNames(assignedIds);
 
   const people = useMemo(() => {
@@ -531,12 +670,41 @@ export default function AccreditationOwnersPage() {
     return p?.full_name || p?.email || 'Owner assigned';
   };
 
-  const ownerOptions = useMemo(() => {
-    const opts = [...people.values()]
-      .map((p) => ({ value: p.id, label: p.full_name || p.email || p.id }))
-      .sort((a, b) => a.label.localeCompare(b.label));
-    return [{ value: UNASSIGNED_VALUE, label: 'Nobody yet' }, ...opts];
-  }, [people]);
+  /**
+   * The same lookup for trail sentences, where 'Owner assigned' would be a
+   * grammatical accident ("Owner assigned made Bob the owner") and, for an
+   * actor, simply false. Says the true thing instead: we hold the change, we
+   * cannot currently name the person.
+   */
+  const trailPersonLabel = (id: string | null) => {
+    if (!id) return 'Nobody';
+    const p = people.get(id);
+    return p?.full_name || p?.email || 'Someone we can no longer name';
+  };
+
+  /** Every candidate, alphabetical. No "Nobody yet" — see ownerOptions below. */
+  const peopleOptions = useMemo(
+    () =>
+      [...people.values()]
+        .map((p) => ({ value: p.id, label: p.full_name || p.email || p.id }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [people],
+  );
+
+  const ownerOptions = useMemo(
+    () => [{ value: UNASSIGNED_VALUE, label: 'Nobody yet' }, ...peopleOptions],
+    [peopleOptions],
+  );
+
+  /**
+   * What a delegating body owner picks from.
+   *
+   * "Nobody yet" is deliberately absent: clearing is a DELETE, and the only
+   * write policy on the table demands .manage, so offering it to a body owner
+   * would render a control whose every use ends in a refusal. They can hand a
+   * metric to somebody else; emptying it stays with IQAC.
+   */
+  const delegateOptions = peopleOptions;
 
   // --------------------------------------------------------------------------
   // Writes. Every one asserts on returned rows: RLS refuses out-of-scope writes
@@ -544,20 +712,33 @@ export default function AccreditationOwnersPage() {
   // read as success.
   // --------------------------------------------------------------------------
 
-  /** Refresh only this campus's owner rows. */
-  const invalidate = () =>
-    qc.invalidateQueries({
+  /** Refresh this campus's owner rows and the trail that records the change. */
+  const invalidate = async () => {
+    await qc.invalidateQueries({
       queryKey: ['accreditation', 'metric-owners', activeInstitution],
     });
+    await qc.invalidateQueries({
+      queryKey: ['accreditation', 'ownership-trail', activeInstitution],
+    });
+  };
 
   /**
    * Assign (or reassign) one scope. `metricCode === null` writes the body-level
    * row that every metric of that body inherits.
    *
    * A reassignment records one hop of history — who held it immediately before,
-   * and when it moved — and resets to pending, because the NEW person has not
-   * agreed to anything yet. acknowledged_at is cleared in the same statement to
-   * satisfy the paired CHECK.
+   * and when it moved — and resets `assignment_status` to 'pending', which since
+   * 2026-09-08 means "the new owner has not opened their page yet", NOT "has not
+   * agreed". They own it from this moment. acknowledged_at is cleared in the same
+   * statement to satisfy the paired CHECK.
+   *
+   * Two write paths, deliberately:
+   *   .manage        → the direct upsert, which is what RLS permits and what
+   *                    works on this database today.
+   *   body owner     → fn_accreditation_assign_metric_owner, because the FOR ALL
+   *                    policy would refuse their upsert with zero rows and no
+   *                    error. Metric level only — nobody appoints their own
+   *                    replacement as body owner.
    */
   async function assignScope(
     bodyCode: string,
@@ -566,6 +747,29 @@ export default function AccreditationOwnersPage() {
     label: string,
   ) {
     if (!activeInstitution) return;
+
+    // Explicit, never silent. The controls are already withheld from anyone
+    // with neither power; this is what gets said when a write is reached
+    // anyway — a stale render, a second tab, a permission removed mid-session.
+    const refusal = assignRefusalReason({
+      canManage,
+      isBodyOwner: bodiesIOwn.has(bodyCode),
+      bodyCode,
+    });
+    if (refusal) {
+      toast.error(refusal);
+      return;
+    }
+    if (!canManage && metricCode === null) {
+      toast.error(
+        `You can set owners for individual ${bodyCode} metrics, but not for ` +
+          `${bodyCode} as a whole. Naming the ${bodyCode} body owner stays with ` +
+          `IQAC — otherwise the person accountable could appoint their own ` +
+          `replacement.`,
+      );
+      return;
+    }
+
     const key = `${bodyCode}::${metricCode ?? '*'}`;
     const existing = rows.find(
       (r) =>
@@ -581,6 +785,58 @@ export default function AccreditationOwnersPage() {
     setSavingKey(key);
     try {
       const sb = createClientSupabaseClient() as any;
+
+      if (!canManage) {
+        // Delegation. The function derives the caller from auth.uid() and
+        // checks body ownership itself, so nothing this component sends can
+        // widen who is allowed to do it.
+        const { data: rpcData, error: rpcError } = await sb.rpc(
+          'fn_accreditation_assign_metric_owner',
+          {
+            p_institution_id: activeInstitution,
+            p_body_code: bodyCode,
+            p_metric_code: metricCode,
+            p_to_user_id: nextOwnerId,
+            p_note: null,
+          },
+        );
+        if (rpcError) {
+          // A /rpc/ 404 means the function could not be RESOLVED — absent, or
+          // present with a different signature. Either way, say that nothing
+          // changed rather than letting a raw PostgREST string reach a HOD.
+          if (isMissingRelation(rpcError)) {
+            throw new Error(
+              'Delegation is not switched on for this campus yet, so nothing ' +
+                'was changed. Ask IQAC to set this owner for now.',
+            );
+          }
+          throw rpcError;
+        }
+        // The function is a sibling lane's and its return shape is not settled.
+        // A non-empty result is a confirmed write; anything else is genuinely
+        // INCONCLUSIVE, not a known failure — a function returning void would
+        // otherwise have every successful delegation reported as refused. So
+        // refresh first and let the table state the outcome, and say only what
+        // is true: it could not be confirmed here.
+        const confirmed = Array.isArray(rpcData)
+          ? rpcData.length > 0
+          : rpcData != null;
+        await invalidate();
+        if (!confirmed) {
+          throw new Error(
+            `${label} could not be confirmed as saved. The list has been ` +
+              `refreshed — check whether it now shows ` +
+              `${personLabel(nextOwnerId)}. Setting owners for ${bodyCode} ` +
+              `metrics needs you to be the ${bodyCode} body owner for this campus.`,
+          );
+        }
+        toast.success(
+          `${label} is now owned by ${personLabel(nextOwnerId)}. You stay ` +
+            `accountable for ${bodyCode}.`,
+        );
+        return;
+      }
+
       const { data, error } = await sb
         .from('accreditation_metric_owners')
         .upsert(
@@ -616,7 +872,7 @@ export default function AccreditationOwnersPage() {
         );
       }
       toast.success(
-        `${label} sent to ${personLabel(nextOwnerId)} — awaiting acceptance.`,
+        `${label} is now owned by ${personLabel(nextOwnerId)}. They have been told.`,
       );
       await invalidate();
     } catch (e) {
@@ -636,6 +892,16 @@ export default function AccreditationOwnersPage() {
     label: string,
   ) {
     if (!activeInstitution) return;
+
+    // Leaving a metric with NOBODY is a delete, and the only write policy on
+    // this table demands .manage — so for a body owner it would be a silent
+    // zero-row refusal. Say why instead. The option is not offered to them
+    // either; this is the guard for reaching the call some other way.
+    const refusal = clearRefusalReason({ canManage, bodyCode });
+    if (refusal) {
+      toast.error(refusal);
+      return;
+    }
 
     // A metric with only an INHERITED owner has no row of its own. Deleting
     // would match nothing, and the empty result is indistinguishable from an
@@ -724,6 +990,16 @@ export default function AccreditationOwnersPage() {
     ownerId: string,
   ) {
     if (!activeInstitution) return;
+    // Bulk assignment writes through the same upsert RLS refuses for a body
+    // owner. The control is rendered under canManage; this is the guard for
+    // reaching the call any other way.
+    if (!canManage) {
+      toast.error(
+        'Assigning a whole category is limited to IQAC coordinators. As body ' +
+          'owner you can set the owner of each metric individually.',
+      );
+      return;
+    }
     const codes = metricCodesInCategory(metrics, bodyCode, category);
     if (codes.length === 0) return;
 
@@ -804,6 +1080,38 @@ export default function AccreditationOwnersPage() {
   );
 
   // --------------------------------------------------------------------------
+  // History. Scoped to one body, and optionally to one metric inside it.
+  const activeTrailBody = trailBody ?? bodies[0] ?? null;
+
+  const trailMetricCodes = useMemo(
+    () =>
+      activeTrailBody
+        ? metrics
+            .filter((m) => m.metric_type === activeTrailBody)
+            .map((m) => m.metric_code)
+        : [],
+    [metrics, activeTrailBody],
+  );
+
+  // Switching body leaves a metric code from the PREVIOUS body in state. Left
+  // alone it would narrow the trail to a metric this body does not have and
+  // render the result as that body's history. Fall back to the whole body.
+  const effectiveTrailMetric =
+    trailMetric !== ALL_METRICS_VALUE && trailMetricCodes.includes(trailMetric)
+      ? trailMetric
+      : null;
+
+  const trailEvents = useMemo(() => {
+    if (!trail || trail.kind !== 'ok' || !activeTrailBody) return [];
+    return sortEventsNewestFirst(
+      filterEventsForScope(trail.events, {
+        bodyCode: activeTrailBody,
+        metricCode: effectiveTrailMetric,
+      }),
+    );
+  }, [trail, activeTrailBody, effectiveTrailMetric]);
+
+  // --------------------------------------------------------------------------
   if (permsLoading) {
     return (
       <ContentLayout title="Assign Metric Owners">
@@ -840,12 +1148,22 @@ export default function AccreditationOwnersPage() {
           <CardContent className="space-y-4">
             <p className="text-sm leading-relaxed text-muted-foreground">
               Name one person per awarding body and every metric beneath it
-              inherits them — then set only the exceptions. An assignment stays{' '}
+              inherits them — then set only the exceptions. Naming somebody{' '}
               <span className="font-medium text-foreground">
-                awaiting acceptance
+                makes them the owner
               </span>{' '}
-              until the named person confirms it, so accountability is accepted
-              rather than imposed.
+              straight away: they are told, and their reminders start. Nothing
+              waits on a confirmation. Anyone who believes the work is not theirs
+              can decline it, which is worth more than an assignment nobody acts on.
+            </p>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              A body owner can hand any metric inside their own body to somebody
+              else, and{' '}
+              <span className="font-medium text-foreground">
+                stays accountable for it
+              </span>{' '}
+              — delegating the work does not move the answerability. Every change
+              is on the record below: who assigned whom, and when.
             </p>
 
             <div className="flex flex-wrap items-center gap-3">
@@ -931,10 +1249,17 @@ export default function AccreditationOwnersPage() {
               </div>
               <div className="mt-3 flex flex-wrap gap-4 text-sm">
                 <span className="text-emerald-700 dark:text-emerald-400">
-                  {loading ? '—' : tally.confirmed} accepted
+                  {loading ? '—' : tally.confirmed} opened
                 </span>
+                {/*
+                  'pending' no longer means "has not agreed" — assignment is
+                  ownership (Director, 2026-09-08). It now means the named person
+                  has not opened their page yet: a fact about whether the message
+                  reached them, never a permission. An unopened owner has full
+                  access and receives every reminder.
+                */}
                 <span className="text-amber-700 dark:text-amber-400">
-                  {loading ? '—' : tally.pending} awaiting acceptance
+                  {loading ? '—' : tally.pending} not opened yet
                 </span>
                 <span className="text-red-700 dark:text-red-400">
                   {loading ? '—' : tally.declined} declined
@@ -1206,8 +1531,8 @@ export default function AccreditationOwnersPage() {
                   Assign a whole category
                 </div>
                 <p className="mb-3 text-xs text-muted-foreground">
-                  Every metric in the category is sent to that person and waits
-                  for their acceptance. Existing owners are replaced.
+                  Every metric in the category becomes that person&apos;s
+                  straight away, and they are told. Existing owners are replaced.
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {bulkCategories.map((c) => {
@@ -1271,14 +1596,37 @@ export default function AccreditationOwnersPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {visibleMetrics.map(({ metric, owner }) => (
+                    {visibleMetrics.map(({ metric, owner }) => {
+                      // The body owner still answerable for this metric, named
+                      // beside whoever is doing it. Delegation is not a handover.
+                      const bodyOwnerRow = activeInstitution
+                        ? findBodyOwnerRow(
+                            rows,
+                            activeInstitution,
+                            metric.metric_type,
+                          )
+                        : null;
+                      const canAssignHere = canAssignInBody(metric.metric_type);
+                      return (
                       <MetricRow
                         key={`${metric.metric_type}::${metric.metric_code}`}
                         metric={metric}
                         owner={owner}
-                        ownerOptions={ownerOptions}
+                        ownerOptions={
+                          canManage ? ownerOptions : delegateOptions
+                        }
                         personLabel={personLabel}
-                        canManage={canManage}
+                        canAssign={canAssignHere}
+                        delegating={canAssignHere && !canManage}
+                        accountability={accountabilityNote({
+                          source: owner.source,
+                          bodyCode: metric.metric_type,
+                          metricOwnerUserId: owner.ownerUserId,
+                          bodyOwnerUserId: bodyOwnerRow?.owner_user_id ?? null,
+                          bodyOwnerName: bodyOwnerRow
+                            ? personLabel(bodyOwnerRow.owner_user_id)
+                            : null,
+                        })}
                         currentUserId={currentUserId}
                         ackBusy={
                           !!owner?.row && savingKey === `ack::${owner.row.id}`
@@ -1302,10 +1650,115 @@ export default function AccreditationOwnersPage() {
                               )
                         }
                       />
-                    ))}
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ---------------------------------------------------------------- */}
+        {/* Every ownership change, said plainly. Newest first.              */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <History className="h-5 w-5 text-muted-foreground" />
+              Ownership history
+              <Badge variant="outline" className="font-normal">
+                newest first
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Who assigned whom, and when. A change made by the body owner
+              delegating inside their own body is marked as such — they remain
+              accountable for what they handed over.
+            </p>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                value={activeTrailBody ?? undefined}
+                onValueChange={(v) => {
+                  setTrailBody(v);
+                  setTrailMetric(ALL_METRICS_VALUE);
+                }}
+              >
+                <SelectTrigger className="w-[180px] bg-card">
+                  <SelectValue placeholder="Choose a body" />
+                </SelectTrigger>
+                <SelectContent>
+                  {bodies.map((b) => (
+                    <SelectItem key={b} value={b}>
+                      {b}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select value={trailMetric} onValueChange={setTrailMetric}>
+                <SelectTrigger className="w-[220px] bg-card">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_METRICS_VALUE}>
+                    All metrics in this body
+                  </SelectItem>
+                  {trailMetricCodes.map((code) => (
+                    <SelectItem key={code} value={code}>
+                      {code}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {trailLoading ? (
+              <Skeleton className="h-24 w-full" />
+            ) : trailError ? (
+              /* A read that FAILED is not the same fact as "nothing happened",
+                 and must never be rendered as one. */
+              <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm dark:border-amber-900 dark:bg-amber-950/40">
+                <div className="font-medium">
+                  The ownership history could not be read
+                </div>
+                <p className="mt-1 text-muted-foreground">
+                  This is not a statement that nothing has changed — it means
+                  this page could not load the record. Everything above is
+                  unaffected. Try again, and tell IQAC if it keeps happening.
+                </p>
+              </div>
+            ) : trailEvents.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 p-8 text-center text-muted-foreground">
+                <Inbox className="h-8 w-8" />
+                <p className="text-sm">No history recorded yet.</p>
+                {trail?.kind === 'unavailable' && (
+                  <p className="max-w-md text-xs">
+                    Recording ownership changes has not been switched on for
+                    this platform yet. Changes made from now on will appear here
+                    once it is.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <ol className="space-y-2">
+                {trailEvents.map((e) => (
+                  <li
+                    key={e.id}
+                    className="flex flex-wrap items-baseline gap-x-2 gap-y-1 rounded-md border bg-card p-3 text-sm"
+                  >
+                    <Badge
+                      variant="outline"
+                      className="font-mono text-xs font-normal"
+                    >
+                      {eventScopeLabel(e)}
+                    </Badge>
+                    <span>{ownershipEventSentence(e, trailPersonLabel)}</span>
+                  </li>
+                ))}
+              </ol>
             )}
           </CardContent>
         </Card>
@@ -1328,7 +1781,9 @@ function MetricRow({
   ownerOptions,
   personLabel,
   busy,
-  canManage,
+  canAssign,
+  delegating,
+  accountability,
   currentUserId,
   ackBusy,
   onAcknowledge,
@@ -1339,7 +1794,12 @@ function MetricRow({
   ownerOptions: Array<{ value: string; label: string }>;
   personLabel: (id: string | null) => string;
   busy: boolean;
-  canManage: boolean;
+  /** IQAC coordinator, or the owner of THIS metric's body. */
+  canAssign: boolean;
+  /** True for a body owner delegating — they may hand over but not empty. */
+  delegating: boolean;
+  /** Who stays answerable once this metric is delegated. Null when nobody is. */
+  accountability: string | null;
   currentUserId: string | null;
   ackBusy: boolean;
   onAcknowledge: (row: OwnerRow, decision: 'confirmed' | 'declined') => void;
@@ -1376,6 +1836,14 @@ function MetricRow({
             </div>
           </div>
         )}
+        {/* Delegation is not a handover: the body owner is still the person
+            the IQAC asks about this metric, so their name stays on screen
+            beside the person doing the work. */}
+        {accountability && (
+          <div className="mt-1 text-xs text-muted-foreground">
+            {accountability}
+          </div>
+        )}
       </TableCell>
       <TableCell>
         <div className="flex flex-col items-start gap-1.5">
@@ -1407,13 +1875,14 @@ function MetricRow({
         </div>
       </TableCell>
       <TableCell>
-        <div className="flex items-center gap-2">
-          {!canManage && (
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+          {!canAssign && (
             <span className="text-xs text-muted-foreground">
               {owner.source === 'none' ? '—' : 'Set by IQAC'}
             </span>
           )}
-          {canManage && (
+          {canAssign && (
           <SearchableSelect
             className="w-[220px]"
             value={
@@ -1431,6 +1900,12 @@ function MetricRow({
           )}
           {busy && (
             <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          )}
+          </div>
+          {delegating && (
+            <span className="text-xs text-muted-foreground">
+              You are delegating as the {metric.metric_type} owner.
+            </span>
           )}
         </div>
       </TableCell>
