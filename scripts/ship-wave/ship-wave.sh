@@ -130,7 +130,7 @@ if [ -n "${UNGUARD:-}" ]; then guard_remove "$UNGUARD"; exit 0; fi
 
 # ── pacing (Director 2026-09-06 21:20): a standing run that finds nothing changed is skipped, and three
 # skipped runs in a row print the NEEDS-YOU list once instead of a fourth identical receipt ─────────────
-if [ -n "${IF_CHANGED:-}" ] && [ "$MODE" = "go" ] && unchanged_since_last_run; then exit 0; fi
+# (the check itself now runs after unblock-lanes.sh is sourced -- it defines unchanged_since_last_run)
 
 # ── single-flight: two ship waves merging at once would race main ─────────────
 if ! mkdir "$LOCK" 2>/dev/null; then
@@ -360,6 +360,13 @@ Could you rebase onto \`jicate/main\` and resolve it? The ship wave will pick th
 # shellcheck source=scripts/ship-wave/unblock-lanes.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/unblock-lanes.sh"
 
+# Pacing, moved down from line 133 (2026-09-08): unchanged_since_last_run lives in
+# unblock-lanes.sh, sourced just above, so the original call site ran 227 lines too early --
+# every --if-changed run printed "unchanged_since_last_run: command not found" and then swept
+# anyway. Everything between there and here is definitions and variable setup, so skipping
+# here is still free.
+if [ -n "${IF_CHANGED:-}" ] && [ "$MODE" = "go" ] && unchanged_since_last_run; then exit 0; fi
+
 run_once() {
   local ts; ts=$(date '+%Y%m%d-%H%M%S')
   local run="$STATE/run-$ts"; mkdir -p "$run"
@@ -517,7 +524,11 @@ PY
   # PR. Safe because 3b has already applied the (additive-only) migrations: schema ahead of code is the
   # harmless direction. A plain `go` (no --goal) still deploys immediately, and flushes any leftover batch.
   if [ -n "${FINAL_DEPLOY:-}" ]; then
-    merged_files="$pending"; merged=$(grep -c . "$pending" 2>/dev/null || echo 0); merged_list=" (batched: $merged file(s) merged this run)"
+    # The deploy step drains $pending, but the L3 sweep below still needs the list.
+    # Copy it into the run dir instead of pointing at the file that is about to vanish
+    # (2026-09-08: three "deploy-pending: No such file" errors in every goal run's sweep).
+    merged_files="$run/merged-files.txt"; cp "$pending" "$merged_files" 2>/dev/null || : > "$merged_files"
+    merged=$(grep -c . "$merged_files" 2>/dev/null || echo 0); merged_list=" (batched: $merged file(s) merged this run)"
   elif [ -n "$GOAL" ] && [ "$merged" -gt 0 ] && [ "$apply_ok" -ne 0 ] && [ -z "$NO_DEPLOY" ]; then
     cat "$merged_files" >> "$pending"; DEPLOY_DEFERRED=1
     deploy="deferred — goal runs deploy ONCE at the end ($(grep -c . "$pending") file(s) waiting; migrations already applied)"
