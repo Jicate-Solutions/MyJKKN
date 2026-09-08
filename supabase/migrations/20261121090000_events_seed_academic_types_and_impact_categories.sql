@@ -20,10 +20,11 @@
 -- ⚠️ THE LIST IS TWENTY, NOT SEVENTEEN. Earlier working notes in this repo —
 --    including a build plan and a continuation brief — said "the 17 academic
 --    event types". That was a miscount of the same sentence, propagated. The
---    PDF names: Seminar, Workshop, Conference, FDP, Awareness Programme,
---    Inauguration, Competition, Outreach, Community Engagement, Training,
---    Guest Lecture, Expert Talk, Industrial Visit, Field Visit, Orientation,
---    Student Development, Cultural, Sports, Exhibition and Other. Twenty.
+--    The PDF names, in its own order: Seminar, Workshop, Conference, FDP,
+--    Awareness Programme, Inauguration, Competition, Outreach, Community
+--    Engagement, Training, Guest Lecture, Expert Talk, Orientation, Student
+--    Development, Cultural, Sports, Exhibition, Industrial Visit, Field Visit
+--    and Other. Twenty.
 --
 -- WHAT IS NOT DECIDED HERE. The source is titled "Proposed", and the table's
 --   own comment asks for Director CONFIRMATION. So this migration ships FILE
@@ -58,26 +59,26 @@
 -- ── 1. Academic event types — PDF step 3, in the PDF's order ────────────────
 INSERT INTO public.event_academic_types (institution_id, code, label, description, display_order)
 VALUES
-  (NULL, 'seminar',              'Seminar',              NULL, 10),
-  (NULL, 'workshop',             'Workshop',             NULL, 20),
-  (NULL, 'conference',           'Conference',           NULL, 30),
-  (NULL, 'fdp',                  'FDP',                  'Faculty Development Programme', 40),
-  (NULL, 'awareness_programme',  'Awareness Programme',  NULL, 50),
-  (NULL, 'inauguration',         'Inauguration',         NULL, 60),
-  (NULL, 'competition',          'Competition',          NULL, 70),
-  (NULL, 'outreach',             'Outreach',             NULL, 80),
-  (NULL, 'community_engagement', 'Community Engagement', NULL, 90),
-  (NULL, 'training',             'Training',             NULL, 100),
-  (NULL, 'guest_lecture',        'Guest Lecture',        NULL, 110),
-  (NULL, 'expert_talk',          'Expert Talk',          NULL, 120),
-  (NULL, 'industrial_visit',     'Industrial Visit',     NULL, 130),
-  (NULL, 'field_visit',          'Field Visit',          NULL, 140),
-  (NULL, 'orientation',          'Orientation',          NULL, 150),
-  (NULL, 'student_development',  'Student Development',  NULL, 160),
-  (NULL, 'cultural',             'Cultural',             NULL, 170),
-  (NULL, 'sports',               'Sports',               NULL, 180),
-  (NULL, 'exhibition',           'Exhibition',           NULL, 190),
-  (NULL, 'other',                'Other',                'Use only when no other type fits; the event report should then say what it was.', 900)
+  (NULL, 'seminar',             'Seminar',             NULL, 10),
+  (NULL, 'workshop',            'Workshop',            NULL, 20),
+  (NULL, 'conference',          'Conference',          NULL, 30),
+  (NULL, 'fdp',                 'FDP',                 'Faculty Development Programme', 40),
+  (NULL, 'awareness_programme', 'Awareness Programme', NULL, 50),
+  (NULL, 'inauguration',        'Inauguration',        NULL, 60),
+  (NULL, 'competition',         'Competition',         NULL, 70),
+  (NULL, 'outreach',            'Outreach',            NULL, 80),
+  (NULL, 'community_engagement','Community Engagement',NULL, 90),
+  (NULL, 'training',            'Training',            NULL, 100),
+  (NULL, 'guest_lecture',       'Guest Lecture',       NULL, 110),
+  (NULL, 'expert_talk',         'Expert Talk',         NULL, 120),
+  (NULL, 'orientation',         'Orientation',         NULL, 130),
+  (NULL, 'student_development', 'Student Development', NULL, 140),
+  (NULL, 'cultural',            'Cultural',            NULL, 150),
+  (NULL, 'sports',              'Sports',              NULL, 160),
+  (NULL, 'exhibition',          'Exhibition',          NULL, 170),
+  (NULL, 'industrial_visit',    'Industrial Visit',    NULL, 180),
+  (NULL, 'field_visit',         'Field Visit',         NULL, 190),
+  (NULL, 'other',               'Other',               'Use only when no other type fits; the event report should then say what it was.', 900)
 ON CONFLICT DO NOTHING;
 
 -- ── 2. Outcome / impact categories — PDF step 11, in the PDF's order ────────
