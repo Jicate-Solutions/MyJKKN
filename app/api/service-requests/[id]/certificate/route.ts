@@ -5,8 +5,10 @@
 //     &year_of_study=I&download=1
 //
 // Streams a print-ready A4 PDF certificate for an APPROVED service request.
-// Office staff (service_requests.manage) or super admins only; the template
-// must be enabled on the request's service type. `download=1` sets a
+// Office staff (service_requests.manage) or super admins only, and only for
+// requests visible to the caller under RLS (their institution / CAS siblings;
+// super admins see all); the template must be enabled on the request's
+// service type. `download=1` sets a
 // Content-Disposition attachment and records the issue on the timeline —
 // preview loads (no flag) render inline and are not logged.
 // ============================================================================
@@ -18,7 +20,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse, connection } from 'next/server';
 import { z } from 'zod';
 import { currentUser } from '@/lib/utils/parent-admin-auth';
-import { createServiceRoleClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { ServiceRequestTimelineService } from '@/lib/services/service-requests/service-request-timeline-service';
 import {
   CERTIFICATE_TEMPLATE_KEYS,
@@ -70,14 +72,20 @@ export async function GET(
     const q = parsed.data;
     const template = q.template as (typeof CERTIFICATE_TEMPLATE_KEYS)[number];
 
-    // Request + the service type's enabled templates. Service-role read: the
-    // caller is office staff, whose row visibility RLS does not guarantee.
-    const db = createServiceRoleClient() as any;
-    const { data: sr, error } = await db
+    // Request + the service type's enabled templates, read under the CALLER's
+    // RLS — the same authority as the request page they opened this from.
+    // `service_requests.manage` is a global permission bit; without this the
+    // route issued official PDFs for ANY institution's learner by id. RLS ANDs
+    // role_has_institution_access(institution_id) (CAS-sibling aware) and lets
+    // super admins through, so a request outside the caller's scope simply
+    // reads as not found. resolveCertificateSubject() below uses the service
+    // role for the learner join, but only after this gate has passed.
+    const scoped = (await createServerSupabaseClient()) as any;
+    const { data: sr, error } = await scoped
       .from('service_requests')
-      .select('id, request_number, status, service_type:service_types(id, name, certificate_template_keys)')
+      .select('id, request_number, status, institution_id, service_type:service_types(id, name, certificate_template_keys)')
       .eq('id', id)
-      .single();
+      .maybeSingle();
     if (error || !sr) {
       return NextResponse.json({ error: 'Service request not found' }, { status: 404 });
     }
