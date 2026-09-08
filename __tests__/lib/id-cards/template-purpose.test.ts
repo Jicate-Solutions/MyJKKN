@@ -19,12 +19,12 @@ describe('purposeOfLayout', () => {
     expect(
       purposeOfLayout({ purpose: { label: ' Senior Learners ', audience: 'team_member', is_default: true } })
     ).toEqual({ key: 'senior_learners', label: 'Senior Learners', audience: 'team_member', is_default: true });
-    expect(purposeOfLayout({ purpose: { key: 'Admin Staff', audience: 'bogus' } }).audience).toBe('learner');
-    expect(purposeOfLayout({ purpose: { key: 'Admin Staff' } }).key).toBe('admin_staff');
+    expect(purposeOfLayout({ purpose: { key: 'Admin Team', audience: 'bogus' } }).audience).toBe('learner');
+    expect(purposeOfLayout({ purpose: { key: 'Admin Team' } }).key).toBe('admin_team');
   });
 
   it('slugifies keys', () => {
-    expect(slugifyPurposeKey('Senior Learners (faculty)')).toBe('senior_learners_faculty');
+    expect(slugifyPurposeKey('Senior Learners (teaching)')).toBe('senior_learners_teaching');
     expect(slugifyPurposeKey('!!!')).toBe('purpose');
   });
 });

@@ -34,7 +34,7 @@ export default function IdCardBatchPrintPage() {
             Print ID cards for a whole cohort at once — a freshers batch
             (admission year) or a class / semester / section. Pick the cohort,
             then <strong>Preview &amp; print</strong>: every card is rendered
-            student by student (front, then back, then the next learner) and
+            learner by learner (front, then back, then the next learner) and
             checked before anything prints. Learners without an activated
             account are skipped and reported.
           </p>

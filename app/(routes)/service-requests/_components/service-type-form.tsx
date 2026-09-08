@@ -534,7 +534,7 @@ export function ServiceTypeForm({ initialData, onSubmit, isSubmitting }: Service
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Once a request of this type is approved, office staff can generate the
+            Once a request of this type is approved, the office team can generate the
             selected certificates for the requester as print-ready A4 PDFs (laid out
             for the pre-printed letterhead). Learner details are filled automatically.
           </p>

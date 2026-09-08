@@ -41,14 +41,14 @@ export const CERTIFICATE_TEMPLATES: readonly CertificateTemplateMeta[] = [
     key: 'bonafide',
     label: 'Bonafide Certificate',
     description:
-      'Certifies the learner is a current student of the college, issued for a stated purpose (scholarship, bank, passport, ...).',
+      'Certifies the learner is currently enrolled at the college, issued for a stated purpose (scholarship, bank, passport, ...).',
     inputs: ['issueDate', 'yearOfStudy', 'purpose'],
   },
   {
     key: 'course_completion',
     label: 'Course Completion Certificate',
     description:
-      'Certifies the learner was a bonafide student for the programme duration and completed the course in the stated month.',
+      'Certifies the learner was a bonafide learner for the programme duration and completed the course in the stated month.',
     inputs: ['issueDate', 'completionMonth'],
   },
 ] as const;

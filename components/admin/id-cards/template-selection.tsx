@@ -322,7 +322,7 @@ export function NewTemplateButton() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="learner">Learners (roll no, course, study period)</SelectItem>
-                  <SelectItem value="team_member">Team members (staff id, designation)</SelectItem>
+                  <SelectItem value="team_member">Team members (ID code, designation)</SelectItem>
                 </SelectContent>
               </Select>
             </div>

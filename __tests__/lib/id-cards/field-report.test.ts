@@ -116,9 +116,9 @@ describe('buildFieldReport — blanks', () => {
     expect(missingFields(withPrincipal).map((f) => f.key)).toEqual(['principal_signature']);
   });
 
-  it('team members report Staff ID / Designation instead of Roll Number / Course', () => {
+  it('team members report Team member ID / Designation instead of Roll Number / Course', () => {
     const fields = complete(
-      learner({ kind: 'employee', staffId: null, designation: 'Assistant Professor', addressParts: null })
+      learner({ kind: 'employee', staffId: null, designation: 'Librarian', addressParts: null })
     );
     expect(fields.some((f) => f.key === 'roll_number')).toBe(false);
     expect(missingFields(fields).map((f) => f.key)).toEqual(['staff_id']);

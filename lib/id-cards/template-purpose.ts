@@ -42,9 +42,9 @@ export const DEFAULT_PURPOSE: TemplatePurpose = {
 /** Common purposes offered as suggestions in the editor. */
 export const SUGGESTED_PURPOSES: ReadonlyArray<Pick<TemplatePurpose, 'key' | 'label' | 'audience'>> = [
   { key: 'learner', label: 'Learners', audience: 'learner' },
-  { key: 'senior_learner', label: 'Senior Learners (faculty)', audience: 'team_member' },
+  { key: 'senior_learner', label: 'Senior Learners (teaching)', audience: 'team_member' },
   { key: 'administrator', label: 'Administrators', audience: 'team_member' },
-  { key: 'support_staff', label: 'Support staff', audience: 'team_member' },
+  { key: 'support_staff', label: 'Support team', audience: 'team_member' },
   { key: 'visitor', label: 'Visitors / temporary', audience: 'learner' }
 ];
 

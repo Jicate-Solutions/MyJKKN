@@ -56,7 +56,7 @@ export const CARD_FIELD_LABELS: Record<RenderCardField, string> = {
   department: 'Department',
   valid_until: 'Valid until date',
   study_period: 'Study period (YEAR)',
-  staff_id: 'Staff ID (team members)',
+  staff_id: 'Team member ID',
   principal_name: 'Principal name / designation',
   institution_email: 'Institution email',
   institution_phone: 'Institution phone',
@@ -76,6 +76,19 @@ export const MAPPABLE_CARD_FIELDS: readonly RenderCardField[] = CARD_FIELDS.filt
 
 // Keys the render engine actually puts in its value bag (assembleCardData in
 // lib/id-cards/render-data.ts). Anything else maps to an empty string.
+// Team-member columns live on the `staff` table; the value-bag key keeps that
+// table name (render-data.ts reads it verbatim) while the label shows JKKN copy.
+const TEAM_MEMBER_TABLE = 'staff';
+const TEAM_MEMBER_COLUMNS = [
+  { column: 'first_name', hint: '' },
+  { column: 'last_name', hint: '' },
+  { column: 'designation', hint: '' },
+  { column: 'staff_id', hint: 'ID code' },
+  { column: 'department_id', hint: 'department name' },
+  { column: 'phone', hint: '' },
+  { column: 'blood_group', hint: '' },
+] as const;
+
 export const DB_COLUMN_OPTIONS = [
   { value: 'profiles.full_name', label: 'profiles.full_name (account display name)' },
   { value: 'learners_profiles.first_name', label: 'learners_profiles.first_name' },
@@ -93,13 +106,10 @@ export const DB_COLUMN_OPTIONS = [
   { value: 'learners_profiles.father_name', label: 'learners_profiles.father_name' },
   { value: 'learners_profiles.mother_name', label: 'learners_profiles.mother_name' },
   { value: 'learners_profiles.student_mobile', label: 'learners_profiles.student_mobile' },
-  { value: 'staff.first_name', label: 'staff.first_name' },
-  { value: 'staff.last_name', label: 'staff.last_name' },
-  { value: 'staff.designation', label: 'staff.designation' },
-  { value: 'staff.staff_id', label: 'staff.staff_id' },
-  { value: 'staff.department_id', label: 'staff.department_id (department name)' },
-  { value: 'staff.phone', label: 'staff.phone' },
-  { value: 'staff.blood_group', label: 'staff.blood_group' },
+  ...TEAM_MEMBER_COLUMNS.map(({ column, hint }) => ({
+    value: `${TEAM_MEMBER_TABLE}.${column}`,
+    label: `Team member ${column.replace(/_/g, ' ')}` + (hint ? ` (${hint})` : ''),
+  })),
   { value: 'institutions.email', label: 'institutions.email (template block first)' },
   { value: 'institutions.phone', label: 'institutions.phone (template block first)' },
   { value: 'institutions.address', label: 'institutions.address (template block first)' },

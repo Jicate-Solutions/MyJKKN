@@ -36,7 +36,7 @@ describe('courseCompletionParagraph', () => {
     const p = courseCompletionParagraph(manijothi);
     expect(flat(p.runs)).toBe(
       'This is to certify that Selvi. C. Manijothi (C24JPGCHE006), D/o P. Chandrasekar ' +
-        'was a bonafide student of M.Sc. Chemistry degree of our college during the academic year 2024-2026. ' +
+        'was a bonafide learner of M.Sc. Chemistry degree of our college during the academic year 2024-2026. ' +
         'She has completed the course in April 2026.'
     );
     expect(p.runs.find((r) => r.bold)?.text).toBe('C. Manijothi (C24JPGCHE006)');
@@ -60,7 +60,7 @@ describe('courseCompletionParagraph', () => {
 
   it('omits the parent clause and register number when the record lacks them', () => {
     const text = flat(courseCompletionParagraph({ ...manijothi, parentName: '', registerNumber: '' }).runs);
-    expect(text).toContain('Selvi. C. Manijothi was a bonafide student');
+    expect(text).toContain('Selvi. C. Manijothi was a bonafide learner');
     expect(text).not.toContain('D/o');
   });
 });
@@ -79,7 +79,7 @@ describe('bonafideParagraphs', () => {
     );
     expect(flat(body.runs)).toBe(
       'This is to certify that Selvi. B. Dhivyadharshini, D/o Thiru K. Balasamy is a I - M.Sc. Chemistry ' +
-        'Degree student of this College during the academic year 2025-2026. Her Conduct and Character are Good. ' +
+        'Degree learner of this College during the academic year 2025-2026. Her Conduct and Character are Good. ' +
         'This certificate is issued only for the purpose of availing Scholarship.'
     );
   });

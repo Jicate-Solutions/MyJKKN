@@ -114,7 +114,7 @@ export interface RenderedParagraph {
 /**
  * Course Completion body, matching the approved reference:
  *   "This is to certify that Selvi. C. Manijothi (C24JPGCHE006), D/o P. Chandrasekar
- *    was a bonafide student of M.Sc. Chemistry degree of our college during the
+ *    was a bonafide learner of M.Sc. Chemistry degree of our college during the
  *    academic year 2024-2026. She has completed the course in April 2026."
  */
 export function courseCompletionParagraph(
@@ -136,7 +136,7 @@ export function courseCompletionParagraph(
     { text: parent ? `, ${childOf(g)} ${parent} ` : ' ' },
     {
       text:
-        `was a bonafide student of ${clean(data.programName) || '________'} degree of our college ` +
+        `was a bonafide learner of ${clean(data.programName) || '________'} degree of our college ` +
         `during the academic year ${span}. ${subject} has completed the course in ${completion}.`,
     },
   ];
@@ -146,7 +146,7 @@ export function courseCompletionParagraph(
 /**
  * Bonafide body — ONE justified paragraph (office-confirmed 2026-09-05):
  *   "This is to certify that Selvi. B. Dhivyadharshini, D/o Thiru K. Balasamy is a
- *    I - M.Sc Chemistry Degree student of this College during the academic year
+ *    I - M.Sc Chemistry Degree learner of this College during the academic year
  *    2025 - 2026. Her Conduct and Character are Good. This certificate is issued
  *    only for the purpose of availing Scholarship."
  */
@@ -173,7 +173,7 @@ export function bonafideParagraphs(
         { text: parent ? `, ${childOf(g)} Thiru ${parent} ` : ' ' },
         {
           text:
-            `is a ${classLabel} Degree student of this College during the academic year ${academicYear}. ` +
+            `is a ${classLabel} Degree learner of this College during the academic year ${academicYear}. ` +
             `${possessive} Conduct and Character are Good. ` +
             `This certificate is issued only for the purpose of availing ${purpose}.`,
         },

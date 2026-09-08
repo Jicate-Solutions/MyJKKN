@@ -66,7 +66,7 @@ const reading = (page: SheetPage) =>
   pageSequence(page).map(({ slot }) => `${slot.card.learnerId}:${slot.side}`);
 
 describe('student-wise (pairs) layout — the default', () => {
-  it('reads Student 1 front, Student 1 back, Student 2 front, Student 2 back …', () => {
+  it('reads Learner 1 front, Learner 1 back, Learner 2 front, Learner 2 back …', () => {
     const cards = [card(1), card(2), card(3)];
     const pages = buildSheetPages(cards);
     expect(pages).toHaveLength(1);
