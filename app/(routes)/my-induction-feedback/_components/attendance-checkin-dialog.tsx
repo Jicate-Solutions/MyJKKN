@@ -115,12 +115,13 @@ export function AttendanceCheckinDialog({
               <div key={m.learner_id} className="py-3 flex items-center justify-between gap-2">
                 <div className="min-w-0">
                   <div className="text-sm font-medium truncate">{m.name || 'Unnamed'}</div>
-                  {/* Programme first: register_number is still NULL for most freshers
-                      at induction time, so this line used to be a bare em-dash on the
-                      majority of rows and told the mentor nothing. The programme names
-                      the branch (department cannot — every engineering fresher sits in
-                      the shared first-year department), so it is what separates two
-                      same-name freshers in the group. */}
+                  {/* Programme first: it names the branch (department cannot — every
+                      engineering fresher sits in the shared first-year department),
+                      so it is what separates two same-name freshers in the group.
+                      The id below it is `ident`, not register_number: four of the
+                      five live cohorts have no register and no roll number, so a
+                      register-only line printed nothing. `ident` falls back to the
+                      application id, which every fresher has. */}
                   <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
                     {m.program_name && (
                       <span className="flex min-w-0 items-center gap-1">
@@ -145,9 +146,9 @@ export function AttendanceCheckinDialog({
                         {!m.student_mobile && <span>(parent)</span>}
                       </a>
                     )}
-                    {m.register_number && <span className="tabular-nums">{m.register_number}</span>}
+                    {m.ident && <span className="tabular-nums">{m.ident}</span>}
                     {m.batch_label && <span>Batch {m.batch_label}</span>}
-                    {!m.program_name && !m.register_number && !m.batch_label
+                    {!m.program_name && !m.ident && !m.batch_label
                       && !m.student_mobile && !m.father_mobile && <span>—</span>}
                   </div>
                 </div>
