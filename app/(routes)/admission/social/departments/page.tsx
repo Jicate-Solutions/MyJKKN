@@ -367,20 +367,25 @@ export default function SocialDepartmentAccountsPage() {
     // A role with departments.view but not instagram.view would get an empty/denied
     // result — which must render as "unavailable", NOT as "nothing is live" (that
     // would fabricate drift). Track the load + error so the UI can tell them apart.
-    supabase
-      .from('ig_accounts')
-      .select('id, username, metrics_source')
-      .then(({ data, error: err }) => {
+    // await + try/catch rather than .then().catch(): PostgREST's builder is a
+    // PromiseLike, not a Promise, so it has no .catch — main's newer
+    // postgrest-js types make that an error (TS2339) rather than the silent
+    // any it used to be. Behaviour is unchanged: a rejected request (network
+    // failure) must still set igLoaded, or the tiles and the Loop column pin
+    // on "…" forever.
+    void (async () => {
+      try {
+        const { data, error: err } = await supabase
+          .from('ig_accounts')
+          .select('id, username, metrics_source');
         if (err) setIgError(err.message);
         else setIgAccounts((data as unknown as IgAccountRow[]) ?? []);
-        setIgLoaded(true);
-      })
-      // A rejected promise (network failure) never resolves the .then, which
-      // would leave igLoaded false and pin the new tiles/column on "…" forever.
-      .catch((e: unknown) => {
+      } catch (e: unknown) {
         setIgError(e instanceof Error ? e.message : String(e));
+      } finally {
         setIgLoaded(true);
-      });
+      }
+    })();
 
     // Which handles have any post at all. ig_posts carries the same policy pair
     // as ig_accounts (institution scope OR social.instagram.view), so a caller
