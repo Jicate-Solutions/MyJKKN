@@ -39,11 +39,25 @@
 // would quietly move both of those rules into whatever this file remembers to
 // filter on.
 //
-// KNOWN LIMIT, stated so nobody mistakes it for a guarantee: this gate is
-// per-SESSION, not per-ROLE. Any signed-in user can request any part and receive
-// the full set; the page then filters what it DISPLAYS by role. That matches the
-// stated decision and the smart-guide precedent, but it means the role scoping is
-// a presentation rule, not an access boundary.
+// ROLE SCOPING IS AN ACCESS BOUNDARY (changed 2026-09-08). It used to be a
+// presentation rule: this route returned the full set to any signed-in caller
+// and the page filtered what it DISPLAYED, so every learner could read all
+// ~4,800 subjects — Administration, AI Routines, Users & Roles included — by
+// requesting ?part=recent and ignoring the page. One layer in from the
+// public/*.json exposure above, and the same class of miss.
+//
+// Every read below is now confined to the modules the CALLER may see, decided
+// by fn_changelog_visible_modules() (supabase/migrations/
+// 20261121090000_changelog_visible_modules.sql) rather than by anything this
+// file remembers to filter on. The page's canSeeModule() stays exactly as it
+// was: it is now the second, cosmetic pass over a list the database has already
+// narrowed, not the only one.
+//
+// The function is deliberately NOT narrower than the page — it reproduces the
+// multi-role OR-merge, the profiles.role safety net, live handover keys and the
+// super-admin bypass, because a server filter that hides a module the page
+// shows is a regression wearing a security fix's clothes. Its one documented
+// residual is at the foot of that migration.
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
@@ -215,14 +229,42 @@ function toModule(r: ModuleRow): ChangelogModule {
   };
 }
 
+/**
+ * The module keys this CALLER may read — the access boundary itself.
+ *
+ * Resolved once per request and threaded through every read below, so meta and
+ * the two entry windows cannot disagree about who the reader is. Errors are
+ * FATAL and are allowed to throw: falling back to "show everything" on a failed
+ * permission lookup is how a boundary quietly stops being one.
+ */
+async function readVisibleModules(supabase: Db): Promise<string[]> {
+  // `as any` because types/supabase.ts is generated from the deployed schema and
+  // this function is new in this change — the same cast every route in this repo
+  // uses for user_has_permission(). It drops back to the generated signature the
+  // next time the types are regenerated.
+  const { data, error } = await (supabase as any).rpc('fn_changelog_visible_modules');
+  if (error) throw new Error(`visible modules: ${error.message}`);
+  // An empty array is a legitimate answer, not a failure: a viewer who may see
+  // no module gets `module_key=in.()`, which PostgREST answers with [] and a
+  // 200. Verified against production rather than assumed.
+  return (data as string[] | null) ?? [];
+}
+
 /** One window of entries, newest first, the whole window. */
 async function readEntries(
   supabase: Db,
   part: Exclude<Part, 'meta'>,
-  cutoff: string
+  cutoff: string,
+  visible: string[]
 ): Promise<ChangelogEntry[]> {
   const rows = await fetchAll<EntryRow>((from, to) => {
-    const scoped = supabase.from('changelog_entries').select(ENTRY_COLUMNS, { count: 'exact' });
+    const scoped = supabase
+      .from('changelog_entries')
+      .select(ENTRY_COLUMNS, { count: 'exact' })
+      // The boundary. Applied in the database, on the partial index
+      // changelog_entries (module_key) WHERE NOT hidden, so it costs a filter
+      // rather than a scan.
+      .in('module_key', visible);
     return newestFirst(
       part === 'recent' ? scoped.gte('entry_date', cutoff) : scoped.lt('entry_date', cutoff)
     ).range(from, to);
@@ -244,19 +286,31 @@ async function readEntries(
  * person's takedown, the thing `hidden` exists for — leaves it overstating what
  * this reader can actually see.
  */
-async function readMeta(supabase: Db, cutoff: string): Promise<ChangelogMeta> {
+async function readMeta(
+  supabase: Db,
+  cutoff: string,
+  visible: string[]
+): Promise<ChangelogMeta> {
   const [scan, moduleRows, sync] = await Promise.all([
     fetchAll<Pick<EntryRow, 'entry_date' | 'author' | 'module_key'>>((from, to) =>
       newestFirst(
-        supabase.from('changelog_entries').select('entry_date,author,module_key', {
-          count: 'exact',
-        })
+        supabase
+          .from('changelog_entries')
+          .select('entry_date,author,module_key', { count: 'exact' })
+          // Same boundary as readEntries, and it must be the same or the header
+          // counts would describe a list this reader is never served.
+          .in('module_key', visible)
       ).range(from, to)
     ),
     fetchAll<ModuleRow>((from, to) =>
       supabase
         .from('changelog_modules')
         .select('key,label,perm,href', { count: 'exact' })
+        // The "areas" dropdown is built from this. Left unscoped it would name
+        // every module on the platform while selecting entries from none of
+        // them — leaking the module list back out of the boundary the entries
+        // just went behind.
+        .in('key', visible)
         .order('key', { ascending: true })
         .range(from, to)
     ),
@@ -343,7 +397,11 @@ export async function GET(request: Request) {
 
   let body: ChangelogMeta | ChangelogEntry[];
   try {
-    body = part === 'meta' ? await readMeta(supabase, cutoff) : await readEntries(supabase, part, cutoff);
+    const visible = await readVisibleModules(supabase);
+    body =
+      part === 'meta'
+        ? await readMeta(supabase, cutoff, visible)
+        : await readEntries(supabase, part, cutoff, visible);
   } catch (error) {
     // Kept in production: this is the difference between "the changelog is empty"
     // and "the database read failed", and the two look identical from the page.
