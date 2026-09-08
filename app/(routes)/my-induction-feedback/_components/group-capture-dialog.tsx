@@ -17,7 +17,7 @@ import { Input } from '@/components/ui/input';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger,
 } from '@/components/ui/dialog';
-import { MessageSquarePlus, CheckCircle2, Lock } from 'lucide-react';
+import { MessageSquarePlus, CheckCircle2, Lock, GraduationCap } from 'lucide-react';
 // Reuse PR1's shared scale instead of re-inlining it, so the own-phone form and this
 // kiosk dialog can never drift (review #1694).
 import { RatingScale, RATING_BRAND as BRAND } from '@/app/(routes)/learners/my-induction/_components/rating-scale';
@@ -114,9 +114,25 @@ export function GroupCaptureDialog({
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
                     <div className="text-sm font-medium truncate">{m.name || 'Unnamed'}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {m.register_number ?? '—'}{m.batch_label ? ` · Batch ${m.batch_label}` : ''}
-                      {!m.has_account && ' · no phone'}
+                    {/* Programme first, matching the attendance dialog — it is what
+                        separates two same-name freshers, and department cannot,
+                        because every engineering fresher sits in the shared
+                        first-year department. The id is `ident`, not
+                        register_number: four of the five live cohorts have no
+                        register and no roll number, so the mentor was handed a bare
+                        name. `ident` falls back to the application id, which every
+                        fresher has. */}
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                      {m.program_name && (
+                        <span className="flex min-w-0 items-center gap-1">
+                          <GraduationCap className="h-3 w-3 shrink-0" />
+                          <span className="truncate">{m.program_name}</span>
+                        </span>
+                      )}
+                      {m.ident && <span className="tabular-nums">{m.ident}</span>}
+                      {m.batch_label && <span>Batch {m.batch_label}</span>}
+                      {!m.has_account && <span>no phone</span>}
+                      {!m.program_name && !m.ident && !m.batch_label && <span>—</span>}
                     </div>
                   </div>
                   {m.captured && (

@@ -234,10 +234,22 @@ export function SessionsSection({
     if (!start || !end) { toast.error('Start and end time are required.'); return; }
     if (new Date(end) <= new Date(start)) { toast.error('End must be after start.'); return; }
 
-    // Tiered double-booking guard (availability spine, Limb 2): a meeting OR
-    // event-speaking clash BLOCKS (a person can't be in two of those at once);
-    // a teaching/class clash is advisory (shown as a warning in the picker, not
-    // blocked). A super-admin may force past a hard block.
+    // Tiered double-booking guard (availability spine, Limb 2). Three levels,
+    // matching SessionSpeakerPicker's banners:
+    //
+    //   MEETING  -> blocks. Nobody is in a meeting and on a stage at once.
+    //               A super-admin may still force past it.
+    //   EVENT    -> warns, then continues on confirmation. Already speaking at
+    //               an overlapping session is exactly what a COMBINED programme
+    //               looks like: 2-3 colleges run their inductions side by side
+    //               and deliberately share one chief guest. Refusing it forced
+    //               coordinators to either drop the guest or ask an admin, so
+    //               the guard now informs the decision instead of making it.
+    //   TEACHING -> advisory only, never reaches here.
+    //
+    // The confirm is window.confirm, not an AlertDialog: this runs inside an
+    // open Dialog, where a Radix alert opened from a handler can trap pointer
+    // events (see the radix-dialog-race-fix notes).
     if (speakers.length && start && end) {
       try {
         const rows = await PersonAvailabilityService.getPeopleConflicts(
@@ -249,16 +261,32 @@ export function SessionsSection({
           // excluded too.
           editing?.id ?? lastCreatedIdRef.current,
         );
-        const hard = rows.filter((r) => r.source === 'meeting' || r.source === 'event');
-        if (hard.length) {
-          const nameById = new Map(speakers.map((s) => [s.id, s.full_name || s.email || 'Someone']));
-          const who = [...new Set(hard.map((h) => (h.profile_id ? nameById.get(h.profile_id) : null) ?? 'Someone'))].join(', ');
+        const nameById = new Map(speakers.map((s) => [s.id, s.full_name || s.email || 'Someone']));
+        const namesOf = (list: typeof rows) =>
+          [...new Set(list.map((h) => (h.profile_id ? nameById.get(h.profile_id) : null) ?? 'Someone'))].join(', ');
+
+        const meetings = rows.filter((r) => r.source === 'meeting');
+        if (meetings.length) {
+          const who = namesOf(meetings);
           if (profile?.is_super_admin) {
-            if (!window.confirm(`${who} already has a meeting or another event at this time. Force the assignment anyway? (admin override)`)) return;
+            if (!window.confirm(`${who} already has a meeting at this time. Force the assignment anyway? (admin override)`)) return;
           } else {
-            toast.error(`Can't assign — ${who} already has a meeting or event at this time. Pick another time, or remove them.`);
+            toast.error(`Can't assign — ${who} already has a meeting at this time. Pick another time, or remove them.`);
             return;
           }
+        }
+
+        // Where they are already speaking, named in the prompt — a coordinator
+        // can only judge "combined programme or genuine mistake?" if they can
+        // see WHICH session it clashes with.
+        const speaking = rows.filter((r) => r.source === 'event');
+        if (speaking.length) {
+          const who = namesOf(speaking);
+          const where = [...new Set(speaking.map((r) => r.label))].join('; ');
+          if (!window.confirm(
+            `${who} is already speaking elsewhere at this time:\n\n${where}\n\n` +
+            'That is expected for a combined programme run across colleges. Assign them here too?',
+          )) return;
         }
       } catch {
         /* availability check failed — don't block the save on a transient hiccup */

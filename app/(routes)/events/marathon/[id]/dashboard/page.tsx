@@ -48,6 +48,7 @@ import {
 import type { EventStatus } from '@/types/events';
 import { EVENT_STATUS_TRANSITIONS } from '@/types/events';
 import { useMarathonAccess } from '@/hooks/events/marathon/use-marathon-access';
+import { EventTasksCard } from '@/components/events/shared/event-tasks-card';
 import { MarathonAccessDenied } from '../_components/marathon-access-denied';
 
 // ============================================================================
@@ -574,6 +575,16 @@ export default function MarathonDashboardPage() {
             <BudgetQuadrant eventId={eventId} data={data} />
           </div>
         ) : null}
+
+        {/* ── Pending Tasks ─────────────────────────────────────────────
+            Outstanding work on this marathon — event-level rows plus every
+            committee's, in one list. Takes no permission props: it asks
+            fn_can_manage_event_level_tasks itself. That matters more here than
+            on the other consoles, because useMarathonAccess is NOT event-scoped
+            (it takes no eventId and answers from role alone), so it cannot say
+            who is in charge of THIS marathon — the SQL function reads
+            events.config->incharges and can. */}
+        <EventTasksCard eventId={eventId} />
 
         {/* ── Registration Statistics ──────────────────────────────── */}
         {data && <RegistrationStatistics data={data} />}
