@@ -65,7 +65,7 @@ export function MyMentorCard({ eventId }: { eventId: string }) {
           <HeartHandshake className="h-4 w-4" style={{ color: BRAND }} /> Your Senior Peer Mentor
         </CardTitle>
         <CardDescription>
-          A senior student assigned to look out for you through your first year. Stuck, lost or just
+          A senior learner assigned to look out for you through your first year. Stuck, lost or just
           want to ask something? Reach out — that&apos;s what they&apos;re here for.
         </CardDescription>
       </CardHeader>
@@ -101,7 +101,7 @@ export function MyMentorCard({ eventId }: { eventId: string }) {
             fn_induction_my_mentor_for_event does not return a mobile or an
             email (20261118000000), so there is nothing to render even if a
             future edit tried. A mentee reaches their mentor in person or
-            through their coordinator; publishing a senior student's phone
+            through their coordinator; publishing a senior learner's phone
             number to their whole group was the Director's call to decline. */}
 
         {/* A stand-in is stated plainly. A fresher who was told a different name
