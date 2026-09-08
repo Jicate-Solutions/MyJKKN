@@ -56,6 +56,22 @@ export type RenderSideResult =
   | { ok: false; code: string; message: string };
 
 /**
+ * Narrow a render result to its failure branch.
+ *
+ * `if (!result.ok)` does NOT narrow here. This repo compiles with
+ * `strictNullChecks: false` (tsconfig.json), and without that flag a boolean
+ * discriminant cannot select a union branch — so every `.code` / `.message`
+ * read on the failure path is checked against the SUCCESS shape and fails
+ * (TS2339). A user-defined type predicate narrows regardless of the flag,
+ * which leaves the union itself exactly as written.
+ */
+export function renderFailed(
+  result: RenderSideResult
+): result is Extract<RenderSideResult, { ok: false }> {
+  return !result.ok;
+}
+
+/**
  * Degrees to turn the landscape render so the card reads upright.
  * 'portrait' composes +90° (clockwise) into the canvas → undo with −90°.
  */
@@ -210,7 +226,7 @@ export async function renderLearnerCards(
 
   const outcomes = await mapWithConcurrency(learners, RENDER_CONCURRENCY, async (learner) => {
     const front = await renderCardSide(learner.templateId, learner.profileId, 'front', true);
-    if (!front.ok) {
+    if (renderFailed(front)) {
       tick();
       return { failure: { learnerId: learner.learnerId, name: learner.name, message: front.message } };
     }
@@ -218,13 +234,15 @@ export async function renderLearnerCards(
     let backDataUrl: string | null = null;
     if (front.backConfigured) {
       const back = await renderCardSide(learner.templateId, learner.profileId, 'back');
-      if (back.ok) {
+      if (renderFailed(back)) {
+        if (back.code !== 'back_not_configured') {
+          tick();
+          return {
+            failure: { learnerId: learner.learnerId, name: learner.name, message: `Back side: ${back.message}` }
+          };
+        }
+      } else {
         backDataUrl = back.pngDataUrl;
-      } else if (back.code !== 'back_not_configured') {
-        tick();
-        return {
-          failure: { learnerId: learner.learnerId, name: learner.name, message: `Back side: ${back.message}` }
-        };
       }
     }
 

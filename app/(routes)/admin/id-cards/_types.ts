@@ -108,7 +108,7 @@ export const DB_COLUMN_OPTIONS = [
 
 export type FieldMappingRow = {
   id: string;
-  card_field: CardField;
+  card_field: RenderCardField;
   db_column: string;
 };
 

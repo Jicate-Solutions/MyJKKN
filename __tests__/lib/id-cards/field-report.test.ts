@@ -27,6 +27,7 @@ const learner = (over: Partial<CardPersonData> = {}): CardPersonData => ({
   courseName: 'B.E. ECE',
   departmentName: 'ECE',
   institutionName: 'JKKN College of Engineering and Technology',
+  isSchool: false,
   institutionEmail: 'info@jkkn.ac.in',
   institutionPhone: '04288 274741',
   institutionAddress: 'Kumarapalayam, Namakkal 638183',
