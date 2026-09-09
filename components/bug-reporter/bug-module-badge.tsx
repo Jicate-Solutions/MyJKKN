@@ -23,6 +23,7 @@ import {
   BookOpen,
   HeartPulse,
   Calendar,
+  Video,
   Lightbulb,
   BookOpenCheck,
   Activity,
@@ -61,6 +62,7 @@ type ModuleName =
   | 'my-bug-reports'
   | 'notifications'
   | 'okr'
+  | 'online-meetings'
   | 'organizations'
   | 'resource-management'
   | 'service-requests'
@@ -298,6 +300,12 @@ export const moduleConfig: Record<
     icon: HeartPulse,
     colorClass: 'bg-rose-100 text-rose-800 hover:bg-rose-200 hover:text-rose-800 border-rose-200 dark:bg-rose-900/40 dark:text-rose-300 dark:border-rose-700',
     subColorClass: 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-900/20 dark:text-rose-400 dark:border-rose-800'
+  },
+  'online-meetings': {
+    label: 'Online Meetings',
+    icon: Video,
+    colorClass: 'bg-sky-100 text-sky-800 hover:bg-sky-200 hover:text-sky-800 border-sky-200 dark:bg-sky-900/40 dark:text-sky-300 dark:border-sky-700',
+    subColorClass: 'bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-900/20 dark:text-sky-400 dark:border-sky-800'
   },
   events: {
     label: 'Events',
