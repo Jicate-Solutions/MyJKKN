@@ -1,6 +1,8 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import {
+  useMutation, useQueries, useQuery, useQueryClient, type QueryClient,
+} from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { HRLeaveTypeService } from '@/lib/services/hr/leave-type-service';
 import type {
@@ -372,8 +374,58 @@ export function useStoUsage(
       HRLeaveTypeService.getStoUsage(
         supabase, employeeId!, leaveTypeId!, hrAcademicYearId, onDate
       ),
-    enabled: !!employeeId && !!leaveTypeId,
+    // The DATE is required, not optional. Without one the RPC falls back to
+    // CURRENT_DATE, so the drawer quoted THIS month's allowance while the user
+    // was picking a date in another — a figure hr_trig_sto_enforce_limits was
+    // never going to apply.
+    enabled: !!employeeId && !!leaveTypeId && !!onDate,
   });
+}
+
+/**
+ * Days accrued by the REQUEST's start date, not by today — for EVERY offered
+ * type, because the dropdown quotes a balance beside each one.
+ *
+ * trg_hla_balance_guard measures a request against fn_hr_leave_accrued_days at
+ * NEW.start_date, while v_hr_leave_balance can only report CURRENT_DATE. In
+ * September a staff member who has spent June, July and August reads "1 day
+ * available" — September's credit — and the drawer offered it for an August
+ * date the server then refused with 23514.
+ *
+ * Resolving only the SELECTED type left the same mismatch one step earlier: the
+ * list the choice is made FROM still quoted the view's CURRENT_DATE figure, so
+ * the type was picked against September and the card then corrected itself to
+ * August. One query per type, keyed exactly as a single lookup would be, so the
+ * card and the list share a cache entry instead of fetching the same number
+ * twice.
+ */
+export function useLeaveAccruedAsOfMany(
+  employeeId: string | undefined,
+  /** Every type the drawer offers, the selected one included. */
+  leaveTypeIds: string[],
+  hrAcademicYearId: string | null,
+  onDate?: string
+): Record<string, number> {
+  const supabase = createClientSupabaseClient();
+  const results = useQueries({
+    queries: leaveTypeIds.map((leaveTypeId) => ({
+      queryKey: [ACCRUED_AS_OF_KEY, employeeId, leaveTypeId, hrAcademicYearId, onDate ?? null],
+      queryFn: () =>
+        HRLeaveTypeService.getAccruedDays(
+          supabase, employeeId!, leaveTypeId, hrAcademicYearId, onDate
+        ),
+      enabled: !!employeeId && !!onDate,
+    })),
+  });
+
+  // Rebuilt each render rather than memoized: the id list is derived from the
+  // balance array and changes identity every render anyway, so a useMemo would
+  // recompute regardless while tripping the compiler's manual-memo rule.
+  const byType: Record<string, number> = {};
+  results.forEach((r, i) => {
+    if (typeof r.data === 'number') byType[leaveTypeIds[i]] = r.data;
+  });
+  return byType;
 }
 
 /**
@@ -381,33 +433,6 @@ export function useStoUsage(
  * "2 a month" throttle. Disabled until both ids are known, so the drawer does
  * not fire on open.
  */
-/**
- * Days accrued by the REQUEST's start date, not by today.
- *
- * Same reasoning as useLeavePeriodUsage below, and the same failure it fixes:
- * trg_hla_balance_guard measures a request against fn_hr_leave_accrued_days at
- * NEW.start_date, while v_hr_leave_balance can only report CURRENT_DATE. In
- * September a staff member who has spent June, July and August reads "1 day
- * available" — September's credit — and the drawer offered it for an August
- * date the server then refused with 23514.
- */
-export function useLeaveAccruedAsOf(
-  employeeId: string | undefined,
-  leaveTypeId: string | undefined,
-  hrAcademicYearId: string | null,
-  onDate?: string
-) {
-  const supabase = createClientSupabaseClient();
-  return useQuery({
-    queryKey: [ACCRUED_AS_OF_KEY, employeeId, leaveTypeId, hrAcademicYearId, onDate ?? null],
-    queryFn: () =>
-      HRLeaveTypeService.getAccruedDays(
-        supabase, employeeId!, leaveTypeId!, hrAcademicYearId, onDate
-      ),
-    enabled: !!employeeId && !!leaveTypeId && !!onDate,
-  });
-}
-
 export function useLeavePeriodUsage(
   employeeId: string | undefined,
   leaveTypeId: string | undefined,
@@ -422,6 +447,9 @@ export function useLeavePeriodUsage(
       HRLeaveTypeService.getLeavePeriodUsage(
         supabase, employeeId!, leaveTypeId!, hrAcademicYearId, onDate
       ),
-    enabled: !!employeeId && !!leaveTypeId,
+    // Date-gated for the same reason as useStoUsage: the RPC defaults to
+    // CURRENT_DATE, and a cap quoted for the wrong month is not the cap
+    // trg_hla_leave_period_cap enforces.
+    enabled: !!employeeId && !!leaveTypeId && !!onDate,
   });
 }
