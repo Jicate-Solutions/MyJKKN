@@ -28,13 +28,24 @@ const floorLabel = (f: number) => (f === 0 ? 'Ground floor' : `Floor ${f}`);
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  learner: LearnerHostelite | null;
+  /** Only the id and the current category name are used, so a Pick keeps this
+   *  reusable from surfaces that hold no full LearnerHostelite — the allocation
+   *  detail page passes the learners_profiles.id its upgrade-context RPC
+   *  returns. A full LearnerHostelite still satisfies this. */
+  learner: Pick<
+    LearnerHostelite,
+    'id' | 'hostel_category_name' | 'first_name' | 'last_name'
+  > | null;
+  /** Display name, for callers that hold a full_name rather than first/last —
+   *  the allocation detail page has one and no name parts to split. Without
+   *  this the header fell back to "(unnamed)". */
+  learnerName?: string | null;
   onCommitted: () => void;
 }
 
 type Step = 'category' | 'room' | 'confirm';
 
-export function AdminRoomUpgradeDialog({ open, onOpenChange, learner, onCommitted }: Props) {
+export function AdminRoomUpgradeDialog({ open, onOpenChange, learner, learnerName, onCommitted }: Props) {
   const learnerId = learner?.id ?? null;
   const { data: options = [], isLoading: optsLoading } = useAdminRoomUpgradeOptions(open ? learnerId : null);
   const [picked, setPicked] = useState<UpgradeRoomCategoryOption | null>(null);
@@ -81,9 +92,11 @@ export function AdminRoomUpgradeDialog({ open, onOpenChange, learner, onCommitte
     }
   }
 
-  const name = learner
-    ? [learner.first_name, learner.last_name].filter(Boolean).join(' ') || '(unnamed)'
-    : '';
+  const name =
+    learnerName?.trim() ||
+    (learner
+      ? [learner.first_name, learner.last_name].filter(Boolean).join(' ') || '(unnamed)'
+      : '');
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

@@ -2,6 +2,7 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { getErrorMessage } from '@/lib/utils';
 import { CL_LIVE_ALLOCATION_STATUSES } from './roster-statuses';
+import { formatHoldDate } from './housekeeping-rules';
 import { sendNotification } from '@/lib/services/notification/notification-service';
 import {
   NotificationCategory,
@@ -17,10 +18,14 @@ import type {
   BookingPerson,
   BookingStatus,
   BookingPhoto,
+  BookingReschedule,
+  BookingRescheduleWithActor,
   CancelResult,
   CleaningBooking,
   CleaningFeedback,
   PhotoPhase,
+  RescheduleBookingDto,
+  RescheduleResult,
   SlotGridResult,
 } from '@/types/campus-living/housekeeping';
 
@@ -251,12 +256,13 @@ export class HousekeepingBookingService {
         row.waived_by,
       ].filter(Boolean) as string[];
 
-      const [people, categoryName, type, photos, feedback] = await Promise.all([
+      const [people, categoryName, type, photos, feedback, reschedules] = await Promise.all([
         this.peopleByIds(personIds),
         this.categoryName(row.room?.category_id ?? null),
         this.currentType(row.type_id),
         this.listPhotos(bookingId),
         this.listFeedback(bookingId),
+        this.listReschedules(bookingId),
       ]);
 
       const raterIds = Array.from(new Set(feedback.map((f) => f.learner_id))).filter(Boolean);
@@ -288,6 +294,7 @@ export class HousekeepingBookingService {
           ...f,
           learner_name: raters.get(f.learner_id)?.full_name ?? null,
         })),
+        reschedules,
       };
     } catch (error) {
       logger.error(LOG, `Unexpected error in getBookingDetail: ${getErrorMessage(error)}`, error);
@@ -443,12 +450,25 @@ export class HousekeepingBookingService {
 
   // ── RPC writes ─────────────────────────────────────────────────────────
 
-  static async getSlots(roomId: string, typeId: string, date: string): Promise<SlotGridResult> {
+  /**
+   * The slot grid for a room on a date.
+   *
+   * excludeBookingId leaves ONE booking out of the capacity count, which is what
+   * makes a reschedule possible: a booking otherwise occupies its own grid, so
+   * its current slot would read "full" and could never be moved within its day.
+   */
+  static async getSlots(
+    roomId: string,
+    typeId: string,
+    date: string,
+    excludeBookingId?: string,
+  ): Promise<SlotGridResult> {
     try {
       const { data, error } = await (this.supabase as any).rpc('fn_cl_housekeeping_slots', {
         p_room_id: roomId,
         p_type_id: typeId,
         p_date: date,
+        p_exclude_booking_id: excludeBookingId ?? null,
       });
       if (error) {
         logger.error(LOG, 'Failed to load slot grid', error);
@@ -521,6 +541,122 @@ export class HousekeepingBookingService {
     } catch (error) {
       logger.error(LOG, `Unexpected error in assign: ${getErrorMessage(error)}`, error);
       throw error;
+    }
+  }
+
+  /**
+   * Move a booking to a new date/slot, with the reason recorded.
+   *
+   * Everything is decided inside fn_cl_housekeeping_reschedule: the permission,
+   * the status gate, the new slot's availability and whether the cleaner on the
+   * booking after the move actually works that day. This only carries the
+   * arguments and hands the union back for the hook to narrow.
+   */
+  static async reschedule(dto: RescheduleBookingDto): Promise<RescheduleResult> {
+    try {
+      const { data, error } = await (this.supabase as any).rpc('fn_cl_housekeeping_reschedule', {
+        p_booking_id: dto.bookingId,
+        p_date: dto.date,
+        p_slot_start: dto.slotStart,
+        p_reason_code: dto.reasonCode,
+        p_reason_note: dto.reasonNote?.trim() || null,
+        // ?? not ||: a cleaner id is either given or absent, and '' would
+        // travel as a real uuid parameter.
+        p_cleaner_id: dto.cleanerId ?? null,
+        p_clear_cleaner: dto.clearCleaner ?? false,
+      });
+      if (error) {
+        logger.error(LOG, 'Failed to reschedule booking', error);
+        throw error;
+      }
+      return data as RescheduleResult;
+    } catch (error) {
+      logger.error(LOG, `Unexpected error in reschedule: ${getErrorMessage(error)}`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Every move this booking has made, oldest first.
+   *
+   * Read on its own rather than as an embed on the booking: RLS on an embedded
+   * relation returns NULL rather than an error, so a blocked embed would be
+   * indistinguishable from "this booking was never moved".
+   */
+  static async listReschedules(bookingId: string): Promise<BookingRescheduleWithActor[]> {
+    try {
+      const { data, error } = await (this.supabase as any)
+        .from('hostel_cleaning_booking_reschedules')
+        .select('*')
+        .eq('booking_id', bookingId)
+        .order('created_at', { ascending: true });
+      if (error) {
+        logger.error(LOG, 'Failed to list booking reschedules', error);
+        throw error;
+      }
+
+      const rows = (data ?? []) as BookingReschedule[];
+      if (rows.length === 0) return [];
+
+      const people = await this.peopleByIds(rows.map((r) => r.rescheduled_by));
+      return rows.map((r) => ({
+        ...r,
+        rescheduled_by_name: people.get(r.rescheduled_by)?.full_name ?? null,
+      }));
+    } catch (error) {
+      logger.error(LOG, `Unexpected error in listReschedules: ${getErrorMessage(error)}`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Tell the room its cleaning has moved.
+   *
+   * Every CURRENT resident, not just whoever booked it — the room lock means one
+   * booking serves them all, and any of them may have planned around the old
+   * slot. Best-effort by design: a notification that could not be delivered must
+   * never make a completed reschedule look like a failure.
+   */
+  static async notifyRescheduled(bookingId: string): Promise<void> {
+    try {
+      const { data: booking, error } = await (this.supabase as any)
+        .from('hostel_cleaning_bookings')
+        .select('id, room_id, type_name, booking_date, slot_start')
+        .eq('id', bookingId)
+        .maybeSingle();
+      if (error || !booking) {
+        logger.warn(LOG, 'Could not load booking for reschedule notification', error);
+        return;
+      }
+
+      const { data: roommates, error: roomErr } = await (this.supabase as any)
+        .from('hostel_allocations')
+        .select('learner_id')
+        .eq('room_id', booking.room_id)
+        .in('status', CL_LIVE_ALLOCATION_STATUSES);
+      if (roomErr) {
+        logger.warn(LOG, 'Could not load roommates for reschedule notification', roomErr);
+        return;
+      }
+
+      const userIds = Array.from(
+        new Set(((roommates ?? []) as Array<{ learner_id: string }>).map((r) => r.learner_id)),
+      );
+      if (userIds.length === 0) return;
+
+      await sendNotification({
+        user_ids: userIds,
+        type: NotificationType.REMINDER,
+        category: NotificationCategory.APPROVAL,
+        priority: NotificationPriority.NORMAL,
+        title: 'Your room cleaning has been moved',
+        message: `${booking.type_name} is now on ${formatHoldDate(booking.booking_date)} at ${String(booking.slot_start).slice(0, 5)}. Open Room Cleaning to see why it was moved.`,
+        action_url: '/campus-living/my-hostel/housekeeping',
+        action_label: 'See the new time',
+        metadata: { booking_id: booking.id, booking_date: booking.booking_date } as never,
+      });
+    } catch (err) {
+      logger.error(LOG, `notifyRescheduled failed: ${getErrorMessage(err)}`, err);
     }
   }
 

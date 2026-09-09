@@ -41,6 +41,7 @@ import {
   Boxes,
   ShoppingCart,
   CalendarClock,
+  Video,
   UserSearch,
   Flame,
   FolderTree,
@@ -1678,6 +1679,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // something every meetings user should see by default.
   '/meetings/series': 'meetings.series.view',
   '/meetings/series/rules': 'meetings.series.view',
+
+  // Online Meetings — dynamic team meetings with the AI Pulse engagement layer
+  // and external-guest support. Separate module from /meetings above; see the
+  // sidebar entry for why. The guest surface is /join/[token], which is public
+  // and allow-listed in proxy.ts, so it is deliberately NOT listed here.
+  '/online-meetings': 'online_meetings.view',
+  '/online-meetings/new': 'onlineMeeting:create',
 
   // CDC — module landing hub
   '/cdc': 'cdc.view',
@@ -3495,6 +3503,25 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/meetings/adoption', label: 'Adoption', active: pathname.startsWith('/meetings/adoption') },
             { href: '/meetings/webhooks', label: 'Webhooks', active: pathname.startsWith('/meetings/webhooks') },
             { href: '/meetings/embed', label: 'Embed & Theming', active: pathname.startsWith('/meetings/embed') },
+          ]
+        },
+        {
+          // Online Meetings — a DIFFERENT thing from the booking module above,
+          // deliberately given its own top-level menu rather than a submenu
+          // under it. /meetings is Calendly-shaped: one host, one attendee per
+          // booking (meeting_bookings has singular attendee_name/attendee_email
+          // columns). This is a team meeting with N participants, external
+          // guests, live polls and an engagement report. Same subject, different
+          // data model — burying it inside the other would guarantee somebody
+          // eventually wires one to the other's tables.
+          href: '/online-meetings',
+          label: 'Online Meetings',
+          active:
+            pathname === '/online-meetings' || pathname.startsWith('/online-meetings/'),
+          icon: Video,
+          submenus: [
+            { href: '/online-meetings', label: 'All Meetings', active: pathname === '/online-meetings' },
+            { href: '/online-meetings/new', label: 'Schedule a Team Meeting', active: pathname.startsWith('/online-meetings/new') },
           ]
         }
       ]
