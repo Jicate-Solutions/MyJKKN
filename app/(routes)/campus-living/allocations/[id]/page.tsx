@@ -15,6 +15,7 @@ import { TransferDialog } from '../_components/transfer-dialog';
 import { EditDetailsDrawer } from '../_components/edit-details-drawer';
 import { useAllocationAuditRow, useReaudit } from '@/hooks/campus-living/use-allocation-audit';
 import { AllocationAuditPanel } from '../audit/_components/audit-detail-panel';
+import { UpgradeActionsCard } from './_components/upgrade-actions-card';
 import {
   VerdictBadge,
   BandBadge,
@@ -260,6 +261,12 @@ export default function AllocationDetailPage({ params }: { params: Promise<{ id:
                 </div>
               </CardContent>
             </Card>
+
+            {/* Office-side upgrade actions. Sits OUTSIDE the audit card below:
+                that one needs campus_living.allocations.audit (super-admin
+                only), while these actions are gated on upgrades.manage, which
+                the wardens and hostel office actually hold. */}
+            <UpgradeActionsCard allocationId={id} learnerName={learnerName} />
 
             {/* Allocation Audit — the same verdict the audit table shows for
                 this learner, plus the evidence behind it. Rendered only for
