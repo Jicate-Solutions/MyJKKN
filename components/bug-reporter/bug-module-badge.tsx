@@ -62,6 +62,7 @@ type ModuleName =
   | 'my-bug-reports'
   | 'notifications'
   | 'okr'
+  | 'online-meetings'
   | 'organizations'
   | 'resource-management'
   | 'service-requests'
