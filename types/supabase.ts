@@ -24735,6 +24735,36 @@ export type Database = {
         }
         Relationships: []
       }
+      bak_hr_leave_chains_20260908_ahs: {
+        Row: {
+          approval_chain: Json | null
+          backed_up_at: string | null
+          current_step: number | null
+          hr_organization_id: string | null
+          id: string | null
+          leave_type_id: string | null
+          status: string | null
+        }
+        Insert: {
+          approval_chain?: Json | null
+          backed_up_at?: string | null
+          current_step?: number | null
+          hr_organization_id?: string | null
+          id?: string | null
+          leave_type_id?: string | null
+          status?: string | null
+        }
+        Update: {
+          approval_chain?: Json | null
+          backed_up_at?: string | null
+          current_step?: number | null
+          hr_organization_id?: string | null
+          id?: string | null
+          leave_type_id?: string | null
+          status?: string | null
+        }
+        Relationships: []
+      }
       bak_learner_hostel_categories_20260805: {
         Row: {
           backed_up_at: string | null
@@ -29986,6 +30016,13 @@ export type Database = {
             foreignKeyName: "bos_documents_generated_by_fkey"
             columns: ["generated_by"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "bos_documents_generated_by_fkey"
+            columns: ["generated_by"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -30835,6 +30872,13 @@ export type Database = {
             foreignKeyName: "bos_meetings_created_by_fkey"
             columns: ["created_by"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "bos_meetings_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -30905,6 +30949,13 @@ export type Database = {
             foreignKeyName: "bos_meetings_minutes_approved_by_fkey"
             columns: ["minutes_approved_by"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "bos_meetings_minutes_approved_by_fkey"
+            columns: ["minutes_approved_by"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -30914,6 +30965,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bos_meetings_principal_approved_by_fkey"
+            columns: ["principal_approved_by"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "bos_meetings_principal_approved_by_fkey"
@@ -31196,6 +31254,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bos_members_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "bos_members_staff_id_fkey"
@@ -35257,6 +35322,13 @@ export type Database = {
             foreignKeyName: "cdc_clubs_coordinator_staff_id_fkey"
             columns: ["coordinator_staff_id"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "cdc_clubs_coordinator_staff_id_fkey"
+            columns: ["coordinator_staff_id"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -39196,6 +39268,13 @@ export type Database = {
             foreignKeyName: "cdc_training_programmes_trainer_staff_id_fkey"
             columns: ["trainer_staff_id"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "cdc_training_programmes_trainer_staff_id_fkey"
+            columns: ["trainer_staff_id"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -39334,6 +39413,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_training_semester_schedules_trainer_staff_id_fkey"
+            columns: ["trainer_staff_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "cdc_training_semester_schedules_trainer_staff_id_fkey"
@@ -40022,6 +40108,128 @@ export type Database = {
           },
         ]
       }
+      changelog_entries: {
+        Row: {
+          app_key: string
+          author: string
+          breaking: boolean
+          created_at: string
+          entry_date: string
+          hidden: boolean
+          hidden_reason: string | null
+          id: string
+          kind: string
+          module_key: string
+          ordinal: number
+          pr_number: number | null
+          sha: string
+          subject: string
+          updated_at: string
+        }
+        Insert: {
+          app_key?: string
+          author: string
+          breaking?: boolean
+          created_at?: string
+          entry_date: string
+          hidden?: boolean
+          hidden_reason?: string | null
+          id?: string
+          kind: string
+          module_key: string
+          ordinal?: number
+          pr_number?: number | null
+          sha: string
+          subject: string
+          updated_at?: string
+        }
+        Update: {
+          app_key?: string
+          author?: string
+          breaking?: boolean
+          created_at?: string
+          entry_date?: string
+          hidden?: boolean
+          hidden_reason?: string | null
+          id?: string
+          kind?: string
+          module_key?: string
+          ordinal?: number
+          pr_number?: number | null
+          sha?: string
+          subject?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "changelog_entries_module_key_fkey"
+            columns: ["module_key"]
+            isOneToOne: false
+            referencedRelation: "changelog_modules"
+            referencedColumns: ["key"]
+          },
+        ]
+      }
+      changelog_modules: {
+        Row: {
+          created_at: string
+          href: string | null
+          id: string
+          key: string
+          label: string
+          perm: string[] | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          href?: string | null
+          id?: string
+          key: string
+          label: string
+          perm?: string[] | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          href?: string | null
+          id?: string
+          key?: string
+          label?: string
+          perm?: string[] | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      changelog_sync: {
+        Row: {
+          created_at: string
+          entry_count: number
+          id: string
+          last_ref: string | null
+          last_synced_at: string | null
+          singleton: boolean
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          entry_count?: number
+          id?: string
+          last_ref?: string | null
+          last_synced_at?: string | null
+          singleton?: boolean
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          entry_count?: number
+          id?: string
+          last_ref?: string | null
+          last_synced_at?: string | null
+          singleton?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
       cl_girls_bc_reconcile_log: {
         Row: {
           action: string
@@ -40283,6 +40491,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "class_incharges_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "class_incharges_staff_id_fkey"
@@ -48310,8 +48525,57 @@ export type Database = {
             foreignKeyName: "event_academic_types_institution_id_fkey"
             columns: ["institution_id"]
             isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "event_academic_types_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
             referencedRelation: "institutions"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_academic_types_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_colleges"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "event_academic_types_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "event_academic_types_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_collaboration_isolation"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "event_academic_types_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_solution_funnel"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "event_academic_types_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_hostel_institution_residents"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "event_academic_types_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_institutions_needing_admission_counselors"
+            referencedColumns: ["institution_id"]
           },
         ]
       }
@@ -50047,8 +50311,57 @@ export type Database = {
             foreignKeyName: "event_impact_categories_institution_id_fkey"
             columns: ["institution_id"]
             isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "event_impact_categories_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
             referencedRelation: "institutions"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_impact_categories_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_colleges"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "event_impact_categories_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "event_impact_categories_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_collaboration_isolation"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "event_impact_categories_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_solution_funnel"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "event_impact_categories_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_hostel_institution_residents"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "event_impact_categories_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_institutions_needing_admission_counselors"
+            referencedColumns: ["institution_id"]
           },
         ]
       }
@@ -50189,8 +50502,57 @@ export type Database = {
             foreignKeyName: "event_number_counters_institution_id_fkey"
             columns: ["institution_id"]
             isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "event_number_counters_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
             referencedRelation: "institutions"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_number_counters_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_colleges"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "event_number_counters_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "event_number_counters_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_collaboration_isolation"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "event_number_counters_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_solution_funnel"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "event_number_counters_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_hostel_institution_residents"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "event_number_counters_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_institutions_needing_admission_counselors"
+            referencedColumns: ["institution_id"]
           },
         ]
       }
@@ -52308,6 +52670,13 @@ export type Database = {
             foreignKeyName: "event_staff_assignments_staff_id_fkey"
             columns: ["staff_id"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "event_staff_assignments_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -52515,7 +52884,7 @@ export type Database = {
           created_by?: string | null
           event_id: string
           id?: string
-          institution_id?: string
+          institution_id: string
           section_id: string
           updated_at?: string
         }
@@ -52533,7 +52902,28 @@ export type Database = {
             foreignKeyName: "event_target_classes_created_by_fkey"
             columns: ["created_by"]
             isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "event_target_classes_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "event_target_classes_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_target_classes_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
             referencedColumns: ["id"]
           },
           {
@@ -52544,11 +52934,74 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "event_target_classes_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "learning_event_attendance"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "event_target_classes_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "marathon_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_target_classes_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["institution_id"]
+          },
+          {
             foreignKeyName: "event_target_classes_institution_id_fkey"
             columns: ["institution_id"]
             isOneToOne: false
             referencedRelation: "institutions"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_target_classes_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_colleges"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "event_target_classes_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "event_target_classes_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_collaboration_isolation"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "event_target_classes_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_solution_funnel"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "event_target_classes_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_hostel_institution_residents"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "event_target_classes_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_institutions_needing_admission_counselors"
+            referencedColumns: ["institution_id"]
           },
           {
             foreignKeyName: "event_target_classes_section_id_fkey"
@@ -52563,7 +53016,7 @@ export type Database = {
         Row: {
           assigned_to: string | null
           assigned_to_name: string | null
-          committee_id: string
+          committee_id: string | null
           completed_at: string | null
           created_at: string
           description: string | null
@@ -52578,7 +53031,7 @@ export type Database = {
         Insert: {
           assigned_to?: string | null
           assigned_to_name?: string | null
-          committee_id: string
+          committee_id?: string | null
           completed_at?: string | null
           created_at?: string
           description?: string | null
@@ -52593,7 +53046,7 @@ export type Database = {
         Update: {
           assigned_to?: string | null
           assigned_to_name?: string | null
-          committee_id?: string
+          committee_id?: string | null
           completed_at?: string | null
           created_at?: string
           description?: string | null
@@ -53303,6 +53756,9 @@ export type Database = {
           end_time: string | null
           event_category_id: string | null
           event_date: string | null
+          event_number: string | null
+          event_number_seq: number | null
+          event_number_year: number | null
           event_type: string
           hero_image_url: string | null
           hero_video_url: string | null
@@ -53369,6 +53825,9 @@ export type Database = {
           end_time?: string | null
           event_category_id?: string | null
           event_date?: string | null
+          event_number?: string | null
+          event_number_seq?: number | null
+          event_number_year?: number | null
           event_type: string
           hero_image_url?: string | null
           hero_video_url?: string | null
@@ -53435,6 +53894,9 @@ export type Database = {
           end_time?: string | null
           event_category_id?: string | null
           event_date?: string | null
+          event_number?: string | null
+          event_number_seq?: number | null
+          event_number_year?: number | null
           event_type?: string
           hero_image_url?: string | null
           hero_video_url?: string | null
@@ -55699,6 +56161,13 @@ export type Database = {
             foreignKeyName: "facilitator_development_staff_id_fkey"
             columns: ["staff_id"]
             isOneToOne: true
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "facilitator_development_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: true
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -55966,6 +56435,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "facilitator_industry_immersion_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "facilitator_industry_immersion_staff_id_fkey"
@@ -66691,8 +67167,7 @@ export type Database = {
           updated_at?: string
           working_days?: number[]
         }
-        Relationships: [
-        ]
+        Relationships: []
       }
       hostel_cleaning_availability: {
         Row: {
@@ -75530,6 +76005,8 @@ export type Database = {
           capacity: number
           category_id: string | null
           created_at: string | null
+          effective_capacity: number | null
+          extra_bed_count: number
           floor: number
           furniture: Json | null
           has_attached_bathroom: boolean | null
@@ -75556,6 +76033,8 @@ export type Database = {
           capacity: number
           category_id?: string | null
           created_at?: string | null
+          effective_capacity?: number | null
+          extra_bed_count?: number
           floor: number
           furniture?: Json | null
           has_attached_bathroom?: boolean | null
@@ -75582,6 +76061,8 @@ export type Database = {
           capacity?: number
           category_id?: string | null
           created_at?: string | null
+          effective_capacity?: number | null
+          extra_bed_count?: number
           floor?: number
           furniture?: Json | null
           has_attached_bathroom?: boolean | null
@@ -77104,6 +77585,13 @@ export type Database = {
             foreignKeyName: "hostel_wardens_staff_id_fkey"
             columns: ["staff_id"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "hostel_wardens_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -77424,6 +77912,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_additional_roles_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "hr_additional_roles_staff_id_fkey"
@@ -77947,6 +78442,13 @@ export type Database = {
             foreignKeyName: "hr_attendance_period_summaries_staff_id_fkey"
             columns: ["staff_id"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "hr_attendance_period_summaries_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -78244,6 +78746,13 @@ export type Database = {
             foreignKeyName: "hr_attendance_records_employee_id_fkey"
             columns: ["employee_id"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "hr_attendance_records_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -78448,6 +78957,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_attendance_regularizations_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "hr_attendance_regularizations_employee_id_fkey"
@@ -78711,6 +79227,13 @@ export type Database = {
             foreignKeyName: "hr_benefits_enrollments_staff_id_fkey"
             columns: ["staff_id"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "hr_benefits_enrollments_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -78838,6 +79361,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_comp_off_credits_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "hr_comp_off_credits_employee_id_fkey"
@@ -79492,6 +80022,13 @@ export type Database = {
             foreignKeyName: "hr_employee_documents_staff_id_fkey"
             columns: ["staff_id"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "hr_employee_documents_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -79724,6 +80261,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_faculty_workload_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "hr_faculty_workload_staff_id_fkey"
@@ -80549,6 +81093,13 @@ export type Database = {
             foreignKeyName: "hr_leave_applications_employee_id_fkey"
             columns: ["employee_id"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "hr_leave_applications_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -80774,6 +81325,13 @@ export type Database = {
             foreignKeyName: "hr_leave_balance_adjustments_employee_id_fkey"
             columns: ["employee_id"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "hr_leave_balance_adjustments_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -80851,6 +81409,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_leave_balances_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "hr_leave_balances_employee_id_fkey"
@@ -81095,6 +81660,13 @@ export type Database = {
             foreignKeyName: "hr_leave_encashments_employee_id_fkey"
             columns: ["employee_id"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "hr_leave_encashments_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -81193,6 +81765,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_leave_entitlement_overrides_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "hr_leave_entitlement_overrides_employee_id_fkey"
@@ -81302,6 +81881,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_leave_month_entries_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "hr_leave_month_entries_employee_id_fkey"
@@ -81517,6 +82103,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_leave_type_assignments_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "hr_leave_type_assignments_staff_id_fkey"
@@ -82195,6 +82788,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_offboarding_cases_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "hr_offboarding_cases_staff_id_fkey"
@@ -83239,6 +83839,13 @@ export type Database = {
             foreignKeyName: "hr_payslips_staff_id_fkey"
             columns: ["staff_id"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "hr_payslips_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -83521,6 +84128,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_performance_reviews_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "hr_performance_reviews_staff_id_fkey"
@@ -83913,6 +84527,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_promotion_applications_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "hr_promotion_applications_staff_id_fkey"
@@ -84559,6 +85180,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_recruitment_candidates_source_staff_id_fkey"
+            columns: ["source_staff_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "hr_recruitment_candidates_source_staff_id_fkey"
@@ -86205,6 +86833,13 @@ export type Database = {
             foreignKeyName: "hr_salary_register_lines_staff_id_fkey"
             columns: ["staff_id"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "hr_salary_register_lines_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -86353,6 +86988,7 @@ export type Database = {
       hr_shift_timings: {
         Row: {
           applicable_gender: string
+          attendance_mode: string
           created_at: string
           created_by: string | null
           day_of_week: number
@@ -86367,6 +87003,7 @@ export type Database = {
           is_active: boolean
           is_working_day: boolean
           notes: string | null
+          required_minutes: number | null
           second_half_end: string | null
           second_half_start: string | null
           second_saturday_holiday: boolean
@@ -86376,6 +87013,7 @@ export type Database = {
         }
         Insert: {
           applicable_gender?: string
+          attendance_mode?: string
           created_at?: string
           created_by?: string | null
           day_of_week: number
@@ -86390,6 +87028,7 @@ export type Database = {
           is_active?: boolean
           is_working_day?: boolean
           notes?: string | null
+          required_minutes?: number | null
           second_half_end?: string | null
           second_half_start?: string | null
           second_saturday_holiday?: boolean
@@ -86399,6 +87038,7 @@ export type Database = {
         }
         Update: {
           applicable_gender?: string
+          attendance_mode?: string
           created_at?: string
           created_by?: string | null
           day_of_week?: number
@@ -86413,6 +87053,7 @@ export type Database = {
           is_active?: boolean
           is_working_day?: boolean
           notes?: string | null
+          required_minutes?: number | null
           second_half_end?: string | null
           second_half_start?: string | null
           second_saturday_holiday?: boolean
@@ -86647,6 +87288,13 @@ export type Database = {
             foreignKeyName: "hr_staff_bank_accounts_staff_id_fkey"
             columns: ["staff_id"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "hr_staff_bank_accounts_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -86735,6 +87383,13 @@ export type Database = {
             foreignKeyName: "hr_staff_details_reports_to_staff_id_fkey"
             columns: ["reports_to_staff_id"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "hr_staff_details_reports_to_staff_id_fkey"
+            columns: ["reports_to_staff_id"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -86744,6 +87399,13 @@ export type Database = {
             isOneToOne: true
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_staff_details_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: true
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "hr_staff_details_staff_id_fkey"
@@ -86859,6 +87521,13 @@ export type Database = {
             foreignKeyName: "hr_staff_institution_allocation_staff_id_fkey"
             columns: ["staff_id"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "hr_staff_institution_allocation_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -86919,6 +87588,13 @@ export type Database = {
             isOneToOne: true
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_staff_payroll_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: true
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "hr_staff_payroll_staff_id_fkey"
@@ -87025,6 +87701,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_staff_salaries_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "hr_staff_salaries_staff_id_fkey"
@@ -87173,6 +87856,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_staff_work_pattern_assignments_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "hr_staff_work_pattern_assignments_staff_id_fkey"
@@ -87405,6 +88095,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_training_enrollments_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "hr_training_enrollments_staff_id_fkey"
@@ -87851,6 +88548,65 @@ export type Database = {
             columns: ["work_pattern_id"]
             isOneToOne: false
             referencedRelation: "hr_work_patterns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hr_work_pattern_week_days: {
+        Row: {
+          attendance_mode: string
+          created_at: string
+          created_by: string | null
+          day_of_week: number
+          first_half_end: string | null
+          first_half_start: string | null
+          grace_minutes: number
+          id: string
+          required_minutes: number | null
+          second_half_end: string | null
+          second_half_start: string | null
+          updated_at: string
+          updated_by: string | null
+          week_id: string
+        }
+        Insert: {
+          attendance_mode: string
+          created_at?: string
+          created_by?: string | null
+          day_of_week: number
+          first_half_end?: string | null
+          first_half_start?: string | null
+          grace_minutes?: number
+          id?: string
+          required_minutes?: number | null
+          second_half_end?: string | null
+          second_half_start?: string | null
+          updated_at?: string
+          updated_by?: string | null
+          week_id: string
+        }
+        Update: {
+          attendance_mode?: string
+          created_at?: string
+          created_by?: string | null
+          day_of_week?: number
+          first_half_end?: string | null
+          first_half_start?: string | null
+          grace_minutes?: number
+          id?: string
+          required_minutes?: number | null
+          second_half_end?: string | null
+          second_half_start?: string | null
+          updated_at?: string
+          updated_by?: string | null
+          week_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_work_pattern_week_days_week_id_fkey"
+            columns: ["week_id"]
+            isOneToOne: false
+            referencedRelation: "hr_work_pattern_weeks"
             referencedColumns: ["id"]
           },
         ]
@@ -91806,6 +92562,13 @@ export type Database = {
             foreignKeyName: "ims_kit_entitlements_staff_id_fkey"
             columns: ["staff_id"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "ims_kit_entitlements_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -91976,6 +92739,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ims_kit_rule_members_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "ims_kit_rule_members_staff_id_fkey"
@@ -95902,6 +96672,13 @@ export type Database = {
             foreignKeyName: "induction_session_poll_vote_answerer_staff_id_fkey"
             columns: ["answerer_staff_id"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "induction_session_poll_vote_answerer_staff_id_fkey"
+            columns: ["answerer_staff_id"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -96473,6 +97250,13 @@ export type Database = {
             foreignKeyName: "industry_mentors_verified_by_fkey"
             columns: ["verified_by"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "industry_mentors_verified_by_fkey"
+            columns: ["verified_by"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -96650,6 +97434,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "industry_partners_verified_by_fkey"
+            columns: ["verified_by"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "industry_partners_verified_by_fkey"
@@ -103590,6 +104381,13 @@ export type Database = {
             foreignKeyName: "jkkn_identities_team_member_id_fkey"
             columns: ["team_member_id"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "jkkn_identities_team_member_id_fkey"
+            columns: ["team_member_id"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -107397,6 +108195,13 @@ export type Database = {
             foreignKeyName: "learner_competencies_verified_by_fkey"
             columns: ["verified_by"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "learner_competencies_verified_by_fkey"
+            columns: ["verified_by"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -107961,6 +108766,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "learner_industry_engagements_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "learner_industry_engagements_approved_by_fkey"
@@ -110666,6 +111478,13 @@ export type Database = {
             foreignKeyName: "learning_paths_approved_by_fkey"
             columns: ["approved_by"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "learning_paths_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -110675,6 +111494,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "learning_paths_assigned_mentor_id_fkey"
+            columns: ["assigned_mentor_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "learning_paths_assigned_mentor_id_fkey"
@@ -112191,6 +113017,97 @@ export type Database = {
           {
             foreignKeyName: "loop_edges_to_key_fkey"
             columns: ["to_key"]
+            isOneToOne: false
+            referencedRelation: "loop_registry"
+            referencedColumns: ["loop_key"]
+          },
+        ]
+      }
+      loop_owner_scopes: {
+        Row: {
+          created_at: string
+          id: string
+          institution_id: string
+          loop_key: string
+          owner_email: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          institution_id: string
+          loop_key: string
+          owner_email: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          institution_id?: string
+          loop_key?: string
+          owner_email?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "loop_owner_scopes_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "loop_owner_scopes_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "loop_owner_scopes_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_colleges"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "loop_owner_scopes_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "loop_owner_scopes_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_collaboration_isolation"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "loop_owner_scopes_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_solution_funnel"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "loop_owner_scopes_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_hostel_institution_residents"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "loop_owner_scopes_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_institutions_needing_admission_counselors"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "loop_owner_scopes_loop_key_fkey"
+            columns: ["loop_key"]
             isOneToOne: false
             referencedRelation: "loop_registry"
             referencedColumns: ["loop_key"]
@@ -117241,6 +118158,13 @@ export type Database = {
             foreignKeyName: "meeting_trigger_rules_alert_owner_staff_id_fkey"
             columns: ["alert_owner_staff_id"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "meeting_trigger_rules_alert_owner_staff_id_fkey"
+            columns: ["alert_owner_staff_id"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -121358,6 +122282,2033 @@ export type Database = {
           total_receipts?: number | null
           total_refunds?: number | null
           unpaid_bills?: number | null
+        }
+        Relationships: []
+      }
+      network_audit_log: {
+        Row: {
+          action: string
+          actor_id: string | null
+          actor_role: string | null
+          created_at: string
+          id: string
+          institution_id: string
+          ip_address: string | null
+          metadata: Json | null
+          target_id: string | null
+          target_type: string | null
+          user_agent: string | null
+        }
+        Insert: {
+          action: string
+          actor_id?: string | null
+          actor_role?: string | null
+          created_at?: string
+          id?: string
+          institution_id: string
+          ip_address?: string | null
+          metadata?: Json | null
+          target_id?: string | null
+          target_type?: string | null
+          user_agent?: string | null
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          actor_role?: string | null
+          created_at?: string
+          id?: string
+          institution_id?: string
+          ip_address?: string | null
+          metadata?: Json | null
+          target_id?: string | null
+          target_type?: string | null
+          user_agent?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "network_audit_log_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "network_audit_log_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "network_audit_log_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_audit_log_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_audit_log_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_audit_log_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_audit_log_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_colleges"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_audit_log_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_audit_log_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_collaboration_isolation"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_audit_log_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_solution_funnel"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_audit_log_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_hostel_institution_residents"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_audit_log_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_institutions_needing_admission_counselors"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      network_audit_log_2026_09: {
+        Row: {
+          action: string
+          actor_id: string | null
+          actor_role: string | null
+          created_at: string
+          id: string
+          institution_id: string
+          ip_address: string | null
+          metadata: Json | null
+          target_id: string | null
+          target_type: string | null
+          user_agent: string | null
+        }
+        Insert: {
+          action: string
+          actor_id?: string | null
+          actor_role?: string | null
+          created_at?: string
+          id?: string
+          institution_id: string
+          ip_address?: string | null
+          metadata?: Json | null
+          target_id?: string | null
+          target_type?: string | null
+          user_agent?: string | null
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          actor_role?: string | null
+          created_at?: string
+          id?: string
+          institution_id?: string
+          ip_address?: string | null
+          metadata?: Json | null
+          target_id?: string | null
+          target_type?: string | null
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
+      network_audit_log_2026_10: {
+        Row: {
+          action: string
+          actor_id: string | null
+          actor_role: string | null
+          created_at: string
+          id: string
+          institution_id: string
+          ip_address: string | null
+          metadata: Json | null
+          target_id: string | null
+          target_type: string | null
+          user_agent: string | null
+        }
+        Insert: {
+          action: string
+          actor_id?: string | null
+          actor_role?: string | null
+          created_at?: string
+          id?: string
+          institution_id: string
+          ip_address?: string | null
+          metadata?: Json | null
+          target_id?: string | null
+          target_type?: string | null
+          user_agent?: string | null
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          actor_role?: string | null
+          created_at?: string
+          id?: string
+          institution_id?: string
+          ip_address?: string | null
+          metadata?: Json | null
+          target_id?: string | null
+          target_type?: string | null
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
+      network_audit_log_2026_11: {
+        Row: {
+          action: string
+          actor_id: string | null
+          actor_role: string | null
+          created_at: string
+          id: string
+          institution_id: string
+          ip_address: string | null
+          metadata: Json | null
+          target_id: string | null
+          target_type: string | null
+          user_agent: string | null
+        }
+        Insert: {
+          action: string
+          actor_id?: string | null
+          actor_role?: string | null
+          created_at?: string
+          id?: string
+          institution_id: string
+          ip_address?: string | null
+          metadata?: Json | null
+          target_id?: string | null
+          target_type?: string | null
+          user_agent?: string | null
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          actor_role?: string | null
+          created_at?: string
+          id?: string
+          institution_id?: string
+          ip_address?: string | null
+          metadata?: Json | null
+          target_id?: string | null
+          target_type?: string | null
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
+      network_audit_log_default: {
+        Row: {
+          action: string
+          actor_id: string | null
+          actor_role: string | null
+          created_at: string
+          id: string
+          institution_id: string
+          ip_address: string | null
+          metadata: Json | null
+          target_id: string | null
+          target_type: string | null
+          user_agent: string | null
+        }
+        Insert: {
+          action: string
+          actor_id?: string | null
+          actor_role?: string | null
+          created_at?: string
+          id?: string
+          institution_id: string
+          ip_address?: string | null
+          metadata?: Json | null
+          target_id?: string | null
+          target_type?: string | null
+          user_agent?: string | null
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          actor_role?: string | null
+          created_at?: string
+          id?: string
+          institution_id?: string
+          ip_address?: string | null
+          metadata?: Json | null
+          target_id?: string | null
+          target_type?: string | null
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
+      network_auth_methods: {
+        Row: {
+          code: string
+          created_at: string
+          created_by: string | null
+          description: string | null
+          display_name: string
+          display_order: number
+          icon_name: string | null
+          id: string
+          institution_id: string
+          is_active: boolean
+          is_system: boolean
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          display_name: string
+          display_order?: number
+          icon_name?: string | null
+          id?: string
+          institution_id: string
+          is_active?: boolean
+          is_system?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          display_name?: string
+          display_order?: number
+          icon_name?: string | null
+          id?: string
+          institution_id?: string
+          is_active?: boolean
+          is_system?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "network_auth_methods_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "network_auth_methods_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "network_auth_methods_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_auth_methods_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_auth_methods_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_auth_methods_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_auth_methods_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_colleges"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_auth_methods_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_auth_methods_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_collaboration_isolation"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_auth_methods_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_solution_funnel"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_auth_methods_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_hostel_institution_residents"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_auth_methods_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_institutions_needing_admission_counselors"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_auth_methods_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "network_auth_methods_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "network_auth_methods_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_auth_methods_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      network_bandwidth_tiers: {
+        Row: {
+          attendance_max_pct: number
+          attendance_min_pct: number
+          code: string
+          created_at: string
+          created_by: string | null
+          display_name: string
+          display_order: number
+          download_mbps: number
+          id: string
+          institution_id: string
+          is_active: boolean
+          is_system: boolean
+          updated_at: string
+          updated_by: string | null
+          upload_mbps: number
+        }
+        Insert: {
+          attendance_max_pct: number
+          attendance_min_pct: number
+          code: string
+          created_at?: string
+          created_by?: string | null
+          display_name: string
+          display_order?: number
+          download_mbps: number
+          id?: string
+          institution_id: string
+          is_active?: boolean
+          is_system?: boolean
+          updated_at?: string
+          updated_by?: string | null
+          upload_mbps: number
+        }
+        Update: {
+          attendance_max_pct?: number
+          attendance_min_pct?: number
+          code?: string
+          created_at?: string
+          created_by?: string | null
+          display_name?: string
+          display_order?: number
+          download_mbps?: number
+          id?: string
+          institution_id?: string
+          is_active?: boolean
+          is_system?: boolean
+          updated_at?: string
+          updated_by?: string | null
+          upload_mbps?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "network_bandwidth_tiers_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "network_bandwidth_tiers_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "network_bandwidth_tiers_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_bandwidth_tiers_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_bandwidth_tiers_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_bandwidth_tiers_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_bandwidth_tiers_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_colleges"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_bandwidth_tiers_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_bandwidth_tiers_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_collaboration_isolation"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_bandwidth_tiers_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_solution_funnel"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_bandwidth_tiers_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_hostel_institution_residents"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_bandwidth_tiers_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_institutions_needing_admission_counselors"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_bandwidth_tiers_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "network_bandwidth_tiers_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "network_bandwidth_tiers_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_bandwidth_tiers_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      network_block_reasons: {
+        Row: {
+          code: string
+          created_at: string
+          created_by: string | null
+          description: string | null
+          display_name: string
+          id: string
+          institution_id: string
+          is_active: boolean
+          is_system: boolean
+          is_user_visible: boolean
+          severity: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          display_name: string
+          id?: string
+          institution_id: string
+          is_active?: boolean
+          is_system?: boolean
+          is_user_visible?: boolean
+          severity?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          display_name?: string
+          id?: string
+          institution_id?: string
+          is_active?: boolean
+          is_system?: boolean
+          is_user_visible?: boolean
+          severity?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "network_block_reasons_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "network_block_reasons_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "network_block_reasons_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_block_reasons_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_block_reasons_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_block_reasons_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_block_reasons_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_colleges"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_block_reasons_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_block_reasons_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_collaboration_isolation"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_block_reasons_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_solution_funnel"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_block_reasons_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_hostel_institution_residents"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_block_reasons_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_institutions_needing_admission_counselors"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_block_reasons_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "network_block_reasons_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "network_block_reasons_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_block_reasons_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      network_devices: {
+        Row: {
+          client_mac: string
+          created_at: string
+          device_label: string | null
+          device_type: string | null
+          first_seen_at: string
+          id: string
+          institution_id: string
+          is_iot_whitelisted: boolean
+          is_primary: boolean
+          is_trusted: boolean
+          last_seen_at: string
+          total_sessions: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          client_mac: string
+          created_at?: string
+          device_label?: string | null
+          device_type?: string | null
+          first_seen_at?: string
+          id?: string
+          institution_id: string
+          is_iot_whitelisted?: boolean
+          is_primary?: boolean
+          is_trusted?: boolean
+          last_seen_at?: string
+          total_sessions?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          client_mac?: string
+          created_at?: string
+          device_label?: string | null
+          device_type?: string | null
+          first_seen_at?: string
+          id?: string
+          institution_id?: string
+          is_iot_whitelisted?: boolean
+          is_primary?: boolean
+          is_trusted?: boolean
+          last_seen_at?: string
+          total_sessions?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "network_devices_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_devices_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_devices_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_colleges"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_devices_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_devices_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_collaboration_isolation"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_devices_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_solution_funnel"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_devices_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_hostel_institution_residents"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_devices_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_institutions_needing_admission_counselors"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_devices_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "network_devices_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "network_devices_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_devices_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      network_lockouts: {
+        Row: {
+          cleared_at: string | null
+          client_ip: string | null
+          client_mac: string | null
+          created_at: string
+          failed_attempts: number
+          first_attempt_at: string
+          id: string
+          institution_id: string
+          last_attempt_at: string
+          locked_until: string | null
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          cleared_at?: string | null
+          client_ip?: string | null
+          client_mac?: string | null
+          created_at?: string
+          failed_attempts?: number
+          first_attempt_at?: string
+          id?: string
+          institution_id: string
+          last_attempt_at?: string
+          locked_until?: string | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          cleared_at?: string | null
+          client_ip?: string | null
+          client_mac?: string | null
+          created_at?: string
+          failed_attempts?: number
+          first_attempt_at?: string
+          id?: string
+          institution_id?: string
+          last_attempt_at?: string
+          locked_until?: string | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "network_lockouts_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_lockouts_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_lockouts_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_colleges"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_lockouts_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_lockouts_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_collaboration_isolation"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_lockouts_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_solution_funnel"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_lockouts_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_hostel_institution_residents"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_lockouts_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_institutions_needing_admission_counselors"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_lockouts_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "network_lockouts_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "network_lockouts_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_lockouts_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      network_pending_requests: {
+        Row: {
+          ap_mac: string | null
+          client_ip: string | null
+          client_mac: string
+          consumed_at: string | null
+          created_at: string
+          device_hint: string | null
+          expires_at: string
+          id: string
+          institution_id: string
+          redirect_url: string | null
+          router_id: string
+          rssi: number | null
+          ssid: string | null
+          updated_at: string
+          user_agent: string | null
+        }
+        Insert: {
+          ap_mac?: string | null
+          client_ip?: string | null
+          client_mac: string
+          consumed_at?: string | null
+          created_at?: string
+          device_hint?: string | null
+          expires_at?: string
+          id?: string
+          institution_id: string
+          redirect_url?: string | null
+          router_id: string
+          rssi?: number | null
+          ssid?: string | null
+          updated_at?: string
+          user_agent?: string | null
+        }
+        Update: {
+          ap_mac?: string | null
+          client_ip?: string | null
+          client_mac?: string
+          consumed_at?: string | null
+          created_at?: string
+          device_hint?: string | null
+          expires_at?: string
+          id?: string
+          institution_id?: string
+          redirect_url?: string | null
+          router_id?: string
+          rssi?: number | null
+          ssid?: string | null
+          updated_at?: string
+          user_agent?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "network_pending_requests_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_pending_requests_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_pending_requests_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_colleges"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_pending_requests_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_pending_requests_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_collaboration_isolation"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_pending_requests_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_solution_funnel"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_pending_requests_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_hostel_institution_residents"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_pending_requests_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_institutions_needing_admission_counselors"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_pending_requests_router_id_fkey"
+            columns: ["router_id"]
+            isOneToOne: false
+            referencedRelation: "network_routers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      network_radius_servers: {
+        Row: {
+          acct_port: number
+          auth_port: number
+          coa_port: number
+          created_at: string
+          created_by: string | null
+          display_name: string
+          hostname: string
+          id: string
+          institution_id: string | null
+          ipv4_address: string | null
+          is_active: boolean
+          is_primary: boolean
+          last_health_check_at: string | null
+          last_health_status: string | null
+          myjkkn_acct_endpoint: string | null
+          myjkkn_auth_endpoint: string
+          notes: string | null
+          protocol: string
+          tls_cert_fingerprint: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          acct_port?: number
+          auth_port?: number
+          coa_port?: number
+          created_at?: string
+          created_by?: string | null
+          display_name: string
+          hostname: string
+          id?: string
+          institution_id?: string | null
+          ipv4_address?: string | null
+          is_active?: boolean
+          is_primary?: boolean
+          last_health_check_at?: string | null
+          last_health_status?: string | null
+          myjkkn_acct_endpoint?: string | null
+          myjkkn_auth_endpoint: string
+          notes?: string | null
+          protocol?: string
+          tls_cert_fingerprint?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          acct_port?: number
+          auth_port?: number
+          coa_port?: number
+          created_at?: string
+          created_by?: string | null
+          display_name?: string
+          hostname?: string
+          id?: string
+          institution_id?: string | null
+          ipv4_address?: string | null
+          is_active?: boolean
+          is_primary?: boolean
+          last_health_check_at?: string | null
+          last_health_status?: string | null
+          myjkkn_acct_endpoint?: string | null
+          myjkkn_auth_endpoint?: string
+          notes?: string | null
+          protocol?: string
+          tls_cert_fingerprint?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "network_radius_servers_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "network_radius_servers_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "network_radius_servers_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_radius_servers_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_radius_servers_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_radius_servers_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_radius_servers_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_colleges"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_radius_servers_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_radius_servers_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_collaboration_isolation"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_radius_servers_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_solution_funnel"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_radius_servers_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_hostel_institution_residents"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_radius_servers_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_institutions_needing_admission_counselors"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_radius_servers_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "network_radius_servers_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "network_radius_servers_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_radius_servers_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      network_routers: {
+        Row: {
+          api_endpoint: string | null
+          api_verify_tls: boolean
+          campus_label: string | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          hostname: string
+          id: string
+          institution_id: string
+          is_active: boolean
+          is_primary: boolean
+          last_health_check_at: string | null
+          last_health_status: string | null
+          model: string | null
+          radius_nas_identifier: string | null
+          radius_server_id: string | null
+          radius_shared_secret_ref: string
+          routeros_version: string | null
+          serial_number: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          api_endpoint?: string | null
+          api_verify_tls?: boolean
+          campus_label?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          hostname: string
+          id?: string
+          institution_id: string
+          is_active?: boolean
+          is_primary?: boolean
+          last_health_check_at?: string | null
+          last_health_status?: string | null
+          model?: string | null
+          radius_nas_identifier?: string | null
+          radius_server_id?: string | null
+          radius_shared_secret_ref: string
+          routeros_version?: string | null
+          serial_number?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          api_endpoint?: string | null
+          api_verify_tls?: boolean
+          campus_label?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          hostname?: string
+          id?: string
+          institution_id?: string
+          is_active?: boolean
+          is_primary?: boolean
+          last_health_check_at?: string | null
+          last_health_status?: string | null
+          model?: string | null
+          radius_nas_identifier?: string | null
+          radius_server_id?: string | null
+          radius_shared_secret_ref?: string
+          routeros_version?: string | null
+          serial_number?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_network_routers_radius_server"
+            columns: ["radius_server_id"]
+            isOneToOne: false
+            referencedRelation: "network_radius_servers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_routers_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "network_routers_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "network_routers_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_routers_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_routers_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_routers_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_routers_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_colleges"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_routers_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_routers_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_collaboration_isolation"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_routers_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_solution_funnel"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_routers_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_hostel_institution_residents"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_routers_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_institutions_needing_admission_counselors"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_routers_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "network_routers_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "network_routers_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_routers_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      network_sessions: {
+        Row: {
+          ap_mac: string | null
+          auth_method_code: string
+          authenticated_via_myjkkn: boolean
+          bandwidth_tier_code: string | null
+          bytes_downloaded: number | null
+          bytes_uploaded: number | null
+          client_ip: string | null
+          client_mac: string
+          created_at: string
+          device_label: string | null
+          download_mbps: number | null
+          end_reason: string | null
+          ended_at: string | null
+          id: string
+          institution_id: string
+          is_emergency_open: boolean
+          last_seen_at: string
+          router_id: string
+          ssid: string | null
+          started_at: string
+          upload_mbps: number | null
+          user_id: string | null
+          user_role: string | null
+        }
+        Insert: {
+          ap_mac?: string | null
+          auth_method_code: string
+          authenticated_via_myjkkn?: boolean
+          bandwidth_tier_code?: string | null
+          bytes_downloaded?: number | null
+          bytes_uploaded?: number | null
+          client_ip?: string | null
+          client_mac: string
+          created_at?: string
+          device_label?: string | null
+          download_mbps?: number | null
+          end_reason?: string | null
+          ended_at?: string | null
+          id?: string
+          institution_id: string
+          is_emergency_open?: boolean
+          last_seen_at?: string
+          router_id: string
+          ssid?: string | null
+          started_at?: string
+          upload_mbps?: number | null
+          user_id?: string | null
+          user_role?: string | null
+        }
+        Update: {
+          ap_mac?: string | null
+          auth_method_code?: string
+          authenticated_via_myjkkn?: boolean
+          bandwidth_tier_code?: string | null
+          bytes_downloaded?: number | null
+          bytes_uploaded?: number | null
+          client_ip?: string | null
+          client_mac?: string
+          created_at?: string
+          device_label?: string | null
+          download_mbps?: number | null
+          end_reason?: string | null
+          ended_at?: string | null
+          id?: string
+          institution_id?: string
+          is_emergency_open?: boolean
+          last_seen_at?: string
+          router_id?: string
+          ssid?: string | null
+          started_at?: string
+          upload_mbps?: number | null
+          user_id?: string | null
+          user_role?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "network_sessions_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_sessions_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_sessions_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_colleges"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_sessions_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_sessions_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_collaboration_isolation"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_sessions_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_solution_funnel"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_sessions_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_hostel_institution_residents"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_sessions_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_institutions_needing_admission_counselors"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "network_sessions_router_id_fkey"
+            columns: ["router_id"]
+            isOneToOne: false
+            referencedRelation: "network_routers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_sessions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "network_sessions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "network_sessions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_sessions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      network_sessions_2026_09: {
+        Row: {
+          ap_mac: string | null
+          auth_method_code: string
+          authenticated_via_myjkkn: boolean
+          bandwidth_tier_code: string | null
+          bytes_downloaded: number | null
+          bytes_uploaded: number | null
+          client_ip: string | null
+          client_mac: string
+          created_at: string
+          device_label: string | null
+          download_mbps: number | null
+          end_reason: string | null
+          ended_at: string | null
+          id: string
+          institution_id: string
+          is_emergency_open: boolean
+          last_seen_at: string
+          router_id: string
+          ssid: string | null
+          started_at: string
+          upload_mbps: number | null
+          user_id: string | null
+          user_role: string | null
+        }
+        Insert: {
+          ap_mac?: string | null
+          auth_method_code: string
+          authenticated_via_myjkkn?: boolean
+          bandwidth_tier_code?: string | null
+          bytes_downloaded?: number | null
+          bytes_uploaded?: number | null
+          client_ip?: string | null
+          client_mac: string
+          created_at?: string
+          device_label?: string | null
+          download_mbps?: number | null
+          end_reason?: string | null
+          ended_at?: string | null
+          id?: string
+          institution_id: string
+          is_emergency_open?: boolean
+          last_seen_at?: string
+          router_id: string
+          ssid?: string | null
+          started_at?: string
+          upload_mbps?: number | null
+          user_id?: string | null
+          user_role?: string | null
+        }
+        Update: {
+          ap_mac?: string | null
+          auth_method_code?: string
+          authenticated_via_myjkkn?: boolean
+          bandwidth_tier_code?: string | null
+          bytes_downloaded?: number | null
+          bytes_uploaded?: number | null
+          client_ip?: string | null
+          client_mac?: string
+          created_at?: string
+          device_label?: string | null
+          download_mbps?: number | null
+          end_reason?: string | null
+          ended_at?: string | null
+          id?: string
+          institution_id?: string
+          is_emergency_open?: boolean
+          last_seen_at?: string
+          router_id?: string
+          ssid?: string | null
+          started_at?: string
+          upload_mbps?: number | null
+          user_id?: string | null
+          user_role?: string | null
+        }
+        Relationships: []
+      }
+      network_sessions_2026_10: {
+        Row: {
+          ap_mac: string | null
+          auth_method_code: string
+          authenticated_via_myjkkn: boolean
+          bandwidth_tier_code: string | null
+          bytes_downloaded: number | null
+          bytes_uploaded: number | null
+          client_ip: string | null
+          client_mac: string
+          created_at: string
+          device_label: string | null
+          download_mbps: number | null
+          end_reason: string | null
+          ended_at: string | null
+          id: string
+          institution_id: string
+          is_emergency_open: boolean
+          last_seen_at: string
+          router_id: string
+          ssid: string | null
+          started_at: string
+          upload_mbps: number | null
+          user_id: string | null
+          user_role: string | null
+        }
+        Insert: {
+          ap_mac?: string | null
+          auth_method_code: string
+          authenticated_via_myjkkn?: boolean
+          bandwidth_tier_code?: string | null
+          bytes_downloaded?: number | null
+          bytes_uploaded?: number | null
+          client_ip?: string | null
+          client_mac: string
+          created_at?: string
+          device_label?: string | null
+          download_mbps?: number | null
+          end_reason?: string | null
+          ended_at?: string | null
+          id?: string
+          institution_id: string
+          is_emergency_open?: boolean
+          last_seen_at?: string
+          router_id: string
+          ssid?: string | null
+          started_at?: string
+          upload_mbps?: number | null
+          user_id?: string | null
+          user_role?: string | null
+        }
+        Update: {
+          ap_mac?: string | null
+          auth_method_code?: string
+          authenticated_via_myjkkn?: boolean
+          bandwidth_tier_code?: string | null
+          bytes_downloaded?: number | null
+          bytes_uploaded?: number | null
+          client_ip?: string | null
+          client_mac?: string
+          created_at?: string
+          device_label?: string | null
+          download_mbps?: number | null
+          end_reason?: string | null
+          ended_at?: string | null
+          id?: string
+          institution_id?: string
+          is_emergency_open?: boolean
+          last_seen_at?: string
+          router_id?: string
+          ssid?: string | null
+          started_at?: string
+          upload_mbps?: number | null
+          user_id?: string | null
+          user_role?: string | null
+        }
+        Relationships: []
+      }
+      network_sessions_2026_11: {
+        Row: {
+          ap_mac: string | null
+          auth_method_code: string
+          authenticated_via_myjkkn: boolean
+          bandwidth_tier_code: string | null
+          bytes_downloaded: number | null
+          bytes_uploaded: number | null
+          client_ip: string | null
+          client_mac: string
+          created_at: string
+          device_label: string | null
+          download_mbps: number | null
+          end_reason: string | null
+          ended_at: string | null
+          id: string
+          institution_id: string
+          is_emergency_open: boolean
+          last_seen_at: string
+          router_id: string
+          ssid: string | null
+          started_at: string
+          upload_mbps: number | null
+          user_id: string | null
+          user_role: string | null
+        }
+        Insert: {
+          ap_mac?: string | null
+          auth_method_code: string
+          authenticated_via_myjkkn?: boolean
+          bandwidth_tier_code?: string | null
+          bytes_downloaded?: number | null
+          bytes_uploaded?: number | null
+          client_ip?: string | null
+          client_mac: string
+          created_at?: string
+          device_label?: string | null
+          download_mbps?: number | null
+          end_reason?: string | null
+          ended_at?: string | null
+          id?: string
+          institution_id: string
+          is_emergency_open?: boolean
+          last_seen_at?: string
+          router_id: string
+          ssid?: string | null
+          started_at?: string
+          upload_mbps?: number | null
+          user_id?: string | null
+          user_role?: string | null
+        }
+        Update: {
+          ap_mac?: string | null
+          auth_method_code?: string
+          authenticated_via_myjkkn?: boolean
+          bandwidth_tier_code?: string | null
+          bytes_downloaded?: number | null
+          bytes_uploaded?: number | null
+          client_ip?: string | null
+          client_mac?: string
+          created_at?: string
+          device_label?: string | null
+          download_mbps?: number | null
+          end_reason?: string | null
+          ended_at?: string | null
+          id?: string
+          institution_id?: string
+          is_emergency_open?: boolean
+          last_seen_at?: string
+          router_id?: string
+          ssid?: string | null
+          started_at?: string
+          upload_mbps?: number | null
+          user_id?: string | null
+          user_role?: string | null
+        }
+        Relationships: []
+      }
+      network_sessions_default: {
+        Row: {
+          ap_mac: string | null
+          auth_method_code: string
+          authenticated_via_myjkkn: boolean
+          bandwidth_tier_code: string | null
+          bytes_downloaded: number | null
+          bytes_uploaded: number | null
+          client_ip: string | null
+          client_mac: string
+          created_at: string
+          device_label: string | null
+          download_mbps: number | null
+          end_reason: string | null
+          ended_at: string | null
+          id: string
+          institution_id: string
+          is_emergency_open: boolean
+          last_seen_at: string
+          router_id: string
+          ssid: string | null
+          started_at: string
+          upload_mbps: number | null
+          user_id: string | null
+          user_role: string | null
+        }
+        Insert: {
+          ap_mac?: string | null
+          auth_method_code: string
+          authenticated_via_myjkkn?: boolean
+          bandwidth_tier_code?: string | null
+          bytes_downloaded?: number | null
+          bytes_uploaded?: number | null
+          client_ip?: string | null
+          client_mac: string
+          created_at?: string
+          device_label?: string | null
+          download_mbps?: number | null
+          end_reason?: string | null
+          ended_at?: string | null
+          id?: string
+          institution_id: string
+          is_emergency_open?: boolean
+          last_seen_at?: string
+          router_id: string
+          ssid?: string | null
+          started_at?: string
+          upload_mbps?: number | null
+          user_id?: string | null
+          user_role?: string | null
+        }
+        Update: {
+          ap_mac?: string | null
+          auth_method_code?: string
+          authenticated_via_myjkkn?: boolean
+          bandwidth_tier_code?: string | null
+          bytes_downloaded?: number | null
+          bytes_uploaded?: number | null
+          client_ip?: string | null
+          client_mac?: string
+          created_at?: string
+          device_label?: string | null
+          download_mbps?: number | null
+          end_reason?: string | null
+          ended_at?: string | null
+          id?: string
+          institution_id?: string
+          is_emergency_open?: boolean
+          last_seen_at?: string
+          router_id?: string
+          ssid?: string | null
+          started_at?: string
+          upload_mbps?: number | null
+          user_id?: string | null
+          user_role?: string | null
         }
         Relationships: []
       }
@@ -129342,6 +132293,234 @@ export type Database = {
           },
         ]
       }
+      placement_observations: {
+        Row: {
+          cohort_id: string | null
+          created_at: string
+          id: string
+          institution_id: string
+          observed_at: string
+          observed_by: string
+          partner_id: string | null
+          partner_kind: string
+          q_done_twice: string | null
+          q_quiet_failure: string | null
+          q_waiting_on_one: string | null
+          q_workaround: string | null
+          raised_idea_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          cohort_id?: string | null
+          created_at?: string
+          id?: string
+          institution_id: string
+          observed_at?: string
+          observed_by: string
+          partner_id?: string | null
+          partner_kind: string
+          q_done_twice?: string | null
+          q_quiet_failure?: string | null
+          q_waiting_on_one?: string | null
+          q_workaround?: string | null
+          raised_idea_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          cohort_id?: string | null
+          created_at?: string
+          id?: string
+          institution_id?: string
+          observed_at?: string
+          observed_by?: string
+          partner_id?: string | null
+          partner_kind?: string
+          q_done_twice?: string | null
+          q_quiet_failure?: string | null
+          q_waiting_on_one?: string | null
+          q_workaround?: string | null
+          raised_idea_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "placement_observations_cohort_id_fkey"
+            columns: ["cohort_id"]
+            isOneToOne: false
+            referencedRelation: "teaching_enterprise_cohorts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "placement_observations_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "placement_observations_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "placement_observations_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_colleges"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "placement_observations_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "placement_observations_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_collaboration_isolation"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "placement_observations_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_solution_funnel"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "placement_observations_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_hostel_institution_residents"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "placement_observations_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_institutions_needing_admission_counselors"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "placement_observations_partner_id_fkey"
+            columns: ["partner_id"]
+            isOneToOne: false
+            referencedRelation: "placement_partners"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "placement_observations_raised_idea_id_fkey"
+            columns: ["raised_idea_id"]
+            isOneToOne: false
+            referencedRelation: "improvement_ideas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      placement_partners: {
+        Row: {
+          consent_notes: string | null
+          consent_signed_at: string | null
+          consent_state: string
+          created_at: string
+          created_by: string | null
+          id: string
+          institution_id: string
+          is_active: boolean
+          kind: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          consent_notes?: string | null
+          consent_signed_at?: string | null
+          consent_state?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          institution_id: string
+          is_active?: boolean
+          kind: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          consent_notes?: string | null
+          consent_signed_at?: string | null
+          consent_state?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          institution_id?: string
+          is_active?: boolean
+          kind?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "placement_partners_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "placement_partners_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "placement_partners_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_colleges"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "placement_partners_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "placement_partners_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_collaboration_isolation"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "placement_partners_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_solution_funnel"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "placement_partners_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_hostel_institution_residents"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "placement_partners_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_institutions_needing_admission_counselors"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
       platform_policies: {
         Row: {
           classification: string
@@ -133003,6 +136182,7 @@ export type Database = {
           rejected_quantity: number
           rejection_reason: string | null
           replacement_required: boolean
+          serial_numbers: string[] | null
         }
         Insert: {
           accepted_quantity?: number
@@ -133029,6 +136209,7 @@ export type Database = {
           rejected_quantity?: number
           rejection_reason?: string | null
           replacement_required?: boolean
+          serial_numbers?: string[] | null
         }
         Update: {
           accepted_quantity?: number
@@ -133055,6 +136236,7 @@ export type Database = {
           rejected_quantity?: number
           rejection_reason?: string | null
           replacement_required?: boolean
+          serial_numbers?: string[] | null
         }
         Relationships: [
           {
@@ -136314,6 +139496,13 @@ export type Database = {
             foreignKeyName: "project_issues_owner_staff_id_fkey"
             columns: ["owner_staff_id"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "project_issues_owner_staff_id_fkey"
+            columns: ["owner_staff_id"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -136690,6 +139879,13 @@ export type Database = {
             foreignKeyName: "project_members_staff_id_fkey"
             columns: ["staff_id"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "project_members_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -137003,6 +140199,13 @@ export type Database = {
             foreignKeyName: "project_risk_escalations_escalated_to_staff_id_fkey"
             columns: ["escalated_to_staff_id"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "project_risk_escalations_escalated_to_staff_id_fkey"
+            columns: ["escalated_to_staff_id"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -137097,6 +140300,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_risk_mitigation_steps_owner_staff_id_fkey"
+            columns: ["owner_staff_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "project_risk_mitigation_steps_owner_staff_id_fkey"
@@ -137222,6 +140432,13 @@ export type Database = {
             foreignKeyName: "project_risks_owner_staff_id_fkey"
             columns: ["owner_staff_id"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "project_risks_owner_staff_id_fkey"
+            columns: ["owner_staff_id"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -137323,6 +140540,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_stakeholders_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "project_stakeholders_staff_id_fkey"
@@ -137545,6 +140769,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_task_assignees_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "project_task_assignees_staff_id_fkey"
@@ -137913,6 +141144,13 @@ export type Database = {
             foreignKeyName: "project_task_subtasks_assignee_staff_id_fkey"
             columns: ["assignee_staff_id"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "project_task_subtasks_assignee_staff_id_fkey"
+            columns: ["assignee_staff_id"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -138074,6 +141312,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_tasks_owner_staff_id_fkey"
+            columns: ["owner_staff_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "project_tasks_owner_staff_id_fkey"
@@ -138596,6 +141841,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "projects_owner_staff_id_fkey"
+            columns: ["owner_staff_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "projects_owner_staff_id_fkey"
@@ -139958,6 +143210,13 @@ export type Database = {
             foreignKeyName: "rcltp_assessment_schedule_confirmed_by_fkey"
             columns: ["confirmed_by"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "rcltp_assessment_schedule_confirmed_by_fkey"
+            columns: ["confirmed_by"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -140115,6 +143374,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rcltp_assessments_administered_by_fkey"
+            columns: ["administered_by"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "rcltp_assessments_administered_by_fkey"
@@ -141012,6 +144278,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rcltp_part_a_recordings_reviewed_by_fkey"
+            columns: ["reviewed_by"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "rcltp_part_a_recordings_reviewed_by_fkey"
@@ -145908,6 +149181,7 @@ export type Database = {
           inherit_parent_attributes: boolean | null
           name: string
           parent_category_id: string
+          requires_serial_number: boolean
           status: Database["public"]["Enums"]["category_status"]
           updated_at: string | null
           updated_by: string | null
@@ -145923,6 +149197,7 @@ export type Database = {
           inherit_parent_attributes?: boolean | null
           name: string
           parent_category_id: string
+          requires_serial_number?: boolean
           status?: Database["public"]["Enums"]["category_status"]
           updated_at?: string | null
           updated_by?: string | null
@@ -145938,6 +149213,7 @@ export type Database = {
           inherit_parent_attributes?: boolean | null
           name?: string
           parent_category_id?: string
+          requires_serial_number?: boolean
           status?: Database["public"]["Enums"]["category_status"]
           updated_at?: string | null
           updated_by?: string | null
@@ -146136,6 +149412,7 @@ export type Database = {
           resource_code: string | null
           returned_at: string | null
           room_number: string | null
+          serial_number: string | null
           status: Database["public"]["Enums"]["resource_status"]
           subcategory_id: string
           tags: string[] | null
@@ -146192,6 +149469,7 @@ export type Database = {
           resource_code?: string | null
           returned_at?: string | null
           room_number?: string | null
+          serial_number?: string | null
           status?: Database["public"]["Enums"]["resource_status"]
           subcategory_id: string
           tags?: string[] | null
@@ -146248,6 +149526,7 @@ export type Database = {
           resource_code?: string | null
           returned_at?: string | null
           room_number?: string | null
+          serial_number?: string | null
           status?: Database["public"]["Enums"]["resource_status"]
           subcategory_id?: string
           tags?: string[] | null
@@ -153654,6 +156933,13 @@ export type Database = {
             foreignKeyName: "sh_builders_staff_id_fkey"
             columns: ["staff_id"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "sh_builders_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -154368,6 +157654,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_cohort_members_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "sh_cohort_members_staff_id_fkey"
@@ -156510,6 +159803,13 @@ export type Database = {
             foreignKeyName: "sh_production_learners_staff_id_fkey"
             columns: ["staff_id"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "sh_production_learners_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -157137,6 +160437,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_publication_contributors_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "sh_publication_contributors_staff_id_fkey"
@@ -166986,6 +170293,13 @@ export type Database = {
             foreignKeyName: "staff_plan_courses_staff_id_fkey"
             columns: ["staff_id"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "staff_plan_courses_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -167184,6 +170498,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staff_specializations_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "staff_specializations_staff_id_fkey"
@@ -168931,6 +172252,13 @@ export type Database = {
             foreignKeyName: "timetables_class_incharge_id_fkey"
             columns: ["class_incharge_id"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "timetables_class_incharge_id_fkey"
+            columns: ["class_incharge_id"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -169382,6 +172710,66 @@ export type Database = {
         }
         Relationships: []
       }
+      tms_bill_merge_backup_20260907: {
+        Row: {
+          backed_up_at: string
+          keeper_bill_id: string | null
+          keeper_ledger_id: string | null
+          keeper_ledger_old_amount: number | null
+          keeper_ledger_old_due: string | null
+          keeper_ledger_old_term: number | null
+          keeper_old_amount: number | null
+          keeper_old_balance: number | null
+          keeper_old_description: string | null
+          keeper_old_due: string | null
+          person_id: string | null
+          surplus_amount: number | null
+          surplus_bill_id: string | null
+          surplus_description: string | null
+          surplus_due: string | null
+          surplus_ledger_id: string | null
+          surplus_ledger_term: number | null
+        }
+        Insert: {
+          backed_up_at?: string
+          keeper_bill_id?: string | null
+          keeper_ledger_id?: string | null
+          keeper_ledger_old_amount?: number | null
+          keeper_ledger_old_due?: string | null
+          keeper_ledger_old_term?: number | null
+          keeper_old_amount?: number | null
+          keeper_old_balance?: number | null
+          keeper_old_description?: string | null
+          keeper_old_due?: string | null
+          person_id?: string | null
+          surplus_amount?: number | null
+          surplus_bill_id?: string | null
+          surplus_description?: string | null
+          surplus_due?: string | null
+          surplus_ledger_id?: string | null
+          surplus_ledger_term?: number | null
+        }
+        Update: {
+          backed_up_at?: string
+          keeper_bill_id?: string | null
+          keeper_ledger_id?: string | null
+          keeper_ledger_old_amount?: number | null
+          keeper_ledger_old_due?: string | null
+          keeper_ledger_old_term?: number | null
+          keeper_old_amount?: number | null
+          keeper_old_balance?: number | null
+          keeper_old_description?: string | null
+          keeper_old_due?: string | null
+          person_id?: string | null
+          surplus_amount?: number | null
+          surplus_bill_id?: string | null
+          surplus_description?: string | null
+          surplus_due?: string | null
+          surplus_ledger_id?: string | null
+          surplus_ledger_term?: number | null
+        }
+        Relationships: []
+      }
       tms_booking: {
         Row: {
           booked_at: string
@@ -169717,6 +173105,13 @@ export type Database = {
             isOneToOne: true
             referencedRelation: "staff"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tms_driver_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: true
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
           },
           {
             foreignKeyName: "tms_driver_staff_id_fkey"
@@ -179776,6 +183171,13 @@ export type Database = {
             foreignKeyName: "event_staff_assignments_staff_id_fkey"
             columns: ["staff_id"]
             isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "event_staff_assignments_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -183763,6 +187165,134 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_stg_realloc_class"
             referencedColumns: ["tgt_block_id"]
+          },
+        ]
+      }
+      v_hr_attendance_institution_drift: {
+        Row: {
+          current_institution: string | null
+          current_institution_id: string | null
+          employee_code: string | null
+          month_is_closed: boolean | null
+          record_institution: string | null
+          record_institution_id: string | null
+          rows_adrift: number | null
+          staff_id: string | null
+          staff_name: string | null
+          work_month: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_attendance_records_institution_id_fkey"
+            columns: ["record_institution_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hr_attendance_records_institution_id_fkey"
+            columns: ["record_institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_attendance_records_institution_id_fkey"
+            columns: ["record_institution_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_colleges"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hr_attendance_records_institution_id_fkey"
+            columns: ["record_institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hr_attendance_records_institution_id_fkey"
+            columns: ["record_institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_collaboration_isolation"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hr_attendance_records_institution_id_fkey"
+            columns: ["record_institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_solution_funnel"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hr_attendance_records_institution_id_fkey"
+            columns: ["record_institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_hostel_institution_residents"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hr_attendance_records_institution_id_fkey"
+            columns: ["record_institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_institutions_needing_admission_counselors"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "staff_institution_id_fkey"
+            columns: ["current_institution_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "staff_institution_id_fkey"
+            columns: ["current_institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staff_institution_id_fkey"
+            columns: ["current_institution_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_colleges"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "staff_institution_id_fkey"
+            columns: ["current_institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "staff_institution_id_fkey"
+            columns: ["current_institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_collaboration_isolation"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "staff_institution_id_fkey"
+            columns: ["current_institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_solution_funnel"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "staff_institution_id_fkey"
+            columns: ["current_institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_hostel_institution_residents"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "staff_institution_id_fkey"
+            columns: ["current_institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_institutions_needing_admission_counselors"
+            referencedColumns: ["institution_id"]
           },
         ]
       }
@@ -189535,6 +193065,13 @@ export type Database = {
         Args: never
         Returns: {
           created_at: string
+          has_signed_in: boolean
+          heal_blocked_reason: string
+          is_active: boolean
+          is_pre_registered: boolean
+          last_sign_in_at: string
+          link_state: string
+          linked_auth_user_id: string
           profile_email: string
           profile_id: string
           profile_role: string
@@ -192104,7 +195641,19 @@ export type Database = {
         Returns: boolean
       }
       fn_can_hand_over: { Args: never; Returns: boolean }
+      fn_can_manage_committee_tasks: {
+        Args: { p_event_id: string }
+        Returns: boolean
+      }
       fn_can_manage_event_feedback: {
+        Args: { p_event_id: string }
+        Returns: boolean
+      }
+      fn_can_manage_event_level_tasks: {
+        Args: { p_event_id: string }
+        Returns: boolean
+      }
+      fn_can_read_event_tasks: {
         Args: { p_event_id: string }
         Returns: boolean
       }
@@ -192656,6 +196205,44 @@ export type Database = {
         Returns: Json
       }
       fn_cl_expire_upgrade_holds: { Args: never; Returns: number }
+      fn_cl_housekeeping_assign: {
+        Args: { p_booking_id: string; p_cleaner_id: string; p_clear?: boolean }
+        Returns: Json
+      }
+      fn_cl_housekeeping_book: {
+        Args: {
+          p_date: string
+          p_notes?: string
+          p_slot_start: string
+          p_type_id: string
+        }
+        Returns: Json
+      }
+      fn_cl_housekeeping_cancel: {
+        Args: { p_booking_id: string; p_reason?: string }
+        Returns: Json
+      }
+      fn_cl_housekeeping_feedback_holds: {
+        Args: {
+          p_block_id?: string
+          p_date?: string
+          p_institution_id?: string
+        }
+        Returns: {
+          booking_date: string
+          booking_id: string
+          learner_id: string
+          room_id: string
+          type_name: string
+        }[]
+      }
+      fn_cl_housekeeping_slots: {
+        Args: { p_date: string; p_room_id: string; p_type_id: string }
+        Returns: Json
+      }
+      fn_cl_my_block_ids: { Args: never; Returns: string[] }
+      fn_cl_my_block_learner_ids: { Args: never; Returns: string[] }
+      fn_cl_my_block_room_ids: { Args: never; Returns: string[] }
       fn_cl_process_upgrade_holds: {
         Args: { p_student_lp: string }
         Returns: number
@@ -192791,6 +196378,10 @@ export type Database = {
         }
         Returns: Json
       }
+      fn_cohort_can_set_status: {
+        Args: { p_cohort_id: string }
+        Returns: boolean
+      }
       fn_cohort_coordinator_appoint: {
         Args: {
           p_cohort_id?: string
@@ -192816,6 +196407,17 @@ export type Database = {
       fn_cohort_estimator_version: { Args: never; Returns: string }
       fn_cohort_min_actionable_lift: { Args: never; Returns: number }
       fn_cohort_min_arm_n: { Args: never; Returns: number }
+      fn_cohort_next_statuses: { Args: { p_from: string }; Returns: string[] }
+      fn_cohort_set_status: {
+        Args: {
+          p_cohort_id: string
+          p_event_type?: string
+          p_reason: string
+          p_to_status: string
+        }
+        Returns: Json
+      }
+      fn_cohort_status_control: { Args: { p_cohort_id: string }; Returns: Json }
       fn_college_attendance_summary: {
         Args: { p_days?: number }
         Returns: {
@@ -193662,6 +197264,10 @@ export type Database = {
       }
       fn_ensure_standing_institution_audit: { Args: never; Returns: string }
       fn_escalate_silent_resource_approvals: { Args: never; Returns: number }
+      fn_event_academic_year_start: {
+        Args: { p_institution_id: string; p_on_date: string }
+        Returns: number
+      }
       fn_event_date_request_decide: {
         Args: { p_decision: string; p_note?: string; p_request_id: string }
         Returns: Json
@@ -193686,6 +197292,10 @@ export type Database = {
           metric_code: string
           raw_codes: Json
         }[]
+      }
+      fn_events_allocate_number: {
+        Args: { p_institution_id: string; p_year: number }
+        Returns: number
       }
       fn_exam_audit_access: {
         Args: never
@@ -194360,7 +197970,7 @@ export type Database = {
         Returns: Json
       }
       fn_hostel_unallocated_candidates: {
-        Args: { p_institution_id?: string }
+        Args: { p_institution_id?: string; p_institution_ids?: string[] }
         Returns: {
           academic_year_id: string
           academic_year_name: string
@@ -194427,6 +198037,7 @@ export type Database = {
           title: string
         }[]
       }
+      fn_hr_cl_reset_2026_27: { Args: { p_dry_run?: boolean }; Returns: Json }
       fn_hr_compute_attendance_period_summary: {
         Args: { p_period_id: string }
         Returns: number
@@ -194487,9 +198098,23 @@ export type Database = {
         }
         Returns: string
       }
+      fn_hr_leave_build_chain: {
+        Args: { p_employee_id: string; p_flow_id: string }
+        Returns: Json
+      }
       fn_hr_leave_can_finalize: {
         Args: { p_application_id: string }
         Returns: boolean
+      }
+      fn_hr_leave_chain_step: {
+        Args: {
+          p_approvers: Json
+          p_escalate: number
+          p_order: number
+          p_quorum: string
+          p_step_type: string
+        }
+        Returns: Json
       }
       fn_hr_leave_final_step_index: { Args: { p_chain: Json }; Returns: number }
       fn_hr_leave_monthly_ledger: {
@@ -194514,6 +198139,14 @@ export type Database = {
           taken_in_month: number
         }[]
       }
+      fn_hr_leave_pending_chain_drift: {
+        Args: { p_flow_id: string }
+        Returns: {
+          eligible: number
+          skipped_decided: number
+          skipped_locked: number
+        }[]
+      }
       fn_hr_leave_pending_days: {
         Args: {
           p_hr_academic_year_id?: string
@@ -194522,69 +198155,42 @@ export type Database = {
         }
         Returns: number
       }
-      fn_hr_lock_attendance_period:
-        | {
-            Args: { p_institution_id: string; p_month: number; p_year: number }
-            Returns: {
-              created_at: string
-              created_by: string | null
-              id: string
-              institution_id: string
-              locked_at: string | null
-              locked_by: string | null
-              notes: string | null
-              period_month: number
-              period_year: number
-              reopen_reason: string | null
-              reopened_at: string | null
-              reopened_by: string | null
-              staff_count: number | null
-              status: string
-              updated_at: string
-              updated_by: string | null
-              working_days_count: number | null
-            }
-            SetofOptions: {
-              from: "*"
-              to: "hr_attendance_periods"
-              isOneToOne: true
-              isSetofReturn: false
-            }
-          }
-        | {
-            Args: {
-              p_force?: boolean
-              p_force_reason?: string
-              p_institution_id: string
-              p_month: number
-              p_year: number
-            }
-            Returns: {
-              created_at: string
-              created_by: string | null
-              id: string
-              institution_id: string
-              locked_at: string | null
-              locked_by: string | null
-              notes: string | null
-              period_month: number
-              period_year: number
-              reopen_reason: string | null
-              reopened_at: string | null
-              reopened_by: string | null
-              staff_count: number | null
-              status: string
-              updated_at: string
-              updated_by: string | null
-              working_days_count: number | null
-            }
-            SetofOptions: {
-              from: "*"
-              to: "hr_attendance_periods"
-              isOneToOne: true
-              isSetofReturn: false
-            }
-          }
+      fn_hr_leave_resync_pending_chains: {
+        Args: { p_flow_id: string }
+        Returns: {
+          resynced: number
+          skipped_decided: number
+          skipped_locked: number
+        }[]
+      }
+      fn_hr_lock_attendance_period: {
+        Args: { p_institution_id: string; p_month: number; p_year: number }
+        Returns: {
+          created_at: string
+          created_by: string | null
+          id: string
+          institution_id: string
+          locked_at: string | null
+          locked_by: string | null
+          notes: string | null
+          period_month: number
+          period_year: number
+          reopen_reason: string | null
+          reopened_at: string | null
+          reopened_by: string | null
+          staff_count: number | null
+          status: string
+          updated_at: string
+          updated_by: string | null
+          working_days_count: number | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "hr_attendance_periods"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       fn_hr_org_included: { Args: { p_org_id: string }; Returns: boolean }
       fn_hr_orgs_for_institutions: {
         Args: never
@@ -194671,6 +198277,7 @@ export type Database = {
       }
       fn_hr_set_work_pattern_days: {
         Args: {
+          p_day_hours?: Json
           p_effective_from: string
           p_notes?: string
           p_pattern_id: string
@@ -194988,6 +198595,7 @@ export type Database = {
         Args: { p_event_id: string }
         Returns: {
           cover_until: string
+          fresher_ident: string
           fresher_learner_id: string
           fresher_name: string
           fresher_register: string
@@ -194996,6 +198604,7 @@ export type Database = {
           mentor_learner_id: string
           original_mentor_learner_id: string
           original_mentor_name: string
+          program_name: string
         }[]
       }
       fn_induction_admin_set_mentor_trained: {
@@ -195009,9 +198618,11 @@ export type Database = {
       fn_induction_admin_unassigned_freshers: {
         Args: { p_event_id: string }
         Returns: {
+          fresher_ident: string
           fresher_learner_id: string
           fresher_name: string
           fresher_register: string
+          program_name: string
         }[]
       }
       fn_induction_appoint_feedback_volunteer: {
@@ -195492,6 +199103,7 @@ export type Database = {
           capture_method: string
           captured: boolean
           has_account: boolean
+          ident: string
           learner_id: string
           name: string
           program_name: string
@@ -195513,6 +199125,20 @@ export type Database = {
           rating: number
           session_id: string
           start_at: string
+        }[]
+      }
+      fn_induction_my_mentor_for_event: {
+        Args: { p_event_id: string }
+        Returns: {
+          assigned_at: string
+          cover_until: string
+          is_cover: boolean
+          mentor_ident: string
+          mentor_learner_id: string
+          mentor_name: string
+          mentor_photo_url: string
+          mentor_program: string
+          original_mentor_name: string
         }[]
       }
       fn_induction_my_program_feedback: {
@@ -196416,6 +200042,26 @@ export type Database = {
         Args: { p_learner_id: string }
         Returns: number
       }
+      fn_learner_attendance_history: {
+        Args: {
+          p_from: string
+          p_learner_id: string
+          p_section_id: string
+          p_to: string
+        }
+        Returns: {
+          lah_attendance_date: string
+          lah_course_name: string
+          lah_end_time: string
+          lah_marked_at: string
+          lah_period_key: string
+          lah_period_name: string
+          lah_section_id: string
+          lah_section_name: string
+          lah_start_time: string
+          lah_status: string
+        }[]
+      }
       fn_learner_band_academic_fee: {
         Args: { p_learner_id: string }
         Returns: {
@@ -196758,6 +200404,14 @@ export type Database = {
           p_loop_key: string
           p_owner_email: string
           p_verdict_owner: string
+        }
+        Returns: boolean
+      }
+      fn_loop_set_scoped_owner: {
+        Args: {
+          p_institution_id: string
+          p_loop_key: string
+          p_owner_email: string
         }
         Returns: boolean
       }
@@ -197382,6 +201036,10 @@ export type Database = {
           waiting_since: string
         }[]
       }
+      fn_my_event_feedback_registration: {
+        Args: { p_form_id: string }
+        Returns: string
+      }
       fn_my_event_registration: {
         Args: { p_event_id: string }
         Returns: string
@@ -197536,6 +201194,50 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      fn_network_cleanup_pending_requests: { Args: never; Returns: number }
+      fn_network_create_monthly_partitions: { Args: never; Returns: number }
+      fn_network_is_user_locked: {
+        Args: {
+          p_client_mac: string
+          p_institution_id: string
+          p_user_id: string
+        }
+        Returns: string
+      }
+      fn_network_log_audit: {
+        Args: {
+          p_action: string
+          p_actor_id: string
+          p_actor_role: string
+          p_institution_id: string
+          p_ip_address?: string
+          p_metadata?: Json
+          p_target_id?: string
+          p_target_type?: string
+          p_user_agent?: string
+        }
+        Returns: string
+      }
+      fn_network_record_failed_attempt: {
+        Args: {
+          p_client_ip: string
+          p_client_mac: string
+          p_institution_id: string
+          p_user_id: string
+        }
+        Returns: boolean
+      }
+      fn_network_register_device: {
+        Args: {
+          p_client_mac: string
+          p_device_label?: string
+          p_device_type?: string
+          p_institution_id: string
+          p_user_id: string
+          p_user_role: string
+        }
+        Returns: string
       }
       fn_next_staff_code: {
         Args: { p_institution_id: string; p_is_teaching: boolean }
@@ -197799,6 +201501,29 @@ export type Database = {
           starts_at: string
         }[]
       }
+      fn_placement_observation_raise_idea: {
+        Args: {
+          p_observation_id: string
+          p_problem: string
+          p_proposed_fix: string
+          p_title: string
+        }
+        Returns: string
+      }
+      fn_placement_observation_record: {
+        Args: {
+          p_cohort_id?: string
+          p_institution_id: string
+          p_observed_at?: string
+          p_partner_id?: string
+          p_partner_kind: string
+          p_q_done_twice?: string
+          p_q_quiet_failure?: string
+          p_q_waiting_on_one?: string
+          p_q_workaround?: string
+        }
+        Returns: string
+      }
       fn_policy_gate_observe: {
         Args: { p_key: string; p_result: boolean }
         Returns: undefined
@@ -197932,15 +201657,26 @@ export type Database = {
         Args: { p_po_item_id: string }
         Returns: number
       }
-      fn_procurement_rm_post_receipt: {
-        Args: {
-          p_grn_item_id: string
-          p_quantity: number
-          p_resource_id: string
-          p_total_value?: number
-        }
-        Returns: boolean
-      }
+      fn_procurement_rm_post_receipt:
+        | {
+            Args: {
+              p_grn_item_id: string
+              p_quantity: number
+              p_resource_id: string
+              p_total_value?: number
+            }
+            Returns: boolean
+          }
+        | {
+            Args: {
+              p_grn_item_id: string
+              p_quantity: number
+              p_resource_id: string
+              p_serial_numbers?: string[]
+              p_total_value?: number
+            }
+            Returns: boolean
+          }
       fn_procurement_rm_reconcile_new_item: {
         Args: {
           p_description?: string
@@ -198465,6 +202201,7 @@ export type Database = {
         Args: { p_date: string; p_staff_id: string }
         Returns: {
           applicable_gender: string
+          attendance_mode: string
           day_of_week: number
           employment_category_id: string
           first_half_end: string
@@ -198474,6 +202211,7 @@ export type Database = {
           institution_id: string
           is_working_day: boolean
           matched_by: string
+          required_minutes: number
           second_half_end: string
           second_half_start: string
           staff_scope: string
@@ -198483,11 +202221,13 @@ export type Database = {
       fn_resolve_shift_timings_bulk: {
         Args: { p_from: string; p_staff_ids: string[]; p_to: string }
         Returns: {
+          attendance_mode: string
           first_half_end: string
           first_half_start: string
           grace_minutes: number
           is_working_day: boolean
           matched_by: string
+          required_minutes: number
           second_half_end: string
           second_half_start: string
           staff_id: string
@@ -200129,6 +203869,7 @@ export type Database = {
         }
         Returns: {
           applicable_gender: string
+          attendance_mode: string
           created_at: string
           created_by: string | null
           day_of_week: number
@@ -200143,6 +203884,7 @@ export type Database = {
           is_active: boolean
           is_working_day: boolean
           notes: string | null
+          required_minutes: number | null
           second_half_end: string | null
           second_half_start: string | null
           second_saturday_holiday: boolean
@@ -200160,11 +203902,13 @@ export type Database = {
       fn_shift_window: {
         Args: { p_date: string; p_staff_id: string }
         Returns: {
+          attendance_mode: string
           first_half_end: string
           first_half_start: string
           grace_minutes: number
           is_working_day: boolean
           matched_by: string
+          required_minutes: number
           second_half_end: string
           second_half_start: string
           timing_id: string
@@ -201051,6 +204795,10 @@ export type Database = {
       fn_withdraw_receipt_cancellation: {
         Args: { p_notes?: string; p_request_id: string }
         Returns: undefined
+      }
+      fn_work_pattern_day_hours: {
+        Args: { p_date: string; p_dow: number; p_pattern_id: string }
+        Returns: Json
       }
       fn_work_pattern_days: {
         Args: { p_date: string; p_pattern_id: string }
