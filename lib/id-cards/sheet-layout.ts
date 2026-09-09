@@ -15,8 +15,9 @@
 //     row by row the sheet is exactly "Student 1 front, Student 1 back,
 //     Student 2 front, Student 2 back …", so a reviewer checks both sides of a
 //     record together and the printed stack comes out in learner order.
-//       landscape cards: 2 columns × 5 rows = 5 learners per sheet
+//       landscape cards: 2 columns × 4 rows = 4 learners per sheet
 //       portrait cards:  2 columns × 3 rows = 3 learners per sheet
+//     (Row gaps are wide enough for a wrapped 3-line red caption.)
 //     (A template with no back side lays the fronts out in the same order.)
 //   • 'duplex' — fronts fill sheet N, backs fill sheet N+1 MIRRORED so each
 //     back lands behind its own front when the paper is turned over:
@@ -46,6 +47,14 @@ export const SHEET_H_MM = 297;
 export const ISSUE_RED = '#dc2626';
 export const ISSUE_FRAME_MM = 0.8;
 export const ISSUE_CAPTION_FONT_MM = 2.6;
+export const ISSUE_CAPTION_LINE_MM = 3.2;
+/** Gap between a card's bottom edge and the first caption line. */
+export const ISSUE_CAPTION_TOP_MM = 0.6;
+
+/** How many caption lines fit in the row gap below a card of this grid. */
+export function captionLines(geo: SheetGeometry): number {
+  return Math.max(1, Math.floor((geo.rowGap - ISSUE_CAPTION_TOP_MM) / ISSUE_CAPTION_LINE_MM));
+}
 
 export type DuplexFlip = 'long' | 'short';
 export type LayoutMode = 'pairs' | 'duplex';
@@ -79,13 +88,13 @@ export function sheetGeometry(portrait: boolean): SheetGeometry {
 /**
  * Grid for the student-wise layout: always two columns (front | back), so a
  * row is one learner. The column gap is wider than the duplex grid so the
- * front | back pair reads as two cards; the row gap stays at the duplex value
- * (the red caption under a flagged card fits inside it).
+ * front | back pair reads as two cards; the row gap holds three wrapped lines
+ * of red caption under a flagged card.
  */
 export function pairsGeometry(portrait: boolean): SheetGeometry {
   return portrait
-    ? centred(2, 3, CARD_SHORT_MM, CARD_LONG_MM, 10, 8)
-    : centred(2, 5, CARD_LONG_MM, CARD_SHORT_MM, 10, 4);
+    ? centred(2, 3, CARD_SHORT_MM, CARD_LONG_MM, 10, 10.5)
+    : centred(2, 4, CARD_LONG_MM, CARD_SHORT_MM, 10, 10.5);
 }
 
 export interface SheetSlot {
@@ -269,12 +278,17 @@ export function imageStyle(rotation: number): string {
   );
 }
 
-/** Inline style for the red caption under a flagged slot. */
-export function captionStyle(): string {
+/**
+ * Inline style for the red caption under a flagged slot. Wraps to as many
+ * lines as the row gap holds, then clips — never runs into the next row.
+ */
+export function captionStyle(geo: SheetGeometry): string {
+  const lines = captionLines(geo);
   return (
-    `position:absolute;left:0;right:0;bottom:-${ISSUE_CAPTION_FONT_MM + 1}mm;` +
-    `font-size:${ISSUE_CAPTION_FONT_MM}mm;line-height:${ISSUE_CAPTION_FONT_MM + 0.6}mm;` +
-    `color:${ISSUE_RED};font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;` +
+    `position:absolute;left:0;right:0;top:calc(100% + ${ISSUE_CAPTION_TOP_MM}mm);` +
+    `max-height:${lines * ISSUE_CAPTION_LINE_MM}mm;` +
+    `font-size:${ISSUE_CAPTION_FONT_MM}mm;line-height:${ISSUE_CAPTION_LINE_MM}mm;` +
+    `color:${ISSUE_RED};font-weight:600;white-space:normal;overflow-wrap:anywhere;overflow:hidden;` +
     `font-family:Arial,Helvetica,sans-serif;`
   );
 }
@@ -340,7 +354,7 @@ export function buildPrintDocument(pages: SheetPage[], title = 'ID Cards'): stri
             `<div class="idc-cell" style="${cs}"><div class="idc-card${flagged ? ' idc-flagged' : ''}">` +
             `<img src="${src}" alt="${esc(slot.card.name)} ${slot.side}" style="${imageStyle(slot.rotation)}">` +
             `</div>` +
-            (caption ? `<div style="${captionStyle()}">${esc(caption)}</div>` : '') +
+            (caption ? `<div style="${captionStyle(page.geometry)}">${esc(caption)}</div>` : '') +
             `</div>`
           );
         })
