@@ -26,6 +26,20 @@
 // checked them against a person who knows). So nothing here can be confidently
 // wrong, which is the standard the digest's own header sets.
 //
+// CORRECTION 2026-09-07 — that standard was not actually met when this merged.
+// Two sentences failed it, and both are fixed below:
+//   · "most of it is already gathered from the records your college keeps day
+//     to day" was FALSE for 6 of the 14 recipients. quality_evidence_mappings
+//     holds zero rows for DCI, PCI, INC, QS and AICTE, and 46 rows covering
+//     one of NBA's nine metrics. It was the only sentence here that made a
+//     claim about the world, and it was wrong for nearly half the readers.
+//   · "decline and say who" asked for something the product cannot accept:
+//     the Decline control is a bare button and the acknowledge RPC takes no
+//     free text. Nowhere on that path can a person say who.
+// Neither was replaced by a computed figure — the settled decision that this
+// message carries no counts still stands. They were replaced by sentences that
+// are true for every recipient regardless of what any college has on file.
+//
 // Once an owner accepts, `shouldSendDigest` starts returning true for them on
 // its own and the digest arms itself with NO further code. This route is the
 // key, not a second mailer.
@@ -131,22 +145,59 @@ function buildInvitation(
     )
     .sort();
 
-  const one = lines.length === 1;
+  // Count DISTINCT bodies, not assignment rows. Someone holding NAAC
+  // body-wide plus NAAC metric 3.1.1 holds two assignments and one awarding
+  // body; the old `lines.length` would have told them "2 awarding bodies".
+  // Dormant today — all 14 live assignments are one body-level row per person
+  // — and it stops being dormant the first time IQAC assigns a metric-level
+  // owner alongside a body-level one, which is exactly what metric_code is for.
+  const distinctBodies = [...new Set(rows.map((r) => r.body_code).filter(Boolean))];
+  const one = distinctBodies.length === 1;
   const title = one
-    ? `You have been named the accreditation owner for ${rows[0].body_code ?? 'an awarding body'}`
-    : `You have been named the accreditation owner for ${lines.length} awarding bodies`;
+    ? `You have been named the accreditation owner for ${distinctBodies[0] ?? rows[0].body_code ?? 'an awarding body'}`
+    : `You have been named the accreditation owner for ${distinctBodies.length} awarding bodies`;
 
   const body = [
-    one
-      ? 'The IQAC has recorded you as the accreditation owner for:'
-      : 'The IQAC has recorded you as the accreditation owner for:',
+    // This was a ternary whose two branches were byte-identical, so it never
+    // selected anything. Someone meant to write different singular and plural
+    // openings and never did. Collapsed rather than left as a decision the
+    // code appears to make and does not.
+    'The IQAC has recorded you as the accreditation owner for:',
     ...lines.map((l) => `  • ${l}`),
     '',
-    'Being the owner means you are the person we come to for it, and you decide what still needs collecting. It does not mean you have to fill everything in yourself — most of it is already gathered from the records your college keeps day to day.',
+    // The clause that used to end this sentence — "most of it is already
+    // gathered from the records your college keeps day to day" — was removed
+    // 2026-09-07. It was the ONLY sentence in the message that made a claim
+    // about the world, and it was false for 6 of the 14 people about to
+    // receive it: quality_evidence_mappings holds ZERO rows for DCI, PCI, INC,
+    // QS and AICTE, and 46 rows covering a single one of NBA's 9 metrics.
+    //
+    // Telling somebody their evidence is mostly gathered, in the first message
+    // they have ever received about a duty recorded 25 days earlier, is the
+    // one way to make the message worse than silence: they open My Gaps,
+    // find nothing gathered, and learn that this channel does not know what
+    // it is talking about. The channel is then spent.
+    //
+    // It is NOT replaced by a real count. The settled decision is that this
+    // invitation carries no duty list and no gap counts, and the counts
+    // themselves are still the digest's unmet condition 2 — unchecked by any
+    // person who knows. What is left is true for all 14 regardless of what
+    // any college has on file.
+    'Being the owner means you are the person we come to for it, and you decide what still needs collecting. It does not mean you have to fill everything in yourself.',
     '',
     'Open My Gaps to accept or decline.',
     '',
-    'Declining is a genuine option. If this belongs with someone else, decline and say who — that is more useful than an assignment nobody acts on.',
+    // "decline and say who" was removed 2026-09-07: the product gives them
+    // nowhere to say it. The Decline control on /accreditation/my-gaps is a
+    // bare button calling respond(id, 'declined'), and
+    // fn_accreditation_acknowledge_ownership accepts only (p_owner_id,
+    // p_decision) and writes only assignment_status, acknowledged_at and
+    // acknowledged_by. There is no free-text field anywhere on that path.
+    //
+    // Asking for something the screen cannot accept teaches the reader that
+    // the message was not written by anyone who had looked at the screen —
+    // and the reader is right.
+    'Declining is a genuine option. If this belongs with someone else, declining is far more useful than an assignment nobody acts on.',
   ].join('\n');
 
   // Keyed on the person AND the exact assignment set: re-runs send nothing,
@@ -250,8 +301,21 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const sent: Record<string, unknown>[] = [];
     const skipped: Record<string, unknown>[] = [];
+    const failed: Record<string, unknown>[] = [];
 
+    // One person's failure must not silence the rest.
+    //
+    // Before this try/catch, a throw inside fanoutNotification on person 7 fell
+    // straight through to the outer catch: persons 8-14 were never attempted,
+    // and the response was a bare 500 that had already lost `sent` to scope —
+    // so the operator could not tell who HAD been mailed before it died. Re-running
+    // is safe (the idempotency key skips anyone already invited), but only if you
+    // know a re-run is needed, and a bare 500 does not tell you that.
+    //
+    // Per-person isolation makes a partial send legible: everyone reachable is
+    // reached, and the response names exactly who was not and why.
     for (const invite of invitations) {
+      try {
       const result = await fanoutNotification(supabase as any, {
         title: invite.title,
         body: invite.body,
@@ -281,6 +345,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       };
       if (!result.skipped && result.notified > 0) sent.push(record);
       else skipped.push(record);
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        console.error('[accred-owner-invitations] invite failed for', invite.userId, message);
+        failed.push({
+          user_id: invite.userId,
+          assignments: invite.assignmentIds.length,
+          error: message,
+        });
+      }
     }
 
     return NextResponse.json({
@@ -290,9 +363,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       people_pending: invitations.length,
       invited: sent.length,
       already_invited: skipped.length,
+      failed: failed.length,
       sent,
       skipped,
-      note: 'An owner already invited for this exact assignment set is skipped by idempotency key, not re-mailed.',
+      failures: failed,
+      // ok stays true on a partial send: the reachable people WERE reached, and
+      // pretending otherwise would hide that. `failed` is the field to watch —
+      // a non-zero value means those people are still uninvited and a re-run is
+      // needed, which idempotency makes safe.
+      note: failed.length
+        ? `${failed.length} invitation(s) failed and those people were NOT told. Re-running is safe: everyone already invited is skipped by idempotency key.`
+        : 'An owner already invited for this exact assignment set is skipped by idempotency key, not re-mailed.',
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

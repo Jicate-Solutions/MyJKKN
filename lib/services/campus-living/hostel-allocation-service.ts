@@ -71,14 +71,27 @@ export class HostelAllocationService {
   // one page (the old getAllocations(pageSize=50) under-counted). Soft cap of
   // 5000 rows guards a runaway query; revisit with true server-side pagination
   // if a single institution ever exceeds it.
-  static async getAllAllocations(institutionId: string | undefined, filters?: AllocationFilters) {
+  /**
+   * @param blockIds when non-empty, scopes the feed to these blocks INSTEAD of
+   *   an institution. A warden's block grant is institution-independent by
+   *   design — their profile institution (JKKN Main Office) owns no allocation
+   *   at all, so an institution filter returns zero rows for them. RLS still
+   *   gates every row; this only decides which scope the query asks for.
+   */
+  static async getAllAllocations(
+    institutionId: string | undefined,
+    filters?: AllocationFilters,
+    blockIds?: string[],
+  ) {
     try {
       const supabase = createClientSupabaseClient();
+      const blockScoped = (blockIds?.length ?? 0) > 0;
       let query = supabase
         .from('hostel_allocations')
         .select('*, learner:profiles!hostel_allocations_learner_id_fkey(id, full_name, email, academic:learners_profiles!profiles_learner_id_fkey(institution_id, program_id, semester_id, hostel_category_id, mess_category_id, lifecycle_status, gender, institution:institutions!fk_learners_profiles_institution(name), program:programs!fk_learners_profiles_program(program_name), semester:semesters!fk_learners_profiles_semester(semester_name), room_category:hostel_categories!learners_profiles_hostel_category_id_fkey(name), mess_category:mess_categories!learners_profiles_mess_category_id_fkey(name))), hostel_blocks(name, code, hostel_type), hostel_rooms(room_number, floor), hostel_beds(bed_number)');
 
-      if (institutionId) query = query.eq('institution_id', institutionId);
+      if (blockScoped) query = query.in('block_id', blockIds as string[]);
+      else if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.block_id) query = query.eq('block_id', filters.block_id);
       if (filters?.status) query = query.eq('status', filters.status);
       if (filters?.academic_year_id) query = query.eq('academic_year_id', filters.academic_year_id);

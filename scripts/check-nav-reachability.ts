@@ -502,6 +502,11 @@ const NAV_EXCLUDE = new Set<string>([
   // excluded above — super-admin-only config, reached via the governance page's
   // "Edit policy →" links, not a tier-strip chip.
 
+  // Cohorts hub landing (PR #2781): redirect('/cohorts/coordinators'). Exists
+  // only so /cohorts does not 404; the real target is the chip-reachable
+  // sidebar entry. Same convention as /moments above.
+  '/cohorts',
+
 ]);
 
 /** Walk app/(routes)/ collecting {url} for every static page.tsx. */

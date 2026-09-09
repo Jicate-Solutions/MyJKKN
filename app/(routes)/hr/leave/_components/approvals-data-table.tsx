@@ -35,6 +35,8 @@ import type { HRLeaveApprovalQueueRow } from '@/types/hr';
 export interface ApprovalFilterState {
   /** 'any' or an institutions.id. */
   institutionId: string;
+  /** 'any' or a departments.id. Null-department rows match only 'any'. */
+  departmentId: string;
   /** 'any' or an hr_leave_types.id. */
   leaveTypeId: string;
   /** 'open' = pending + escalated (the default work queue); 'any' = everything
@@ -56,6 +58,7 @@ export interface ApprovalFilterState {
 
 export const emptyApprovalFilters = (period: PeriodRange): ApprovalFilterState => ({
   institutionId: 'any',
+  departmentId: 'any',
   leaveTypeId: 'any',
   status: 'open',
   mineOnly: false,
@@ -66,6 +69,7 @@ export const emptyApprovalFilters = (period: PeriodRange): ApprovalFilterState =
 export function approvalFiltersActive(f: ApprovalFilterState): boolean {
   return (
     f.institutionId !== 'any' ||
+    f.departmentId !== 'any' ||
     f.leaveTypeId !== 'any' ||
     f.status !== 'open' ||
     f.mineOnly ||
@@ -82,6 +86,7 @@ function haystack(r: HRLeaveApprovalQueueRow): string {
     r.leave_type_name,
     r.leave_type_code,
     r.institution_name,
+    r.department_name,
     r.reason,
   ]
     .filter(Boolean)
@@ -101,6 +106,7 @@ export function matchesApprovalFilters(
     return false;
   }
   if (f.institutionId !== 'any' && r.institution_id !== f.institutionId) return false;
+  if (f.departmentId !== 'any' && r.department_id !== f.departmentId) return false;
   if (f.leaveTypeId !== 'any' && r.leave_type_id !== f.leaveTypeId) return false;
   if (f.status === 'open') {
     if (r.status !== 'pending' && r.status !== 'escalated') return false;

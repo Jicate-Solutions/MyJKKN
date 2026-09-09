@@ -197,6 +197,12 @@ export interface Event {
   visibility: EventVisibility | null;
   venue_resource_id: string | null;
   venue_text: string | null;
+  // Institutional event number (migration 20261118093000). `event_number` is a
+  // GENERATED column — read-only, never send it in an Insert/Update DTO. Its
+  // presence is what tells the UI the event's college is now frozen.
+  event_number: string | null;
+  event_number_year: number | null;
+  event_number_seq: number | null;
   // NAAC evidence tags (events.naac_criteria text[] NOT NULL DEFAULT '{}',
   // live since Phase 1A 20260417000001; GIN-indexed). Read by the events →
   // quality-evidence-spine emitter (PR #2408); written by the NAAC criteria

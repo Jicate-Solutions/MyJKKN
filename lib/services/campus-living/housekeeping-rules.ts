@@ -4,8 +4,9 @@
  * No I/O, no Supabase, no React. Everything here is unit-tested in
  * __tests__/campus-living/housekeeping-rules.test.ts.
  *
- * quotaWindowStart and isLiveStatus MIRROR database logic:
- *   - quotaWindowStart mirrors the CASE in fn_cl_housekeeping_book step 6
+ * quotaWindow*, typeQuota and isLiveStatus MIRROR database logic:
+ *   - quotaWindowStart/End and typeQuota mirror step 6 of fn_cl_housekeeping_book,
+ *     whose window is SYMMETRIC about the booking date (migration 20260909150000)
  *   - isLiveStatus mirrors the WHERE of ux_hk_one_live_booking_per_room
  * The database is the authority in both cases; these exist so the UI can show
  * "2 left this week" and disable a Book button without a round trip. If you
@@ -15,14 +16,110 @@
 
 import type { BookingStatus, FeedbackHold, UsagePeriod } from '@/types/campus-living/housekeeping';
 
-/** Inclusive start of the rolling quota window ending on bookingDate. */
+/** Half-width of the quota window, in days. 0 / 6 / 29 for day / week / month. */
+function quotaWindowDays(period: UsagePeriod): number {
+  return period === 'day' ? 0 : period === 'week' ? 6 : 29;
+}
+
+/** Inclusive START of the quota window around bookingDate. */
 export function quotaWindowStart(bookingDate: string, period: UsagePeriod): string {
-  const daysBack = period === 'day' ? 0 : period === 'week' ? 6 : 29;
-  // Anchor at UTC noon so a DST shift can never move the calendar date.
-  const d = new Date(`${bookingDate}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() - daysBack);
+  return shiftDays(bookingDate, -quotaWindowDays(period));
+}
+
+/**
+ * Inclusive END of the quota window around bookingDate.
+ *
+ * The window is SYMMETRIC: '1 per week' means gone for a week in both
+ * directions. Counting only backwards let a room book the later date first and
+ * then fit a second cleaning in before it -- see migration 20260909150000.
+ */
+export function quotaWindowEnd(bookingDate: string, period: UsagePeriod): string {
+  return shiftDays(bookingDate, quotaWindowDays(period));
+}
+
+/** Anchor at UTC noon so a DST shift can never move the calendar date. */
+function shiftDays(iso: string, days: number): string {
+  const d = new Date(`${iso}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 }
+
+/** Default for housekeeping.booking_advance_days — the same fallback
+ *  fn_cl_housekeeping_book uses when the policy row is absent. */
+export const DEFAULT_BOOKING_ADVANCE_DAYS = 7;
+
+export interface TypeQuota {
+  /** Bookings left if the room booked for TODAY. This is what "left this week" means. */
+  remainingToday: number;
+  /** Whether ANY bookable date still has room. Decides enable/disable. */
+  bookable: boolean;
+  /** Soonest date with room, when today has none. Null if today already works. */
+  nextAvailableDate: string | null;
+}
+
+/**
+ * How much of a type's quota the ROOM has left.
+ *
+ * MIRRORS fn_cl_housekeeping_book step 6: the window is SYMMETRIC about the
+ * date being booked -- `booking_date BETWEEN p_date - n AND p_date + n` for
+ * n = 0 / 6 / 29.
+ *
+ * Two separate bugs lived here. The page counted only `booking_date <= today`,
+ * so a booking made for TOMORROW was invisible and a 1-per-week type looked free
+ * the moment its one booking moved into the future. And the RPC itself counted
+ * only backwards, so booking the later date first left room to squeeze a second
+ * cleaning in before it. Both closed; migration 20260909150000 has the numbers.
+ *
+ * Because the window moves with the date, there is no single "remaining" — a
+ * type can be full for today and free next Tuesday. So this returns both: the
+ * number to SHOW (today's window) and whether to ENABLE (any date in the
+ * horizon). The RPC remains the authority; this only avoids a round trip.
+ */
+export function typeQuota(args: {
+  bookings: Array<{ type_id: string; status: BookingStatus; booking_date: string }>;
+  typeId: string;
+  usageLimit: number;
+  usagePeriod: UsagePeriod;
+  today: string;
+  advanceDays?: number;
+}): TypeQuota {
+  const { bookings, typeId, usageLimit, usagePeriod, today } = args;
+  const advanceDays = args.advanceDays ?? DEFAULT_BOOKING_ADVANCE_DAYS;
+
+  // Same predicate as the RPC: everything but a cancellation counts, including
+  // bookings already completed and bookings still in the future.
+  const relevant = bookings.filter((b) => b.type_id === typeId && b.status !== 'cancelled');
+
+  const remainingOn = (date: string) => {
+    const from = quotaWindowStart(date, usagePeriod);
+    const to = quotaWindowEnd(date, usagePeriod);
+    const used = relevant.filter(
+      (b) => b.booking_date >= from && b.booking_date <= to,
+    ).length;
+    return usageLimit - used;
+  };
+
+  const remainingToday = Math.max(0, remainingOn(today));
+
+  let nextAvailableDate: string | null = null;
+  for (let i = 0; i <= advanceDays; i += 1) {
+    const d = addDays(today, i);
+    if (remainingOn(d) > 0) {
+      nextAvailableDate = d;
+      break;
+    }
+  }
+
+  return {
+    remainingToday,
+    bookable: nextAvailableDate !== null,
+    // Only worth surfacing when today itself is full.
+    nextAvailableDate: remainingToday > 0 ? null : nextAvailableDate,
+  };
+}
+
+/** Calendar-safe day shift. UTC noon so a DST hour can never move the date. */
+export const addDays = shiftDays;
 
 /** slot_start + durationMinutes, returned as HH:MM. */
 export function slotEndTime(start: string, durationMinutes: number): string {

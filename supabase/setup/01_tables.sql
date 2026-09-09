@@ -1491,6 +1491,14 @@ CREATE TABLE IF NOT EXISTS public.bug_reports (
         WHEN page_url ~ '/users/' THEN 'users'
         WHEN page_url ~ '/vac/' THEN 'vac'
         WHEN page_url ~ '/work-pulse/' THEN 'work-pulse'
+        -- Added: 2026-09-06 (20260906213000) — the seven modules the classifier never learned, appended last
+        WHEN page_url ~ '/ai-pulse/' THEN 'ai-pulse'
+        WHEN page_url ~ '/bos/' THEN 'bos'
+        WHEN page_url ~ '/ims/' THEN 'ims'
+        WHEN page_url ~ '/meetings/' THEN 'meetings'
+        WHEN page_url ~ '/procurement/' THEN 'procurement'
+        WHEN page_url ~ '/projects/' THEN 'projects'
+        WHEN page_url ~ '/courses/' THEN 'courses'  -- Added: 2026-09-06 (20260906213000); last so /organizations/courses/ stays organizations
         ELSE 'other'
       END
     ) STORED,
@@ -1539,6 +1547,13 @@ CREATE TABLE IF NOT EXISTS public.bug_reports (
         WHEN page_url ~ '/users/' THEN substring(page_url FROM '/users/([^/?#]+)')
         WHEN page_url ~ '/vac/' THEN substring(page_url FROM '/vac/([^/?#]+)')
         WHEN page_url ~ '/work-pulse/' THEN substring(page_url FROM '/work-pulse/([^/?#]+)')
+        WHEN page_url ~ '/ai-pulse/' THEN substring(page_url FROM '/ai-pulse/([^/?#]+)')
+        WHEN page_url ~ '/bos/' THEN substring(page_url FROM '/bos/([^/?#]+)')
+        WHEN page_url ~ '/ims/' THEN substring(page_url FROM '/ims/([^/?#]+)')
+        WHEN page_url ~ '/meetings/' THEN substring(page_url FROM '/meetings/([^/?#]+)')
+        WHEN page_url ~ '/procurement/' THEN substring(page_url FROM '/procurement/([^/?#]+)')
+        WHEN page_url ~ '/projects/' THEN substring(page_url FROM '/projects/([^/?#]+)')
+        WHEN page_url ~ '/courses/' THEN substring(page_url FROM '/courses/([^/?#]+)')
         ELSE NULL
       END
     ) STORED,
@@ -9302,9 +9317,11 @@ ALTER TABLE public.hostel_cleaning_type_categories ENABLE ROW LEVEL SECURITY;
 
 NO login, NO profile link)
 -- ==========================================================================
+-- GLOBAL directory: no institution_id. hostel_blocks has none either, and 4 of
+-- the 6 blocks house learners from several colleges at once, so a cleaner is
+-- scoped by hostel_cleaner_blocks. See 20260909130000.
 CREATE TABLE public.hostel_cleaners (
   id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  institution_id uuid NOT NULL REFERENCES public.institutions(id),
   full_name      text NOT NULL,
   phone          text,
   gender         text CHECK (gender IN ('Male','Female','Other')),
@@ -9322,8 +9339,6 @@ CREATE TABLE public.hostel_cleaners (
   CONSTRAINT ck_hk_cleaners_working_days
     CHECK (working_days <@ ARRAY[0,1,2,3,4,5,6])
 );
-
-CREATE INDEX idx_hk_cleaners_institution ON public.hostel_cleaners (institution_id);
 
 ALTER TABLE public.hostel_cleaners ENABLE ROW LEVEL SECURITY;
 
@@ -9344,9 +9359,10 @@ ALTER TABLE public.hostel_cleaner_blocks ENABLE ROW LEVEL SECURITY;
 -- ==========================================================================
 -- 6. hostel_cleaning_availability  (per block, per weekday)
 -- ==========================================================================
+-- GLOBAL: one window per block per weekday, whoever lives in it. The UNIQUE
+-- (block_id, weekday) below always made an institution column inert.
 CREATE TABLE public.hostel_cleaning_availability (
   id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  institution_id uuid NOT NULL REFERENCES public.institutions(id),
   block_id       uuid NOT NULL REFERENCES public.hostel_blocks(id) ON DELETE CASCADE,
   weekday        integer NOT NULL CHECK (weekday BETWEEN 0 AND 6),
   is_open        boolean NOT NULL DEFAULT true,
@@ -9358,8 +9374,6 @@ CREATE TABLE public.hostel_cleaning_availability (
   CONSTRAINT ck_hk_availability_window CHECK (window_end > window_start),
   CONSTRAINT ux_hk_availability_block_weekday UNIQUE (block_id, weekday)
 );
-
-CREATE INDEX idx_hk_availability_institution ON public.hostel_cleaning_availability (institution_id);
 
 ALTER TABLE public.hostel_cleaning_availability ENABLE ROW LEVEL SECURITY;
 
@@ -9538,3 +9552,152 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.hostel_cleaning_availabilit
 GRANT SELECT, UPDATE                 ON TABLE public.hostel_cleaning_bookings         TO authenticated;
 GRANT SELECT, INSERT, DELETE         ON TABLE public.hostel_cleaning_booking_photos   TO authenticated;
 GRANT SELECT, INSERT                 ON TABLE public.hostel_cleaning_feedback         TO authenticated;
+
+-- ============================================================================
+-- Events · institutional event number + target classes + two empty catalogues
+-- Updated: 2026-09-07 — see supabase/migrations/20261118093000_events_institutional_number_and_target_classes.sql
+-- ============================================================================
+
+-- The institutional event number, e.g. 26-001: per college, per academic year.
+-- event_number is GENERATED so the string and its parts can never drift.
+ALTER TABLE public.events
+  ADD COLUMN IF NOT EXISTS event_number_year INTEGER,
+  ADD COLUMN IF NOT EXISTS event_number_seq  INTEGER;
+-- ADD COLUMN IF NOT EXISTS cannot carry a GENERATED clause on every supported
+-- PostgreSQL, so the generated column is added inside a DO block that checks for
+-- it first. This block is NOT optional: idx_events_event_number below indexes
+-- this column, so a rebuild from setup fails without it.
+DO $events_number_col$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'events'
+       AND column_name = 'event_number'
+  ) THEN
+    ALTER TABLE public.events
+      ADD COLUMN event_number TEXT
+      GENERATED ALWAYS AS (
+        CASE
+          WHEN event_number_year IS NULL OR event_number_seq IS NULL THEN NULL
+          ELSE lpad((event_number_year % 100)::text, 2, '0')
+               || '-' || lpad(event_number_seq::text, 3, '0')
+        END
+      ) STORED;
+  END IF;
+END $events_number_col$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_events_institution_number
+  ON public.events (institution_id, event_number_year, event_number_seq)
+  WHERE event_number_year IS NOT NULL AND event_number_seq IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_events_event_number
+  ON public.events (event_number) WHERE event_number IS NOT NULL;
+
+-- One row per college per academic year holding the last number handed out.
+-- Written ONLY by fn_events_allocate_number(); its ON CONFLICT DO UPDATE row
+-- lock is what makes two simultaneous creates safe.
+CREATE TABLE IF NOT EXISTS public.event_number_counters (
+  institution_id UUID    NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  year_start     INTEGER NOT NULL,
+  last_seq       INTEGER NOT NULL DEFAULT 0,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (institution_id, year_start)
+);
+
+REVOKE ALL ON public.event_number_counters FROM anon, PUBLIC;
+GRANT SELECT ON public.event_number_counters TO authenticated;
+ALTER TABLE public.event_number_counters ENABLE ROW LEVEL SECURITY;
+
+-- The classes an event is for. A class is a `sections` row. This says who the
+-- event is aimed at — it is NOT attendance and NOT a registration.
+CREATE TABLE IF NOT EXISTS public.event_target_classes (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id       UUID NOT NULL REFERENCES public.events(id)   ON DELETE CASCADE,
+  section_id     UUID NOT NULL REFERENCES public.sections(id) ON DELETE CASCADE,
+  institution_id UUID NOT NULL REFERENCES public.institutions(id),
+  created_by     UUID REFERENCES public.profiles(id) DEFAULT auth.uid(),
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT uq_event_target_classes UNIQUE (event_id, section_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_event_target_classes_event       ON public.event_target_classes (event_id);
+CREATE INDEX IF NOT EXISTS idx_event_target_classes_section     ON public.event_target_classes (section_id);
+CREATE INDEX IF NOT EXISTS idx_event_target_classes_institution ON public.event_target_classes (institution_id);
+
+REVOKE ALL ON public.event_target_classes FROM anon, PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.event_target_classes TO authenticated;
+ALTER TABLE public.event_target_classes ENABLE ROW LEVEL SECURITY;
+
+-- 🛑 BOTH CATALOGUES BELOW SHIP EMPTY AND MUST STAY EMPTY UNTIL THE DIRECTOR
+--    CONFIRMS THEIR CONTENT against the JKKN IQAC SOP, which is not in this
+--    repository. An invented entry becomes the institution's referenced
+--    catalogue and is then cited in accreditation evidence. Do not seed.
+
+-- Academic event types — the IQAC classification. Deliberately SEPARATE from
+-- events.event_type, whose nine operational values route an event to a console.
+CREATE TABLE IF NOT EXISTS public.event_academic_types (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id UUID REFERENCES public.institutions(id) ON DELETE CASCADE, -- NULL = all colleges
+  code           TEXT    NOT NULL,
+  label          TEXT    NOT NULL,
+  description    TEXT,
+  display_order  INTEGER NOT NULL DEFAULT 100,
+  is_active      BOOLEAN NOT NULL DEFAULT true,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_event_academic_types_scope_code
+  ON public.event_academic_types (
+    COALESCE(institution_id, '00000000-0000-0000-0000-000000000000'::uuid), lower(code));
+
+REVOKE ALL ON public.event_academic_types FROM anon, PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.event_academic_types TO authenticated;
+ALTER TABLE public.event_academic_types ENABLE ROW LEVEL SECURITY;
+
+-- Outcome / impact categories — what an event is claimed to have changed.
+CREATE TABLE IF NOT EXISTS public.event_impact_categories (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id UUID REFERENCES public.institutions(id) ON DELETE CASCADE, -- NULL = all colleges
+  code           TEXT    NOT NULL,
+  label          TEXT    NOT NULL,
+  description    TEXT,
+  display_order  INTEGER NOT NULL DEFAULT 100,
+  is_active      BOOLEAN NOT NULL DEFAULT true,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_event_impact_categories_scope_code
+  ON public.event_impact_categories (
+    COALESCE(institution_id, '00000000-0000-0000-0000-000000000000'::uuid), lower(code));
+
+REVOKE ALL ON public.event_impact_categories FROM anon, PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.event_impact_categories TO authenticated;
+ALTER TABLE public.event_impact_categories ENABLE ROW LEVEL SECURITY;
+
+
+
+-- ---------------------------------------------------------------------------
+-- Mirrored from supabase/migrations/20260908170000_leave_approval_org_scope.sql
+-- ---------------------------------------------------------------------------
+-- How far an approver role sees in the leave queue, and -- because the levels
+-- are ordered -- who outranks whom. A department-scoped approver (hod) never
+-- sees an applicant holding a role with a broader level, which is what keeps
+-- the Principal's own leave request out of every HOD queue. A role absent here
+-- defaults to 'institution'.
+
+CREATE TABLE IF NOT EXISTS public.hr_leave_approver_scopes (
+  role_key    text PRIMARY KEY
+                REFERENCES public.custom_roles(role_key) ON DELETE CASCADE,
+  scope_level text NOT NULL
+                CHECK (scope_level IN ('department', 'institution', 'group')),
+  notes       text,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+
+REVOKE ALL ON public.hr_leave_approver_scopes FROM anon, PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_leave_approver_scopes TO authenticated;
+ALTER TABLE public.hr_leave_approver_scopes ENABLE ROW LEVEL SECURITY;

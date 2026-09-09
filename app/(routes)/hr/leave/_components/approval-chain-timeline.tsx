@@ -27,6 +27,12 @@
  * profiles and custom_roles are RLS-hidden to staff. Every lookup falls back
  * to the frozen approver_name and then the raw key/id, so a missing name never
  * hides a step.
+ *
+ * A ROLE STEP FREEZES NO NAME, so until 2026-09-08 a step read "Principal" and
+ * named nobody — the applicant had no one to chase, which is exactly what got
+ * reported. chain_names.roleHolders now carries the people who hold each role
+ * for this request (capped, with a total for the "+N more" tail), and a role
+ * nobody holds says so instead of looking like a normal step.
  */
 
 import { Check, Clock, Minus, UserRound, Users, X } from 'lucide-react';
@@ -64,6 +70,10 @@ function stateOf(step: LeaveApprovalStep, idx: number, app: HRLeaveApplicationDe
 export function ApprovalChainTimeline({ app }: { app: HRLeaveApplicationDetail }) {
   const people = app.chain_names?.people ?? {};
   const roles = app.chain_names?.roles ?? {};
+  // Who holds each role for THIS request, resolved server-side and scoped the
+  // way the approval gate scopes. Absent on a cached payload from before the
+  // route returned it, which is why every use below is optional.
+  const holders = app.chain_names?.roleHolders ?? {};
   const person = (id: string | null | undefined, fallback?: string | null) =>
     (id && people[id]) || fallback || id || 'Unnamed';
 
@@ -126,16 +136,36 @@ export function ApprovalChainTimeline({ app }: { app: HRLeaveApplicationDetail }
                 const label = pinned
                   ? person(a.approver_user_id, a.approver_name)
                   : (a.approver_role && roles[a.approver_role]) || a.approver_name || a.approver_role || 'Any permitted approver';
+                // Who actually holds this role for THIS request. A role step
+                // freezes no name, so without these the chain says "Principal"
+                // and leaves the applicant with nobody to chase.
+                const held = !pinned && a.approver_role ? holders[a.approver_role] : undefined;
+                const extra = held ? held.total - held.names.length : 0;
                 return (
-                  <li key={i} className="flex items-center gap-1.5 text-sm">
-                    {pinned ? (
-                      <UserRound className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    ) : (
-                      <Users className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <li key={i} className="text-sm">
+                    <span className="flex items-center gap-1.5">
+                      {pinned ? (
+                        <UserRound className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      ) : (
+                        <Users className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      )}
+                      <span className="min-w-0 truncate">{label}</span>
+                      {!pinned && a.approver_role && (
+                        <span className="shrink-0 text-xs text-muted-foreground">anyone holding this role</span>
+                      )}
+                    </span>
+                    {held && held.names.length > 0 && (
+                      <span className="ml-5 block text-xs text-muted-foreground">
+                        {held.names.join(', ')}
+                        {extra > 0 ? ` +${extra} more` : ''}
+                      </span>
                     )}
-                    <span className="min-w-0 truncate">{label}</span>
-                    {!pinned && a.approver_role && (
-                      <span className="shrink-0 text-xs text-muted-foreground">anyone holding this role</span>
+                    {/* A role nobody holds here is the silent dead end: the step
+                        renders, the request waits, and no queue ever shows it. */}
+                    {held && held.total === 0 && (
+                      <span className="ml-5 block text-xs text-amber-700 dark:text-amber-400">
+                        Nobody holds this role here
+                      </span>
                     )}
                   </li>
                 );

@@ -124,7 +124,13 @@ ORDER BY COUNT(br.id) DESC;
 -- Updated: 2026-03-20 - Added category, attachment_urls columns required for filtering and BugReport type
 -- Updated: 2026-03-23 - Added module_name (appended at end per CREATE OR REPLACE VIEW column-order constraint)
 -- Updated: 2026-03-23 - Added sub_module_name for sub-module grouping (e.g. academic/leave-calendar)
-CREATE OR REPLACE VIEW bug_reports_with_details AS
+-- Updated: 2026-09-07 - Restored WITH (security_invoker = true) + explicit grants.
+--   Migration 20251210_fix_security_and_performance_issues.sql created this view
+--   security_invoker; this file had drifted and omitted it, so a migration that
+--   copied this definition verbatim would silently revert that security fix.
+CREATE OR REPLACE VIEW bug_reports_with_details
+WITH (security_invoker = true)
+AS
 SELECT
     br.id,
     br.created_at,
@@ -148,11 +154,24 @@ SELECT
     d.department_name,
     d.department_code,
     br.module_name,
-    br.sub_module_name
+    br.sub_module_name,
+    -- Restored from migration 20260717061500_bug_reports_duplicate_machinery.sql.
+    -- supabase/setup/05_views.sql had drifted and never received these three, so a
+    -- recreation copied "verbatim" from that file silently DELETES the duplicate
+    -- feature from /admin/bug-reports (list badge, detail page, mark-duplicate
+    -- dialog) -- and silently, because the UI reads `duplicate_count ?? 0`.
+    br.duplicate_of,
+    canon.display_id AS duplicate_of_display_id,
+    (SELECT count(*)::int FROM bug_reports dup WHERE dup.duplicate_of = br.id) AS duplicate_count
 FROM bug_reports br
 LEFT JOIN profiles p ON br.reporter_user_id = p.id
 LEFT JOIN institutions i ON br.institution_id = i.id
-LEFT JOIN departments d ON br.department_id = d.id;
+LEFT JOIN departments d ON br.department_id = d.id
+LEFT JOIN bug_reports canon ON br.duplicate_of = canon.id;
+
+REVOKE ALL ON TABLE public.bug_reports_with_details FROM anon, PUBLIC;
+GRANT  SELECT ON TABLE public.bug_reports_with_details TO authenticated;
+GRANT  ALL    ON TABLE public.bug_reports_with_details TO service_role;
 
 -- Reporter analytics stats view
 -- Updated: 2026-03-20 - New view for per-reporter aggregated statistics in admin analytics tab
@@ -680,8 +699,50 @@ ORDER BY i.name, p.program_name, clp.current_semester;
 -- REST endpoints; after that, these views can be dropped.
 -- ================================================================================
 
-CREATE OR REPLACE VIEW public.marathon_events AS
-  SELECT * FROM public.events WHERE event_type = 'marathon';
+-- marathon_events is an APPROVED anon-readable relation (see
+-- scripts/ci/anon-exposure-allowlist.json) serving an external public marathon
+-- site, and it was `SELECT * FROM public.events`. `CREATE OR REPLACE VIEW`
+-- APPENDS trailing columns, so the next run of supabase/setup/05_views.sql
+-- after this migration would have published event_number, event_number_year and
+-- event_number_seq to anonymous internet users, silently.
+--
+-- The column list is therefore PINNED. It is resolved at apply time rather than
+-- typed out because a hand-written list cannot be verified against production
+-- from inside this repository: `CREATE OR REPLACE VIEW` may only APPEND, so any
+-- list that does not exactly reproduce the view's current columns IN ORDER
+-- fails outright, and public.events has drifted across ~2,800 migrations.
+-- Reading the columns back is the only way to be certain.
+--   * View already exists  -> reuse ITS OWN column list verbatim. The result is
+--     identical to what consumers see today, and because the definition is now
+--     explicit the view can never silently gain a column again.
+--   * View does not exist (fresh rebuild from setup) -> every column on
+--     public.events EXCEPT the three institutional-numbering columns.
+DO $marathon_events_pin$
+DECLARE
+  v_cols TEXT;
+BEGIN
+  SELECT string_agg(format('e.%I', column_name), ', ' ORDER BY ordinal_position)
+    INTO v_cols
+    FROM information_schema.columns
+   WHERE table_schema = 'public' AND table_name = 'marathon_events';
+
+  IF v_cols IS NULL THEN
+    SELECT string_agg(format('e.%I', column_name), ', ' ORDER BY ordinal_position)
+      INTO v_cols
+      FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'events'
+       AND column_name NOT IN ('event_number', 'event_number_year', 'event_number_seq');
+  END IF;
+
+  IF v_cols IS NULL THEN
+    RAISE EXCEPTION 'marathon_events: public.events reports no columns — refusing to build the view';
+  END IF;
+
+  EXECUTE format(
+    'CREATE OR REPLACE VIEW public.marathon_events AS SELECT %s FROM public.events e WHERE e.event_type = ''marathon''',
+    v_cols
+  );
+END $marathon_events_pin$;
 
 CREATE OR REPLACE VIEW public.marathon_categories AS
   SELECT ec.*

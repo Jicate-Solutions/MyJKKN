@@ -10,13 +10,6 @@ import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
   Table,
   TableBody,
   TableCell,
@@ -26,8 +19,7 @@ import {
 } from '@/components/ui/table';
 import { ArrowLeft, Loader2, Pencil, Plus } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
-import { useHostelBlocks } from '@/hooks/campus-living/use-hostel-blocks';
+import { useAllReachableBlocks } from '@/hooks/campus-living/use-hostel-blocks';
 import { useHousekeepingCleaners } from '@/hooks/campus-living/use-housekeeping-cleaners';
 import { CleanerDialog } from './_components/cleaner-dialog';
 import type { Cleaner } from '@/types/campus-living/housekeeping';
@@ -43,7 +35,6 @@ const DOW_SHORT: Record<number, string> = {
 const DISPLAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 
 export default function HousekeepingCleanersPage() {
-  const [institutionId, setInstitutionId] = useState<string>('all');
   const [showInactive, setShowInactive] = useState(false);
   const [editing, setEditing] = useState<Cleaner | null>(null);
   const [creating, setCreating] = useState(false);
@@ -54,22 +45,33 @@ export default function HousekeepingCleanersPage() {
   const canManage =
     permsLoading || isSuperAdmin || !!permissions['campus_living.housekeeping.cleaners_manage'];
 
-  const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess();
+  // One shared directory: no institution filter, because a cleaner has no
+  // institution. hostel_blocks has none either — a cleaner's scope is the blocks
+  // they serve, and 4 of the 6 blocks house several colleges at once.
+  const { data: cleaners = [], isLoading } = useHousekeepingCleaners(showInactive);
 
-  // Pass the selection straight through — never branch on isSuperAdmin to
-  // decide WHICH institution's rows to fetch; RLS already filters them.
-  const scopedInstitution = institutionId === 'all' ? undefined : institutionId;
-
-  const { data: cleaners = [], isLoading } = useHousekeepingCleaners(
-    scopedInstitution,
-    showInactive,
-  );
-
-  const { data: blocksResult } = useHostelBlocks(scopedInstitution);
+  const { data: blocksResult, isLoading: blocksLoading } = useAllReachableBlocks();
   const blockNameById = useMemo(() => {
     const list = ((blocksResult as any)?.data ?? []) as Array<{ id: string; name: string }>;
     return new Map(list.map((b) => [b.id, b.name]));
   }, [blocksResult]);
+
+  /**
+   * The Blocks cell names the blocks instead of counting them — "3" told nobody
+   * which three, and the names were reachable only by hovering for a title
+   * tooltip, which does not exist on touch.
+   *
+   * NAME, never `code`: hostel_blocks.code is NOT unique — all three boys blocks
+   * are 'BH' today, so codes would render three identical badges.
+   *
+   * Sorted by name so the same three blocks always read in the same order
+   * (hostel_cleaner_blocks has no ordering of its own).
+   */
+  const blockNamesFor = (blockIds: string[]) =>
+    blockIds
+      .map((id) => blockNameById.get(id) ?? null)
+      .filter((n): n is string => n !== null)
+      .sort((a, b) => a.localeCompare(b));
 
   return (
     <ContentLayout title='Cleaners'>
@@ -87,7 +89,8 @@ export default function HousekeepingCleanersPage() {
             <h1 className='text-2xl font-semibold tracking-tight'>Cleaners</h1>
             <p className='max-w-3xl text-sm text-muted-foreground'>
               Who can be assigned to a cleaning, which blocks they serve, and when. These are
-              directory records — cleaners do not log in.
+              directory records — cleaners do not log in. One shared directory: blocks are
+              shared between institutions, so cleaners are too.
             </p>
           </div>
           <div className='flex gap-2'>
@@ -106,24 +109,6 @@ export default function HousekeepingCleanersPage() {
 
         <Card>
           <CardContent className='flex flex-wrap items-center gap-4 p-4'>
-            <Select
-              value={institutionId}
-              onValueChange={setInstitutionId}
-              disabled={institutionsLoading}
-            >
-              <SelectTrigger className='w-[16rem]'>
-                <SelectValue placeholder='All institutions' />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value='all'>All institutions</SelectItem>
-                {institutions.map((inst: any) => (
-                  <SelectItem key={inst.id} value={inst.id}>
-                    {inst.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
             <div className='flex items-center gap-2'>
               <Switch id='show-inactive' checked={showInactive} onCheckedChange={setShowInactive} />
               <Label htmlFor='show-inactive' className='text-sm text-muted-foreground'>
@@ -173,10 +158,38 @@ export default function HousekeepingCleanersPage() {
                         <TableCell>
                           {c.block_ids.length === 0 ? (
                             <Badge variant='destructive'>None</Badge>
+                          ) : blocksLoading ? (
+                            // The directory is still in flight. Show the count
+                            // rather than a row of "Unknown block" badges that
+                            // resolve a moment later.
+                            <span className='text-muted-foreground'>{c.block_ids.length}</span>
                           ) : (
-                            <span title={c.block_ids.map((id) => blockNameById.get(id) ?? id).join(', ')}>
-                              {c.block_ids.length}
-                            </span>
+                            (() => {
+                              const names = blockNamesFor(c.block_ids);
+                              // A block the viewer cannot read is real: hostel_blocks
+                              // is RLS'd by block scope, so a cleaner may serve a
+                              // block this user is not granted. Say so rather than
+                              // dropping it silently or printing its uuid.
+                              const hidden = c.block_ids.length - names.length;
+                              return (
+                                <div className='flex flex-wrap items-center gap-1'>
+                                  {names.map((name) => (
+                                    <Badge key={name} variant='secondary' className='font-normal'>
+                                      {name}
+                                    </Badge>
+                                  ))}
+                                  {hidden > 0 && (
+                                    <Badge
+                                      variant='outline'
+                                      className='font-normal text-muted-foreground'
+                                      title='Blocks outside your access'
+                                    >
+                                      +{hidden} not visible
+                                    </Badge>
+                                  )}
+                                </div>
+                              );
+                            })()
                           )}
                         </TableCell>
                         <TableCell>
@@ -227,11 +240,10 @@ export default function HousekeepingCleanersPage() {
           with state initialised from props, instead of an effect resetting it
           — which would cascade a render on every open. */}
       <CleanerDialog
-        key={`create-${creating}-${scopedInstitution ?? 'all'}`}
+        key={`create-${creating}`}
         mode='create'
         open={creating}
         onOpenChange={setCreating}
-        defaultInstitutionId={scopedInstitution}
       />
       <CleanerDialog
         key={`edit-${editing?.id ?? 'none'}`}

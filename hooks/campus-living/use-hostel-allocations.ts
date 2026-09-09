@@ -51,30 +51,32 @@ export function useHostelAllocations(institutionId: string | undefined, filters?
 
 // Full allocation set (no page cap) for the admin allocations page — drives the
 // summary counts + the advanced client-side table/filters. ~100s of rows today.
-export function useAllAllocations(institutionId: string | undefined, filters?: AllocationFilters) {
-  const { isSuperAdmin, permissions, isLoading: permissionsLoading } = usePermissions();
-  // College-wide hostel roles must NOT be narrowed to their own institution —
-  // the same trap the super-admin guard above was written for, one role over.
-  //
-  // A chief_warden's profile.institution_id is an ADMINISTRATIVE OFFICE, not a
-  // college, while every allocation row carries the learner's COLLEGE id. So
-  // .eq('institution_id', <admin office>) matched nothing and the page showed
-  // "0 Allocated / Showing 0 of 0" on a hostel full of residents — exactly the
-  // Testing-Institution symptom described in the 2026-07-26 note above.
-  //
-  // campus_living.settings.view is this codebase's existing marker for a
-  // college-wide hostel role: chief_warden and hostel_office hold it, a
-  // block-scoped warden does not. Verified live in
-  // 20260804092425_campus_living_chief_warden_academic_cascade_rls.sql
-  // ("plain warden (no campus_living.settings.view): still 0"). Reusing it
-  // keeps this fix free of any permission change. Row-level scoping is still
-  // enforced by RLS — dropping the filter widens nothing on its own.
-  const isCollegeWide = isSuperAdmin || permissions?.['campus_living.settings.view'] === true;
-  const effectiveInstitutionId = isCollegeWide ? undefined : institutionId;
+//
+// blockIds is the warden scope. A block grant is institution-independent: every
+// warden's profile sits in JKKN Main Office, which owns no block and no
+// allocation, so the institution branch matched zero rows for them and the page
+// rendered empty (RLS was returning 861 rows the whole time — the front end
+// threw them away). When blockIds is non-empty it REPLACES the institution
+// scope; the same scope-race rules apply, so it is part of the key and the
+// fetch waits for it.
+export function useAllAllocations(
+  institutionId: string | undefined,
+  filters?: AllocationFilters,
+  blockIds?: string[],
+) {
+  const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
+  const blockScoped = (blockIds?.length ?? 0) > 0;
+  const effectiveInstitutionId = isSuperAdmin || blockScoped ? undefined : institutionId;
+  const effectiveBlockIds = blockScoped ? [...(blockIds as string[])].sort() : undefined;
   return useQuery({
-    queryKey: ['hostel-allocations', 'all', { institutionId: effectiveInstitutionId, ...filters }] as const,
-    queryFn: () => HostelAllocationService.getAllAllocations(effectiveInstitutionId, filters),
-    enabled: !permissionsLoading && (isCollegeWide || !!institutionId),
+    queryKey: [
+      'hostel-allocations',
+      'all',
+      { institutionId: effectiveInstitutionId, blockIds: effectiveBlockIds, ...filters },
+    ] as const,
+    queryFn: () =>
+      HostelAllocationService.getAllAllocations(effectiveInstitutionId, filters, effectiveBlockIds),
+    enabled: !permissionsLoading && (isSuperAdmin || blockScoped || !!institutionId),
     staleTime: 30_000,
   });
 }

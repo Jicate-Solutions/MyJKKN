@@ -58,6 +58,16 @@ export interface EvidenceMappingRow {
   source_table: string;
   source_id: string;
   period_label: string | null;
+  /**
+   * Which college filed this record. Selected since 2026-09-08 so the IQAC page
+   * can answer "what has THIS college got on file" — the pooled read credited
+   * one college's evidence to every college's view, reporting 21 of 69 NAAC
+   * metrics covered when no single college had more than 13.
+   *
+   * Nullable in the table, so a row with no institution belongs to no college
+   * and is counted only in the pooled view.
+   */
+  institution_id: string | null;
 }
 
 /**
@@ -129,7 +139,7 @@ export function useEvidenceMappings() {
         // the counts drift — a subtler wrong number than the truncation.
         const { data, error } = await supabase
           .from('quality_evidence_mappings')
-          .select('body_code, metric_code, source_table, source_id, period_label')
+          .select('body_code, metric_code, source_table, source_id, period_label, institution_id')
           .order('id', { ascending: true })
           .range(from, to);
         if (error) throw error;

@@ -3,13 +3,16 @@
 /**
  * Card list of an institution's work patterns.
  *
- * Each card shows the working days (or "No working days saved yet"), member
- * count and leave-entitlement figures at a glance; clicking one opens its
- * detail view. No hours: those live in Shift Timings.
+ * Each card shows the working days (or "No working days saved yet"), who is
+ * assigned to it and the leave-entitlement figures at a glance; clicking one
+ * opens its detail view. No hours: those live in Shift Timings.
+ *
+ * The assigned staff are named on the card, capped at MEMBER_PREVIEW with a
+ * "+N more" — the Members tab stays the full list, with dates and removal.
  */
 
 import { useState } from 'react';
-import { AlertTriangle, ChevronRight, Plus } from 'lucide-react';
+import { AlertTriangle, ChevronRight, Plus, Users } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -20,6 +23,9 @@ import type { WorkPatternSummary } from '@/types/hr-work-patterns';
 import { cn } from '@/lib/utils';
 
 import { PatternFormDialog } from './pattern-form-dialog';
+
+/** How many members a card names before it falls back to "+N more". */
+const MEMBER_PREVIEW = 6;
 
 interface Props {
   /** Null under "All institutions" — the create dialog then asks which one. */
@@ -130,6 +136,36 @@ export function WorkPatternList({
                           </Badge>
                         ))}
                       </div>
+
+                      {p.members.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">No staff assigned yet</p>
+                      ) : (
+                        <div className="flex flex-wrap items-start gap-1">
+                          <Users className="mt-1 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                          {p.members.slice(0, MEMBER_PREVIEW).map((m) => (
+                            <span
+                              key={m.staff_id}
+                              title={[m.name, m.staff_code, m.designation].filter(Boolean).join(' · ')}
+                              className="inline-flex max-w-full items-baseline gap-1 truncate rounded-full border bg-muted/40 px-2 py-0.5 text-[11px]"
+                            >
+                              <span className="font-medium">{m.name}</span>
+                              {m.staff_code && (
+                                <span className="text-muted-foreground">{m.staff_code}</span>
+                              )}
+                              {m.designation && (
+                                <span className="truncate text-muted-foreground">
+                                  · {m.designation}
+                                </span>
+                              )}
+                            </span>
+                          ))}
+                          {p.members.length > MEMBER_PREVIEW && (
+                            <span className="px-1 py-0.5 text-[11px] text-muted-foreground">
+                              +{p.members.length - MEMBER_PREVIEW} more
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                     <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
                   </CardContent>

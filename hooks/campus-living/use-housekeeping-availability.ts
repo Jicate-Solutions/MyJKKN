@@ -12,12 +12,11 @@ export const housekeepingAvailabilityKeys = {
   policies: () => ['housekeeping-availability', 'policies'] as const,
 };
 
-export function useBlockAvailability(blockId?: string, institutionId?: string) {
+export function useBlockAvailability(blockId?: string) {
   return useQuery({
     queryKey: housekeepingAvailabilityKeys.block(blockId),
-    queryFn: () =>
-      HousekeepingAvailabilityService.listForBlock(blockId as string, institutionId as string),
-    enabled: Boolean(blockId && institutionId),
+    queryFn: () => HousekeepingAvailabilityService.listForBlock(blockId as string),
+    enabled: Boolean(blockId),
   });
 }
 

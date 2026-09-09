@@ -2614,6 +2614,12 @@ CREATE TRIGGER t_hk_availability_touch BEFORE UPDATE ON public.hostel_cleaning_a
 CREATE TRIGGER t_hk_bookings_touch BEFORE UPDATE ON public.hostel_cleaning_bookings
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
+-- A rated cleaning completes itself. The learner cannot update the bookings
+-- table, so this cannot be done from the client -- see 20260909140000.
+CREATE TRIGGER t_hk_feedback_completes_booking
+AFTER INSERT ON public.hostel_cleaning_feedback
+FOR EACH ROW EXECUTE FUNCTION public.fn_cl_housekeeping_feedback_completes_booking();
+
 
 -- ==========================================================================
 -- Campus Living - Housekeeping (rebuilt 2026-09-07)
@@ -2624,3 +2630,37 @@ DROP TRIGGER IF EXISTS t_hostel_attendance_housekeeping_gate ON public.hostel_at
 CREATE TRIGGER t_hostel_attendance_housekeeping_gate
   BEFORE INSERT OR UPDATE ON public.hostel_attendance
   FOR EACH ROW EXECUTE FUNCTION public.fn_cl_housekeeping_attendance_gate();
+-- ============================================================================
+-- A sitting that has not happened yet cannot be rated (mig 20260901160000).
+-- Named trg_b_* so it fires AFTER the live gate's trg_a_induction_require_live
+-- (alphabetical order) -- when an induction is still in Draft, "activate it
+-- first" is the useful refusal, not "this sitting has not started".
+-- BEFORE INSERT OR UPDATE because all three feedback writers upsert via
+-- ON CONFLICT ... DO UPDATE, so the UPDATE arm is the re-rating path.
+-- ============================================================================
+DROP TRIGGER IF EXISTS trg_b_induction_require_session_started ON public.event_session_feedback;
+CREATE TRIGGER trg_b_induction_require_session_started
+  BEFORE INSERT OR UPDATE ON public.event_session_feedback
+  FOR EACH ROW
+  EXECUTE FUNCTION public.trg_induction_require_session_started();
+
+-- ============================================================================
+-- Events · institutional event number + target-class tenant guard
+-- Updated: 2026-09-07 — see supabase/migrations/20261118093000_events_institutional_number_and_target_classes.sql
+-- ============================================================================
+
+-- UPDATE OF <cols> so an ordinary event edit does not pay for this trigger. It
+-- fires when somebody tries to write the number itself (and then freezes it),
+-- and on a change of institution_id, which would otherwise re-home an already
+-- issued number into a college whose counter knows nothing about it.
+DROP TRIGGER IF EXISTS trg_events_stamp_event_number ON public.events;
+CREATE TRIGGER trg_events_stamp_event_number
+  BEFORE INSERT OR UPDATE OF event_number_year, event_number_seq, institution_id
+  ON public.events
+  FOR EACH ROW EXECUTE FUNCTION public.fn_events_stamp_event_number();
+
+DROP TRIGGER IF EXISTS trg_event_target_classes_scope ON public.event_target_classes;
+CREATE TRIGGER trg_event_target_classes_scope
+  BEFORE INSERT OR UPDATE ON public.event_target_classes
+  FOR EACH ROW EXECUTE FUNCTION public.fn_event_target_class_scope();
+

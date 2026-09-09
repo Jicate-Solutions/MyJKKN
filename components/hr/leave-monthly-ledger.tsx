@@ -21,8 +21,8 @@
 // separate groups with a divider, and the header says which is which.
 //
 // EDITING is opt-in via `editable` and passed only by the admin Adjust dialog.
-// It is additionally gated on hr.leave.policies.write, mirroring the RPC — the
-// control is hidden rather than shown and refused.
+// It is additionally gated on super admin OR hr.leave.balance.adjust, mirroring
+// hr_leave_month_entry_set — the control is hidden rather than shown and refused.
 
 import { Fragment, useState } from 'react';
 import { AlertCircle, Info, Pencil } from 'lucide-react';
@@ -33,6 +33,7 @@ import {
   useSetLeaveMonthEntry,
 } from '@/hooks/hr/use-hr-leave-types';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
@@ -117,7 +118,7 @@ interface Props {
   leaveTypeId: string | null;
   hrAcademicYearId: string | null;
   leaveTypeName: string;
-  /** Admin surfaces only. Still gated on hr.leave.policies.write below. */
+  /** Admin surfaces only. Still gated on hr.leave.balance.adjust below. */
   editable?: boolean;
 }
 
@@ -127,21 +128,27 @@ export function LeaveMonthlyLedger({
   const { data, isLoading, error } = useLeaveMonthlyLedger(
     staffId, leaveTypeId, hrAcademicYearId
   );
-  // Super admin ONLY, matching hr_leave_month_entry_set and
-  // hr_leave_balance_adjust. Gate on isSuperAdmin rather than a permission key:
-  // these levers were moved off hr.leave.policies.write precisely because that
-  // key reaches further than it appears to (user_roles and Director handovers
-  // both grant it), so re-deriving access from a key would silently reopen it.
-  // Mirrors the SERVER's check exactly. public.is_super_admin() reads ONLY
-  // profiles.is_super_admin -- it does NOT accept role = 'super_admin', unlike
-  // the `is_super_admin === true || role === 'super_admin'` pattern used
-  // elsewhere in this app. The two agree in the data today (15 profiles each,
-  // no divergence), but widening here would offer controls the RPC then refuses.
+  // Super admin, or a holder of hr.leave.balance.adjust (2026-09-08).
+  //
+  // MIRRORS hr_leave_month_entry_set EXACTLY, which is the only rule that
+  // matters here — it now tests
+  //   is_super_admin() OR user_has_permission('hr.leave.balance.adjust')
+  // so anything wider shown here would be a control the RPC then refuses.
+  //
+  // The key is deliberately NOT hr.leave.policies.write or
+  // hr.leave.balance.manage. Those reach seven roles, and through user_roles and
+  // Director handovers besides, which is why 20260906130000 moved off them.
+  // hr.leave.balance.adjust was created for this and is granted to hr_head alone.
+  //
+  // profiles.is_super_admin, NOT role === 'super_admin': public.is_super_admin()
+  // reads only that column and does not accept the role string.
   const { profile } = useAuth();
-  const isSuperAdmin = profile?.is_super_admin === true;
+  const { canAccess } = usePermissions();
   const [editing, setEditing] = useState<string | null>(null);
 
-  const canEdit = editable && isSuperAdmin;
+  const canAdjust =
+    profile?.is_super_admin === true || canAccess('hr.leave.balance', 'adjust');
+  const canEdit = editable && canAdjust;
 
   if (isLoading) {
     return (
