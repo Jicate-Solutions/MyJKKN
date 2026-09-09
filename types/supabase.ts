@@ -76005,6 +76005,8 @@ export type Database = {
           capacity: number
           category_id: string | null
           created_at: string | null
+          effective_capacity: number | null
+          extra_bed_count: number
           floor: number
           furniture: Json | null
           has_attached_bathroom: boolean | null
@@ -76031,6 +76033,8 @@ export type Database = {
           capacity: number
           category_id?: string | null
           created_at?: string | null
+          effective_capacity?: number | null
+          extra_bed_count?: number
           floor: number
           furniture?: Json | null
           has_attached_bathroom?: boolean | null
@@ -76057,6 +76061,8 @@ export type Database = {
           capacity?: number
           category_id?: string | null
           created_at?: string | null
+          effective_capacity?: number | null
+          extra_bed_count?: number
           floor?: number
           furniture?: Json | null
           has_attached_bathroom?: boolean | null

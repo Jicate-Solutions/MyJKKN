@@ -120,11 +120,14 @@ export default function RoomDetailPage({
               </div>
               <p className="text-sm text-muted-foreground mt-1">
                 {blockName ?? 'Block'} &middot; Floor {room.floor} &middot; {room.active_residents}/{room.capacity} occupied
+                {room.extra_bed_count > 0 && ` (+${room.extra_bed_count} extra bed${room.extra_bed_count === 1 ? '' : 's'})`}
               </p>
             </div>
           </div>
           <div className="flex gap-2">
-            {room.active_residents < room.capacity && (
+            {/* beds_available already includes any temporary extra beds, so a
+                room given one stops hiding its own Allocate button. */}
+            {room.beds_available > 0 && (
               <Button asChild>
                 <Link href={`/campus-living/allocations/new?block=${id}&room=${roomId}`}>
                   <UserPlus className="mr-2 h-4 w-4" />
@@ -228,7 +231,7 @@ export default function RoomDetailPage({
             <CardContent className="space-y-4">
               {beds.length === 0 && (
                 <p className="text-sm text-muted-foreground">
-                  No beds configured yet. Beds are created when students are allocated to this room.
+                  No beds configured yet. Beds are created from the room&apos;s capacity, not on allocation &mdash; check that this block is mapped to an institution.
                 </p>
               )}
               {beds.map((bed) => {
