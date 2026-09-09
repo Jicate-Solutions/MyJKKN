@@ -1056,6 +1056,13 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.attendance.approve_team', label: 'Approve Attendance for Own Team' },
       { key: 'hr.attendance.regularize_approve', label: 'Approve Attendance Regularization Requests' },
       { key: 'hr.attendance.override', label: 'Override Attendance Records & Biometric Configuration' },
+      // Registered 2026-09-09. The migration that introduced this key
+      // (20260908073506_hr_manual_attendance_for_staff_without_biometric.sql)
+      // granted it to hr_head in the database but never added it here, so
+      // Role Management had no toggle: nobody could see who held it, and no
+      // other role could ever be given it. This registers the key only — the
+      // grant is unchanged and still hr_head alone.
+      { key: 'hr.attendance.manual.generate', label: 'Generate Manual Attendance for Staff Without Biometric' },
       { key: 'hr.attendance.audit_export', label: 'Export the Attendance Audit Log' },
 
       // ── Attendance month close (2026-08-22) ──────────────────────────────
