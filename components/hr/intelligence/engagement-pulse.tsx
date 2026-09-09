@@ -39,6 +39,17 @@
  * "withdrawn" and "cancelled", so it stays exhaustive if a new status is
  * ever added, and it is labelled for what it is rather than named after a
  * status it does not exclusively contain.
+ *
+ * Two limits on the figures above, both deliberate. They are whole-table
+ * service-role counts, taken once to prove the arithmetic; this component
+ * reads through the browser client under RLS (hla_select scopes by
+ * fn_my_staff_ids / applied_by / final_approver_id / fn_my_hr_organization_ids),
+ * so a real reader sees a filtered subset and will never see 1,316. The
+ * identity still holds for them, because all four counts pass the same policy.
+ * And the four counts are independent head-counts issued concurrently, so a
+ * row that changes status mid-flight can be counted twice; the Math.max floor
+ * below keeps the residual from going negative, but the bars are a snapshot,
+ * not a transaction, and are not promised to total exactly.
  */
 
 import { useMemo } from 'react';
@@ -357,11 +368,12 @@ export function EngagementPulseTab() {
             Leave Application Summary (Last 3 Months)
           </CardTitle>
           <CardDescription>
-            Status distribution across all {metrics.totalLeaves} requests in the window; the four
-            bars add up to that total. Pending is a processing state, not an engagement measure — see
-            the approval control gap above. &quot;Every other status&quot; is whatever is left once
-            approved, pending and rejected are counted — withdrawn and cancelled today, plus any
-            status added later.
+            Status distribution across all {metrics.totalLeaves} requests in the window. Pending is
+            a processing state, not an engagement measure — see the approval control gap above.
+            &quot;Every other status&quot; is the remainder once approved, pending and rejected are
+            counted, so nothing is left out of the chart. It is mostly withdrawn and cancelled, but
+            it also catches statuses that are still open — an escalated request lands here, not in
+            Pending.
           </CardDescription>
         </CardHeader>
         <CardContent>
