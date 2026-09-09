@@ -21,15 +21,24 @@
 -- the right function. The function half is byte-identical to what is already
 -- deployed, so re-running it against production changes nothing.
 --
--- THE ACL HALF IS A REAL CHANGE. 20260629120000 locked the 14-ARGUMENT
--- signature. 20260827040000 added p_kind, and a new argument list is a
--- different function to Postgres: it is created with the default EXECUTE TO
--- PUBLIC, and Supabase grants anon on top. Nothing has revoked it since. The
--- function fails closed in-body — every branch of the authorisation gate
--- resolves through auth.uid(), which is NULL for anon, so an unauthenticated
--- call raises 'not authorized' rather than writing — but an unauthenticated
--- caller should not reach the body at all. The revoke below is stated rather
--- than inherited.
+-- THE ACL HALF IS ALSO A NO-OP, and the header said otherwise until the live
+-- ACL was read. CORRECTED 2026-09-09: this file originally claimed that adding
+-- p_kind in 20260827040000 made a new function that inherited the default
+-- EXECUTE TO PUBLIC, so the 15-argument form had been anon-callable since
+-- 2026-08-27. That was reasoning from the general rule, not from production.
+-- pg_proc.proacl, read live before applying, is:
+--
+--     postgres=X/postgres | authenticated=X/postgres | service_role=X/postgres
+--
+-- No PUBLIC entry, and has_function_privilege('anon', …, 'EXECUTE') is false.
+-- The lock was already there. The REVOKE below therefore takes nothing away;
+-- it states on a fresh database what production already enforces, which is the
+-- whole reason for restating it here rather than inheriting it from
+-- 20260629120000 (that file locked the 14-argument form).
+--
+-- Checked at the same time, because REVOKE … FROM PUBLIC is the kind of line
+-- that removes an inherited grant nobody meant to lose: service_role holds its
+-- own explicit EXECUTE, so it is unaffected. Confirmed after applying.
 --
 -- The behaviour, unchanged from 20261118000000: `kind` is an explicit choice.
 --
