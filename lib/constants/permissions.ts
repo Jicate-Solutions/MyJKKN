@@ -955,6 +955,19 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.leave.types.manage', label: 'Manage HR Leave Types' },
       { key: 'hr.leave.balance.manage', label: 'Generate Leave Balances' },
 
+      // ── Correcting a balance by hand (2026-09-08) ─────────────────────────
+      // A SEPARATE, NARROWER KEY THAN .manage ON PURPOSE. `.manage` generates
+      // balances from policy; this one overwrites consumed days, entitlement and
+      // a month's total directly, with no application and no approval chain
+      // behind it, and the figures feed payroll-adjacent reporting.
+      //
+      // 20260906130000 had made those levers super-admin only, removing them
+      // from hr_head. This key gives them back to the HR Head ALONE, rather than
+      // reusing .manage — which seven roles hold, six of them people who were
+      // never meant to have this. Every write still lands in
+      // hr_leave_balance_adjustments with a mandatory reason.
+      { key: 'hr.leave.balance.adjust', label: 'Adjust Leave Balances by Hand' },
+
       // ── HR academic years (2026-08-10) ───────────────────────────────────
       // The leave/payroll calendar HR owns, replacing the borrowed
       // academic_years. Only a manage key: hr_academic_years SELECT is open to
