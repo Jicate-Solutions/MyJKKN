@@ -153,6 +153,18 @@ export default function LeaveApprovalsPage() {
     return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1]));
   }, [all]);
 
+  // Narrowed by the institution filter so a group-wide approver is not offered
+  // another college's departments. Rows whose applicant has no department
+  // contribute no option and match only "All departments".
+  const departments = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of all) {
+      if (filters.institutionId !== 'any' && r.institution_id !== filters.institutionId) continue;
+      if (r.department_id) m.set(r.department_id, r.department_name ?? 'Unnamed department');
+    }
+    return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [all, filters.institutionId]);
+
   const leaveTypes = useMemo(() => {
     const m = new Map<string, string>();
     const source = view === 'short' ? shortRows : leaveRows;
@@ -302,8 +314,13 @@ export default function LeaveApprovalsPage() {
     },
   ];
 
+  // Changing the institution clears the department: department options are
+  // derived per institution, so a carried-over id would filter the table to
+  // nothing while the control still displayed a department name.
   const set = <K extends keyof ApprovalFilterState>(k: K, v: ApprovalFilterState[K]) =>
-    setFilters((f) => ({ ...f, [k]: v }));
+    setFilters((f) => (
+      k === 'institutionId' ? { ...f, [k]: v, departmentId: 'any' } : { ...f, [k]: v }
+    ));
 
   /** Rendered into the DataTable toolbar, beside its own search box. */
   const toolbar = (sel: ToolbarSelection) => {
@@ -343,6 +360,20 @@ export default function LeaveApprovalsPage() {
           <SelectContent>
             <SelectItem value="any">All institutions</SelectItem>
             {institutions.map(([id, name]) => (
+              <SelectItem key={id} value={id}>{name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+
+      {departments.length > 1 && (
+        <Select value={filters.departmentId} onValueChange={(v) => set('departmentId', v)}>
+          <SelectTrigger className="h-8 w-full sm:w-[210px]" aria-label="Filter by department">
+            <SelectValue placeholder="All departments" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="any">All departments</SelectItem>
+            {departments.map(([id, name]) => (
               <SelectItem key={id} value={id}>{name}</SelectItem>
             ))}
           </SelectContent>

@@ -21,11 +21,106 @@ import type { LeaveApprovalStep, LeaveChainNames } from '@/types/hr';
  *
  * Best-effort on purpose: a lookup failure degrades to raw ids in the UI, never
  * to a 500 — the chain itself is still returned.
+ *
+ * See resolveRoleHolders() below for the second half of that job: a role step
+ * freezes no name at all, so the role has to be resolved to actual people.
  */
+
+/** How many holders of one role we send; the rest become a "+N more" tail. */
+const ROLE_HOLDER_LIMIT = 3;
+
+/**
+ * The people who actually hold each role the chain routes to.
+ *
+ * Without this a step reads "Principal" and names nobody, so an applicant
+ * chasing their own request has no one to chase — the complaint this answers.
+ *
+ * SCOPED THE WAY THE GATE SCOPES, not by institution alone. fn_leave_step_admits
+ * admits a role holder when the request's organisation is in their reach, and a
+ * role with institution_scope='all' reaches everywhere. The only CAO in the
+ * group is staffed at College of Education; filtering strictly on institution
+ * would drop them from every other institution's chain while the database
+ * happily lets them approve it.
+ *
+ * Best-effort like the rest of this resolver: a failure returns {} and the UI
+ * falls back to the bare role name.
+ */
+async function resolveRoleHolders(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  roleKeys: string[],
+  institutionId: string | null
+): Promise<Record<string, { names: string[]; total: number }>> {
+  const out: Record<string, { names: string[]; total: number }> = {};
+  if (roleKeys.length === 0) return out;
+  // Every requested key gets a bucket up front, so a role NOBODY holds here
+  // comes back as total 0 rather than as a missing key. That distinction is the
+  // point: a step routed to an unheld role is a dead end — it renders, the
+  // request waits, and no approver's queue ever shows it.
+  for (const k of roleKeys) out[k] = { names: [], total: 0 };
+
+  // !inner is intended here: rows whose role is not one we asked about are not
+  // wanted. (Elsewhere in this codebase an accidental !inner silently drops
+  // rows — this one is the deliberate kind.)
+  const { data: grants, error: gErr } = await admin
+    .from('user_roles')
+    .select('user_id, custom_roles!inner(role_key, institution_scope)')
+    .in('custom_roles.role_key', roleKeys);
+  if (gErr) throw gErr;
+
+  type Grant = {
+    user_id: string;
+    custom_roles: { role_key: string; institution_scope: string | null } | null;
+  };
+  const rows = (grants ?? []) as unknown as Grant[];
+  if (rows.length === 0) return out; // seeded buckets stand: every key reads total 0
+
+  // staff, not profiles: fn_my_designated_hr_org_ids() reads staff.institution_id,
+  // so that is the column the gate actually compares.
+  const { data: staffRows, error: sErr } = await admin
+    .from('staff')
+    .select('profile_id, institution_id, first_name, last_name')
+    .in('profile_id', [...new Set(rows.map((r) => r.user_id))])
+    .eq('is_active', true);
+  if (sErr) throw sErr;
+
+  const byProfile = new Map(
+    ((staffRows ?? []) as Array<{
+      profile_id: string; institution_id: string | null;
+      first_name: string | null; last_name: string | null;
+    }>).map((s) => [s.profile_id, s])
+  );
+
+  // One person counts once per role. There are no duplicate user_roles rows
+  // today, but nothing stops a second grant of the same role being written, and
+  // the visible symptom would be a name printed twice and an inflated "+N more".
+  const counted = new Set<string>();
+
+  for (const g of rows) {
+    const key = g.custom_roles?.role_key;
+    if (!key) continue;
+    if (counted.has(`${key}|${g.user_id}`)) continue;
+    counted.add(`${key}|${g.user_id}`);
+    const s = byProfile.get(g.user_id);
+    if (!s) continue; // holds the role but is not active staff anywhere
+    const reaches =
+      g.custom_roles?.institution_scope === 'all' ||
+      (!!institutionId && s.institution_id === institutionId);
+    if (!reaches) continue;
+    const name = `${s.first_name ?? ''} ${s.last_name ?? ''}`.trim();
+    if (!name) continue;
+    const bucket = out[key];
+    if (!bucket) continue;
+    bucket.total += 1;
+    if (bucket.names.length < ROLE_HOLDER_LIMIT) bucket.names.push(name);
+  }
+  return out;
+}
+
 async function resolveChainNames(
   chain: LeaveApprovalStep[] | null | undefined,
   finalApproverId: string | null,
-  appliedBy: string | null
+  appliedBy: string | null,
+  hrOrganizationId: string | null
 ): Promise<LeaveChainNames> {
   const uids = new Set<string>();
   const keys = new Set<string>();
@@ -48,10 +143,25 @@ async function resolveChainNames(
 
   const people: Record<string, string> = {};
   const roles: Record<string, string> = {};
+  let roleHolders: Record<string, { names: string[]; total: number }> = {};
   if (uids.size === 0 && keys.size === 0) return { people, roles };
 
   try {
     const admin = createServiceRoleClient();
+    // The institution the request belongs to. hr_organizations.id is NOT an
+    // institutions.id — the mapping lives in hr_organizations.institution_id,
+    // and comparing the two directly matches nothing.
+    let institutionId: string | null = null;
+    if (hrOrganizationId) {
+      const { data: org } = await admin
+        .from('hr_organizations')
+        .select('institution_id')
+        .eq('id', hrOrganizationId)
+        .maybeSingle();
+      institutionId = (org as { institution_id: string | null } | null)?.institution_id ?? null;
+    }
+    roleHolders = await resolveRoleHolders(admin, [...keys], institutionId);
+
     const [p, r] = await Promise.all([
       uids.size > 0
         ? admin.from('profiles').select('id, full_name, email').in('id', [...uids])
@@ -67,7 +177,7 @@ async function resolveChainNames(
   } catch (err) {
     console.error('[hr/leave/applications/:id] chain name lookup failed', err);
   }
-  return { people, roles };
+  return { people, roles, roleHolders };
 }
 
 /**
@@ -136,7 +246,9 @@ export async function GET(
     const app = await LeaveService.getApplication(supabase, id);
     if (!app) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     const [chain_names, applicant] = await Promise.all([
-      resolveChainNames(app.approval_chain, app.final_approver_id, app.applied_by),
+      resolveChainNames(
+        app.approval_chain, app.final_approver_id, app.applied_by, app.hr_organization_id
+      ),
       resolveApplicant(app.employee_id),
     ]);
     return NextResponse.json({ data: { ...app, chain_names, applicant } });

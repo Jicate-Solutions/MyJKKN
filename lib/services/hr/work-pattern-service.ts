@@ -26,6 +26,7 @@ import type {
   HRWorkPatternInsert,
   HRWorkPatternLeaveEntitlement,
   HRWorkPatternUpdate,
+  HRWorkPatternDayHours,
   HRWorkPatternWeek,
   SetWorkPatternDaysResult,
   StaffWorkPatternCurrent,
@@ -294,7 +295,24 @@ export class WorkPatternService {
       .limit(1)
       .maybeSingle();
     if (error) throw error;
-    return (data as HRWorkPatternWeek | null) ?? null;
+    if (!data) return null;
+
+    const week = data as HRWorkPatternWeek;
+
+    // A SECOND QUERY, not a PostgREST embed. The hours are a separate table and
+    // an embed here would be an inner join in all but name — a pattern whose
+    // days carry no hours is the COMMON case, and losing it would make the tab
+    // render empty for almost every pattern in the system.
+    const { data: hours, error: hoursErr } = await supabase
+      .from('hr_work_pattern_week_days')
+      .select(
+        'day_of_week, attendance_mode, required_minutes, first_half_start, first_half_end, second_half_start, second_half_end, grace_minutes'
+      )
+      .eq('week_id', week.id)
+      .order('day_of_week');
+    if (hoursErr) throw hoursErr;
+
+    return { ...week, day_hours: (hours ?? []) as HRWorkPatternDayHours[] };
   }
 
   /**
@@ -304,13 +322,30 @@ export class WorkPatternService {
    */
   static async setDays(
     supabase: SupabaseClient,
-    params: { patternId: string; workingDays: IsoDayOfWeek[]; effectiveFrom: string; notes?: string | null },
+    params: {
+      patternId: string;
+      workingDays: IsoDayOfWeek[];
+      effectiveFrom: string;
+      notes?: string | null;
+      /**
+       * The per-day hours, in full.
+       *
+       * OMIT (undefined) to leave the existing hours alone — the RPC then
+       * carries them forward across a supersede, so moving only the effective
+       * date does not silently hand those days back to the institution shift.
+       * Pass `[]` to clear them deliberately.
+       */
+      dayHours?: HRWorkPatternDayHours[];
+    },
   ): Promise<SetWorkPatternDaysResult> {
     const { data, error } = await supabase.rpc('fn_hr_set_work_pattern_days', {
       p_pattern_id: params.patternId,
       p_working_days: params.workingDays,
       p_effective_from: params.effectiveFrom,
       p_notes: params.notes ?? null,
+      // `?? null` deliberately, NOT `|| null`: an empty array is a real
+      // instruction ("clear the hours") and must not be coerced to "leave them".
+      p_day_hours: params.dayHours ?? null,
     });
     if (error) throw error;
     return data as SetWorkPatternDaysResult;

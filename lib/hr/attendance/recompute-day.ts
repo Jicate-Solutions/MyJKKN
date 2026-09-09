@@ -116,6 +116,12 @@ export async function recomputeAttendanceDay(
         grace_minutes: (w.grace_minutes as number) ?? 0,
         grace_deadline: null,
         matched_by: w.matched_by as ResolvedShiftTiming['matched_by'],
+        // Carried, not defaulted: a work pattern can make this a duration day,
+        // and dropping the mode here would silently re-judge it against windows
+        // that a duration row does not have.
+        attendance_mode:
+          (w.attendance_mode as ResolvedShiftTiming['attendance_mode']) ?? 'span',
+        required_minutes: (w.required_minutes as number | null) ?? null,
       }
     : null;
 
