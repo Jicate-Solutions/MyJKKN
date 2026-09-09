@@ -56,11 +56,13 @@ export type BdErrorKind = 'permanent' | 'oversized' | 'transient';
 export function classifyBdError(message: string | null | undefined): BdErrorKind {
   const m = message ?? '';
   if (/reduce the amount of data/i.test(m)) return 'oversized';
-  if (
-    /invalid user id|does not exist|cannot be found|not a business|unsupported get request/i.test(
-      m
-    )
-  ) {
+  // Deliberately narrow: every pattern here is about THE HANDLE not resolving.
+  // "Unsupported get request" is NOT included — Meta uses it for missing
+  // permissions too, so a degraded system token could suppress every handle at
+  // once. It has also never appeared in 89 days of this event's failures, so
+  // adding it would be guessing. A pattern earns its place by naming a fault
+  // that no amount of retrying can fix.
+  if (/invalid user id|does not exist|cannot be found|not a business/i.test(m)) {
     return 'permanent';
   }
   return 'transient';

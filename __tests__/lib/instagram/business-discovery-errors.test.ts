@@ -45,6 +45,15 @@ describe('classifyBdError', () => {
     );
     expect(classifyBdError(null)).toBe('transient');
   });
+
+  it('does not claim a permissions failure is permanent', () => {
+    // Meta reuses "Unsupported get request" for missing permissions, which a
+    // degraded system token would raise for EVERY handle at once. Classifying
+    // it permanent would suppress the whole poller on a token problem.
+    expect(
+      classifyBdError('Unsupported get request. Please read the Graph API documentation.')
+    ).toBe('transient');
+  });
 });
 
 describe('selectSuppressedHandles', () => {
