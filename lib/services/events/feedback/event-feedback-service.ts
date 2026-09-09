@@ -109,6 +109,31 @@ function formatAnswer(value: unknown): string {
 }
 
 export class EventFeedbackService {
+  // ─── Authority ──────────────────────────────────────────────
+
+  /**
+   * May the signed-in user WRITE this event's feedback forms?
+   *
+   * Delegates to the same SECURITY DEFINER function the event_feedback_*_manage
+   * policies call, so the UI can never disagree with RLS about who is a
+   * coordinator. It exists only to decide what to SHOW: the database still
+   * refuses every write from a caller this returns false for, and still allows
+   * every write from one it returns true for.
+   *
+   * The page's own canEditEvent() is NOT a substitute — it knows the creator,
+   * the super admin and same-institution rows, but not the appointed in-charge
+   * in events.config->'incharges', who is precisely the person the builder is
+   * for.
+   */
+  static async canManage(eventId: string): Promise<boolean> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await (supabase as any).rpc('fn_can_manage_event_feedback', {
+      p_event_id: eventId,
+    });
+    if (error) throw error;
+    return data === true;
+  }
+
   // ─── Forms ──────────────────────────────────────────────────
 
   /** Every feedback form on the event, in display order, with question + response counts. */

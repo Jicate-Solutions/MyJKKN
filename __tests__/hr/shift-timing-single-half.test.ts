@@ -38,6 +38,8 @@ function timing(o: Partial<ResolvedShiftTiming> = {}): ResolvedShiftTiming {
     grace_minutes: 5,
     grace_deadline: '09:05',
     matched_by: 'teaching',
+    attendance_mode: 'span',
+    required_minutes: null,
     ...o,
   };
 }

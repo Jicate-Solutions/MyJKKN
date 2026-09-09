@@ -3506,6 +3506,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "children": []
   },
   {
+    "path": "/cohorts",
+    "label": "Cohorts",
+    "iconName": "FileText",
+    "children": [
+      {
+        "path": "/cohorts/coordinators",
+        "label": "Cohort Coordinators",
+        "iconName": "UserCog",
+        "children": []
+      }
+    ]
+  },
+  {
     "path": "/consultant-portal",
     "label": "Consultant Portal",
     "iconName": "FileText",
@@ -5339,6 +5352,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      },
+      {
+        "path": "/learners/my-syllabus",
+        "label": "My Syllabus",
+        "iconName": "GraduationCap",
+        "children": []
       },
       {
         "path": "/learners/my-timetable",
