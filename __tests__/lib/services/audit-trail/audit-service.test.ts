@@ -200,19 +200,19 @@ describe('mapRowToAuditLog', () => {
 });
 
 describe('deriveSeverity', () => {
-  it('classes destructive actions as warnings', () => {
+  it('classifies destructive actions as warnings', () => {
     for (const action of WARNING_ACTION_TYPES) {
       expect(deriveSeverity(action)).toBe(AuditSeverity.WARNING);
     }
   });
 
-  it('classes failure actions as errors', () => {
+  it('classifies failure actions as errors', () => {
     for (const action of ERROR_ACTION_TYPES) {
       expect(deriveSeverity(action)).toBe(AuditSeverity.ERROR);
     }
   });
 
-  it('classes everything else as info', () => {
+  it('classifies everything else as info', () => {
     expect(deriveSeverity('login')).toBe(AuditSeverity.INFO);
     expect(deriveSeverity('update')).toBe(AuditSeverity.INFO);
     expect(deriveSeverity('payment_process')).toBe(AuditSeverity.INFO);
@@ -233,8 +233,8 @@ describe('mapDtoToRow', () => {
       severity: AuditSeverity.WARNING,
       entity_type: 'resource',
       entity_id: 'res-1',
-      entity_name: 'Lab A',
-      description: 'Updated Lab A',
+      entity_name: 'Block A',
+      description: 'Updated Block A',
       changes: { fields_changed: ['name'] },
       metadata: { institution_id: 'inst-7' }
     });
@@ -242,7 +242,7 @@ describe('mapDtoToRow', () => {
     expect(row.action_type).toBe('update');
     expect(row.resource_type).toBe('resource');
     expect(row.resource_id).toBe('res-1');
-    expect(row.resource_name).toBe('Lab A');
+    expect(row.resource_name).toBe('Block A');
     expect(row.institution_id).toBe('inst-7');
     // module/severity/changes have no column on user_activity_logs, so they are
     // preserved in metadata rather than dropped.
