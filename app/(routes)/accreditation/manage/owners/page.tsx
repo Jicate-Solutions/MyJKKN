@@ -871,8 +871,15 @@ export default function AccreditationOwnersPage() {
           'The change was not saved — you may not have access to this campus.',
         );
       }
+      // "They have been told" was false for three of the four people the
+      // Director's decision names, and false in the moment for all four: this
+      // upsert wrote no trail row at all until 20261125153000, and
+      // accreditation-ownership-notify reads nothing else. Now the change IS
+      // recorded, and the cron sends on its next run — which is a future tense,
+      // not a past one, and the message says so.
       toast.success(
-        `${label} is now owned by ${personLabel(nextOwnerId)}. They have been told.`,
+        `${label} is now owned by ${personLabel(nextOwnerId)}. The change is ` +
+          `recorded; everyone affected will be told.`,
       );
       await invalidate();
     } catch (e) {
