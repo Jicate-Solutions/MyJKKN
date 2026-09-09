@@ -101,7 +101,7 @@ export function NAACReportGenerator() {
 
               {!report.enrolmentSource.usable ? (
                 <p className="text-sm text-destructive">
-                  Students admitted is not measuring anything:{' '}
+                  Learners admitted is not measuring anything:{' '}
                   {report.enrolmentSource.error
                     ? `the read from ${report.enrolmentSource.table} failed (${report.enrolmentSource.error})`
                     : report.enrolmentSource.leadsRead === 0
@@ -193,7 +193,7 @@ export function NAACReportGenerator() {
 
               <p className="text-xs text-muted-foreground pt-2 border-t">
                 Sanctioned intake: <code>intake_history</code>, summed over each
-                college&apos;s programme rows for the year. Students admitted:{' '}
+                college&apos;s programme rows for the year. Learners admitted:{' '}
                 <code>admission_leads</code> at funnel stage <code>enrolled</code>,
                 bucketed by the date the lead last changed.
               </p>
