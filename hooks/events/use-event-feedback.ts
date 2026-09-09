@@ -20,6 +20,8 @@ import { getErrorMessage } from '@/lib/utils';
 const DETAIL_PREFIX = 'event-feedback-form';
 
 const KEYS = {
+  /** Whether the caller may write this event's feedback forms. */
+  canManage: (eventId: string) => ['event-feedback-can-manage', eventId] as const,
   /** Every feedback form on the event (the console's card grid). */
   list: (eventId: string) => ['event-feedback-forms', eventId] as const,
   /** One loaded form with its sections + questions. */
@@ -40,6 +42,35 @@ const KEYS = {
 function invalidateForms(qc: ReturnType<typeof useQueryClient>, eventId: string) {
   qc.invalidateQueries({ queryKey: KEYS.allForms() });
   qc.invalidateQueries({ queryKey: KEYS.list(eventId) });
+}
+
+// ─── Who is looking ───────────────────────────────────────────────
+
+/**
+ * Is the viewer a coordinator of this event's feedback, or an attendee of it?
+ *
+ * The answer comes from fn_can_manage_event_feedback — the same function behind
+ * the event_feedback_*_manage policies — so the builder is offered to exactly
+ * the people the database would let use it. A student is an attendee, and the
+ * UI must give them the questionnaire to answer, not the one to write.
+ *
+ * `data === undefined` means UNDECIDED, and callers must render neither side
+ * while it is: showing the manage buttons first and withdrawing them a moment
+ * later is how a student sees "Edit questions" at all.
+ *
+ * On error it resolves to false rather than retrying: the surface it guards is
+ * a write surface whose writes RLS refuses anyway, so the safe failure is to
+ * show the attendee view.
+ */
+export function useCanManageEventFeedback(eventId: string) {
+  return useQuery({
+    queryKey: KEYS.canManage(eventId),
+    queryFn: () => EventFeedbackService.canManage(eventId).catch(() => false),
+    enabled: !!eventId,
+    // Authority does not change while a page is open; refetching it on every
+    // tab focus would flicker the buttons for no gain.
+    staleTime: 5 * 60 * 1000,
+  });
 }
 
 // ─── Coordinator: forms ───────────────────────────────────────────
