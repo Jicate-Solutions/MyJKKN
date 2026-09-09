@@ -29,12 +29,14 @@ import { getBookingColumns } from './_components/booking-columns';
 import { todayLocal } from './_components/booking-status';
 import { BookingDetailDialog } from './_components/booking-detail-dialog';
 import { AssignCleanerDialog } from './_components/assign-cleaner-dialog';
+import { RescheduleBookingDialog } from './_components/reschedule-booking-dialog';
 import { WaiveHoldDialog } from './_components/waive-hold-dialog';
 import type { BookingBoardRow } from '@/types/campus-living/housekeeping';
 
 const HK_KEYS = [
   'campus_living.housekeeping.view',
   'campus_living.housekeeping.assign',
+  'campus_living.housekeeping.reschedule',
   'campus_living.housekeeping.execute',
   'campus_living.housekeeping.waive',
 ];
@@ -47,6 +49,7 @@ export default function HousekeepingBookingsPage() {
   const [blockId, setBlockId] = useState<string>('all');
   const [viewTarget, setViewTarget] = useState<BookingBoardRow | null>(null);
   const [assignTarget, setAssignTarget] = useState<BookingBoardRow | null>(null);
+  const [rescheduleTarget, setRescheduleTarget] = useState<BookingBoardRow | null>(null);
   const [waiveTarget, setWaiveTarget] = useState<BookingBoardRow | null>(null);
   // Bumped after a mutation to make the table refetch — it owns its own paging
   // state, so invalidating a React Query key would not reach it.
@@ -59,6 +62,7 @@ export default function HousekeepingBookingsPage() {
   const canAssign = gate('campus_living.housekeeping.assign');
   const canExecute = gate('campus_living.housekeeping.execute');
   const canWaive = gate('campus_living.housekeeping.waive');
+  const canReschedule = gate('campus_living.housekeeping.reschedule');
 
   const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess();
   const { data: blocksResult } = useAllReachableBlocks();
@@ -114,12 +118,14 @@ export default function HousekeepingBookingsPage() {
         canAssign,
         canExecute,
         canWaive,
+        canReschedule,
         onView: setViewTarget,
         onAssign: setAssignTarget,
+        onReschedule: setRescheduleTarget,
         onWaive: setWaiveTarget,
         onUploaded: bumpRefetch,
       }),
-    [canAssign, canExecute, canWaive],
+    [canAssign, canExecute, canWaive, canReschedule],
   );
 
   return (
@@ -239,8 +245,10 @@ export default function HousekeepingBookingsPage() {
               canAssign={canAssign}
               canExecute={canExecute}
               canWaive={canWaive}
+              canReschedule={canReschedule}
               isOverdue={b.booking_date < todayLocal()}
               onAssign={setAssignTarget}
+              onReschedule={setRescheduleTarget}
               onWaive={setWaiveTarget}
               onUploaded={bumpRefetch}
             />
@@ -299,6 +307,19 @@ export default function HousekeepingBookingsPage() {
         onOpenChange={(o) => {
           if (!o) {
             setAssignTarget(null);
+            bumpRefetch();
+          }
+        }}
+      />
+      {/* Keyed like the others: a different booking mounts a fresh dialog, so
+          the date/slot/reason state can never carry over from the last one. */}
+      <RescheduleBookingDialog
+        key={`reschedule-${rescheduleTarget?.id ?? 'none'}`}
+        booking={rescheduleTarget}
+        open={rescheduleTarget !== null}
+        onOpenChange={(o) => {
+          if (!o) {
+            setRescheduleTarget(null);
             bumpRefetch();
           }
         }}
