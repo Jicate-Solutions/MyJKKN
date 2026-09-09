@@ -54,3 +54,12 @@ $$;
 
 COMMENT ON FUNCTION public.fn_can_manage_event_feedback(uuid) IS
   'Authority to create/edit/delete an event''s feedback forms and questions, and to read its responses. Super admin, admin, the event in-charge (events.config->incharges), or the event''s creator — nothing else. Deliberately rejects events.view (a read key held by students and faculty) and the events_auth_update creator-less-institution fallback (true for every profile in the institution on the 36 of 51 events that carry no created_by). See 20260909210000 and 20260909220000.';
+
+-- Lock the function from anon. Postgres grants EXECUTE to PUBLIC by default and
+-- Supabase grants anon on top, so a new SECURITY DEFINER function is callable by
+-- an unauthenticated client unless this is stated. Every branch of the gate above
+-- resolves through auth.uid(), which is NULL for anon, so the function already
+-- fails closed in-body — but an unauthenticated caller should not reach the body.
+-- service_role is granted explicitly so the REVOKE below cannot strip it.
+REVOKE EXECUTE ON FUNCTION public.fn_can_manage_event_feedback(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_can_manage_event_feedback(uuid) TO authenticated, service_role;
