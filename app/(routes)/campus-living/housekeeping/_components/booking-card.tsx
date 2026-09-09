@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
+  CalendarClock,
   CheckCircle2,
   Clock,
   ImageIcon,
@@ -12,6 +13,7 @@ import {
   UserPlus,
   XCircle,
 } from 'lucide-react';
+import { canReschedule as statusAllowsReschedule } from '@/lib/services/campus-living/housekeeping-rules';
 import type { BookingBoardRow } from '@/types/campus-living/housekeeping';
 
 import { STATUS_LABEL, STATUS_TONE, hhmm } from './booking-status';
@@ -22,9 +24,11 @@ interface Props {
   canAssign: boolean;
   canExecute: boolean;
   canWaive: boolean;
+  canReschedule: boolean;
   /** True once the booking date has passed, which is when a hold bites. */
   isOverdue: boolean;
   onAssign: (booking: BookingBoardRow) => void;
+  onReschedule: (booking: BookingBoardRow) => void;
   onWaive: (booking: BookingBoardRow) => void;
   onUploaded: () => void;
 }
@@ -34,8 +38,10 @@ export function BookingCard({
   canAssign,
   canExecute,
   canWaive,
+  canReschedule,
   isOverdue,
   onAssign,
+  onReschedule,
   onWaive,
   onUploaded,
 }: Props) {
@@ -68,12 +74,20 @@ export function BookingCard({
           <span className={booking.cleaner_name ? '' : 'text-muted-foreground'}>
             {booking.cleaner_name ? `Cleaner: ${booking.cleaner_name}` : 'No cleaner assigned'}
           </span>
-          {canAssign && (booking.status === 'booked' || booking.status === 'assigned') && (
-            <Button size='sm' variant='outline' onClick={() => onAssign(booking)}>
-              <UserPlus className='mr-1.5 h-3.5 w-3.5' />
-              {booking.cleaner_name ? 'Reassign' : 'Assign'}
-            </Button>
-          )}
+          <span className='flex shrink-0 gap-2'>
+            {canAssign && (booking.status === 'booked' || booking.status === 'assigned') && (
+              <Button size='sm' variant='outline' onClick={() => onAssign(booking)}>
+                <UserPlus className='mr-1.5 h-3.5 w-3.5' />
+                {booking.cleaner_name ? 'Reassign' : 'Assign'}
+              </Button>
+            )}
+            {canReschedule && statusAllowsReschedule(booking.status) && (
+              <Button size='sm' variant='outline' onClick={() => onReschedule(booking)}>
+                <CalendarClock className='mr-1.5 h-3.5 w-3.5' />
+                Move
+              </Button>
+            )}
+          </span>
         </div>
 
         {/* Evidence */}

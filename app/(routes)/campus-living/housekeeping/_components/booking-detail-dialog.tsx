@@ -11,8 +11,9 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { Loader2, Star } from 'lucide-react';
+import { CalendarClock, Loader2, Star } from 'lucide-react';
 import { useBookingDetail } from '@/hooks/campus-living/use-housekeeping-bookings';
+import { RESCHEDULE_REASON_LABEL } from '@/lib/services/campus-living/housekeeping-rules';
 import { formatCurrency } from '@/lib/utils';
 import { STATUS_LABEL, STATUS_TONE, bookingDateLabel, hhmm } from './booking-status';
 import type { BookingBoardRow, PhotoPhase } from '@/types/campus-living/housekeeping';
@@ -221,6 +222,49 @@ export function BookingDetailDialog({ booking, open, onOpenChange }: Props) {
                   </div>
                 )}
               </section>
+
+              {/* Every move this booking has made. Absent for most bookings, so
+                  the whole section only appears once there is something to say. */}
+              {data.reschedules.length > 0 && (
+                <>
+                  <Separator />
+                  <section className='space-y-2'>
+                    <h3 className='flex items-center gap-2 text-sm font-semibold'>
+                      <CalendarClock className='h-4 w-4' />
+                      Changes to this booking
+                    </h3>
+                    <ul className='space-y-2'>
+                      {data.reschedules.map((r) => (
+                        <li key={r.id} className='rounded-md border p-3'>
+                          <p className='text-sm'>
+                            <span className='text-muted-foreground line-through'>
+                              {bookingDateLabel(r.from_date)} {hhmm(r.from_slot_start)}
+                            </span>
+                            {' → '}
+                            <span className='font-medium'>
+                              {bookingDateLabel(r.to_date)} {hhmm(r.to_slot_start)}–
+                              {hhmm(r.to_slot_end)}
+                            </span>
+                          </p>
+                          <p className='mt-1 text-sm'>{RESCHEDULE_REASON_LABEL[r.reason_code]}</p>
+                          {r.reason_note && (
+                            <p className='mt-1 text-sm text-muted-foreground'>{r.reason_note}</p>
+                          )}
+                          {r.from_cleaner_name !== r.to_cleaner_name && (
+                            <p className='mt-1 text-xs text-muted-foreground'>
+                              Cleaner: {r.from_cleaner_name ?? 'none'} →{' '}
+                              {r.to_cleaner_name ?? 'none'}
+                            </p>
+                          )}
+                          <p className='mt-1 text-xs text-muted-foreground'>
+                            {r.rescheduled_by_name ?? 'A warden'} · {formatStamp(r.created_at)}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                </>
+              )}
 
               <Separator />
 

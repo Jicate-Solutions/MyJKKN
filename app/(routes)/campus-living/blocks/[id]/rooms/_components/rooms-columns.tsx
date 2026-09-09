@@ -163,14 +163,25 @@ export function createRoomColumns({
       id: 'occupancy',
       header: 'Occupancy',
       enableSorting: false,
-      cell: ({ row }) => (
-        <div className="flex items-center gap-1.5">
-          <Users className="h-3.5 w-3.5 text-muted-foreground" />
-          <span>
-            {row.original.active_residents}/{row.original.capacity}
-          </span>
-        </div>
-      ),
+      cell: ({ row }) => {
+        // Denominator stays the SANCTIONED capacity -- that is the number the
+        // room is charged on. Temporary beds are shown as a separate "+N",
+        // never folded into it, so the fee basis stays readable at a glance.
+        const extra = row.original.extra_bed_count ?? 0;
+        return (
+          <div className="flex items-center gap-1.5">
+            <Users className="h-3.5 w-3.5 text-muted-foreground" />
+            <span>
+              {row.original.active_residents}/{row.original.capacity}
+            </span>
+            {extra > 0 && (
+              <Badge variant="outline" className="px-1 py-0 text-[10px] font-normal">
+                +{extra} extra
+              </Badge>
+            )}
+          </div>
+        );
+      },
     },
     {
       accessorKey: 'actual_capacity',
