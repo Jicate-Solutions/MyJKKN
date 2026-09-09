@@ -31,6 +31,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SearchableSelect } from '@/components/ui/searchable-select';
+import { fetchOwnerCandidates } from '@/lib/services/accreditation/owner-candidates';
 import {
   Select,
   SelectContent,
@@ -69,14 +70,11 @@ import {
 const BODY_CODE = 'NAAC';
 
 /**
- * Roles a narrative owner may be drawn from. These are DB role keys, not copy —
- * the Senior Learner teaching roles plus the principal who signs the criteria
- * off. Kept as a named constant so the candidate pool is greppable.
+ * Owners are drawn from faculty / hod / principal / accreditation_officer, read
+ * through fn_accreditation_owner_candidates so the pool unions profiles.role
+ * with user_roles rather than trusting the legacy scalar alone. See
+ * lib/services/accreditation/owner-candidates.ts.
  */
-const OWNER_CANDIDATE_ROLES = ['faculty', 'hod', 'principal'];
-
-/** Upper bound on the candidate pool; the dropdown searches within it. */
-const CANDIDATE_LIMIT = 500;
 
 const UNASSIGNED_VALUE = '__unassigned__';
 
@@ -218,14 +216,7 @@ function useCandidateOwners() {
     queryKey: ['profiles', 'narrative-owner-candidates'],
     queryFn: async (): Promise<CandidateProfile[]> => {
       const sb = createClientSupabaseClient() as any;
-      const { data, error } = await sb
-        .from('profiles')
-        .select('id, full_name, email')
-        .in('role', OWNER_CANDIDATE_ROLES)
-        .order('full_name', { ascending: true })
-        .limit(CANDIDATE_LIMIT);
-      if (error) throw error;
-      return (data ?? []) as CandidateProfile[];
+      return fetchOwnerCandidates(sb);
     },
     staleTime: 10 * 60 * 1000,
   });
