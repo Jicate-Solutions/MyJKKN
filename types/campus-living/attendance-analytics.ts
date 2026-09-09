@@ -111,6 +111,7 @@ export interface AttendanceLearnerRow {
   roll_number: string | null;
   block_id: string | null;
   block_name: string | null;
+  institution_id: string | null;
   institution_name: string | null;
   program_name: string | null;
   room_number: string | null;
