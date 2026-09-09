@@ -84,4 +84,4 @@ AS $$
 $$;
 
 COMMENT ON FUNCTION public.fn_can_manage_event_feedback(uuid) IS
-  'Authority to create/edit/delete an event''s feedback forms and questions, and to read its responses. Super admin, admin, event in-charge (events.config->incharges), or the events_auth_update owner rule (creator, or a creator-less row in your institution). Deliberately does NOT accept events.view: that is a read key held by students and faculty. See 20260909120000_event_feedback_manage_drops_events_view.sql.';
+  'Authority to create/edit/delete an event''s feedback forms and questions, and to read its responses. Super admin, admin, event in-charge (events.config->incharges), or the events_auth_update owner rule (creator, or a creator-less row in your institution). Deliberately does NOT accept events.view: that is a read key held by students and faculty. See 20260909210000_event_feedback_manage_drops_events_view.sql.';

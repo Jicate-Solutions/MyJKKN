@@ -2,7 +2,7 @@
 -- Close the second half of the same hole: a creator-less event is not "owned
 -- by everyone in the institution" for the purposes of its feedback form
 -- ============================================================================
--- 20260909120000 removed `events.view` from fn_can_manage_event_feedback and
+-- 20260909210000 removed `events.view` from fn_can_manage_event_feedback and
 -- replaced it with the events_auth_update owner rule. That rule has two
 -- clauses, and the second one re-opened the hole it was meant to close:
 --
@@ -20,7 +20,7 @@
 -- It stays correct for the events table itself: an UPDATE to a creator-less
 -- event row is a different risk from rewriting a live questionnaire and reading
 -- every attendee's answers. This function is not obliged to be as loose, and
--- the header of 20260909120000 is amended by this file on exactly that clause.
+-- the header of 20260909210000 is amended by this file on exactly that clause.
 --
 -- WHAT THIS COSTS, measured rather than assumed: of those 36 creator-less
 -- events, 2 name an in-charge and 34 do not. On those 34, feedback becomes
@@ -53,4 +53,4 @@ AS $$
 $$;
 
 COMMENT ON FUNCTION public.fn_can_manage_event_feedback(uuid) IS
-  'Authority to create/edit/delete an event''s feedback forms and questions, and to read its responses. Super admin, admin, the event in-charge (events.config->incharges), or the event''s creator — nothing else. Deliberately rejects events.view (a read key held by students and faculty) and the events_auth_update creator-less-institution fallback (true for every profile in the institution on the 36 of 51 events that carry no created_by). See 20260909120000 and 20260909130000.';
+  'Authority to create/edit/delete an event''s feedback forms and questions, and to read its responses. Super admin, admin, the event in-charge (events.config->incharges), or the event''s creator — nothing else. Deliberately rejects events.view (a read key held by students and faculty) and the events_auth_update creator-less-institution fallback (true for every profile in the institution on the 36 of 51 events that carry no created_by). See 20260909210000 and 20260909220000.';
