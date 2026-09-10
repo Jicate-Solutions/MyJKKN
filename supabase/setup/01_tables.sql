@@ -9765,3 +9765,38 @@ CREATE TABLE IF NOT EXISTS public.hr_leave_approver_scopes (
 REVOKE ALL ON public.hr_leave_approver_scopes FROM anon, PUBLIC;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_leave_approver_scopes TO authenticated;
 ALTER TABLE public.hr_leave_approver_scopes ENABLE ROW LEVEL SECURITY;
+
+
+-- ===== 20261128000000_hostel_category_room_sources =====
+-- No institution_id: hostel_categories itself has none. Categories are global
+-- and scoped by gender ('type'), and every pool query still filters rooms by
+-- fn_room_serves_institution(), so tenancy is enforced on the ROOM, not here.
+
+CREATE TABLE IF NOT EXISTS public.hostel_category_room_sources (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  category_id         uuid NOT NULL REFERENCES public.hostel_categories(id) ON DELETE CASCADE,
+  source_category_id  uuid NOT NULL REFERENCES public.hostel_categories(id) ON DELETE CASCADE,
+  sort_order          integer NOT NULL DEFAULT 0,
+  is_active           boolean NOT NULL DEFAULT true,
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  updated_at          timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hcrs_not_self CHECK (category_id <> source_category_id),
+  CONSTRAINT hcrs_unique_pair UNIQUE (category_id, source_category_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_hcrs_category_active
+  ON public.hostel_category_room_sources (category_id) WHERE is_active;
+CREATE INDEX IF NOT EXISTS idx_hcrs_source
+  ON public.hostel_category_room_sources (source_category_id);
+
+ALTER TABLE public.hostel_category_room_sources ENABLE ROW LEVEL SECURITY;
+
+DROP TRIGGER IF EXISTS trg_hcrs_updated_at ON public.hostel_category_room_sources;
+CREATE TRIGGER trg_hcrs_updated_at
+  BEFORE UPDATE ON public.hostel_category_room_sources
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+COMMENT ON TABLE public.hostel_category_room_sources IS
+  'Extra room categories a category may seat its learners in. The learner keeps the '
+  'billing category and its benefits; only the physical room comes from elsewhere. '
+  'Read it through fn_cl_category_room_sources(), never directly — that function '
+  'also yields the native source (COALESCE(room_source_category_id, id)).';
