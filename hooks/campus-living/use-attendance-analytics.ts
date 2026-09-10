@@ -1,10 +1,7 @@
 'use client';
 
-import { useQuery, keepPreviousData } from '@tanstack/react-query';
-import {
-  AttendanceAnalyticsService,
-  type AttendanceLearnerQuery,
-} from '@/lib/services/campus-living/attendance-analytics-service';
+import { useQuery } from '@tanstack/react-query';
+import { AttendanceAnalyticsService } from '@/lib/services/campus-living/attendance-analytics-service';
 import { useCampusLivingScope } from '@/hooks/campus-living/use-campus-living-scope';
 
 /**
@@ -25,8 +22,6 @@ export const attendanceAnalyticsKeys = {
   all: ['campus-living-attendance-analytics'] as const,
   dashboard: (filters: Record<string, unknown>) =>
     ['campus-living-attendance-analytics', 'dashboard', filters] as const,
-  learners: (filters: Record<string, unknown>) =>
-    ['campus-living-attendance-analytics', 'learners', filters] as const,
   learnerDetail: (filters: Record<string, unknown>) =>
     ['campus-living-attendance-analytics', 'learner-detail', filters] as const,
 };
@@ -42,30 +37,6 @@ export function useAttendanceDashboardAnalytics(
     queryKey: attendanceAnalyticsKeys.dashboard({ scope: scopeKey, from, to, blockId: blockId ?? null }),
     queryFn: () => AttendanceAnalyticsService.getDashboard(from, to, blockId),
     enabled: ready && !!from && !!to,
-  });
-}
-
-export function useAttendanceLearners(
-  institutionId: string | undefined,
-  q: AttendanceLearnerQuery,
-) {
-  const { scopeKey, ready } = useCampusLivingScope(institutionId);
-  return useQuery({
-    queryKey: attendanceAnalyticsKeys.learners({
-      scope: scopeKey,
-      from: q.from,
-      to: q.to,
-      blockId: q.blockId ?? null,
-      search: q.search ?? null,
-      maxPct: q.maxPct ?? null,
-      limit: q.limit ?? 50,
-      offset: q.offset ?? 0,
-    }),
-    queryFn: () => AttendanceAnalyticsService.getLearners(q),
-    enabled: ready && !!q.from && !!q.to,
-    // Paging and typing in the search box should not blank the table between
-    // fetches — the row count is the thing people are reading.
-    placeholderData: keepPreviousData,
   });
 }
 

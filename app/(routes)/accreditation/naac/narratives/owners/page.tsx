@@ -78,6 +78,24 @@ const BODY_CODE = 'NAAC';
 
 const UNASSIGNED_VALUE = '__unassigned__';
 
+/**
+ * The conflict target must name EVERY column of the live constraint
+ * `accreditation_metric_owners_scope_key UNIQUE NULLS NOT DISTINCT
+ * (institution_id, body_code, metric_code, programme_id)`. Postgres infers an
+ * arbiter index only on an exact column match, so a three-column target does
+ * not fall back to the four-column index — it fails at parse-analysis with
+ * 42P10 and the catch block below shows the raw Postgres string in a toast.
+ * That is why this desk could un-assign but never assign.
+ *
+ * NULLS NOT DISTINCT is what lets the whole-body row (metric_code NULL) and
+ * every institution-level row (programme_id NULL) upsert onto themselves
+ * instead of inserting a duplicate.
+ *
+ * Kept as a named constant so it greps alongside the identical one in
+ * /accreditation/manage/owners, which has always named all four.
+ */
+const ON_CONFLICT = 'institution_id,body_code,metric_code,programme_id';
+
 interface OwnerRow {
   id: string;
   institution_id: string;
@@ -417,6 +435,22 @@ export default function NAACNarrativeOwnersPage() {
         // created_by records the person who last set this owner — the table has
         // no separate updated_by, and "who routed this metric" is the fact IQAC
         // needs when a narrative turns up on the wrong desk.
+        //
+        // programme_id is sent EXPLICITLY, not left to the column default, for
+        // the same reason the delete branch below filters on it: this desk owns
+        // institution-level ownership only, and the conflict target has to name
+        // the column it keys on.
+        //
+        // Re-assigning an existing row hands the metric to a DIFFERENT person
+        // (`next === current` returned above), so the previous holder's
+        // acknowledgement must not follow the row. Leaving assignment_status
+        // alone would carry a 'declined' — which still stops mail — onto
+        // somebody who never declined anything, and carry a 'confirmed'
+        // alongside the first_seen_at the DB trigger has just reset to NULL.
+        // previous_owner_user_id / owner_changed_at are what the sibling desk
+        // renders as "moved from"; not stamping them leaves that line naming
+        // whoever held it two moves ago. Same payload shape as
+        // /accreditation/manage/owners.
         const { data, error } = await sb
           .from('accreditation_metric_owners')
           .upsert(
@@ -424,10 +458,16 @@ export default function NAACNarrativeOwnersPage() {
               institution_id: pair.institution_id,
               body_code: BODY_CODE,
               metric_code: pair.metric_code,
+              programme_id: null,
               owner_user_id: next,
+              assignment_status: 'pending',
+              acknowledged_at: null,
+              acknowledged_by: null,
+              previous_owner_user_id: current,
+              owner_changed_at: current ? new Date().toISOString() : null,
               created_by: userProfile?.id ?? null,
             },
-            { onConflict: 'institution_id,body_code,metric_code' },
+            { onConflict: ON_CONFLICT },
           )
           .select('id');
         if (error) throw error;

@@ -27,9 +27,20 @@ export interface AttendanceLearnerQuery {
   from: string;
   to: string;
   blockId?: string | null;
+  institutionId?: string | null;
   search?: string | null;
-  /** Only learners at or below this percentage. null = no ceiling. */
+  /** Percentage band. A learner with no counted days (null pct) is excluded
+   *  from a band rather than passing every comparison as NULL does in SQL. */
+  minPct?: number | null;
   maxPct?: number | null;
+  /** Only learners whose longest absence run reaches this many marked days. */
+  minAbsentRun?: number | null;
+  /** Only learners still absent as of their last marked day. */
+  onlyOngoing?: boolean;
+  /** Learners having at least one day of this status in range. */
+  status?: string | null;
+  sortBy?: string | null;
+  sortOrder?: 'asc' | 'desc' | null;
   limit?: number;
   offset?: number;
 }
@@ -62,11 +73,18 @@ export class AttendanceAnalyticsService {
       {
         p_from: q.from,
         p_to: q.to,
-        // ?? not ||: an empty-string block id would reach Postgres as a real
-        // uuid parameter and match zero rows (the `institutionId || ''` trap).
+        // ?? not ||: an empty-string id would reach Postgres as a real uuid
+        // parameter and match zero rows (the `institutionId || ''` trap).
         p_block_id: q.blockId ?? null,
         p_search: q.search ?? null,
+        p_min_pct: q.minPct ?? null,
         p_max_pct: q.maxPct ?? null,
+        p_institution_id: q.institutionId ?? null,
+        p_min_absent_run: q.minAbsentRun ?? null,
+        p_only_ongoing: q.onlyOngoing ?? false,
+        p_status: q.status ?? null,
+        p_sort_by: q.sortBy ?? 'attendance_pct',
+        p_sort_order: q.sortOrder ?? 'asc',
         p_limit: q.limit ?? 50,
         p_offset: q.offset ?? 0,
       } as never,

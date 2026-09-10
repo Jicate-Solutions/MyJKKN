@@ -26,12 +26,12 @@ import { useBookingStatusCounts } from '@/hooks/campus-living/use-housekeeping-b
 import { HousekeepingBookingService } from '@/lib/services/campus-living/housekeeping-booking-service';
 import { BookingCard } from './_components/booking-card';
 import { getBookingColumns } from './_components/booking-columns';
-import { todayLocal } from './_components/booking-status';
+import { STATUS_LABEL, todayLocal } from './_components/booking-status';
 import { BookingDetailDialog } from './_components/booking-detail-dialog';
 import { AssignCleanerDialog } from './_components/assign-cleaner-dialog';
 import { RescheduleBookingDialog } from './_components/reschedule-booking-dialog';
 import { WaiveHoldDialog } from './_components/waive-hold-dialog';
-import type { BookingBoardRow } from '@/types/campus-living/housekeeping';
+import type { BookingBoardRow, BookingStatus } from '@/types/campus-living/housekeeping';
 
 const HK_KEYS = [
   'campus_living.housekeeping.view',
@@ -47,6 +47,7 @@ export default function HousekeepingBookingsPage() {
   // caller may see, so 'all' means "all I can reach", never "all that exist".
   const [institutionId, setInstitutionId] = useState<string>('all');
   const [blockId, setBlockId] = useState<string>('all');
+  const [status, setStatus] = useState<BookingStatus | 'all'>('all');
   const [viewTarget, setViewTarget] = useState<BookingBoardRow | null>(null);
   const [assignTarget, setAssignTarget] = useState<BookingBoardRow | null>(null);
   const [rescheduleTarget, setRescheduleTarget] = useState<BookingBoardRow | null>(null);
@@ -72,7 +73,12 @@ export default function HousekeepingBookingsPage() {
   // WHICH institution's rows to fetch; RLS already filters them.
   const scopedInstitution = institutionId === 'all' ? undefined : institutionId;
   const scopedBlock = blockId === 'all' ? undefined : blockId;
+  const scopedStatus = status === 'all' ? undefined : status;
 
+  // Deliberately WITHOUT the status filter. These feed the summary tiles, which
+  // are the breakdown of the set the other filters describe — folding status in
+  // would zero five of the six tiles the moment one is picked, and the tiles are
+  // what tells you a status is worth filtering to in the first place.
   const filters = useMemo(
     () => ({ institutionId: scopedInstitution, blockId: scopedBlock }),
     [scopedInstitution, scopedBlock],
@@ -92,6 +98,7 @@ export default function HousekeepingBookingsPage() {
         dateTo: params.to_date || undefined,
         institutionId: scopedInstitution,
         blockId: scopedBlock,
+        status: scopedStatus,
         sortBy: params.sort_by || undefined,
         sortOrder: params.sort_order === 'asc' ? 'asc' : 'desc',
       });
@@ -107,7 +114,7 @@ export default function HousekeepingBookingsPage() {
         },
       };
     },
-    [scopedInstitution, scopedBlock],
+    [scopedInstitution, scopedBlock, scopedStatus],
   );
 
   const bumpRefetch = () => setRefetchKey((k) => k + 1);
@@ -172,8 +179,8 @@ export default function HousekeepingBookingsPage() {
           </div>
         </div>
 
-        {/* Scope filters. The table owns search, date range and paging; these two
-            are the axes it has no column-level filter for. */}
+        {/* Scope filters. The table owns search, date range and paging; these
+            three are the axes it has no column-level filter for. */}
         <Card>
           <CardContent className='flex flex-wrap items-end gap-3 p-4'>
             <Select
@@ -210,6 +217,40 @@ export default function HousekeepingBookingsPage() {
                 ))}
               </SelectContent>
             </Select>
+
+            {/* Status. Options come from STATUS_LABEL so the filter, the table
+                badge and the mobile card cannot name the same status
+                differently — 'booked' reads as "Unassigned" everywhere. */}
+            <Select
+              value={status}
+              onValueChange={(v) => setStatus(v as BookingStatus | 'all')}
+            >
+              <SelectTrigger className='w-[13rem]'>
+                <SelectValue placeholder='All statuses' />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='all'>All statuses</SelectItem>
+                {(Object.keys(STATUS_LABEL) as BookingStatus[]).map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {STATUS_LABEL[s]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {(scopedInstitution || scopedBlock || scopedStatus) && (
+              <Button
+                variant='ghost'
+                size='sm'
+                onClick={() => {
+                  setInstitutionId('all');
+                  setBlockId('all');
+                  setStatus('all');
+                }}
+              >
+                Reset filters
+              </Button>
+            )}
           </CardContent>
         </Card>
 
@@ -230,7 +271,10 @@ export default function HousekeepingBookingsPage() {
         </div>
 
         <DataTable<BookingBoardRow, unknown>
-          key={`${scopedInstitution ?? 'all'}-${scopedBlock ?? 'all'}`}
+          // Remounts on a filter change so the table drops back to page 1 — it
+          // owns its own paging state, and page 7 of "all" is usually past the
+          // end of a narrower set.
+          key={`${scopedInstitution ?? 'all'}-${scopedBlock ?? 'all'}-${scopedStatus ?? 'all'}`}
           getColumns={() => columns}
           fetchDataFn={fetchBookings}
           refetchKey={refetchKey}
