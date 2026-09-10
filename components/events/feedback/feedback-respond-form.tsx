@@ -18,6 +18,7 @@ import {
   isQuestionVisible,
 } from '@/components/events/feedback/feedback-question-input';
 import {
+  useCanSelfRegisterForFeedback,
   useEventFeedbackForm,
   useMyEventRegistration,
   useMyFeedbackResponse,
@@ -49,6 +50,13 @@ export function FeedbackRespondForm({
     formId,
     registrationId
   );
+  // Only asked when they hold no registration. An event run without collecting
+  // registrations has no participant rows at all, so "not on the list" is the
+  // normal state for everyone the coordinator invited, not a rejection.
+  const { data: mayJoin, isLoading: joinLoading } = useCanSelfRegisterForFeedback(
+    formId,
+    !regLoading && !registrationId
+  );
   const submit = useSubmitFeedback(eventId);
 
   const [values, setValues] = useState<Record<string, unknown>>({});
@@ -76,7 +84,7 @@ export function FeedbackRespondForm({
     [form]
   );
 
-  const loading = formLoading || regLoading || existingLoading;
+  const loading = formLoading || regLoading || existingLoading || joinLoading;
 
   if (loading) {
     return (
@@ -96,18 +104,26 @@ export function FeedbackRespondForm({
     );
   }
 
-  // Not a participant. `registrationId === null` is a real answer from
-  // fn_my_event_registration, not a loading state — so this is a definite "you
-  // are not on the list", not a race with a query that has not resolved.
-  if (!registrationId) {
+  // Not a participant, and not allowed to become one. `registrationId === null`
+  // is a real answer from fn_my_event_registration, not a loading state, and
+  // `mayJoin === false` is a real answer from
+  // fn_can_self_register_for_event_feedback — so this is a definite "not for
+  // you", not a race with a query that has not resolved.
+  //
+  // The other branch, no registration but mayJoin, falls THROUGH to the
+  // questions: an event run without collecting registrations has no participant
+  // rows at all, so refusing here would silence exactly the people the
+  // coordinator invited. Their registration is created when they submit.
+  if (!registrationId && !mayJoin) {
     return (
       <Card>
         <CardContent className="space-y-2 py-12 text-center">
           <ShieldOff className="mx-auto h-7 w-7 text-muted-foreground" />
-          <p className="text-sm font-medium">This feedback form is for registered attendees</p>
+          <p className="text-sm font-medium">This feedback form is for people who attended</p>
           <p className="mx-auto max-w-md text-sm text-muted-foreground">
-            We could not find a registration for you on this event. If you attended but
-            registered under a different email, ask the event coordinator to add you.
+            We could not find a registration for you on this event, and it is not open for
+            you to join. If you attended but registered under a different email, ask the
+            event coordinator to add you.
           </p>
         </CardContent>
       </Card>
@@ -178,9 +194,11 @@ export function FeedbackRespondForm({
     // screen — marking this submitted would tell them their feedback was
     // recorded when it was not.
     try {
+      // null registrationId is legitimate here: the mutation joins the event
+      // first, which is why the row only appears for people who answered.
       await submit.mutateAsync({
         formId,
-        registrationId: registrationId!,
+        registrationId: registrationId ?? null,
         profileId: profile?.id ?? null,
         answers: payload,
       });
