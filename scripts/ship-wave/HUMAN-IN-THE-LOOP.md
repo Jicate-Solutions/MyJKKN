@@ -133,3 +133,29 @@ Each test prints PASS/FAIL per case and exits non-zero on any FAIL. `bash -n` on
 - Telegram delivery (plugin restart pending; the Fleet-note mirror covers phone visibility meanwhile).
 - Changing the goal metric ("zero open" stays, by his answer).
 - Closing the 3 superseded PRs (his answer: leave them).
+
+## Amendments from the build (2026-09-10 08:10) — craft decisions, not new Director decisions
+
+**A1/A2 — AskUserQuestion allows 2–4 options per question and up to 4 questions per call.** The HELD burst as
+first written (5 PRs + "Approve all" + "None today" = 7 options) cannot be asked. Amended: the wave writes ONE
+question PER ready HELD PR — title "Approve #<n>? <PR title ≤60>", options "Approve #<n>" (append approve-held <n>)
+and "Not now" (noop). The desk asks up to 4 per pass, oldest first; a burst of 10 takes three passes. De-dup key
+(kind+class+title) then naturally contains the PR number. "Re-asked only when the set changes" falls out: a PR
+already asked and answered "Not now" is not re-asked until its head sha changes (put the short sha in `class`).
+
+**D — learned-proposal titles must be unique per proposal.** The plain-English template made every title
+identical, so ask_director's de-dup collapsed distinct proposals into one question (verifier NEW-10). Amended
+template: "Rule P<n>: you've answered the same way <N> times — make it a rule?" — P<n> keeps it unique, the rest
+stays plain. `class` for a policy question = the proposal key (sha1 prefix), never the raw ledger slug.
+
+**D — NEVER_RULE must be a single shared source of truth with B's classify_freeze.** D must not keep its own
+HARD_CLASS list (verifier NEW-9: B has 14 hard rows, D refused 4). D sources ship-wave's `classify_freeze` (or a
+tiny `freeze-classes.sh` both source) and refuses to propose any rule whose action is `unfreeze` on a class that
+function calls hard, or whose writes touch `allow-destructive` — compared case-insensitively after trimming
+(verifier NEW-2: "Allow-Destructive" bypassed an exact-match set). `append.file` must be one of exactly the three
+knob names (NEW-3: any non-empty file name was accepted, including "../frozen").
+
+**Integration order (one integrator, after all three slices hold):** rebase A and D onto B's ship-wave.sh; add A's
+source line after policy-learning.sh; wire the three triggers in ship-wave.sh (freeze() → question; per-PR HELD
+questions after the READY list; policy_emit_questions after policy_proposals); route "Other" answers into the
+receipt ("Director wrote: …"); run every test file; then ONE PR, Draft, on top of #3392.
