@@ -52,6 +52,69 @@ interface TicketWithNotifyFields {
   metadata?: Record<string, unknown>;
 }
 
+/**
+ * An UPDATE that RLS refuses does not raise a permission error. It matches no
+ * rows, PostgREST returns an empty result, and `.single()` reports PGRST116 —
+ * "JSON object requested, multiple (or no) rows returned" — which describes the
+ * response shape and says nothing about the cause. That message reached office
+ * bearers on the issues board for as long as the board has existed.
+ *
+ * Every write below therefore uses `.maybeSingle()` and calls this when the row
+ * comes back empty, so the person is told which of the two things happened.
+ */
+function refuseEmptyWrite(action: string): never {
+  throw new Error(
+    `Could not ${action}. The issue no longer exists, or your Learners Council ` +
+    `seat does not carry permission to change it.`
+  );
+}
+
+/**
+ * Send one board write through PATCH /api/learners-council/issues/:id.
+ *
+ * These two actions used to go straight from the browser to the table, and RLS
+ * refused every one an office bearer made — `grievance_tickets_update` has no
+ * branch for the Learners Council, so Assign and Mark Resolved matched 0 rows.
+ * The route re-tries the write with the caller's own session first, so every
+ * caller RLS already admits is unaffected, and only falls back to an elevated
+ * write after confirming an active council executive seat, a non-confidential
+ * ticket, and the caller's own institution.
+ *
+ * The route is also where the whitelist lives: it accepts a status and an
+ * assignee and nothing else, so no caller can reach the complainant's own words
+ * through this path.
+ */
+async function patchIssue(
+  issueId: string,
+  body: { status?: string; assigneeId?: string },
+  action: string
+): Promise<GrievanceTicket> {
+  const res = await fetch(`/api/learners-council/issues/${issueId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+
+  let payload: { ticket?: GrievanceTicket; error?: string } = {};
+  try {
+    payload = await res.json();
+  } catch {
+    // A non-JSON body means the request never reached the handler.
+    throw new Error(`Could not ${action}. The server did not respond properly.`);
+  }
+
+  if (!res.ok) {
+    console.error(`[lc/issues] ${action} refused (${res.status}):`, payload.error);
+    throw new Error(payload.error || `Could not ${action}.`);
+  }
+
+  if (!payload.ticket) {
+    refuseEmptyWrite(action);
+  }
+
+  return payload.ticket;
+}
+
 export class LCIssueService {
   private static supabase = createClientSupabaseClient();
 
@@ -254,25 +317,7 @@ export class LCIssueService {
    * Assign an issue to an LC member
    */
   static async assignIssue(issueId: string, assigneeId: string): Promise<GrievanceTicket> {
-    const { data, error } = await this.supabase
-      .from('grievance_tickets')
-      .update({
-        assigned_to: assigneeId,
-        assigned_at: new Date().toISOString(),
-        status: 'in_progress' as GrievanceStatus
-      })
-      .eq('id', issueId)
-      .select(`
-        *,
-        category:grievance_categories!category_id(id, name),
-        assignee:profiles!assigned_to(id, full_name, email, avatar_url)
-      `)
-      .single();
-
-    if (error) {
-      console.error('[lc/issues] Error assigning issue:', error);
-      throw new Error(`Failed to assign issue: ${error.message}`);
-    }
+    const data = await patchIssue(issueId, { assigneeId }, 'assign this issue');
 
     // Notify the assignee about the new assignment
     try {
@@ -303,30 +348,13 @@ export class LCIssueService {
     status: string,
     comment?: string
   ): Promise<GrievanceTicket> {
-    const updateData: Record<string, unknown> = {
-      status: status as GrievanceStatus
-    };
-
-    // Set resolution timestamp if resolving
-    if (status === 'resolved') {
-      updateData.resolved_at = new Date().toISOString();
-    }
-
-    const { data, error } = await this.supabase
-      .from('grievance_tickets')
-      .update(updateData)
-      .eq('id', issueId)
-      .select(`
-        *,
-        category:grievance_categories!category_id(id, name),
-        assignee:profiles!assigned_to(id, full_name, email, avatar_url)
-      `)
-      .single();
-
-    if (error) {
-      console.error('[lc/issues] Error updating issue status:', error);
-      throw new Error(`Failed to update issue status: ${error.message}`);
-    }
+    // resolved_at is stamped by the route, not here, so the timestamp is set
+    // in the same statement that sets the status on whichever path runs.
+    const data = await patchIssue(
+      issueId,
+      { status },
+      `move this issue to ${status.replace(/_/g, ' ')}`
+    );
 
     // Add comment if provided
     if (comment && data) {
@@ -701,11 +729,16 @@ export class LCIssueService {
         category:grievance_categories!category_id(id, name),
         assignee:profiles!assigned_to(id, full_name, email, avatar_url)
       `)
-      .single();
+      .maybeSingle();
 
     if (error) {
       console.error('[lc/issues] Error escalating issue:', error);
       throw new Error(`Failed to escalate issue: ${error.message}`);
+    }
+
+    if (!data) {
+      console.error('[lc/issues] Escalation matched 0 rows — RLS refused the update:', ticketId);
+      refuseEmptyWrite('escalate this issue');
     }
 
     // Add escalation comment

@@ -593,6 +593,54 @@ export class LCStructureService {
   }
 
   /**
+   * Move a sitting member from the seat they hold to a different one.
+   *
+   * Goes through POST /api/learners-council/members/:id/change-position rather
+   * than writing here, for two reasons. It is two writes that must not
+   * half-happen — end the old appointment, open the new one — and the route
+   * can undo the first if the second fails. And what a non-admin browser
+   * session may write to lc_members is not something this codebase can state
+   * with confidence; the route decides authorisation in the open instead of
+   * leaving it to a policy nobody has read.
+   *
+   * The old row is ENDED, never edited. lc_members is the council's history and
+   * the Positions tab reads it back, so rewriting position_id in place would
+   * erase the record of a seat somebody genuinely held.
+   */
+  static async changeMemberPosition(
+    memberId: string,
+    positionId: string,
+    notes?: string
+  ): Promise<LCMember> {
+    const res = await fetch(
+      `/api/learners-council/members/${memberId}/change-position`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ positionId, notes })
+      }
+    );
+
+    let payload: { member?: LCMember; error?: string } = {};
+    try {
+      payload = await res.json();
+    } catch {
+      throw new Error('Could not change the position. The server did not respond properly.');
+    }
+
+    if (!res.ok) {
+      console.error(`[lc/structure] Change position refused (${res.status}):`, payload.error);
+      throw new Error(payload.error || 'Could not change the position.');
+    }
+
+    if (!payload.member) {
+      throw new Error('Could not change the position.');
+    }
+
+    return payload.member;
+  }
+
+  /**
    * Get a single member by ID with all joins
    */
   static async getMemberById(id: string): Promise<LCMember> {
