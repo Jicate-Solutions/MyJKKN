@@ -308,9 +308,15 @@ export interface BosProgrammeOutcome {
   institutions_id: string;
   regulation_id: string;
   programme_code: string;
+  /** programs.id for programme_code (20260910120000). Null for unmatched legacy rows. */
+  programme_id?: string | null;
+  /** Owning department — the HOD scope (20260910120000). */
+  department_id?: string | null;
   po_code: string;           // PO1, PO2, …
   description?: string | null;
   sort_order: number;
+  /** Soft status — rows are never deleted, "Deactivate" sets this false. */
+  is_active?: boolean;
   created_by?: string;
   created_at: string;
   updated_by?: string;
@@ -322,9 +328,36 @@ export interface BosProgrammeSpecificOutcome {
   institutions_id: string;
   regulation_id: string;
   programme_code: string;
+  programme_id?: string | null;
+  department_id?: string | null;
   pso_code: string;          // PSO1, PSO2, …
   description?: string | null;
   sort_order: number;
+  is_active?: boolean;
+  created_by?: string;
+  created_at: string;
+  updated_by?: string;
+  updated_at: string;
+}
+
+/**
+ * HOD course × PO/PSO matrix row (bos_course_outcome_mappings,
+ * 20260910120000). Levels are canonical 1/2/3 — the UI renders 1/2/3 for
+ * engineering and L/M/H for CAS.
+ */
+export interface BosCourseOutcomeMapping {
+  id: string;
+  institutions_id: string;
+  regulation_id: string;
+  programme_code: string;
+  programme_id?: string | null;
+  department_id?: string | null;
+  course_id?: string | null;
+  course_code: string;
+  course_name?: string | null;
+  po_levels: Record<string, number>;
+  pso_levels: Record<string, number>;
+  is_active: boolean;
   created_by?: string;
   created_at: string;
   updated_by?: string;
