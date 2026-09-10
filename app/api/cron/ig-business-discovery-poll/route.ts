@@ -29,9 +29,31 @@ export const maxDuration = 300;
 
 import { NextResponse } from 'next/server';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import {
+  classifyBdError,
+  selectSuppressedHandles,
+  SUPPRESSION_WINDOW_DAYS,
+  type BdErrorKind,
+  type BdErrorLogRow,
+  type SuppressedHandle,
+} from '@/lib/instagram/business-discovery-errors';
 
 const GRAPH_API = 'https://graph.facebook.com/v25.0';
 const RECENT_MEDIA_LIMIT = 25;
+
+/**
+ * Media page size for the ONE retry made when Meta refuses on response size.
+ * Only the handle that was actually too big pays this; the rest keep the full
+ * 25-post window. "Please reduce the amount of data…" has occurred exactly once
+ * on this event in 89 days (2026-08-10) and four times across the whole logs
+ * table, so shrinking the request for everybody would trade real caption and
+ * media fidelity on 11 healthy handles for a fault that fires once a quarter.
+ */
+const OVERSIZED_RETRY_MEDIA_LIMIT = 5;
+
+/** Cap on the suppression lookup. In steady state it reads ~7 rows; the cap is
+ *  a guard, and truncation can only UNDER-count, i.e. suppress less. */
+const SUPPRESSION_ROW_CAP = 5000;
 
 // media_type from business_discovery is IMAGE | VIDEO | CAROUSEL_ALBUM.
 // ig_posts.media_type CHECK also allows REEL/STORY; map unknowns to IMAGE.
@@ -108,15 +130,27 @@ async function resolveOriginId(token: string): Promise<string | null> {
   return null;
 }
 
+/**
+ * One account per call — `business_discovery.username(<one handle>)` — so there
+ * is no batch to shrink here. `mediaLimit` is the only size dial, and it is
+ * turned down ONLY on the oversized retry path.
+ *
+ * `caption` stays in the field list on BOTH paths on purpose. ig_posts is
+ * upserted on ig_media_id below (a conflict is an UPDATE), and the payload
+ * writes `caption: m.caption ?? null` — so a request that omitted caption would
+ * overwrite every stored caption with NULL for the handle it was meant to
+ * rescue. Fewer media rows, same fields.
+ */
 async function fetchBusinessDiscovery(
   originId: string,
   username: string,
-  token: string
-): Promise<{ bd: BusinessDiscovery | null; error: string | null }> {
+  token: string,
+  mediaLimit: number = RECENT_MEDIA_LIMIT
+): Promise<{ bd: BusinessDiscovery | null; error: string | null; kind: BdErrorKind | null }> {
   const fields =
     `business_discovery.username(${username})` +
     `{id,username,name,followers_count,media_count,` +
-    `media.limit(${RECENT_MEDIA_LIMIT}){id,like_count,comments_count,media_type,timestamp,caption,permalink}}`;
+    `media.limit(${mediaLimit}){id,like_count,comments_count,media_type,timestamp,caption,permalink}}`;
   const url = `${GRAPH_API}/${originId}?fields=${encodeURIComponent(fields)}&access_token=${encodeURIComponent(token)}`;
   const res = await fetch(url, { cache: 'no-store' });
   const json = (await res.json()) as {
@@ -124,14 +158,43 @@ async function fetchBusinessDiscovery(
     error?: { message?: string };
   };
   if (json.error || !json.business_discovery) {
-    return {
-      bd: null,
-      error:
-        json.error?.message ??
-        `no business_discovery in response (HTTP ${res.status})`,
-    };
+    const message =
+      json.error?.message ?? `no business_discovery in response (HTTP ${res.status})`;
+    return { bd: null, error: message, kind: classifyBdError(message) };
   }
-  return { bd: json.business_discovery, error: null };
+  return { bd: json.business_discovery, error: null, kind: null };
+}
+
+/**
+ * Handles that must not be called this tick, read from the failures the route
+ * already writes. State lives entirely in social_instagram_logs — no new
+ * column, no migration, no schema change.
+ *
+ * Never let this read change the outcome of the tick: on any failure the map
+ * comes back empty and every handle is polled exactly as before.
+ */
+async function loadSuppressedHandles(
+  supabase: SupabaseClient,
+  nowMs: number
+): Promise<Map<string, SuppressedHandle>> {
+  try {
+    const since = new Date(nowMs - SUPPRESSION_WINDOW_DAYS * 86_400_000).toISOString();
+    // Index-backed: idx_social_instagram_logs_event_time is
+    // (event_type, occurred_at DESC), so this is a range scan even though the
+    // table holds 182,837 rows.
+    const { data, error } = await supabase
+      .from('social_instagram_logs')
+      .select('payload, error_message, occurred_at')
+      .eq('event_type', 'business_discovery_fetch')
+      .eq('status', 'error')
+      .gte('occurred_at', since)
+      .order('occurred_at', { ascending: false })
+      .limit(SUPPRESSION_ROW_CAP);
+    if (error || !data) return new Map();
+    return selectSuppressedHandles(data as unknown as BdErrorLogRow[], nowMs);
+  } catch {
+    return new Map();
+  }
 }
 
 /**
@@ -144,14 +207,18 @@ async function fetchBusinessDiscovery(
 async function logHandleFailure(
   supabase: SupabaseClient,
   username: string,
-  message: string
+  message: string,
+  kind: BdErrorKind = 'transient'
 ): Promise<void> {
   try {
     await supabase.from('social_instagram_logs').insert({
       account_id: null,
       event_type: 'business_discovery_fetch',
       status: 'error',
-      payload: { username },
+      // `kind` is for whoever reads the row. Suppression re-derives the kind
+      // from error_message so it also understands the 6,653 rows written
+      // before this field existed.
+      payload: { username, kind },
       error_message: message.slice(0, 500),
       occurred_at: new Date().toISOString(),
     });
@@ -227,28 +294,56 @@ export async function GET(request: Request): Promise<Response> {
   let postsWritten = 0;
   let failed = 0;
   const failedHandles: string[] = [];
-  const now = new Date().toISOString();
+  const nowMs = Date.now();
+  const now = new Date(nowMs).toISOString();
 
   let skippedUpgraded = 0;
+
+  // Handles Meta has permanently rejected. Without this the poller retried a
+  // dead handle 24x a day forever: @jkkn_otat has 2,101 consecutive failures
+  // since 12 June and has never once succeeded, while its ig_accounts row still
+  // reads status='active' and its follower numbers are frozen at 10 June.
+  const suppressedHandles = await loadSuppressedHandles(supabase, nowMs);
+  const suppressedThisTick: SuppressedHandle[] = [];
 
   for (const dept of (deptRows ?? []) as DeptRow[]) {
     if (upgraded.has(dept.username.toLowerCase())) {
       skippedUpgraded++;
       continue;
     }
+    const suppression = suppressedHandles.get(dept.username.toLowerCase());
+    if (suppression) {
+      // Still retried once per UTC day, so the handle recovers on its own the
+      // moment the department restores it — the three handles that went dark
+      // before this existed only stopped erroring because a human deleted or
+      // re-linked their registry row.
+      suppressedThisTick.push(suppression);
+      continue;
+    }
     try {
-      const { bd, error: bdError } = await fetchBusinessDiscovery(
+      let { bd, error: bdError, kind: bdKind } = await fetchBusinessDiscovery(
         originId,
         dept.username,
         token
       );
+      // Meta refused on response size. Ask this ONE handle for fewer media rows
+      // (same fields — see fetchBusinessDiscovery on why caption must stay).
+      if (!bd && bdKind === 'oversized') {
+        ({ bd, error: bdError, kind: bdKind } = await fetchBusinessDiscovery(
+          originId,
+          dept.username,
+          token,
+          OVERSIZED_RETRY_MEDIA_LIMIT
+        ));
+      }
       if (!bd || !bd.id) {
         failed++;
         failedHandles.push(dept.username);
         await logHandleFailure(
           supabase,
           dept.username,
-          bdError ?? 'empty business_discovery response'
+          bdError ?? 'empty business_discovery response',
+          bdKind ?? 'transient'
         );
         continue;
       }
@@ -377,6 +472,12 @@ export async function GET(request: Request): Promise<Response> {
       post_metrics: postsWritten,
       failed,
       failed_handles: failedHandles,
+      // Handles Meta permanently rejects, skipped this tick and retried once a
+      // day. Surfaced here because until now the failure existed only as a log
+      // row written 24x a day, attached to no account (logHandleFailure writes
+      // account_id: null) and read by nobody.
+      suppressed: suppressedThisTick.length,
+      suppressed_handles: suppressedThisTick,
       duration_ms: Date.now() - start,
     },
   });

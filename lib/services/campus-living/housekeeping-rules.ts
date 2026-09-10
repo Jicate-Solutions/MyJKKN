@@ -14,7 +14,12 @@
  * silently — the UI will offer a slot the RPC then refuses.
  */
 
-import type { BookingStatus, FeedbackHold, UsagePeriod } from '@/types/campus-living/housekeeping';
+import type {
+  BookingStatus,
+  FeedbackHold,
+  RescheduleReasonCode,
+  UsagePeriod,
+} from '@/types/campus-living/housekeeping';
 
 /** Half-width of the quota window, in days. 0 / 6 / 29 for day / week / month. */
 function quotaWindowDays(period: UsagePeriod): number {
@@ -141,6 +146,45 @@ export function canLearnerCancel(status: BookingStatus): boolean {
   return status === 'booked';
 }
 
+/**
+ * A booking may be moved only before the cleaner has started.
+ *
+ * Mirrors the status gate in fn_cl_housekeeping_reschedule: once the job is
+ * in_progress its started_at belongs to a slot, and once it is
+ * awaiting_feedback the cleaning has already happened. Moving either would
+ * make the record say something untrue.
+ */
+export function canReschedule(status: BookingStatus): boolean {
+  return status === 'booked' || status === 'assigned';
+}
+
+/**
+ * Why a booking was moved, in the warden's words and the learner's.
+ *
+ * ONE map, used by the reschedule dialog, the admin timeline and the learner's
+ * banner alike — the learner reads the reason the warden picked, so a second
+ * copy of this list would let the two surfaces describe the same move
+ * differently. Mirrors the reason_code CHECK on
+ * hostel_cleaning_booking_reschedules.
+ */
+export const RESCHEDULE_REASON_LABEL: Record<RescheduleReasonCode, string> = {
+  cleaner_unavailable: 'Cleaner unavailable at that time',
+  cleaner_on_leave: 'Cleaner on leave',
+  slot_full: 'That slot was full',
+  learner_requested: 'Learner asked for a different time',
+  emergency: 'Emergency',
+  other: 'Other',
+};
+
+export const RESCHEDULE_REASON_CODES = Object.keys(
+  RESCHEDULE_REASON_LABEL,
+) as RescheduleReasonCode[];
+
+/** 'other' is not a reason on its own — it needs the note that explains it. */
+export function rescheduleNeedsNote(code: RescheduleReasonCode): boolean {
+  return code === 'other';
+}
+
 /** Statuses that hold the room lock. Mirrors ux_hk_one_live_booking_per_room. */
 export function isLiveStatus(status: BookingStatus): boolean {
   return (
@@ -171,6 +215,11 @@ const BOOKING_ERROR_COPY: Record<string, string> = {
   cleaner_wrong_block: 'That cleaner does not serve this block.',
   cleaner_not_working: 'That cleaner does not work on this day.',
   not_assignable: 'This booking can no longer be assigned.',
+  not_reschedulable: 'The cleaning has already started, so it can no longer be moved.',
+  date_in_past: 'Pick a date from today onwards.',
+  invalid_reason: 'Pick a reason for moving this booking.',
+  reason_note_required: 'Tell the learner what "Other" means — a note is required.',
+  slot_unchanged: 'That is the slot the booking is already on. Pick a different date or time.',
   forbidden: 'You do not have permission to do that.',
   not_found: 'That booking no longer exists.',
 };
