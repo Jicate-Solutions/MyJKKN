@@ -66,6 +66,13 @@ export const TABLE_OVERRIDES: Record<string, string> = {
 /** Prefix-to-module mapping checked in order; first match wins. */
 export const MODULE_PREFIXES: [string, string][] = [
   ['reference_catalog', 'Reference'],
+  // Online Meetings (2026-09-09) — online_meetings + the seven
+  // online_meeting_* tables. Listed FIRST among the meeting-ish prefixes on
+  // purpose: this module is distinct from the /meetings booking module, whose
+  // tables are meeting_* (singular, no "online"), and bucketing the two
+  // together would tell the permissions audit that one set of keys governs
+  // both. They govern neither each other's rows nor each other's policies.
+  ['online_meeting', 'Online Meetings'],
   // Projects module tables (project_statuses, project_labels, …) — module
   // registered 2026-07-12 with its first permission key (projects.view)
   ['project_', 'Projects'],

@@ -26,15 +26,17 @@ import { useBookingStatusCounts } from '@/hooks/campus-living/use-housekeeping-b
 import { HousekeepingBookingService } from '@/lib/services/campus-living/housekeeping-booking-service';
 import { BookingCard } from './_components/booking-card';
 import { getBookingColumns } from './_components/booking-columns';
-import { todayLocal } from './_components/booking-status';
+import { STATUS_LABEL, todayLocal } from './_components/booking-status';
 import { BookingDetailDialog } from './_components/booking-detail-dialog';
 import { AssignCleanerDialog } from './_components/assign-cleaner-dialog';
+import { RescheduleBookingDialog } from './_components/reschedule-booking-dialog';
 import { WaiveHoldDialog } from './_components/waive-hold-dialog';
-import type { BookingBoardRow } from '@/types/campus-living/housekeeping';
+import type { BookingBoardRow, BookingStatus } from '@/types/campus-living/housekeeping';
 
 const HK_KEYS = [
   'campus_living.housekeeping.view',
   'campus_living.housekeeping.assign',
+  'campus_living.housekeeping.reschedule',
   'campus_living.housekeeping.execute',
   'campus_living.housekeeping.waive',
 ];
@@ -45,8 +47,10 @@ export default function HousekeepingBookingsPage() {
   // caller may see, so 'all' means "all I can reach", never "all that exist".
   const [institutionId, setInstitutionId] = useState<string>('all');
   const [blockId, setBlockId] = useState<string>('all');
+  const [status, setStatus] = useState<BookingStatus | 'all'>('all');
   const [viewTarget, setViewTarget] = useState<BookingBoardRow | null>(null);
   const [assignTarget, setAssignTarget] = useState<BookingBoardRow | null>(null);
+  const [rescheduleTarget, setRescheduleTarget] = useState<BookingBoardRow | null>(null);
   const [waiveTarget, setWaiveTarget] = useState<BookingBoardRow | null>(null);
   // Bumped after a mutation to make the table refetch — it owns its own paging
   // state, so invalidating a React Query key would not reach it.
@@ -59,6 +63,7 @@ export default function HousekeepingBookingsPage() {
   const canAssign = gate('campus_living.housekeeping.assign');
   const canExecute = gate('campus_living.housekeeping.execute');
   const canWaive = gate('campus_living.housekeeping.waive');
+  const canReschedule = gate('campus_living.housekeeping.reschedule');
 
   const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess();
   const { data: blocksResult } = useAllReachableBlocks();
@@ -68,7 +73,12 @@ export default function HousekeepingBookingsPage() {
   // WHICH institution's rows to fetch; RLS already filters them.
   const scopedInstitution = institutionId === 'all' ? undefined : institutionId;
   const scopedBlock = blockId === 'all' ? undefined : blockId;
+  const scopedStatus = status === 'all' ? undefined : status;
 
+  // Deliberately WITHOUT the status filter. These feed the summary tiles, which
+  // are the breakdown of the set the other filters describe — folding status in
+  // would zero five of the six tiles the moment one is picked, and the tiles are
+  // what tells you a status is worth filtering to in the first place.
   const filters = useMemo(
     () => ({ institutionId: scopedInstitution, blockId: scopedBlock }),
     [scopedInstitution, scopedBlock],
@@ -88,6 +98,7 @@ export default function HousekeepingBookingsPage() {
         dateTo: params.to_date || undefined,
         institutionId: scopedInstitution,
         blockId: scopedBlock,
+        status: scopedStatus,
         sortBy: params.sort_by || undefined,
         sortOrder: params.sort_order === 'asc' ? 'asc' : 'desc',
       });
@@ -103,7 +114,7 @@ export default function HousekeepingBookingsPage() {
         },
       };
     },
-    [scopedInstitution, scopedBlock],
+    [scopedInstitution, scopedBlock, scopedStatus],
   );
 
   const bumpRefetch = () => setRefetchKey((k) => k + 1);
@@ -114,12 +125,14 @@ export default function HousekeepingBookingsPage() {
         canAssign,
         canExecute,
         canWaive,
+        canReschedule,
         onView: setViewTarget,
         onAssign: setAssignTarget,
+        onReschedule: setRescheduleTarget,
         onWaive: setWaiveTarget,
         onUploaded: bumpRefetch,
       }),
-    [canAssign, canExecute, canWaive],
+    [canAssign, canExecute, canWaive, canReschedule],
   );
 
   return (
@@ -166,8 +179,8 @@ export default function HousekeepingBookingsPage() {
           </div>
         </div>
 
-        {/* Scope filters. The table owns search, date range and paging; these two
-            are the axes it has no column-level filter for. */}
+        {/* Scope filters. The table owns search, date range and paging; these
+            three are the axes it has no column-level filter for. */}
         <Card>
           <CardContent className='flex flex-wrap items-end gap-3 p-4'>
             <Select
@@ -204,6 +217,40 @@ export default function HousekeepingBookingsPage() {
                 ))}
               </SelectContent>
             </Select>
+
+            {/* Status. Options come from STATUS_LABEL so the filter, the table
+                badge and the mobile card cannot name the same status
+                differently — 'booked' reads as "Unassigned" everywhere. */}
+            <Select
+              value={status}
+              onValueChange={(v) => setStatus(v as BookingStatus | 'all')}
+            >
+              <SelectTrigger className='w-[13rem]'>
+                <SelectValue placeholder='All statuses' />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='all'>All statuses</SelectItem>
+                {(Object.keys(STATUS_LABEL) as BookingStatus[]).map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {STATUS_LABEL[s]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {(scopedInstitution || scopedBlock || scopedStatus) && (
+              <Button
+                variant='ghost'
+                size='sm'
+                onClick={() => {
+                  setInstitutionId('all');
+                  setBlockId('all');
+                  setStatus('all');
+                }}
+              >
+                Reset filters
+              </Button>
+            )}
           </CardContent>
         </Card>
 
@@ -224,7 +271,10 @@ export default function HousekeepingBookingsPage() {
         </div>
 
         <DataTable<BookingBoardRow, unknown>
-          key={`${scopedInstitution ?? 'all'}-${scopedBlock ?? 'all'}`}
+          // Remounts on a filter change so the table drops back to page 1 — it
+          // owns its own paging state, and page 7 of "all" is usually past the
+          // end of a narrower set.
+          key={`${scopedInstitution ?? 'all'}-${scopedBlock ?? 'all'}-${scopedStatus ?? 'all'}`}
           getColumns={() => columns}
           fetchDataFn={fetchBookings}
           refetchKey={refetchKey}
@@ -239,8 +289,10 @@ export default function HousekeepingBookingsPage() {
               canAssign={canAssign}
               canExecute={canExecute}
               canWaive={canWaive}
+              canReschedule={canReschedule}
               isOverdue={b.booking_date < todayLocal()}
               onAssign={setAssignTarget}
+              onReschedule={setRescheduleTarget}
               onWaive={setWaiveTarget}
               onUploaded={bumpRefetch}
             />
@@ -299,6 +351,19 @@ export default function HousekeepingBookingsPage() {
         onOpenChange={(o) => {
           if (!o) {
             setAssignTarget(null);
+            bumpRefetch();
+          }
+        }}
+      />
+      {/* Keyed like the others: a different booking mounts a fresh dialog, so
+          the date/slot/reason state can never carry over from the last one. */}
+      <RescheduleBookingDialog
+        key={`reschedule-${rescheduleTarget?.id ?? 'none'}`}
+        booking={rescheduleTarget}
+        open={rescheduleTarget !== null}
+        onOpenChange={(o) => {
+          if (!o) {
+            setRescheduleTarget(null);
             bumpRefetch();
           }
         }}
