@@ -12,6 +12,26 @@ export const queryKeys = {
     reporterStats: (filters: any) =>
       [...queryKeys.bugReports.all, 'reporter-stats', filters] as const
   },
+  // Online Meetings. Nothing in this app self-refreshes (5-minute staleTime,
+  // no refetch on focus), so every mutation must invalidate the list AND the
+  // detail key by hand — a table that only updates on reload is the default
+  // here, not the exception.
+  onlineMeetings: {
+    all: ['online-meetings'] as const,
+    lists: () => [...queryKeys.onlineMeetings.all, 'list'] as const,
+    list: (filters: unknown) => [...queryKeys.onlineMeetings.lists(), filters] as const,
+    detail: (id: string) => [...queryKeys.onlineMeetings.all, 'detail', id] as const,
+    participants: (id: string) =>
+      [...queryKeys.onlineMeetings.all, 'participants', id] as const,
+    polls: (id: string) => [...queryKeys.onlineMeetings.all, 'polls', id] as const,
+    agenda: (id: string) => [...queryKeys.onlineMeetings.all, 'agenda', id] as const,
+    minutes: (id: string) => [...queryKeys.onlineMeetings.all, 'minutes', id] as const,
+    actionItems: (id: string) =>
+      [...queryKeys.onlineMeetings.all, 'action-items', id] as const,
+    report: (id: string) => [...queryKeys.onlineMeetings.all, 'report', id] as const,
+    /** The live payload. Keyed by meeting so a guest and a colleague share it. */
+    live: (id: string) => [...queryKeys.onlineMeetings.all, 'live', id] as const,
+  },
   campusLiving: {
     all: ['campus-living'] as const,
     myHostel: {

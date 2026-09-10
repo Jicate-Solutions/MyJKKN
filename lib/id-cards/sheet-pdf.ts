@@ -18,6 +18,9 @@ import {
   CARD_LONG_MM,
   CARD_SHORT_MM,
   ISSUE_CAPTION_FONT_MM,
+  ISSUE_CAPTION_LINE_MM,
+  ISSUE_CAPTION_TOP_MM,
+  captionLines,
   ISSUE_FRAME_MM,
   ISSUE_RED,
   isFlagged,
@@ -113,25 +116,18 @@ export async function buildSheetPdf(pages: SheetPage[], options: BuildPdfOptions
         doc.setTextColor(ISSUE_RED);
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(ISSUE_CAPTION_FONT_MM * PT_PER_MM);
-        const maxWidth = cellW;
-        const text = fitCaption(doc, caption, maxWidth);
-        doc.text(text, x, y + cellH + ISSUE_CAPTION_FONT_MM + 0.4, { baseline: 'alphabetic' });
+        // Wrap like the CSS caption: as many lines as the row gap holds, then clip.
+        const lines = (doc.splitTextToSize(caption, cellW) as string[]).slice(0, captionLines(page.geometry));
+        doc.text(lines, x, y + cellH + ISSUE_CAPTION_TOP_MM + ISSUE_CAPTION_FONT_MM, {
+          baseline: 'alphabetic',
+          lineHeightFactor: ISSUE_CAPTION_LINE_MM / ISSUE_CAPTION_FONT_MM
+        });
       }
       done += 1;
       options.onProgress?.(done, total);
     }
   }
   return doc;
-}
-
-/** Trim a caption with an ellipsis so it never runs into the next column. */
-function fitCaption(doc: jsPDF, text: string, maxWidthMm: number): string {
-  if (doc.getTextWidth(text) <= maxWidthMm) return text;
-  let cut = text;
-  while (cut.length > 1 && doc.getTextWidth(`${cut}…`) > maxWidthMm) {
-    cut = cut.slice(0, -1);
-  }
-  return `${cut.trimEnd()}…`;
 }
 
 /** File name like `id-cards-2026-09-07-25-learners.pdf`. */

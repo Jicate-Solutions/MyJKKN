@@ -783,6 +783,14 @@ export interface HostelRoom {
   actual_capacity: number | null;
   ac_tonnage_tons: number | null;
   ac_annual_cost_inr: number | null;
+  // ─── Temporary beds (2026-09-09) ───
+  // Beds added beyond the sanctioned capacity for a learner who has to be
+  // placed in an already-full room. They become real, allocatable hostel_beds
+  // rows ('E1', 'E2', …) and count toward availability — but never toward the
+  // fee formula, which stays bound to `capacity`. Super-admin only.
+  extra_bed_count: number;
+  /** Generated: capacity + extra_bed_count. Allocatable beds; NOT a fee input. */
+  effective_capacity: number;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -810,6 +818,10 @@ export interface CreateHostelRoomDTO {
   actual_capacity?: number | null;
   ac_tonnage_tons?: number | null;
   ac_annual_cost_inr?: number | null;
+  // Super-admin only — a BEFORE trigger raises 42501 for anyone else. Omit the
+  // key entirely rather than sending 0, so a non-super-admin's save of the
+  // other fields is not refused. effective_capacity is generated; never write it.
+  extra_bed_count?: number;
 }
 
 export type UpdateHostelRoomDTO = Partial<CreateHostelRoomDTO>;

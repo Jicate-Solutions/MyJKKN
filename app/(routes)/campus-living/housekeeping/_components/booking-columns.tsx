@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import {
+  CalendarClock,
   CheckCircle2,
   Eye,
   ImageIcon,
@@ -19,6 +20,7 @@ import {
   Star,
   UserPlus,
 } from 'lucide-react';
+import { canReschedule as statusAllowsReschedule } from '@/lib/services/campus-living/housekeeping-rules';
 import type { BookingBoardRow } from '@/types/campus-living/housekeeping';
 import { STATUS_LABEL, STATUS_TONE, bookingDateLabel, hhmm, todayLocal } from './booking-status';
 import { PhotoUploadButton } from './photo-upload-button';
@@ -27,8 +29,10 @@ interface ColumnOptions {
   canAssign: boolean;
   canExecute: boolean;
   canWaive: boolean;
+  canReschedule: boolean;
   onView: (booking: BookingBoardRow) => void;
   onAssign: (booking: BookingBoardRow) => void;
+  onReschedule: (booking: BookingBoardRow) => void;
   onWaive: (booking: BookingBoardRow) => void;
   /** Called after a photo lands so the table re-reads the evidence column. */
   onUploaded: () => void;
@@ -46,8 +50,10 @@ export function getBookingColumns({
   canAssign,
   canExecute,
   canWaive,
+  canReschedule,
   onView,
   onAssign,
+  onReschedule,
   onWaive,
   onUploaded,
 }: ColumnOptions): ColumnDef<BookingBoardRow>[] {
@@ -186,6 +192,7 @@ export function getBookingColumns({
     cell: ({ row }) => {
       const b = row.original;
       const assignable = canAssign && (b.status === 'booked' || b.status === 'assigned');
+      const reschedulable = canReschedule && statusAllowsReschedule(b.status);
       // Waiving only means anything while a hold is actually live.
       const waivable =
         canWaive && b.status === 'awaiting_feedback' && b.booking_date < todayLocal();
@@ -208,7 +215,7 @@ export function getBookingColumns({
             <PhotoUploadButton booking={b} onUploaded={onUploaded} variant='icon' />
           )}
 
-          {(assignable || waivable) && (
+          {(assignable || reschedulable || waivable) && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant='ghost' size='icon' aria-label='Booking actions'>
@@ -220,6 +227,12 @@ export function getBookingColumns({
                   <DropdownMenuItem onClick={() => onAssign(b)}>
                     <UserPlus className='mr-2 h-4 w-4' />
                     {b.cleaner_name ? 'Reassign cleaner' : 'Assign cleaner'}
+                  </DropdownMenuItem>
+                )}
+                {reschedulable && (
+                  <DropdownMenuItem onClick={() => onReschedule(b)}>
+                    <CalendarClock className='mr-2 h-4 w-4' />
+                    Reschedule
                   </DropdownMenuItem>
                 )}
                 {waivable && (
