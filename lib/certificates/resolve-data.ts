@@ -33,7 +33,7 @@ interface LearnerRow {
   father_name: string | null;
   mother_name: string | null;
   college_email: string | null;
-  program: { program_name: string | null } | null;
+  program: { program_name: string | null; card_short_name: string | null } | null;
   batch: { batch_name: string | null; start_date: string | null; end_date: string | null } | null;
   semester: { semester_name: string | null; semester_code: string | null; semester_order: number | null } | null;
 }
@@ -41,7 +41,7 @@ interface LearnerRow {
 const LEARNER_SELECT = `
   id, first_name, last_name, roll_number, register_number, gender,
   father_name, mother_name, college_email,
-  program:programs(program_name),
+  program:programs(program_name, card_short_name),
   batch:batches(batch_name, start_date, end_date),
   semester:semesters(semester_name, semester_code, semester_order)
 `;
@@ -105,6 +105,7 @@ export async function resolveCertificateSubject(requestId: string): Promise<Reso
     parentName: clean(learner?.father_name) || clean(learner?.mother_name),
     gender: clean(learner?.gender),
     programName: clean(learner?.program?.program_name) || clean(ctx.program),
+    programShortName: clean(learner?.program?.card_short_name),
     batchSpan: batchSpanLabel(learner?.batch ?? null),
     batchEndDate: learner?.batch?.end_date ?? null,
     yearOfStudy,

@@ -420,19 +420,28 @@ export default function NewTimetablePage() {
     }
   }, [watchSelectedTemplateId, availableTemplates, form]);
 
-  // Check for existing timetable with date overlap validation
+  // Check whether this section already holds an active timetable this year
   const checkExistingTimetable = useCallback(async () => {
     const values = form.getValues();
 
-    // Only check if all required fields are filled
-    if (
+    // Two rules, two sets of fields. A SECTION-level timetable keys on
+    // academic_year + section alone, so requiring the whole hierarchy would gate
+    // the warning behind fields that cannot change the verdict. A SEMESTER-level
+    // one has no section and keys on the hierarchy plus the semester, so it
+    // needs those instead — and it used to be excluded from this check
+    // altogether by the `!values.section_id` guard, which is why the operator
+    // only ever learned about the clash at save time.
+    if (!values.academic_year_id) {
+      return;
+    }
+    if (values.timetable_type === 'section') {
+      if (!values.section_id) return;
+    } else if (
       !values.institution_id ||
-      !values.academic_year_id ||
       !values.degree_id ||
       !values.program_id ||
       !values.department_id ||
-      !values.semester_id ||
-      !values.section_id
+      !values.semester_id
     ) {
       return;
     }
@@ -459,9 +468,15 @@ export default function NewTimetablePage() {
         program_id: values.program_id,
         department_id: values.department_id,
         semester_id: values.semester_id,
-        section_id: values.section_id,
-        // Passed for the message only — they no longer decide the verdict, and
-        // either may legitimately be absent at this point in the form.
+        // Never send a section for a semester-level timetable. The field keeps
+        // its last value when the type is switched back and forth, and a stale
+        // id here would silently run the section rule on a row that will be
+        // saved without one.
+        section_id:
+          values.timetable_type === 'section' ? values.section_id : undefined,
+        // For the section rule these are message-only. For the semester rule
+        // they ARE the verdict: two semester-level timetables clash only where
+        // their date ranges overlap, and an absent bound counts as unbounded.
         start_date: values.start_date
           ? formatDateForAPI(values.start_date)
           : undefined,
@@ -476,25 +491,36 @@ export default function NewTimetablePage() {
         message: result.message
       });
 
-      // The error belongs on the SECTION, not on the dates. It is the section
-      // that is taken; changing the date range no longer clears the conflict, so
-      // pointing the operator at the date fields would send them somewhere the
-      // problem cannot be fixed.
-      if (result.exists) {
-        toast.error(
-          result.message ||
-            'This section already has an active timetable for this academic year'
-        );
-        form.setError('section_id', {
-          type: 'manual',
-          message:
-            'This section already has an active timetable for this academic year'
-        });
-      } else {
-        form.clearErrors('section_id');
-      }
+      // The error goes on the field that can actually clear it. For a section
+      // conflict that is the section — the date range no longer excuses it. For
+      // a semester-level conflict it is the dates, and marking the section field
+      // there would point at an input the form never showed.
+      form.clearErrors('section_id');
       form.clearErrors('start_date');
       form.clearErrors('end_date');
+
+      if (result.exists) {
+        const isSemesterConflict = result.conflictScope === 'semester';
+        toast.error(
+          result.message ||
+            (isSemesterConflict
+              ? 'This semester already has an active semester-level timetable covering these dates'
+              : 'This section already has an active timetable for this academic year')
+        );
+        if (isSemesterConflict) {
+          form.setError('start_date', {
+            type: 'manual',
+            message:
+              'These dates overlap another semester-level timetable for this semester'
+          });
+        } else {
+          form.setError('section_id', {
+            type: 'manual',
+            message:
+              'This section already has an active timetable for this academic year'
+          });
+        }
+      }
     } catch (error) {
       logger.error('academic/timetables', 'Error checking existing timetable', error);
       setExistingTimetableCheck({ checking: false, exists: false });
@@ -503,11 +529,18 @@ export default function NewTimetablePage() {
 
   // Check for existing timetable when relevant fields change
   useEffect(() => {
-    if (watchSectionId) {
-      checkExistingTimetable();
-    }
+    // Not gated on a section any more: a semester-level timetable has none, and
+    // gating on one is what kept that path from ever being pre-checked.
+    // checkExistingTimetable decides for itself which fields it still needs.
+    checkExistingTimetable();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [watchSectionId, watchSemesterId, watchStartDate, watchEndDate]);
+  }, [
+    watchSectionId,
+    watchSemesterId,
+    watchTimetableType,
+    watchStartDate,
+    watchEndDate
+  ]);
 
   // Form submission handler
   const onSubmit = async (values: TimetableFormValues) => {
