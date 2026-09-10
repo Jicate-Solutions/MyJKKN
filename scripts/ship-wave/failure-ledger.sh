@@ -34,12 +34,23 @@ ledger_class() {
     | cut -c1-90
 }
 
-# ledger_record <outcome> <message> [class]
-# outcome: froze | round | resolved
+# ledger_record <outcome> <message> [class] [chosen] [writes-json]
+# outcome: froze | round | backfill | resolved
+#
+# 2026-09-10 (HUMAN-IN-THE-LOOP.md §D, "propose after 2 identical decisions"): a
+# 'resolved' record may now carry WHAT the Director chose. The desk
+# (v5-w12-desk.sh) writes one every time it applies his answer to a freeze
+# question:
+#   ledger_record resolved "<question title>" "<freeze class>" "<option label>" '<writes json array>'
+# → {"at":…,"outcome":"resolved","class":…,"message":…,"chosen":"Lift the stop","writes":[{"op":"unfreeze"}]}
+# The two extra fields are written only when given, so every older caller
+# (guards, three-arg resolved, froze, round) produces the same line it always did.
+# 'writes' is stored as parsed JSON when the string parses, verbatim otherwise —
+# a malformed answer is still evidence of a decision, just not of a shape.
 ledger_record() {
-  local outcome="$1" msg="$2" cls="${3:-}"
+  local outcome="$1" msg="$2" cls="${3:-}" chosen="${4:-}" writes="${5:-}"
   [ -n "$cls" ] || cls=$(ledger_class "$msg")
-  OUT="$outcome" MSG="$msg" CLS="$cls" python3 - "$LEDGER" <<'PY' 2>/dev/null || true
+  OUT="$outcome" MSG="$msg" CLS="$cls" CHOSEN="$chosen" WRITES="$writes" python3 - "$LEDGER" <<'PY' 2>/dev/null || true
 import json, os, sys, datetime
 rec = {
     "at": datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S"),
@@ -47,8 +58,32 @@ rec = {
     "class": os.environ["CLS"],
     "message": os.environ["MSG"][:400],
 }
+if os.environ.get("CHOSEN"):
+    rec["chosen"] = os.environ["CHOSEN"][:120]
+if os.environ.get("WRITES"):
+    try: rec["writes"] = json.loads(os.environ["WRITES"])
+    except Exception: rec["writes"] = os.environ["WRITES"][:400]
 with open(sys.argv[1], "a") as fh:
     fh.write(json.dumps(rec) + "\n")
+PY
+}
+
+# ledger_resolutions <class> → the 'resolved' records for that class, newest
+# first, one JSON line each. This is what policy-learning.sh reads to notice the
+# Director answering the same question the same way twice.
+ledger_resolutions() {
+  [ -s "$LEDGER" ] || return 0
+  CLS="$1" python3 - "$LEDGER" <<'PY' 2>/dev/null || true
+import json, os, sys
+cls = os.environ["CLS"]
+out = []
+for line in open(sys.argv[1]):
+    try: r = json.loads(line)
+    except Exception: continue
+    if r.get("outcome") == "resolved" and r.get("class") == cls:
+        out.append(r)
+for r in reversed(out):
+    print(json.dumps(r))
 PY
 }
 
