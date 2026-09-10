@@ -5924,6 +5924,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     ]
   },
   {
+    "path": "/online-meetings",
+    "label": "Online Meetings",
+    "iconName": "Video",
+    "children": [
+      {
+        "path": "/online-meetings/new",
+        "label": "Schedule a Team Meeting",
+        "iconName": "CalendarPlus",
+        "children": []
+      }
+    ]
+  },
+  {
     "path": "/organizations",
     "label": "Organizations",
     "iconName": "Building2",

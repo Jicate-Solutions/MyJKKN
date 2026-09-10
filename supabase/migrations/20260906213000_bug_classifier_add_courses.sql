@@ -136,6 +136,7 @@ ALTER TABLE public.bug_reports ADD COLUMN module_name VARCHAR(100) GENERATED ALW
     WHEN page_url ~ '/my-bug-reports/' THEN 'my-bug-reports'
     WHEN page_url ~ '/notifications/' THEN 'notifications'
     WHEN page_url ~ '/okr/' THEN 'okr'
+    WHEN page_url ~ '/online-meetings/' THEN 'online-meetings'
     WHEN page_url ~ '/organizations?/' THEN 'organizations'
     WHEN page_url ~ '/profile/' THEN 'profile'
     WHEN page_url ~ '/resource-management/' THEN 'resource-management'
@@ -188,6 +189,7 @@ ALTER TABLE public.bug_reports ADD COLUMN sub_module_name VARCHAR(100) GENERATED
     WHEN page_url ~ '/my-bug-reports/' THEN substring(page_url FROM '/my-bug-reports/([^/?#]+)')
     WHEN page_url ~ '/notifications/' THEN substring(page_url FROM '/notifications/([^/?#]+)')
     WHEN page_url ~ '/okr/' THEN substring(page_url FROM '/okr/([^/?#]+)')
+    WHEN page_url ~ '/online-meetings/' THEN substring(page_url FROM '/online-meetings/([^/?#]+)')
     WHEN page_url ~ '/organizations?/' THEN substring(page_url FROM '/organizations?/([^/?#]+)')
     WHEN page_url ~ '/profile/' THEN substring(page_url FROM '/profile/([^/?#]+)')
     WHEN page_url ~ '/resource-management/' THEN substring(page_url FROM '/resource-management/([^/?#]+)')

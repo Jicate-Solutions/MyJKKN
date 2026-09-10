@@ -537,10 +537,32 @@ export function ApplyShortTimeOffDrawer({
           ) : (
             <>
               <div>
+                <Label htmlFor="stoDate">Date <span className="text-destructive">*</span></Label>
+                <Input id="stoDate" type="date" className="mt-1" value={date}
+                  onChange={(e) => setDate(e.target.value)} />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Short time off is a same-day request.
+                </p>
+              </div>
+
+              <div>
                 <Label htmlFor="stoType">Request For <span className="text-destructive">*</span></Label>
-                <Select value={effectiveTypeId} onValueChange={setLeaveTypeId}>
+                {/* THE DATE COMES FIRST, deliberately. hr_sto_usage resolves
+                    the period from the REQUEST date, so an allowance shown
+                    before one is picked is this month's — and this month's is
+                    not what hr_trig_sto_enforce_limits applies to a request
+                    dated in another. */}
+                <Select value={effectiveTypeId} onValueChange={setLeaveTypeId} disabled={!date}>
                   <SelectTrigger id="stoType" className="mt-1">
-                    <SelectValue placeholder={ctx.isLoading ? 'Loading…' : 'Select a request type'} />
+                    <SelectValue
+                      placeholder={
+                        !date
+                          ? 'Pick a date first'
+                          : ctx.isLoading
+                            ? 'Loading…'
+                            : 'Select a request type'
+                      }
+                    />
                   </SelectTrigger>
                   <SelectContent>
                     {options.map((b) => (
@@ -644,15 +666,6 @@ export function ApplyShortTimeOffDrawer({
                     No usage limit configured for this type.
                   </p>
                 ) : null}
-              </div>
-
-              <div>
-                <Label htmlFor="stoDate">Date <span className="text-destructive">*</span></Label>
-                <Input id="stoDate" type="date" className="mt-1" value={date}
-                  onChange={(e) => setDate(e.target.value)} />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Short time off is a same-day request.
-                </p>
               </div>
 
               {/* The shift, as the two sessions it is actually worked in. This
