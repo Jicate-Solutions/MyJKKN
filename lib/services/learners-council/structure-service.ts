@@ -707,9 +707,12 @@ export class LCStructureService {
    * Get a single chapter by ID with verticals and members
    */
   static async getChapterById(id: string): Promise<YUVAChapter> {
+    // Row type given explicitly: inferring it from this nested embed select
+    // exceeds the TypeScript instantiation depth limit (TS2589). The result is
+    // treated as a YUVAChapter below either way.
     const { data, error } = await this.supabase
       .from('yuva_chapters')
-      .select(`
+      .select<string, YUVAChapter>(`
         *,
         institution:institutions(id, name),
         members:yuva_vertical_members(
@@ -999,9 +1002,10 @@ export class LCStructureService {
    * Get all vertical members for a chapter
    */
   static async getVerticalMembers(chapterId: string): Promise<YUVAVerticalMember[]> {
+    // Row type given explicitly for the same TS2589 reason as getChapterById.
     const { data, error } = await this.supabase
       .from('yuva_vertical_members')
-      .select(`
+      .select<string, YUVAVerticalMember>(`
         *,
         user:profiles(id, full_name, email, avatar_url),
         vertical:yuva_verticals(id, name, type)
@@ -1028,6 +1032,7 @@ export class LCStructureService {
     role: string;
     academic_year: string;
   }): Promise<YUVAVerticalMember> {
+    // Row type given explicitly for the same TS2589 reason as getChapterById.
     const { data: member, error } = await this.supabase
       .from('yuva_vertical_members')
       .insert({
@@ -1035,7 +1040,7 @@ export class LCStructureService {
         is_active: true,
         appointed_at: new Date().toISOString()
       })
-      .select(`
+      .select<string, YUVAVerticalMember>(`
         *,
         user:profiles(id, full_name, email, avatar_url),
         vertical:yuva_verticals(id, name, type)

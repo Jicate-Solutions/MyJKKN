@@ -5,6 +5,7 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { LCNotificationService } from './notification-service';
 import { describeCheckConstraintViolation } from '@/lib/validations/grievance-ticket';
+import type { TablesInsert } from '@/types/supabase';
 import type {
   GrievanceTicket,
   GrievanceComment,
@@ -266,29 +267,36 @@ export class LCIssueService {
       .eq('id', userId)
       .single();
 
+    // ticket_number is required by the generated Insert type, but the
+    // BEFORE-INSERT trigger set_grievance_ticket_number fills it
+    // (GRV-YYYYMMDD-NNNN), the same trigger GrievanceService.createTicket relies
+    // on. The row is still checked against every other column; only that one
+    // column is asserted.
+    const newTicket: Omit<TablesInsert<'grievance_tickets'>, 'ticket_number'> = {
+      institution_id: data.institution_id,
+      category_id: categoryId,
+      subject: data.subject,
+      description: data.description,
+      priority: data.priority as GrievancePriority,
+      status: 'open' as GrievanceStatus,
+      raised_by_type: (['admin', 'super_admin', 'staff', 'hod', 'principal', 'teacher'].includes(profile?.role || '')
+        ? 'staff'
+        : profile?.role === 'parent' ? 'parent'
+        : profile?.role === 'alumni' ? 'alumni'
+        : 'learner') as 'learner' | 'parent' | 'staff' | 'alumni',
+      raised_by_id: userId,
+      raised_by_name: profile?.full_name || 'Unknown',
+      raised_by_email: profile?.email || null,
+      sla_hours: 72, // Default 72h SLA for LC issues
+      sla_deadline: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(),
+      sla_status: 'on_track',
+      attachments: [],
+      metadata: { source: 'learners_council' }
+    };
+
     const { data: ticket, error } = await this.supabase
       .from('grievance_tickets')
-      .insert({
-        institution_id: data.institution_id,
-        category_id: categoryId,
-        subject: data.subject,
-        description: data.description,
-        priority: data.priority as GrievancePriority,
-        status: 'open' as GrievanceStatus,
-        raised_by_type: (['admin', 'super_admin', 'staff', 'hod', 'principal', 'teacher'].includes(profile?.role || '')
-          ? 'staff'
-          : profile?.role === 'parent' ? 'parent'
-          : profile?.role === 'alumni' ? 'alumni'
-          : 'learner') as 'learner' | 'parent' | 'staff' | 'alumni',
-        raised_by_id: userId,
-        raised_by_name: profile?.full_name || 'Unknown',
-        raised_by_email: profile?.email || null,
-        sla_hours: 72, // Default 72h SLA for LC issues
-        sla_deadline: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(),
-        sla_status: 'on_track',
-        attachments: [],
-        metadata: { source: 'learners_council' }
-      })
+      .insert(newTicket as TablesInsert<'grievance_tickets'>)
       .select(`
         *,
         category:grievance_categories!category_id(id, name),

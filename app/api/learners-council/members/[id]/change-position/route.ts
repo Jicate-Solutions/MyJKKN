@@ -114,7 +114,7 @@ export async function POST(
       {
         error:
           'You do not have permission to change council positions. This needs ' +
-          'an administrator, principal, HOD or staff account.'
+          'an administrator, principal, HOD or team member account.'
       },
       { status: 403 }
     );
