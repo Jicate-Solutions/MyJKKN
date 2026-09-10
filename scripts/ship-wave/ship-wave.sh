@@ -39,7 +39,8 @@
 #         --no-deploy        merge but do not fire the hook       --no-sweep   skip the post-deploy sweep
 #         --only N,M         restrict the whole run to these PR numbers
 #         --unfreeze         clear a FREEZE after the Director has looked
-#         --freeze "<msg>"   raise a FREEZE by hand — classified soft/hard like any other (a peer hold is soft); a hand-written FROZEN line reads as hard
+#         --freeze "<msg>"   raise a FREEZE by hand — classified soft/hard like any other (a peer hold is soft); a hand-written FROZEN line reads as hard.
+#                            Never downgrades: while any HARD line is in FROZEN the class in force stays hard (--unfreeze is the only way down)
 # RECEIPT ~/.config/obsidian/v5-myjkkn-ship-last.txt   REPORT  <repo>/artifacts/ship-wave-<ts>.html
 # REQUIRES gh (authenticated), python3, curl; tmux -L obsidian for dispatch; Vercel CLI login for deploy verdicts.
 # FRONT DOOR for Claude tabs: /myjkkn-chain (W12 rows: run · approve HELD · unfreeze · conflict lane). Helper tabs are told to
@@ -127,14 +128,29 @@ classify_freeze() {  # $1 = freeze message → prints soft|hard; returns 1 when 
     *"broken page"*|*"post-deploy sweep failed"*|*"baseline bounce"*)
       printf 'hard'; return 0;;
     # soft rows are ANCHORED phrases, not bare substrings: `*hold*` used to turn "threshold"/"uphold" soft (verifier 2026-09-10)
-    *"peer hold"*|*"Director hold"*|*"director hold"*|*"on hold"*|*"files on jicate/main match"*|*UNRESOLVABLE*|*policy*|*advisory*)
+    # `policy` / `advisory` match only as the FIRST word(s) of the reason: "RLS policy missing …" and "advisory lock
+    # timeout …" are apply failures, not decisions (D's verifier 9j, 2026-09-10)
+    *"peer hold"*|*"Director hold"*|*"director hold"*|*"on hold"*|*"files on jicate/main match"*|*UNRESOLVABLE*|"policy "*|"advisory check"*)
       printf 'soft'; return 0;;
     *) printf 'hard'; return 1;;
   esac
 }
-freeze_class_now() {  # → the class of the freeze in force: field 3 of the LAST FROZEN line; a missing or odd field = hard
-  local c; c=$(tail -1 "$FREEZE" 2>/dev/null | awk -F'\t' '{print $3}')
-  case "$c" in soft|hard) printf '%s' "$c";; *) printf 'hard';; esac
+freeze_class_now() {  # → the class of the freeze in force: HARD if ANY live FROZEN line is hard (most severe wins), else soft
+  # Round-3 verifier (N3): with "last line wins", `--freeze "peer hold …"` typed on the phone appended a soft line on top
+  # of an unresolved hard one and the next run merged and deployed on top of a failed migration. Nothing a phone can
+  # do downgrades a hard stop. Fail-safe reading of every line: a line with fewer than 3 or more than 4 tab fields, a
+  # class field that is not exactly soft|hard, an empty file, or an unreadable file all count as hard (N2i: a TAB
+  # inside a message pushed the class column right — freeze() now sanitises, and a shifted line still reads hard here).
+  local v; v=$(awk -F'\t' 'BEGIN{c="soft";n=0} {n++; if ((NF!=3 && NF!=4) || ($3!="soft" && $3!="hard")) {c="hard"; exit} if ($3=="hard") c="hard"} END{if (n==0) c="hard"; print c}' "$FREEZE" 2>/dev/null)
+  case "$v" in soft|hard) printf '%s' "$v";; *) printf 'hard';; esac
+}
+freeze_line_now() {  # → the FROZEN line that GOVERNS the class in force: the last hard line when the class is hard, else the last line
+  [ -f "$FREEZE" ] || return 0
+  if [ "$(freeze_class_now)" = hard ]; then
+    local l; l=$(awk -F'\t' '(NF==3||NF==4) && $3=="hard"' "$FREEZE" 2>/dev/null | tail -1)
+    [ -n "$l" ] && { printf '%s\n' "$l"; return 0; }
+  fi
+  tail -1 "$FREEZE" 2>/dev/null
 }
 # ── the ONE deploy gate (integrator 2026-09-10) ───────────────────────────────────────────────────────
 # Every path that can POST the production deploy hook — this round's merges, the §C main-ahead trigger, the plain-go
@@ -148,18 +164,25 @@ deploy_allowed() {  # → 0 = may fire · 1 = must not, DEPLOY_BLOCK holds the o
   [ "${MODE:-plan}" = go ] || { DEPLOY_BLOCK="plan mode — the deploy stage never acts outside go"; return 1; }
   [ -z "${NO_DEPLOY:-}" ] || { DEPLOY_BLOCK="--no-deploy"; return 1; }
   if [ -f "$FREEZE" ] && [ "$(freeze_class_now)" = hard ]; then
-    DEPLOY_BLOCK="hard freeze — nothing ships until the stop is lifted (--unfreeze): $(tail -1 "$FREEZE" | cut -f2 | cut -c1-120)"; return 1
+    DEPLOY_BLOCK="hard freeze — nothing ships until the stop is lifted (--unfreeze): $(freeze_line_now | cut -f2 | cut -c1-120)"; return 1
   fi
   return 0
 }
 freeze() {
-  local msg="$*" cls known=1 lcls=""
+  local msg cls known=1 lcls=""
+  # the FROZEN line is tab-separated: a TAB / CR / LF inside the message would shift the class column (round-3 N2i:
+  # "APPLY failed<TAB>soft" read as soft). Every separator becomes one space BEFORE anything reads the message.
+  msg=$(printf '%s' "$*" | tr '\t\r\n' '   ')
   cls=$(classify_freeze "$msg") || known=""
   # field 4 = ledger_class of the message: the SAME slug the failure ledger, the desk's question and slice D's
   # policy proposals key on, so "which cause froze us" is one key everywhere (spec §B: "derives it with ledger_class")
   type -t ledger_class >/dev/null 2>&1 && lcls=$(ledger_class "$msg")
   printf '%s\t%s\t%s\t%s\n' "$(date '+%F %T')" "$msg" "$cls" "${lcls:-$cls}" >> "$FREEZE"
-  if [ "$cls" = soft ]; then
+  if [ "$cls" = soft ] && [ "$(freeze_class_now)" = hard ]; then
+    # --freeze from the phone while a hard stop is unresolved: the soft line is recorded (it is a real hold) but the
+    # class in force stays HARD — most severe wins; --unfreeze is the only way down (N3)
+    say "  ⛔ FROZEN (soft line added, HARD stop still in force): $msg — an earlier hard stop is unresolved: $(freeze_line_now | cut -f2 | cut -c1-120); nothing merges or ships until --unfreeze"
+  elif [ "$cls" = soft ]; then
     say "  ⛔ FROZEN (soft): $msg — merging LOW/NORMAL, holding HELD, until: ship-wave.sh --unfreeze"
   else
     say "  ⛔ FROZEN (hard): $msg — no merges, nothing ships, until: ship-wave.sh --unfreeze"
@@ -248,13 +271,22 @@ record_last_deployed() {  # $1 = deployment JSON ("" allowed) · $2 = fallback s
   return 0
 }
 hand_merged_since() {  # $1 = freeze timestamp → "#n #m " — PRs whose merge commit landed on main since then that the wave did NOT merge
-  # the wave records its own merges in each run's merged-map.tsv; anything else on main since the freeze is by hand
-  local mine n; mine=$(cat "$STATE"/run-*/merged-map.tsv 2>/dev/null | cut -f1 | sort -u)
+  # the wave records its own merges in each run's merged-map.tsv — since round 3 as ONE `<n>\t@merge\t<sha>` row written
+  # from the merge itself (never from the file-list call, which can fail: N8b listed the wave's own #2 as by hand). A
+  # commit on main is "mine" when a row carries its PR number AND its sha; rows from older runs (2-field `<n>\t<path>`,
+  # no sha) still count by number alone so a freeze that spans the upgrade does not list last week's wave merges.
+  local mine_pairs mine_legacy n sha
+  mine_pairs=$(cat "$STATE"/run-*/merged-map.tsv 2>/dev/null | awk -F'\t' 'NF>=3 && $2=="@merge" {print $1" "$3}' | sort -u)
+  mine_legacy=$(cat "$STATE"/run-*/merged-map.tsv 2>/dev/null | awk -F'\t' 'NF==2 {print $1}' | sort -u)
   git -C "$WT" fetch jicate main -q 2>/dev/null   # the ref is only as fresh as the last stage that fetched it
   # two subject shapes: the squash button's "title (#n)" and the merge button's "Merge pull request #n from …"
-  git -C "$WT" log jicate/main --since="$1" --format='%s' 2>/dev/null | grep -oiE '\(#[0-9]+\)$|merge pull request #[0-9]+' | grep -oE '[0-9]+' | sort -un | while read -r n; do
-    [ -n "$n" ] || continue; grep -qx "$n" <<<"$mine" || printf '#%s ' "$n"
-  done
+  git -C "$WT" log jicate/main --since="$1" --format='%H %s' 2>/dev/null | while read -r sha subj; do
+    n=$(printf '%s' "$subj" | grep -oiE '\(#[0-9]+\)$|merge pull request #[0-9]+' | grep -oE '[0-9]+' | head -1)
+    [ -n "$n" ] || continue
+    grep -qx "$n $sha" <<<"$mine_pairs" && continue
+    grep -qx "$n" <<<"$mine_legacy" && continue
+    printf '#%s ' "$n"
+  done | tr ' ' '\n' | grep . | sort -u | tr '\n' ' '  
 }
 
 # The ledger is sourced BEFORE the single-flight lock on purpose: --ledger is a
@@ -561,9 +593,12 @@ run_once() {
   [ -n "$gh_ok" ] || { say "PREFLIGHT SKIP: GitHub unreachable for ~4 min (credential present) — this round is skipped, the run continues"; return 2; }
   # §B: one latch, two classes. `hard` gates what used to check `frozen`; `frozen` alone now only holds HELD merges.
   local frozen="" freeze_class="" hard="" hand_merged=""
+  # §B: the latch is re-read at every gate, not only here — a freeze that lands mid-round (--freeze from the phone
+  # between preflight and the merge stage, round-3 N5c) must hold HELD and, if hard, merge nothing at all
+  refresh_freeze_state() { frozen=""; freeze_class=""; hard=""; if [ -f "$FREEZE" ]; then frozen=1; freeze_class=$(freeze_class_now); [ "$freeze_class" = hard ] && hard=1; fi; return 0; }
   if [ -f "$FREEZE" ]; then
     frozen=1; freeze_class=$(freeze_class_now); [ "$freeze_class" = hard ] && hard=1
-    if [ -n "$hard" ]; then say "  ⛔ FROZEN (hard) since: $(head -1 "$FREEZE" | cut -f1,2) — nothing merges, nothing ships this round (sweep/report only). Clear with --unfreeze."
+    if [ -n "$hard" ]; then say "  ⛔ FROZEN (hard) since: $(head -1 "$FREEZE" | cut -f1) — $(freeze_line_now | cut -f2 | cut -c1-140) — nothing merges, nothing ships this round (sweep/report only). Clear with --unfreeze.$( [ "$(grep -c . "$FREEZE")" -gt 1 ] && printf ' (%s lines in FROZEN; the hard one governs)' "$(grep -c . "$FREEZE")")"
     else say "  ⛔ FROZEN (soft) since: $(head -1 "$FREEZE" | cut -f1,2) — merging LOW/NORMAL, holding HELD; deploy + apply + sweep still run. Clear with --unfreeze."; fi
     hand_merged=$(hand_merged_since "$(head -1 "$FREEZE" | cut -f1)" | sed "s/ *$//")
     say "  merged by hand while stopped: ${hand_merged:-none}"
@@ -615,6 +650,8 @@ run_once() {
 
   # ── 3. merge by tier ───────────────────────────────────────────────────────
   say; say "--- 3. merge: LOW unattended · NORMAL needs --approve-normal · HELD needs --approve-held ---"
+  refresh_freeze_state   # N5c: a freeze raised since preflight gates THIS stage
+  [ -n "$frozen" ] && say "  freeze in force at the merge gate: $freeze_class$( [ -n "$hard" ] && printf ' — nothing merges' || printf ' — HELD held')"
   local merged=0 merged_list="" merged_files="$run/merged-files.txt" m_low=0 m_normal=0 m_held=0; : > "$merged_files"; : > "$run/merged-map.tsv"
   INDEX_MERGED=0
   merge_one() {  # $1=number $2=tier — re-verify the instant before the irreversible step
@@ -632,8 +669,35 @@ run_once() {
     fi
     local runs; runs=$(gh pr view "$n" --repo "$REPO" --json statusCheckRollup -q '[.statusCheckRollup[]? | select((.conclusion // "" | ascii_upcase) as $c | $c=="FAILURE" or $c=="TIMED_OUT" or $c=="ACTION_REQUIRED" or ((.status // "" | ascii_upcase) as $s | $s=="IN_PROGRESS" or $s=="QUEUED" or $s=="PENDING"))] | length')
     [ "${runs:-0}" != "0" ] && { say "  HOLD   $t #$n — $runs check(s) failing/pending at merge time"; return 1; }
+    local pre_main; pre_main=$(main_sha_now)
     if gh pr merge "$n" --repo "$REPO" --squash --delete-branch >/dev/null 2>"$run/merge-$n.err"; then
-      say "  MERGED $t #$n"; gh pr view "$n" --repo "$REPO" --json files -q '.files[].path' | tee -a "$merged_files" | sed "s/^/$n\t/" >> "$run/merged-map.tsv"; sleep 4; return 0
+      say "  MERGED $t #$n"; sleep 4
+      # Round-3 verifier N8b/N8d: the merged-map row used to be a side effect of `gh pr view --json files`; one transient
+      # empty answer left no row (the wave's own merge was later listed as "merged by hand") AND an empty file list
+      # that read as docs-only (no build, marker advanced — a route change never shipped). Now:
+      #   1. the row is written from the MERGE itself: PR number + merge commit sha (gh mergeCommit, else post-merge main HEAD)
+      #   2. the file list comes from `git diff <pre-merge main>..<post-merge main>` first, `--json files` (3 tries) second
+      #   3. an EMPTY list after a successful merge is "files unknown → assume code", never docs-only: one sentinel line
+      #      keeps the deploy from being skipped and the receipt says so
+      local msha post_main files=""
+      msha=$(gh pr view "$n" --repo "$REPO" --json mergeCommit -q '.mergeCommit.oid' 2>/dev/null | tr -d '[:space:]')
+      post_main=$(main_sha_now); [ -n "$msha" ] || msha="$post_main"
+      printf '%s\t@merge\t%s\n' "$n" "${msha:-unknown}" >> "$run/merged-map.tsv"
+      if [ -n "$pre_main" ] && [ -n "$post_main" ] && [ "$pre_main" != "$post_main" ]; then
+        files=$(git -C "$WT" diff --name-only "$pre_main" "$post_main" 2>/dev/null)
+      fi
+      if [ -z "$files" ]; then
+        local try; for try in 1 2 3; do
+          files=$(gh pr view "$n" --repo "$REPO" --json files -q '.files[].path' 2>/dev/null); [ -n "$files" ] && break; sleep 2
+        done
+      fi
+      if [ -n "$files" ]; then
+        printf '%s\n' "$files" | grep . | tee -a "$merged_files" | sed "s/^/$n\t/" >> "$run/merged-map.tsv"
+      else
+        say "  files unknown for #$n (git diff empty, gh files empty ×3) — assumed CODE: this round deploys rather than reading the merge as docs-only"
+        printf '?unknown-files #%s\n' "$n" >> "$merged_files"
+      fi
+      return 0
     else say "  FAILED $t #$n — $(head -c 200 "$run/merge-$n.err")"; return 1; fi
   }
   already_merged() { case " $merged_list " in *" #$1 "*) return 0;; *) return 1;; esac; }
@@ -704,6 +768,7 @@ PY
   #     allow-destructive / advisory-checks / unfreeze / ratify / noop), so the receipt line is the whole answer — the
   #     Director fires by hand with /deploy-myjkkn when main should go live; this round's own merges still deploy.
   local ship=$merged ship_ahead="" prod_is_main="" prod_unknown="" main_sha=""
+  refresh_freeze_state   # a freeze raised by the merge stage itself gates the main-ahead trigger and the apply (3b)
   if [ "$MODE" = "go" ]; then
     main_sha=$(main_sha_now)
     if [ -z "$main_sha" ]; then say "  main vs production: cannot read jicate/main — only this round's merges can trigger a deploy"
@@ -712,7 +777,7 @@ PY
       prod_is_main=1
       say "  main vs production: production already runs main HEAD (${main_sha:0:7}, $prod_src) — nothing to build"
     elif [ -n "$hard" ]; then
-      say "  ⛔ hard freeze — main (${main_sha:0:7}) is ahead of production (${prod_sha:0:7}$(sha_on_main "$prod_sha" || printf ', not on main as fetched')) but NOTHING ships until the stop is lifted: $(tail -1 "$FREEZE" | cut -f2 | cut -c1-120)"
+      say "  ⛔ hard freeze — main (${main_sha:0:7}) is ahead of production (${prod_sha:0:7}$(sha_on_main "$prod_sha" || printf ', not on main as fetched')) but NOTHING ships until the stop is lifted: $(freeze_line_now | cut -f2 | cut -c1-120)"
     elif ! sha_on_main "$prod_sha"; then
       prod_unknown=1
       say "  main vs production: cannot tell what is deployed — production reports ${prod_sha:0:10} ($prod_src), which is not on jicate/main as fetched; no build fired on a guess, marker untouched. To put main live by hand: /deploy-myjkkn"
@@ -900,7 +965,7 @@ PY
   type -t ledger_record >/dev/null 2>&1 && ledger_record round \
     "merged=$merged low=$m_low normal=$m_normal held=$m_held open=$c_open->$after ready=$c_ready conflicted=$c_conf dispatched=$DISPATCHED migrations=$APPLY_RESULT deploy=$deploy"
   local html="$LOCAL/artifacts/ship-wave-$ts.html"; mkdir -p "$LOCAL/artifacts"
-  RUN="$run" TS="$ts" OPEN="$c_open" AFTER="$after" MERGED="$merged" MLIST="$merged_list" DEPLOY="$deploy" L1="$l1" L2="$l2" L3="migrations: $APPLY_RESULT · $l3" DISP="$DISPATCHED" MODE="$MODE" RECEIPT="$RECEIPT" FROZEN="$( [ -f "$FREEZE" ] && tail -1 "$FREEZE" | cut -f1,2 || echo "")" FROZEN_CLASS="$( [ -f "$FREEZE" ] && freeze_class_now || echo "")" HAND_MERGED="${hand_merged:-}" python3 - "$html" <<'PY'
+  RUN="$run" TS="$ts" OPEN="$c_open" AFTER="$after" MERGED="$merged" MLIST="$merged_list" DEPLOY="$deploy" L1="$l1" L2="$l2" L3="migrations: $APPLY_RESULT · $l3" DISP="$DISPATCHED" MODE="$MODE" RECEIPT="$RECEIPT" FROZEN="$( [ -f "$FREEZE" ] && freeze_line_now | cut -f1,2 || echo "")" FROZEN_CLASS="$( [ -f "$FREEZE" ] && freeze_class_now || echo "")" HAND_MERGED="${hand_merged:-}" python3 - "$html" <<'PY'
 import json, os, sys, html as H
 run=os.environ["RUN"]; plan=json.load(open(f"{run}/plan.json")); c=plan["counts"]; e=H.escape
 def rows(lst, extra=lambda r:""): return "".join(f"<tr><td><a href='https://github.com/Jicate-Solutions/MyJKKN/pull/{r['number']}'>#{r['number']}</a></td><td>{e(r['title'])}</td><td><span class='t {r['tier']}'>{r['tier']}</span></td><td>{e(extra(r))}</td></tr>" for r in lst) or "<tr><td colspan=4 class=m>none</td></tr>"

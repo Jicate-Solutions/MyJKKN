@@ -191,7 +191,7 @@ echo "══ N2. the FROZEN file itself: legacy, two lines, CRLF, odd class fiel
   FREEZE="$TMP/n2/f"; printf '%s\tdeploy dpl_1 → ERROR; on main but NOT live: #5\n' "$T0" > "$FREEZE"; r hard "pre-change 2-field line"
   printf '%s\tpeer hold on #3410 — Director asked to wait\n' "$T0" > "$FREEZE"; r hard "2-field 'peer hold' (hand-written, old way) — fail-safe"
   printf '%s\tpeer hold on #1\tsoft\n%s\tmigration 1: APPLY failed — x\thard\n' "$T0" "$T0" > "$FREEZE"; r hard "soft then hard (LAST line wins)"
-  printf '%s\tmigration 1: APPLY failed — x\thard\n%s\tpeer hold on #1\tsoft\n' "$T0" "$T0" > "$FREEZE"; r soft "hard then soft (LAST line wins — see N3 for why this is a break)"
+  printf '%s\tmigration 1: APPLY failed — x\thard\n%s\tpeer hold on #1\tsoft\n' "$T0" "$T0" > "$FREEZE"; r hard "hard then soft (round 3: most severe wins — N3 fixed)"
   printf '%s\tpeer hold on #1\tsoft\r\n' "$T0" > "$FREEZE"; r hard "CRLF soft line ('soft\\r') — fail-safe"
   printf '%s\tmigration 1: APPLY failed — x\thard\r\n' "$T0" > "$FREEZE"; r hard "CRLF hard line"
   printf '%s\tmsg\tSOFT\n' "$T0" > "$FREEZE"; r hard "class field 'SOFT'"
