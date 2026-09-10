@@ -34,6 +34,14 @@ PROPOSE_AFTER=2
 # single time." Matched case-insensitively against the freeze class AND its message; a class that matches is
 # never proposed, however many times he resolved it identically, and the output says so.
 NEVER_RULE='DROP|TRUNCATE|DELETE FROM|destructive|APPLY failed|deploy ERROR'
+# The same sentence applies to what a rule would DO, not only to what its class says (verifier 2026-09-10, break 9a:
+# a class whose text lacked every keyword was proposed as an auto "append allow-destructive"). Two shapes are never
+# proposable whatever the text: `append allow-destructive` (it lets a DROP/TRUNCATE/DELETE run) and `unfreeze` on a
+# HARD freeze class (§B: production or main is broken — deploy ERROR · APPLY failed · DRY-RUN failed · destructive
+# statement · GATE ERROR · migration gap). HARD_CLASS is matched against the ledger_class slug (lowercase, hyphens
+# and punctuation already turned into spaces) and against the resolved records' messages.
+NEVER_RULE_FILES='allow-destructive'
+HARD_CLASS='deploy error|deploy failed|apply failed|dry[ -]?run failed|destructive|gate error|migration gap'
 
 # ── guards (tighten) ──────────────────────────────────────────────────────────
 guard_prefixes_from_files() {  # stdin: file paths → unique 2-segment prefixes worth guarding
@@ -62,6 +70,7 @@ guards_env()   { [ -s "$GUARDS" ] && cut -f1 "$GUARDS" | tr '\n' ' '; return 0; 
 guards_list()  { if [ -s "$GUARDS" ]; then echo "guards (HELD until cleared with --unguard):"; awk -F'\t' '{printf "  %-40s since %s  cause: %s\n",$1,$2,$3}' "$GUARDS"; else echo "guards: none"; fi; }
 guard_remove() { [ -s "$GUARDS" ] || { echo "no guards"; return 0; }; grep -v "^$1	" "$GUARDS" > "$GUARDS.new"; mv "$GUARDS.new" "$GUARDS"; echo "guard cleared: $1"; }
 
+
 # ── policies (loosen, by ratification) ────────────────────────────────────────
 policy_active() { [ -e "$POLICY_DIR/$1" ]; }
 
@@ -70,40 +79,98 @@ policy_active() { [ -e "$POLICY_DIR/$1" ]; }
 #   json: one JSON object per current proposal, for policy_emit_questions
 # Side effect: any NEW learned proposal is appended to $POLICY_PROPOSALS with the next free P<n>, so the number
 # is fixed the first time it is ever printed. P1 is reserved for AUTO_APPROVE_ADDITIVE_MIGRATIONS (2026-09-06).
+#
+# Identity (verifier 2026-09-10, break 8): a proposal is keyed by sha1 of the FULL normalised class + the shape,
+# never by its rule name — the rule name truncates the class to 40 chars, so two real DRY-RUN classes with
+# different error tails collapsed into one name and one tap ratified two decisions. The key is what P<n> maps to,
+# 1:1, in policy-proposals.jsonl; the rule name stays human-readable (and gets a short key suffix only when the
+# truncated name is already taken by a different key).
+#
+# Robustness (break 4): a malformed ledger line — bad JSON, a bare JSON value, a round without message, a froze
+# without class, a resolved line whose writes are not a list of {op[,file]} with a known op — is skipped with ONE
+# printed warning (stdout in list mode, stderr in json mode) and never stops the valid proposals from printing.
+# A resolved line with no writes key at all is the OLD three-arg shape (guards) — ignored, not malformed.
 _policy_scan() {
-  MODE="$1" PROPOSE_AFTER="$PROPOSE_AFTER" NEVER_RULE="$NEVER_RULE" python3 - "$LEDGER" "$POLICY_LOG" "$POLICY_PROPOSALS" <<'PY'
-import json, sys, os, re, datetime
+  MODE="$1" PROPOSE_AFTER="$PROPOSE_AFTER" NEVER_RULE="$NEVER_RULE" NEVER_RULE_FILES="$NEVER_RULE_FILES" HARD_CLASS="$HARD_CLASS" \
+    python3 - "$LEDGER" "$POLICY_LOG" "$POLICY_PROPOSALS" <<'PY'
+import json, sys, os, re, datetime, hashlib
 led, plog, pfile = sys.argv[1], sys.argv[2], sys.argv[3]
 mode = os.environ["MODE"]
 after = int(os.environ["PROPOSE_AFTER"])
 never = re.compile(os.environ["NEVER_RULE"], re.I)
+hard = re.compile(os.environ["HARD_CLASS"], re.I)
+never_files = set(os.environ["NEVER_RULE_FILES"].split())
+ALLOWED_OPS = {"append", "unfreeze", "ratify", "noop"}
+warnings = []
+def warn(n, why): warnings.append(f"proposals: warning — ledger line {n} skipped ({why})")
+def norm(c): return " ".join(str(c).lower().split())
+def shape_error(writes):  # None when every item is {op[,file,value]} with a known op; else why not
+    for w in writes:
+        if not isinstance(w, dict): return "writes item is not an object"
+        op = w.get("op")
+        if not isinstance(op, str) or not op: return "writes item without op"
+        if op not in ALLOWED_OPS: return f"unknown op '{op[:20]}'"
+        if op == "append" and not (isinstance(w.get("file"), str) and w["file"]): return "append without file"
+    return None
+
 rounds, freezes, resolved = [], [], []
 if os.path.exists(led):
-    for line in open(led):
-        try: r = json.loads(line)
-        except Exception: continue
+    for n, line in enumerate(open(led), 1):
+        s = line.strip()
+        if not s: continue
+        try: r = json.loads(s)
+        except Exception: warn(n, "not JSON"); continue
+        if not isinstance(r, dict): warn(n, "not a record — a bare JSON value"); continue
         o = r.get("outcome")
-        if o in ("round", "backfill"): rounds.append(r)
-        elif o == "froze": freezes.append(r)
-        elif o == "resolved" and isinstance(r.get("writes"), list): resolved.append(r)
-ratified = {}
+        if o in ("round", "backfill"):
+            if not isinstance(r.get("message"), str): warn(n, f"{o} without message"); continue
+            rounds.append(r)
+        elif o == "froze":
+            if not isinstance(r.get("class"), str) or not r["class"].strip(): warn(n, "froze without class"); continue
+            freezes.append(r)
+        elif o == "resolved":
+            if "writes" not in r: continue          # old three-arg shape (guards etc.) — evidence of nothing
+            cls, w = r.get("class"), r["writes"]
+            if not isinstance(cls, str) or not cls.strip(): warn(n, "resolved without class"); continue
+            if not isinstance(w, list): warn(n, "resolved writes is not a list"); continue
+            why = shape_error(w)
+            if why: warn(n, f"resolved writes malformed: {why}"); continue
+            r["class"] = " ".join(cls.split()); r["_norm"] = norm(cls); resolved.append(r)
+        # any other outcome (unblocked, future kinds) is not this scan's business
+
+def shape_of(writes):  # same op + same file, value ignored → the SHAPE of a decision
+    return sorted({(w["op"], w.get("file", "") if w["op"] == "append" else "") for w in writes})
+def key_of(cls, shape):  # FULL normalised class + shape → the proposal's identity
+    return hashlib.sha1(json.dumps([norm(cls), [list(x) for x in shape]]).encode()).hexdigest()
+
+ratified_rules, ratified_keys = {}, set()
 if os.path.exists(plog):
     for line in open(plog):
-        try: p = json.loads(line); ratified[p["rule"]] = p
-        except Exception: pass
-# the proposals file: {"id","rule","class","shape","proposed_at"} lines assign numbers; {"id","asked_at"} lines
+        try: p = json.loads(line)
+        except Exception: continue
+        if not isinstance(p, dict) or not p.get("rule"): continue
+        ratified_rules[p["rule"]] = p
+        if p.get("key"): ratified_keys.add(p["key"])
+# the proposals file: {"id","key","rule","class","shape","proposed_at"} lines assign numbers; {"id","asked_at"} lines
 # record that the question reached the desk. Merge by id, newest line wins per field.
 props = {}
 if os.path.exists(pfile):
     for line in open(pfile):
         try: p = json.loads(line)
         except Exception: continue
+        if not isinstance(p, dict) or not isinstance(p.get("id"), str): continue
         props.setdefault(p["id"], {}).update(p)
-by_rule = {p["rule"]: pid for pid, p in props.items() if "rule" in p}
+for pid, p in props.items():   # numbering lines written before keys existed: derive the key from class + shape
+    if p.get("rule") and not p.get("key") and isinstance(p.get("class"), str) and isinstance(p.get("shape"), list):
+        try: p["key"] = key_of(p["class"], [tuple(x) for x in p["shape"]])
+        except Exception: pass
+by_key = {p["key"]: pid for pid, p in props.items() if p.get("rule") and p.get("key")}
+names_taken = {p["rule"]: p.get("key") for p in props.values() if p.get("rule")}
+for rule, p in ratified_rules.items(): names_taken.setdefault(rule, p.get("key"))
 def pnum(pid):
-    try: return int(pid.lstrip("P").rstrip("?"))
+    try: return int(str(pid).lstrip("P").rstrip("?"))
     except ValueError: return 0
-next_n = max([1] + [pnum(x) for x in props] + [pnum(p.get("id", "")) for p in ratified.values()]) + 1
+next_n = max([1] + [pnum(x) for x in props] + [pnum(p.get("id", "")) for p in ratified_rules.values()]) + 1
 
 # ── P1 (decided 2026-09-06): loosen the HELD gate for additive migrations, from throughput evidence ──
 def total(key):
@@ -121,20 +188,22 @@ mig_freezes = [f for f in freezes if "migration" in f["class"]
                and "files on jicate main match" not in f["class"] and "apply failed run" not in f["class"]
                and "destructive statement" not in f["class"]]
 out, skipped = [], []
-if "AUTO_APPROVE_ADDITIVE_MIGRATIONS" not in ratified:
+if "AUTO_APPROVE_ADDITIVE_MIGRATIONS" not in ratified_rules:
     ev = f"{held} HELD merges on record, {len(mig_freezes)} migration-caused freeze(s); every HELD approval so far was typed by hand"
-    if held >= 5 and not mig_freezes:
-        out.append({"id": "P1", "rule": "AUTO_APPROVE_ADDITIVE_MIGRATIONS", "class": "policy",
-                    "text": "auto-approve HELD PRs whose ONLY hold reason is a migration (money/grade words, guards and workflows stay HELD; the destructive-SQL gate still refuses DROP/TRUNCATE/DELETE at apply time)",
-                    "evidence": ev, "title": "Make it a rule: merge PRs whose only hold is an ordinary migration?",
-                    "body": "You have approved every migration-only HELD PR by hand so far. " + ev + ". Ratifying lets the wave merge those on its own; drops, deletes, money and grade changes stay held for you."})
+    warranted = held >= 5 and not mig_freezes
+    # §D: P1 is re-emitted as a question ONCE whether or not the warrant currently holds — the Director asked to see
+    # it (2026-09-10). The list rendering keeps 'P1?' while unwarranted, so --ratify P1 still needs the warrant.
+    p1 = {"id": "P1", "rule": "AUTO_APPROVE_ADDITIVE_MIGRATIONS", "class": "policy", "warranted": warranted, "evidence": ev,
+          "title": "Make it a rule: merge PRs whose only hold is an ordinary migration?",
+          "body": "You have approved every migration-only HELD PR by hand so far. " + ev + ". Ratifying lets the wave merge those on its own; drops, deletes, money and grade changes stay held for you."}
+    if warranted:
+        p1["text"] = "auto-approve HELD PRs whose ONLY hold reason is a migration (money/grade words, guards and workflows stay HELD; the destructive-SQL gate still refuses DROP/TRUNCATE/DELETE at apply time)"
     else:
-        out.append({"id": "P1?", "rule": "AUTO_APPROVE_ADDITIVE_MIGRATIONS", "class": "policy",
-                    "text": "(not yet warranted — needs ≥5 HELD merges and 0 migration-caused freezes)", "evidence": ev})
+        p1["text"] = "(not yet warranted — needs ≥5 HELD merges and 0 migration-caused freezes)"
+        p1["body"] += " The wave's own bar for this rule is 5 held merges and no migration-caused stop; today it stands at " + ev.split(";")[0] + ", so the wave itself is not yet asking for it."
+    out.append(p1)
 
 # ── learned proposals (2026-09-10, §D): the same answer to the same freeze class PROPOSE_AFTER times ──
-def shape_of(writes):  # same op + same file, value ignored → the SHAPE of a decision
-    return sorted({(w.get("op", ""), w.get("file", "")) for w in writes if isinstance(w, dict)})
 def action_name(shape):
     parts = []
     for op, f in shape:
@@ -146,73 +215,114 @@ def class_name(cls):  # whole words only, ≤40 chars — a rule name that ends 
         if len("_".join(out_ + [w])) > 40: break
         out_.append(w)
     return "_".join(out_) or "UNKNOWN"
-groups = {}
+PLAIN = {("unfreeze", ""): "lift the stop itself", ("append", "approve-held"): "approve the held PR itself",
+         ("append", "advisory-checks"): "treat that check as advice, not a stop"}
+def action_plain(shape, chosen):
+    return " and ".join(PLAIN.get((op, f), f"apply '{chosen}' itself") for op, f in shape)
+groups = {}   # identity = the FULL normalised class + the shape; the class is shown as it was written
 for r in resolved:
-    groups.setdefault((r["class"], tuple(shape_of(r["writes"]))), []).append(r)
+    groups.setdefault((r["_norm"], tuple(shape_of(r["writes"]))), []).append(r)
 new_lines = []
-for (cls, shape), recs in sorted(groups.items()):
+for (ncls, shape), recs in sorted(groups.items()):
     if len(recs) < after: continue
-    hit = never.search(cls) or any(never.search(r.get("message", "")) for r in recs)
+    n, cls = len(recs), recs[0]["class"]
+    hit = never.search(cls) or any(never.search(str(r.get("message", ""))) for r in recs)
     if hit:
-        skipped.append(f"{cls[:60]} — resolved {len(recs)}x the same way but matches NEVER_RULE ({hit.group(0)}): never a rule, stays with the Director")
+        skipped.append(f"{cls[:60]} — resolved {n}x the same way but matches NEVER_RULE ({hit.group(0)}): never a rule, stays with the Director")
+        continue
+    # the ACTION is checked too (break 9a): what the rule would write, not only what its class says
+    dfiles = [f for op, f in shape if op == "append" and f in never_files]
+    if dfiles:
+        skipped.append(f"{cls[:60]} — resolved {n}x the same way but the rule would write {', '.join(dfiles)}: anything that deletes or drops data can never become a rule, stays with the Director")
+        continue
+    hhit = hard.search(cls)
+    for r in recs:
+        if hhit: break
+        hhit = hard.search(str(r.get("message", "")))
+    if any(op == "unfreeze" for op, _ in shape) and hhit:
+        skipped.append(f"{cls[:60]} — resolved {n}x the same way but the rule would lift a HARD stop ({hhit.group(0)}): production or main is broken there, never a rule, stays with the Director")
+        continue
+    if any(op == "ratify" for op, _ in shape):
+        skipped.append(f"{cls[:60]} — resolved {n}x with 'ratify': a rule that makes rules is not one he approved once, never a rule")
         continue
     if all(op == "noop" for op, _ in shape):
-        skipped.append(f"{cls[:60]} — resolved {len(recs)}x with 'noop' (kept stopped): nothing to automate")
+        skipped.append(f"{cls[:60]} — resolved {n}x with 'noop' (kept stopped, nothing written): nothing to automate")
         continue
-    rule = f"AUTO_{class_name(cls)}_{action_name(shape)}"
-    if rule in ratified: continue
-    pid = by_rule.get(rule)
+    key = key_of(cls, shape)
+    if key in ratified_keys: continue
+    base = f"AUTO_{class_name(cls)}_{action_name(shape)}"
+    if base in ratified_rules and not ratified_rules[base].get("key"): continue   # ratified before keys existed
+    pid = by_key.get(key)
     if pid is None:
+        rule = base
+        if rule in names_taken and names_taken[rule] != key:   # another class already owns that truncated name
+            rule = f"{base}_{key[:6].upper()}"
         pid = f"P{next_n}"; next_n += 1
-        rec = {"id": pid, "rule": rule, "class": cls, "shape": [list(x) for x in shape],
+        rec = {"id": pid, "key": key, "rule": rule, "class": cls, "shape": [list(x) for x in shape],
                "proposed_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")}
-        props[pid] = rec; by_rule[rule] = pid; new_lines.append(rec)
-    recs = sorted(recs, key=lambda r: r.get("at", ""))
-    dated = " · ".join(f'{r.get("at","?")[:16]} "{r.get("chosen","?")}"' for r in recs[-max(after, 2):])
+        props[pid] = rec; by_key[key] = pid; names_taken[rule] = key; new_lines.append(rec)
+    rule = props[pid]["rule"]
+    recs = sorted(recs, key=lambda r: str(r.get("at", "")))
+    dated = " · ".join(f'{str(r.get("at","?"))[:16]} "{r.get("chosen","?")}"' for r in recs[-max(after, 2):])
     ops = ", ".join(f"{op} {f}".strip() for op, f in shape)
-    chosen = recs[-1].get("chosen", "the same option")
-    out.append({"id": pid, "rule": rule, "class": cls, "text": f"when the wave freezes on '{cls[:70]}', apply '{chosen}' ({ops}) without asking",
-                "evidence": f"resolved {len(recs)}x the same way: {dated}; writes: {ops}",
-                "title": (f"New rule? You chose '{chosen}' {len(recs)} times for: {cls}")[:110],
-                "body": f"Each time the wave stopped on '{cls[:90]}' you answered '{chosen}' ({dated}). If this becomes a rule the wave applies that answer itself ({ops}) and tells you in the receipt. Nothing that deletes or drops data can become a rule."})
+    chosen = str(recs[-1].get("chosen") or "the same option")
+    out.append({"id": pid, "key": key, "rule": rule, "class": cls, "chosen": chosen, "n": n, "dated": dated, "ops": ops,
+                "action_plain": action_plain(shape, chosen),
+                "text": f"when the wave freezes on '{cls[:70]}', apply '{chosen}' ({ops}) without asking",
+                "evidence": f"resolved {n}x the same way: {dated}; writes: {ops}",
+                # title/body for the Director are built by policy_emit_questions in plain English (ledger_remedy lives in bash)
+                "title": f"You've answered the same way {n} times — make it a rule?"})
 if new_lines:
     with open(pfile, "a") as fh:
         for rec in new_lines: fh.write(json.dumps(rec) + "\n")
 
 if mode == "json":
+    for w in warnings: print(w, file=sys.stderr)
     for o in out:
         o["asked"] = bool(props.get(o["id"], {}).get("asked_at"))
         print(json.dumps(o))
     sys.exit()
+for w in warnings: print(w)
 for s_ in skipped: print(f"proposals: skipped {s_}")
 if not out:
     print("proposals: none — every learnable rule is already ratified"); sys.exit()
 print("proposals (ratify with: ship-wave.sh --ratify P<n>):")
 for o in out:
-    print(f"  {o['id']:<4} {o['rule']}\n       {o['text']}\n       evidence: {o['evidence']}")
+    pid = o["id"] if o.get("warranted", True) else o["id"] + "?"
+    print(f"  {pid:<4} {o['rule']}\n       {o['text']}\n       evidence: {o['evidence']}")
 PY
 }
 
 policy_proposals() { _policy_scan list; }   # evidence from the ledger → numbered proposals (prints only what the evidence supports)
 
+# _policy_plain_stop <class> → one plain sentence saying what the stop was: the first sentence of the verified
+# remedy when the ledger knows one (parentheticals with dates/commits dropped), else the class itself.
+_policy_plain_stop() {
+  local rem
+  if rem=$(ledger_remedy "$1" 2>/dev/null) && [ -n "$rem" ]; then
+    printf 'What we know about it: %s.' "$(printf '%s' "$rem" | sed -E 's/ \([^)]*\)//g; s/ (—|--|;|: |\. ).*//; s/\.$//' | cut -c1-140)"
+  else
+    printf 'The stop was: %s.' "$(printf '%s' "$1" | cut -c1-140)"
+  fi
+}
+
 # policy_emit_questions — every proposal that is neither ratified nor already asked becomes ONE question on
 # the Director's phone (A1: ask_director policy …), options exactly "Make this a rule" (ratify P<n>) /
 # "Not yet" (noop). Asked once, tracked in $POLICY_PROPOSALS — including P1, which was decided 2026-09-06 and
-# never actually reached him (§D: "re-emitted as a question once, so it finally reaches him"). If ask_director
-# is not loaded (desk-questions.sh absent, or a test), the proposal is printed instead and still marked asked
-# only when the question was really written — printing is not asking.
+# never actually reached him (§D: "re-emitted as a question once, so it finally reaches him") — once, warranted or
+# not. If ask_director is not loaded (desk-questions.sh absent, or a test), the proposal is printed instead and
+# still marked asked only when the question was really written — printing is not asking.
+# Titles/bodies are plain English for a phone (A1: "no jargon"): no ledger slug, SQL, regex or path in the title.
 policy_emit_questions() {
-  local line id rule cls title body asked opts n=0
-  while IFS= read -r line; do
-    [ -n "$line" ] || continue
-    id=$(printf '%s' "$line" | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])')
-    case "$id" in *'?') continue;; esac          # P1? = not yet warranted, nothing to ask
-    asked=$(printf '%s' "$line" | python3 -c 'import json,sys;print(1 if json.load(sys.stdin)["asked"] else 0)')
+  local id asked rule cls chosen n dated action title body opts stop
+  while IFS= read -r id && IFS= read -r asked && IFS= read -r rule && IFS= read -r cls && IFS= read -r chosen \
+        && IFS= read -r n && IFS= read -r dated && IFS= read -r action && IFS= read -r title && IFS= read -r body; do
+    [ -n "$id" ] || continue
     [ "$asked" = 0 ] || continue
-    rule=$(printf '%s' "$line" | python3 -c 'import json,sys;print(json.load(sys.stdin)["rule"])')
-    cls=$(printf '%s' "$line" | python3 -c 'import json,sys;print(json.load(sys.stdin)["class"])')
-    title=$(printf '%s' "$line" | python3 -c 'import json,sys;print(json.load(sys.stdin)["title"])')
-    body=$(printf '%s' "$line" | python3 -c 'import json,sys;print(json.load(sys.stdin)["body"])')
+    if [ -z "$body" ]; then   # a learned proposal: say what stopped the wave, what he chose, what the rule would do
+      stop=$(_policy_plain_stop "$cls")
+      body="The wave stopped $n times on the same thing. $stop Each time you chose '$chosen' ($dated). If this becomes a rule, the wave will $action from now on and the receipt will say when it did. Nothing that deletes or drops data can ever become a rule."
+    fi
     opts=$(PID="$id" python3 -c 'import json,os;print(json.dumps([
       {"label":"Make this a rule","description":"The wave applies this answer itself from the next run; the receipt says when it did.","writes":[{"op":"ratify","value":os.environ["PID"]}]},
       {"label":"Not yet","description":"Keep asking me each time. The proposal stays listed under --policy.","writes":[{"op":"noop"}]}]))')
@@ -224,8 +334,17 @@ policy_emit_questions() {
       continue   # printing is not asking — stays un-asked until the desk is loaded
     fi
     python3 -c 'import json,sys,datetime;print(json.dumps({"id":sys.argv[1],"asked_at":datetime.datetime.now().strftime("%Y-%m-%d %H:%M")}))' "$id" >> "$POLICY_PROPOSALS"
-    n=$((n+1))
-  done < <(_policy_scan json)
+  done < <(_policy_scan json | python3 -c '
+import json, sys
+for line in sys.stdin:
+    line = line.strip()
+    if not line: continue
+    try: o = json.loads(line)
+    except Exception: continue
+    one = lambda v: " ".join(str(v).split())   # every field on exactly one line
+    for f in (o["id"], 1 if o.get("asked") else 0, o["rule"], o["class"], o.get("chosen", ""), o.get("n", ""),
+              o.get("dated", ""), o.get("action_plain", ""), o["title"], o.get("body", "")):
+        print(one(f))')
   return 0
 }
 
@@ -234,24 +353,27 @@ policy_show() {
   if [ -s "$POLICY_LOG" ]; then python3 -c "
 import json, sys
 for l in open(sys.argv[1]):
-    p = json.loads(l); print('  %-4s %-34s %s — %s' % (p['id'], p['rule'], p['at'], p.get('evidence','')[:100]))" "$POLICY_LOG"
+    try: p = json.loads(l)
+    except Exception: continue
+    print('  %-4s %-34s %s — %s' % (p.get('id','?'), p.get('rule','?'), p.get('at','?'), p.get('evidence','')[:100]))" "$POLICY_LOG"
   else echo "  none"; fi
   echo; guards_list; echo; policy_proposals
 }
 
 policy_ratify() {  # $1 = P<n> — only a currently-proposed id can be ratified; the evidence is captured verbatim
-  local id="$1" rule ev
+  local id="$1" rule key="" ev
   case "$id" in
     P1) rule=AUTO_APPROVE_ADDITIVE_MIGRATIONS;;
-    P[0-9]*)  # learned proposals (2026-09-10) keep their number in $POLICY_PROPOSALS
+    P[0-9]*)  # learned proposals (2026-09-10) keep their number — and their key — in $POLICY_PROPOSALS
       rule=$([ -s "$POLICY_PROPOSALS" ] && PID="$id" python3 -c '
 import json,os,sys
-rule=""
+rule=key=""
 for l in open(sys.argv[1]):
     try: p=json.loads(l)
     except Exception: continue
-    if p.get("id")==os.environ["PID"] and p.get("rule"): rule=p["rule"]
-print(rule)' "$POLICY_PROPOSALS")
+    if isinstance(p,dict) and p.get("id")==os.environ["PID"] and p.get("rule"): rule=p["rule"]; key=p.get("key","")
+print(rule); print(key)' "$POLICY_PROPOSALS")
+      key=$(printf '%s\n' "$rule" | sed -n 2p); rule=$(printf '%s\n' "$rule" | sed -n 1p)
       [ -n "$rule" ] || { echo "unknown proposal: $id"; return 2; };;
     *) echo "unknown proposal: $id"; return 2;;
   esac
@@ -259,7 +381,9 @@ print(rule)' "$POLICY_PROPOSALS")
   [ -n "$ev" ] || { echo "$id is not currently proposed — see: ship-wave.sh --policy"; return 1; }
   python3 -c "
 import json, sys, datetime
-print(json.dumps({'id': sys.argv[1], 'rule': sys.argv[2], 'evidence': sys.argv[3], 'at': datetime.datetime.now().strftime('%Y-%m-%d %H:%M'), 'by': 'Director'}))" "$id" "$rule" "$ev" >> "$POLICY_LOG"
+rec = {'id': sys.argv[1], 'rule': sys.argv[2], 'evidence': sys.argv[3], 'at': datetime.datetime.now().strftime('%Y-%m-%d %H:%M'), 'by': 'Director'}
+if sys.argv[4]: rec['key'] = sys.argv[4]
+print(json.dumps(rec))" "$id" "$rule" "$ev" "$key" >> "$POLICY_LOG"
   touch "$POLICY_DIR/$rule"
   echo "ratified $id → $rule is active from the next run (evidence recorded in $POLICY_LOG)"
 }

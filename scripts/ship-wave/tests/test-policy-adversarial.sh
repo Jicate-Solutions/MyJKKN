@@ -5,8 +5,15 @@
 # a proposal is asked exactly once. Temp $STATE only; ask_director is a stub writing files, never the real desk.
 # Run from the worktree root: bash scripts/ship-wave/tests/test-policy-adversarial.sh
 #
-# VERIFIER RESULT at commit 1cc2f819 (2026-09-10): the FAIL lines below are CONFIRMED BREAKS, kept failing on purpose
-# until the builder fixes them —
+# VERIFIER RESULT at commit 1cc2f819 (2026-09-10): the FAIL lines below were CONFIRMED BREAKS, kept failing on purpose
+# until the builder fixed them. FIXED in the follow-up commit (policy-learning.sh: identity by sha1 key, NEVER_RULE on
+# the action, malformed lines warned and skipped) — this file now passes in full; the per-break regression tests live
+# in test-policy-threshold.sh. Two cases were adjusted for decisions that arrived with the fix (marked ADJUSTED below):
+#   8   the DRY-RUN classes are HARD (§B) and an unfreeze on a hard class is now never proposable (integrator), so the
+#       collision fixture uses two REAL soft classes (apply-migrations.sh:51 with two different paths) instead
+#   8b  P1 is asked once whether or not its warrant holds (integrator: "the Director asked to see it"), so the
+#       question count excludes P1
+# Original break list —
 #   4c  a writes item with no "op" ({"file":"approve-held"}) is counted as an approve-held append → junk becomes P<n>
 #   4e  one resolved line without a "class" key kills the whole scan (KeyError) → zero proposals, zero questions, ratify refused
 #   4f/4g/4h  a round without "message", a froze without "class", or a bare JSON scalar line does the same (4f-4h pre-date §D)
@@ -168,17 +175,20 @@ for i in 1 2 3; do ledger_record round "merged=3 held=2 low=1 normal=0 open=10";
 policy_ratify P1 >/dev/null; policy_emit_questions >/dev/null
 check "7d P1 ratified by hand first → no question ever written" '[ ! -d "$QDIR" ] || [ -z "$(ls "$QDIR")" ]' "$(ls "$QDIR" 2>/dev/null)"
 
-# ── 8. rule-name collision: two classes sharing a 40-char prefix and the same shape ──────
+# ── 8. rule-name collision: two classes sharing a 40-char prefix and the same shape ──
+# ADJUSTED: DRY-RUN failed is a HARD class → unfreeze on it is never proposable now (see 9b in the threshold test);
+# the same 40-char collision exists in a SOFT class — apply-migrations.sh:51 with two different matched paths.
 reset_state
-CA="migration VERSION dry run failed error relation x does not exist"
-CB="migration VERSION dry run failed error permission denied for table y"
+CA=$(ledger_class "migration 20260910030000: 2 files on jicate/main match (need exactly 1) supabase/migrations/a.sql")
+CB=$(ledger_class "migration 20260910030000: 2 files on jicate/main match (need exactly 1) supabase/migrations/b.sql")
 resolve "Lift?" "$CA" "Lift the stop" "$W_UNFREEZE"; resolve "Lift?" "$CA" "Lift the stop" "$W_UNFREEZE"
 resolve "Lift?" "$CB" "Lift the stop" "$W_UNFREEZE"; resolve "Lift?" "$CB" "Lift the stop" "$W_UNFREEZE"
 out=$(policy_proposals); policy_emit_questions >/dev/null
 check "8a two DIFFERENT classes get two DIFFERENT rule names / numbers" \
   '[ "$(grep -E "^  P[0-9]+ +AUTO" <<<"$out" | awk "{print \$2}" | sort -u | wc -l | tr -d " ")" = 2 ]' "$out"
-check "8b …and two questions, each ratifying its own P<n>" \
-  '[ "$(ls "$QDIR" | wc -l | tr -d " ")" = 2 ] && [ "$(cat "$QDIR"/*.json | grep -o "\"value\": \"P[0-9]*\"" | sort -u | wc -l | tr -d " ")" = 2 ]' "$(cat "$QDIR"/*.json)"
+# ADJUSTED: P1 is asked once too (unwarranted here) — count the learned questions only
+check "8b …and two learned questions, each ratifying its own P<n>" \
+  '[ "$(grep -L "\"value\": \"P1\"" "$QDIR"/*.json | wc -l | tr -d " ")" = 2 ] && [ "$(cat "$QDIR"/*.json | grep -o "\"value\": \"P[0-9]*\"" | grep -v P1 | sort -u | wc -l | tr -d " ")" = 2 ]' "$(cat "$QDIR"/*.json)"
 
 # ── 9. a shape that WRITES the destructive knob under a class that does not say 'destructive' ─
 reset_state
