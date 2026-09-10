@@ -16,6 +16,8 @@ export async function GET(request: NextRequest) {
     // The value itself is ignored — actual board membership comes from
     // resolveBosBoardScope, which already handles CAS sibling UUIDs.
     const applyBoardScope = searchParams.get('boardScopeInstitutionId') != null;
+    // Optional department filter (Institution → Department → Programme chain).
+    const departmentId = searchParams.get('departmentId');
 
     const ids = institutionIds
       ? institutionIds.split(',').filter(Boolean)
@@ -29,7 +31,7 @@ export async function GET(request: NextRequest) {
 
     let query = supabase
       .from('programs')
-      .select('id, program_id, program_name, display_name')
+      .select('id, program_id, program_name, display_name, department_id')
       .eq('is_active', true)
       .order('program_name', { ascending: true });
 
@@ -38,6 +40,7 @@ export async function GET(request: NextRequest) {
     } else {
       query = query.in('institution_id', ids);
     }
+    if (departmentId) query = query.eq('department_id', departmentId);
 
     const { data, error } = await query;
     if (error) throw error;
@@ -45,10 +48,11 @@ export async function GET(request: NextRequest) {
     // Deduplicate by program_id in case Aided+Self share the same program codes.
     const seen = new Set<string>();
     let formatted = (data || [])
-      .map((p: { id: string; program_id: string; program_name: string; display_name: string | null }) => ({
+      .map((p: { id: string; program_id: string; program_name: string; display_name: string | null; department_id: string | null }) => ({
         id: p.id,
         program_code: p.program_id,
         program_name: p.display_name || p.program_name,
+        department_id: p.department_id,
       }))
       .filter((p) => {
         if (seen.has(p.program_code)) return false;
