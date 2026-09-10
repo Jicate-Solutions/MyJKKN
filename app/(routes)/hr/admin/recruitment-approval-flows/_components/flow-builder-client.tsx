@@ -41,6 +41,12 @@ import {
 
 import { getFlowColumns } from './flows-columns';
 import { FlowDetailsDialog } from './flow-details-dialog';
+import {
+  EMPTY_FLOW_FILTERS,
+  FlowsFilters,
+  applyFlowFilters,
+  type FlowFilters,
+} from './flows-filters';
 
 const BASE_PATH = '/hr/admin/recruitment-approval-flows';
 
@@ -51,6 +57,12 @@ export function FlowBuilderClient() {
   const { data: roleCounts } = useRoleUserCounts();
   const setActive = useSetApprovalFlowActive();
   const deleteFlow = useDeleteApprovalFlow();
+
+  const [filters, setFilters] = useState<FlowFilters>(EMPTY_FLOW_FILTERS);
+  // The UNFILTERED set, published by fetchData below so the filter panel can
+  // read its approver and chain-length options off the real rows without a
+  // second request for the same list.
+  const [optionRows, setOptionRows] = useState<HRApprovalFlow[]>([]);
 
   const [viewingFlow, setViewingFlow] = useState<HRApprovalFlow | null>(null);
   const [deletingRows, setDeletingRows] = useState<HRApprovalFlow[]>([]);
@@ -85,6 +97,8 @@ export function FlowBuilderClient() {
         throw new Error(err.error || `Flows fetch failed: ${res.status}`);
       }
       let rows = (((await res.json()).data) ?? []) as HRApprovalFlow[];
+      setOptionRows(rows);
+      rows = applyFlowFilters(rows, filters);
 
       const categoryLabel = (f: HRApprovalFlow) => {
         const cat = (f.conditions as Record<string, string> | null)?.role_category;
@@ -138,7 +152,7 @@ export function FlowBuilderClient() {
         },
       };
     },
-    [orgNameById],
+    [orgNameById, filters],
   );
 
   // -------- Row actions --------
@@ -233,6 +247,14 @@ export function FlowBuilderClient() {
           <span className='font-medium'>future</span> candidates only.
         </AlertDescription>
       </Alert>
+
+      <FlowsFilters
+        filters={filters}
+        onChange={setFilters}
+        orgs={orgs ?? []}
+        rows={optionRows}
+        roleNameByKey={roleNameByKey}
+      />
 
       <DataTable<HRApprovalFlow, unknown>
         fetchDataFn={fetchData}

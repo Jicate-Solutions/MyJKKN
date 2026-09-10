@@ -4,11 +4,18 @@ import { BosViewGuard } from '@/components/auth/bos-view-guard';
 import { PoPsoPageClient } from './_components/po-pso-page-client';
 
 /**
- * /bos/po-pso — Institution master POs & PSOs with per-board PSO overrides.
+ * /bos/po-pso — Institution-wise POs & PSOs maintained by the HOD.
  *
- * POs are set once per institution and apply to every board (e.g. all
- * Engineering & Technology boards at CET share one PO set). PSOs default
- * from the master but each board may customize its own set.
+ * Scope chain: Institution → Department → Programme → Regulation. The rows
+ * live in bos_programme_outcomes / bos_programme_specific_outcomes — the
+ * SAME tables the /bos/compositions Outcomes tab and the syllabus CO-PO
+ * editor read (single source of truth; nothing is ever deleted, outcomes
+ * are soft-deactivated). Tabs: ?tab=pos | psos | mapping (course × PO/PSO).
+ *
+ * Access: BosViewGuard passes super-admin / principal / board members / HODs
+ * (heads of ≥1 department). Writes are authorized server-side per programme
+ * by canWriteProgrammeOutcomes (HOD of the owning department, principal,
+ * board member, super-admin).
  */
 export default function PoPsoPage() {
   return (
