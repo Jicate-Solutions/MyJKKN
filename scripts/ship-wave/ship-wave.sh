@@ -78,7 +78,7 @@ while [[ $# -gt 0 ]]; do
     --policy|--guards) POLICY_SHOW=1;;
     --ratify) POLICY_RATIFY="${2:-}"; shift;;
     --unguard) UNGUARD="${2:-}"; shift;;
-    --unfreeze) rm -f "$FREEZE"; echo "freeze cleared"; exit 0;;
+    --unfreeze) _fc=$(tail -1 "$FREEZE" 2>/dev/null | awk -F'\t' '{print $3}'); rm -f "$FREEZE"; echo "freeze cleared${_fc:+ (was $_fc)}"; exit 0;;   # one file = both the latch and its class
     --if-changed) IF_CHANGED=1;;   # standing run: skip when no PR / approval / freeze changed since the last run (≤12h)
     *) echo "unknown arg: $1"; exit 2;;
   esac; shift
@@ -106,14 +106,119 @@ vtok() {
 }
 say() { printf '%s\n' "$*"; }
 unlock() { rm -f "$LOCK/pid"; rmdir "$LOCK" 2>/dev/null; }
+# ── freeze CLASSES (Director 2026-09-10, HUMAN-IN-THE-LOOP.md §B: "Keep doing the safe work, hold the risky") ──
+# 114 runs, frozen 18 of 41 h, and every freeze waited for a human on a phone. A freeze now carries a CLASS:
+#   hard  production or main is broken, or a merged migration cannot apply → nothing merges or ships (today's rule)
+#   soft  a human DECISION is needed but production is fine → LOW/NORMAL merges, deploy, additive apply and the
+#         sweep keep running; HELD merges wait (they need his number anyway) and so does the frozen item itself.
+# "destructive statement awaiting allow" is HARD on purpose: the PR's code is already on main, so deploying main
+# would ship code whose schema does not exist yet — the #1516 failure shape. A message this table does not know is
+# HARD (fail safe) and the receipt says it was unclassified, so the table gets the line added rather than guessed.
+classify_freeze() {  # $1 = freeze message → prints soft|hard; returns 1 when the message matched no row (→ hard)
+  case "$1" in
+    *deploy*ERROR*|*"deploy failed"*|*"APPLY failed"*|*"DRY-RUN failed"*|*"destructive statement"*|*"GATE ERROR"*|*"migration gap"*|*"cannot read"*|*"history query failed"*)
+      printf 'hard'; return 0;;
+    # a page or route that broke AFTER the deploy is production broken — the spec's own definition of hard
+    *"broken page"*|*"post-deploy sweep failed"*|*"baseline bounce"*)
+      printf 'hard'; return 0;;
+    *hold*|*"files on jicate/main match"*|*UNRESOLVABLE*|*policy*|*advisory*)
+      printf 'soft'; return 0;;
+    *) printf 'hard'; return 1;;
+  esac
+}
+freeze_class_now() {  # → the class of the freeze in force: field 3 of the LAST FROZEN line; a missing or odd field = hard
+  local c; c=$(tail -1 "$FREEZE" 2>/dev/null | awk -F'\t' '{print $3}')
+  case "$c" in soft|hard) printf '%s' "$c";; *) printf 'hard';; esac
+}
 freeze() {
-  printf '%s\t%s\n' "$(date '+%F %T')" "$*" >> "$FREEZE"
-  say "  ⛔ FROZEN: $* — no further merges until: ship-wave.sh --unfreeze"
+  local msg="$*" cls known=1
+  cls=$(classify_freeze "$msg") || known=""
+  printf '%s\t%s\t%s\n' "$(date '+%F %T')" "$msg" "$cls" >> "$FREEZE"
+  if [ "$cls" = soft ]; then
+    say "  ⛔ FROZEN (soft): $msg — merging LOW/NORMAL, holding HELD, until: ship-wave.sh --unfreeze"
+  else
+    say "  ⛔ FROZEN (hard): $msg — no merges, nothing ships, until: ship-wave.sh --unfreeze"
+    [ -n "$known" ] || say "  freeze class: this message matched no row of classify_freeze — treated as HARD (fail safe); add its shape to the table"
+  fi
   # the wave used to stop mute here and a human had to reconstruct why from a
   # receipt that overwrote itself. Now it says what this cost last time.
-  type -t ledger_on_freeze >/dev/null 2>&1 && ledger_on_freeze "$*"
+  type -t ledger_on_freeze >/dev/null 2>&1 && ledger_on_freeze "$msg"
+  # §A1: every freeze is ONE question to the Director, by phone. desk-questions.sh (slice A) may be absent — then
+  # the wave freezes exactly as before. Option 0 is the safe one ("Keep it stopped"), so recommended=0 never lifts.
+  if type -t ask_director >/dev/null 2>&1; then
+    local q_opts q_title q_body q_ver
+    q_opts='{"label":"Keep it stopped","description":"Nothing changes; the wave keeps waiting for you.","writes":[{"op":"noop"}]},'
+    q_opts="$q_opts"'{"label":"Lift the stop","description":"Clears the freeze; the next run merges and ships again as normal.","writes":[{"op":"unfreeze"}]}'
+    case "$msg" in *"destructive statement"*)
+      q_ver=$(printf '%s' "$msg" | grep -oE '[0-9]{14}' | head -1)
+      [ -n "$q_ver" ] && q_opts="$q_opts"',{"label":"Allow this one migration","description":"Lets the wave apply migration '"$q_ver"' once (dry-run, then commit, then verify) and lifts the stop.","writes":[{"op":"append","file":"allow-destructive","value":"'"$q_ver"'"},{"op":"unfreeze"}]}';;
+    esac
+    if [ "$cls" = soft ]; then q_title="The ship wave paused on one item; safe merges and deploys continue"
+    else q_title="The ship wave stopped: production or main may be broken"; fi
+    q_body="What happened: ${msg:0:220}. While stopped, $( [ "$cls" = soft ] && printf 'LOW and NORMAL PRs still merge and ship but HELD PRs wait' || printf 'nothing merges and nothing ships' ). Keep it stopped and nothing changes; lift it and the next run resumes fully."
+    ask_director freeze "$cls" "$q_title" "$q_body" "[$q_opts]"
+  fi
   # tighten alone: what shipped in this round becomes HELD until a human clears it (policy-learning.sh)
-  type -t guard_add_from_freeze >/dev/null 2>&1 && guard_add_from_freeze "$*" "${run:-}"
+  type -t guard_add_from_freeze >/dev/null 2>&1 && guard_add_from_freeze "$msg" "${run:-}"
+  return 0   # the latch is written; an absent optional helper must not turn that into a failure code
+}
+
+# ── §A1 hook (c): the HELD list becomes ONE question, by phone ────────────────────────────────────────
+# 14 drafts sat parked on questions nobody asked him. When ≥1 HELD PR is READY, ask once: up to 5 PRs as
+# options (each = append approve-held <n>), plus "Approve all listed" and "None today". Re-asked only when the
+# set changes — $STATE/held-last-set remembers the last set asked, and ask_director itself de-duplicates an
+# identical open question. PRs already in this run's approvals are not asked about (they merge this run).
+ask_held_question() {  # $1 = run dir (its plan.json)
+  local set_now qjson
+  set_now=$(APPROVED="${APPROVE_HELD:-}" python3 -c "
+import json,os,sys
+ap={x for x in os.environ['APPROVED'].replace(',',' ').split() if x}
+rows=[r for r in json.load(open(sys.argv[1]))['ready']['HELD'] if str(r['number']) not in ap][:5]
+print(' '.join(str(r['number']) for r in rows))" "$1/plan.json" 2>/dev/null)
+  [ -n "$set_now" ] || return 0
+  [ "$set_now" = "$(cat "$STATE/held-last-set" 2>/dev/null)" ] && return 0
+  qjson=$(SET="$set_now" python3 - "$1/plan.json" <<'PYQ'
+import json,os,sys
+want=[int(x) for x in os.environ['SET'].split()]
+rows={r['number']:r for r in json.load(open(sys.argv[1]))['ready']['HELD']}
+opts=[]
+for n in want:
+    r=rows[n]; why='; '.join(r.get('tier_reasons') or [])[:120]
+    opts.append({"label":(f"#{n} "+r['title'])[:40],"description":f"Merge #{n} on the next run — held because: {why}","writes":[{"op":"append","file":"approve-held","value":str(n)}]})
+opts.append({"label":"Approve all listed","description":"Merge every PR above on the next run.","writes":[{"op":"append","file":"approve-held","value":str(n)} for n in want]})
+opts.append({"label":"None today","description":"Nothing merges; the wave asks again only when the list changes.","writes":[{"op":"noop"}]})
+title=(f"{len(want)} HELD PR{'s' if len(want)>1 else ''} ready for your OK: "+' '.join('#'+str(n) for n in want))[:110]
+body=(f"These PRs touch money, grades or a migration, so the wave never merges them on its own. Each one's checks are green and it has been quiet 30 minutes. "
+      f"Pick the ones to ship; they merge, apply and deploy on the next run. 'None today' leaves them where they are.")
+json.dump({"title":title,"body":body,"options":opts}, sys.stdout)
+PYQ
+)
+  [ -n "$qjson" ] || return 0
+  printf '%s\n' "$set_now" > "$STATE/held-last-set"
+  ask_director held held "$(python3 -c 'import json,sys;print(json.load(sys.stdin)["title"])' <<<"$qjson")" \
+    "$(python3 -c 'import json,sys;print(json.load(sys.stdin)["body"])' <<<"$qjson")" \
+    "$(python3 -c 'import json,sys;print(json.dumps(json.load(sys.stdin)["options"]))' <<<"$qjson")"
+}
+
+# ── §C (Director 2026-09-10): "Stopped means no NEW merges — shipping still runs" ──────────────────────
+# While frozen, humans hand-merged 10 PRs that skipped the batched deploy, the apply and the sweep, and sat
+# unshipped 12 h. So the deploy step gains a third trigger: main HEAD != the last commit production is running.
+# $STATE/last-deployed holds that sha — Vercel's meta.githubCommitSha of the READY deployment when the API
+# exposes it, else jicate/main at fire time. Written only after a deployment the wave saw go READY.
+main_sha_now() { git -C "$WT" fetch jicate main -q 2>/dev/null; git -C "$WT" rev-parse jicate/main 2>/dev/null; }
+record_last_deployed() {  # $1 = deployment JSON ("" allowed) · $2 = fallback sha (jicate/main at fire time)
+  local sha; sha=$(python3 -c 'import json,sys;print(((json.load(sys.stdin)["deployments"][0].get("meta") or {}).get("githubCommitSha") or ""))' <<<"$1" 2>/dev/null)
+  [ -n "$sha" ] || sha="$2"
+  [ -n "$sha" ] && { printf '%s\n' "$sha" > "$STATE/last-deployed"; say "  last-deployed ← ${sha:0:10}"; }
+  return 0
+}
+hand_merged_since() {  # $1 = freeze timestamp → "#n #m " — PRs whose merge commit landed on main since then that the wave did NOT merge
+  # the wave records its own merges in each run's merged-map.tsv; anything else on main since the freeze is by hand
+  local mine n; mine=$(cat "$STATE"/run-*/merged-map.tsv 2>/dev/null | cut -f1 | sort -u)
+  git -C "$WT" fetch jicate main -q 2>/dev/null   # the ref is only as fresh as the last stage that fetched it
+  git -C "$WT" log jicate/main --since="$1" --format='%s' 2>/dev/null | grep -oE '\(#[0-9]+\)$' | tr -d '()#' | sort -un | while read -r n; do
+    [ -n "$n" ] || continue; grep -qx "$n" <<<"$mine" || printf '#%s ' "$n"
+  done
 }
 
 # The ledger is sourced BEFORE the single-flight lock on purpose: --ledger is a
@@ -124,6 +229,9 @@ freeze() {
 if [ -n "${LEDGER_REPORT:-}" ]; then ledger_report; exit 0; fi
 # shellcheck source=scripts/ship-wave/policy-learning.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/policy-learning.sh"
+# desk-questions.sh (HUMAN-IN-THE-LOOP.md §A, slice A) defines ask_director — the one channel from the wave to the
+# Director's phone. Guarded: without the file the wave runs exactly as before, it just cannot ask.
+[ -f "$SW_DIR/desk-questions.sh" ] && . "$SW_DIR/desk-questions.sh"
 if [ -n "${POLICY_SHOW:-}" ]; then policy_show; exit 0; fi
 if [ -n "${POLICY_RATIFY:-}" ]; then policy_ratify "$POLICY_RATIFY"; exit $?; fi
 if [ -n "${UNGUARD:-}" ]; then guard_remove "$UNGUARD"; exit 0; fi
@@ -414,18 +522,32 @@ run_once() {
     fi
   done
   [ -n "$gh_ok" ] || { say "PREFLIGHT SKIP: GitHub unreachable for ~4 min (credential present) — this round is skipped, the run continues"; return 2; }
-  local frozen=""; if [ -f "$FREEZE" ]; then frozen=1; say "  ⛔ FROZEN since: $(head -1 "$FREEZE") — this round merges NOTHING (sweep/report only). Clear with --unfreeze."; fi
+  # §B: one latch, two classes. `hard` gates what used to check `frozen`; `frozen` alone now only holds HELD merges.
+  local frozen="" freeze_class="" hard="" hand_merged=""
+  if [ -f "$FREEZE" ]; then
+    frozen=1; freeze_class=$(freeze_class_now); [ "$freeze_class" = hard ] && hard=1
+    if [ -n "$hard" ]; then say "  ⛔ FROZEN (hard) since: $(head -1 "$FREEZE" | cut -f1,2) — nothing merges, nothing ships this round (sweep/report only). Clear with --unfreeze."
+    else say "  ⛔ FROZEN (soft) since: $(head -1 "$FREEZE" | cut -f1,2) — merging LOW/NORMAL, holding HELD; deploy + apply + sweep still run. Clear with --unfreeze."; fi
+    hand_merged=$(hand_merged_since "$(head -1 "$FREEZE" | cut -f1)" | sed "s/ *$//")
+    say "  merged by hand while stopped: ${hand_merged:-none}"
+  fi
   local tok; tok=$(vtok); [ -n "$tok" ] || say "  warn: no Vercel CLI token — deploy verification will be blind"
   if [ -n "$tok" ]; then
     local last; last=$(curl -s -H "Authorization: Bearer $tok" "https://api.vercel.com/v6/deployments?projectId=$VPROJ&teamId=$VTEAM&limit=1&target=production" \
       | python3 -c 'import json,sys;d=json.load(sys.stdin)["deployments"][0];print(d.get("readyState") or d.get("state"),d.get("errorCode") or "-",d["uid"])' 2>/dev/null)
     say "  last prod deployment: $last"
     case "$last" in ERROR*) say "PREFLIGHT HARD STOP: the deploy pipeline is broken ($last) — nothing merged now can go live. Fix the deploy first."; return 1;; esac
+    # §C: no last-deployed marker yet (first run after this change) → seed it from the READY record's commit sha
+    case "$last" in READY*) [ -s "$STATE/last-deployed" ] || record_last_deployed "$(curl -s -H "Authorization: Bearer $tok" "https://api.vercel.com/v6/deployments?projectId=$VPROJ&teamId=$VTEAM&limit=1&target=production")" "";; esac
   fi
 
   # ── 1. sweep + classify ────────────────────────────────────────────────────
   say; say "--- 1. sweep: every open PR on $REPO ---"
   sweep "$run" || return 1
+  # §A1 hook (c): ≥1 HELD PR is READY → ONE question to the Director listing up to 5 of them, re-asked only when the
+  # set changes ($STATE/held-last-set). PRs already approved this run are not asked about. Only a `go` run asks —
+  # `plan` is the dry run that changes nothing. ask_director is slice A's; absent, the HELD line below still prints.
+  if type -t ask_director >/dev/null 2>&1 && [ "$MODE" = "go" ] && [ -z "${FINAL_DEPLOY:-}" ]; then ask_held_question "$run"; fi
   local c_open c_ready c_conf; c_open=$(python3 -c "import json;print(json.load(open('$run/plan.json'))['counts']['open'])")
   c_ready=$(python3 -c "import json;print(json.load(open('$run/plan.json'))['counts']['ready'])")
   c_conf=$(python3 -c "import json;print(json.load(open('$run/plan.json'))['counts']['conflicted'])")
@@ -434,7 +556,7 @@ run_once() {
   # (2026-09-06: 30 hours of identical 2-hourly runs — 15 red on an advisory check, 8 heads whose required
   # checks never ran, 4 parked conflicts. Nothing in the loop touched them. Now each has a bounded lane.)
   DISPATCHED=0
-  if [ -z "$frozen" ] && [ -z "${FINAL_DEPLOY:-}" ]; then unblock_lanes "$run"; fi
+  if [ -z "$hard" ] && [ -z "${FINAL_DEPLOY:-}" ]; then unblock_lanes "$run"; fi
 
   # ── 2. conflict clusters → one fleet tab each ──────────────────────────────
   say; say "--- 2. conflicts: [helper tabs alive: $(alive_helpers)/$HELPER_CAP] dispatch ≤$MAX_DISPATCH fleet tabs (one per cluster; a new tab only when the previous one has finished) ---"
@@ -471,7 +593,11 @@ run_once() {
     if [ -n "$APPROVE_NORMAL" ]; then
       for n in $(python3 -c "import json;print(' '.join(str(r['number']) for r in json.load(open('$run/plan.json'))['ready']['NORMAL']))"); do already_merged "$n" || { merge_one "$n" NORMAL && { merged=$((merged+1)); m_normal=$((m_normal+1)); merged_list="$merged_list #$n"; }; }; done
     else say "  NORMAL: $(python3 -c "import json;print(len(json.load(open('$run/plan.json'))['ready']['NORMAL']))") ready — waiting for your tap (run again with --approve-normal)"; fi
-    if [ -n "$APPROVE_HELD" ]; then
+    # §B: HELD merges never run while ANY freeze is on — soft included. They need his number anyway, and a stop is
+    # the moment he is being asked something; the approvals stay in the file and merge on the first unfrozen run.
+    if [ -n "$frozen" ]; then
+      say "  HELD: held while stopped ($freeze_class freeze) — $(python3 -c "import json;print(len(json.load(open('$run/plan.json'))['ready']['HELD']))") ready, none merged${APPROVE_HELD:+; approvals kept: $APPROVE_HELD}"
+    elif [ -n "$APPROVE_HELD" ]; then
       for n in $(printf '%s' "$APPROVE_HELD" | tr ', ' '  '); do
         already_merged "$n" && continue
         python3 -c "import json,sys;sys.exit(0 if $n in [r['number'] for r in json.load(open('$run/plan.json'))['ready']['HELD']] else 1)" \
@@ -483,12 +609,12 @@ run_once() {
       [ -n "$held" ] && say "  HELD waiting for your reply (reply with the numbers to ship): $held" || say "  HELD: none ready"
     fi
   }
-  if policy_active AUTO_APPROVE_ADDITIVE_MIGRATIONS && [ -z "${FINAL_DEPLOY:-}" ]; then
+  if policy_active AUTO_APPROVE_ADDITIVE_MIGRATIONS && [ -z "${FINAL_DEPLOY:-}" ] && [ -z "$frozen" ]; then   # P1 is a HELD merge — held while frozen (§B)
     local auto; auto=$(python3 -c "import json;p=json.load(open('$run/plan.json'));print(' '.join(str(r['number']) for r in p['ready']['HELD'] if r['tier_reasons'] and all(x.startswith('migration: supabase/migrations/') for x in r['tier_reasons'])))" 2>/dev/null)
     [ -n "$auto" ] && { say "  policy P1 (ratified): HELD PRs whose only reason is a migration are approved this run: $auto"; APPROVE_HELD="${APPROVE_HELD:+$APPROVE_HELD }$auto"; }
   fi
   if [ -n "${FINAL_DEPLOY:-}" ]; then say "  (end-of-run deploy pass — merging nothing)"
-  elif [ "$MODE" = "go" ] && [ -z "$frozen" ]; then
+  elif [ "$MODE" = "go" ] && [ -z "$hard" ]; then
     # Director 2026-09-05 23:40: up to three merge passes per round. After a pass that merged something,
     # the remaining approved PRs are brought up to date with main (rebase-remaining.sh — the SQL index is
     # the usual conflict and is kept both-sides), then the pass repeats. The one-index-PR-per-pass gate
@@ -515,12 +641,32 @@ print("  newly conflicted:", sum(len(v) for v in new.values()), "→", {k:v for 
 PY
         dispatch_clusters "$run/post/new.json" "$run"; }
     fi
-  else say "  (plan mode or frozen — nothing merged)"; fi
+  else say "  (plan mode or hard freeze — nothing merged)"; fi
   say "  merged this round: $merged$merged_list"
+
+  # §C: the third deploy trigger — main HEAD != last-deployed. Files changed since the last deploy join merged_files,
+  # so the apply (their migrations), the ignoreCommand check and the sweep all see what is actually about to go live.
+  # `ship` is what the deploy/apply/sweep gates count from now on: this round's merges, plus 1 when main is ahead.
+  local ship=$merged ship_ahead="" main_sha="" last_dep=""; last_dep=$(cat "$STATE/last-deployed" 2>/dev/null)
+  if [ "$MODE" = "go" ] && [ -z "${FINAL_DEPLOY:-}" ]; then
+    main_sha=$(main_sha_now)
+    if [ -z "$last_dep" ]; then say "  main vs production: last-deployed unknown (no marker yet, Vercel record had no commit sha) — only this round's merges can trigger a deploy"
+    elif [ -z "$main_sha" ]; then say "  main vs production: cannot read jicate/main — only this round's merges can trigger a deploy"
+    elif [ "$main_sha" != "$last_dep" ]; then
+      if [ -n "$hard" ]; then
+        say "  ⛔ hard freeze — main (${main_sha:0:7}) is ahead of production (${last_dep:0:7}) but NOTHING ships until the stop is lifted: $(tail -1 "$FREEZE" | cut -f2 | cut -c1-120)"
+      elif [ "$merged" -eq 0 ]; then
+        ship_ahead=1; ship=1
+        git -C "$WT" diff --name-only "$last_dep" "$main_sha" 2>/dev/null >> "$merged_files"
+        merged_list="$merged_list (main ${main_sha:0:7} ahead of production ${last_dep:0:7}: $(grep -c . "$merged_files") file(s)${hand_merged:+; by hand: $hand_merged})"
+        say "  main is ahead of production with zero merges this round — shipping what is already on main:$merged_list"
+      fi
+    fi
+  fi
 
   # ── 3b. migrations: apply + verify BEFORE deploy ────────────────────────────
   local APPLY_RESULT="n/a" apply_ok=1
-  if [ "$MODE" = "go" ] && [ -z "$frozen" ] && { [ "$merged" -gt 0 ] || [ -f "$STATE/migrations-pending" ]; }; then
+  if [ "$MODE" = "go" ] && [ -z "$hard" ] && { [ "$ship" -gt 0 ] || [ -f "$STATE/migrations-pending" ]; }; then
     say; say "--- 3b. migrations (one approval = merge + apply + deploy + verify) ---"
     apply_migrations "$merged_files" || apply_ok=0
   fi
@@ -537,20 +683,20 @@ PY
     # Copy it into the run dir instead of pointing at the file that is about to vanish
     # (2026-09-08: three "deploy-pending: No such file" errors in every goal run's sweep).
     merged_files="$run/merged-files.txt"; cp "$pending" "$merged_files" 2>/dev/null || : > "$merged_files"
-    merged=$(grep -c . "$merged_files" 2>/dev/null || echo 0); merged_list=" (batched: $merged file(s) merged this run)"
-  elif [ -n "$GOAL" ] && [ "$merged" -gt 0 ] && [ "$apply_ok" -ne 0 ] && [ -z "$NO_DEPLOY" ]; then
+    merged=$(grep -c . "$merged_files" 2>/dev/null || echo 0); ship=$merged; merged_list=" (batched: $merged file(s) merged this run)"
+  elif [ -n "$GOAL" ] && [ "$ship" -gt 0 ] && [ "$apply_ok" -ne 0 ] && [ -z "$NO_DEPLOY" ]; then
     cat "$merged_files" >> "$pending"; DEPLOY_DEFERRED=1
     deploy="deferred — goal runs deploy ONCE at the end ($(grep -c . "$pending") file(s) waiting; migrations already applied)"
     say "  $deploy"
   elif [ "$MODE" = "go" ] && [ -z "$GOAL" ] && [ -s "$pending" ]; then
-    cat "$pending" >> "$merged_files"; merged=$((merged+1)); merged_list="$merged_list +earlier-batch"
+    cat "$pending" >> "$merged_files"; merged=$((merged+1)); ship=$((ship+1)); merged_list="$merged_list +earlier-batch"
   fi
   # 2026-09-06 07:55: a read-only `plan` sweep fired a production build through the flush branch above —
   # the deploy stage must never act outside `go`, whatever the batch file holds.
   if [ "$MODE" != "go" ]; then deploy="skipped (plan mode)"; DEPLOY_DEFERRED=1; fi
   if [ -n "$DEPLOY_DEFERRED" ]; then :
   elif [ "$apply_ok" -eq 0 ]; then say "  NOT deploying — migration step failed; the previous deploy stays live"; deploy="skipped (migration failed)"
-  elif [ "$merged" -gt 0 ] && [ -z "$NO_DEPLOY" ] && [ "$(grep -vE '^[[:space:]]*$' "$merged_files" | grep -cvE '^(supabase|docs|specs|\.claude|\.github)/|\.md$')" -eq 0 ]; then
+  elif [ "$ship" -gt 0 ] && [ -z "$NO_DEPLOY" ] && [ "$(grep -vE '^[[:space:]]*$' "$merged_files" | grep -cvE '^(supabase|docs|specs|\.claude|\.github)/|\.md$')" -eq 0 ]; then
     # Mirrors vercel.json's ignoreCommand: when every merged file sits under supabase/, docs/, specs/,
     # .claude/, .github/ or is *.md, Vercel has nothing to build — its ignoreCommand exits 0 and the
     # deployment comes back CANCELED with no errorCode. 2026-09-05 22:50: #3296 (one migration + the
@@ -560,7 +706,10 @@ PY
     # MATCHED, which inverts the answer for exactly the mixed and empty cases (proven 2026-09-05 22:56).
     deploy="nothing to deploy (migration/docs-only round — Vercel's ignoreCommand skips the build)"
     say "  $deploy"
-  elif [ "$merged" -gt 0 ] && [ -z "$NO_DEPLOY" ]; then
+    # §C: production already runs this code; mark main as deployed so the main-ahead trigger does not re-fire every round
+    record_last_deployed "" "$(main_sha_now)"
+  elif [ "$ship" -gt 0 ] && [ -z "$NO_DEPLOY" ]; then
+    local fire_sha; fire_sha=$(main_sha_now)   # §C fallback for last-deployed when Vercel's record carries no commit sha
     local r; r=$(curl -s -X POST "$HOOK"); dpl=$(python3 -c "import json,sys;print(json.load(sys.stdin)['job']['id'])" <<<"$r" 2>/dev/null)
     printf '%s\t%s\t%s\n' "$(date '+%F %T')" "W12 ship$merged_list" "$dpl" >> "$_CFG/v5-deploy-fires.tsv"
     say "  hook fired: job $dpl — polling the deployment (verdict read from .errorCode, never the GitHub record)"
@@ -604,11 +753,13 @@ PY
   else say "  nothing merged / --no-deploy → no hook fired"; fi
 
   if [ -z "$DEPLOY_DEFERRED" ] && { [[ "$deploy" == READY* ]] || [[ "$deploy" == nothing* ]]; }; then rm -f "$pending"; fi
+  # §C: a deployment the wave saw go READY moves the last-deployed marker (its commit sha if Vercel says, else main at fire time)
+  if [ -z "$DEPLOY_DEFERRED" ] && [[ "$deploy" == READY* ]]; then record_last_deployed "${d2:-${d:-}}" "${fire_sha:-}"; fi
 
   # ── 5. three-layer sweep on what shipped ───────────────────────────────────
   say; say "--- 5. sweep (L1 pages as real roles · L2 API routes unauth · L3 tables touched) ---"
   local l1="n/a" l2="n/a" l3="n/a"
-  if [ "$merged" -gt 0 ] && [ -z "$NO_SWEEP" ] && [[ "$deploy" == READY* ]]; then
+  if [ "$ship" -gt 0 ] && [ -z "$NO_SWEEP" ] && [[ "$deploy" == READY* ]]; then
     local pages apis migs
     pages=$(grep -E '^app/\(routes\)/.*/page\.tsx$' "$merged_files" | grep -v '\[' | sed -E 's#^app/\(routes\)##; s#/page\.tsx$##; s#/\([^)]*\)##g' | sort -u | head -8)
     apis=$(grep -E '^app/api/.*/route\.ts$' "$merged_files" | grep -v '\[' | sed -E 's#^app##; s#/route\.ts$##' | sort -u | head -15)
@@ -665,18 +816,20 @@ PY
 
   # ── 6. scoreboard + HTML report ────────────────────────────────────────────
   local after; after=$(gh pr list --repo "$REPO" --state open --limit 200 --json number -q 'length' 2>/dev/null || echo "?")
-  say; say "=== SCOREBOARD · open PRs: $c_open → $after (target 0) · ready left: $([ -n "${FINAL_DEPLOY:-}" ] && echo "$c_ready" || echo $((c_ready-merged))) · conflicted: $c_conf ($DISPATCHED tabs sent) · merged: $([ -n "${FINAL_DEPLOY:-}" ] && echo "0 (final pass: $merged file(s) built)" || echo "$merged") · migrations: $APPLY_RESULT · deploy: $deploy · frozen: $([ -f "$FREEZE" ] && echo YES || echo no) ==="
+  say; say "=== SCOREBOARD · open PRs: $c_open → $after (target 0) · ready left: $([ -n "${FINAL_DEPLOY:-}" ] && echo "$c_ready" || echo $((c_ready-merged))) · conflicted: $c_conf ($DISPATCHED tabs sent) · merged: $([ -n "${FINAL_DEPLOY:-}" ] && echo "0 (final pass: $merged file(s) built)" || echo "$merged") · migrations: $APPLY_RESULT · deploy: $deploy · frozen: $([ -f "$FREEZE" ] && freeze_class_now || echo no)$([ -f "$FREEZE" ] && [ "$(freeze_class_now)" = soft ] && printf ' (merging LOW/NORMAL, holding HELD)') ==="
   type -t ledger_record >/dev/null 2>&1 && ledger_record round \
     "merged=$merged low=$m_low normal=$m_normal held=$m_held open=$c_open->$after ready=$c_ready conflicted=$c_conf dispatched=$DISPATCHED migrations=$APPLY_RESULT deploy=$deploy"
   local html="$LOCAL/artifacts/ship-wave-$ts.html"; mkdir -p "$LOCAL/artifacts"
-  RUN="$run" TS="$ts" OPEN="$c_open" AFTER="$after" MERGED="$merged" MLIST="$merged_list" DEPLOY="$deploy" L1="$l1" L2="$l2" L3="migrations: $APPLY_RESULT · $l3" DISP="$DISPATCHED" MODE="$MODE" RECEIPT="$RECEIPT" FROZEN="$( [ -f "$FREEZE" ] && tail -1 "$FREEZE" || echo "")" python3 - "$html" <<'PY'
+  RUN="$run" TS="$ts" OPEN="$c_open" AFTER="$after" MERGED="$merged" MLIST="$merged_list" DEPLOY="$deploy" L1="$l1" L2="$l2" L3="migrations: $APPLY_RESULT · $l3" DISP="$DISPATCHED" MODE="$MODE" RECEIPT="$RECEIPT" FROZEN="$( [ -f "$FREEZE" ] && tail -1 "$FREEZE" | cut -f1,2 || echo "")" FROZEN_CLASS="$( [ -f "$FREEZE" ] && freeze_class_now || echo "")" HAND_MERGED="${hand_merged:-}" python3 - "$html" <<'PY'
 import json, os, sys, html as H
 run=os.environ["RUN"]; plan=json.load(open(f"{run}/plan.json")); c=plan["counts"]; e=H.escape
 def rows(lst, extra=lambda r:""): return "".join(f"<tr><td><a href='https://github.com/Jicate-Solutions/MyJKKN/pull/{r['number']}'>#{r['number']}</a></td><td>{e(r['title'])}</td><td><span class='t {r['tier']}'>{r['tier']}</span></td><td>{e(extra(r))}</td></tr>" for r in lst) or "<tr><td colspan=4 class=m>none</td></tr>"
 ready=[*plan["ready"]["LOW"],*plan["ready"]["NORMAL"],*plan["ready"]["HELD"]]
 clusters="".join(f"<li><b>{e(k)}</b> → {' '.join('#'+str(n) for n in v)}</li>" for k,v in plan["clusters"].items()) or "<li class=m>none</li>"
 dep=os.environ['DEPLOY']; depcls='ok' if dep.startswith('READY') else ('m' if dep=='skipped' else 'bad')
-frozen=os.environ.get('FROZEN',''); banner=f"<div class=frz>⛔ FROZEN — {e(frozen)} — clear with <code>ship-wave.sh --unfreeze</code></div>" if frozen else ""
+frozen=os.environ.get('FROZEN',''); fcls=os.environ.get('FROZEN_CLASS',''); hand=os.environ.get('HAND_MERGED','').strip()
+fnote = "soft — merging LOW/NORMAL, holding HELD; deploy + apply + sweep still run" if fcls=="soft" else "hard — nothing merges, nothing ships"
+banner=f"<div class=frz>⛔ FROZEN ({e(fnote)}) — {e(frozen)}{' — merged by hand while stopped: '+e(hand) if hand else ''} — clear with <code>ship-wave.sh --unfreeze</code></div>" if frozen else ""
 page=f"""<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>Ship wave {os.environ['TS']}</title>
 <style>:root{{--bg:#fbfaf7;--fg:#1c1b19;--mu:#6b6862;--ln:#e6e2da;--ok:#1f7a4d;--bad:#b3261e;--card:#fff}}
@@ -728,7 +881,11 @@ if [ -n "$GOAL" ]; then
     # ship, so the number he sees is the number he owns. (Excluding them was proposed and declined.)
     say "=== goal round $round/$GOAL_ROUNDS · open=$left · movable=$movable ==="
     [ "$left" = "0" ] && { say "=== GOAL MET: open PRs = 0 ==="; break; }
-    [ -f "$FREEZE" ] && { say "=== FROZEN — goal loop ends; Director must look, then --unfreeze ==="; break; }
+    # §B: a SOFT freeze keeps the safe work going, so the goal loop keeps rounding; only a HARD freeze ends it
+    if [ -f "$FREEZE" ]; then
+      if [ "$(freeze_class_now)" = hard ]; then say "=== FROZEN (hard) — goal loop ends; Director must look, then --unfreeze ==="; break
+      else say "=== FROZEN (soft) — rounds continue: LOW/NORMAL merge and ship, HELD waits ==="; fi
+    fi
     [ "$movable" = "0" ] && { say "=== nothing left this wave can move (rest needs CI, authors, or your approval) — loop ends ==="; break; }
     # Director 2026-09-05 23:40: a round that merges nothing is usually a round whose blockers need a
     # human (stale GitHub verdicts, approvals, CI). Sweeping four more times an hour apart changes
@@ -741,7 +898,8 @@ if [ -n "$GOAL" ]; then
     [ "${EMPTY_ROUNDS:-0}" -ge 2 ] && { say "=== two rounds in a row merged nothing — loop ends; what is left needs a human (see the plan above) ==="; break; }
     [ "$round" -lt "$GOAL_ROUNDS" ] && sleep $((GOAL_PAUSE_MIN*60))
   done
-  if [ -s "$STATE/deploy-pending" ] && [ ! -f "$FREEZE" ]; then
+  # §C: the end-of-run build fires unless the freeze is HARD — under a soft stop what merged still ships
+  if [ -s "$STATE/deploy-pending" ] && { [ ! -f "$FREEZE" ] || [ "$(freeze_class_now)" != hard ]; }; then
     say; say "=== end of run: ONE production build for everything merged this run (batched to save Vercel build minutes) ==="
     FINAL_DEPLOY=1; run_once; FINAL_DEPLOY=""
   fi
