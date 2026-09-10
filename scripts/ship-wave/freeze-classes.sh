@@ -7,9 +7,9 @@
 # not keep its own HARD_CLASS list" — the verifier found D's hand-copied regex 10 rows behind this table (NEW-9).
 # One file, one function, two readers: a row added here is a row both of them see.
 #
-# classify_freeze below is copied VERBATIM from ship-wave.sh in the hitl/freeze-classes worktree, commit 65acbd8d14
-# ("fix(ship-wave): one deploy gate, Vercel as the truth for 'main ahead', ledger_class on the FROZEN line"). Edit it
-# HERE only; ship-wave.sh sources this file instead of defining its own copy.
+# classify_freeze below is copied VERBATIM from ship-wave.sh in the hitl/freeze-classes worktree (65acbd8d14 + the
+# round-3 fix that word-anchors the `policy` / `advisory` soft rows). B's tests/test-freeze-round3.sh diffs the two
+# function bodies byte for byte. Edit it HERE only; ship-wave.sh sources this file instead of defining its own copy.
 #
 # Contract: `classify_freeze <raw freeze message>` prints soft|hard on stdout. rc=0 when a row matched; rc=1 when no
 # row matched — the printed class is then `hard` (fail safe: an unknown stop is treated as production broken).
@@ -25,7 +25,9 @@ classify_freeze() {  # $1 = freeze message → prints soft|hard; returns 1 when 
     *"broken page"*|*"post-deploy sweep failed"*|*"baseline bounce"*)
       printf 'hard'; return 0;;
     # soft rows are ANCHORED phrases, not bare substrings: `*hold*` used to turn "threshold"/"uphold" soft (verifier 2026-09-10)
-    *"peer hold"*|*"Director hold"*|*"director hold"*|*"on hold"*|*"files on jicate/main match"*|*UNRESOLVABLE*|*policy*|*advisory*)
+    # `policy` / `advisory` match only as the FIRST word(s) of the reason: "RLS policy missing …" and "advisory lock
+    # timeout …" are apply failures, not decisions (D's verifier 9j, 2026-09-10)
+    *"peer hold"*|*"Director hold"*|*"director hold"*|*"on hold"*|*"files on jicate/main match"*|*UNRESOLVABLE*|"policy "*|"advisory check"*)
       printf 'soft'; return 0;;
     *) printf 'hard'; return 1;;
   esac
