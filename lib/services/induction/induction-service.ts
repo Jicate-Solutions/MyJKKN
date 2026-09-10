@@ -990,8 +990,10 @@ export interface UpsertSessionInput {
   outcomeText?: string | null;
   resourceLinks?: ResourceLink[];
   sessionOrder?: number | null;
-  /** 'registration' marks this as the registration desk; '' clears it back to an
-   *  ordinary session. Omit (undefined) to leave the stored kind untouched — that
-   *  is what keeps a 'mentor_checkin' row from being reclassified by an edit. */
-  kind?: 'registration' | '';
+  /** 'registration' marks this as the registration desk, 'mentor_checkin' the
+   *  monthly mentor check-in, and '' clears either back to an ordinary session.
+   *  Omit (undefined) to leave the stored kind untouched — for callers that do
+   *  not own the field. The session form owns both, so it always sends one of
+   *  the three (20261123000000). */
+  kind?: 'registration' | 'mentor_checkin' | '';
 }
