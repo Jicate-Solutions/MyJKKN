@@ -22,6 +22,9 @@ interface BosBoardScopeWire {
   // contain institutions other than their profile.institution_id when a
   // faculty serves on boards across institutions.
   institutionsOf: string[];
+  /** Departments the user heads (HOD scope). Optional for older servers. */
+  hodDepartmentIds?: string[];
+  isHod?: boolean;
 }
 
 export interface BosBoardScopeClient {
@@ -39,6 +42,10 @@ export interface BosBoardScopeClient {
   boardsOf: Set<string>;
   chairmanForBoards: Set<string>;
   institutionsOf: Set<string>;
+  /** Departments the user heads — HOD scope for /bos/po-pso. */
+  hodDepartmentIds: Set<string>;
+  /** True when the user heads at least one department. */
+  isHod: boolean;
   /** True until the request resolves — UI should treat this as "no access yet". */
   isLoading: boolean;
 }
@@ -74,6 +81,8 @@ const EMPTY_SCOPE: BosBoardScopeClient = {
   boardsOf: new Set(),
   chairmanForBoards: new Set(),
   institutionsOf: new Set(),
+  hodDepartmentIds: new Set(),
+  isHod: false,
   isLoading: true,
 };
 
@@ -102,7 +111,10 @@ export function useBosBoardScope(): BosBoardScopeClient {
     return {
       isSuperAdmin: data.isSuperAdmin,
       isPrincipal: data.isPrincipal,
-      hasAnyAccess: data.isSuperAdmin || data.isPrincipal || data.memberOf.length > 0,
+      // HODs (heads of ≥1 department) land on BoS pages too — they maintain
+      // their department's PO/PSO sets on /bos/po-pso without board membership.
+      hasAnyAccess:
+        data.isSuperAdmin || data.isPrincipal || data.memberOf.length > 0 || data.isHod === true,
       role: data.role,
       institutionsId: data.institutionsId,
       allInstitutionIds: data.allInstitutionIds,
@@ -113,6 +125,8 @@ export function useBosBoardScope(): BosBoardScopeClient {
       boardsOf: new Set(data.boardsOf),
       chairmanForBoards: new Set(data.chairmanForBoards),
       institutionsOf: new Set(data.institutionsOf ?? []),
+      hodDepartmentIds: new Set(data.hodDepartmentIds ?? []),
+      isHod: data.isHod === true,
       isLoading: false,
     };
   }, [data, isLoading]);
