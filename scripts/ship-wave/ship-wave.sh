@@ -141,7 +141,7 @@ echo $$ > "$LOCK/pid"; trap unlock EXIT
 
 # ── the classifier, shared by the sweep and the post-merge re-cluster ─────────
 classify() {  # $1=prs.json $2=plan.json  (ONLY / QUIET_MIN from env)
-  ONLY="$ONLY" QUIET_MIN="$QUIET_MIN" GUARDS_ENV="$(guards_env 2>/dev/null)" python3 - "$1" "$2" <<'PY'
+  ONLY="$ONLY" QUIET_MIN="$QUIET_MIN" GUARDS_ENV="$(guards_env 2>/dev/null)" ADVISORY_CHECKS="$(cat "$STATE/advisory-checks" 2>/dev/null)" python3 - "$1" "$2" <<'PY'
 import json, sys, os, re, datetime
 GUARDS = [g for g in os.environ.get("GUARDS_ENV", "").split() if g]
 from collections import Counter, defaultdict
@@ -175,9 +175,15 @@ def tier(p):
     if not p["isDraft"] and all(LOW_RX.search(f) and not f.startswith(".github/") for f in files):
         return "LOW", ["docs/types/tests only"]
     return "NORMAL", []
+# Director 2026-09-10 05:55 (interview): a check named in $STATE/advisory-checks (one exact name per
+# line) is ADVICE, not a gate — its failure never moves a PR out of ready. Written for the two AI-review
+# jobs ("SDK multi-agent review", "Deep review status") that went red on every PR when their subscription
+# hit a spend limit; GitHub's own branch ruleset never required them, only the wave's all-green rule did.
+# Delete the line from that file and the check is a gate again — no code change, same as allow-destructive.
+ADVISORY = {l.strip() for l in os.environ.get("ADVISORY_CHECKS","").splitlines() if l.strip()}
 def ci(p):
     runs = p.get("statusCheckRollup") or []
-    bad = [r.get("name") for r in runs if (r.get("conclusion") or "").upper() in ("FAILURE","TIMED_OUT","ACTION_REQUIRED","STARTUP_FAILURE","ERROR")]
+    bad = [r.get("name") for r in runs if (r.get("conclusion") or "").upper() in ("FAILURE","TIMED_OUT","ACTION_REQUIRED","STARTUP_FAILURE","ERROR") and (r.get("name") or "") not in ADVISORY]
     if bad: return "FAIL", bad[:3]
     pend = [r.get("name") for r in runs if (r.get("status") or "").upper() in ("IN_PROGRESS","QUEUED","PENDING","EXPECTED") or ((r.get("status") or "").upper()=="COMPLETED" and r.get("conclusion") is None)]
     if pend: return "PENDING", pend[:3]
@@ -201,7 +207,10 @@ for p in prs:
     if row["base"] != "main": plan["stacked"].append(row)
     elif p["isDraft"]: plan["draft"].append(row)
     elif p["mergeStateStatus"]=="DIRTY": plan["conflicted"].append(row)
-    elif p["mergeStateStatus"]!="CLEAN": plan["blocked"].append(row)
+    # GitHub says UNSTABLE when a NON-required check failed and the merge is still allowed. If every one of
+    # those failures is on the advisory list (v=="OK" after filtering), the PR is not blocked — it falls through
+    # to the same quiet/ready tests a CLEAN PR gets. Any real failure leaves v=="FAIL" and it stays blocked.
+    elif p["mergeStateStatus"]!="CLEAN" and not (p["mergeStateStatus"]=="UNSTABLE" and v=="OK"): plan["blocked"].append(row)
     elif v!="OK": plan["waiting_ci"].append(row)
     elif age < quiet: plan["quiet_wait"].append(row)          # interview: author may still be typing
     else: plan["ready"][t].append(row)
