@@ -41,7 +41,10 @@ export async function GET(request: NextRequest) {
         : undefined
     };
 
-    const logs = await getAuditLogs(filters);
+    // Pass the request-scoped server client: the service's default is the
+    // browser singleton, which carries no session here, so RLS on
+    // user_activity_logs would evaluate as anon and return nothing.
+    const logs = await getAuditLogs(filters, supabase);
 
     return NextResponse.json({
       data: logs,
@@ -70,7 +73,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const validatedData = createAuditLogSchema.parse(body);
-    const log = await createAuditLog(validatedData as any);
+    const log = await createAuditLog(validatedData as any, supabase);
 
     return NextResponse.json({
       data: log,
