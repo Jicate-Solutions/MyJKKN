@@ -53,6 +53,7 @@ import {
   createTemplate,
   fetchInstitutionDefaults,
   purposeOf,
+  setTemplateActive,
   uploadCardAsset,
   type TemplateInstitutionBlock
 } from '@/lib/services/id-cards/template-design-client';
@@ -410,10 +411,34 @@ export function NewTemplateButton() {
   );
 }
 
-/** Shared picker rendered once above the tabs. */
+/**
+ * Shared picker rendered once above the tabs, with the template's Active
+ * switch beside it — so a template can be switched on from ANY tab (Field
+ * mappings included), not only from Card design (2026-09-08).
+ */
 export function TemplatePicker() {
-  const { templates, selectedId, selected, setSelectedId, institutionName } =
+  const { templates, selectedId, selected, setSelectedId, institutionName, reload } =
     useTemplateSelection();
+  const [activeBusy, setActiveBusy] = useState(false);
+
+  const onToggleActive = async (next: boolean) => {
+    if (!selected) return;
+    setActiveBusy(true);
+    try {
+      await setTemplateActive(selected, next);
+      toast.success(
+        next
+          ? 'Template switched on — it now appears in every print picker'
+          : 'Template switched off — it is no longer offered for printing'
+      );
+      await reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not change availability');
+    } finally {
+      setActiveBusy(false);
+    }
+  };
+
   if (templates === null) {
     return <span className="text-sm text-muted-foreground">Loading templates…</span>;
   }
@@ -440,6 +465,18 @@ export function TemplatePicker() {
           ))}
         </SelectContent>
       </Select>
+      {selected && (
+        <label className="flex items-center gap-2 text-sm">
+          <Switch
+            checked={selected.active}
+            onCheckedChange={(v) => void onToggleActive(v)}
+            disabled={activeBusy}
+            aria-label="Template active"
+          />
+          <span className="font-medium">{selected.active ? 'Active' : 'Inactive'}</span>
+          {activeBusy && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+        </label>
+      )}
       {selected && !selected.active && (
         <Badge variant="destructive">Not switched on — will not be offered for printing</Badge>
       )}
