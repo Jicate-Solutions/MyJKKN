@@ -72,7 +72,7 @@ export interface SourceRegistryRow {
 }
 
 /** Which bucket an assignment belongs in. */
-export type AssignmentBucket = 'owed' | 'awaiting' | 'declined';
+export type AssignmentBucket = 'owed' | 'declined';
 
 /** One thing the viewer owes: a body, or one metric inside it. */
 export interface WorklistItem {
@@ -110,23 +110,8 @@ export interface ResolvedSource {
   fixHint: string | null;
 }
 
-/** A pending assignment the viewer has not answered yet. */
-export interface AwaitingItem {
-  assignmentId: string;
-  institutionId: string;
-  bodyCode: string;
-  programmeId: string | null;
-  /** NULL means the whole body is being handed over. */
-  metricCode: string | null;
-  metricName: string | null;
-  /** Present when this is a hand-over rather than a first assignment. */
-  previousOwnerUserId: string | null;
-  ownerChangedAt: string | null;
-}
-
 export interface Worklist {
   owed: WorklistItem[];
-  awaiting: AwaitingItem[];
   declinedCount: number;
   /** True when there is genuinely nothing in any bucket. */
   isEmpty: boolean;
@@ -143,16 +128,22 @@ export const EVIDENCE_SCAN_LIMIT = 5000;
 /**
  * Which bucket a stored assignment_status maps to.
  *
- * Only 'confirmed' and 'declined' are treated as answered. Anything else —
- * 'pending', a value added later, an empty string — is treated as still needing
- * the person's answer, because showing an unrecognised state as work already
- * accepted would put someone on the hook for something they never agreed to.
+ * ASSIGNMENT IS OWNERSHIP (Director, 2026-09-08): "No accepting. Record who has
+ * seen it." Being named against the work makes it yours — nobody is asked to
+ * agree first, so 'pending' and 'confirmed' mean the same thing here. The one
+ * answer an owner can still give is to decline, and only 'declined' takes the
+ * work off their list.
+ *
+ * Anything unrecognised — null, an empty string, a value added later — is owed.
+ * The live CHECK allows only pending / confirmed / declined, so that should not
+ * occur; if it ever does, hiding the work would leave a named owner never
+ * knowing it was theirs, which is the failure this page exists to prevent.
+ * Whether they have seen it is recorded separately, by first_seen_at.
  */
 export function classifyAssignment(status: string | null): AssignmentBucket {
   const normalised = (status ?? '').trim().toLowerCase();
-  if (normalised === 'confirmed') return 'owed';
   if (normalised === 'declined') return 'declined';
-  return 'awaiting';
+  return 'owed';
 }
 
 /**
@@ -301,12 +292,13 @@ export interface BuildWorklistInput {
 /**
  * The whole page in one pure function.
  *
- * Inheritance: a confirmed row with a NULL metric_code expands to every active
- * metric the catalog lists for that body. A confirmed row naming a metric
- * OVERRIDES the inherited entry for it, so nothing is ever listed twice and the
- * more specific assignment is the one shown.
+ * Inheritance: an owned (not declined) row with a NULL metric_code expands to
+ * every active metric the catalog lists for that body. An owned row naming a
+ * metric OVERRIDES the inherited entry for it, so nothing is ever listed twice
+ * and the more specific assignment is the one shown. Pending and confirmed rows
+ * are treated identically — see classifyAssignment.
  *
- * Nothing is ever dropped for being unrecognised: a confirmed assignment whose
+ * Nothing is ever dropped for being unrecognised: an owned assignment whose
  * metric_code is not in the catalog still appears (with its bare code), and a
  * body-wide assignment for a body the catalog knows no metrics for appears as a
  * single body-level row. An assignment that silently vanished would be worse
@@ -330,37 +322,19 @@ export function buildWorklist(input: BuildWorklistInput): Worklist {
 
   const evidenceIndex = indexEvidence(evidence);
 
-  const awaiting: AwaitingItem[] = [];
   let declinedCount = 0;
 
   // Deterministic order in, deterministic order out — two rows racing for the
   // same key must always resolve the same way.
   const sorted = [...assignments].sort((a, b) => a.id.localeCompare(b.id));
 
-  const confirmed: OwnerAssignmentRow[] = [];
+  const owned: OwnerAssignmentRow[] = [];
   for (const row of sorted) {
-    const bucket = classifyAssignment(row.assignment_status);
-    if (bucket === 'declined') {
+    if (classifyAssignment(row.assignment_status) === 'declined') {
       declinedCount += 1;
       continue;
     }
-    if (bucket === 'awaiting') {
-      awaiting.push({
-        assignmentId: row.id,
-        institutionId: row.institution_id,
-        bodyCode: row.body_code,
-        programmeId: row.programme_id,
-        metricCode: row.metric_code,
-        metricName:
-          row.metric_code === null
-            ? null
-            : metricByBodyCode.get(`${row.body_code}|${row.metric_code}`)?.metric_name ?? null,
-        previousOwnerUserId: row.previous_owner_user_id,
-        ownerChangedAt: row.owner_changed_at,
-      });
-      continue;
-    }
-    confirmed.push(row);
+    owned.push(row);
   }
 
   const byKey = new Map<string, WorklistItem>();
@@ -399,7 +373,7 @@ export function buildWorklist(input: BuildWorklistInput): Worklist {
   };
 
   // Pass 1 — inherited (body-wide) assignments.
-  for (const row of confirmed) {
+  for (const row of owned) {
     if (row.metric_code !== null) continue;
     const bodyMetrics = metricsByBody.get(row.body_code) ?? [];
     if (bodyMetrics.length === 0) {
@@ -412,7 +386,7 @@ export function buildWorklist(input: BuildWorklistInput): Worklist {
   }
 
   // Pass 2 — direct assignments, which override anything inherited above.
-  for (const row of confirmed) {
+  for (const row of owned) {
     if (row.metric_code === null) continue;
     const metric = metricByBodyCode.get(`${row.body_code}|${row.metric_code}`);
     put(makeItem(row, row.metric_code, metric, 'direct'), true);
@@ -431,9 +405,8 @@ export function buildWorklist(input: BuildWorklistInput): Worklist {
 
   return {
     owed,
-    awaiting,
     declinedCount,
-    isEmpty: owed.length === 0 && awaiting.length === 0 && declinedCount === 0,
+    isEmpty: owed.length === 0 && declinedCount === 0,
   };
 }
 

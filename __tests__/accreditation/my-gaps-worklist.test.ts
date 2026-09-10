@@ -52,24 +52,27 @@ const EMPTY = { metrics: NAAC_METRICS, submissions: [], evidence: [], registry: 
 
 // ---------------------------------------------------------------------------
 describe('classifyAssignment', () => {
-  it('treats only confirmed as owed and only declined as declined', () => {
+  it('treats pending and confirmed alike as owed, and only declined as declined', () => {
+    // Assignment is ownership (Director, 2026-09-08): nobody is asked to accept.
     expect(classifyAssignment('confirmed')).toBe('owed');
+    expect(classifyAssignment('pending')).toBe('owed');
     expect(classifyAssignment('declined')).toBe('declined');
-    expect(classifyAssignment('pending')).toBe('awaiting');
   });
 
   it('is case and whitespace insensitive', () => {
     expect(classifyAssignment('  Confirmed ')).toBe('owed');
     expect(classifyAssignment('DECLINED')).toBe('declined');
+    expect(classifyAssignment(' Declined ')).toBe('declined');
   });
 
-  it('treats anything unrecognised as still needing an answer, never as accepted', () => {
-    // Putting somebody on the hook for work they never agreed to is the one
-    // failure this page must not have.
-    expect(classifyAssignment(null)).toBe('awaiting');
-    expect(classifyAssignment('')).toBe('awaiting');
-    expect(classifyAssignment('reassigned')).toBe('awaiting');
-    expect(classifyAssignment('confirmed_by_iqac')).toBe('awaiting');
+  it('treats anything unrecognised as owed, because only a decline takes work away', () => {
+    // The live CHECK on assignment_status allows only pending / confirmed /
+    // declined, so these cannot be stored today. If one ever is, hiding the
+    // work would leave a named owner never knowing it was theirs.
+    expect(classifyAssignment(null)).toBe('owed');
+    expect(classifyAssignment('')).toBe('owed');
+    expect(classifyAssignment('reassigned')).toBe('owed');
+    expect(classifyAssignment('declined_by_iqac')).toBe('owed');
   });
 });
 
@@ -212,18 +215,16 @@ describe('buildWorklist — the empty state', () => {
     const w = buildWorklist({ assignments: [], ...EMPTY });
     expect(w.isEmpty).toBe(true);
     expect(w.owed).toEqual([]);
-    expect(w.awaiting).toEqual([]);
     expect(w.declinedCount).toBe(0);
   });
 
-  it('is NOT empty when the only assignment is one still awaiting an answer', () => {
+  it('is NOT empty when the only assignment is pending — it is work owed, not a question', () => {
     const w = buildWorklist({
       assignments: [assignment({ id: 'a', assignment_status: 'pending' })],
       ...EMPTY,
     });
     expect(w.isEmpty).toBe(false);
-    expect(w.owed).toEqual([]);
-    expect(w.awaiting).toHaveLength(1);
+    expect(w.owed.map((i) => i.metricCode)).toEqual(['1.2', '1.10', '3.1.1']);
   });
 
   it('is NOT empty when the only assignment was declined', () => {
@@ -248,15 +249,18 @@ describe('buildWorklist — inheritance', () => {
     expect(w.owed.some((i) => i.bodyCode === 'NIRF')).toBe(false);
   });
 
-  it('does NOT expand a body-wide row that is still awaiting an answer', () => {
-    // You accept the assignment, not 107 separate metrics.
-    const w = buildWorklist({
+  it('expands a pending body-wide row exactly like a confirmed one', () => {
+    // Assignment is ownership: nothing waits on a click before the work shows.
+    const pending = buildWorklist({
       assignments: [assignment({ id: 'a', metric_code: null, assignment_status: 'pending' })],
       ...EMPTY,
     });
-    expect(w.owed).toEqual([]);
-    expect(w.awaiting).toHaveLength(1);
-    expect(w.awaiting[0].metricCode).toBeNull();
+    const confirmed = buildWorklist({
+      assignments: [assignment({ id: 'a', metric_code: null, assignment_status: 'confirmed' })],
+      ...EMPTY,
+    });
+    expect(pending.owed).toEqual(confirmed.owed);
+    expect(pending.owed.map((i) => i.metricCode)).toEqual(['1.2', '1.10', '3.1.1']);
   });
 
   it('lists a direct assignment once, with via=direct', () => {
@@ -328,7 +332,7 @@ describe('buildWorklist — inheritance', () => {
     expect(new Set(w.owed.map((i) => i.key)).size).toBe(3);
   });
 
-  it('shows a metric as owed and as awaiting at once when both rows exist', () => {
+  it('lets a pending direct row override the inherited entry, just as a confirmed one does', () => {
     const w = buildWorklist({
       assignments: [
         assignment({ id: 'a-body', metric_code: null }),
@@ -336,9 +340,12 @@ describe('buildWorklist — inheritance', () => {
       ],
       ...EMPTY,
     });
-    expect(w.owed.some((i) => i.metricCode === '1.2')).toBe(true);
-    expect(w.awaiting.map((i) => i.assignmentId)).toEqual(['b-direct']);
-    expect(w.awaiting[0].metricName).toBe('Stakeholder participation');
+    expect(w.owed).toHaveLength(3);
+    const direct = w.owed.filter((i) => i.metricCode === '1.2');
+    expect(direct).toHaveLength(1);
+    expect(direct[0].via).toBe('direct');
+    expect(direct[0].assignmentId).toBe('b-direct');
+    expect(direct[0].metricName).toBe('Stakeholder participation');
   });
 });
 

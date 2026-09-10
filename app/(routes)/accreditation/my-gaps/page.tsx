@@ -35,7 +35,6 @@ import {
   AlertCircle,
   ArrowRight,
   CalendarClock,
-  CheckCircle2,
   ClipboardList,
   Inbox,
   Loader2,
@@ -286,7 +285,10 @@ function useProgrammeNames(programmeIds: string[]) {
 // ---------------------------------------------------------------------------
 
 /**
- * Accept or decline one's OWN assignment.
+ * Decline one's OWN assignment.
+ *
+ * There is no Accept (Director, 2026-09-08): assignment is ownership, so the
+ * only answer an owner can still give is "this is not mine".
  *
  * The write must go through fn_accreditation_acknowledge_ownership: the only
  * write policy on accreditation_metric_owners demands
@@ -295,13 +297,11 @@ function useProgrammeNames(programmeIds: string[]) {
  * RLS with a SILENT zero-row result and no error at all.
  *
  * Success is asserted on OBSERVED STATE — the row is re-read and its stored
- * status must be the one we asked for — never on the absence of an error, and
- * never on the RPC's return shape. Anyone who could see the button can read the
- * row, so this check cannot false-fail. The one exception is a decline that
- * also hands the row away: it then correctly disappears from the viewer's own
- * scope, which is success, not failure.
+ * status must be 'declined' — never on the absence of an error, and never on
+ * the RPC's return shape. A decline that also hands the row away makes it
+ * disappear from the viewer's own scope, which is success, not failure.
  */
-async function acknowledge(assignmentId: string, decision: 'confirmed' | 'declined') {
+async function acknowledge(assignmentId: string, decision: 'declined') {
   const sb = createClientSupabaseClient() as any;
 
   const { error } = await sb.rpc('fn_accreditation_acknowledge_ownership', {
@@ -317,13 +317,8 @@ async function acknowledge(assignmentId: string, decision: 'confirmed' | 'declin
     .maybeSingle();
   if (readError) throw new Error(readError.message);
 
-  if (!after) {
-    if (decision === 'declined') return; // no longer yours to see — as intended
-    throw new Error('The assignment could not be confirmed. Please ask IQAC to check it.');
-  }
-  const stored = classifyAssignment(after.assignment_status);
-  const expected = decision === 'confirmed' ? 'owed' : 'declined';
-  if (stored !== expected) {
+  if (!after) return; // no longer yours to see — as intended
+  if (classifyAssignment(after.assignment_status) !== 'declined') {
     throw new Error('Your answer was not recorded. Please try again, or contact IQAC.');
   }
 }
@@ -387,13 +382,26 @@ function WorkRow({
   item,
   institutionName,
   programmeName,
+  showDecline,
+  busy,
+  onDecline,
 }: {
   item: WorklistItem;
   institutionName: string | null;
   programmeName: string | null;
+  /**
+   * Decline acts on the ASSIGNMENT, and one whole-body assignment expands to a
+   * row per metric. The control is shown on the first row of each assignment
+   * only, so a body owner is never offered 107 buttons that each decline the
+   * entire body.
+   */
+  showDecline: boolean;
+  busy: boolean;
+  onDecline: (assignmentId: string) => void;
 }) {
   const bodyRoute = BODY_ROUTES[item.bodyCode] ?? '/accreditation';
   const nothingCaptured = item.evidenceCount === 0;
+  const wholeBody = item.via !== 'direct';
 
   return (
     <div className="rounded-lg border p-4">
@@ -429,6 +437,27 @@ function WorkRow({
               <ArrowRight className="ml-1 h-3.5 w-3.5" />
             </Link>
           </Button>
+          {showDecline && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 gap-1 px-2 text-muted-foreground"
+              disabled={busy}
+              title={
+                wholeBody
+                  ? `Declines your whole ${item.bodyCode} assignment for this college, not only this metric.`
+                  : `Declines ${item.bodyCode} ${item.metricCode ?? ''} for this college.`
+              }
+              onClick={() => onDecline(item.assignmentId)}
+            >
+              {busy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <XCircle className="h-3.5 w-3.5" />
+              )}
+              {wholeBody ? `Decline all of ${item.bodyCode}` : 'Decline'}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -550,11 +579,23 @@ export default function MyAccreditationGapsPage() {
     [assignments, metrics, submissions, evidence, registry],
   );
 
-  const respond = async (assignmentId: string, decision: 'confirmed' | 'declined') => {
+  // The first row shown for each assignment carries its Decline control.
+  const declineRowKeys = useMemo(() => {
+    const seen = new Set<string>();
+    const keys = new Set<string>();
+    for (const item of worklist.owed) {
+      if (seen.has(item.assignmentId)) continue;
+      seen.add(item.assignmentId);
+      keys.add(item.key);
+    }
+    return keys;
+  }, [worklist.owed]);
+
+  const decline = async (assignmentId: string) => {
     setBusyId(assignmentId);
     try {
-      await acknowledge(assignmentId, decision);
-      toast.success(decision === 'confirmed' ? 'Assignment accepted.' : 'Assignment declined.');
+      await acknowledge(assignmentId, 'declined');
+      toast.success('Assignment declined.');
       await qc.invalidateQueries({ queryKey: ['accreditation', 'my-gaps', 'assignments'] });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not record your answer.');
@@ -633,72 +674,9 @@ export default function MyAccreditationGapsPage() {
           </div>
         )}
 
-        {/* ── Awaiting your answer ─────────────────────────────────────────── */}
-        {!loading && worklist.awaiting.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">
-                Waiting for your answer ({worklist.awaiting.length})
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-sm text-muted-foreground">
-                Somebody has put your name against this work. It is not yours
-                until you say so.
-              </p>
-              {worklist.awaiting.map((item) => {
-                const busy = busyId === item.assignmentId;
-                return (
-                  <div
-                    key={item.assignmentId}
-                    className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4"
-                  >
-                    <div className="min-w-0 space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge variant="outline">{item.bodyCode}</Badge>
-                        <span className="font-medium">
-                          {item.metricCode ?? 'Every metric in this body'}
-                        </span>
-                      </div>
-                      {item.metricName && (
-                        <p className="text-sm text-muted-foreground">{item.metricName}</p>
-                      )}
-                      <p className="text-xs text-muted-foreground">
-                        {institutionNames?.[item.institutionId] ?? 'Institution'}
-                        {item.programmeId && programmeNames?.[item.programmeId]
-                          ? ` · ${programmeNames[item.programmeId]}`
-                          : ''}
-                        {item.previousOwnerUserId ? ' · handed over from someone else' : ''}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {busy && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-                      <Button
-                        size="sm"
-                        disabled={busy}
-                        onClick={() => respond(item.assignmentId, 'confirmed')}
-                      >
-                        <CheckCircle2 className="mr-1 h-4 w-4" />
-                        Accept
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={busy}
-                        onClick={() => respond(item.assignmentId, 'declined')}
-                      >
-                        <XCircle className="mr-1 h-4 w-4" />
-                        Decline
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })}
-            </CardContent>
-          </Card>
-        )}
-
         {/* ── The worklist ─────────────────────────────────────────────────── */}
+        {/* Pending and confirmed assignments both land here: assignment is
+            ownership (Director, 2026-09-08), so nothing waits on an answer. */}
         {!loading && worklist.owed.length > 0 && (
           <Card>
             <CardHeader>
@@ -721,6 +699,9 @@ export default function MyAccreditationGapsPage() {
                   programmeName={
                     item.programmeId ? programmeNames?.[item.programmeId] ?? null : null
                   }
+                  showDecline={declineRowKeys.has(item.key)}
+                  busy={busyId === item.assignmentId}
+                  onDecline={decline}
                 />
               ))}
             </CardContent>

@@ -1569,21 +1569,12 @@ export default function AccreditationOwnersPage() {
                             </div>
                           </TableCell>
                           <TableCell>
-                            {/* Only the named person may accept — the point of
-                                decision 8. RLS cannot express "the row's own
+                            {/* Only the named person may decline. There is no
+                                Accept: assignment is ownership (Director,
+                                2026-09-08). RLS cannot express "the row's own
                                 owner", so identity is checked here. */}
                             {isMine && bodyRow?.assignment_status === 'pending' && (
                               <div className="flex gap-1">
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="gap-1"
-                                  disabled={savingKey === `ack::${bodyRow.id}`}
-                                  onClick={() => acknowledge(bodyRow, 'confirmed')}
-                                >
-                                  <Check className="h-3.5 w-3.5" />
-                                  Accept
-                                </Button>
                                 <Button
                                   size="sm"
                                   variant="ghost"

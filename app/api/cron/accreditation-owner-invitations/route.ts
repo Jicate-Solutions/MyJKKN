@@ -46,10 +46,29 @@
 //
 // DOUBLE-SEND PROTECTION is the idempotency key, not a timestamp column. The
 // key is derived from the person plus the exact set of assignments they are
-// being told about, so: re-running this cron mails nobody twice; being given a
-// NEW body next month produces a new key and one new invitation; and accepting
-// or declining removes the row from the pending set entirely. There is no
+// being told about, so re-running this cron mails nobody twice. There is no
 // last_sent_at to drift.
+//
+// CHANGE 2026-09-10 — ASSIGNMENT IS OWNERSHIP (Director, 2026-09-08)
+// "Assignment is ownership. No accepting. Record who has seen it." The Accept
+// buttons are gone, so a row now stays `pending` for good. Two things followed,
+// and both would have gone wrong had this route kept mailing every pending row:
+//   · The key covered the WHOLE pending set per person. With nothing ever
+//     leaving that set, each new assignment would have produced a new key over
+//     a longer list, and the person would have been re-sent everything.
+//   · It said again what accreditation-ownership-notify already says. That cron
+//     tells the new owner about every assignment and reassignment recorded in
+//     accreditation_ownership_events (`accred_ownership_change:<event>:<owner>`,
+//     every 6 hours, 14-day lookback). All 31 rows the 2026-09-10 run would
+//     have announced, to 5 people, had already been announced that way, and 3
+//     people had already received both messages.
+// So the route now invites only the rows lib/services/accreditation/
+// owner-invitation-selection.ts selects: no live (note IS NULL) event hands the
+// row to its current owner, and no earlier invitation to that same owner
+// listed it. Measured by the session that took the decision, the 2026-09-10 run
+// would have sent 0 under this rule. The key format is unchanged and is
+// computed over the selected rows only. The message no longer asks anyone to
+// accept; Decline still exists, so its sentence stays.
 //
 // Auth: CRON_SECRET via `Authorization: Bearer <secret>` (Vercel cron sends it
 // automatically) OR `?secret=` for manual runs — identical to its siblings.
@@ -61,6 +80,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
+import {
+  OWNER_INVITE_KEY_PREFIX,
+  priorInviteFromNotification,
+  selectAssignmentsToInvite,
+  type LiveOwnershipEvent,
+  type PriorInvite,
+} from '@/lib/services/accreditation/owner-invitation-selection';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -185,7 +211,9 @@ function buildInvitation(
     // any college has on file.
     'Being the owner means you are the person we come to for it, and you decide what still needs collecting. It does not mean you have to fill everything in yourself.',
     '',
-    'Open My Gaps to accept or decline.',
+    // Until 2026-09-10 this sentence asked the reader to accept. There is no
+    // Accept any more (Director, 2026-09-08): being named is being the owner.
+    'Open My Gaps to see what it covers.',
     '',
     // "decline and say who" was removed 2026-09-07: the product gives them
     // nowhere to say it. The Decline control on /accreditation/my-gaps is a
@@ -243,7 +271,54 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       });
     }
 
-    const institutionIds = [...new Set(withOwner.map((r) => r.institution_id).filter(Boolean))] as string[];
+    // ---- Which of those still need an invitation --------------------------
+    // See the CHANGE 2026-09-10 note in the header and
+    // lib/services/accreditation/owner-invitation-selection.ts. The id list is
+    // chunked so a long pending set cannot overflow the request URL.
+    const ID_CHUNK = 150;
+    const pendingIds = withOwner.map((r) => r.id);
+    const liveEvents: LiveOwnershipEvent[] = [];
+    for (let i = 0; i < pendingIds.length; i += ID_CHUNK) {
+      const chunk = pendingIds.slice(i, i + ID_CHUNK);
+      liveEvents.push(
+        ...(await fetchAllPages<LiveOwnershipEvent>(
+          () =>
+            (supabase as any)
+              .from('accreditation_ownership_events')
+              .select('owner_row_id, to_user_id')
+              .is('note', null)
+              .in('owner_row_id', chunk)
+              .order('id', { ascending: true }),
+          'ownership events read',
+        )),
+      );
+    }
+
+    const priorNotifications = await fetchAllPages<{
+      idempotency_key: string | null;
+      targeting: unknown;
+      metadata: unknown;
+    }>(
+      () =>
+        (supabase as any)
+          .from('notifications')
+          .select('idempotency_key, targeting, metadata')
+          .like('idempotency_key', `${OWNER_INVITE_KEY_PREFIX}%`)
+          .order('id', { ascending: true }),
+      'prior invitations read',
+    );
+    const priorInvites = priorNotifications
+      .map(priorInviteFromNotification)
+      .filter((p): p is PriorInvite => p !== null);
+
+    const selection = selectAssignmentsToInvite({ pending: withOwner, liveEvents, priorInvites });
+    const selected = selection.toInvite;
+    const excluded = {
+      announced_by_ownership_change: selection.excluded.announcedByChange.length,
+      already_invited: selection.excluded.alreadyInvited.length,
+    };
+
+    const institutionIds = [...new Set(selected.map((r) => r.institution_id).filter(Boolean))] as string[];
     const institutions = institutionIds.length
       ? await fetchAllPages<InstitutionRow>(
           () =>
@@ -257,9 +332,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       : [];
     const institutionNames = new Map(institutions.map((i) => [i.id, i.name ?? 'your college']));
 
-    // One invitation per person, however many bodies they were given.
+    // One invitation per person, however many bodies they were given — built
+    // over the SELECTED rows only, so the key names exactly what is announced.
     const byUser = new Map<string, PendingOwnerRow[]>();
-    for (const row of withOwner) {
+    for (const row of selected) {
       const uid = row.owner_user_id as string;
       const list = byUser.get(uid) ?? [];
       list.push(row);
@@ -276,6 +352,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         dry_run: true,
         sent: 0,
         pending_assignments: withOwner.length,
+        selected_assignments: selected.length,
+        excluded,
         would_invite: invitations.length,
         invitations: invitations.map((i) => ({
           user_id: i.userId,
@@ -360,6 +438,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       ok: true,
       dry_run: false,
       pending_assignments: withOwner.length,
+      selected_assignments: selected.length,
+      excluded,
       people_pending: invitations.length,
       invited: sent.length,
       already_invited: skipped.length,
