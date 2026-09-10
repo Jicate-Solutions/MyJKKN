@@ -31,6 +31,8 @@ const KEYS = {
   responses: (formId: string) => ['event-feedback-responses', formId] as const,
   summary: (formId: string) => ['event-feedback-summary', formId] as const,
   myRegistration: (eventId: string) => ['event-feedback-my-registration', eventId] as const,
+  /** Whether the caller may join the event to answer, when they hold no registration. */
+  canSelfRegister: (formId: string) => ['event-feedback-can-self-register', formId] as const,
   /** Keyed by registration too — the same browser can hold one cached response
    *  per registration, and a manager's view of a form is not their own answer. */
   myResponse: (formId: string, registrationId: string | null) =>
@@ -218,16 +220,47 @@ export function useMyFeedbackResponse(formId: string, registrationId: string | n
   });
 }
 
+/**
+ * May the caller join this event in order to answer? Asked only when they hold
+ * no registration.
+ *
+ * An event run without collecting registrations has no participant rows, and a
+ * response keys on one — so without this the questions would be hidden from
+ * everybody the coordinator invited.
+ */
+export function useCanSelfRegisterForFeedback(formId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: KEYS.canSelfRegister(formId),
+    queryFn: () => EventFeedbackService.canSelfRegister(formId),
+    enabled: !!formId && enabled,
+  });
+}
+
 export function useSubmitFeedback(eventId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: {
+    mutationFn: async (input: {
       formId: string;
-      registrationId: string;
+      /** null when the caller holds no registration and must join to answer. */
+      registrationId: string | null;
       profileId: string | null;
       answers: Record<string, unknown>;
-    }) => EventFeedbackService.submitResponse({ ...input, eventId }),
+    }) => {
+      // Join at submit rather than on page load, so the event's participant
+      // list only gains people who actually answered. The RPC is idempotent, so
+      // a retry cannot create a second participant.
+      const registrationId =
+        input.registrationId ?? (await EventFeedbackService.selfRegister(input.formId));
+      if (!registrationId) {
+        throw new Error(
+          'You are not on the participant list for this event, and it is not open for you to join.'
+        );
+      }
+      return EventFeedbackService.submitResponse({ ...input, registrationId, eventId });
+    },
     onSuccess: (_response, vars) => {
+      qc.invalidateQueries({ queryKey: KEYS.myRegistration(eventId) });
+      qc.invalidateQueries({ queryKey: KEYS.canSelfRegister(vars.formId) });
       qc.invalidateQueries({ queryKey: KEYS.myResponseAll(vars.formId) });
       qc.invalidateQueries({ queryKey: KEYS.responses(vars.formId) });
       qc.invalidateQueries({ queryKey: KEYS.summary(vars.formId) });
