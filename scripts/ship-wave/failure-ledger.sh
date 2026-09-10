@@ -34,19 +34,25 @@ ledger_class() {
     | cut -c1-90
 }
 
-# ledger_record <outcome> <message> [class]
+# ledger_record <outcome> <message> [class] [extra-json]
 # outcome: froze | round | resolved
+# extra-json (2026-09-10, HUMAN-IN-THE-LOOP §D "resolution memory"): an object merged into the record —
+# the desk adds {"chosen": <label>, "writes": <ops>} when the Director answers a freeze question, so the
+# policy learner can count "same class, same writes shape" resolutions. Never overrides the four base keys.
 ledger_record() {
-  local outcome="$1" msg="$2" cls="${3:-}"
+  local outcome="$1" msg="$2" cls="${3:-}" extra="${4:-}"
   [ -n "$cls" ] || cls=$(ledger_class "$msg")
-  OUT="$outcome" MSG="$msg" CLS="$cls" python3 - "$LEDGER" <<'PY' 2>/dev/null || true
+  OUT="$outcome" MSG="$msg" CLS="$cls" EXTRA="$extra" python3 - "$LEDGER" <<'PY' 2>/dev/null || true
 import json, os, sys, datetime
-rec = {
+rec = {}
+try: rec = dict(json.loads(os.environ.get("EXTRA") or "{}"))
+except Exception: rec = {}
+rec.update({
     "at": datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S"),
     "outcome": os.environ["OUT"],
     "class": os.environ["CLS"],
     "message": os.environ["MSG"][:400],
-}
+})
 with open(sys.argv[1], "a") as fh:
     fh.write(json.dumps(rec) + "\n")
 PY
