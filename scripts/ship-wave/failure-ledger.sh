@@ -35,16 +35,23 @@ ledger_class() {
 }
 
 # ledger_record <outcome> <message> [class] [chosen] [writes-json]
+# ledger_record <outcome> <message> [class] [extra-json]            (the desk's shape — slice A)
 # outcome: froze | round | backfill | resolved
 #
 # 2026-09-10 (HUMAN-IN-THE-LOOP.md §D, "propose after 2 identical decisions"): a
 # 'resolved' record may now carry WHAT the Director chose. The desk
 # (v5-w12-desk.sh) writes one every time it applies his answer to a freeze
-# question:
-#   ledger_record resolved "<question title>" "<freeze class>" "<option label>" '<writes json array>'
+# question. Two slices extended this function with different signatures
+# (verifier NEW-1: the desk's call through the other shape wrote a line with no
+# writes key and nothing was ever learned, silently). Both are accepted here:
+#   ledger_record resolved "<title>" "<freeze class>" "<option label>" '<writes json array>'
+#   ledger_record resolved "<title>" "<freeze class>" '{"chosen":"<option label>","writes":[…]}'
 # → {"at":…,"outcome":"resolved","class":…,"message":…,"chosen":"Lift the stop","writes":[{"op":"unfreeze"}]}
-# The two extra fields are written only when given, so every older caller
-# (guards, three-arg resolved, froze, round) produces the same line it always did.
+# A 4th argument that parses as a JSON OBJECT is the desk's extra-json, merged
+# into the record (its keys never override the four base keys); anything else is
+# the chosen label. A label cannot be mistaken for it: labels are plain words.
+# The extra fields are written only when given, so every older caller (guards,
+# three-arg resolved, froze, round) produces the same line it always did.
 # 'writes' is stored as parsed JSON when the string parses, verbatim otherwise —
 # a malformed answer is still evidence of a decision, just not of a shape.
 ledger_record() {
@@ -52,14 +59,22 @@ ledger_record() {
   [ -n "$cls" ] || cls=$(ledger_class "$msg")
   OUT="$outcome" MSG="$msg" CLS="$cls" CHOSEN="$chosen" WRITES="$writes" python3 - "$LEDGER" <<'PY' 2>/dev/null || true
 import json, os, sys, datetime
-rec = {
+rec = {}
+chosen = os.environ.get("CHOSEN", "")
+if chosen.lstrip().startswith("{"):
+    try:
+        extra = json.loads(chosen)
+        if isinstance(extra, dict): rec = dict(extra); chosen = ""
+    except Exception:
+        pass
+rec.update({
     "at": datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S"),
     "outcome": os.environ["OUT"],
     "class": os.environ["CLS"],
     "message": os.environ["MSG"][:400],
-}
-if os.environ.get("CHOSEN"):
-    rec["chosen"] = os.environ["CHOSEN"][:120]
+})
+if chosen:
+    rec["chosen"] = chosen[:120]
 if os.environ.get("WRITES"):
     try: rec["writes"] = json.loads(os.environ["WRITES"])
     except Exception: rec["writes"] = os.environ["WRITES"][:400]

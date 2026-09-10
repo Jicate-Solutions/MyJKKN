@@ -36,9 +36,14 @@ ask_director() { mkdir -p "$QDIR"; printf '%s\n' "$5" > "$QDIR/q-$(printf '%s%s%
 fail=0
 pass() { echo "PASS  $1"; }
 flunk() { echo "FAIL  $1"; [ -n "${2:-}" ] && printf '      %s\n' "$2"; fail=1; }
-check() { if eval "$2"; then pass "$1"; else flunk "$1" "$3"; fi; }
+check() { if eval "$2"; then pass "$1"; else flunk "$1" "${3:-}"; fi; }   # ${3:-}: a failing two-arg check must report FAIL, not abort under set -u
 reset_state() { find "$STATE" -mindepth 1 -delete; mkdir -p "$POLICY_DIR"; }
 resolve() { ledger_record resolved "$1" "$2" "$3" "$4"; }
+# Every freeze the Director decided has a `froze` line first (freeze() → ledger_on_freeze, raw message) and
+# classify_freeze judges THAT text — an unfreeze on a class with no froze line, or on a hard one, is never a rule
+# (spec amendment, verifier NEW-9). Fixtures that only name a class register one SOFT freeze under it.
+soft_freeze() { ledger_record froze "peer hold on #3410 by reviewer (fixture: $1)" "$1"; }
+RAW_RACE="files on jicate/main match for 20260906213000 after merge of #3410"   # ledger_class → CLS_RACE (soft row)
 W_UNFREEZE='[{"op":"unfreeze"}]'
 W_HELD='[{"op":"append","file":"approve-held","value":"3410"}]'
 W_ALLOW='[{"op":"append","file":"allow-destructive","value":"20260906213000"}]'
@@ -86,6 +91,7 @@ check "3c nothing numbered" '! grep -qs "\"rule\"" "$POLICY_PROPOSALS"' "$(cat "
 
 # ── 4. junk in the ledger: ignored, no crash, real proposals still appear ─────────────────
 reset_state
+soft_freeze "good class here"
 resolve "Lift?" "good class here" "Lift the stop" "$W_UNFREEZE"; resolve "Lift?" "good class here" "Lift the stop" "$W_UNFREEZE"
 { echo '{not json'
   echo '{"outcome":"resolved","class":"no writes at all","message":"x"}'
@@ -129,12 +135,12 @@ cp "$STATE/ledger.bak" "$LEDGER"
 reset_state
 echo '{"id":"P1","rule":"AUTO_APPROVE_ADDITIVE_MIGRATIONS","evidence":"e","at":"2026-09-06 07:00","by":"Director"}' > "$POLICY_LOG"
 echo '{"id":"P3","rule":"AUTO_OLD_THING_UNFREEZE","class":"old thing","shape":[["unfreeze",""]],"proposed_at":"2026-09-09 10:00"}' > "$POLICY_PROPOSALS"
-resolve "Lift?" "brand new class" "Lift the stop" "$W_UNFREEZE"; resolve "Lift?" "brand new class" "Lift the stop" "$W_UNFREEZE"
+soft_freeze "brand new class"; resolve "Lift?" "brand new class" "Lift the stop" "$W_UNFREEZE"; resolve "Lift?" "brand new class" "Lift the stop" "$W_UNFREEZE"
 out=$(policy_proposals)
 check "5a policy.jsonl P1 + proposals P3 → the new rule is P4 (not P2)" 'grep -q "^  P4   AUTO_BRAND_NEW_CLASS_UNFREEZE" <<<"$out"' "$out"
 reset_state
 echo '{"id":"P7","rule":"AUTO_GONE_UNFREEZE","evidence":"e","at":"2026-09-06 07:00","by":"Director"}' > "$POLICY_LOG"
-resolve "Lift?" "brand new class" "Lift the stop" "$W_UNFREEZE"; resolve "Lift?" "brand new class" "Lift the stop" "$W_UNFREEZE"
+soft_freeze "brand new class"; resolve "Lift?" "brand new class" "Lift the stop" "$W_UNFREEZE"; resolve "Lift?" "brand new class" "Lift the stop" "$W_UNFREEZE"
 out=$(policy_proposals)
 check "5b only policy.jsonl P7 on disk (proposals file lost) → next is P8" 'grep -q "^  P8   AUTO_BRAND_NEW" <<<"$out"' "$out"
 out2=$(policy_proposals); out3=$(policy_proposals)
@@ -143,7 +149,7 @@ check "5c three more scans never renumber and append no second numbering line" \
 
 # ── 6. ratify of unknown / malformed ids ─────────────────────────────────────────────────
 reset_state
-resolve "Lift?" "brand new class" "Lift the stop" "$W_UNFREEZE"; resolve "Lift?" "brand new class" "Lift the stop" "$W_UNFREEZE"
+soft_freeze "brand new class"; resolve "Lift?" "brand new class" "Lift the stop" "$W_UNFREEZE"; resolve "Lift?" "brand new class" "Lift the stop" "$W_UNFREEZE"
 policy_proposals >/dev/null   # P2 now numbered
 for bad in P9 P P2x "P2 " "P1?" "P02" "" "../x" "AUTO_BRAND_NEW_CLASS_UNFREEZE" "P2;touch $STATE/pwned"; do
   if policy_ratify "$bad" >/dev/null 2>&1; then flunk "6 ratify '$bad' was ACCEPTED"; fi
@@ -181,6 +187,8 @@ check "7d P1 ratified by hand first → no question ever written" '[ ! -d "$QDIR
 reset_state
 CA=$(ledger_class "migration 20260910030000: 2 files on jicate/main match (need exactly 1) supabase/migrations/a.sql")
 CB=$(ledger_class "migration 20260910030000: 2 files on jicate/main match (need exactly 1) supabase/migrations/b.sql")
+ledger_record froze "migration 20260910030000: 2 files on jicate/main match (need exactly 1) supabase/migrations/a.sql"
+ledger_record froze "migration 20260910030000: 2 files on jicate/main match (need exactly 1) supabase/migrations/b.sql"
 resolve "Lift?" "$CA" "Lift the stop" "$W_UNFREEZE"; resolve "Lift?" "$CA" "Lift the stop" "$W_UNFREEZE"
 resolve "Lift?" "$CB" "Lift the stop" "$W_UNFREEZE"; resolve "Lift?" "$CB" "Lift the stop" "$W_UNFREEZE"
 out=$(policy_proposals); policy_emit_questions >/dev/null

@@ -36,12 +36,19 @@ PROPOSE_AFTER=2
 NEVER_RULE='DROP|TRUNCATE|DELETE FROM|destructive|APPLY failed|deploy ERROR'
 # The same sentence applies to what a rule would DO, not only to what its class says (verifier 2026-09-10, break 9a:
 # a class whose text lacked every keyword was proposed as an auto "append allow-destructive"). Two shapes are never
-# proposable whatever the text: `append allow-destructive` (it lets a DROP/TRUNCATE/DELETE run) and `unfreeze` on a
-# HARD freeze class (§B: production or main is broken — deploy ERROR · APPLY failed · DRY-RUN failed · destructive
-# statement · GATE ERROR · migration gap). HARD_CLASS is matched against the ledger_class slug (lowercase, hyphens
-# and punctuation already turned into spaces) and against the resolved records' messages.
+# proposable whatever the text (spec, "Amendments from the build"):
+#   · `append allow-destructive` — compared case-insensitively after trimming (verifier NEW-2: "Allow-Destructive",
+#     "allow-destructive " walked past an exact-match set and are the SAME file on APFS);
+#   · `unfreeze` on a class that classify_freeze calls HARD — the ONE table in freeze-classes.sh that ship-wave.sh
+#     also sources (verifier NEW-9: a hand-copied HARD_CLASS regex here was 10 rows behind it). The class is judged
+#     from the raw message on the ledger's `froze` line for that class (the same text freeze() classified); when no
+#     froze line exists, from the slug itself; a message that matches no row is HARD, as B treats it.
+# And `append.file` must be exactly one of the §A1 knobs (verifier NEW-3: "frozen", "../frozen", "policy/…" were
+# accepted as a valid shape and proposed) — anything else is a malformed resolution: warned once, never proposed.
+POLICY_KNOBS='approve-held allow-destructive advisory-checks'
 NEVER_RULE_FILES='allow-destructive'
-HARD_CLASS='deploy error|deploy failed|apply failed|dry[ -]?run failed|destructive|gate error|migration gap'
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/freeze-classes.sh"
+FREEZE_CLASSES_SH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/freeze-classes.sh"
 
 # ── guards (tighten) ──────────────────────────────────────────────────────────
 guard_prefixes_from_files() {  # stdin: file paths → unique 2-segment prefixes worth guarding
@@ -91,29 +98,49 @@ policy_active() { [ -e "$POLICY_DIR/$1" ]; }
 # printed warning (stdout in list mode, stderr in json mode) and never stops the valid proposals from printing.
 # A resolved line with no writes key at all is the OLD three-arg shape (guards) — ignored, not malformed.
 _policy_scan() {
-  MODE="$1" PROPOSE_AFTER="$PROPOSE_AFTER" NEVER_RULE="$NEVER_RULE" NEVER_RULE_FILES="$NEVER_RULE_FILES" HARD_CLASS="$HARD_CLASS" \
+  MODE="$1" PROPOSE_AFTER="$PROPOSE_AFTER" NEVER_RULE="$NEVER_RULE" NEVER_RULE_FILES="$NEVER_RULE_FILES" POLICY_KNOBS="$POLICY_KNOBS" \
+  FREEZE_CLASSES_SH="$FREEZE_CLASSES_SH" SW_BASH="${BASH:-bash}" \
     python3 - "$LEDGER" "$POLICY_LOG" "$POLICY_PROPOSALS" <<'PY'
-import json, sys, os, re, datetime, hashlib
+import json, sys, os, re, datetime, hashlib, subprocess, fcntl
 led, plog, pfile = sys.argv[1], sys.argv[2], sys.argv[3]
 mode = os.environ["MODE"]
 after = int(os.environ["PROPOSE_AFTER"])
 never = re.compile(os.environ["NEVER_RULE"], re.I)
-hard = re.compile(os.environ["HARD_CLASS"], re.I)
 never_files = set(os.environ["NEVER_RULE_FILES"].split())
+knobs = set(os.environ["POLICY_KNOBS"].split())
 ALLOWED_OPS = {"append", "unfreeze", "ratify", "noop"}
 warnings = []
 def warn(n, why): warnings.append(f"proposals: warning — ledger line {n} skipped ({why})")
 def norm(c): return " ".join(str(c).lower().split())
-def shape_error(writes):  # None when every item is {op[,file,value]} with a known op; else why not
+def shape_error(writes):  # None when every item is {op[,file,value]} with a known op and a knob file; else why not.
+    # Side effect: append.file is normalised in place (trimmed, lowercased) so the SHAPE compares the way APFS does.
     for w in writes:
         if not isinstance(w, dict): return "writes item is not an object"
         op = w.get("op")
         if not isinstance(op, str) or not op: return "writes item without op"
         if op not in ALLOWED_OPS: return f"unknown op '{op[:20]}'"
-        if op == "append" and not (isinstance(w.get("file"), str) and w["file"]): return "append without file"
+        if op == "append":
+            f = w.get("file")
+            if not (isinstance(f, str) and f.strip()): return "append without file"
+            f = f.strip().lower()
+            if f not in knobs: return f"append to '{f[:40]}' is not a knob ({' | '.join(sorted(knobs))})"
+            w["file"] = f
     return None
 
-rounds, freezes, resolved = [], [], []
+# classify_freeze lives in freeze-classes.sh (bash) and is the ONE hard/soft table; ask it, never re-implement it.
+# items: "R<raw message>" or "S<ledger slug>" → soft | hard | unknown (unknown = no row matched = hard, fail safe)
+def classify_many(items):
+    if not items: return []
+    try:
+        p = subprocess.run([os.environ["SW_BASH"], "-c", '. "$1"; classify_freeze_batch', "_", os.environ["FREEZE_CLASSES_SH"]],
+                           input="".join(i + "\0" for i in items).encode(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        res = p.stdout.decode(errors="replace").split("\n")
+    except Exception:
+        res = []
+    res = [r.strip() for r in res]
+    return [(res[i] if i < len(res) and res[i] in ("soft", "hard", "unknown") else "unknown") for i in range(len(items))]
+
+rounds, freezes, resolved, decided_without_writes = [], [], [], 0
 if os.path.exists(led):
     for n, line in enumerate(open(led), 1):
         s = line.strip()
@@ -129,7 +156,13 @@ if os.path.exists(led):
             if not isinstance(r.get("class"), str) or not r["class"].strip(): warn(n, "froze without class"); continue
             freezes.append(r)
         elif o == "resolved":
-            if "writes" not in r: continue          # old three-arg shape (guards etc.) — evidence of nothing
+            if "writes" not in r:
+                # the OLD three-arg shape (guards etc.) is evidence of nothing and not a fault. But a line that records
+                # a DECISION (chosen, or the desk's "desk:" message) with no writes is exactly how a silent no-learning
+                # state hides (verifier NEW-1: the desk's ledger_record call through a mismatched signature) — counted,
+                # said once below, never fatal.
+                if "chosen" in r or str(r.get("message", "")).startswith("desk:"): decided_without_writes += 1
+                continue
             cls, w = r.get("class"), r["writes"]
             if not isinstance(cls, str) or not cls.strip(): warn(n, "resolved without class"); continue
             if not isinstance(w, list): warn(n, "resolved writes is not a list"); continue
@@ -154,12 +187,16 @@ if os.path.exists(plog):
 # the proposals file: {"id","key","rule","class","shape","proposed_at"} lines assign numbers; {"id","asked_at"} lines
 # record that the question reached the desk. Merge by id, newest line wins per field.
 props = {}
-if os.path.exists(pfile):
-    for line in open(pfile):
-        try: p = json.loads(line)
-        except Exception: continue
-        if not isinstance(p, dict) or not isinstance(p.get("id"), str): continue
-        props.setdefault(p["id"], {}).update(p)
+# One scan at a time may number proposals: the file is read AND appended under an exclusive flock, so two scans that
+# both see a new resolved line cannot hand the same P<n> two keys (verifier 2026-09-10, robustness note).
+pfh = open(pfile, "a+")
+fcntl.flock(pfh, fcntl.LOCK_EX)
+pfh.seek(0)
+for line in pfh:
+    try: p = json.loads(line)
+    except Exception: continue
+    if not isinstance(p, dict) or not isinstance(p.get("id"), str): continue
+    props.setdefault(p["id"], {}).update(p)
 for pid, p in props.items():   # numbering lines written before keys existed: derive the key from class + shape
     if p.get("rule") and not p.get("key") and isinstance(p.get("class"), str) and isinstance(p.get("shape"), list):
         try: p["key"] = key_of(p["class"], [tuple(x) for x in p["shape"]])
@@ -222,6 +259,32 @@ def action_plain(shape, chosen):
 groups = {}   # identity = the FULL normalised class + the shape; the class is shown as it was written
 for r in resolved:
     groups.setdefault((r["_norm"], tuple(shape_of(r["writes"]))), []).append(r)
+
+# hard_reason(ncls, recs) → None when classify_freeze calls this class soft; else one phrase saying why it is HARD.
+# The class on a resolved line is the question's class = ledger_class(<raw freeze message>), cut to 80 by the desk
+# (ledger_class itself cuts at 90) — so the froze lines whose class STARTS with it carry the raw text freeze()
+# classified. Judge those with classify_freeze (exact §B semantics). Any hard verdict → hard. No froze line at all
+# → judge the slug case-insensitively; a slug that matches no row is hard, exactly as B treats an unknown message.
+# A resolved line's own message ("desk: <title> → <label>") counts only when it POSITIVELY matches a hard row.
+froze_by_norm = {}
+for f in freezes:
+    froze_by_norm.setdefault(norm(f["class"]), []).append(str(f.get("message", "")))
+def hard_reason(ncls, recs):
+    raws = [m for k, ms in froze_by_norm.items() if k.startswith(ncls) for m in ms]
+    items = ["R" + m for m in raws] + ["R" + str(r.get("message", "")) for r in recs]
+    if not raws: items.append("S" + ncls)
+    verdicts = classify_many(items)
+    for item, v in zip(items, verdicts):
+        if v == "hard": return f'classify_freeze says HARD for "{item[1:][:60]}"'
+    if not raws:
+        v = verdicts[-1]
+        if v == "unknown": return "the class matches no row of classify_freeze and no froze line records its message — HARD, fail safe"
+        if v == "hard": return f'classify_freeze says HARD for "{ncls[:60]}"'
+        return None
+    if any(v == "unknown" for v in verdicts[:len(raws)]):
+        return "its freeze message matched no row of classify_freeze — HARD, fail safe"
+    return None
+
 new_lines = []
 for (ncls, shape), recs in sorted(groups.items()):
     if len(recs) < after: continue
@@ -230,18 +293,17 @@ for (ncls, shape), recs in sorted(groups.items()):
     if hit:
         skipped.append(f"{cls[:60]} — resolved {n}x the same way but matches NEVER_RULE ({hit.group(0)}): never a rule, stays with the Director")
         continue
-    # the ACTION is checked too (break 9a): what the rule would write, not only what its class says
+    # the ACTION is checked too (break 9a): what the rule would write, not only what its class says. shape_of() already
+    # holds the trimmed, lowercased file, so Allow-Destructive / "allow-destructive " land here too (NEW-2).
     dfiles = [f for op, f in shape if op == "append" and f in never_files]
     if dfiles:
         skipped.append(f"{cls[:60]} — resolved {n}x the same way but the rule would write {', '.join(dfiles)}: anything that deletes or drops data can never become a rule, stays with the Director")
         continue
-    hhit = hard.search(cls)
-    for r in recs:
-        if hhit: break
-        hhit = hard.search(str(r.get("message", "")))
-    if any(op == "unfreeze" for op, _ in shape) and hhit:
-        skipped.append(f"{cls[:60]} — resolved {n}x the same way but the rule would lift a HARD stop ({hhit.group(0)}): production or main is broken there, never a rule, stays with the Director")
-        continue
+    if any(op == "unfreeze" for op, _ in shape):
+        why = hard_reason(ncls, recs)
+        if why:
+            skipped.append(f"{cls[:60]} — resolved {n}x the same way but the rule would lift a HARD stop ({why}): production or main is broken there, never a rule, stays with the Director")
+            continue
     if any(op == "ratify" for op, _ in shape):
         skipped.append(f"{cls[:60]} — resolved {n}x with 'ratify': a rule that makes rules is not one he approved once, never a rule")
         continue
@@ -270,11 +332,21 @@ for (ncls, shape), recs in sorted(groups.items()):
                 "action_plain": action_plain(shape, chosen),
                 "text": f"when the wave freezes on '{cls[:70]}', apply '{chosen}' ({ops}) without asking",
                 "evidence": f"resolved {n}x the same way: {dated}; writes: {ops}",
-                # title/body for the Director are built by policy_emit_questions in plain English (ledger_remedy lives in bash)
-                "title": f"You've answered the same way {n} times — make it a rule?"})
+                # title/body for the Director are built by policy_emit_questions in plain English (ledger_remedy lives in bash).
+                # The title carries P<n> and the question's class is the proposal KEY (spec amendment, verifier NEW-10):
+                # ask_director de-dups on kind+class+title, and a shared template collapsed two proposals into one question.
+                "title": f"Rule {pid}: you've answered the same way {n} times — make it a rule?",
+                "qclass": key[:12]})
 if new_lines:
-    with open(pfile, "a") as fh:
-        for rec in new_lines: fh.write(json.dumps(rec) + "\n")
+    pfh.seek(0, 2)
+    for rec in new_lines: pfh.write(json.dumps(rec) + "\n")
+    pfh.flush()
+fcntl.flock(pfh, fcntl.LOCK_UN); pfh.close()
+# P1 has no ledger key: its question class is a stable digest of its rule name, never a ledger slug (same amendment)
+for o in out:
+    o.setdefault("qclass", hashlib.sha1(o["rule"].encode()).hexdigest()[:12])
+if decided_without_writes:
+    warnings.append(f"proposals: {decided_without_writes} resolved line(s) record a decision but no writes — nothing can be learned from them (ledger_record called with the old shape?)")
 
 if mode == "json":
     for w in warnings: print(w, file=sys.stderr)
@@ -314,8 +386,8 @@ _policy_plain_stop() {
 # still marked asked only when the question was really written — printing is not asking.
 # Titles/bodies are plain English for a phone (A1: "no jargon"): no ledger slug, SQL, regex or path in the title.
 policy_emit_questions() {
-  local id asked rule cls chosen n dated action title body opts stop
-  while IFS= read -r id && IFS= read -r asked && IFS= read -r rule && IFS= read -r cls && IFS= read -r chosen \
+  local id asked rule cls qcls chosen n dated action title body opts stop
+  while IFS= read -r id && IFS= read -r asked && IFS= read -r rule && IFS= read -r cls && IFS= read -r qcls && IFS= read -r chosen \
         && IFS= read -r n && IFS= read -r dated && IFS= read -r action && IFS= read -r title && IFS= read -r body; do
     [ -n "$id" ] || continue
     [ "$asked" = 0 ] || continue
@@ -327,7 +399,9 @@ policy_emit_questions() {
       {"label":"Make this a rule","description":"The wave applies this answer itself from the next run; the receipt says when it did.","writes":[{"op":"ratify","value":os.environ["PID"]}]},
       {"label":"Not yet","description":"Keep asking me each time. The proposal stays listed under --policy.","writes":[{"op":"noop"}]}]))')
     if type -t ask_director >/dev/null 2>&1; then
-      ask_director policy "$cls" "$title" "$body" "$opts" || { say "  policy: could not ask about $id ($rule) — will retry next run"; continue; }
+      # the question's class is the proposal KEY (sha1 prefix), never the ledger slug: two proposals of one freeze
+      # class must be two questions under ask_director's kind+class+title de-dup (spec amendment, verifier NEW-10)
+      ask_director policy "$qcls" "$title" "$body" "$opts" || { say "  policy: could not ask about $id ($rule) — will retry next run"; continue; }
       say "  policy: asked the Director about $id ($rule)"
     else
       say "  policy: proposal $id $rule — $title (desk not loaded; not sent as a question)"
@@ -342,7 +416,7 @@ for line in sys.stdin:
     try: o = json.loads(line)
     except Exception: continue
     one = lambda v: " ".join(str(v).split())   # every field on exactly one line
-    for f in (o["id"], 1 if o.get("asked") else 0, o["rule"], o["class"], o.get("chosen", ""), o.get("n", ""),
+    for f in (o["id"], 1 if o.get("asked") else 0, o["rule"], o["class"], o.get("qclass", ""), o.get("chosen", ""), o.get("n", ""),
               o.get("dated", ""), o.get("action_plain", ""), o["title"], o.get("body", "")):
         print(one(f))')
   return 0
@@ -378,7 +452,14 @@ print(rule); print(key)' "$POLICY_PROPOSALS")
     *) echo "unknown proposal: $id"; return 2;;
   esac
   ev=$(policy_proposals | grep -A2 "^  $id " | grep 'evidence:' | sed 's/^ *evidence: //')
-  [ -n "$ev" ] || { echo "$id is not currently proposed — see: ship-wave.sh --policy"; return 1; }
+  if [ -z "$ev" ]; then
+    # P1 is listed as "P1?" while the wave's own bar is not met; a tap on its question lands here — say WHY it is
+    # refused, not just that it is (verifier 2026-09-10: the first policy question he ever sees dead-ended mute)
+    if [ "$id" = P1 ] && policy_proposals | grep -q "^  P1? "; then
+      echo "P1 is proposed but not yet warranted (the wave's bar: ≥5 HELD merges and 0 migration-caused freezes) — nothing ratified; see: ship-wave.sh --policy"; return 1
+    fi
+    echo "$id is not currently proposed — see: ship-wave.sh --policy"; return 1
+  fi
   python3 -c "
 import json, sys, datetime
 rec = {'id': sys.argv[1], 'rule': sys.argv[2], 'evidence': sys.argv[3], 'at': datetime.datetime.now().strftime('%Y-%m-%d %H:%M'), 'by': 'Director'}

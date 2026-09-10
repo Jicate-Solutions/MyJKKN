@@ -17,7 +17,7 @@ say() { printf '%s\n' "$*"; }
 fail=0
 pass() { echo "PASS  $1"; }
 flunk() { echo "FAIL  $1"; [ -n "${2:-}" ] && echo "      $2"; fail=1; }
-check() { if eval "$2"; then pass "$1"; else flunk "$1" "$3"; fi; }
+check() { if eval "$2"; then pass "$1"; else flunk "$1" "${3:-}"; fi; }   # ${3:-}: a failing two-arg check must report FAIL, not abort under set -u
 reset_state() { find "$STATE" -mindepth 1 -delete; mkdir -p "$POLICY_DIR"; }
 resolve() { ledger_record resolved "$1" "$2" "$3" "$4"; }
 CLS="migration VERSION statement refused in body"
