@@ -16,6 +16,49 @@
 
 import * as Sentry from '@sentry/nextjs';
 
+/**
+ * Strip credentials out of a message before it is thrown, logged or persisted.
+ *
+ * Why this exists: when the configured Meta token contains an illegal header
+ * character (a stray line break survives a copy-paste into the env var),
+ * `fetch` rejects inside `Headers.append`, and the DOM spec puts the OFFENDING
+ * HEADER VALUE — i.e. the whole Bearer token — into the error message. That
+ * message is interpolated into MetaGraphError below, and several cron routes
+ * persist it verbatim into `social_instagram_logs.error_message`.
+ *
+ * Measured on production 2026-09-08: 3,536 rows already carry a Bearer prefix,
+ * accumulating since 19 June from `stories_poll` and one sibling job. The table
+ * has RLS, but every holder of `social.instagram.view` can read those rows.
+ *
+ * Redaction is deliberately broad — a token that is merely *suspected* is still
+ * redacted, because a lost diagnostic string costs far less than a leaked
+ * credential. Meta user/page/system tokens start `EAA`; the generic Bearer and
+ * access_token forms cover the rest.
+ */
+export function redactCredentials(message: string): string {
+  return (
+    message
+      // FIRST, and the reason this function exists: the DOM quotes the whole
+      // offending header value back at you. Because the stored token contains a
+      // LINE BREAK, a token-shaped pattern anchored on Bearer stops at that
+      // break and leaves the remainder in the clear. Measured on production
+      // 2026-09-09: all 29 rows written after the first version of this
+      // function still carried 20+ raw token characters after the redaction
+      // marker, every one of them containing a newline. Redact the quoted
+      // value whole and the split cannot matter.
+      .replace(/(Headers\.\w+:\s*)"[\s\S]*?"/g, '$1"[REDACTED_HEADER_VALUE]"')
+      // Bearer followed by token characters that may be interrupted by
+      // whitespace or control characters — the split-token case again, for any
+      // message that is not the Headers one.
+      .replace(
+        /Bearer(?:[\s\u0000-\u001f]|%0A)*[A-Za-z0-9._\-]{8,}(?:(?:[\s\u0000-\u001f]|%0A)+[A-Za-z0-9._\-]+)*/gi,
+        'Bearer [REDACTED]'
+      )
+      .replace(/\bEAA[A-Za-z0-9]{12,}/g, '[REDACTED_META_TOKEN]')
+      .replace(/(access_token=)[^&\s"']+/gi, '$1[REDACTED]')
+  );
+}
+
 import {
   DEFAULT_GRAPH_API_BASE,
   DEFAULT_GRAPH_API_VERSION,
@@ -200,12 +243,14 @@ export async function graphRequest<T>(
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
         throw new MetaGraphError({
-          message: `Meta Graph request timed out after ${timeoutMs}ms: ${spanName}`,
+          message: redactCredentials(`Meta Graph request timed out after ${timeoutMs}ms: ${spanName}`),
           status: 0,
         });
       }
       throw new MetaGraphError({
-        message: `Meta Graph request failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        message: redactCredentials(
+          `Meta Graph request failed: ${err instanceof Error ? err.message : 'Unknown error'}`
+        ),
         status: 0,
       });
     } finally {

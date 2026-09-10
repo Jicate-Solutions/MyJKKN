@@ -248,6 +248,22 @@ const PUBLIC_PATH_PREFIXES = [
   //        leaderboard, channels, quests, assessments, certificates), so
   //        allow-listing '/learn/' would have unauthenticated all of them.
   //        Never add it.
+  '/join/', // Online Meetings guest page (/join/[token]). An external guest has
+  //        no MyJKKN account by definition — the token IS their identity, and
+  //        a login screen here would defeat the entire module.
+  //
+  //        THE TRAILING SLASH IS LOAD-BEARING, as it is for '/course/' below.
+  //        isPublicPath matches with startsWith, so '/join' without it would
+  //        also match any future '/joinX' route. There is no other route
+  //        beginning '/join' today — checked before adding this.
+  '/api/public/online-meetings/', // The token-keyed read and the four live
+  //        writes (join, heartbeat, poll, quiz) the guest page calls. Listed as
+  //        its OWN prefix rather than allow-listing '/api/online-meetings/',
+  //        which would unauthenticate the host-side routes sitting under that
+  //        path. Service-role, and every handler validates the token against
+  //        the meeting AND its join window before writing — otherwise it is an
+  //        unauthenticated write endpoint, which is what a service-role route
+  //        with no check actually is.
   '/api/public/courses/', // Service-role read + apply for the pages above. The
   //        course tables REVOKE from anon, so these routes are the only public
   //        path to that data and they project columns explicitly — no tenant ids

@@ -142,6 +142,22 @@ const institutionColumn: ColumnDef<HRLeaveApprovalQueueRow> = {
   minSize: 140,
 };
 
+/**
+ * The applicant's department. A HOD only ever sees their own, so this reads as
+ * confirmation there; it earns its place for a Principal, whose list is now the
+ * whole institution. Null for staff whose record carries no department — the
+ * same rows a HOD is deliberately not shown.
+ */
+const departmentColumn: ColumnDef<HRLeaveApprovalQueueRow> = {
+  accessorKey: 'department_name',
+  header: ({ column }) => <DataTableColumnHeader column={column} title="Department" />,
+  cell: ({ row }) => (
+    <span className="text-muted-foreground">{row.original.department_name ?? '—'}</span>
+  ),
+  size: 200,
+  minSize: 140,
+};
+
 /** Who decided it, resolved by the RPC — profiles is unreadable client-side. */
 const decidedByColumn: ColumnDef<HRLeaveApprovalQueueRow> = {
   accessorKey: 'final_approver_name',
@@ -306,6 +322,7 @@ export function getLeaveApprovalColumns(
     selectColumn,
     staffColumn(a),
     institutionColumn,
+    departmentColumn,
     {
       accessorKey: 'leave_type_name',
       header: ({ column }) => <DataTableColumnHeader column={column} title="Leave" />,
@@ -375,6 +392,7 @@ export function getShortTimeOffColumns(
     selectColumn,
     staffColumn(a),
     institutionColumn,
+    departmentColumn,
     {
       accessorKey: 'leave_type_name',
       header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,

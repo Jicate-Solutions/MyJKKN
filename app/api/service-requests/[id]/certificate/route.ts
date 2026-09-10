@@ -5,8 +5,11 @@
 //     &year_of_study=I&download=1
 //
 // Streams a print-ready A4 PDF certificate for an APPROVED service request.
-// Office staff (service_requests.manage) or super admins only; the template
-// must be enabled on the request's service type. `download=1` sets a
+// Office staff (service_requests.manage), super admins, or an approver of the
+// request (someone who recorded an approval on it, or who is listed on any
+// approval step of its service type) — and only for requests visible to the
+// caller under RLS (their institution / CAS siblings; super admins see all);
+// the template must be enabled on the request's service type. `download=1` sets a
 // Content-Disposition attachment and records the issue on the timeline —
 // preview loads (no flag) render inline and are not logged.
 // ============================================================================
@@ -18,7 +21,10 @@ export const dynamic = 'force-dynamic';
 import { NextResponse, connection } from 'next/server';
 import { z } from 'zod';
 import { currentUser } from '@/lib/utils/parent-admin-auth';
-import { createServiceRoleClient } from '@/lib/supabase/server';
+import {
+  createServerSupabaseClient,
+  createServiceRoleClient,
+} from '@/lib/supabase/server';
 import { ServiceRequestTimelineService } from '@/lib/services/service-requests/service-request-timeline-service';
 import {
   CERTIFICATE_TEMPLATE_KEYS,
@@ -52,7 +58,33 @@ export async function GET(
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    if (!user.isSuperAdmin && user.permissions[CERTIFICATE_PERMISSION] !== true) {
+    // Who may issue: super admins, office staff (service_requests.manage),
+    // anyone who recorded an approval on this request, or anyone listed as an
+    // approver on ANY step of the request's service type.
+    const db = createServiceRoleClient() as any;
+    let allowed = user.isSuperAdmin || user.permissions[CERTIFICATE_PERMISSION] === true;
+    if (!allowed) {
+      const [{ data: myApproval }, { data: srType }] = await Promise.all([
+        db
+          .from('service_request_approvals')
+          .select('id')
+          .eq('service_request_id', id)
+          .eq('approver_id', user.id)
+          .eq('action', 'approved')
+          .limit(1)
+          .maybeSingle(),
+        db
+          .from('service_requests')
+          .select('service_type:service_types(approval_steps:service_request_approval_steps(approver_user_ids))')
+          .eq('id', id)
+          .maybeSingle(),
+      ]);
+      const steps: Array<{ approver_user_ids: string[] | null }> =
+        srType?.service_type?.approval_steps ?? [];
+      allowed =
+        Boolean(myApproval) || steps.some((st) => (st.approver_user_ids ?? []).includes(user.id));
+    }
+    if (!allowed) {
       return NextResponse.json(
         { error: 'You do not have permission to issue certificates' },
         { status: 403 }
@@ -70,14 +102,20 @@ export async function GET(
     const q = parsed.data;
     const template = q.template as (typeof CERTIFICATE_TEMPLATE_KEYS)[number];
 
-    // Request + the service type's enabled templates. Service-role read: the
-    // caller is office staff, whose row visibility RLS does not guarantee.
-    const db = createServiceRoleClient() as any;
-    const { data: sr, error } = await db
+    // Request + the service type's enabled templates, read under the CALLER's
+    // RLS — the same authority as the request page they opened this from.
+    // `service_requests.manage` is a global permission bit; without this the
+    // route issued official PDFs for ANY institution's learner by id. RLS ANDs
+    // role_has_institution_access(institution_id) (CAS-sibling aware) and lets
+    // super admins through, so a request outside the caller's scope simply
+    // reads as not found. resolveCertificateSubject() below uses the service
+    // role for the learner join, but only after this gate has passed.
+    const scoped = (await createServerSupabaseClient()) as any;
+    const { data: sr, error } = await scoped
       .from('service_requests')
-      .select('id, request_number, status, service_type:service_types(id, name, certificate_template_keys)')
+      .select('id, request_number, status, institution_id, service_type:service_types(id, name, certificate_template_keys)')
       .eq('id', id)
-      .single();
+      .maybeSingle();
     if (error || !sr) {
       return NextResponse.json({ error: 'Service request not found' }, { status: 404 });
     }

@@ -1,14 +1,21 @@
 'use client';
 
 /**
- * A pattern's working days — the ONLY thing a pattern configures about the
- * week. Hours come from each member's own Shift Timings row; the pattern
- * switches days off. It can never add a day the institution's week does not
- * work, because there would be no hours for it.
+ * A pattern's working days, and — for the days that need it — their hours.
+ *
+ * THE MASK IS STILL THE PRIMARY THING. A pattern switches days off, and cannot
+ * add a day the institution's week does not work. What changed on 2026-09-08 is
+ * that a day it DOES work may now also restate its hours, because a mask alone
+ * could not express a visiting member who owes one hour on a Wednesday: the
+ * institution's Wednesday judged that hour as an absence.
+ *
+ * Hours remain OPTIONAL and per-day. A day with no override keeps the member's
+ * own Shift Timings row, which is what almost every pattern wants.
  *
  * Effective-dated, like a shift week: saving takes an "Effective from" date and
  * the RPC closes the previous days row at that date (or rewrites it when
- * backdating), so a later change never re-judges months already closed.
+ * backdating), so a later change never re-judges months already closed. The
+ * hours travel with that row — the RPC carries them across a supersede.
  */
 
 import { useState } from 'react';
@@ -27,7 +34,8 @@ import {
   useSetWorkPatternDays,
   useWorkPatternDays,
 } from '@/hooks/hr/use-work-patterns';
-import type { WorkPatternSummary } from '@/types/hr-work-patterns';
+import type { HRWorkPatternDayHours, WorkPatternSummary } from '@/types/hr-work-patterns';
+import { DayHoursEditor, validateDayHours } from './day-hours-editor';
 
 interface Props {
   pattern: WorkPatternSummary;
@@ -46,6 +54,7 @@ export function WorkingDaysTab({ pattern, institutionId }: Props) {
   const setDays = useSetWorkPatternDays();
 
   const [selected, setSelected] = useState<Set<IsoDayOfWeek>>(new Set());
+  const [dayHours, setDayHours] = useState<Map<IsoDayOfWeek, HRWorkPatternDayHours>>(new Map());
   const [effectiveFrom, setEffectiveFrom] = useState(todayISO());
 
   // Seed once per pattern, during render (react-hooks/set-state-in-effect):
@@ -56,6 +65,7 @@ export function WorkingDaysTab({ pattern, institutionId }: Props) {
   if (ready && seededFor !== pattern.id) {
     setSeededFor(pattern.id);
     setSelected(new Set(current?.working_days ?? institutionDays));
+    setDayHours(new Map((current?.day_hours ?? []).map((h) => [h.day_of_week, h])));
   }
 
   const toggle = (day: IsoDayOfWeek) => {
@@ -63,6 +73,15 @@ export function WorkingDaysTab({ pattern, institutionId }: Props) {
       const next = new Set(prev);
       if (next.has(day)) next.delete(day);
       else next.add(day);
+      return next;
+    });
+    // Unticking a day drops its hours with it. The database refuses an hour row
+    // for a day outside the mask, so keeping it here would only produce a
+    // constraint error at save time.
+    setDayHours((prev) => {
+      if (!prev.has(day)) return prev;
+      const next = new Map(prev);
+      next.delete(day);
       return next;
     });
   };
@@ -75,12 +94,22 @@ export function WorkingDaysTab({ pattern, institutionId }: Props) {
       toast.error('Pick at least one working day.');
       return;
     }
+    const hoursProblem = validateDayHours(dayHours);
+    if (hoursProblem) {
+      toast.error(hoursProblem);
+      return;
+    }
     try {
       const outcome = await setDays.mutateAsync({
         patternId: pattern.id,
         institutionId,
         workingDays: days,
         effectiveFrom,
+        // ALWAYS SENT, even when empty: this form owns the whole set, so an
+        // omitted value would mean "carry the old hours forward" and a day the
+        // operator just switched back to institution hours would silently keep
+        // its override.
+        dayHours: Array.from(dayHours.values()),
       });
       if (isScheduledChange) {
         toast.success(`Working days scheduled from ${formatDMY(effectiveFrom)}`);
@@ -119,10 +148,9 @@ export function WorkingDaysTab({ pattern, institutionId }: Props) {
   return (
     <div className="space-y-5">
       <p className="text-sm text-muted-foreground">
-        Hours come from each member&apos;s Shift Timings (teaching, non-teaching or
-        category week). A pattern switches days <strong>off</strong>; a day the
-        institution&apos;s week does not work stays off for its members whatever is
-        ticked here.
+        A pattern switches days <strong>off</strong>; a day the institution&apos;s week does
+        not work stays off for its members whatever is ticked here. Hours come from each
+        member&apos;s Shift Timings unless a day below overrides them.
       </p>
 
       <div>
@@ -167,6 +195,13 @@ export function WorkingDaysTab({ pattern, institutionId }: Props) {
           )}
         </p>
       </div>
+
+      <DayHoursEditor
+        days={Array.from(selected).sort((a, b) => a - b)}
+        value={dayHours}
+        onChange={setDayHours}
+        disabled={setDays.isPending}
+      />
 
       <div className="flex flex-wrap items-end gap-4">
         <div>

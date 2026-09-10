@@ -9,6 +9,8 @@ import { describe, it, expect } from 'vitest';
 import {
   buildPrintDocument,
   buildSheetPages,
+  captionLines,
+  captionStyle,
   isFlagged,
   pairsGeometry,
   pageSequence,
@@ -92,12 +94,12 @@ describe('student-wise (pairs) layout — the default', () => {
     expect(seq[3].index).toBe(3); // row 1 col 1
   });
 
-  it('landscape cards: 5 learners per sheet; the 6th starts sheet 2 in order', () => {
-    const cards = Array.from({ length: 7 }, (_, i) => card(i + 1));
+  it('landscape cards: 4 learners per sheet; the 5th starts sheet 2 in order', () => {
+    const cards = Array.from({ length: 6 }, (_, i) => card(i + 1));
     const pages = buildSheetPages(cards);
     expect(pages).toHaveLength(2);
-    expect(reading(pages[0])).toHaveLength(10);
-    expect(reading(pages[1])).toEqual(['L6:front', 'L6:back', 'L7:front', 'L7:back']);
+    expect(reading(pages[0])).toHaveLength(8);
+    expect(reading(pages[1])).toEqual(['L5:front', 'L5:back', 'L6:front', 'L6:back']);
     expect(pages.map((p) => p.number)).toEqual([1, 2]);
   });
 
@@ -167,6 +169,12 @@ describe('geometry', () => {
     }
   });
 
+  it('the student-wise row gap holds three wrapped caption lines', () => {
+    expect(captionLines(pairsGeometry(false))).toBe(3);
+    expect(captionLines(pairsGeometry(true))).toBe(3);
+    expect(captionLines(sheetGeometry(false))).toBeGreaterThanOrEqual(1);
+  });
+
   it('slotOrigin walks the grid row-major in mm', () => {
     const geo = pairsGeometry(false);
     expect(slotOrigin(geo, 0)).toEqual({ x: geo.padX, y: geo.padY });
@@ -200,10 +208,13 @@ describe('issue annotations — identical on preview, print and PDF', () => {
     expect(html.match(/class="idc-card idc-flagged"/g)).toHaveLength(2); // L2 front + back cells framed
     expect(html).toContain('Missing: Photo');
     expect(html).toContain('#dc2626');
+    // Captions wrap instead of being cut with an ellipsis.
+    expect(captionStyle(pairsGeometry(false))).toContain('white-space:normal');
+    expect(captionStyle(pairsGeometry(false))).not.toContain('ellipsis');
   });
 
   it('every sheet but the last ends with a page break', () => {
-    const cards = Array.from({ length: 6 }, (_, i) => card(i + 1)); // 5 per sheet → 2 sheets
+    const cards = Array.from({ length: 5 }, (_, i) => card(i + 1)); // 4 per sheet → 2 sheets
     const html = buildPrintDocument(buildSheetPages(cards));
     expect(html.match(/page-break-after:always/g)).toHaveLength(1);
   });

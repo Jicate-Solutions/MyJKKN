@@ -124,7 +124,13 @@ ORDER BY COUNT(br.id) DESC;
 -- Updated: 2026-03-20 - Added category, attachment_urls columns required for filtering and BugReport type
 -- Updated: 2026-03-23 - Added module_name (appended at end per CREATE OR REPLACE VIEW column-order constraint)
 -- Updated: 2026-03-23 - Added sub_module_name for sub-module grouping (e.g. academic/leave-calendar)
-CREATE OR REPLACE VIEW bug_reports_with_details AS
+-- Updated: 2026-09-07 - Restored WITH (security_invoker = true) + explicit grants.
+--   Migration 20251210_fix_security_and_performance_issues.sql created this view
+--   security_invoker; this file had drifted and omitted it, so a migration that
+--   copied this definition verbatim would silently revert that security fix.
+CREATE OR REPLACE VIEW bug_reports_with_details
+WITH (security_invoker = true)
+AS
 SELECT
     br.id,
     br.created_at,
@@ -148,11 +154,24 @@ SELECT
     d.department_name,
     d.department_code,
     br.module_name,
-    br.sub_module_name
+    br.sub_module_name,
+    -- Restored from migration 20260717061500_bug_reports_duplicate_machinery.sql.
+    -- supabase/setup/05_views.sql had drifted and never received these three, so a
+    -- recreation copied "verbatim" from that file silently DELETES the duplicate
+    -- feature from /admin/bug-reports (list badge, detail page, mark-duplicate
+    -- dialog) -- and silently, because the UI reads `duplicate_count ?? 0`.
+    br.duplicate_of,
+    canon.display_id AS duplicate_of_display_id,
+    (SELECT count(*)::int FROM bug_reports dup WHERE dup.duplicate_of = br.id) AS duplicate_count
 FROM bug_reports br
 LEFT JOIN profiles p ON br.reporter_user_id = p.id
 LEFT JOIN institutions i ON br.institution_id = i.id
-LEFT JOIN departments d ON br.department_id = d.id;
+LEFT JOIN departments d ON br.department_id = d.id
+LEFT JOIN bug_reports canon ON br.duplicate_of = canon.id;
+
+REVOKE ALL ON TABLE public.bug_reports_with_details FROM anon, PUBLIC;
+GRANT  SELECT ON TABLE public.bug_reports_with_details TO authenticated;
+GRANT  ALL    ON TABLE public.bug_reports_with_details TO service_role;
 
 -- Reporter analytics stats view
 -- Updated: 2026-03-20 - New view for per-reporter aggregated statistics in admin analytics tab

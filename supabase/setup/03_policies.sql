@@ -10499,6 +10499,17 @@ WITH CHECK (((learner_id = ( SELECT auth.uid() AS uid)) AND (EXISTS ( SELECT 1
      JOIN hostel_allocations a ON ((a.room_id = b.room_id)))
   WHERE ((b.id = hostel_cleaning_feedback.booking_id) AND (b.status = 'awaiting_feedback'::text) AND (a.learner_id = ( SELECT auth.uid() AS uid)) AND ((a.status)::text = ANY (fn_cl_roster_statuses())))))));
 
+-- 2026-09-09 — hostel_cleaning_booking_reschedules
+-- (migration 20260909160010_housekeeping_reschedule_schema.sql). SELECT is the
+-- only policy: rows are written by fn_cl_housekeeping_reschedule alone. The
+-- predicate delegates to the bookings policy rather than restating it, so
+-- admin (.view + institution access), super admin and "I live in that room"
+-- all resolve through ONE wall and cannot drift apart.
+CREATE POLICY hk_reschedules_select ON public.hostel_cleaning_booking_reschedules FOR SELECT
+USING ((EXISTS ( SELECT 1
+   FROM hostel_cleaning_bookings b
+  WHERE (b.id = hostel_cleaning_booking_reschedules.booking_id))));
+
 -- 2026-09-07 — sh_department_status_reviews scoped by institution
 -- (migration 20261119000000_status_reviews_scoped_by_institution.sql; FILE
 -- ONLY, not applied — the operator applies it). The policies shipped in
@@ -10835,3 +10846,32 @@ USING (
     AND (SELECT public.fn_cl_my_block_learner_ids()) @> ARRAY[learners_profiles.id]
   )
 );
+
+
+-- ---------------------------------------------------------------------------
+-- hr_leave_approver_scopes -- mirrored from
+-- supabase/migrations/20260908170000_leave_approval_org_scope.sql
+-- ---------------------------------------------------------------------------
+-- Read is open to every authenticated user because this is the config that
+-- every leave gate consults, per row, from inside SECURITY DEFINER functions.
+-- Write follows the screen that owns it (/hr/admin/leave-types), so no new
+-- permission key -- and therefore no role-grant migration -- was needed.
+-- One permissive policy per verb: multiple permissive policies are ORed and
+-- all of them are evaluated per row.
+
+DROP POLICY IF EXISTS hlas_select ON public.hr_leave_approver_scopes;
+CREATE POLICY hlas_select ON public.hr_leave_approver_scopes
+  FOR SELECT TO authenticated
+  USING (true);
+
+DROP POLICY IF EXISTS hlas_write ON public.hr_leave_approver_scopes;
+CREATE POLICY hlas_write ON public.hr_leave_approver_scopes
+  FOR ALL TO authenticated
+  USING (
+    public.is_super_admin()
+    OR public.user_has_permission('hr.leave.types.manage')
+  )
+  WITH CHECK (
+    public.is_super_admin()
+    OR public.user_has_permission('hr.leave.types.manage')
+  );

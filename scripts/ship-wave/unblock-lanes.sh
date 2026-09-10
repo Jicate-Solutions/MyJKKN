@@ -19,6 +19,16 @@
 #                         ≤ HELPER_CAP alive), same machinery as the conflict lane, different job:
 #                         reproduce the named failing check, fix it on the PR branch, push, comment.
 #                         Terminal verdict `W12-VERDICT: UNFIXABLE` = the author's, one nudge, never again.
+#   Lane D  SECOND OPINION — a different model family re-reads a wall the fleet has stopped making
+#                         progress against. FOUR firing points, each one a place the wave would
+#                         otherwise spend another tab on a question it has already failed:
+#                           1. a tab filed W12-VERDICT: UNFIXABLE
+#                           2. the wave is FROZEN and its own one-line account is all anyone has
+#                           3. merging main conflicted twice on the same branch
+#                           4. a PR has been red past 3× the lane TTL with no verdict from anyone
+#                         All four go through codex_second_opinion, so all four inherit its three
+#                         safeguards: memory is grepped first, empty evidence is discarded unread,
+#                         and the verdict is posted as evidence — nothing is ever auto-reopened.
 #   Lane C  ONE RETRY   — a helper's UNRESOLVABLE verdict older than 24 h earns ONE fresh tab with the
 #                         previous verdict as a hint (Director: "one more helper try"). After that the
 #                         existing once-only author nudge applies. Implemented inside dispatch_clusters
@@ -33,6 +43,14 @@
 
 UNBLOCK_DIR="$STATE/unblocked"; mkdir -p "$UNBLOCK_DIR" "$STATE/retried" "$STATE/second-opinion"
 LANE_TTL_H="${LANE_TTL_H:-24}"
+# Most PRs a single CI-fix tab may be handed. A helper tab is a ONE-SHOT invocation — it receives its
+# whole job in one prompt and works until finished — so it is BUSY from birth to death and never
+# presents the idle moment the W13 rollover needs. Nothing outside it can hand it over: if the job
+# does not fit in one context the tab compacts mid-run and then finishes work it can no longer
+# remember. Job size is therefore the only lever, and Step 2.7 made each PR heavier (enumerate every
+# bespoke gate and run it, per PR). "The same broken check on eight PRs is ONE job" is still true —
+# it is just no longer one TAB. (Director 2026-09-08, on tabs compacting past 75%.)
+FIX_CAP="${FIX_CAP:-5}"
 REQUIRED_CHECKS='TypeCheck (PR-scoped)|JKKN terminology|Nav-config hrefs match page.tsx|No Radix SelectItem with empty value'
 
 _lane_age_h() {  # $1 = marker file → hours since written, or 9999
@@ -114,8 +132,12 @@ memory_hit() {  # $1 = PR number  $2 = failing check text → prints the file(s)
   printf '%s' "$(printf '%s' "$hits" | tr ' ' '\n' | grep -v '^$' | sort -u | head -3 | tr '\n' ' ')"
 }
 
-codex_second_opinion() {  # $1 = PR number  $2 = branch  $3 = failing check(s)  $4 = run dir
-  local n="$1" br="$2" why="$3" run="$4" wt out err schema rc verdict evidence mem
+codex_second_opinion() {  # $1 = PR number  $2 = branch  $3 = failing check(s)  $4 = run dir  $5 = what triggered the ask
+  local n="$1" br="$2" why="$3" run="$4" wt out err schema rc verdict evidence mem trig
+  # $5 is the one sentence the PR comment opens with. It exists because a reader must be able to
+  # tell WHICH condition summoned the second opinion — "a tab gave up" and "this has been red for
+  # a week with nobody looking" deserve different weight from whoever reads the comment.
+  trig="${5:-A Claude agent had filed a terminal verdict on the failing check \`$why\`.}"
   # STEP 0 — the fleet may already know
   mem=$(memory_hit "$n" "$why")
   if [ -n "$mem" ]; then
@@ -164,14 +186,23 @@ Your evidence field must quote the exact workflow line, script line, or file:lin
     say "  D  #$n  codex returned '$verdict' with EMPTY evidence — discarded unread"
     ledger_record unblocked "second-opinion #$n discarded: empty evidence" "lane d empty evidence"; return 0
   fi
-  : > "$STATE/second-opinion/$n" 2>/dev/null || { mkdir -p "$STATE/second-opinion"; : > "$STATE/second-opinion/$n"; }
+  # The marker was an empty file whose only job was "already asked". It now CARRIES the answer,
+  # because the answer was being thrown away: a FIXABLE verdict with a concrete proposed_fix was
+  # posted as a comment and then the wave sent a fix tab that started from nothing. Same file, same
+  # "already asked" semantics ([ -f ] is unchanged) — it just stops discarding what it learned.
+  #   line 1: <verdict>\t<the check it was asked about>
+  #   line 2+: proposed_fix, verbatim
+  mkdir -p "$STATE/second-opinion"
+  { printf '%s\t%s\n' "$verdict" "$why"
+    python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('proposed_fix','').strip())" "$out" 2>/dev/null
+  } > "$STATE/second-opinion/$n"
   say "  D  #$n  codex says $verdict — posted to the PR as evidence (no status change)"
-  python3 - "$out" "$n" "$why" "$REPO" <<'POST'
+  python3 - "$out" "$n" "$why" "$REPO" "$trig" <<'POST'
 import json, subprocess, sys
-d = json.load(open(sys.argv[1])); n, why, repo = sys.argv[2], sys.argv[3], sys.argv[4]
+d = json.load(open(sys.argv[1])); n, why, repo, trig = sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
 body = (
  "**Second opinion — a different model family read this PR cold.**\n\n"
- f"A Claude agent had filed a terminal verdict on the failing check `{why}`. This is not a status change: "
+ f"{trig} This is not a status change: "
  "it is evidence, and it must be reproduced against the real failure before anything is reopened.\n\n"
  f"**Verdict:** `{d.get('verdict','')}`\n\n"
  f"**Reasoning:** {d.get('reason','')}\n\n"
@@ -197,7 +228,35 @@ dispatch_fix_lane() {  # $1 = run dir  $2 = "#n #m …"  $3 = failing check name
   nm="⚙ W12 · fixing red CI ($3) — $2"
   printf '%s\t%s\t%s\t%s\n' "" "$LOCAL" "$(date -u +%FT%TZ)" "JKKNKB" > "$_CFG/v5-tab-sessions/$u8"
   printf '%s @ %s\n' "$nm" "$LOCAL" > "$_CFG/v5-tab-names/$u8"
-  prompt="First invoke the /myjkkn-chain skill and take its CONFLICT LANE rules as your own — production source is jicate/main only, pr-preflight, verify as a real user. You own ONE job: turn these MyJKKN PRs green — $2. Each fails the check '$3' (a W12 stale-head merge of main into the branch has ALREADY run; the failure survived it, so it is not plain drift). For EACH PR, in ONE Bash call: cd $LOCAL && git fetch jicate main && git fetch jicate <headRefName> && git worktree add $LOCAL/.claude/worktrees/ship-fix-<n> <headRefName>; then inside that worktree: reproduce the failing check locally (vitest for the named test files; node scripts/check-bug-module-classifier.mjs for Module Config Audits; pnpm typecheck for TypeCheck; the workflow file under .github/workflows/ tells you the exact command), fix the ROOT cause on the PR branch keeping the author's intent (never delete or skip a test to make it pass; never widen a quarantine list), re-run until green, push to the PR branch (plain push — the branch already contains main), and leave a PR comment: which check failed, why, what you changed. NEVER merge, never push to main, never touch any database, never edit .github/workflows/. If the failure is real product behaviour only the author can decide, stop and end your PR comment with one line exactly 'W12-VERDICT: UNFIXABLE' — the wave reads it and asks the author instead of sending another tab. Finish with ONE summary per PR: GREEN / still red + why. Then run /remote-control so the Director can see you from the phone."
+  # A second opinion that nobody acts on is a comment. If codex already read one of these PRs and
+  # proposed something concrete, hand it over — as a HYPOTHESIS TO TEST FIRST, never as an
+  # instruction. Its characteristic failure is being right about the code and wrong about whether
+  # that code runs, so a tab that adopts it without reproducing has learned nothing.
+  local hint="" hp hv hf
+  for hp in $2; do
+    hp="${hp#\#}"
+    [ -s "$STATE/second-opinion/$hp" ] || continue
+    hv=$(head -1 "$STATE/second-opinion/$hp" | cut -f1)
+    hf=$(sed -n '2,$p' "$STATE/second-opinion/$hp" | grep -v '^outcome\b' | tr '\n' ' ' | sed 's/  */ /g;s/^ //;s/ $//')
+    [ -n "$hf" ] || continue
+    hint="$hint
+  #$hp — a different model family read it cold and called it $hv, proposing: $hf"
+  done
+  [ -z "$hint" ] || hint="
+A SECOND OPINION ALREADY EXISTS on some of these PRs. Treat each one as a HYPOTHESIS TO TEST FIRST, not as an instruction, and never as permission to skip a gate — that model reads the code well but cannot see whether the code it is describing actually runs. Reproduce it with the check's ORIGINAL invocation (same shell flags, same working directory, same file state) before you adopt any of it, and say in your PR comment whether it held up:$hint
+"
+  prompt="First invoke the /myjkkn-chain skill and follow it as written — every rule of that skill applies to you. You own ONE job: turn these MyJKKN PRs green and KEEP them green — $2. They currently fail '$3', and a W12 merge of main into each branch has ALREADY run, so this is not stale-base drift.
+Work each PR to that skill's Step 2.7 Build Depth Gate standard: green-on-first-push, never red-then-fix. Fixing only the named check is the failure mode that put these PRs here — each earlier fix satisfied one gate and CI then revealed the next (PR 2975: terminology, then migration-rename plus Vitest plus SDK review). So for EACH PR:
+  cd $LOCAL && git fetch jicate main && git fetch jicate HEADREF && git worktree add $LOCAL/.claude/worktrees/ship-fix-N HEADREF
+then inside that worktree:
+  1. Merge jicate/main in if the branch is behind.
+  2. ENUMERATE every bespoke gate — list .github/workflows/*.yml and run the script each one invokes (at minimum scripts/ci/check-nav-config-hrefs.sh, scripts/ci/check-radix-select-empty-values.sh, node scripts/check-permissions-catalog.mjs, node scripts/check-bug-module-classifier.mjs, the JKKN terminology gate, the migration-version and no-rename gates, the SECURITY DEFINER anon-lock gate) PLUS npm run build, the PR-scoped typecheck and the gated Vitest subset. Do not stop at the one check the wave named.
+  3. MIGRATIONS END-TO-END: if the PR ships a migration, exercise it the way /myjkkn-chain prescribes — rehearse with BEGIN then ROLLBACK, confirm it applies clean and the objects it claims exist, and record that in the PR comment. Never deploy, never fire a deploy hook, never merge.
+  4. Fix every failure at its ROOT — never delete or skip a test, never widen a quarantine list, never rename an already-applied migration, never edit .github/workflows.
+  5. RE-RUN the whole gate set until it is green LOCALLY, then push once to the PR branch.
+  6. Comment on the PR with the Step 2.7 receipt: one line per gate with its exit status, plus what you changed and why.
+Then check GitHub: if a check the local mirror does not cover fails, fix that too and push again — at most three push rounds per PR.
+The local checkout at $LOCAL is far behind production: trust ONLY jicate/main and your worktree. NEVER merge, never push to main, never deploy, never touch a production database. If a failure is real product behaviour only the author can decide, stop and end your PR comment with one line exactly W12-VERDICT: UNFIXABLE — the wave reads it and asks the author instead of sending another tab. Finish with ONE summary per PR: GREEN with the gate list, or still red plus which gate and why. Then run /remote-control so the Director can see you from the phone.$hint"
   printf '%s' "$prompt" > "$1/prompt-$slug.txt"
   $T -f "$_CFG/tmux-obsidian.conf" new-session -d -s "$sname" -c "$LOCAL" \
     "bash -c 'export PATH=\"/opt/homebrew/bin:/usr/local/bin:\$HOME/.local/bin:\$PATH\" OBS_TAB_UUID=\"$uuid\" OBS_TAB_VAULT=\"JKKNKB\" CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX=\"JKKNKB $u8\"; \"$CLAUDE\" --name \"$nm\" \"\$(cat \"$1/prompt-$slug.txt\")\"; exec /opt/homebrew/bin/bash -i'"
@@ -216,7 +275,65 @@ dispatch_fix_lane() {  # $1 = run dir  $2 = "#n #m …"  $3 = failing check name
 # ── stage 1b: cause → action ──────────────────────────────────────────────────
 unblock_lanes() {  # $1 = run dir (plan.json already written by sweep)
   local run="$1" lane n br why st res stage age human_v
+  local fz fz_id fz_pr
   say; say "--- 1b. unblock lanes: stale heads → merge main · red checks → merge main, then a CI-fix tab · once per PR per ${LANE_TTL_H}h ---"
+
+  # ── Lane D, TRACK RECORD: did the second opinion hold up? (Director 2026-09-08) ───────────
+  # "with Astra's capabilities should we not believe it" — the honest answer this morning was that
+  # the lane had produced ZERO verdicts, so there was nothing to believe or disbelieve. Nobody could
+  # say whether it is right 95% of the time or 60%, because nothing ever checked. This records the
+  # OBSERVATION, once per verdict: the wall it was asked about is either still there or it is gone.
+  # It deliberately does NOT claim the model was right — a PR can go green for reasons unrelated to
+  # what codex said. It is a numerator and a denominator, which is what raising any ceiling needs.
+  local so_n so_f so_still so_st so_out
+  so_still=" $(python3 -c "import json,sys;print(' '.join(str(r['number']) for r in json.load(open(sys.argv[1]))['blocked']))" "$run/plan.json" 2>/dev/null) "
+  for so_f in "$STATE"/second-opinion/*; do
+    [ -f "$so_f" ] || continue
+    so_n=$(basename "$so_f")
+    case "$so_n" in freeze-*) continue;; esac
+    grep -q '^outcome' "$so_f" 2>/dev/null && continue
+    case "$so_still" in
+      *" $so_n "*) : ;;                       # still blocked — no outcome yet, ask again next round
+      *) # "no longer blocked" is THREE different outcomes, and only one of them is a point.
+         # plan.json's blocked list is built from `gh pr list --state open`, so a PR that someone
+         # simply CLOSED and walked away from disappears exactly like one that was fixed. Scoring
+         # that as a win would inflate the very number this record exists to make trustworthy —
+         # the score would be part real and part abandoned work, and nobody could tell which.
+         # (Director 2026-09-08: count it only if the change actually shipped.)
+         so_st=$(gh pr view "$so_n" --repo "$REPO" --json state -q .state 2>/dev/null)
+         case "$so_st" in
+           MERGED) so_out="shipped";;       # finished and landed — the wall genuinely went
+           CLOSED) so_out="abandoned";;     # someone gave up; NOT evidence the opinion was right
+           OPEN)   so_out="green-again";;   # still open, no longer blocked — its checks pass now
+           *)      so_out="";;              # unreadable: record NOTHING and ask again next round,
+         esac                               # because a failed read must never score as a success
+         [ -n "$so_out" ] || { say "  D  #$so_n  could not read its state — outcome left open"; continue; }
+         printf 'outcome\t%s\t%s\n' "$(date '+%F %T')" "$so_out" >> "$so_f"
+         say "  D  #$so_n  second opinion called it $(head -1 "$so_f" | cut -f1) — outcome: $so_out"
+         ledger_record unblocked "second-opinion #$so_n outcome: $so_out (called $(head -1 "$so_f" | cut -f1))" "lane d outcome";;
+    esac
+  done
+
+  # ── Lane D firing point 2 of 4: A FREEZE NOBODY HAS DIAGNOSED (Director 2026-09-08) ────────
+  # A freeze stops every merge until a human clears it, and the only record of why is one line of
+  # the wave's own prose — written by the code that failed, about itself. That is the weakest
+  # possible witness, and it is the line the Director reads on his phone. Ask the other model
+  # family what actually broke while the evidence is still on disk.
+  # The marker is written BEFORE the call, not after: a freeze persists until a human acts, so a
+  # retry-on-failure here would re-spend a model every round for hours. One ask per distinct
+  # freeze line; a new freeze has a new hash and gets its own.
+  if [ -f "$FREEZE" ]; then
+    fz=$(tail -1 "$FREEZE" 2>/dev/null)
+    fz_id=$(printf '%s' "$fz" | shasum | cut -c1-12)
+    # the LAST PR named is the one that landed most recently, and a freeze fires right after a
+    # deploy — so it is the better suspect than whichever happened to merge first that round.
+    fz_pr=$(printf '%s' "$fz" | grep -oE '#[0-9]+' | tail -1 | tr -d '#')
+    if [ -n "$fz_pr" ] && [ ! -f "$STATE/second-opinion/freeze-$fz_id" ]; then
+      : > "$STATE/second-opinion/freeze-$fz_id" 2>/dev/null
+      codex_second_opinion "$fz_pr" "main" "the wave froze: ${fz#*$'\t'}" "$run" \
+        "The ship wave FROZE and stopped merging. Its own account of why is: ${fz#*$'\t'}"
+    fi
+  fi
   REQ="$REQUIRED_CHECKS" QUIET="$QUIET_MIN" python3 - "$run/plan.json" <<'PY' > "$run/lanes.tsv"
 import json, sys, os, re
 p = json.load(open(sys.argv[1])); req = set(os.environ["REQ"].split("|")); quiet = int(os.environ.get("QUIET", "30"))
@@ -246,7 +363,16 @@ PY
         case "$res" in
           merged)  _lane_mark "$n" merged-main; acted=$((acted+1)); say "  A  #$n  merged main into $br — CI re-running"; ledger_record unblocked "stale head #$n: merged main into $br" "lane a merge main";;
           current) _lane_mark "$n" current; say "  A  #$n  already current with main and still BLOCKED — a required check is missing from its head; needs a human look";;
-          conflict) _lane_mark "$n" conflict; say "  A  #$n  merging main CONFLICTS — it turns DIRTY, the conflict lane takes it next round";;
+          conflict)
+            # ── Lane D firing point 3 of 4: A CONFLICT THE WAVE ALREADY LOST ────────────────
+            # The first conflict is ordinary drift. The second means merging main is not the
+            # answer for this branch, and the conflict lane is about to spend another tab
+            # discovering that again. Ask what the real overlap is before it does.
+            if [ "$stage" = "conflict" ] && [ ! -f "$STATE/second-opinion/$n" ]; then
+              codex_second_opinion "$n" "$br" "merge conflict with main, on the second attempt" "$run" \
+                "The wave merged main into this branch, hit a conflict, waited, and hit a conflict again on the next attempt."
+            fi
+            _lane_mark "$n" conflict; say "  A  #$n  merging main CONFLICTS — it turns DIRTY, the conflict lane takes it next round";;
           *) say "  A  #$n  $res";;
         esac;;
       B)
@@ -261,7 +387,16 @@ PY
                 if [ "$MODE" = "go" ] && gh pr comment "$n" --repo "$REPO" --body "A W12 helper tab tried to make the check '$why' pass on this PR and concluded the failure is real product behaviour only you can decide (W12-VERDICT: UNFIXABLE). The ship wave will pick the PR up automatically once its checks are green — it will not close it, and it will not ask again." >/dev/null 2>&1; then : > "$STATE/nudged/$n"; say "  B  #$n  UNFIXABLE — asked its author once"; else say "  B  #$n  UNFIXABLE — would ask its author once"; fi
               else say "  B  #$n  UNFIXABLE — author already asked; the wave leaves it"; fi
             elif [ "$age" -lt "$LANE_TTL_H" ]; then say "  B  #$n  fix tab sent ${age}h ago — waiting"
-            else say "  B  #$n  fix tab is ${age}h old with no verdict — queued for a fresh tab"; FIXQ["$why"]="${FIXQ[$why]:-} #$n"; fi;;
+            else
+              # ── Lane D firing point 4 of 4: RED FOR DAYS WITH NO VERDICT ──────────────────
+              # A tab was sent, said nothing, and the wave is about to send another. Past three
+              # lane TTLs that is not a slow tab — it is a question no tab has been able to
+              # answer, and the next one will meet the same wall. Ask first.
+              if [ "$age" -ge $(( LANE_TTL_H * 3 )) ] && [ ! -f "$STATE/second-opinion/$n" ]; then
+                codex_second_opinion "$n" "$br" "$why" "$run" \
+                  "This PR has been red on \`$why\` for ${age}h and no helper tab has ever filed a verdict on it."
+              fi
+              say "  B  #$n  fix tab is ${age}h old with no verdict — queued for a fresh tab"; FIXQ["$why"]="${FIXQ[$why]:-} #$n"; fi;;
           merged-main|current)
             if [ "$age" -lt "$LANE_TTL_H" ] && [ "$stage" = "merged-main" ]; then say "  B  #$n  main merged ${age}h ago, still red on '$why' — a fix tab goes out once ${LANE_TTL_H}h have passed"
             else FIXQ["$why"]="${FIXQ[$why]:-} #$n"; fi;;
@@ -271,16 +406,27 @@ PY
             case "$res" in
               merged)  _lane_mark "$n" merged-main; acted=$((acted+1)); say "  B  #$n  red on '$why' — merged main into $br first (attempt 1); CI re-running"; ledger_record unblocked "red check #$n ($why): merged main into $br" "lane b merge main";;
               current) _lane_mark "$n" current; say "  B  #$n  already current with main and red on '$why' — queued for a fix tab"; FIXQ["$why"]="${FIXQ[$why]:-} #$n";;
-              conflict) _lane_mark "$n" conflict; say "  B  #$n  merging main CONFLICTS — the conflict lane takes it next round";;
+              conflict)
+                if [ "$stage" = "conflict" ] && [ ! -f "$STATE/second-opinion/$n" ]; then
+                  codex_second_opinion "$n" "$br" "merge conflict with main, on the second attempt" "$run" \
+                    "The wave merged main into this branch, hit a conflict, waited, and hit a conflict again on the next attempt."
+                fi
+                _lane_mark "$n" conflict; say "  B  #$n  merging main CONFLICTS — the conflict lane takes it next round";;
               *) say "  B  #$n  $res";;
             esac;;
         esac;;
     esac
   done < "$run/lanes.tsv"
   # fix tabs: one per failing-check group (the same broken test file on eight PRs is ONE job)
+  local grp defer
   for why in "${!FIXQ[@]}"; do
-    [ "$MODE" = "go" ] || { say "  B  would send a CI-fix tab for${FIXQ[$why]} ('$why')"; continue; }
-    dispatch_fix_lane "$run" "$(printf '%s' "${FIXQ[$why]}" | sed 's/^ //')" "$why"
+    grp=$(printf '%s' "${FIXQ[$why]}" | tr ' ' '\n' | grep -v '^$' | head -"$FIX_CAP"     | tr '\n' ' ' | sed 's/ *$//')
+    defer=$(printf '%s' "${FIXQ[$why]}" | tr ' ' '\n' | grep -v '^$' | tail -n +$((FIX_CAP+1)) | tr '\n' ' ' | sed 's/ *$//')
+    # the overflow is NOT lane-marked (dispatch_fix_lane marks only what it is given), so the next
+    # round re-queues it through the normal path rather than losing it.
+    [ -z "$defer" ] || say "  B  '$why' exceeds the $FIX_CAP-PR cap — sending $grp now; $defer waits for the next round"
+    [ "$MODE" = "go" ] || { say "  B  would send a CI-fix tab for $grp ('$why')"; continue; }
+    dispatch_fix_lane "$run" "$grp" "$why"
   done
   say "  lanes: $(grep -c . "$run/lanes.tsv" 2>/dev/null || echo 0) PRs examined · $acted acted on now"
 }

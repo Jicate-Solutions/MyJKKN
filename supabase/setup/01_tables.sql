@@ -1479,6 +1479,7 @@ CREATE TABLE IF NOT EXISTS public.bug_reports (
         WHEN page_url ~ '/my-bug-reports/' THEN 'my-bug-reports'
         WHEN page_url ~ '/notifications/' THEN 'notifications'
         WHEN page_url ~ '/okr/' THEN 'okr'
+        WHEN page_url ~ '/online-meetings/' THEN 'online-meetings'
         WHEN page_url ~ '/organizations?/' THEN 'organizations'
         WHEN page_url ~ '/profile/' THEN 'profile'
         WHEN page_url ~ '/resource-management/' THEN 'resource-management'
@@ -1491,6 +1492,14 @@ CREATE TABLE IF NOT EXISTS public.bug_reports (
         WHEN page_url ~ '/users/' THEN 'users'
         WHEN page_url ~ '/vac/' THEN 'vac'
         WHEN page_url ~ '/work-pulse/' THEN 'work-pulse'
+        -- Added: 2026-09-06 (20260906213000) — the seven modules the classifier never learned, appended last
+        WHEN page_url ~ '/ai-pulse/' THEN 'ai-pulse'
+        WHEN page_url ~ '/bos/' THEN 'bos'
+        WHEN page_url ~ '/ims/' THEN 'ims'
+        WHEN page_url ~ '/meetings/' THEN 'meetings'
+        WHEN page_url ~ '/procurement/' THEN 'procurement'
+        WHEN page_url ~ '/projects/' THEN 'projects'
+        WHEN page_url ~ '/courses/' THEN 'courses'  -- Added: 2026-09-06 (20260906213000); last so /organizations/courses/ stays organizations
         ELSE 'other'
       END
     ) STORED,
@@ -1527,6 +1536,7 @@ CREATE TABLE IF NOT EXISTS public.bug_reports (
         WHEN page_url ~ '/my-bug-reports/' THEN substring(page_url FROM '/my-bug-reports/([^/?#]+)')
         WHEN page_url ~ '/notifications/' THEN substring(page_url FROM '/notifications/([^/?#]+)')
         WHEN page_url ~ '/okr/' THEN substring(page_url FROM '/okr/([^/?#]+)')
+        WHEN page_url ~ '/online-meetings/' THEN substring(page_url FROM '/online-meetings/([^/?#]+)')
         WHEN page_url ~ '/organizations?/' THEN substring(page_url FROM '/organizations?/([^/?#]+)')
         WHEN page_url ~ '/profile/' THEN substring(page_url FROM '/profile/([^/?#]+)')
         WHEN page_url ~ '/resource-management/' THEN substring(page_url FROM '/resource-management/([^/?#]+)')
@@ -1539,6 +1549,13 @@ CREATE TABLE IF NOT EXISTS public.bug_reports (
         WHEN page_url ~ '/users/' THEN substring(page_url FROM '/users/([^/?#]+)')
         WHEN page_url ~ '/vac/' THEN substring(page_url FROM '/vac/([^/?#]+)')
         WHEN page_url ~ '/work-pulse/' THEN substring(page_url FROM '/work-pulse/([^/?#]+)')
+        WHEN page_url ~ '/ai-pulse/' THEN substring(page_url FROM '/ai-pulse/([^/?#]+)')
+        WHEN page_url ~ '/bos/' THEN substring(page_url FROM '/bos/([^/?#]+)')
+        WHEN page_url ~ '/ims/' THEN substring(page_url FROM '/ims/([^/?#]+)')
+        WHEN page_url ~ '/meetings/' THEN substring(page_url FROM '/meetings/([^/?#]+)')
+        WHEN page_url ~ '/procurement/' THEN substring(page_url FROM '/procurement/([^/?#]+)')
+        WHEN page_url ~ '/projects/' THEN substring(page_url FROM '/projects/([^/?#]+)')
+        WHEN page_url ~ '/courses/' THEN substring(page_url FROM '/courses/([^/?#]+)')
         ELSE NULL
       END
     ) STORED,
@@ -9499,6 +9516,64 @@ CREATE INDEX idx_hk_feedback_learner     ON public.hostel_cleaning_feedback (lea
 ALTER TABLE public.hostel_cleaning_feedback ENABLE ROW LEVEL SECURITY;
 
 -- ==========================================================================
+-- 10. hostel_cleaning_booking_reschedules  (one row per move)
+--     Updated: 2026-09-09 — see supabase/migrations/20260909160010_housekeeping_reschedule_schema.sql
+--
+--     Never updated. A booking pushed twice has two reasons and the learner
+--     is shown both, which is why this is a table and not columns on the
+--     booking. The cleaner NAMES are snapshots for the same reason
+--     bookings.cleaner_name is one: learners must never need SELECT on
+--     hostel_cleaners, which holds staff phone numbers.
+-- ==========================================================================
+CREATE TABLE public.hostel_cleaning_booking_reschedules (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  booking_id        uuid NOT NULL REFERENCES public.hostel_cleaning_bookings(id) ON DELETE CASCADE,
+  institution_id    uuid NOT NULL REFERENCES public.institutions(id),
+
+  from_date         date NOT NULL,
+  from_slot_start   time NOT NULL,
+  from_slot_end     time NOT NULL,
+  to_date           date NOT NULL,
+  to_slot_start     time NOT NULL,
+  to_slot_end       time NOT NULL,
+
+  from_cleaner_id   uuid REFERENCES public.hostel_cleaners(id),
+  from_cleaner_name text,
+  to_cleaner_id     uuid REFERENCES public.hostel_cleaners(id),
+  to_cleaner_name   text,
+
+  reason_code       text NOT NULL CHECK (reason_code IN (
+                      'cleaner_unavailable',
+                      'cleaner_on_leave',
+                      'slot_full',
+                      'learner_requested',
+                      'emergency',
+                      'other')),
+  reason_note       text,
+
+  rescheduled_by    uuid NOT NULL REFERENCES public.profiles(id),
+  created_at        timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT ck_hk_reschedule_note_for_other
+    CHECK (reason_code <> 'other'
+           OR nullif(btrim(COALESCE(reason_note, '')), '') IS NOT NULL),
+  CONSTRAINT ck_hk_reschedule_slot_moved
+    CHECK ((to_date, to_slot_start) IS DISTINCT FROM (from_date, from_slot_start))
+);
+
+CREATE INDEX idx_hk_reschedules_booking      ON public.hostel_cleaning_booking_reschedules (booking_id, created_at);
+
+CREATE INDEX idx_hk_reschedules_institution  ON public.hostel_cleaning_booking_reschedules (institution_id);
+
+CREATE INDEX idx_hk_reschedules_by           ON public.hostel_cleaning_booking_reschedules (rescheduled_by);
+
+CREATE INDEX idx_hk_reschedules_from_cleaner ON public.hostel_cleaning_booking_reschedules (from_cleaner_id);
+
+CREATE INDEX idx_hk_reschedules_to_cleaner   ON public.hostel_cleaning_booking_reschedules (to_cleaner_id);
+
+ALTER TABLE public.hostel_cleaning_booking_reschedules ENABLE ROW LEVEL SECURITY;
+
+-- ==========================================================================
 -- ANON LOCK
 --
 -- Supabase ships `ALTER DEFAULT PRIVILEGES ... GRANT ALL ON TABLES TO anon`,
@@ -9517,6 +9592,8 @@ ALTER TABLE public.hostel_cleaning_feedback ENABLE ROW LEVEL SECURITY;
 --              _cancel), and no policy exists for them either.
 --   feedback — no UPDATE/DELETE: a rating is a record of what someone said at
 --              the time, not an editable field.
+--   reschedules — SELECT only: rows are written by fn_cl_housekeeping_reschedule
+--              alone, and the table has no write policy either.
 -- ==========================================================================
 REVOKE ALL ON TABLE public.hostel_cleaning_types            FROM anon, PUBLIC;
 REVOKE ALL ON TABLE public.hostel_cleaning_type_expenses    FROM anon, PUBLIC;
@@ -9527,6 +9604,7 @@ REVOKE ALL ON TABLE public.hostel_cleaning_availability     FROM anon, PUBLIC;
 REVOKE ALL ON TABLE public.hostel_cleaning_bookings         FROM anon, PUBLIC;
 REVOKE ALL ON TABLE public.hostel_cleaning_booking_photos   FROM anon, PUBLIC;
 REVOKE ALL ON TABLE public.hostel_cleaning_feedback         FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.hostel_cleaning_booking_reschedules FROM anon, PUBLIC;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.hostel_cleaning_types            TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.hostel_cleaning_type_expenses    TO authenticated;
@@ -9537,6 +9615,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.hostel_cleaning_availabilit
 GRANT SELECT, UPDATE                 ON TABLE public.hostel_cleaning_bookings         TO authenticated;
 GRANT SELECT, INSERT, DELETE         ON TABLE public.hostel_cleaning_booking_photos   TO authenticated;
 GRANT SELECT, INSERT                 ON TABLE public.hostel_cleaning_feedback         TO authenticated;
+GRANT SELECT                         ON TABLE public.hostel_cleaning_booking_reschedules TO authenticated;
 
 -- ============================================================================
 -- Events · institutional event number + target classes + two empty catalogues
@@ -9662,3 +9741,27 @@ REVOKE ALL ON public.event_impact_categories FROM anon, PUBLIC;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.event_impact_categories TO authenticated;
 ALTER TABLE public.event_impact_categories ENABLE ROW LEVEL SECURITY;
 
+
+
+-- ---------------------------------------------------------------------------
+-- Mirrored from supabase/migrations/20260908170000_leave_approval_org_scope.sql
+-- ---------------------------------------------------------------------------
+-- How far an approver role sees in the leave queue, and -- because the levels
+-- are ordered -- who outranks whom. A department-scoped approver (hod) never
+-- sees an applicant holding a role with a broader level, which is what keeps
+-- the Principal's own leave request out of every HOD queue. A role absent here
+-- defaults to 'institution'.
+
+CREATE TABLE IF NOT EXISTS public.hr_leave_approver_scopes (
+  role_key    text PRIMARY KEY
+                REFERENCES public.custom_roles(role_key) ON DELETE CASCADE,
+  scope_level text NOT NULL
+                CHECK (scope_level IN ('department', 'institution', 'group')),
+  notes       text,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+
+REVOKE ALL ON public.hr_leave_approver_scopes FROM anon, PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_leave_approver_scopes TO authenticated;
+ALTER TABLE public.hr_leave_approver_scopes ENABLE ROW LEVEL SECURITY;
