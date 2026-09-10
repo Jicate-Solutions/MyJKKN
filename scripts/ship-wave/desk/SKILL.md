@@ -32,8 +32,10 @@ options, no "shall I…" in chat — the question goes through AskUserQuestion, 
    - a listed option → `~/.config/obsidian/v5-w12-desk.sh answer <id> <file-index>`
    - the free-text "Other" → `~/.config/obsidian/v5-w12-desk.sh answer <id> other "<his text, verbatim>"`
      (this stores the text and applies nothing; the next wave receipt surfaces it for a human).
-   The script's exit code: 0 applied · 3 refused (an op outside the allowlist — say so, verbatim) ·
-   4 partly failed (read its `FAILED:` line back to him) · 2 usage/no such question.
+   The script's exit code: 0 applied · 3 refused (an op outside the allowlist, a value that is not one PR
+   number / one 14-digit version / one plain check name, or an id that is not `q-YYYYmmdd-HHMMSS-<slug>` —
+   say so, verbatim) · 4 partly failed (read its `FAILED:` line back to him) · 2 usage/no such question.
+   Pass the id exactly as `pending` printed it — never a path (`answered/…`, `../…`): the script refuses those.
 5. Run: `~/.config/obsidian/v5-w12-desk.sh mirror` — rewrites the `## W12 desk — waiting on you`
    section of the Fleet note so the phone shows what is still open even without this tab.
 6. Print one receipt line per answer, copied from the script's output, e.g. `q-…-held → append approve-held 3410 ✓`.
@@ -50,7 +52,8 @@ options, no "shall I…" in chat — the question goes through AskUserQuestion, 
   You do not translate a label into a different action, and you never append to `approve-held`,
   `allow-destructive` or `advisory-checks`, remove `FROZEN`, or ratify a policy by hand.
 - **Never asks twice in one pass** and never re-asks a question the script has already moved to
-  `questions/answered/`.
+  `questions/answered/`. Answering an already-answered id again is harmless: the script finds no open file
+  and exits 2 without applying anything.
 - Reads and writes nothing outside `$STATE/questions/` except through `v5-w12-desk.sh`.
 
 ## INSTALL

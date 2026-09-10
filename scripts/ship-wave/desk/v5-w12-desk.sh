@@ -14,9 +14,14 @@
 #   $STATE/failure-ledger.jsonl              one "resolved" record per answered freeze question (append)
 #   $FLEET_MD                                ONLY its "## W12 desk — waiting on you" section
 # It never runs the wave. It never merges. It never invents an option: the writes in the file are the contract.
+# An <id> is accepted ONLY in the shape ^q-[0-9]{8}-[0-9]{6}-[a-z0-9][a-z0-9-]{0,39}$ and resolves ONLY to
+# $STATE/questions/<id>.json — "answered/q-…" or "../stray" is refused (exit 3) before any path is built
+# (2026-09-10: a path-shaped id re-applied an answered question and pulled a file in from outside questions/).
 #
 # USAGE  v5-w12-desk.sh pending                     JSON list of open questions (unanswered, unexpired), oldest first
 #        v5-w12-desk.sh answer <id> <option-index>  apply that option's writes, file → questions/answered/
+#                                                   exit 0 applied · 2 no such question / usage · 3 refused (bad id,
+#                                                   op outside the allowlist, malformed value) · 4 partly failed
 #        v5-w12-desk.sh answer <id> other "<text>"  store the free text verbatim; apply NOTHING
 #        v5-w12-desk.sh mirror                      rewrite the desk section of $FLEET_MD
 # ENV    STATE     (default ~/.config/obsidian/.ship-wave)   tests point this at a temp dir
@@ -48,18 +53,15 @@ cmd_pending() {
   local f why ids=""
   for f in "$QUESTIONS_DIR"/q-*.json; do
     [ -e "$f" ] || continue
-    if why=$(question_writes_valid "$(cat "$f")"); then ids="$ids$(basename "$f" .json)
+    if why=$(question_file_valid "$f"); then ids="$ids$(basename "$f" .json)
 "
-    else echo "desk: invalid question $(basename "$f" .json) — $why — not asked, not applied" >&2; fi
+    else echo "desk: invalid question $(basename "$f" .json) — $(printf '%s' "$why" | tr '\n\t' '  ') — not asked, not applied" >&2; fi
   done
   IDS="$ids" python3 - "$QUESTIONS_DIR" <<'PY'
 import json, os, sys, datetime
 now = datetime.datetime.now().astimezone(); out = []
 for i in [i for i in os.environ["IDS"].split("\n") if i]:
-    try:
-        q = json.load(open(os.path.join(sys.argv[1], i + ".json"))); t = datetime.datetime.fromisoformat(q["asked_at"])
-    except Exception:
-        continue
+    q = json.load(open(os.path.join(sys.argv[1], i + ".json"))); t = datetime.datetime.fromisoformat(q["asked_at"])
     if t + datetime.timedelta(hours=int(q.get("expires_after_h", 48))) <= now:
         continue                    # expired: the moment passed; the wave re-asks (refreshes) if it still matters
     out.append((t, q))
@@ -70,7 +72,9 @@ PY
 
 # ── answer ────────────────────────────────────────────────────────────────────
 apply_write() {  # $1 = one write as JSON → prints what it did; returns 1 if the op failed
-  local op file value out
+  local op file value out why
+  # the shape rules again, on exactly the write about to be applied — not on what pending or a caller showed earlier
+  if ! why=$(question_writes_valid "[$1]"); then echo "write REFUSED ($why)"; return 1; fi
   op=$(printf '%s' "$1" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("op",""))')
   case "$op" in
     append)
@@ -92,10 +96,16 @@ apply_write() {  # $1 = one write as JSON → prints what it did; returns 1 if t
 
 cmd_answer() {
   local id="$1" choice="${2:-}" text="${3:-}" f why n idx label kind cls title writes applied="" failed=0 w rc
+  # the id is a NAME, never a path: anything outside the shape is refused before a path is even built
+  if ! question_id_valid "$id"; then
+    echo "desk: REFUSED — '$(printf '%s' "$id" | tr '\000-\037\177' '?' | cut -c1-80)' is not a question id (q-YYYYmmdd-HHMMSS-<slug>, [a-z0-9-]). Nothing applied."
+    qlog "refused	$(printf '%s' "$id" | tr '\000-\037\177' '?' | cut -c1-80)	not a question id"; return 3
+  fi
   f="$QUESTIONS_DIR/$id.json"
   [ -f "$f" ] || { echo "desk: no open question $id"; [ -f "$QUESTIONS_DIR/answered/$id.json" ] && echo "  (already answered)"; return 2; }
-  # the allowlist is checked HERE, on the file as it is now — not on what pending showed earlier
-  if ! why=$(question_writes_valid "$(cat "$f")"); then
+  # the allowlist and the shape rules are checked HERE, on the file as it is now — not on what pending showed earlier
+  if ! why=$(question_file_valid "$f"); then
+    why=$(printf '%s' "$why" | tr '\n\t' '  ')
     echo "desk: REFUSED $id — $why. Nothing applied; the file is left in place for a human to read."
     qlog "refused	$id	$why"; return 3
   fi
@@ -151,46 +161,74 @@ PY
 # ── mirror ────────────────────────────────────────────────────────────────────
 # Rewrites ONLY the "## W12 desk — waiting on you" section of $FLEET_MD (appended at the end when absent).
 # Everything outside that section is left byte-for-byte. Phone visibility without the tab (spec §A3).
+# Section = from the heading line to the next markdown heading (any `#…` line) or EOF; heading lines inside a
+# ``` / ~~~ fence do not count, so a fenced example of the heading is not the section and a fenced '## ' inside
+# the stale section does not end it early. If the heading appears twice, both copies are replaced by ONE.
+# Every line the section emits from question text is a quote ("> …") or an indented list item, so no question
+# body, title or label can ever START a heading or a fence and grow the note on the next pass (2026-09-10).
 cmd_mirror() {
-  local pend; pend=$(cmd_pending)
+  local pend; pend=$(cmd_pending 2>/dev/null)
   local invalid=""; local f why
   for f in "$QUESTIONS_DIR"/q-*.json; do
     [ -e "$f" ] || continue
-    why=$(question_writes_valid "$(cat "$f")") || invalid="$invalid$(basename "$f" .json): $why
+    why=$(question_file_valid "$f") || invalid="$invalid$(basename "$f" .json): $(printf '%s' "$why" | tr '\n\t' '  ')
 "
   done
   [ -f "$FLEET_MD" ] || { mkdir -p "$(dirname "$FLEET_MD")"; : > "$FLEET_MD"; }
   PEND="$pend" INVALID="$invalid" python3 - "$FLEET_MD" <<'PY'
-import json, os, sys, datetime
+import json, os, re, sys, datetime
 HEAD = "## W12 desk — waiting on you"
+HEADING = re.compile(r"^ {0,3}#{1,6}( |\t|$)")           # any ATX heading, as markdown reads it
+FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+CTRL = re.compile(r"[\x00-\x1f\x7f]+")
+def flat(s):  # one line, no control characters — for anything rendered inline
+    return CTRL.sub(" ", str(s)).strip()
 qs = json.loads(os.environ["PEND"]); inv = os.environ["INVALID"].strip().split("\n") if os.environ["INVALID"].strip() else []
 lines = [HEAD + (f" ({len(qs)})" if qs else ""), ""]
 if not qs:
     lines.append("nothing waiting")
 for n, q in enumerate(qs, 1):
-    lines.append(f"**{n}. [{q['kind']}] {q['title']}**")
-    if q.get("body"): lines.append(q["body"])
+    lines.append(f"**{n}. [{flat(q['kind'])}] {flat(q['title'])}**")
+    body = str(q.get("body") or "").replace("\r\n", "\n").replace("\r", "\n")
+    for b in body.split("\n"):
+        if body.strip(): lines.append("> " + CTRL.sub(" ", b).rstrip())
     for i, o in enumerate(q["options"]):
         rec = " (Recommended)" if i == q.get("recommended", 0) else ""
-        lines.append(f"  {i + 1}. **{o['label']}**{rec} — {o.get('description', '')}")
-    lines.append(f"  answer in the desk tab: /w12-desk · id `{q['id']}` · asked {q['asked_at'][:16].replace('T', ' ')}")
+        lines.append(f"  {i + 1}. **{flat(o['label'])}**{rec} — {flat(o.get('description', ''))}")
+    lines.append(f"  answer in the desk tab: /w12-desk · id `{flat(q['id'])}` · asked {flat(q['asked_at'])[:16].replace('T', ' ')}")
     lines.append("")
 for i in inv:
-    lines.append(f"⚠ invalid question, not askable: {i}")
+    lines.append(f"⚠ invalid question, not askable: {flat(i)}")
 lines.append(f"_desk mirror {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}_")
-section = "\n".join(lines).rstrip("\n") + "\n"
+# belt and braces: nothing the section emits may read as a heading or a fence to the next pass
+sec = [lines[0]] + [("> " + l if (HEADING.match(l) or FENCE.match(l)) else l) for l in lines[1:]]
+while sec and sec[-1] == "": sec.pop()
 p = sys.argv[1]; src = open(p, encoding="utf-8").read()
 rows = src.split("\n")
-start = next((i for i, r in enumerate(rows) if r.startswith(HEAD)), None)
-if start is None:
-    out = src + ("" if src.endswith("\n") or not src else "\n") + ("\n" if src else "") + section
+# classify rows: which are inside a fence, which are headings, which open a desk section
+in_fence = [False] * len(rows); fence = None
+for i, r in enumerate(rows):
+    m = FENCE.match(r)
+    if fence:
+        in_fence[i] = True
+        if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and r.strip() == m.group(1): fence = None
+        continue
+    if m:
+        fence = m.group(1); in_fence[i] = True
+starts = [i for i, r in enumerate(rows) if not in_fence[i] and r.startswith(HEAD)]
+if not starts:
+    out = src + ("" if src.endswith("\n") or not src else "\n") + ("\n" if src else "") + "\n".join(sec) + "\n"
 else:
-    end = next((i for i in range(start + 1, len(rows)) if rows[i].startswith("## ")), None)
-    before = "\n".join(rows[:start]) + ("\n" if start > 0 else "")
-    if end is None:
-        out = before + section
-    else:
-        out = before + section + "\n" + "\n".join(rows[end:])
+    keep = [True] * len(rows)
+    for s0 in starts:
+        e = next((j for j in range(s0 + 1, len(rows)) if not in_fence[j] and HEADING.match(rows[j])), len(rows))
+        for j in range(s0, e): keep[j] = False
+    first = starts[0]
+    tail = [rows[j] for j in range(first, len(rows)) if keep[j]]
+    out_rows = rows[:first] + sec + [""] + tail
+    if not tail:                      # the section is last: end the file with exactly one newline
+        out_rows = rows[:first] + sec + [""]
+    out = "\n".join(out_rows)
 open(p, "w", encoding="utf-8").write(out)
 print(f"desk: mirrored {len(qs)} open question(s) into {os.path.basename(p)}")
 PY

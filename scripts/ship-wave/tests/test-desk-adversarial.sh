@@ -5,6 +5,7 @@
 # Run from the worktree root:  bash scripts/ship-wave/tests/test-desk-adversarial.sh
 # Temp $STATE, fixture Fleet.md, touches nothing live. PASS/FAIL per case, exit 1 on any FAIL.
 # Written 2026-09-10 against fb0bd5a0ae; the cases marked (BREAK) fail on that commit and describe the fix.
+# All 18 pass since the fix commit that followed (id shape · per-knob value shape · single-line title/class · fenced/quoted mirror).
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; SW="$HERE/.."; DESK="$SW/desk/v5-w12-desk.sh"
 export STATE; STATE="$(mktemp -d "${TMPDIR:-/tmp}/desk-adv.XXXXXX")"
