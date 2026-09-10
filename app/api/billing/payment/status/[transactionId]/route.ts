@@ -48,9 +48,12 @@ export async function GET(
     // Step 3: Verify user has access to this transaction
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('id, role')
+      .select('id, role, learner_id')
       .eq('id', user.id)
-      .single() as { data: { id: string; role: string } | null; error: unknown };
+      .single() as {
+        data: { id: string; role: string; learner_id: string | null } | null;
+        error: unknown;
+      };
 
     if (profileError || !profile) {
       logger.error('billing/payment-api', 'Failed to fetch user profile', profileError);
@@ -60,10 +63,26 @@ export async function GET(
       );
     }
 
-    // For students, they can only check their own transactions
-    if (profile.role === 'student' && profile.id !== transaction.student_id) {
+    // For students, they can only check their own transactions.
+    //
+    // Compare against `profiles.learner_id`, NOT `profiles.id`.
+    // `payment_transactions.student_id` holds a `learners_profiles.id`, and that
+    // id space is DISJOINT from `profiles.id` (see
+    // reference_learners_profiles_id_disjoint_from_profiles_id). Comparing
+    // `profile.id` therefore never matched and this branch 403'd EVERY learner
+    // polling their own payment — which is why /billing/payment/success could
+    // never confirm success and sat on its "Payment Initiated" fallback while
+    // the receipt and the bill update had already landed. `profiles.learner_id`
+    // is the canonical link (the same one /learners/my-bills gates on).
+    // /api/billing/payment/initiate already gates this way — same shape, so a
+    // learner who could START the payment can now also read its status.
+    if (
+      profile.role === 'student' &&
+      (!profile.learner_id || profile.learner_id !== transaction.student_id)
+    ) {
       logger.warn('billing/payment-api', 'Student attempting to check another student\'s transaction', {
         user_id: user.id,
+        profile_learner_id: profile.learner_id,
         transaction_student_id: transaction.student_id,
       });
       return NextResponse.json(

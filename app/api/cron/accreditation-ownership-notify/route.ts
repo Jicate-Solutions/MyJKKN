@@ -10,12 +10,24 @@
 // sends. It holds no rules of its own, deliberately: rules that live in a
 // route are rules nobody can test.
 //
-// THE TRAIL TABLE MAY NOT EXIST YET
-// public.accreditation_ownership_events is built by a sibling lane. Until that
-// migration is applied, PostgREST answers 42P01 / PGRST205. This route treats
-// that as "no events yet" and says so in its response, rather than throwing a
-// 500 every night into cron-failure-alerts. A route that fails loudly for a
-// reason nobody can act on trains people to ignore it.
+// WHERE THE EVENTS COME FROM
+// public.accreditation_ownership_events (20261122103000, applied 2026-09-09)
+// has two writers, and for its first day it had only one:
+//   · fn_accreditation_assign_metric_owner — a body owner delegating ONE metric
+//   · trg_accreditation_metric_owners_trail (20261125153000) — every other
+//     ownership change, written straight onto accreditation_metric_owners by
+//     IQAC: assign, bulk assign, clear, and a Decline from /accreditation/my-gaps
+// Without the second, this route was structurally dark: measured on production
+// 2026-09-09, all 14 rows in the trail carried the backfill note and this cron
+// had sent 0 notifications since being registered at 18 */6 * * *. If it ever
+// goes quiet again, check that trigger before suspecting this route.
+//
+// THE MISSING-TABLE PATH IS KEPT
+// PostgREST answers 42P01 / PGRST205 when a relation is absent. That should no
+// longer happen, but a preview database or a rolled-back migration would bring
+// it back, and this route says "no events yet" rather than throwing a 500 every
+// night into cron-failure-alerts. A route that fails loudly for a reason nobody
+// can act on trains people to ignore it.
 //
 // WHICH EVENTS: everything created since `?since=` (ISO) if given, otherwise
 // the last LOOKBACK_DAYS. There is no cursor table and no last_run_at column —
@@ -226,7 +238,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         events: 0,
         planned: 0,
         sent: 0,
-        note: 'public.accreditation_ownership_events does not exist yet. Its migration belongs to a sibling lane; this route is a no-op until it is applied, and reports that rather than failing.',
+        note: 'public.accreditation_ownership_events is not on this database. It is created by 20261122103000 and written by trg_accreditation_metric_owners_trail (20261125153000); until both are applied this route is a no-op, and reports that rather than failing.',
       });
     }
     if (probe.error) {

@@ -610,14 +610,48 @@ export function AllAllocationsTab() {
       {
         id: 'learner',
         header: ({ column }) => <DataTableColumnHeader column={column} title="Learner" />,
-        cell: ({ row }) => (
-          <div className="flex flex-col">
-            <span className="font-medium">{row.original.learnerName || '—'}</span>
-            {row.original.email && (
-              <span className="text-xs text-muted-foreground">{row.original.email}</span>
-            )}
-          </div>
-        ),
+        // The name opens the same detail surface the row's ⋮ menu does, which
+        // differs by row type: an allocated learner has an allocation row and
+        // therefore a page at /allocations/[id]; an unplaced one has neither, so
+        // the drawer keyed on their learners_profiles.id is their only detail
+        // view. Keeping the two in step means there is exactly one destination
+        // per row, reachable two ways.
+        cell: ({ row }) => {
+          const r = row.original;
+          const name = r.learnerName || '—';
+          const subtitle = r.email && (
+            <span className="text-xs text-muted-foreground">{r.email}</span>
+          );
+
+          if (r.placement === 'allocated') {
+            const a = r.raw as Alloc;
+            return (
+              <div className="flex flex-col">
+                <Link
+                  href={`/campus-living/allocations/${a.id}`}
+                  className="font-medium hover:underline"
+                >
+                  {name}
+                </Link>
+                {subtitle}
+              </div>
+            );
+          }
+
+          const c = r.raw as UnallocatedCandidate;
+          return (
+            <div className="flex flex-col items-start">
+              <button
+                type="button"
+                onClick={() => setDetailLearnerId(c.learner_id)}
+                className="text-left font-medium hover:underline"
+              >
+                {name}
+              </button>
+              {subtitle}
+            </div>
+          );
+        },
         size: 220,
       },
       {
