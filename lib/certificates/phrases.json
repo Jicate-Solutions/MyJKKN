@@ -1,0 +1,41 @@
+{
+  "_comment": "Printed certificate copy as approved by the Director (2026-09-10). This is the institution's official wording on letterhead, so it follows the college's printed forms verbatim. Edit here, not in wording.ts.",
+  "bonafide": {
+    "subjectNoun": "Degree Students of this College",
+    "conductLine": "Conduct and Character are Good.",
+    "purposeLine": "This certificate is issued only for the purpose of availing"
+  },
+  "courseCompletion": {
+    "subjectNoun": "was a bonafide student of",
+    "degreeTail": "degree of our college during the academic year",
+    "completionLine": "has completed the course in"
+  },
+  "programAbbreviations": {
+    "BACHELOR OF COMMERCE": "B.Com",
+    "MASTER OF COMMERCE": "M.Com",
+    "BACHELOR OF ARTS": "B.A",
+    "MASTER OF ARTS": "M.A",
+    "BACHELOR OF SCIENCE": "B.Sc",
+    "MASTER OF SCIENCE": "M.Sc",
+    "BACHELOR OF BUSINESS ADMINISTRATION": "BBA",
+    "MASTER OF BUSINESS ADMINISTRATION": "MBA",
+    "BACHELOR OF COMPUTER APPLICATIONS": "BCA",
+    "MASTER OF COMPUTER APPLICATIONS": "MCA",
+    "BACHELOR OF ENGINEERING": "B.E",
+    "MASTER OF ENGINEERING": "M.E",
+    "BACHELOR OF TECHNOLOGY": "B.Tech",
+    "MASTER OF TECHNOLOGY": "M.Tech",
+    "BACHELOR OF EDUCATION": "B.Ed",
+    "MASTER OF EDUCATION": "M.Ed",
+    "BACHELOR OF PHARMACY": "B.Pharm",
+    "MASTER OF PHARMACY": "M.Pharm",
+    "BACHELOR OF PHYSIOTHERAPY": "BPT",
+    "MASTER OF PHYSIOTHERAPY": "MPT",
+    "BACHELOR OF DENTAL SURGERY": "BDS",
+    "MASTER OF DENTAL SURGERY": "MDS",
+    "BACHELOR OF SOCIAL WORK": "BSW",
+    "MASTER OF SOCIAL WORK": "MSW",
+    "BACHELOR OF LIBRARY AND INFORMATION SCIENCE": "B.Lib.I.Sc",
+    "DOCTOR OF PHILOSOPHY": "Ph.D"
+  }
+}

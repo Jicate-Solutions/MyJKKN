@@ -6,8 +6,10 @@ import {
   formatIssueDate,
   monthYearLabel,
   normalizeGender,
+  programLabel,
   type CertificateData,
 } from '@/lib/certificates/wording';
+import phrases from '@/lib/certificates/phrases.json';
 import {
   batchSpanLabel,
   currentAcademicYearLabel,
@@ -36,8 +38,8 @@ describe('courseCompletionParagraph', () => {
     const p = courseCompletionParagraph(manijothi);
     expect(flat(p.runs)).toBe(
       'This is to certify that Selvi. C. Manijothi (C24JPGCHE006), D/o P. Chandrasekar ' +
-        'was a bonafide learner of M.Sc. Chemistry degree of our college during the academic year 2024-2026. ' +
-        'She has completed the course in April 2026.'
+        `${phrases.courseCompletion.subjectNoun} M.Sc. Chemistry ${phrases.courseCompletion.degreeTail} 2024-2026. ` +
+        `She ${phrases.courseCompletion.completionLine} April 2026.`
     );
     expect(p.runs.find((r) => r.bold)?.text).toBe('C. Manijothi (C24JPGCHE006)');
   });
@@ -60,7 +62,7 @@ describe('courseCompletionParagraph', () => {
 
   it('omits the parent clause and register number when the record lacks them', () => {
     const text = flat(courseCompletionParagraph({ ...manijothi, parentName: '', registerNumber: '' }).runs);
-    expect(text).toContain('Selvi. C. Manijothi was a bonafide learner');
+    expect(text).toContain(`Selvi. C. Manijothi ${phrases.courseCompletion.subjectNoun}`);
     expect(text).not.toContain('D/o');
   });
 });
@@ -79,14 +81,50 @@ describe('bonafideParagraphs', () => {
     );
     expect(flat(body.runs)).toBe(
       'This is to certify that Selvi. B. Dhivyadharshini, D/o Thiru K. Balasamy is a I - M.Sc. Chemistry ' +
-        'Degree learner of this College during the academic year 2025-2026. Her Conduct and Character are Good. ' +
-        'This certificate is issued only for the purpose of availing Scholarship.'
+        `${phrases.bonafide.subjectNoun} during the academic year 2025-2026. Her ${phrases.bonafide.conductLine} ` +
+        `${phrases.bonafide.purposeLine} Scholarship.`
     );
   });
 
   it('falls back to the purpose captured on the request form', () => {
     const [body] = bonafideParagraphs({ ...manijothi, requestPurpose: 'Bank loan' });
     expect(flat(body.runs)).toContain('availing Bank loan.');
+  });
+});
+
+describe('programLabel', () => {
+  it('appends the abbreviation to a spelled-out degree, Director format (no space before the bracket)', () => {
+    expect(programLabel('BACHELOR OF COMMERCE')).toBe('BACHELOR OF COMMERCE(B.Com)');
+    expect(programLabel('Master of Commerce')).toBe('Master of Commerce(M.Com)');
+    expect(programLabel('BACHELOR OF COMPUTER APPLICATIONS')).toBe('BACHELOR OF COMPUTER APPLICATIONS(BCA)');
+  });
+
+  it('leaves programmes that already carry an abbreviation untouched', () => {
+    expect(programLabel('B.Sc. CHEMISTRY')).toBe('B.Sc. CHEMISTRY');
+    expect(programLabel('B.E. Electronics and Communication Engineering')).toBe(
+      'B.E. Electronics and Communication Engineering'
+    );
+    expect(programLabel('')).toBe('');
+  });
+
+  it('prints the Director-approved bonafide line for a B.Com learner', () => {
+    const [body] = bonafideParagraphs(
+      {
+        ...manijothi,
+        learnerName: 'D. SIVARANJANI',
+        registerNumber: '25JUGCOM044',
+        parentName: 'DHANASEKAR',
+        programName: 'BACHELOR OF COMMERCE',
+        yearOfStudy: 'II',
+        currentAcademicYear: '2026-2027',
+      },
+      { purpose: 'SCHOLARSHIP' }
+    );
+    expect(flat(body.runs)).toBe(
+      'This is to certify that Selvi. D. SIVARANJANI (25JUGCOM044), D/o Thiru DHANASEKAR is a ' +
+        `II - BACHELOR OF COMMERCE(B.Com) ${phrases.bonafide.subjectNoun} during the academic year 2026-2027. ` +
+        `Her ${phrases.bonafide.conductLine} ${phrases.bonafide.purposeLine} SCHOLARSHIP.`
+    );
   });
 });
 
