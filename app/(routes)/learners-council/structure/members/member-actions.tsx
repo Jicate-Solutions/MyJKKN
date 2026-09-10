@@ -35,10 +35,11 @@ import {
   TableHeader,
   TableRow
 } from '@/components/ui/table';
-import { UserPlus, Filter, History, X } from 'lucide-react';
+import { UserPlus, Filter, History, X, Pencil } from 'lucide-react';
 import {
   useAssignMember,
   useUpdateMemberStatus,
+  useChangeMemberPosition,
   usePositionHistory,
   useLCMembers
 } from '@/hooks/learners-council/use-lc-structure';
@@ -288,6 +289,156 @@ export function AssignMemberDialog({ positions, terms, institutions }: AssignMem
             disabled={!termId || !positionId || !userId || !institutionId || assignMember.isPending}
           >
             {assignMember.isPending ? 'Assigning...' : 'Assign Member'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ============================================================================
+// CHANGE POSITION DIALOG
+// ============================================================================
+
+/**
+ * Move a sitting member to a different seat.
+ *
+ * Reads as an edit, and is recorded as what it actually is: the old
+ * appointment ends and a new one begins. lc_members is the council's history —
+ * the Positions tab plays it back — so the seat this member genuinely held is
+ * never overwritten.
+ */
+export function ChangePositionDialog({
+  memberId,
+  memberName,
+  currentPositionId,
+  currentPositionTitle,
+  termId,
+  positions
+}: {
+  memberId: string;
+  memberName: string;
+  currentPositionId: string;
+  currentPositionTitle: string;
+  termId: string;
+  positions: LCPosition[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [positionId, setPositionId] = useState('');
+  const [notes, setNotes] = useState('');
+
+  const changePosition = useChangeMemberPosition();
+
+  // Which seats in this term are already taken, so a filled one is shown as
+  // filled instead of being offered and then refused. Same approach as the
+  // assign dialog, including treating an ERROR as ready-but-unknown: a failed
+  // lookup must not leave every seat greyed out with no way to proceed.
+  const { data: termMembers, isError: occupancyFailed } = useLCMembers(
+    { term_id: termId, status: 'active' },
+    { enabled: open && !!termId, staleTime: 0 }
+  );
+
+  const occupancyReady = !termId || termMembers !== undefined || occupancyFailed;
+
+  const holdersByPosition = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const m of termMembers ?? []) {
+      const pid = (m as { position_id?: string }).position_id;
+      if (!pid) continue;
+      const name = ((m as { user?: { full_name?: string | null } | null }).user?.full_name || '').trim();
+      map.set(pid, [...(map.get(pid) ?? []), name || 'a sitting member']);
+    }
+    return map;
+  }, [termMembers]);
+
+  const seatIsFull = (position: LCPosition) =>
+    (holdersByPosition.get(position.id)?.length ?? 0) >= Math.max(1, position.max_holders ?? 1);
+
+  const handleSubmit = async () => {
+    if (!positionId) return;
+    try {
+      await changePosition.mutateAsync({ memberId, positionId, notes: notes.trim() || undefined });
+      setOpen(false);
+      setPositionId('');
+      setNotes('');
+    } catch {
+      // The hook already surfaced the reason as a toast. Keep the dialog open
+      // so the choice is still there to correct — closing it would make the
+      // person rebuild the whole thing to retry.
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="sm" className="h-7 px-2" title="Change position">
+          <Pencil className="h-3.5 w-3.5" />
+          <span className="sr-only">Change position for {memberName}</span>
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Change Position</DialogTitle>
+          <DialogDescription>
+            Move {memberName} to a different seat. Their current appointment is
+            ended and a new one begins, so the council&apos;s history stays intact.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-2">
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Currently holding</Label>
+            <p className="text-sm font-medium">{currentPositionTitle}</p>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Move to</Label>
+            <Select value={positionId} onValueChange={setPositionId} disabled={!occupancyReady}>
+              <SelectTrigger>
+                <SelectValue
+                  placeholder={occupancyReady ? 'Select new position...' : 'Checking which seats are free...'}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {positions
+                  .filter((p) => p.id !== currentPositionId && p.is_active !== false)
+                  .map((p) => {
+                    const full = seatIsFull(p);
+                    const holder = holdersByPosition.get(p.id)?.[0];
+                    return (
+                      <SelectItem key={p.id} value={p.id} disabled={full}>
+                        {p.title}
+                        {full && holder ? ` — held by ${holder}` : ''}
+                      </SelectItem>
+                    );
+                  })}
+              </SelectContent>
+            </Select>
+            {occupancyFailed && (
+              <p className="text-xs text-muted-foreground">
+                Could not check which seats are free, so every seat is offered.
+                A filled one will be refused when you save.
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label>Notes (optional)</Label>
+            <Textarea
+              placeholder="Why is this changing? Election result, resignation, reshuffle..."
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={2}
+            />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button onClick={handleSubmit} disabled={!positionId || changePosition.isPending}>
+            {changePosition.isPending ? 'Moving...' : 'Change Position'}
           </Button>
         </DialogFooter>
       </DialogContent>
