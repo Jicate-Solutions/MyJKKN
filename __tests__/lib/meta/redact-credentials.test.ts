@@ -18,7 +18,10 @@ describe('redactCredentials', () => {
       'Meta Graph request failed: Headers.append: "Bearer EAAGNeb4CWZCUBRgixZCZAioTE3vC1OAzhpG0VE8IF8DEBFFGa3bFw9pZA0biHtWayFOo" is an invalid header value.';
     const out = redactCredentials(real);
     expect(out).not.toContain('EAAGNeb4CWZCUBRgixZCZAioTE3vC1OAzhpG0VE8');
-    expect(out).toContain('[REDACTED]');
+    // Marker prefix, not the exact string: the Headers rule now substitutes the
+    // whole quoted value as [REDACTED_HEADER_VALUE]. The security property this
+    // test guards — the token is gone — is unchanged and asserted above.
+    expect(out).toContain('[REDACTED');
   });
 
   it('redacts a bare Meta token with no Bearer prefix', () => {
@@ -33,6 +36,34 @@ describe('redactCredentials', () => {
     );
     expect(out).not.toContain('EAAGsecretvalue123456');
     expect(out).toContain('fields=id');
+  });
+
+
+  // ── the real production shape, added 2026-09-09 ──
+  // The first version of redactCredentials shipped on 2026-09-08 and did NOT
+  // close the leak: all 29 rows written after it still carried raw token
+  // characters. The stored Meta token contains a LINE BREAK, so a pattern
+  // anchored on Bearer stopped at the break and left the tail in the clear.
+  it('redacts a Bearer token that a line break splits in two', () => {
+    const real =
+      'Meta Graph request failed: Headers.append: "Bearer EAAGNeb4CWZCUBRgixZCZAioTE3vC1OA\nzhpG0VE8IF8DEBFFGa3bFw9pZA0biHtWayFOoZD" is an invalid header value.';
+    const out = redactCredentials(real);
+    expect(out).not.toContain('EAAGNeb4CWZCUBRgixZCZAioTE3vC1OA');
+    expect(out).not.toContain('zhpG0VE8IF8DEBFFGa3bFw9pZA0biHtWayFOoZD');
+    expect(out).toContain('[REDACTED');
+  });
+
+  it('leaves nothing token-shaped anywhere in the split case', () => {
+    const real =
+      'Headers.append: "Bearer EAAGabcdefghijklmnop\nqrstuvwxyz0123456789ABCD" is an invalid header value.';
+    const out = redactCredentials(real);
+    // No run of 16+ token characters may survive anywhere in the output.
+    expect(/[A-Za-z0-9]{16,}/.test(out.replace(/REDACTED_HEADER_VALUE|REDACTED_META_TOKEN|REDACTED/g, ''))).toBe(false);
+  });
+
+  it('still redacts a carriage-return split', () => {
+    const out = redactCredentials('Headers.append: "Bearer EAAGabcdefghij\r\nklmnopqrstuvwxyz0123" is invalid');
+    expect(out).not.toContain('klmnopqrstuvwxyz0123');
   });
 
   it('leaves an ordinary diagnostic message untouched', () => {

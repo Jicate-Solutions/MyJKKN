@@ -71,6 +71,10 @@ interface IgAccountRow {
   id: string;
   username: string;
   metrics_source: string | null;
+  /** Written by the pollers on every SUCCESSFUL tick only — the failure paths
+   *  never touch the ig_accounts row. So this is the one field that separates a
+   *  handle Meta is still answering for from one it stopped answering for. */
+  last_polled_at: string | null;
 }
 
 /** An account is truly "unlocked" (receiving full insights) only when Meta
@@ -125,6 +129,48 @@ function connChip(value: boolean | null) {
   if (value === true) return <Badge variant="default">Connected</Badge>;
   if (value === false) return <Badge variant="outline">Not connected</Badge>;
   return <span className="text-muted-foreground">—</span>;
+}
+
+/**
+ * Days since a handle was last successfully polled, or null when we cannot say
+ * (no timestamp, or the ig_accounts row is not in our visible set). Null must
+ * render as the plain badge — absence of evidence is not evidence of staleness.
+ */
+function daysSincePoll(lastPolledAt: string | null | undefined): number | null {
+  if (!lastPolledAt) return null;
+  const t = Date.parse(lastPolledAt);
+  if (Number.isNaN(t)) return null;
+  return Math.floor((Date.now() - t) / 86_400_000);
+}
+
+/** Every poller on this data runs hourly, so a healthy handle is refreshed ~24x
+ *  a day. Three days absorbs a deploy freeze or a multi-hour Meta outage and
+ *  still catches a real outage long before it becomes a quarter. */
+const STALE_AFTER_DAYS = 3;
+
+/**
+ * "Monitored" used to be rendered from ig_account_id alone — purely "is this
+ * handle linked into the pipeline", with no freshness input at all. That made a
+ * dead handle visually identical to a working one: on 2026-09-09 @jkkn_otat
+ * (last polled 2026-06-10, 90 days, 2,101 consecutive Meta rejections, 2 metric
+ * snapshots ever) carried exactly the same "Monitored · Public only" pair as
+ * @jkkn_pharmacology (polled that morning, 2,175 snapshots). The account row
+ * kept its last-good state because the poller's failure path never writes to
+ * ig_accounts, so the page had nothing to go on but the link.
+ */
+function monitoringChip(days: number | null) {
+  if (days === null || days < STALE_AFTER_DAYS) {
+    return <Badge variant="default">Monitored</Badge>;
+  }
+  return (
+    <Badge
+      variant="outline"
+      className="w-fit border-amber-500/60 text-amber-700 dark:text-amber-500"
+      title={`Linked, but Meta has not answered for this handle in ${days} days — its followers and post numbers are frozen at that date.`}
+    >
+      Monitored · stale {days}d
+    </Badge>
+  );
 }
 
 /**
@@ -377,7 +423,7 @@ export default function SocialDepartmentAccountsPage() {
       try {
         const { data, error: err } = await supabase
           .from('ig_accounts')
-          .select('id, username, metrics_source');
+          .select('id, username, metrics_source, last_polled_at');
         if (err) setIgError(err.message);
         else setIgAccounts((data as unknown as IgAccountRow[]) ?? []);
       } catch (e: unknown) {
@@ -461,6 +507,15 @@ export default function SocialDepartmentAccountsPage() {
     }
     return map;
   }, [rows, igAccounts]);
+
+  /** ig_accounts.id -> last successful poll. Read through acctIdByDept, which
+   *  only resolves accounts we can actually see, so a row hidden by partial RLS
+   *  stays "unknown freshness" and keeps the plain badge. */
+  const lastPolledByAcct = useMemo(() => {
+    const map = new Map<string, string | null>();
+    for (const a of igAccounts) map.set(a.id, a.last_polled_at);
+    return map;
+  }, [igAccounts]);
 
   const igAvailable = igLoaded && !igError && igAccounts.length > 0;
 
@@ -701,7 +756,11 @@ export default function SocialDepartmentAccountsPage() {
                       </TableCell>
                       <TableCell>
                         {r.ig_account_id ? (
-                          <Badge variant="default">Monitored</Badge>
+                          monitoringChip(
+                            daysSincePoll(
+                              lastPolledByAcct.get(acctIdByDept.get(r.id) ?? '')
+                            )
+                          )
                         ) : (
                           <Badge variant="secondary">Not in pipeline</Badge>
                         )}

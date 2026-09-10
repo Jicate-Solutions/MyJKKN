@@ -26,6 +26,10 @@ import {
   useActivityTimeline,
   useAuditStats
 } from '@/hooks/audit-trail/use-audit-trail';
+import {
+  AUDIT_LOG_DEFAULT_LIMIT,
+  AUDIT_LOG_DEFAULT_WINDOW_DAYS
+} from '@/lib/services/audit-trail/audit-service';
 import { useAuth } from '@/hooks/use-auth';
 import { AuditAction, AuditModule, AuditSeverity } from '@/types/audit-trail';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -82,6 +86,11 @@ function AuditTrailPageInner() {
           </h1>
           <p className='text-muted-foreground'>
             Track all system activities and changes
+          </p>
+          <p className='text-xs text-muted-foreground mt-1'>
+            Platform activity from the last {AUDIT_LOG_DEFAULT_WINDOW_DAYS} days
+            &middot; the timeline lists the {AUDIT_LOG_DEFAULT_LIMIT} most recent
+            entries
           </p>
         </div>
         <Button variant='outline' onClick={handleExport} className='shrink-0 self-start sm:self-auto'>
