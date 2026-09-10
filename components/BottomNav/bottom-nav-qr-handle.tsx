@@ -42,11 +42,11 @@ const SWIPE_OPEN_THRESHOLD = 24;
  * The lifted top edge, in the 120×26 viewBox.
  *
  * y=25.5 is the strip's border line (the flat runs sit exactly on it), the
- * rise tops out at y=8, and the two cubics are the concave shoulders that make
+ * rise tops out at y=6, and the two cubics are the concave shoulders that make
  * the lift continuous with the flat edge on either side. Control points are
  * mirrored about x=60 so the curve is symmetrical.
  */
-const EDGE_PATH = 'M0,25.5 H18 C30,25.5 30,8 60,8 C90,8 90,25.5 102,25.5 H120';
+const EDGE_PATH = 'M0,25.5 H16 C30,25.5 30,6 60,6 C90,6 90,25.5 102,25.5 H120';
 
 export function BottomNavQrHandle({
   userId,
@@ -187,11 +187,11 @@ export function BottomNavQrHandle({
             />
           </svg>
           {/* Sized and parked to CLEAR the arc, not to fill it. The interior
-              is only 17.5px tall (apex y=8 → baseline y=25.5), so a 15px glyph
-              at bottom-5px crossed the curve; 13px at bottom-3px centres it
-              with ~2px of air above and below. */}
+              is 19.5px tall (apex y=6 → baseline y=25.5): a 12.5px glyph at
+              bottom-4px leaves an even 3.5px of air above and below.
+              Top air = 26 − bottom − glyph − apex; bottom air = bottom − 0.5. */}
           <QrCode
-            className="absolute bottom-[3px] left-1/2 h-[13px] w-[13px] -translate-x-1/2 text-muted-foreground"
+            className="absolute bottom-[4px] left-1/2 h-[12.5px] w-[12.5px] -translate-x-1/2 text-muted-foreground"
             strokeWidth={2}
           />
         </button>
