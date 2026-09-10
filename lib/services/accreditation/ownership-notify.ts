@@ -44,10 +44,16 @@
  * One row of public.accreditation_ownership_events — the trail written when
  * ownership moves.
  *
- * DEFENSIVE NOTE: this table is built by a sibling lane and may not exist in
- * production at the time this file merges. Nothing here assumes it does; the
- * cron route treats a missing relation as "no events" and says so out loud
- * rather than failing shut.
+ * Two things write it: fn_accreditation_assign_metric_owner, when a body owner
+ * delegates one metric, and trg_accreditation_metric_owners_trail
+ * (20261125153000), for every ownership change made directly on
+ * accreditation_metric_owners — which is every IQAC assign, bulk assign, clear
+ * and decline. Before that trigger existed this file was fed nothing but a
+ * one-off backfill, so nothing here should assume an event is rare.
+ *
+ * DEFENSIVE NOTE: the table may still be absent on a preview database. Nothing
+ * here assumes it exists; the cron route treats a missing relation as "no
+ * events" and says so out loud rather than failing shut.
  */
 export interface OwnershipEvent {
   id: string;
