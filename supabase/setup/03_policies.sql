@@ -10875,3 +10875,35 @@ CREATE POLICY hlas_write ON public.hr_leave_approver_scopes
     public.is_super_admin()
     OR public.user_has_permission('hr.leave.types.manage')
   );
+
+
+-- ===== 20261128000000_hostel_category_room_sources =====
+
+-- Read is open to every signed-in user: this is configuration that each
+-- resident's own room picker has to resolve, exactly like hostel_categories
+-- (whose SELECT policy is likewise `true`). Writes are gated on a PERMISSION
+-- KEY, never on a hardcoded role name — hostel_categories' own write policies
+-- still test profiles.role and should be migrated the same way one day.
+DROP POLICY IF EXISTS hcrs_select ON public.hostel_category_room_sources;
+CREATE POLICY hcrs_select ON public.hostel_category_room_sources
+  FOR SELECT TO authenticated USING (true);
+
+DROP POLICY IF EXISTS hcrs_insert ON public.hostel_category_room_sources;
+CREATE POLICY hcrs_insert ON public.hostel_category_room_sources
+  FOR INSERT TO authenticated
+  WITH CHECK (public.user_has_permission('campus_living.settings.edit'));
+
+DROP POLICY IF EXISTS hcrs_update ON public.hostel_category_room_sources;
+CREATE POLICY hcrs_update ON public.hostel_category_room_sources
+  FOR UPDATE TO authenticated
+  USING (public.user_has_permission('campus_living.settings.edit'))
+  WITH CHECK (public.user_has_permission('campus_living.settings.edit'));
+
+DROP POLICY IF EXISTS hcrs_delete ON public.hostel_category_room_sources;
+CREATE POLICY hcrs_delete ON public.hostel_category_room_sources
+  FOR DELETE TO authenticated
+  USING (public.user_has_permission('campus_living.settings.edit'));
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hostel_category_room_sources TO authenticated;
+GRANT ALL ON public.hostel_category_room_sources TO service_role;
+
