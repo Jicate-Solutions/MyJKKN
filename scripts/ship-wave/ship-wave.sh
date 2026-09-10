@@ -39,6 +39,7 @@
 #         --no-deploy        merge but do not fire the hook       --no-sweep   skip the post-deploy sweep
 #         --only N,M         restrict the whole run to these PR numbers
 #         --unfreeze         clear a FREEZE after the Director has looked
+#         --freeze "<msg>"   raise a FREEZE by hand — classified soft/hard like any other (a peer hold is soft); a hand-written FROZEN line reads as hard
 # RECEIPT ~/.config/obsidian/v5-myjkkn-ship-last.txt   REPORT  <repo>/artifacts/ship-wave-<ts>.html
 # REQUIRES gh (authenticated), python3, curl; tmux -L obsidian for dispatch; Vercel CLI login for deploy verdicts.
 # FRONT DOOR for Claude tabs: /myjkkn-chain (W12 rows: run · approve HELD · unfreeze · conflict lane). Helper tabs are told to
@@ -79,6 +80,7 @@ while [[ $# -gt 0 ]]; do
     --ratify) POLICY_RATIFY="${2:-}"; shift;;
     --unguard) UNGUARD="${2:-}"; shift;;
     --unfreeze) _fc=$(tail -1 "$FREEZE" 2>/dev/null | awk -F'\t' '{print $3}'); rm -f "$FREEZE"; echo "freeze cleared${_fc:+ (was $_fc)}"; exit 0;;   # one file = both the latch and its class
+    --freeze) FREEZE_MSG="${2:-}"; shift;;   # raise a stop by hand with a CORRECT class line, e.g. --freeze "peer hold on #3410 — …" (§B soft row)
     --if-changed) IF_CHANGED=1;;   # standing run: skip when no PR / approval / freeze changed since the last run (≤12h)
     *) echo "unknown arg: $1"; exit 2;;
   esac; shift
@@ -116,12 +118,16 @@ unlock() { rm -f "$LOCK/pid"; rmdir "$LOCK" 2>/dev/null; }
 # HARD (fail safe) and the receipt says it was unclassified, so the table gets the line added rather than guessed.
 classify_freeze() {  # $1 = freeze message → prints soft|hard; returns 1 when the message matched no row (→ hard)
   case "$1" in
-    *deploy*ERROR*|*"deploy failed"*|*"APPLY failed"*|*"DRY-RUN failed"*|*"destructive statement"*|*"GATE ERROR"*|*"migration gap"*|*"cannot read"*|*"history query failed"*)
+    *deploy*ERROR*|*deploy*CANCELED*|*"deploy failed"*|*"APPLY failed"*|*"DRY-RUN failed"*|*"destructive statement"*|*"GATE ERROR"*|*"migration gap"*|*"cannot read"*|*"history query failed"*)
+      printf 'hard'; return 0;;
+    # apply-migrations.sh: the SQL ran but the history row or the verify read did not — main and the schema disagree
+    *"history insert failed"*|*"verify read did not find"*)
       printf 'hard'; return 0;;
     # a page or route that broke AFTER the deploy is production broken — the spec's own definition of hard
     *"broken page"*|*"post-deploy sweep failed"*|*"baseline bounce"*)
       printf 'hard'; return 0;;
-    *hold*|*"files on jicate/main match"*|*UNRESOLVABLE*|*policy*|*advisory*)
+    # soft rows are ANCHORED phrases, not bare substrings: `*hold*` used to turn "threshold"/"uphold" soft (verifier 2026-09-10)
+    *"peer hold"*|*"Director hold"*|*"director hold"*|*"on hold"*|*"files on jicate/main match"*|*UNRESOLVABLE*|*policy*|*advisory*)
       printf 'soft'; return 0;;
     *) printf 'hard'; return 1;;
   esac
@@ -130,10 +136,29 @@ freeze_class_now() {  # → the class of the freeze in force: field 3 of the LAS
   local c; c=$(tail -1 "$FREEZE" 2>/dev/null | awk -F'\t' '{print $3}')
   case "$c" in soft|hard) printf '%s' "$c";; *) printf 'hard';; esac
 }
+# ── the ONE deploy gate (integrator 2026-09-10) ───────────────────────────────────────────────────────
+# Every path that can POST the production deploy hook — this round's merges, the §C main-ahead trigger, the plain-go
+# flush of a leftover batch, the goal run's FINAL_DEPLOY pass, the ERROR re-fire — asks THIS predicate immediately
+# before the irreversible step. It re-reads the FROZEN file (a freeze raised earlier in the same round counts), so a
+# future branch cannot forget the hard check by copying an older condition. Under hard nothing ships and the caller
+# prints DEPLOY_BLOCK so the receipt says why.
+DEPLOY_BLOCK=""
+deploy_allowed() {  # → 0 = may fire · 1 = must not, DEPLOY_BLOCK holds the one-line reason
+  DEPLOY_BLOCK=""
+  [ "${MODE:-plan}" = go ] || { DEPLOY_BLOCK="plan mode — the deploy stage never acts outside go"; return 1; }
+  [ -z "${NO_DEPLOY:-}" ] || { DEPLOY_BLOCK="--no-deploy"; return 1; }
+  if [ -f "$FREEZE" ] && [ "$(freeze_class_now)" = hard ]; then
+    DEPLOY_BLOCK="hard freeze — nothing ships until the stop is lifted (--unfreeze): $(tail -1 "$FREEZE" | cut -f2 | cut -c1-120)"; return 1
+  fi
+  return 0
+}
 freeze() {
-  local msg="$*" cls known=1
+  local msg="$*" cls known=1 lcls=""
   cls=$(classify_freeze "$msg") || known=""
-  printf '%s\t%s\t%s\n' "$(date '+%F %T')" "$msg" "$cls" >> "$FREEZE"
+  # field 4 = ledger_class of the message: the SAME slug the failure ledger, the desk's question and slice D's
+  # policy proposals key on, so "which cause froze us" is one key everywhere (spec §B: "derives it with ledger_class")
+  type -t ledger_class >/dev/null 2>&1 && lcls=$(ledger_class "$msg")
+  printf '%s\t%s\t%s\t%s\n' "$(date '+%F %T')" "$msg" "$cls" "${lcls:-$cls}" >> "$FREEZE"
   if [ "$cls" = soft ]; then
     say "  ⛔ FROZEN (soft): $msg — merging LOW/NORMAL, holding HELD, until: ship-wave.sh --unfreeze"
   else
@@ -156,7 +181,8 @@ freeze() {
     if [ "$cls" = soft ]; then q_title="The ship wave paused on one item; safe merges and deploys continue"
     else q_title="The ship wave stopped: production or main may be broken"; fi
     q_body="What happened: ${msg:0:220}. While stopped, $( [ "$cls" = soft ] && printf 'LOW and NORMAL PRs still merge and ship but HELD PRs wait' || printf 'nothing merges and nothing ships' ). Keep it stopped and nothing changes; lift it and the next run resumes fully."
-    ask_director freeze "$cls" "$q_title" "$q_body" "[$q_opts]"
+    # A1: the question's class is the ledger_class of the trigger (soft/hard rides in the title); same slug as field 4
+    ask_director freeze "${lcls:-$cls}" "$q_title" "$q_body" "[$q_opts]"
   fi
   # tighten alone: what shipped in this round becomes HELD until a human clears it (policy-learning.sh)
   type -t guard_add_from_freeze >/dev/null 2>&1 && guard_add_from_freeze "$msg" "${run:-}"
@@ -206,17 +232,27 @@ PYQ
 # $STATE/last-deployed holds that sha — Vercel's meta.githubCommitSha of the READY deployment when the API
 # exposes it, else jicate/main at fire time. Written only after a deployment the wave saw go READY.
 main_sha_now() { git -C "$WT" fetch jicate main -q 2>/dev/null; git -C "$WT" rev-parse jicate/main 2>/dev/null; }
+sha_on_main() {  # is this sha in jicate/main's history? fetch first (once) when it is not — "unknown" must mean unknown AFTER a fetch
+  [ -n "${1:-}" ] || return 1
+  git -C "$WT" cat-file -e "$1^{commit}" 2>/dev/null && return 0
+  git -C "$WT" fetch jicate main -q 2>/dev/null; git -C "$WT" cat-file -e "$1^{commit}" 2>/dev/null
+}
 record_last_deployed() {  # $1 = deployment JSON ("" allowed) · $2 = fallback sha (jicate/main at fire time)
+  # The marker only ever holds a sha the worktree can diff against. A sha it does not know (Vercel built a ref that
+  # is not on main, or the API returned junk) is NOT written: the next round would read it as "cannot tell" anyway,
+  # and overwriting a good marker with junk loses the fallback (verifier's F3, 2026-09-10).
   local sha; sha=$(python3 -c 'import json,sys;print(((json.load(sys.stdin)["deployments"][0].get("meta") or {}).get("githubCommitSha") or ""))' <<<"$1" 2>/dev/null)
-  [ -n "$sha" ] || sha="$2"
-  [ -n "$sha" ] && { printf '%s\n' "$sha" > "$STATE/last-deployed"; say "  last-deployed ← ${sha:0:10}"; }
+  sha_on_main "$sha" || sha="$2"
+  sha_on_main "$sha" || { [ -n "$sha" ] && say "  last-deployed NOT written — ${sha:0:10} is not on jicate/main as fetched"; return 0; }
+  [ "$(cat "$STATE/last-deployed" 2>/dev/null)" = "$sha" ] || { printf '%s\n' "$sha" > "$STATE/last-deployed"; say "  last-deployed ← ${sha:0:10}"; }
   return 0
 }
 hand_merged_since() {  # $1 = freeze timestamp → "#n #m " — PRs whose merge commit landed on main since then that the wave did NOT merge
   # the wave records its own merges in each run's merged-map.tsv; anything else on main since the freeze is by hand
   local mine n; mine=$(cat "$STATE"/run-*/merged-map.tsv 2>/dev/null | cut -f1 | sort -u)
   git -C "$WT" fetch jicate main -q 2>/dev/null   # the ref is only as fresh as the last stage that fetched it
-  git -C "$WT" log jicate/main --since="$1" --format='%s' 2>/dev/null | grep -oE '\(#[0-9]+\)$' | tr -d '()#' | sort -un | while read -r n; do
+  # two subject shapes: the squash button's "title (#n)" and the merge button's "Merge pull request #n from …"
+  git -C "$WT" log jicate/main --since="$1" --format='%s' 2>/dev/null | grep -oiE '\(#[0-9]+\)$|merge pull request #[0-9]+' | grep -oE '[0-9]+' | sort -un | while read -r n; do
     [ -n "$n" ] || continue; grep -qx "$n" <<<"$mine" || printf '#%s ' "$n"
   done
 }
@@ -233,6 +269,7 @@ if [ -n "${LEDGER_REPORT:-}" ]; then ledger_report; exit 0; fi
 # Director's phone. Guarded: without the file the wave runs exactly as before, it just cannot ask.
 [ -f "$SW_DIR/desk-questions.sh" ] && . "$SW_DIR/desk-questions.sh"
 if [ -n "${POLICY_SHOW:-}" ]; then policy_show; exit 0; fi
+if [ -n "${FREEZE_MSG:-}" ]; then run=""; freeze "$FREEZE_MSG"; exit 0; fi   # writes the latch + asks the Director; merges/ships nothing
 if [ -n "${POLICY_RATIFY:-}" ]; then policy_ratify "$POLICY_RATIFY"; exit $?; fi
 if [ -n "${UNGUARD:-}" ]; then guard_remove "$UNGUARD"; exit 0; fi
 
@@ -532,13 +569,25 @@ run_once() {
     say "  merged by hand while stopped: ${hand_merged:-none}"
   fi
   local tok; tok=$(vtok); [ -n "$tok" ] || say "  warn: no Vercel CLI token — deploy verification will be blind"
+  # §C source of truth for "what is production running": Vercel's latest READY production deployment
+  # (meta.githubCommitSha) is PRIMARY; $STATE/last-deployed is the FALLBACK for when Vercel is unreachable, and is
+  # rewritten from the Vercel sha whenever one is available (integrator 2026-09-10; verifier's H1: with the marker
+  # primary, a hand-fired deploy that already put main HEAD live earned a second, empty build).
+  local prod_sha="" prod_src=""
   if [ -n "$tok" ]; then
-    local last; last=$(curl -s -H "Authorization: Bearer $tok" "https://api.vercel.com/v6/deployments?projectId=$VPROJ&teamId=$VTEAM&limit=1&target=production" \
-      | python3 -c 'import json,sys;d=json.load(sys.stdin)["deployments"][0];print(d.get("readyState") or d.get("state"),d.get("errorCode") or "-",d["uid"])' 2>/dev/null)
+    local dj last; dj=$(curl -s -H "Authorization: Bearer $tok" "https://api.vercel.com/v6/deployments?projectId=$VPROJ&teamId=$VTEAM&limit=1&target=production")
+    last=$(python3 -c 'import json,sys;d=json.load(sys.stdin)["deployments"][0];print(d.get("readyState") or d.get("state"),d.get("errorCode") or "-",d["uid"])' <<<"$dj" 2>/dev/null)
     say "  last prod deployment: $last"
     case "$last" in ERROR*) say "PREFLIGHT HARD STOP: the deploy pipeline is broken ($last) — nothing merged now can go live. Fix the deploy first."; return 1;; esac
-    # §C: no last-deployed marker yet (first run after this change) → seed it from the READY record's commit sha
-    case "$last" in READY*) [ -s "$STATE/last-deployed" ] || record_last_deployed "$(curl -s -H "Authorization: Bearer $tok" "https://api.vercel.com/v6/deployments?projectId=$VPROJ&teamId=$VTEAM&limit=1&target=production")" "";; esac
+    # the latest record may be a build in flight — ask for the latest READY one separately
+    case "$last" in READY*) ;; *) dj=$(curl -s -H "Authorization: Bearer $tok" "https://api.vercel.com/v6/deployments?projectId=$VPROJ&teamId=$VTEAM&limit=1&target=production&state=READY");; esac
+    prod_sha=$(python3 -c 'import json,sys;d=json.load(sys.stdin)["deployments"][0];print(((d.get("meta") or {}).get("githubCommitSha") or "") if (d.get("readyState") or d.get("state"))=="READY" else "")' <<<"$dj" 2>/dev/null)
+    [ -n "$prod_sha" ] && prod_src="Vercel"
+  fi
+  if [ -n "$prod_sha" ]; then
+    record_last_deployed "" "$prod_sha"   # writes the marker only when the sha is on jicate/main; an unknown sha leaves it alone
+  else
+    prod_sha=$(cat "$STATE/last-deployed" 2>/dev/null); [ -n "$prod_sha" ] && prod_src="marker; Vercel gave no READY commit sha"
   fi
 
   # ── 1. sweep + classify ────────────────────────────────────────────────────
@@ -647,19 +696,34 @@ PY
   # §C: the third deploy trigger — main HEAD != last-deployed. Files changed since the last deploy join merged_files,
   # so the apply (their migrations), the ignoreCommand check and the sweep all see what is actually about to go live.
   # `ship` is what the deploy/apply/sweep gates count from now on: this round's merges, plus 1 when main is ahead.
-  local ship=$merged ship_ahead="" main_sha="" last_dep=""; last_dep=$(cat "$STATE/last-deployed" 2>/dev/null)
-  if [ "$MODE" = "go" ] && [ -z "${FINAL_DEPLOY:-}" ]; then
+  # `prod_sha` came from preflight: Vercel's READY commit (primary) or the marker (fallback). Three honest outcomes:
+  #   • production == main HEAD → NOTHING to build, whatever this round merged or left in deploy-pending (no empty builds)
+  #   • production is on main but behind → main is ahead: ship it (soft/none) or say so in one line (hard)
+  #   • production sha unknown to the worktree, even after a fetch → "cannot tell what is deployed": no build is fired on a
+  #     guess and the marker is left alone. There is no knob for "build main now" (the desk's ops are approve-held /
+  #     allow-destructive / advisory-checks / unfreeze / ratify / noop), so the receipt line is the whole answer — the
+  #     Director fires by hand with /deploy-myjkkn when main should go live; this round's own merges still deploy.
+  local ship=$merged ship_ahead="" prod_is_main="" prod_unknown="" main_sha=""
+  if [ "$MODE" = "go" ]; then
     main_sha=$(main_sha_now)
-    if [ -z "$last_dep" ]; then say "  main vs production: last-deployed unknown (no marker yet, Vercel record had no commit sha) — only this round's merges can trigger a deploy"
-    elif [ -z "$main_sha" ]; then say "  main vs production: cannot read jicate/main — only this round's merges can trigger a deploy"
-    elif [ "$main_sha" != "$last_dep" ]; then
-      if [ -n "$hard" ]; then
-        say "  ⛔ hard freeze — main (${main_sha:0:7}) is ahead of production (${last_dep:0:7}) but NOTHING ships until the stop is lifted: $(tail -1 "$FREEZE" | cut -f2 | cut -c1-120)"
-      elif [ "$merged" -eq 0 ]; then
-        ship_ahead=1; ship=1
-        git -C "$WT" diff --name-only "$last_dep" "$main_sha" 2>/dev/null >> "$merged_files"
-        merged_list="$merged_list (main ${main_sha:0:7} ahead of production ${last_dep:0:7}: $(grep -c . "$merged_files") file(s)${hand_merged:+; by hand: $hand_merged})"
+    if [ -z "$main_sha" ]; then say "  main vs production: cannot read jicate/main — only this round's merges can trigger a deploy"
+    elif [ -z "$prod_sha" ]; then say "  main vs production: last-deployed unknown (no marker yet, Vercel record had no commit sha) — only this round's merges can trigger a deploy"
+    elif [ "$main_sha" = "$prod_sha" ]; then
+      prod_is_main=1
+      say "  main vs production: production already runs main HEAD (${main_sha:0:7}, $prod_src) — nothing to build"
+    elif [ -n "$hard" ]; then
+      say "  ⛔ hard freeze — main (${main_sha:0:7}) is ahead of production (${prod_sha:0:7}$(sha_on_main "$prod_sha" || printf ', not on main as fetched')) but NOTHING ships until the stop is lifted: $(tail -1 "$FREEZE" | cut -f2 | cut -c1-120)"
+    elif ! sha_on_main "$prod_sha"; then
+      prod_unknown=1
+      say "  main vs production: cannot tell what is deployed — production reports ${prod_sha:0:10} ($prod_src), which is not on jicate/main as fetched; no build fired on a guess, marker untouched. To put main live by hand: /deploy-myjkkn"
+    elif [ "$merged" -eq 0 ] && [ -z "${FINAL_DEPLOY:-}" ]; then
+      # a failed diff is "unknown", never "no files" — an empty list would read as a docs-only round (verifier's F3)
+      if git -C "$WT" diff --name-only "$prod_sha" "$main_sha" > "$run/ahead-files.txt" 2>/dev/null; then
+        ship_ahead=1; ship=1; cat "$run/ahead-files.txt" >> "$merged_files"
+        merged_list="$merged_list (main ${main_sha:0:7} ahead of production ${prod_sha:0:7}: $(grep -c . "$run/ahead-files.txt") file(s)${hand_merged:+; by hand: $hand_merged})"
         say "  main is ahead of production with zero merges this round — shipping what is already on main:$merged_list"
+      else
+        prod_unknown=1; say "  main vs production: cannot tell what changed between ${prod_sha:0:7} and ${main_sha:0:7} (git diff failed) — no build fired, marker untouched"
       fi
     fi
   fi
@@ -689,14 +753,30 @@ PY
     deploy="deferred — goal runs deploy ONCE at the end ($(grep -c . "$pending") file(s) waiting; migrations already applied)"
     say "  $deploy"
   elif [ "$MODE" = "go" ] && [ -z "$GOAL" ] && [ -s "$pending" ]; then
-    cat "$pending" >> "$merged_files"; merged=$((merged+1)); ship=$((ship+1)); merged_list="$merged_list +earlier-batch"
+    # the plain-go flush of a batch a goal run left behind — the same gate as every other fire (verifier's D2:
+    # a goal run that hard-froze mid-way leaves deploy-pending on disk, and this branch used to ship it)
+    if [ -n "$prod_is_main" ]; then
+      say "  leftover batch ($(grep -c . "$pending") file(s)) is already live — production runs main HEAD; batch cleared"; rm -f "$pending"
+    elif deploy_allowed; then
+      cat "$pending" >> "$merged_files"; merged=$((merged+1)); ship=$((ship+1)); merged_list="$merged_list +earlier-batch"
+    else
+      say "  ⛔ NOT flushing the leftover batch — $DEPLOY_BLOCK · $(grep -c . "$pending") file(s) stay in $pending for the first unfrozen go"
+      deploy="skipped (${DEPLOY_BLOCK%% —*}; leftover batch kept)"
+    fi
   fi
   # 2026-09-06 07:55: a read-only `plan` sweep fired a production build through the flush branch above —
   # the deploy stage must never act outside `go`, whatever the batch file holds.
   if [ "$MODE" != "go" ]; then deploy="skipped (plan mode)"; DEPLOY_DEFERRED=1; fi
   if [ -n "$DEPLOY_DEFERRED" ]; then :
   elif [ "$apply_ok" -eq 0 ]; then say "  NOT deploying — migration step failed; the previous deploy stays live"; deploy="skipped (migration failed)"
-  elif [ "$ship" -gt 0 ] && [ -z "$NO_DEPLOY" ] && [ "$(grep -vE '^[[:space:]]*$' "$merged_files" | grep -cvE '^(supabase|docs|specs|\.claude|\.github)/|\.md$')" -eq 0 ]; then
+  elif [ -n "$prod_is_main" ]; then
+    # no empty builds: Vercel already runs main HEAD — whatever the marker or the batch file said (verifier's H1)
+    deploy="nothing to deploy (production already runs main HEAD ${main_sha:0:7}; source: $prod_src)"; say "  $deploy"
+    record_last_deployed "" "$main_sha"
+  elif [ "$ship" -gt 0 ] && ! deploy_allowed; then
+    # §B/§C: under a hard freeze nothing ships — this is where the receipt says so for merges and the main-ahead trigger
+    say "  ⛔ NOT deploying — $DEPLOY_BLOCK"; deploy="skipped (${DEPLOY_BLOCK%% —*})"
+  elif [ "$ship" -gt 0 ] && [ "$(grep -vE '^[[:space:]]*$' "$merged_files" | grep -cvE '^(supabase|docs|specs|\.claude|\.github)/|\.md$')" -eq 0 ]; then
     # Mirrors vercel.json's ignoreCommand: when every merged file sits under supabase/, docs/, specs/,
     # .claude/, .github/ or is *.md, Vercel has nothing to build — its ignoreCommand exits 0 and the
     # deployment comes back CANCELED with no errorCode. 2026-09-05 22:50: #3296 (one migration + the
@@ -708,7 +788,7 @@ PY
     say "  $deploy"
     # §C: production already runs this code; mark main as deployed so the main-ahead trigger does not re-fire every round
     record_last_deployed "" "$(main_sha_now)"
-  elif [ "$ship" -gt 0 ] && [ -z "$NO_DEPLOY" ]; then
+  elif [ "$ship" -gt 0 ] && deploy_allowed; then   # deploy_allowed re-checked ON the fire line: every POST passes through it
     local fire_sha; fire_sha=$(main_sha_now)   # §C fallback for last-deployed when Vercel's record carries no commit sha
     local r; r=$(curl -s -X POST "$HOOK"); dpl=$(python3 -c "import json,sys;print(json.load(sys.stdin)['job']['id'])" <<<"$r" 2>/dev/null)
     printf '%s\t%s\t%s\n' "$(date '+%F %T')" "W12 ship$merged_list" "$dpl" >> "$_CFG/v5-deploy-fires.tsv"
@@ -729,7 +809,7 @@ PY
       # and CANCELED is NOT retried (it means Vercel's ignoreCommand found nothing to build — see above).
       case "$deploy" in
         ERROR*)
-          if [ -z "${DEPLOY_RETRIED:-}" ]; then
+          if [ -z "${DEPLOY_RETRIED:-}" ] && deploy_allowed; then
             DEPLOY_RETRIED=1
             say "  build ERROR on $uid — re-firing the hook ONCE (attempt 2 of 2)"
             printf '%s\t%s\t%s\n' "$(date '+%F %T')" "W12 ship RETRY$merged_list" "$dpl" >> "$_CFG/v5-deploy-fires.tsv"
@@ -750,7 +830,7 @@ PY
         CANCELED*) freeze "deploy $uid → $deploy; on main but NOT live:$merged_list";;
       esac
     else deploy="fired (unverified — no Vercel token)"; fi
-  else say "  nothing merged / --no-deploy → no hook fired"; fi
+  else [ "$deploy" = skipped ] && say "  nothing merged / --no-deploy → no hook fired"; fi
 
   if [ -z "$DEPLOY_DEFERRED" ] && { [[ "$deploy" == READY* ]] || [[ "$deploy" == nothing* ]]; }; then rm -f "$pending"; fi
   # §C: a deployment the wave saw go READY moves the last-deployed marker (its commit sha if Vercel says, else main at fire time)
@@ -898,10 +978,16 @@ if [ -n "$GOAL" ]; then
     [ "${EMPTY_ROUNDS:-0}" -ge 2 ] && { say "=== two rounds in a row merged nothing — loop ends; what is left needs a human (see the plan above) ==="; break; }
     [ "$round" -lt "$GOAL_ROUNDS" ] && sleep $((GOAL_PAUSE_MIN*60))
   done
-  # §C: the end-of-run build fires unless the freeze is HARD — under a soft stop what merged still ships
-  if [ -s "$STATE/deploy-pending" ] && { [ ! -f "$FREEZE" ] || [ "$(freeze_class_now)" != hard ]; }; then
-    say; say "=== end of run: ONE production build for everything merged this run (batched to save Vercel build minutes) ==="
-    FINAL_DEPLOY=1; run_once; FINAL_DEPLOY=""
+  # §C: the end-of-run build fires unless the freeze is HARD — under a soft stop what merged still ships.
+  # deploy_allowed is the same predicate the fire line inside run_once uses; asking it here too means the receipt
+  # says where the batch went instead of leaving deploy-pending on disk in silence (verifier 2026-09-10).
+  if [ -s "$STATE/deploy-pending" ]; then
+    if deploy_allowed; then
+      say; say "=== end of run: ONE production build for everything merged this run (batched to save Vercel build minutes) ==="
+      FINAL_DEPLOY=1; run_once; FINAL_DEPLOY=""
+    else
+      say; say "=== end of run: ⛔ NOT building — $DEPLOY_BLOCK · $(grep -c . "$STATE/deploy-pending") file(s) stay in $STATE/deploy-pending and ship on the first unfrozen go ==="
+    fi
   fi
 else
   run_once
