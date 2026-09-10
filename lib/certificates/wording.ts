@@ -19,6 +19,8 @@ export interface CertificateData {
   gender: string;
   /** "M.Sc. Chemistry" — programme display name. */
   programName: string;
+  /** programs.card_short_name — the programme's own abbreviation ("B.Com") when the office has set it. */
+  programShortName?: string;
   /** "2024-2026" — batch span; empty when unknown. */
   batchSpan: string;
   /** Batch end date (ISO) when known — drives the default completion month. */
@@ -108,12 +110,24 @@ export function displayLearnerName(first: string | null | undefined, last: strin
 /**
  * Programme as printed: a spelled-out degree gets its abbreviation appended,
  * "BACHELOR OF COMMERCE(B.Com)" (Director-approved format, no space before the
- * bracket). Names that already lead with an abbreviation ("B.Sc. CHEMISTRY",
- * "B.E. Electronics...") are printed unchanged.
+ * bracket). The abbreviation comes from the programme record itself
+ * (programs.card_short_name) when the office has filled it in; otherwise from
+ * the phrases.json map of spelled-out degree names. Names that already lead
+ * with an abbreviation ("B.Sc. CHEMISTRY", "B.E. Electronics...") are printed
+ * unchanged.
  */
-export function programLabel(programName: string | null | undefined): string {
+export function programLabel(
+  programName: string | null | undefined,
+  programShortName?: string | null
+): string {
   const name = clean(programName);
   if (!name) return '';
+  const short = clean(programShortName);
+  if (short) {
+    // Already abbreviated, or the short form is just the name again → no bracket.
+    if (name.toUpperCase() === short.toUpperCase() || name.toUpperCase().startsWith(short.toUpperCase())) return name;
+    return `${name}(${short})`;
+  }
   const upper = name.toUpperCase();
   const abbreviations = phrases.programAbbreviations as Record<string, string>;
   // Longest key first so a shorter degree name never matches inside a longer one.
@@ -156,7 +170,7 @@ export function courseCompletionParagraph(
     { text: parent ? `, ${childOf(g)} ${parent} ` : ' ' },
     {
       text:
-        `${phrases.courseCompletion.subjectNoun} ${programLabel(data.programName) || '________'} ` +
+        `${phrases.courseCompletion.subjectNoun} ${programLabel(data.programName, data.programShortName) || '________'} ` +
         `${phrases.courseCompletion.degreeTail} ${span}. ` +
         `${subject} ${phrases.courseCompletion.completionLine} ${completion}.`,
     },
@@ -182,7 +196,7 @@ export function bonafideParagraphs(
   const nameRun = reg ? `${clean(data.learnerName)} (${reg})` : clean(data.learnerName);
   const parent = clean(data.parentName);
   const year = clean(overrides.yearOfStudy) || clean(data.yearOfStudy);
-  const programme = programLabel(data.programName) || '________';
+  const programme = programLabel(data.programName, data.programShortName) || '________';
   const classLabel = year ? `${year} - ${programme}` : programme;
   const academicYear = clean(data.currentAcademicYear) || '________';
   const purpose = clean(overrides.purpose) || clean(data.requestPurpose) || '________';

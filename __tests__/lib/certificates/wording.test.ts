@@ -99,6 +99,13 @@ describe('programLabel', () => {
     expect(programLabel('BACHELOR OF COMPUTER APPLICATIONS')).toBe('BACHELOR OF COMPUTER APPLICATIONS(BCA)');
   });
 
+  it('prefers the abbreviation set on the programme record (programs.card_short_name)', () => {
+    expect(programLabel('BACHELOR OF COMMERCE', 'B.Com')).toBe('BACHELOR OF COMMERCE(B.Com)');
+    expect(programLabel('BACHELOR OF COMMERCE (CA)', 'B.Com (CA)')).toBe('BACHELOR OF COMMERCE (CA)(B.Com (CA))');
+    expect(programLabel('B.Sc. CHEMISTRY', 'B.Sc. CHEMISTRY')).toBe('B.Sc. CHEMISTRY');
+    expect(programLabel('BACHELOR OF COMMERCE', '')).toBe('BACHELOR OF COMMERCE(B.Com)');
+  });
+
   it('leaves programmes that already carry an abbreviation untouched', () => {
     expect(programLabel('B.Sc. CHEMISTRY')).toBe('B.Sc. CHEMISTRY');
     expect(programLabel('B.E. Electronics and Communication Engineering')).toBe(
