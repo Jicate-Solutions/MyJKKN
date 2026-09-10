@@ -20,8 +20,10 @@
 #
 # USAGE  v5-w12-desk.sh pending                     JSON list of open questions (unanswered, unexpired), oldest first
 #        v5-w12-desk.sh answer <id> <option-index>  apply that option's writes, file → questions/answered/
-#                                                   exit 0 applied · 2 no such question / usage · 3 refused (bad id,
-#                                                   op outside the allowlist, malformed value) · 4 partly failed
+#                                                   exit 0 applied · 2 no such question / usage / already answered ·
+#                                                   3 refused (bad id, op outside the allowlist, malformed value) ·
+#                                                   4 partly failed (an unfreeze whose stop changed counts here) ·
+#                                                   5 expired — nothing applied (DESK_ALLOW_EXPIRED=1 overrides)
 #        v5-w12-desk.sh answer <id> other "<text>"  store the free text verbatim; apply NOTHING
 #        v5-w12-desk.sh mirror                      rewrite the desk section of $FLEET_MD
 # ENV    STATE     (default ~/.config/obsidian/.ship-wave)   tests point this at a temp dir
@@ -50,23 +52,30 @@ qlog() { printf '%s\t%s\n' "$(date '+%F %T')" "$*" >> "$QUESTIONS_LOG"; }
 # Prints a JSON array of open, unexpired, VALID questions, oldest asked_at first. An invalid file (an op
 # outside the allowlist) is reported on stderr and left where it is — it must not reach the phone.
 cmd_pending() {
-  local f why ids=""
+  local f why st ids=""
   for f in "$QUESTIONS_DIR"/q-*.json; do
     [ -e "$f" ] || continue
-    if why=$(question_file_valid "$f"); then ids="$ids$(basename "$f" .json)
-"
-    else echo "desk: invalid question $(basename "$f" .json) — $(printf '%s' "$why" | tr '\n\t' '  ') — not asked, not applied" >&2; fi
+    if ! why=$(question_file_valid "$f"); then
+      echo "desk: invalid question $(basename "$f" .json) — $(printf '%s' "$why" | tr '\n\t' '  ') — not asked, not applied" >&2; continue
+    fi
+    # one file whose expiry cannot be computed is reported and SKIPPED — never lets the whole pass die (NEW-4)
+    if ! st=$(question_open_state "$f"); then
+      echo "desk: skipped question $(basename "$f" .json) — $(printf '%s' "$st" | tr '\n\t' '  ') — not asked, not applied" >&2; continue
+    fi
+    case "$st" in
+      open*) ids="$ids${st#open } $(basename "$f" .json)
+";;
+      *) ;;                         # expired: the moment passed; the wave re-asks (refreshes) if it still matters
+    esac
   done
-  IDS="$ids" python3 - "$QUESTIONS_DIR" <<'PY'
-import json, os, sys, datetime
-now = datetime.datetime.now().astimezone(); out = []
+  # oldest asked_at first (epoch, then id for a stable order)
+  IDS="$(printf '%s' "$ids" | sort -n -k1,1 -k2,2 | awk '{print $2}')" python3 - "$QUESTIONS_DIR" <<'PY'
+import json, os, sys
+out = []
 for i in [i for i in os.environ["IDS"].split("\n") if i]:
-    q = json.load(open(os.path.join(sys.argv[1], i + ".json"))); t = datetime.datetime.fromisoformat(q["asked_at"])
-    if t + datetime.timedelta(hours=int(q.get("expires_after_h", 48))) <= now:
-        continue                    # expired: the moment passed; the wave re-asks (refreshes) if it still matters
-    out.append((t, q))
-out.sort(key=lambda x: x[0])
-print(json.dumps([q for _, q in out], indent=1, ensure_ascii=False))
+    try: out.append(json.load(open(os.path.join(sys.argv[1], i + ".json"))))
+    except Exception as e: print(f"desk: skipped question {i} — {type(e).__name__}: {e}", file=sys.stderr)
+print(json.dumps(out, indent=1, ensure_ascii=False))
 PY
 }
 
@@ -81,10 +90,24 @@ apply_write() {  # $1 = one write as JSON → prints what it did; returns 1 if t
       file=$(printf '%s' "$1" | python3 -c 'import json,sys;print(json.load(sys.stdin)["file"])')
       value=$(printf '%s' "$1" | python3 -c 'import json,sys;print(json.load(sys.stdin)["value"])')
       case "$file" in approve-held|allow-destructive|advisory-checks) ;; *) echo "append $file REFUSED (not a knob)"; return 1;; esac
+      # a knob edited by hand (phone, printf) may end without '\n'; appending straight on glued '3273'+'3410' into
+      # one token that approved NOTHING and destroyed the earlier allow (NEW-2). Start a fresh line first.
+      if [ -s "$STATE/$file" ] && [ -n "$(tail -c1 "$STATE/$file")" ]; then printf '\n' >> "$STATE/$file"; fi
       printf '%s\n' "$value" >> "$STATE/$file" && echo "append $file $value" ;;
     unfreeze)
-      # what ship-wave.sh --unfreeze does. The freeze CLASS (spec §B) lives in the FROZEN line itself; a
-      # sidecar, if the wave ever writes one, goes with it.
+      # what ship-wave.sh --unfreeze does — but scoped to the stop the question was ASKED about: the question
+      # carries frozen_line (FROZEN's last line when it was written); if FROZEN's last line is different NOW
+      # (a newer or harder stop landed, or it was already lifted), this tap must not lift it (§A2 gap, 2026-09-10:
+      # a stale soft-freeze question lifted a later hard 'deploy ERROR' latch). The refusal counts as failed so
+      # the question is answered with failed:1 and the wave writes a fresh one for the stop that is on now.
+      if [ "${Q_HAS_FROZEN_LINE:-0}" != 1 ]; then
+        echo "unfreeze REFUSED (this question does not name the stop it was asked about — nothing lifted)"; return 1
+      fi
+      local cur=""; [ -f "$FREEZE" ] && cur=$(_q_one_line "$(tail -1 "$FREEZE")"); cur="${cur:0:400}"
+      if [ "$cur" != "${Q_FROZEN_LINE:-}" ]; then
+        echo "unfreeze REFUSED (the stop has changed since you were asked — nothing lifted; now: '${cur:-no stop on}')"; return 1
+      fi
+      # the freeze CLASS (spec §B) lives in the FROZEN line itself; a sidecar, if the wave ever writes one, goes with it
       rm -f "$FREEZE" "$FREEZE.class" && echo "unfreeze" ;;
     ratify)
       value=$(printf '%s' "$1" | python3 -c 'import json,sys;print(json.load(sys.stdin)["value"])')
@@ -94,43 +117,82 @@ apply_write() {  # $1 = one write as JSON → prints what it did; returns 1 if t
   esac
 }
 
+# cmd_answer holds one lock for the whole answer (belt) and CLAIMS the file by renaming it into answered/ before
+# anything is applied (braces): rename(2) is atomic on one filesystem, so of two desk processes answering the
+# same id at once exactly one owns the file — the other finds it gone and exits 2 with nothing written.
+# (2026-09-10 NEW-1: two concurrent answers both appended, both logged, both hit the ledger — two identical
+# "resolved" records is exactly what slice D turns into a rule proposal, so ONE tap could have proposed a rule.)
 cmd_answer() {
-  local id="$1" choice="${2:-}" text="${3:-}" f why n idx label kind cls title writes applied="" failed=0 w rc
+  local rc
+  mkdir -p "$QUESTIONS_DIR"
+  exec 9>>"$QUESTIONS_DIR/.lock"
+  # flock(2) on the inherited fd: the lock belongs to the open file description, so it outlives the python
+  # child and is held until fd 9 is closed below (macOS ships no flock(1) binary)
+  python3 -c 'import fcntl; fcntl.flock(9, fcntl.LOCK_EX)' 2>/dev/null || true
+  _cmd_answer_locked "$@"; rc=$?
+  exec 9>&-
+  return $rc
+}
+
+_cmd_answer_locked() {
+  local id="$1" choice="${2:-}" text="${3:-}" f ans why st n idx label kind cls title writes applied="" failed=0 w rc
   # the id is a NAME, never a path: anything outside the shape is refused before a path is even built
   if ! question_id_valid "$id"; then
     echo "desk: REFUSED — '$(printf '%s' "$id" | tr '\000-\037\177' '?' | cut -c1-80)' is not a question id (q-YYYYmmdd-HHMMSS-<slug>, [a-z0-9-]). Nothing applied."
     qlog "refused	$(printf '%s' "$id" | tr '\000-\037\177' '?' | cut -c1-80)	not a question id"; return 3
   fi
-  f="$QUESTIONS_DIR/$id.json"
-  [ -f "$f" ] || { echo "desk: no open question $id"; [ -f "$QUESTIONS_DIR/answered/$id.json" ] && echo "  (already answered)"; return 2; }
+  f="$QUESTIONS_DIR/$id.json"; ans="$QUESTIONS_DIR/answered/$id.json"
+  [ -f "$f" ] || { echo "desk: no open question $id"; [ -f "$ans" ] && echo "  (already answered)"; return 2; }
   # the allowlist and the shape rules are checked HERE, on the file as it is now — not on what pending showed earlier
   if ! why=$(question_file_valid "$f"); then
     why=$(printf '%s' "$why" | tr '\n\t' '  ')
     echo "desk: REFUSED $id — $why. Nothing applied; the file is left in place for a human to read."
     qlog "refused	$id	$why"; return 3
   fi
+  # an expired question is a moment that passed: the desk never showed it, so a tap on it is a stale id typed by
+  # hand or a race across the expiry instant (NEW-6). Refused unless a human says DESK_ALLOW_EXPIRED=1.
+  if ! st=$(question_open_state "$f"); then
+    echo "desk: REFUSED $id — $(printf '%s' "$st" | tr '\n\t' '  '). Nothing applied."; qlog "refused	$id	$st"; return 3
+  fi
+  case "$st" in
+    expired*) if [ "${DESK_ALLOW_EXPIRED:-0}" != 1 ]; then
+                echo "desk: $id expired — nothing applied (asked $(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["asked_at"])' "$f"); set DESK_ALLOW_EXPIRED=1 to answer it anyway)"
+                qlog "refused	$id	expired"; return 5
+              fi ;;
+  esac
+  case "$choice" in other) ;; ''|*[!0-9]*) echo "desk: option index must be a number or 'other', got '$choice'"; return 2;; esac
+  if [ "$choice" != other ]; then
+    n=$(python3 -c 'import json,sys;print(len(json.load(open(sys.argv[1]))["options"]))' "$f")
+    [ "$choice" -lt "$n" ] || { echo "desk: $id has $n options (0..$((n-1))), got $choice"; return 2; }
+  fi
+  # ── CLAIM: the move comes FIRST. If it fails the file is gone — another answer owns it. Apply nothing. ──
+  if ! mv "$f" "$ans" 2>/dev/null; then
+    echo "desk: no open question $id"; echo "  (already answered)"; return 2
+  fi
+  f="$ans"   # from here on, everything is read from and recorded into the claimed copy
   kind=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["kind"])' "$f")
   cls=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("class",""))' "$f")
   title=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("title",""))' "$f")
   if [ "$choice" = "other" ]; then
     # free text: stored verbatim, applies NOTHING (spec §A2.4) — the next receipt surfaces it for a human
-    CH=other TXT="$text" python3 - "$f" "$QUESTIONS_DIR/answered/$id.json" <<'PY'
+    CH=other TXT="$text" python3 - "$f" <<'PY'
 import json, os, sys, datetime
 q = json.load(open(sys.argv[1]))
 q.update({"answered_at": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
           "chosen": "other", "other_text": os.environ["TXT"], "applied": []})
-json.dump(q, open(sys.argv[2], "w"), indent=1, ensure_ascii=False); os.remove(sys.argv[1])
+json.dump(q, open(sys.argv[1], "w"), indent=1, ensure_ascii=False)
 PY
     qlog "answered	$id	other	$(printf '%s' "$text" | tr '\n\t' '  ' | cut -c1-200)"
     echo "$id → other (stored, nothing applied): $(printf '%s' "$text" | cut -c1-80)"
     return 0
   fi
-  case "$choice" in ''|*[!0-9]*) echo "desk: option index must be a number or 'other', got '$choice'"; return 2;; esac
-  n=$(python3 -c 'import json,sys;print(len(json.load(open(sys.argv[1]))["options"]))' "$f")
-  [ "$choice" -lt "$n" ] || { echo "desk: $id has $n options (0..$((n-1))), got $choice"; return 2; }
   idx="$choice"
   label=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["options"][int(sys.argv[2])]["label"])' "$f" "$idx")
   writes=$(python3 -c 'import json,sys;print(json.dumps(json.load(open(sys.argv[1]))["options"][int(sys.argv[2])]["writes"]))' "$f" "$idx")
+  # the stop this question was asked about, for the scoped `unfreeze` (absent key ≠ empty string)
+  Q_HAS_FROZEN_LINE=$(python3 -c 'import json,sys;print(1 if "frozen_line" in json.load(open(sys.argv[1])) else 0)' "$f")
+  Q_FROZEN_LINE=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("frozen_line") or "")' "$f")
+  export Q_HAS_FROZEN_LINE Q_FROZEN_LINE
   # apply, one op at a time, in the order written — exactly these and no others
   while IFS= read -r w; do
     [ -n "$w" ] || continue
@@ -139,14 +201,14 @@ PY
 }$out"
   done < <(printf '%s' "$writes" | python3 -c 'import json,sys
 for w in json.load(sys.stdin): print(json.dumps(w))')
-  APPLIED="$applied" IDX="$idx" LABEL="$label" FAILED="$failed" python3 - "$f" "$QUESTIONS_DIR/answered/$id.json" <<'PY'
+  APPLIED="$applied" IDX="$idx" LABEL="$label" FAILED="$failed" python3 - "$f" <<'PY'
 import json, os, sys, datetime
 q = json.load(open(sys.argv[1]))
 q.update({"answered_at": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
           "chosen": os.environ["LABEL"], "chosen_index": int(os.environ["IDX"]),
           "applied": [a for a in os.environ["APPLIED"].split("\n") if a]})
 if int(os.environ["FAILED"]): q["failed"] = int(os.environ["FAILED"])
-json.dump(q, open(sys.argv[2], "w"), indent=1, ensure_ascii=False); os.remove(sys.argv[1])
+json.dump(q, open(sys.argv[1], "w"), indent=1, ensure_ascii=False)
 PY
   qlog "answered	$id	$idx	$label	$(printf '%s' "$applied" | tr '\n' ';')"
   # resolution memory (spec §D): a decided freeze becomes evidence the policy learner can count
@@ -161,9 +223,11 @@ PY
 # ── mirror ────────────────────────────────────────────────────────────────────
 # Rewrites ONLY the "## W12 desk — waiting on you" section of $FLEET_MD (appended at the end when absent).
 # Everything outside that section is left byte-for-byte. Phone visibility without the tab (spec §A3).
-# Section = from the heading line to the next markdown heading (any `#…` line) or EOF; heading lines inside a
-# ``` / ~~~ fence do not count, so a fenced example of the heading is not the section and a fenced '## ' inside
-# the stale section does not end it early. If the heading appears twice, both copies are replaced by ONE.
+# Section = from the EXACT heading line (optionally "(n)") to the next markdown heading (any `#…` line) or EOF;
+# heading lines inside a CLOSED ``` / ~~~ fence do not count, so a fenced example of the heading is not the
+# section and a fenced '## ' inside the stale section does not end it early. A fence that never closes is not
+# a fence (it would otherwise swallow the section and grow the note every pass). If the heading appears twice,
+# both copies are replaced by ONE.
 # Every line the section emits from question text is a quote ("> …") or an indented list item, so no question
 # body, title or label can ever START a heading or a fence and grow the note on the next pass (2026-09-10).
 cmd_mirror() {
@@ -205,17 +269,26 @@ sec = [lines[0]] + [("> " + l if (HEADING.match(l) or FENCE.match(l)) else l) fo
 while sec and sec[-1] == "": sec.pop()
 p = sys.argv[1]; src = open(p, encoding="utf-8").read()
 rows = src.split("\n")
-# classify rows: which are inside a fence, which are headings, which open a desk section
-in_fence = [False] * len(rows); fence = None
-for i, r in enumerate(rows):
-    m = FENCE.match(r)
-    if fence:
-        in_fence[i] = True
-        if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and r.strip() == m.group(1): fence = None
-        continue
-    if m:
-        fence = m.group(1); in_fence[i] = True
-starts = [i for i, r in enumerate(rows) if not in_fence[i] and r.startswith(HEAD)]
+# classify rows: which are inside a CLOSED fence. A fence that never closes before EOF is not a fence here —
+# otherwise one forgotten ``` above the section hid the section from this pass, and every pass appended a
+# fresh copy (2026-09-10 NEW-5: 339 → 1387 bytes over 5 passes). A fenced EXAMPLE of the heading (closed) is
+# still not the section.
+in_fence = [False] * len(rows)
+i = 0
+while i < len(rows):
+    m = FENCE.match(rows[i])
+    if not m: i += 1; continue
+    fence = m.group(1); close = None
+    for j in range(i + 1, len(rows)):
+        mc = FENCE.match(rows[j])
+        if mc and mc.group(1)[0] == fence[0] and len(mc.group(1)) >= len(fence) and rows[j].strip() == mc.group(1): close = j; break
+    if close is None: i += 1; continue          # unclosed: not a fence — its lines are plain lines
+    for j in range(i, close + 1): in_fence[j] = True
+    i = close + 1
+# the section STARTS at the exact heading (optionally with the open count), nowhere else: '## W12 desk — waiting
+# on you-archive' is somebody else's section
+START = re.compile(r"^" + re.escape(HEAD) + r"( \(\d+\))?\s*$")
+starts = [i for i, r in enumerate(rows) if not in_fence[i] and START.match(r)]
 if not starts:
     out = src + ("" if src.endswith("\n") or not src else "\n") + ("\n" if src else "") + "\n".join(sec) + "\n"
 else:

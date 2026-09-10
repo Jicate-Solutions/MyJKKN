@@ -85,11 +85,15 @@ if isinstance(doc, dict):
             if not isinstance(doc["body"], str): die("body must be a string")
             if BODY_CTRL.search(doc["body"]): die(f"body carries a control character other than tab/CR/LF")
         if "asked_at" in doc:
-            try: datetime.datetime.fromisoformat(str(doc["asked_at"]))
+            try: t = datetime.datetime.fromisoformat(str(doc["asked_at"]))
             except Exception: die(f"asked_at {doc.get('asked_at')!r} is not an ISO timestamp")
-        for k, lo in (("recommended", 0), ("expires_after_h", 1)):
-            if k in doc and (not isinstance(doc[k], int) or isinstance(doc[k], bool) or doc[k] < lo):
-                die(f"{k} must be an integer ≥ {lo}, got {doc.get(k)!r}")
+            # a naive stamp has no zone — the desk cannot tell whether it has expired without guessing one
+            # (2026-09-10 NEW-4: one such file made `pending` die and hid every other question)
+            if t.tzinfo is None or t.utcoffset() is None: die(f"asked_at {doc.get('asked_at')!r} has no timezone offset (need e.g. +05:30)")
+        for k, lo, hi in (("recommended", 0, 10**6), ("expires_after_h", 1, 8760)):
+            if k in doc and (not isinstance(doc[k], int) or isinstance(doc[k], bool) or doc[k] < lo or doc[k] > hi):
+                die(f"{k} must be an integer in {lo}..{hi}, got {doc.get(k)!r}")
+        if "frozen_line" in doc and doc["frozen_line"] is not None: one_line("frozen_line", doc["frozen_line"], 400, allow_empty=True)
 elif isinstance(doc, list) and doc and isinstance(doc[0], dict) and "op" in doc[0]:
     options = [{"label": "-", "writes": doc}]          # bare writes array
 else:
@@ -139,6 +143,27 @@ question_file_valid() {
   question_writes_valid "$(cat "$1")" "$b"
 }
 
+# question_open_state <path> → prints "open <epoch>" or "expired <epoch>" (epoch = asked_at, for sorting), rc 0.
+# When the expiry CANNOT be computed (unparseable stamp, absurd hours) prints why and returns 1 — the caller
+# reports that ONE file and moves on. One odd file must never blind the whole desk (2026-09-10 NEW-4: a
+# tz-naive asked_at raised TypeError inside `pending` and hid every question; the mirror then died on '').
+# A naive stamp is read as UTC here as a last line of defence — the validator refuses it before this runs.
+question_open_state() {
+  python3 - "$1" <<'PY'
+import json, sys, datetime
+try:
+    q = json.load(open(sys.argv[1]))
+    t = datetime.datetime.fromisoformat(str(q["asked_at"]))
+    if t.tzinfo is None or t.utcoffset() is None: t = t.replace(tzinfo=datetime.timezone.utc)
+    h = int(q.get("expires_after_h", 48))
+    if not 1 <= h <= 8760: raise ValueError(f"expires_after_h {h} outside 1..8760")
+    exp = t + datetime.timedelta(hours=h)
+    print(("open" if exp > datetime.datetime.now(datetime.timezone.utc) else "expired") + f" {int(t.timestamp())}")
+except Exception as e:
+    print(f"cannot compute expiry ({type(e).__name__}: {e})"); sys.exit(1)
+PY
+}
+
 # _q_one_line <text> → <text> with every control character (tab/CR/LF/ESC…) turned into a space, runs squeezed,
 # ends trimmed. The wave composes titles from messages it did not write; a newline in one must not reach the file.
 _q_one_line() { printf '%s' "$1" | tr '\000-\037\177' ' ' | tr -s ' ' | sed -E 's/^ +//; s/ +$//'; }
@@ -152,7 +177,20 @@ _q_one_line() { printf '%s' "$1" | tr '\000-\037\177' ' ' | tr -s ' ' | sed -E '
 # Title and class are flattened to one plain line (control characters → space) and capped (110 / 80).
 # Refuses to write a question whose writes fail question_writes_valid — a bad question never reaches the phone.
 ask_director() {
-  local kind="$1" cls="$2" title="$3" body="$4" opts="$5" why id existing slug ts doc
+  # one lock (shared with the desk's `answer`) around de-dup + write: four asks of the SAME question at once must
+  # still land ONE file, and an ask must not interleave with an answer that is moving files (flock via an
+  # inherited fd — the lock lives on the open file description, so it survives the python child; no flock(1) on macOS)
+  local rc
+  mkdir -p "$QUESTIONS_DIR/answered"
+  exec 8>>"$QUESTIONS_DIR/.lock"
+  python3 -c 'import fcntl; fcntl.flock(8, fcntl.LOCK_EX)' 2>/dev/null || true
+  _ask_director_locked "$@"; rc=$?
+  exec 8>&-
+  return $rc
+}
+
+_ask_director_locked() {
+  local kind="$1" cls="$2" title="$3" body="$4" opts="$5" why id existing slug ts doc frozen_line hash4
   ASK_DIRECTOR_ID=""
   case "$kind" in freeze|held|policy|deploy) ;; *) say "  desk: ask_director refused — unknown kind '$kind'"; return 2;; esac
   title=$(_q_one_line "$title"); title="${title:0:110}"     # the spec's ceiling — a phone shows about that much on one line
@@ -176,24 +214,53 @@ for f in sorted(glob.glob(os.path.join(d, "q-*.json"))):
         print(b); break
 PY
 )
+  # a freeze question is about ONE stop: remember the FROZEN line it was asked about, so the desk's `unfreeze`
+  # lifts exactly that stop and refuses when a different (newer, harder) line has landed since (§A2 gap, 2026-09-10)
+  frozen_line=""
+  if [ "$kind" = freeze ] && [ -f "${FREEZE:-$STATE/FROZEN}" ]; then frozen_line=$(_q_one_line "$(tail -1 "${FREEZE:-$STATE/FROZEN}")"); frozen_line="${frozen_line:0:400}"; fi
   ts=$(date '+%Y%m%d-%H%M%S')
   if [ -n "$existing" ]; then
+    # refresh = the SAME question asked again with what the wave knows NOW: options, body, recommended, expiry
+    # and frozen_line are replaced (a new option must reach the phone — de-dup gap 2026-09-10); id, first_asked_at
+    # and asked_times are kept so the history stays one question.
     id="$existing"
-    python3 - "$QUESTIONS_DIR/$id.json" <<'PY'
-import json, sys, datetime
-p = sys.argv[1]; q = json.load(open(p))
+    doc=$(B="$body" O="$opts" R="${Q_RECOMMENDED:-0}" E="${Q_EXPIRES_H:-48}" FL="$frozen_line" K="$kind" python3 - "$QUESTIONS_DIR/$id.json" <<'PY'
+import json, os, sys, datetime
+e = os.environ; p = sys.argv[1]; q = json.load(open(p))
+opts = json.loads(e["O"])
+if isinstance(opts, dict): opts = opts["options"]
+q.setdefault("first_asked_at", q.get("asked_at"))
 q["asked_at"] = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
 q["asked_times"] = int(q.get("asked_times", 1)) + 1
-json.dump(q, open(p, "w"), indent=1, ensure_ascii=False)
+q["body"] = e["B"]; q["options"] = opts
+q["recommended"] = max(0, min(int(e["R"] or 0), len(opts) - 1))
+q["expires_after_h"] = max(1, min(int(e["E"] or 48), 8760))
+if e["K"] == "freeze": q["frozen_line"] = e["FL"]
+print(json.dumps(q, indent=1, ensure_ascii=False))
 PY
+)
+    if ! why=$(question_writes_valid "$doc" "$id"); then
+      say "  desk: ask_director refused — refreshed question would be invalid ($why)"
+      printf '%s\trefused\t%s\t%s\t%s\n' "$(date '+%F %T')" "$kind" "$cls" "$(_q_one_line "$why")" >> "$QUESTIONS_LOG"
+      return 1
+    fi
+    printf '%s\n' "$doc" > "$QUESTIONS_DIR/$id.json"
     printf '%s\trefreshed\t%s\t%s\t%s\t%s\n' "$(date '+%F %T')" "$id" "$kind" "$cls" "$title" >> "$QUESTIONS_LOG"
     say "  desk: question already open, refreshed — $id"
     ASK_DIRECTOR_ID="$id"; return 0
   fi
   slug=$(printf '%s %s' "$kind" "${cls:-$title}" | tr 'A-Z' 'a-z' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' | cut -c1-32 | sed -E 's/-+$//')
   [ -n "$slug" ] || slug="$kind"
-  id="q-$ts-$slug"
-  doc=$(K="$kind" C="$cls" T="$title" B="$body" O="$opts" ID="$id" R="${Q_RECOMMENDED:-0}" E="${Q_EXPIRES_H:-48}" python3 - <<'PY'
+  # the id must name ONE question: two different titles under one kind+class in the same second used to mint
+  # the same id and the second `>` overwrote the first (2026-09-10 NEW-3). A 4-hex sha1 of kind+class+title
+  # separates them; if that name is STILL taken (open or answered), count up — and the file is created with
+  # O_EXCL (noclobber), so two asks racing for one name cannot both win it.
+  hash4=$(printf '%s\037%s\037%s' "$kind" "$cls" "$title" | python3 -c 'import hashlib,sys;print(hashlib.sha1(sys.stdin.buffer.read()).hexdigest()[:4])')
+  local base="q-$ts-$slug-$hash4" n=1
+  id="$base"
+  while :; do
+    if [ ! -e "$QUESTIONS_DIR/$id.json" ] && [ ! -e "$QUESTIONS_DIR/answered/$id.json" ]; then
+      doc=$(K="$kind" C="$cls" T="$title" B="$body" O="$opts" ID="$id" R="${Q_RECOMMENDED:-0}" E="${Q_EXPIRES_H:-48}" FL="$frozen_line" python3 - <<'PY'
 import json, os, sys, datetime
 e = os.environ
 opts = json.loads(e["O"])
@@ -204,18 +271,24 @@ q = {
     "kind": e["K"], "class": e["C"], "title": e["T"], "body": e["B"],
     "options": opts,
     "recommended": max(0, min(int(e["R"] or 0), len(opts) - 1)),
-    "expires_after_h": int(e["E"] or 48),
+    "expires_after_h": max(1, min(int(e["E"] or 48), 8760)),
 }
+if e["K"] == "freeze": q["frozen_line"] = e["FL"]
 print(json.dumps(q, indent=1, ensure_ascii=False))
 PY
 )
-  # the whole file must pass the same check the desk applies before answering — or it is never written
-  if ! why=$(question_writes_valid "$doc" "$id"); then
-    say "  desk: ask_director refused — question would be invalid ($why)"
-    printf '%s\trefused\t%s\t%s\t%s\n' "$(date '+%F %T')" "$kind" "$cls" "$(_q_one_line "$why")" >> "$QUESTIONS_LOG"
-    return 1
-  fi
-  printf '%s\n' "$doc" > "$QUESTIONS_DIR/$id.json"
+      # the whole file must pass the same check the desk applies before answering — or it is never written
+      if ! why=$(question_writes_valid "$doc" "$id"); then
+        say "  desk: ask_director refused — question would be invalid ($why)"
+        printf '%s\trefused\t%s\t%s\t%s\n' "$(date '+%F %T')" "$kind" "$cls" "$(_q_one_line "$why")" >> "$QUESTIONS_LOG"
+        return 1
+      fi
+      # create-exclusive: fails (instead of clobbering) when another ask took this name a moment ago
+      if ( set -C; printf '%s\n' "$doc" > "$QUESTIONS_DIR/$id.json" ) 2>/dev/null; then break; fi
+    fi
+    n=$((n+1)); id="$base-$n"
+    [ "$n" -le 99 ] || { say "  desk: ask_director refused — could not find a free id for $base"; return 1; }
+  done
   printf '%s\tasked\t%s\t%s\t%s\t%s\n' "$(date '+%F %T')" "$id" "$kind" "$cls" "$title" >> "$QUESTIONS_LOG"
   say "  desk: question written for the Director — $id ($title)"
   ASK_DIRECTOR_ID="$id"
@@ -224,14 +297,12 @@ PY
 # questions_open_count → how many VALID questions are waiting (unanswered, unexpired) — for the receipt line.
 # Same validity rule as the desk's `pending`, so the receipt's number is the number the desk will ask.
 questions_open_count() {
-  local f n=0
+  local f n=0 st
   for f in "$QUESTIONS_DIR"/q-*.json; do
     [ -e "$f" ] || continue
     question_file_valid "$f" >/dev/null 2>&1 || continue
-    python3 -c '
-import json, sys, datetime
-q = json.load(open(sys.argv[1])); t = datetime.datetime.fromisoformat(q["asked_at"])
-sys.exit(0 if t + datetime.timedelta(hours=int(q.get("expires_after_h", 48))) > datetime.datetime.now().astimezone() else 1)' "$f" 2>/dev/null && n=$((n+1))
+    st=$(question_open_state "$f" 2>/dev/null) || continue
+    case "$st" in open*) n=$((n+1));; esac
   done
   echo "$n"
 }

@@ -17,8 +17,8 @@ options, no "shall I…" in chat — the question goes through AskUserQuestion, 
 
 1. Run: `~/.config/obsidian/v5-w12-desk.sh pending`
    It prints a JSON array of open questions (unanswered, unexpired), oldest first. Anything on stderr
-   starting `desk: invalid question` is a question the wave wrote badly — repeat that line in chat verbatim
-   and move on; you cannot ask it.
+   starting `desk: invalid question` or `desk: skipped question` is a file the wave (or a hand) wrote badly —
+   repeat that line in chat verbatim and move on; you cannot ask it. One bad file never hides the others.
 2. If the array is empty: print exactly `desk: nothing pending` and stop. (The loop reschedules you.)
 3. Otherwise ask with the **AskUserQuestion** tool — up to **4 questions per pass** (the oldest 4; the rest
    wait for the next tick). For each question:
@@ -34,7 +34,12 @@ options, no "shall I…" in chat — the question goes through AskUserQuestion, 
      (this stores the text and applies nothing; the next wave receipt surfaces it for a human).
    The script's exit code: 0 applied · 3 refused (an op outside the allowlist, a value that is not one PR
    number / one 14-digit version / one plain check name, or an id that is not `q-YYYYmmdd-HHMMSS-<slug>` —
-   say so, verbatim) · 4 partly failed (read its `FAILED:` line back to him) · 2 usage/no such question.
+   say so, verbatim) · 4 partly failed (read its `FAILED:` / `REFUSED (…)` line back to him — a "Lift the stop"
+   answered after a DIFFERENT freeze landed is refused with "the stop has changed since you were asked —
+   nothing lifted"; the wave writes a fresh question for the stop that is on now, ask that one next pass) ·
+   5 expired — the moment passed, nothing applied (only a human at a terminal may override with
+   `DESK_ALLOW_EXPIRED=1`; the desk never sets it) · 2 usage / no such question / already answered (another
+   desk process claimed it first — nothing was applied twice).
    Pass the id exactly as `pending` printed it — never a path (`answered/…`, `../…`): the script refuses those.
 5. Run: `~/.config/obsidian/v5-w12-desk.sh mirror` — rewrites the `## W12 desk — waiting on you`
    section of the Fleet note so the phone shows what is still open even without this tab.

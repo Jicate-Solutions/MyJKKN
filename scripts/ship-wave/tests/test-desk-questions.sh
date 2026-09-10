@@ -22,7 +22,7 @@ say() { :; }
 . "$SW/policy-learning.sh"
 . "$SW/desk-questions.sh"
 # the check() helper runs assertions in `bash -c` sub-shells — hand them the functions they call
-export -f jq_ say question_writes_valid question_id_valid question_file_valid _q_one_line ask_director questions_open_count policy_active
+export -f jq_ say question_writes_valid question_id_valid question_file_valid question_open_state _q_one_line ask_director _ask_director_locked questions_open_count policy_active
 export QUESTIONS_DIR QUESTIONS_LOG POLICY_DIR QUESTION_ID_RE
 
 FREEZE_OPTS='[
