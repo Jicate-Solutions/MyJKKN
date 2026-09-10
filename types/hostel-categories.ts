@@ -55,6 +55,14 @@ export interface HostelCategory {
    * never populated.
    */
   tier_key: HostelCategoryTierKey;
+  /**
+   * The category whose physical rooms this one seats its learners in, when that
+   * is not itself (e.g. "Deluxe Plus" bills as itself but sits in Deluxe rooms).
+   * This is the NATIVE source and there is exactly one. Extra pools live in
+   * hostel_category_room_sources; resolve the union with
+   * fn_cl_category_room_sources(), never by reading this column alone.
+   */
+  room_source_category_id: string | null;
   created_at: string;
   updated_at: string;
 }
