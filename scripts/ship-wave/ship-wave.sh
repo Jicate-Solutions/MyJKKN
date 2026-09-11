@@ -62,6 +62,11 @@ STATE="$_CFG/.ship-wave"; mkdir -p "$STATE/dispatched" "$STATE/nudged"
 SW_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RECEIPT="$_CFG/v5-myjkkn-ship-last.txt"; RUNLOG="$_CFG/v5-myjkkn-ship-run.log"
 LOCK="$_CFG/.ship-wave.lock"; FREEZE="$STATE/FROZEN"
+# the ONE line only the wave writes (round 9, verifier I7c): freeze() keeps a HARD reading that no well-formed hard line carries
+# as this line. Its field 4 is the RESERVED slug 'kept-hard' — ledger_class strips every '-', so no message's field 4 can equal
+# it, and field 4 is inside the field-5 sha — so no phone --freeze can mint a line with this line's sha and lift it by a Lift
+# asked about something else. --freeze also refuses this exact text (exit 2), so the phone never raises a look-alike stop.
+FREEZE_KEPT_HARD_MSG="FROZEN was empty or cut short, reads as hard (fail safe)"; FREEZE_KEPT_HARD_LCLS="kept-hard"
 QUIET_MIN=30; GOAL_ROUNDS=6; GOAL_PAUSE_MIN=10
 export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH"
 
@@ -89,6 +94,10 @@ while [[ $# -gt 0 ]]; do
       # skipped and `go --freeze ""` fell through to a LIVE run with no stop raised. Refuse here, before the lock.
       # round 8 (H16): vertical tab, form feed, NBSP (C2 A0) and U+3000 (E3 80 80) are blank too — byte-wise, in the C locale
       [ -n "$(printf '%s' "$FREEZE_MSG" | LC_ALL=C tr -d ' \t\r\n\v\f' | LC_ALL=C sed -e "s/$(printf '\302\240')//g" -e "s/$(printf '\343\200\200')//g")" ] || { echo "--freeze needs a message"; exit 2; }
+      # round 9 (I7c): the kept-hard line's text belongs to the wave — compared the way freeze() stores a message (TAB/CR/LF →
+      # space), outer blanks trimmed. Any other spelling still gets through, and its sha then differs by field 4 (FREEZE_KEPT_HARD_LCLS).
+      [ "$(printf '%s' "$FREEZE_MSG" | LC_ALL=C tr '\t\r\n\v\f' '     ' | LC_ALL=C sed -e 's/^ *//' -e 's/ *$//')" != "$FREEZE_KEPT_HARD_MSG" ] \
+        || { echo "--freeze: that text is reserved for the wave"; exit 2; }
       shift;;
     --if-changed) IF_CHANGED=1;;   # standing run: skip when no PR / approval / freeze changed since the last run (≤12h)
     *) echo "unknown arg: $1"; exit 2;;
@@ -234,6 +243,8 @@ freeze() {
   # field 4 = ledger_class of the message: the SAME slug the failure ledger, the desk's question and slice D's
   # policy proposals key on, so "which cause froze us" is one key everywhere (spec §B: "derives it with ledger_class")
   type -t ledger_class >/dev/null 2>&1 && lcls=$(ledger_class "$msg")
+  # round 9 (I7c): 'kept-hard' is reserved for the wave's kept-hard line — a message line never carries it in field 4
+  [ "$lcls" != "$FREEZE_KEPT_HARD_LCLS" ] || lcls=""
   # field 5 = sha1 of fields 1-4 (round 6, X2): the question's `unfreeze` op carries this hash, so the desk lifts
   # EXACTLY the line asked about — never a different line whose flattened text happens to share a 400-char prefix
   ts=$(date '+%F %T')   # one stamp for this call: a kept-hard line (below) carries the same second as the new line
@@ -291,9 +302,10 @@ sys.exit(1)' 2>/dev/null; rc=$?
     n=$(FREEZE="$tgt" freeze_bad_line_no)
     if [ -z "$(tr -d ' \t\r\n\v\f' < "$tgt" 2>/dev/null)" ] \
        || { [ -n "$(tail -c1 "$tgt" 2>/dev/null)" ] && [ "${n:-0}" -gt 0 ] && [ "$n" -eq "$(grep -c '' "$tgt")" ]; }; then
-      smsg="FROZEN was empty or cut short, reads as hard (fail safe)"
-      type -t ledger_class >/dev/null 2>&1 && slcls=$(ledger_class "$smsg")
-      sline=$(printf '%s\t%s\t%s\t%s' "$ts" "$smsg" hard "${slcls:-hard}")
+      # round 9 (I7c): field 4 is the reserved 'kept-hard', never ledger_class(text) — a phone --freeze of the same words in the
+      # same second used to get the SAME sha, and the Lift asked about that new stop removed this line with it (FROZEN gone)
+      smsg="$FREEZE_KEPT_HARD_MSG"; slcls="$FREEZE_KEPT_HARD_LCLS"
+      sline=$(printf '%s\t%s\t%s\t%s' "$ts" "$smsg" hard "$slcls")
       ssha=$(frozen_line_sha1 "$sline")
     fi
   fi
