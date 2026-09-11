@@ -818,8 +818,19 @@ CREATE TABLE IF NOT EXISTS public.timetables (
     usage_count INTEGER DEFAULT 0,
     created_from_template_id UUID,
     -- Updated: 2026-03-22 - Added cycle-based timetable support
-    num_cycles INTEGER DEFAULT NULL CHECK (num_cycles IS NULL OR (num_cycles >= 1 AND num_cycles <= 52))
+    num_cycles INTEGER DEFAULT NULL CHECK (num_cycles IS NULL OR (num_cycles >= 1 AND num_cycles <= 52)),
+    -- Updated: 2026-09-11 - Declared section scope. For a semester-level row
+    -- (section_id NULL) this IS the uniqueness scope: two semester-level
+    -- timetables for one semester clash only when their dates overlap AND these
+    -- sets intersect. That is what lets three parallel section groups in one
+    -- semester (A..H, ADD 4A..H, TROIZ A..H) each hold their own timetable on
+    -- identical dates. NULL means "not declared"; callers then fall back to the
+    -- union of the slots' own section_ids.
+    section_ids UUID[]
 );
+
+CREATE INDEX IF NOT EXISTS idx_timetables_section_ids
+    ON public.timetables USING gin (section_ids);
 
 -- Timetable Slot Continuity
 CREATE TABLE IF NOT EXISTS public.timetable_slot_continuity (
