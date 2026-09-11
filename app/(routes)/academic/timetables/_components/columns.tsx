@@ -171,10 +171,23 @@ export const getColumns = (adaptLabel?: (label: string) => string): ColumnDef<Ti
     ),
     cell: ({ row }) => {
       const timetable = row.original;
-      return `${timetable.semesters?.semester_name || ''}${
-        timetable.sections?.section_name
-          ? ` / ${timetable.sections.section_name}`
-          : ''
+      const semesterName = timetable.semesters?.semester_name || '';
+
+      if (timetable.sections?.section_name) {
+        return `${semesterName} / ${timetable.sections.section_name}`;
+      }
+
+      // Updated: 2026-09-11 - A semester-level row used to show the semester and
+      // nothing else, so three parallel-group timetables for one semester were
+      // indistinguishable in this list. The row carries its declared scope
+      // (select('*') in _data/get-timetables.ts), though not the section NAMES —
+      // those would need a join on a uuid[] with no FK — so the count goes here
+      // and the names live on the detail header.
+      const scopeCount = ((timetable as any).section_ids as string[] | null)
+        ?.length;
+
+      return `${semesterName}${
+        scopeCount ? ` / ${scopeCount} ${adapt('section').toLowerCase()}${scopeCount === 1 ? '' : 's'}` : ''
       }`;
     }
   },
