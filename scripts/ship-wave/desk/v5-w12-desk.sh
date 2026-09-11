@@ -85,6 +85,14 @@ PY
 }
 
 # ── answer ────────────────────────────────────────────────────────────────────
+# the class a FROZEN copy reads (stdin) — the same fail-safe reading as ship-wave.sh freeze_class_now (slice B; keep in
+# step): a line with <3 or >5 tab fields, a class that is not exactly soft|hard, a 5th field that is not a sha1, or no
+# line at all counts as hard
+_frozen_class_of() {
+  local v; v=$(LC_ALL=C awk -F'\t' 'BEGIN{c="soft";n=0} {n++; if (NF<3 || NF>5 || ($3!="soft" && $3!="hard") || (NF==5 && (length($5)!=40 || $5 !~ /^[0-9a-f]+$/))) {c="hard"; exit} if ($3=="hard") c="hard"} END{if (n==0) c="hard"; print c}' 2>/dev/null)
+  case "$v" in soft|hard) printf '%s' "$v";; *) printf 'hard';; esac
+}
+_frozen_rank() { case "$1" in hard) echo 2;; soft) echo 1;; *) echo 0;; esac; }
 apply_write() {  # $1 = one write as JSON → prints what it did; returns 1 if the op failed
   local op file value out why
   # the shape rules again, on exactly the write about to be applied — not on what pending or a caller showed earlier
@@ -118,36 +126,96 @@ apply_write() {  # $1 = one write as JSON → prints what it did; returns 1 if t
         if [ -z "${Q_FROZEN_LINE:-}" ]; then echo "unfreeze (no stop was on)"; return 0; fi
         echo "unfreeze REFUSED (the stop has changed since you were asked — nothing lifted; now: 'no stop on')"; return 1
       fi
-      local tmp line flat gone=0 kept=0 last="" hard_left q_sha f5
+      local tgt hop lnk tmp line flat gone=0 last="" q_sha f5 err rc reason="" n_orig n_want n_now want_cls tmp_cls now_cls i
+      local -a orig=() keep=() got=()
+      local nolift="unfreeze REFUSED — nothing lifted: could not rewrite the stop file"
       # round 6 (X2): the wave writes sha1(fields 1-4) as FROZEN field 5 and puts the same hash in this op as
       # `line_sha1`. When the op carries it, ONLY a line whose field 5 equals it is lifted — the exact line asked
       # about, never a neighbour sharing a flattened prefix. Without it (a hand-shaped question, older files) the
       # FULL flattened line is compared — no 400-char cap on the comparison; the cap is for what is displayed.
       q_sha=$(printf '%s' "$1" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("line_sha1") or "")')
-      tmp="$FREEZE.tmp.$$"; : > "$tmp" || { echo "unfreeze FAILED: cannot write $tmp"; return 1; }
+      # round 8 (D2): the rewrite follows the SAME rule as the wave's freeze() (slice B 39c528e96f). It used to append each
+      # kept line to a temp file with no error check and rename the short copy over FROZEN: on a full disk the HARD line
+      # after a block boundary was silently dropped, one phone tap left FROZEN soft, and the receipt counted lines it never
+      # wrote. Now: resolve FROZEN to the file it names (the temp lives in THAT directory, so the rename is atomic) → decide
+      # in memory which lines go → write the copy through ONE checked redirect (every printf checked) → verify the copy
+      # (line count = original − the chosen lines, every kept line byte-for-byte, class not lower than the original with
+      # only those lines removed) → rename. Any failure removes the temp, leaves FROZEN byte-identical and says so.
+      tgt="$FREEZE"; hop=0
+      while [ -L "$tgt" ] && [ "$hop" -lt 16 ]; do
+        lnk=$(readlink "$tgt"); case "$lnk" in /*) tgt="$lnk";; *) tgt="$(dirname "$tgt")/$lnk";; esac; hop=$((hop+1))
+      done
+      if [ -L "$tgt" ]; then echo "$nolift (too many levels of symbolic links)"; return 1; fi
+      if [ ! -f "$tgt" ]; then echo "$nolift (it is not a regular file)"; return 1; fi
       while IFS= read -r line || [ -n "$line" ]; do
+        orig+=("$line")
         flat=$(_q_one_line "$line"); last="${flat:0:400}"
         if [ -n "$q_sha" ]; then
-          f5=$(printf '%s' "$line" | tr -d '\r' | awk -F'\t' 'NF>=5 {print $5}')
+          f5=$(printf '%s' "$line" | LC_ALL=C tr -d '\r' | LC_ALL=C awk -F'\t' 'NF>=5 {print $5}')
           if [ -n "$f5" ] && [ "$f5" = "$q_sha" ]; then gone=$((gone+1)); continue; fi
         elif [ -n "$flat" ] && [ "$flat" = "${Q_FROZEN_LINE:-}" ]; then gone=$((gone+1)); continue; fi
-        printf '%s\n' "$line" >> "$tmp"; kept=$((kept+1))
-      done < "$FREEZE"
+        keep+=("$line")
+      done < "$tgt"
       if [ "$gone" -eq 0 ]; then
-        rm -f "$tmp"; echo "unfreeze REFUSED (the stop has changed since you were asked — nothing lifted; now: '${last:-no stop on}')"; return 1
+        echo "unfreeze REFUSED (the stop has changed since you were asked — nothing lifted; now: '${last:-no stop on}')"; return 1
       fi
-      if [ "$kept" -eq 0 ]; then
+      if [ "${#keep[@]}" -eq 0 ]; then
         # the freeze CLASS (spec §B) lives in the FROZEN line itself; a sidecar, if the wave ever writes one, goes with it
-        rm -f "$tmp" "$FREEZE" "$FREEZE.class" && echo "unfreeze"; return
+        rm -f "$FREEZE" "$FREEZE.class" 2>/dev/null
+        if [ -e "$FREEZE" ] || [ -L "$FREEZE" ]; then echo "unfreeze REFUSED — nothing lifted: could not remove the stop file"; return 1; fi
+        echo "unfreeze"; return 0
       fi
-      mv -f "$tmp" "$FREEZE" || { rm -f "$tmp"; echo "unfreeze FAILED: could not rewrite FROZEN"; return 1; }
-      # what is still in force — the same fail-safe reading as ship-wave.sh freeze_class_now (slice B; keep in step):
-      # a malformed line or a class that is not exactly soft|hard counts as hard
-      hard_left=$(awk -F'\t' 'BEGIN{c="soft"} {if (NF<3 || NF>5 || ($3!="soft" && $3!="hard") || (NF==5 && (length($5)!=40 || $5 !~ /^[0-9a-f]+$/))) {c="hard"; exit} if ($3=="hard") c="hard"} END{print c}' "$FREEZE" 2>/dev/null)
-      if [ "$hard_left" = hard ]; then
-        echo "unfreeze (lifted $gone line(s); $kept still on — a HARD stop is still in force: nothing merges or ships until it is lifted)"
+      # the in-memory read must hold EVERY byte of the file (bash cannot hold a NUL — a crash can leave a zero-filled
+      # tail — and a copy without it would not be the same line): refuse rather than rewrite a different file
+      n_orig=$(LC_ALL=C grep -c '' "$tgt" 2>/dev/null)
+      if [ "${n_orig:-x}" != "${#orig[@]}" ] \
+         || [ "$(printf '%s\n' "${orig[@]}" | wc -c | tr -d ' ')" -ne "$(( $(wc -c < "$tgt") + $( [ "$(tail -c1 "$tgt" | od -An -tx1 | tr -d ' \n')" = 0a ] && echo 0 || echo 1) ))" ]; then
+        echo "$nolift (it holds bytes the desk cannot copy exactly — lift it at the Mac with ship-wave.sh --unfreeze)"; return 1
+      fi
+      # how many lines THIS choice removes, counted from the file itself (not from the loop above)
+      if [ -n "$q_sha" ]; then
+        n_want=$(( n_orig - $(LC_ALL=C tr -d '\r' < "$tgt" | LC_ALL=C awk -F'\t' -v s="$q_sha" 'NF>=5 && $5==s {n++} END{print n+0}') ))
       else
-        echo "unfreeze (lifted $gone line(s); $kept soft line(s) still on)"
+        n_want=$(( n_orig - gone ))
+      fi
+      want_cls=$(printf '%s\n' "${keep[@]}" | _frozen_class_of)   # the original with ONLY the chosen lines removed
+      if ! tmp=$(mktemp "$(dirname "$tgt")/.FROZEN.tmp.XXXXXX" 2>&1); then
+        reason=${tmp##*: }; echo "$nolift (${reason:-no temp file beside it})"; return 1
+      fi
+      # ONE redirect for the whole copy; inside it every printf is checked (a write that fails ends the copy non-zero)
+      err=$( ( for line in "${keep[@]}"; do printf '%s\n' "$line" || exit 1; done ) 2>&1 >"$tmp" ); rc=$?
+      if [ "$rc" -ne 0 ]; then
+        reason=$(printf '%s' "$err" | head -1 | sed -E 's/^.*: //'); [ -n "$reason" ] || reason="the copy was cut short, rc=$rc"
+      else
+        while IFS= read -r line || [ -n "$line" ]; do got+=("$line"); done < "$tmp"
+        if [ "${#got[@]}" -ne "$n_want" ] || [ "$(LC_ALL=C grep -c '' "$tmp")" -ne "$n_want" ] || [ "${#keep[@]}" -ne "$n_want" ]; then
+          reason="the new copy has ${#got[@]} line(s), not $n_want"
+        elif [ "$(wc -c < "$tmp" | tr -d ' ')" -ne "$(printf '%s\n' "${keep[@]}" | wc -c | tr -d ' ')" ]; then
+          reason="the new copy is short"
+        else
+          for ((i = 0; i < n_want; i++)); do
+            [ "${got[$i]}" == "${keep[$i]}" ] || { reason="line $((i+1)) of the new copy is not the stop file's line"; break; }
+          done
+          if [ -z "$reason" ]; then
+            tmp_cls=$(_frozen_class_of < "$tmp")
+            [ "$(_frozen_rank "$tmp_cls")" -ge "$(_frozen_rank "$want_cls")" ] || reason="the new copy would read $tmp_cls, lower than $want_cls"
+          fi
+        fi
+      fi
+      if [ -n "$reason" ]; then rm -f "$tmp"; echo "$nolift ($reason)"; return 1; fi
+      chmod 644 "$tmp" 2>/dev/null
+      if ! err=$(mv -f "$tmp" "$tgt" 2>&1); then
+        rm -f "$tmp"; reason=${err##*: }; echo "$nolift (${reason:-the rename failed})"; return 1
+      fi
+      # the receipt is read from FROZEN itself after the rename — never from a counter
+      n_now=$(LC_ALL=C grep -c '' "$tgt" 2>/dev/null); now_cls=$(_frozen_class_of < "$tgt")
+      if [ "${n_now:-x}" != "$n_want" ] || [ "$(_frozen_rank "$now_cls")" -lt "$(_frozen_rank "$want_cls")" ]; then
+        echo "unfreeze FAILED: FROZEN re-read after the rewrite holds ${n_now:-?} line(s) reading ${now_cls:-?}, not $n_want reading $want_cls"; return 1
+      fi
+      if [ "$now_cls" = hard ]; then
+        echo "unfreeze (lifted $((n_orig - n_now)) line(s); $n_now still on — a HARD stop is still in force: nothing merges or ships until it is lifted)"
+      else
+        echo "unfreeze (lifted $((n_orig - n_now)) line(s); $n_now soft line(s) still on)"
       fi ;;
     ratify)
       value=$(printf '%s' "$1" | python3 -c 'import json,sys;print(json.load(sys.stdin)["value"])')
