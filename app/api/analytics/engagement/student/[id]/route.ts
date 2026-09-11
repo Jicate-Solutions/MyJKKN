@@ -65,6 +65,13 @@ export async function GET(
       return NextResponse.json({ error: 'Invalid student ID' }, { status: 400 });
     }
 
+    // Refuse a learner outside the viewer's scope with a plain 403 before any
+    // of their sessions are read (the service checks again and filters).
+    const access = await EngagementService.checkStudentAccess(user.id, studentId);
+    if (!access.allowed) {
+      return NextResponse.json({ error: access.reason }, { status: access.status });
+    }
+
     // Fetch student detail
     const studentDetail = await EngagementService.getStudentDetail(
       studentId,

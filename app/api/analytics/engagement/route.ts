@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { EngagementService } from '@/lib/services/analytics/engagement-service';
-import type { EngagementMetricsRequest } from '@/types/analytics';
+import type { EngagementMetricsRequest, OrganizationalLevel } from '@/types/analytics';
 
 /**
  * GET /api/analytics/engagement
@@ -90,6 +90,17 @@ export async function GET(request: NextRequest) {
         { error: 'Invalid level parameter' },
         { status: 400 }
       );
+    }
+
+    // Refuse a selection outside the viewer's scope with a plain 403, before
+    // any engagement data is read (the service checks again and filters).
+    const access = await EngagementService.checkAccess(
+      user.id,
+      level as OrganizationalLevel,
+      id
+    );
+    if (!access.allowed) {
+      return NextResponse.json({ error: access.reason }, { status: access.status });
     }
 
     // Build request object

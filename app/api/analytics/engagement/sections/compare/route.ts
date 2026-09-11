@@ -68,6 +68,13 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Refuse a semester outside the viewer's scope with a plain 403, never an
+    // empty list (the service checks again and filters).
+    const access = await EngagementService.checkAccess(user.id, 'semester', semesterId);
+    if (!access.allowed) {
+      return NextResponse.json({ error: access.reason }, { status: access.status });
+    }
+
     // Build request object
     const comparisonRequest: SectionComparisonRequest = {
       semesterId
