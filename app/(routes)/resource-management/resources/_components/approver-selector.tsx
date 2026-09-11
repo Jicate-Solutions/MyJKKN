@@ -38,8 +38,9 @@ import {
   UserCheck
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useQuery } from '@tanstack/react-query';
 import { useApproverProfiles } from '@/hooks/organization/use-profiles';
-import type { ApproverProfileForSelection } from '@/lib/services/organization/profile-service';
+import { ProfileService } from '@/lib/services/organization/profile-service';
 
 interface Institution {
   id: string;
@@ -142,11 +143,35 @@ export function ApproverSelector({
     return role?.role_name || roleKey;
   };
 
-  // Count users per role for display
-  const roleUserCount = useMemo(() => {
+  // True number of holders of the selected role, across every institution.
+  // `approverProfiles` is the post-filter list, so on its own it cannot tell
+  // "nobody holds this role" apart from "nobody here holds it" (BUG-003915).
+  const {
+    data: roleMemberTotal,
+    isLoading: loadingRoleCount
+  } = useQuery({
+    queryKey: ['approver-role-member-count', roleFilter],
+    queryFn: () => ProfileService.getRoleMemberCount(roleFilter),
+    enabled: !!roleFilter,
+    staleTime: 60000,
+    gcTime: 600000
+  });
+
+  // Honest badge label: distinguish an empty role from an empty filter result
+  const roleCountLabel = useMemo(() => {
     if (!roleFilter) return null;
-    return approverProfiles.length;
-  }, [roleFilter, approverProfiles]);
+    const roleName = getRoleName(roleFilter);
+    const visible = approverProfiles.length;
+
+    if (visible > 0) {
+      return `${visible} user${visible !== 1 ? 's' : ''} with "${roleName}" role`;
+    }
+    if (roleMemberTotal && roleMemberTotal > 0) {
+      return `${roleMemberTotal} user${roleMemberTotal !== 1 ? 's' : ''} with "${roleName}" role, none matching the current filters`;
+    }
+    return `No users have the "${roleName}" role`;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roleFilter, approverProfiles, roleMemberTotal, customRoles]);
 
   const handleSelectUser = (userId: string) => {
     onUserSelect(userId, roleFilter || undefined);
@@ -245,9 +270,7 @@ export function ApproverSelector({
         <div className='flex items-center gap-2'>
           <Badge variant='secondary' className='text-xs'>
             <Users className='mr-1 h-3 w-3' />
-            {loadingProfiles
-              ? 'Loading...'
-              : `${roleUserCount} user${roleUserCount !== 1 ? 's' : ''} with "${getRoleName(roleFilter)}" role`}
+            {loadingProfiles || loadingRoleCount ? 'Loading...' : roleCountLabel}
           </Badge>
         </div>
       )}
@@ -331,7 +354,9 @@ export function ApproverSelector({
                 ) : approverProfiles.length === 0 ? (
                   <CommandEmpty>
                     {roleFilter
-                      ? `No users found with "${getRoleName(roleFilter)}" role`
+                      ? roleMemberTotal && roleMemberTotal > 0
+                        ? `No "${getRoleName(roleFilter)}" users in the selected institutions`
+                        : `No users have the "${getRoleName(roleFilter)}" role`
                       : 'No users found'}
                     {debouncedSearch && ` matching "${debouncedSearch}"`}
                   </CommandEmpty>
