@@ -75,9 +75,9 @@ export function EventReviewCommentsCard({ eventId }: { eventId: string }) {
       description={
         <>
           Remarks from the reviewing authority on this event, and the
-          coordinator&apos;s replies. Only super admins, admins, event
-          coordinators, this event&apos;s in-charge and its creator can see this
-          — participants and learners never do.
+          coordinator&apos;s replies. Only super admins, this event&apos;s
+          creator and in-charge, and roles granted Review Comments access can
+          see this — participants and learners never do.
         </>
       }
       placeholder="Raise something about this event — what is incomplete, what is missing, who still has to act."
