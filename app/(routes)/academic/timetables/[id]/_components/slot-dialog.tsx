@@ -414,6 +414,47 @@ export function SlotDialog({
     }
   }, [existingSlot, defaultSlotData]);
 
+  /**
+   * A NEW slot starts out covering the timetable's whole declared scope.
+   * Added: 2026-09-11.
+   *
+   * Every slot in a semester-level timetable has to name its sections or it
+   * schedules nobody — fn_timetable_scheduled_sections drops a slot whose
+   * section_ids is empty, and the learner resolver never matches it. In
+   * practice that meant re-ticking the same eight boxes on every slot of a
+   * six-day grid, and one missed cell is a period that silently exists for no
+   * one. The scope is already declared on the timetable, so the sensible
+   * default for a new slot is all of it; a planner who wants a subset unticks
+   * from there.
+   *
+   * Deliberately does NOT touch:
+   *   - an existing slot, whose saved selection is the answer, empty or not;
+   *   - a slot pre-filled from defaultSlotData, where the copied slot wins;
+   *   - a break, which teaches nobody and so covers nobody.
+   *
+   * Keyed on the open transition rather than on filteredSections, because that
+   * array is re-memoised in the parent and depending on it would re-run this
+   * mid-edit and silently re-tick sections the planner had just cleared.
+   */
+  const [prefilledScopeWhileOpen, setPrefilledScopeWhileOpen] = useState(false);
+  useEffect(() => {
+    if (!isOpen) {
+      if (prefilledScopeWhileOpen) setPrefilledScopeWhileOpen(false);
+      return;
+    }
+    if (prefilledScopeWhileOpen) return;
+    if (existingSlot) return;
+    if (isPeriodBreak) return;
+    if (defaultSlotData?.section_ids && defaultSlotData.section_ids.length > 0) {
+      return;
+    }
+    if (!filteredSections || filteredSections.length === 0) return;
+
+    setPrefilledScopeWhileOpen(true);
+    setSelectedSections(filteredSections.map((s: any) => s.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, existingSlot, defaultSlotData, isPeriodBreak, filteredSections.length]);
+
   const handleSave = () => {
     // Updated: 2025-10-09 - Auto-populate section_ids for section-level timetables
     let finalSectionIds = selectedSections;
@@ -1383,7 +1424,7 @@ export function SlotDialog({
                           {adapt('Sections')} <span className='text-red-500'>*</span>
                         </Label>
                         <Badge variant='secondary' className='text-xs'>
-                          Semester ({filteredSections?.length || 0})
+                          In scope ({filteredSections?.length || 0})
                         </Badge>
                       </div>
                       <div
@@ -1720,7 +1761,7 @@ export function SlotDialog({
                                   <span className='text-red-500'>*</span>
                                 </Label>
                                 <Badge variant='secondary' className='text-xs'>
-                                  Semester ({filteredSections?.length || 0})
+                                  In scope ({filteredSections?.length || 0})
                                 </Badge>
                               </div>
                               <div

@@ -260,7 +260,7 @@ export class StudentDashboardService {
     // Step 1: Direct section_id match
     const { data: directMatches, error: directError } = await supabase
       .from('timetables')
-      .select('id, timetable_data, periods, institution_id, start_date, end_date, created_at')
+      .select('id, timetable_name, timetable_data, periods, institution_id, start_date, end_date, created_at')
       .eq('section_id', sectionId)
       .eq('is_active', true)
       .order('created_at', { ascending: false });
@@ -273,7 +273,7 @@ export class StudentDashboardService {
     // Step 2: Fallback — section_id is NULL but stored inside timetable_data JSONB
     const { data: nullSectionCandidates } = await supabase
       .from('timetables')
-      .select('id, timetable_data, periods, institution_id, start_date, end_date, created_at')
+      .select('id, timetable_name, timetable_data, periods, institution_id, start_date, end_date, created_at')
       .is('section_id', null)
       .eq('is_active', true)
       .order('created_at', { ascending: false });
@@ -294,13 +294,33 @@ export class StudentDashboardService {
       return [];
     }
 
-    // Pick the best timetable by date range
+    // Pick the PRIMARY timetable by date range — it decides the institution the
+    // periods come from.
     const timetable = selectBestTimetable(candidates, today);
 
     if (!timetable?.timetable_data) {
       logger.warn('dashboard/student', 'Selected timetable has no data', { sectionId });
       return [];
     }
+
+    /**
+     * TODAY'S CLASSES COME FROM EVERY LIVE TIMETABLE, NOT JUST THE BEST ONE.
+     * Fixed: 2026-09-11, alongside the same fix in StudentTimetableService.
+     *
+     * A learner commonly sits under two at once — a semester-level THEORY grid
+     * and a section-level CLINICAL one, both covering the same dates, together
+     * making up one week. selectBestTimetable returned only the most recently
+     * created, so the other one's periods vanished from "today's classes" and
+     * from the attendance percentage computed off it. The dashboard read as a
+     * light day rather than a missing timetable.
+     */
+    const timetablesForToday = candidates.filter((t: any) => {
+      const startOk = !t.start_date || t.start_date <= today;
+      const endOk = !t.end_date || t.end_date >= today;
+      return startOk && endOk && t.timetable_data;
+    });
+    const liveTimetables =
+      timetablesForToday.length > 0 ? timetablesForToday : [timetable];
 
     // Get periods for time info
     const { data: periods } = await supabase
@@ -311,21 +331,34 @@ export class StudentDashboardService {
 
     const periodMap = new Map((periods || []).map(p => [p.id, p]));
 
-    // Parse timetable_data JSONB — handle both day-name and date-string keys
-    const timetableData = timetable.timetable_data as any;
-    const dayData = findDayDataInTimetable(timetableData, currentDay, today);
-
-    if (!dayData || typeof dayData !== 'object') {
-      return [];
-    }
-
-    // Extract today's slots
+    // Extract today's slots from every live timetable. findDayDataInTimetable
+    // already resolves a weekday key or an ISO-date key, so a 'regular' and a
+    // 'batch' grid both land on the same day.
     const slots: any[] = [];
-    for (const [periodId, slotData] of Object.entries(dayData)) {
-      if (slotData && typeof slotData === 'object') {
+    const seenSlotKeys = new Set<string>();
+    for (const source of liveTimetables) {
+      const dayData = findDayDataInTimetable(
+        source.timetable_data as any,
+        currentDay,
+        today
+      );
+      if (!dayData || typeof dayData !== 'object') continue;
+
+      for (const [periodId, slotData] of Object.entries(dayData)) {
+        if (!slotData || typeof slotData !== 'object') continue;
+
+        // Same period AND same course in two timetables is one class listed
+        // twice. A different course in the same period is a genuine clash and
+        // stays visible.
+        const key = `${periodId}|${(slotData as any).course_id || ''}`;
+        if (seenSlotKeys.has(key)) continue;
+        seenSlotKeys.add(key);
+
         slots.push({
           period_id: periodId,
-          ...slotData
+          ...slotData,
+          timetable_id: source.id,
+          timetable_name: source.timetable_name
         });
       }
     }
