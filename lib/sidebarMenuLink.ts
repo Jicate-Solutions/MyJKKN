@@ -202,6 +202,29 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/foundation/onemark/paper': 'foundation.assessments.manage',
   '/foundation/onemark/review': 'foundation.items.manage',
   '/foundation/onemark/practice': 'foundation.practice.take',
+  // Wave 3 doors (specs/onemark-wave3-2026-09-06.md, Lane N).
+  //
+  // Results (Lane A, PR #3338) — the cohort sheet, the score list and one
+  // learner's report all live under this one trie node, so the whole subtree
+  // is gated by the key that opens the operator surface. Two consequences,
+  // both deliberate:
+  //   * /foundation/onemark/results/learner/<id> is an OPERATOR screen. A
+  //     learner reads their own record through the "My progress" card on
+  //     /foundation/onemark/practice (Lane L), which calls the same API — the
+  //     RPC's own gate (fn_fp_can_view_student) admits them there.
+  //   * DISCLOSED EDGE, ruling #1 of 2026-09-06: an active school_jkkn_owners
+  //     row alone grants a principal the READ at the RPC, with no
+  //     assessments.manage. The proxy trie can only reason about permission
+  //     keys, so a principal holding ONLY an owner row is stopped at this door
+  //     before the RPC is ever asked. In practice the provisioning path hands
+  //     out the owner row and school_faculty together (ruling #6), so that
+  //     population does hold the key; a key-less owner row needs a
+  //     route-matcher change, which is outside this lane. Tracked in the PR.
+  '/foundation/onemark/results': 'foundation.assessments.manage',
+  // Unit list (Lane U, PR #3339) — adding or retiring a unit changes what a
+  // question may be written against, so it takes the same key as the review
+  // queue rather than a new one.
+  '/foundation/onemark/units': 'foundation.items.manage',
 
   // Cohorts — the top-level section for the shared cohort spine. Its first
   // screen appoints coordinators for every programme on that spine. Mapped to
@@ -2221,6 +2244,13 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/foundation/console', label: 'Console', active: pathname.startsWith('/foundation/console') },
             { href: '/foundation/onemark/paper', label: 'OneMark: Build a Paper', active: pathname.startsWith('/foundation/onemark/paper') },
             { href: '/foundation/onemark/review', label: 'OneMark: Review Drafts', active: pathname.startsWith('/foundation/onemark/review') },
+            // Wave 3 (Lane N). Both nest here rather than becoming top-level
+            // rows: the Academic group is at 14 and the validator's hard cap
+            // is 15. Each is gated by its own MENU_PERMISSIONS key, so the
+            // children-decide-the-parent rule keeps the accordion off anyone
+            // who holds neither.
+            { href: '/foundation/onemark/results', label: 'OneMark: Results', active: pathname.startsWith('/foundation/onemark/results') },
+            { href: '/foundation/onemark/units', label: 'OneMark: Unit List', active: pathname.startsWith('/foundation/onemark/units') },
           ]
         },
         {
@@ -2255,6 +2285,19 @@ export function GetPages(pathname: string): MenuGroup[] {
           // learner never holds the operator keys that render that parent.
           // This makes the Academic group 14 top-level rows — ONE below the
           // sidebar validator's hard cap; the next entry must nest.
+          //
+          // Wave 3 Lane N asked for a flat learner door to the hub
+          // '/foundation/onemark' alongside this row. It is NOT here, and the
+          // spec's own stop condition is why: a 15th top-level row makes
+          // validateSidebar() raise a BLOCKING issue (ERROR_THRESHOLD = 15,
+          // `topLevelCount >= ERROR_THRESHOLD`) and check:sidebar fails the
+          // build for every module, not just this one. The alternative the
+          // spec offered — the mobile module tabs — is not an independent
+          // door either: components/BottomNav reads MODULES only for section
+          // identity, icon and order, and takes its actual rows from
+          // GetRoleBasedPages, so a MODULES entry would render nothing new.
+          // Reported rather than forced. See the PR for the two ways out
+          // (nest the hub under this row, or restructure the Academic group).
           href: '/foundation/onemark/practice',
           label: 'OneMark Practice',
           active: pathname.startsWith('/foundation/onemark/practice'),

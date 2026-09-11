@@ -101,6 +101,55 @@ export const ONEMARK_PAPER_SECTIONS: GuideSection[] = [
       },
     ],
   },
+  {
+    // Wave 3 Lane A (PR #3338). Every label below is copied from the built
+    // screens on feat/onemark-w3-results — results/page.tsx,
+    // results/_components/results-index.tsx and
+    // results/[assessmentId]/_components/cohort-sheet.tsx — not from the spec.
+    id: "onemark-results",
+    title: "Read how a paper went (OneMark)",
+    steps: [
+      {
+        action:
+          "Open **OneMark: Results** and pick a paper from the list.",
+        detail:
+          "The list holds the papers you built, plus the papers of any cohort whose school you run. **No papers to report on yet** means exactly that — build and publish one first.",
+        platforms: {
+          web: "left sidebar → Foundation Programme → OneMark: Results",
+          mobile: "tap the menu (☰) → Foundation Programme → OneMark: Results",
+        },
+        link: { label: "Open OneMark: Results", href: "/foundation/onemark/results" },
+      },
+      {
+        action:
+          "Read the four counts at the top — **Sat**, **Average**, **Range** and **On a device** — then the two strips, **Accuracy by unit** and **Accuracy by question type**.",
+        detail:
+          "**On a device** is how many sat it on a phone or a laptop rather than on paper; the sheet flags each of those rows too. The two strips are where a paper tells you something you can act on: a unit everybody lost is a re-teach, one person losing it is a conversation.",
+        link: { label: "Open OneMark: Results", href: "/foundation/onemark/results" },
+      },
+      {
+        action:
+          "Take the **Score list** away with **Export CSV**.",
+        detail:
+          "Names and scores, nothing else. The download never carries an answer key or an explanation, by ruling — so it is safe to hand to a cohort's own resource person.",
+        link: { label: "Open OneMark: Results", href: "/foundation/onemark/results" },
+      },
+      {
+        action:
+          "Scroll to **How each question behaved** to see how the paper itself performed, question by question, with the **Most-chosen wrong option** beside each.",
+        detail:
+          "A question almost everybody got right taught you nothing; one where the same wrong option out-drew the right one is usually a wording problem, not a knowledge gap — take it back to the review queue.",
+        tip: "This table stays hidden until three learners have submitted. Below that the numbers say more about who happened to sit it than about the question, so only the score list shows.",
+        link: { label: "Open OneMark: Results", href: "/foundation/onemark/results" },
+      },
+      {
+        action:
+          "For one person, open their **Learner report** — from their name on the score list, or from their profile with **OneMark learner report**.",
+        detail:
+          "The report is per subject: accuracy by unit, where their mistake vault stands, and the last sittings behind both. A score that stands out on the list is worth one minute here before you speak to them.",
+      },
+    ],
+  },
 ];
 
 /**
@@ -139,6 +188,43 @@ export const ONEMARK_REVIEW_SECTIONS: GuideSection[] = [
           "There is no second reviewer and no batch gate. The explanation you leave is shown to a learner right after they answer in practice, so write it for the learner, not for a colleague.",
         tip: "Learners are enrolled only once both subjects hold 300 approved questions. The number beside **Drafts waiting for a tick** is how many are still unapproved — not the approved count — so it should fall, not climb toward 300.",
         link: { label: "Open OneMark: Review Drafts", href: "/foundation/onemark/review" },
+      },
+    ],
+  },
+  {
+    // Wave 3 Lane U (PR #3339). Labels copied from the built screen on
+    // feat/onemark-w3-units — units/page.tsx and
+    // units/_components/units-board.tsx — not from the spec.
+    id: "onemark-units",
+    title: "Keep the unit list (OneMark)",
+    steps: [
+      {
+        action:
+          "Open **OneMark: Unit List**. One section per subject, each in the order the board teaches it.",
+        detail:
+          "Before this screen the units sat as rows on the government-coaching grid, where neither OneMark subject is a column. This is where they live now. Each subject heading carries its own counts: **Units in use**, **Questions in the bank**, **Approved and live** and **Waiting for a tick**.",
+        prerequisite:
+          "Only a subject Senior Learner who manages the question bank can edit this. A denial here says so outright rather than sending you somewhere else.",
+        platforms: {
+          web: "left sidebar → Foundation Programme → OneMark: Unit List",
+          mobile: "tap the menu (☰) → Foundation Programme → OneMark: Unit List",
+        },
+        link: { label: "Open OneMark: Unit List", href: "/foundation/onemark/units" },
+      },
+      {
+        action:
+          "Use **Add a unit**, type the name (and a Tamil name if a native reviewer has checked one), then **Add unit**.",
+        detail:
+          "The unit goes to the end of that subject's unit list and is mapped to the subject in the same action — an unmapped unit would be invisible to the paper wizard and to the drafter, which is the failure this screen exists to prevent.",
+        link: { label: "Open OneMark: Unit List", href: "/foundation/onemark/units" },
+      },
+      {
+        action:
+          "Rename a unit in place, move it up or down within its subject, or **Retire** one that is no longer taught.",
+        detail:
+          "Retiring hides the unit from the wizard and the drafter without touching a single question already written against it; **Bring back** undoes it. Nothing here deletes.",
+        tip: "A unit still showing **no Tamil name yet** prints English on a bilingual paper. Worth clearing before a board-shape paper goes out.",
+        link: { label: "Open OneMark: Unit List", href: "/foundation/onemark/units" },
       },
     ],
   },
@@ -306,6 +392,15 @@ export const GUIDES: FoundationGuideBook = {
                 "For a **Live paper**, submit once. Opening it again shows your result, not a fresh paper.",
               detail:
                 "The window and the time limit come from your Senior Learner. Wrong answers from a live paper still feed your vault, so the review afterwards is worth the time.",
+            },
+            {
+              // Wave 3 Lane L (PR #3342) — labels from the built card on
+              // feat/onemark-w3-live-ops, practice/_components/progress-card.tsx.
+              action:
+                "Check the **My progress** card on the same screen: what is **Due for review**, and your **Weakest unit**.",
+              detail:
+                "It is your own record, nobody else's, and it is the same picture your Senior Learner sees. A weakest unit that stays the same for weeks is the one to ask about.",
+              link: { label: "Open OneMark Practice", href: "/foundation/onemark/practice" },
             },
           ],
         },

@@ -40,7 +40,15 @@ describe('Foundation Senior Learner lane composition', () => {
   it('leaves the pre-existing review sections on their original gate', () => {
     // The OneMark sections are the other separately-gated groups in this lane
     // (see the describe below); everything else must stay on the review gate.
-    const ownGate = new Set(['run-a-session', 'onemark-paper', 'onemark-review']);
+    // Wave 3 Lane N added two more: reading a paper's results rides the
+    // paper-builder gate, keeping the unit list rides the approver gate.
+    const ownGate = new Set([
+      'run-a-session',
+      'onemark-paper',
+      'onemark-review',
+      'onemark-results',
+      'onemark-units',
+    ]);
     const others = sections.filter((s) => !ownGate.has(s.id));
     expect(others.length).toBeGreaterThan(0);
     for (const s of others) {
@@ -138,5 +146,92 @@ describe('Foundation Senior Learner lane — OneMark composition', () => {
     expect(onemark.requires).toBe(REQUIRES.learner);
     // Decision 18: skipped is not wrong and never enters the vault.
     expect(JSON.stringify(onemark).toLowerCase()).toContain('skipping is never a mistake');
+  });
+});
+
+/**
+ * OneMark Wave 3 (Lane N) — the same fragility again for the two screens the
+ * wave added. Results rides the paper-builder key and the unit list rides the
+ * approver key; swapping either, or folding both back into one withRequires()
+ * call, hides them from the person they were written for with no error.
+ *
+ * Every label asserted below was copied from the built screen on its lane
+ * branch, not from the spec — Wave 2 lost a round to "Practise" for exactly
+ * the opposite reason.
+ */
+describe('Foundation Senior Learner lane — OneMark Wave 3 composition', () => {
+  const results = sections.find((s) => s.id === 'onemark-results');
+  const units = sections.find((s) => s.id === 'onemark-units');
+
+  it('contributes both Wave 3 sections into the Senior Learner lane', () => {
+    expect(results).toBeDefined();
+    expect(units).toBeDefined();
+    expect(results.steps.length).toBeGreaterThan(0);
+    expect(units.steps.length).toBeGreaterThan(0);
+  });
+
+  it('gates each on the key that opens its own screen', () => {
+    expect(results.requires).toBe('foundation.assessments.manage');
+    expect(results.requires).toBe(REQUIRES.paper_builder);
+    expect(units.requires).toBe('foundation.items.manage');
+    expect(units.requires).toBe(REQUIRES.item_approver);
+    expect(results.requires).not.toBe(REQUIRES.facilitator);
+    expect(units.requires).not.toBe(REQUIRES.facilitator);
+    expect(results.requires).not.toBe(units.requires);
+  });
+
+  it('deep-links each to its own screen and nowhere else in the module', () => {
+    const hrefsOf = (s: any) => s.steps.map((x: any) => x.link?.href).filter(Boolean);
+    expect(new Set(hrefsOf(results))).toEqual(new Set(['/foundation/onemark/results']));
+    expect(new Set(hrefsOf(units))).toEqual(new Set(['/foundation/onemark/units']));
+  });
+
+  it('uses the built screens’ own words, and names the two rulings behind them', () => {
+    const resultsText = JSON.stringify(results);
+    // cohort-sheet.tsx headings and controls, verbatim.
+    for (const label of [
+      'Score list',
+      'Export CSV',
+      'How each question behaved',
+      'Most-chosen wrong option',
+      'Accuracy by unit',
+      'Accuracy by question type',
+    ]) {
+      expect(resultsText, `${label} is not the built screen’s wording`).toContain(label);
+    }
+    // Ruling #14 — the download carries names and scores, never a key.
+    expect(resultsText.toLowerCase()).toContain('never carries an answer key');
+    // Ruling #9 — per-question numbers hide below three learners, NOT five.
+    expect(resultsText.toLowerCase()).toContain('until three learners');
+    expect(resultsText).not.toContain('five learners');
+
+    const unitsText = JSON.stringify(units);
+    // units-board.tsx controls and counters, verbatim.
+    for (const label of [
+      'Add a unit',
+      'Add unit',
+      'Retire',
+      'Bring back',
+      'Units in use',
+      'Questions in the bank',
+      'Waiting for a tick',
+      'no Tamil name yet',
+    ]) {
+      expect(unitsText, `${label} is not the built screen’s wording`).toContain(label);
+    }
+    // Retire, never delete — the wall Lane S3 puts behind this screen.
+    expect(unitsText.toLowerCase()).toContain('nothing here deletes');
+  });
+
+  it('gives the learner their own half of the results — the progress card, not the operator sheet', () => {
+    const learner = (foundationGuide.lanes as any).learner;
+    const onemark = (learner.sections as Array<any>).find((s) => s.id === 'onemark-practice');
+    const text = JSON.stringify(onemark);
+    // progress-card.tsx headings, verbatim (Lane L).
+    expect(text).toContain('My progress');
+    expect(text).toContain('Due for review');
+    expect(text).toContain('Weakest unit');
+    // The learner lane must never deep-link the operator results screens.
+    expect(text).not.toContain('/foundation/onemark/results');
   });
 });
