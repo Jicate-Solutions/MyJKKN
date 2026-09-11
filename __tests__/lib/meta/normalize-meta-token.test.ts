@@ -18,7 +18,7 @@ vi.mock('@sentry/nextjs', () => ({
  */
 
 // Shaped like a Meta token (same fixture as redact-credentials.test.ts); not a live credential.
-const CLEAN = 'EAAGNeb4CWZCUBRgixZCZAioTE3vC1OAzhpG0VE8IF8DEBFFGa3bFw9pZA0biHtWayFOoZD';
+const CLEAN = 'EAAFakeTokenForUnitTestsOnlyNotARealMetaCredentialXXXXXXXXXXXXXXXXXXXXX';
 const WRAPPED = `${CLEAN.slice(0, 32)}\n${CLEAN.slice(32)}`;
 
 afterEach(() => {
