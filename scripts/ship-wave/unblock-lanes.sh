@@ -33,12 +33,17 @@
 #                         previous verdict as a hint (Director: "one more helper try"). After that the
 #                         existing once-only author nudge applies. Implemented inside dispatch_clusters
 #                         via lane_retry_allowed().
+#   Lane E  STALE DRAFT — a Draft PR untouched (gh `updatedAt`) for 3 days gets ONE nudge comment to its
+#                         author; at 7 days untouched the wave asks the Director (Close / Keep / Nudge
+#                         again) through the desk channel. Director 2026-09-11 12:34: "nudge at 3 days,
+#                         ask me at 7". The wave NEVER closes a draft on its own — a close happens only
+#                         after his tapped answer comes back through the desk (lane_stale_drafts).
 #   Pacing  --if-changed — skip a `go --goal` run when no open PR's head, state or approval changed
 #                         since the last run (still runs at least every 12 h). Three skipped runs in a
 #                         row print the NEEDS-YOU list once instead of a fourth identical receipt.
 #
-# What this file deliberately does NOT do: merge anything, close anything, loosen a tier, or touch a
-# database. Tiering (UNSTABLE stays blocked — Director: "fix the tests first") is unchanged.
+# What this file deliberately does NOT do: merge anything, close anything on its own judgement, loosen a
+# tier, or touch a database. Tiering (UNSTABLE stays blocked — Director: "fix the tests first") is unchanged.
 # Sourced by ship-wave.sh after rebase-remaining.sh (needs say, ledger_record, STATE, REPO, T, MODE, MAX_DISPATCH).
 
 UNBLOCK_DIR="$STATE/unblocked"; mkdir -p "$UNBLOCK_DIR" "$STATE/retried" "$STATE/second-opinion"
@@ -52,6 +57,12 @@ LANE_TTL_H="${LANE_TTL_H:-24}"
 # it is just no longer one TAB. (Director 2026-09-08, on tabs compacting past 75%.)
 FIX_CAP="${FIX_CAP:-5}"
 REQUIRED_CHECKS='TypeCheck (PR-scoped)|JKKN terminology|Nav-config hrefs match page.tsx|No Radix SelectItem with empty value'
+# Lane E (Director 2026-09-11 12:34: "nudge at 3 days, ask me at 7"). Days, not hours: a draft is its author's
+# parking space and a weekend is not silence. "Keep" is the Director's own silence period for that PR.
+DRAFT_NUDGE_D="${DRAFT_NUDGE_D:-3}"   # days untouched → ONE comment to the author, once per silence
+DRAFT_ASK_D="${DRAFT_ASK_D:-7}"       # days untouched → ONE question to the Director: Close / Keep / Nudge again
+DRAFT_KEEP_D="${DRAFT_KEEP_D:-7}"     # "Keep" silences the lane for that PR for this many days; then the cycle restarts
+STALE_DIR="$STATE/stale-drafts"; mkdir -p "$STALE_DIR"
 
 _lane_age_h() {  # $1 = marker file → hours since written, or 9999
   [ -f "$1" ] || { echo 9999; return; }
@@ -272,6 +283,161 @@ The local checkout at $LOCAL is far behind production: trust ONLY jicate/main an
   else say "  FAILED to boot $sname for the fix lane — left for inspection"; fi
 }
 
+# ── Lane E: STALE DRAFT PRs (Director 2026-09-11 12:34) ─────────────────────
+# His ruling, verbatim: "nudge at 3 days, ask me at 7". A Draft PR untouched for DRAFT_NUDGE_D days gets ONE
+# comment nudging its author; at DRAFT_ASK_D days untouched the wave asks the Director (Close / Keep /
+# Nudge again) through the desk channel (desk-questions.sh, HUMAN-IN-THE-LOOP.md §A); the wave NEVER closes
+# a draft on its own. "Untouched" = the PR's `updatedAt` from `gh pr view --json updatedAt,isDraft`, drafts
+# only. Every option's `writes` is `noop`: the desk applies nothing and adds no op to its allowlist (that
+# list is policy, not a builder's call) — the ANSWER is the signal, and this lane reads it back from
+# $STATE/questions/answered/<id>.json, the file the desk writes for every tapped answer. Close is carried
+# out here, by the wave, only once that answer says Close.
+#
+# One marker per PR, $STATE/stale-drafts/<n> — <date> \t <stage> \t <a> \t <b> \t <epoch>:
+#   nudged  a = updatedAt BEFORE the nudge (the author's last activity)   b = updatedAt AFTER it (the
+#           wave's own comment moves updatedAt; remembering our bump is what stops it reading as the
+#           author's reply)   epoch = when the nudge went out
+#   asked   a = the question id   b = updatedAt at ask time
+#   keep    a = epoch until which the lane stays silent on this PR
+#   closed  a = the question id whose Close answer was carried out — dropped from the lane
+# The ask fires only when BOTH hold: idle ≥ DRAFT_ASK_D since the author's last activity AND the nudge
+# is ≥ (DRAFT_ASK_D − DRAFT_NUDGE_D) days old — so a draft first seen at 30 days idle still gets its
+# author four days to answer the nudge before the Director is bothered. Any updatedAt that is not our
+# own comment (more than 5 minutes after the nudge) is activity: the marker is removed and the cycle
+# starts over from a clean count. plan mode prints "would …" and writes nothing.
+_draft_mark()  { printf '%s\t%s\t%s\t%s\t%s\n' "$(date '+%F %T')" "$2" "${3:-}" "${4:-}" "$(date +%s)" > "$STALE_DIR/$1"; }
+_draft_stage() { [ -f "$STALE_DIR/$1" ] && cut -f2 "$STALE_DIR/$1" 2>/dev/null; }
+_draft_f()     { cut -f"$2" "$STALE_DIR/$1" 2>/dev/null; }   # $1 = PR  $2 = field (3 = a, 4 = b, 5 = epoch)
+_iso_epoch() {  # ISO timestamp → unix seconds, or 0 when unreadable
+  python3 -c 'import sys,datetime
+try: print(int(datetime.datetime.fromisoformat(sys.argv[1].replace("Z","+00:00")).timestamp()))
+except Exception: print(0)' "${1:-}" 2>/dev/null || echo 0
+}
+_days_since_iso()   { local e; e=$(_iso_epoch "$1"); [ "$e" -gt 0 ] && echo $(( ( $(date +%s) - e ) / 86400 )) || echo 9999; }
+_days_since_epoch() { echo $(( ( $(date +%s) - ${1:-0} ) / 86400 )); }
+_draft_view() {  # $1 = PR → "<updatedAt>\t<true|false>" or nothing when gh cannot answer
+  gh pr view "$1" --repo "$REPO" --json updatedAt,isDraft 2>/dev/null | python3 -c 'import json,sys
+d=json.load(sys.stdin); u=d.get("updatedAt") or ""
+print(u + "\t" + str(bool(d.get("isDraft"))).lower()) if u else None' 2>/dev/null
+}
+_draft_nudge() {  # $1 = PR  $2 = idle days → 0 once the comment landed
+  gh pr comment "$1" --repo "$REPO" --body "This draft has had no activity for $2 days — still working on it? The W12 ship wave will ask the Director at $DRAFT_ASK_D days whether to close it, keep it, or nudge again; it never closes a draft on its own." >/dev/null 2>&1
+}
+_draft_ask() {  # $1 = PR  $2 = idle days  $3 = PR title → ASK_DIRECTOR_ID (empty when the desk refused)
+  local opts
+  # option order is the Director's wording — Close / Keep / Nudge again; the RECOMMENDED tap is Keep (index 1),
+  # the one that changes nothing, same rule as a freeze question's "Keep it stopped".
+  opts='[{"label":"Close","description":"The wave closes draft #'"$1"' with a comment; the branch stays, so it can be reopened.","writes":[{"op":"noop"}]},'
+  opts="$opts"'{"label":"Keep","description":"Leave it open; the wave stays silent about #'"$1"' for '"$DRAFT_KEEP_D"' more days.","writes":[{"op":"noop"}]},'
+  opts="$opts"'{"label":"Nudge again","description":"One more comment to the author now; the wave asks you again in '"$DRAFT_ASK_D"' days if it is still untouched.","writes":[{"op":"noop"}]}]'
+  # the title carries no day count on purpose: ask_director de-duplicates on kind+class+title, so a re-ask
+  # after the question expires refreshes the SAME file instead of leaving an expired twin behind
+  Q_RECOMMENDED=1 Q_EXPIRES_H=$((DRAFT_KEEP_D*24)) ask_director held "stale-draft #$1" \
+    "Draft #$1 has sat untouched for over a week — close it, keep it, or nudge again? ${3:0:30}" \
+    "Draft PR #$1 has had no activity for $2 days; its author was nudged once at $DRAFT_NUDGE_D days and did not respond. Close: the wave closes it with a comment and keeps the branch. Keep: nothing happens for $DRAFT_KEEP_D more days. Nudge again: one more comment now, and you are asked again in $DRAFT_ASK_D days if it stays silent." \
+    "$opts"
+}
+_draft_answer() {  # $1 = question id → the tapped label ("other" for free text), or nothing while unanswered
+  local f="${QUESTIONS_DIR:-$STATE/questions}/answered/$1.json"
+  [ -f "$f" ] || return 0
+  python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("chosen",""))' "$f" 2>/dev/null
+}
+_draft_q_open() {  # $1 = question id → 0 while the question is still on the desk's list (present, unexpired)
+  local f="${QUESTIONS_DIR:-$STATE/questions}/$1.json"
+  [ -f "$f" ] || return 1
+  python3 -c 'import json,sys,datetime
+q=json.load(open(sys.argv[1])); t=datetime.datetime.fromisoformat(q["asked_at"])
+sys.exit(0 if t+datetime.timedelta(hours=int(q.get("expires_after_h",48))) > datetime.datetime.now().astimezone() else 1)' "$f" 2>/dev/null
+}
+
+lane_stale_drafts() {  # $1 = run dir (plan.json already written by sweep) — Lane E
+  local run="$1" n title view upd isdraft stage idle a b ep nage ans qid until seen=0 acted=0
+  say; say "--- 1c. lane E: stale drafts · nudge once at ${DRAFT_NUDGE_D}d · ask the Director at ${DRAFT_ASK_D}d (Close / Keep / Nudge again) · never closed on the wave's own ---"
+  while IFS=$'\t' read -r n title; do
+    [ -n "$n" ] || continue
+    seen=$((seen+1)); stage=$(_draft_stage "$n")
+    case "$stage" in
+      closed)
+        # the Director's Close was carried out; `gh pr list` may still show it for a round. If it is still
+        # listed a day later the PR was reopened — that is activity, and the lane starts over.
+        if [ "$(_days_since_epoch "$(_draft_f "$n" 5)")" -lt 1 ]; then say "  E  #$n  closed on the Director's answer — dropped from the lane"; continue; fi
+        rm -f "$STALE_DIR/$n"; stage=""; say "  E  #$n  was closed on the Director's answer and is open again — the lane starts over";;
+      keep)
+        until=$(_draft_f "$n" 3)
+        if [ "$(date +%s)" -lt "${until:-0}" ]; then say "  E  #$n  Director said Keep — quiet until $(date -r "$until" '+%F' 2>/dev/null)"; continue; fi
+        rm -f "$STALE_DIR/$n"; stage=""; say "  E  #$n  the Keep period ended — the lane starts over";;
+    esac
+    view=$(_draft_view "$n"); upd="${view%%$'\t'*}"; isdraft="${view##*$'\t'}"
+    if [ -z "$upd" ] || [ "$isdraft" != true ]; then
+      say "  E  #$n  gh could not read updatedAt, or it is no longer a draft — left alone"
+      [ "$isdraft" = false ] && rm -f "$STALE_DIR/$n"; continue
+    fi
+    idle=$(_days_since_iso "$upd")
+    case "$stage" in
+      "")
+        if [ "$idle" -lt "$DRAFT_NUDGE_D" ]; then say "  E  #$n  draft, idle ${idle}d — under the ${DRAFT_NUDGE_D}-day line"; continue; fi
+        if [ "$MODE" != "go" ]; then say "  E  #$n  would nudge its author once (idle ${idle}d)"; continue; fi
+        if _draft_nudge "$n" "$idle"; then
+          b=$(_draft_view "$n"); b="${b%%$'\t'*}"   # our comment just moved updatedAt — remember OUR bump
+          _draft_mark "$n" nudged "$upd" "${b:-$upd}"; acted=$((acted+1))
+          say "  E  #$n  idle ${idle}d — nudged its author once; the Director is asked at ${DRAFT_ASK_D}d"
+          ledger_record unblocked "stale draft #$n: nudged its author at ${idle}d idle" "lane e nudge"
+        else say "  E  #$n  nudge FAILED (gh pr comment) — left untouched, tried again next round"; fi;;
+      nudged)
+        a=$(_draft_f "$n" 3); b=$(_draft_f "$n" 4); ep=$(_draft_f "$n" 5)
+        if [ "$upd" != "$b" ]; then
+          # updatedAt moved. Within 5 min of our nudge it is GitHub settling our own comment; later, it is a person.
+          if [ "$(_iso_epoch "$upd")" -le $(( ${ep:-0} + 300 )) ]; then
+            printf '%s\t%s\t%s\t%s\t%s\n' "$(cut -f1 "$STALE_DIR/$n")" nudged "$a" "$upd" "$ep" > "$STALE_DIR/$n"
+          else rm -f "$STALE_DIR/$n"; say "  E  #$n  activity since the nudge — the lane resets its count"; continue; fi
+        fi
+        idle=$(_days_since_iso "$a"); nage=$(_days_since_epoch "$ep")
+        if [ "$idle" -lt "$DRAFT_ASK_D" ] || [ "$nage" -lt $(( DRAFT_ASK_D - DRAFT_NUDGE_D )) ]; then
+          say "  E  #$n  nudged ${nage}d ago, idle ${idle}d — the Director is asked at ${DRAFT_ASK_D}d"; continue; fi
+        type -t ask_director >/dev/null 2>&1 || { say "  E  #$n  idle ${idle}d, but the desk channel (desk-questions.sh) is not loaded — cannot ask; left"; continue; }
+        if [ "$MODE" != "go" ]; then say "  E  #$n  would ask the Director: Close / Keep / Nudge again (idle ${idle}d)"; continue; fi
+        _draft_ask "$n" "$idle" "$title"
+        if [ -n "${ASK_DIRECTOR_ID:-}" ]; then
+          _draft_mark "$n" asked "$ASK_DIRECTOR_ID" "$upd"; acted=$((acted+1))
+          say "  E  #$n  idle ${idle}d — asked the Director (Close / Keep / Nudge again): $ASK_DIRECTOR_ID"
+          ledger_record unblocked "stale draft #$n: asked the Director at ${idle}d idle" "lane e ask"
+        else say "  E  #$n  the desk refused the question — left, tried again next round"; fi;;
+      asked)
+        qid=$(_draft_f "$n" 3); ans=$(_draft_answer "$qid")
+        if [ -z "$ans" ]; then
+          if _draft_q_open "$qid"; then say "  E  #$n  waiting for the Director's answer ($qid)"
+          elif [ "$MODE" = "go" ]; then _draft_ask "$n" "$idle" "$title"; say "  E  #$n  the question expired unanswered — put back on the desk"
+          else say "  E  #$n  the question expired unanswered — would put it back on the desk"; fi
+          continue
+        fi
+        case "$ans" in
+          Close)
+            if [ "$MODE" != "go" ]; then say "  E  #$n  Director said Close — would close it (branch kept)"; continue; fi
+            if gh pr close "$n" --repo "$REPO" --comment "Closed by the W12 ship wave on the Director's decision: this draft had no activity for $DRAFT_ASK_D+ days after a nudge. The branch is untouched — reopen the PR if the work resumes." >/dev/null 2>&1; then
+              _draft_mark "$n" closed "$qid"; acted=$((acted+1))
+              say "  E  #$n  Director said Close — closed (branch kept); dropped from the lane"
+              ledger_record unblocked "stale draft #$n: closed on the Director's answer" "lane e close"
+            else say "  E  #$n  Director said Close but gh pr close FAILED — left, tried again next round"; fi;;
+          "Nudge again")
+            if [ "$MODE" != "go" ]; then say "  E  #$n  Director said Nudge again — would comment once more"; continue; fi
+            if _draft_nudge "$n" "$idle"; then
+              b=$(_draft_view "$n"); b="${b%%$'\t'*}"
+              _draft_mark "$n" nudged "$(date -u +%FT%TZ)" "${b:-$upd}"; acted=$((acted+1))
+              say "  E  #$n  Director said Nudge again — nudged; he is asked again in ${DRAFT_ASK_D}d if it stays silent"
+              ledger_record unblocked "stale draft #$n: nudged again on the Director's answer" "lane e nudge again"
+            else say "  E  #$n  nudge FAILED (gh pr comment) — left, tried again next round"; fi;;
+          *)  # Keep — and free text ("other"), which applies nothing: the only safe reading of it is Keep
+            if [ "$MODE" != "go" ]; then say "  E  #$n  Director said $ans — would keep it and stay quiet ${DRAFT_KEEP_D}d"; continue; fi
+            _draft_mark "$n" keep "$(( $(date +%s) + DRAFT_KEEP_D*86400 ))"; acted=$((acted+1))
+            say "  E  #$n  Director said $ans — kept; quiet for ${DRAFT_KEEP_D}d"
+            ledger_record unblocked "stale draft #$n: kept on the Director's answer ($ans)" "lane e keep";;
+        esac;;
+    esac
+  done < <(python3 -c 'import json,sys
+for r in json.load(open(sys.argv[1]))["draft"]: print(str(r["number"]) + "\t" + str(r.get("title","")).replace("\t"," ").replace("\n"," "))' "$run/plan.json" 2>/dev/null)
+  say "  lane E: $seen drafts examined · $acted acted on now"
+}
+
 # ── stage 1b: cause → action ──────────────────────────────────────────────────
 unblock_lanes() {  # $1 = run dir (plan.json already written by sweep)
   local run="$1" lane n br why st res stage age human_v
@@ -429,6 +595,9 @@ PY
     dispatch_fix_lane "$run" "$grp" "$why"
   done
   say "  lanes: $(grep -c . "$run/lanes.tsv" 2>/dev/null || echo 0) PRs examined · $acted acted on now"
+  # Lane E runs on the same plan.json, after the blocked lanes: drafts are never in lanes.tsv (the sweep files
+  # them under "draft", never "blocked"), so nothing above touches them and nothing here touches a non-draft.
+  lane_stale_drafts "$run"
 }
 
 # ── pacing: --if-changed ──────────────────────────────────────────────────────
