@@ -66690,6 +66690,51 @@ export type Database = {
           },
         ]
       }
+      hostel_category_room_sources: {
+        Row: {
+          category_id: string
+          created_at: string
+          id: string
+          is_active: boolean
+          sort_order: number
+          source_category_id: string
+          updated_at: string
+        }
+        Insert: {
+          category_id: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          sort_order?: number
+          source_category_id: string
+          updated_at?: string
+        }
+        Update: {
+          category_id?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          sort_order?: number
+          source_category_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_category_room_sources_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_category_room_sources_source_category_id_fkey"
+            columns: ["source_category_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hostel_category_upgrade_fees: {
         Row: {
           amount: number
@@ -172687,6 +172732,7 @@ export type Database = {
           periods: Json
           program_id: string | null
           section_id: string | null
+          section_ids: string[] | null
           selected_dates: Json | null
           selected_days: Json | null
           semester_id: string | null
@@ -172723,6 +172769,7 @@ export type Database = {
           periods?: Json
           program_id?: string | null
           section_id?: string | null
+          section_ids?: string[] | null
           selected_dates?: Json | null
           selected_days?: Json | null
           semester_id?: string | null
@@ -172759,6 +172806,7 @@ export type Database = {
           periods?: Json
           program_id?: string | null
           section_id?: string | null
+          section_ids?: string[] | null
           selected_dates?: Json | null
           selected_days?: Json | null
           semester_id?: string | null

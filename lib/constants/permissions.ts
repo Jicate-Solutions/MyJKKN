@@ -2730,7 +2730,15 @@ export const PERMISSION_CATEGORIES = [
       // claim is a judgement call that accreditation evidence may later lean
       // on, and because linking reaches data (ig_posts) that the events
       // permissions otherwise say nothing about.
-      { key: 'events.social.manage', label: 'Link Instagram Posts to an Event' }
+      { key: 'events.social.manage', label: 'Link Instagram Posts to an Event' },
+      // Review Comments on an event console (2026-09-11). Super admin, the
+      // event's creator and its in-charge see the thread without a key; these
+      // admit everyone else, over institutions they can reach. Replaced the
+      // hardcoded admin/administrator/event_coordinator role names in
+      // fn_can_read_event_review_comments / fn_is_event_review_admin
+      // (20261130090000). Never fold into events.view — students hold it.
+      { key: 'events.review_comments.view', label: 'View & Reply to Event Review Comments' },
+      { key: 'events.review_comments.resolve', label: "Resolve Others' Event Review Comments" }
     ]
   },
   // Course Events (2026-08-13). Paid, multi-session learning courses open to

@@ -16,6 +16,7 @@ import { SessionsSection } from './_components/sessions-section';
 import { EventCoordinatorsSection } from './_components/event-coordinators-section';
 import { EventFeedbackLinkCard } from '@/components/events/feedback/event-feedback-link-card';
 import { EventTasksCard } from '@/components/events/shared/event-tasks-card';
+import { EventReviewCommentsCard } from '@/components/events/shared/event-review-comments-card';
 import { FeedbackVolunteersSection } from './_components/feedback-volunteers-section';
 import { FeedbackByCollegeSection } from './_components/feedback-by-college-section';
 import { SessionFeedbackSection } from './_components/session-feedback-section';
@@ -387,6 +388,11 @@ export default function InductionDetailPage() {
 
         {/* Self-improving loop playbook + adoption-verdict (counterfactual) control */}
         <LoopPlaybookSection institutionId={event?.institution_id ?? null} academicYearId={academicYearId} />
+
+        {/* Review comments — the reviewing authority's remarks on this induction
+            and the coordinator's replies. Gates itself; renders nothing for
+            anyone outside the review circle, freshers included. */}
+        <EventReviewCommentsCard eventId={id} />
       </div>
 
       {/* Preview-before-enroll confirm gate — shows exactly who will be enrolled
