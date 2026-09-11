@@ -960,6 +960,8 @@ PY
     fi
   else say "  (plan mode or hard freeze — nothing merged)"; fi
   say "  merged this round: $merged$merged_list"
+  # (f) what THIS round's merges put in merged-files.txt, counted before §C and the leftover-batch flush append to it
+  local round_merged=$merged round_lines; round_lines=$(wc -l < "$merged_files" | tr -d ' ')
 
   # §C: the third deploy trigger — main HEAD != last-deployed. Files changed since the last deploy join merged_files,
   # so the apply (their migrations), the ignoreCommand check and the sweep all see what is actually about to go live.
@@ -1037,7 +1039,17 @@ PY
   # the deploy stage must never act outside `go`, whatever the batch file holds.
   if [ "$MODE" != "go" ]; then deploy="skipped (plan mode)"; DEPLOY_DEFERRED=1; fi
   if [ -n "$DEPLOY_DEFERRED" ]; then :
-  elif [ "$apply_ok" -eq 0 ]; then say "  NOT deploying — migration step failed; the previous deploy stays live"; deploy="skipped (migration failed)"
+  elif [ "$apply_ok" -eq 0 ]; then
+    # 2026-09-11 (wave bug f): a round whose migration step failed never wrote its merged files to deploy-pending — the
+    # goal branch above appends only when the apply succeeded, and this branch just said "NOT deploying". A later batch of
+    # only database files then read as "migration/docs-only — nothing to deploy", so those merges' CODE never went live.
+    # Whenever this round merged something, its files join deploy-pending here, before this branch declines to deploy;
+    # the first build that runs (goal end, a plain-go flush, or a lifted stop) carries them.
+    if [ -z "${FINAL_DEPLOY:-}" ] && [ "${round_merged:-0}" -gt 0 ] && [ "${round_lines:-0}" -gt 0 ]; then
+      head -n "$round_lines" "$merged_files" >> "$pending"
+      say "  this round's $round_merged merge(s) kept in $pending ($round_lines file(s)) — their code ships with the first build that runs"
+    fi
+    say "  NOT deploying — migration step failed; the previous deploy stays live"; deploy="skipped (migration failed)"
   elif [ -n "$prod_is_main" ]; then
     # no empty builds: Vercel already runs main HEAD — whatever the marker or the batch file said (verifier's H1)
     deploy="nothing to deploy (production already runs main HEAD ${main_sha:0:7}; source: $prod_src)"; say "  $deploy"
