@@ -1,6 +1,7 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logActivityForCurrentUser, BillingActivityTemplates } from '@/lib/utils/activity-logger-client';
 import { INVOICE_EMAIL_NOT_AVAILABLE } from '@/lib/services/billing/email-not-available';
+import { invoiceDownloadFileName } from '@/lib/services/billing/print-and-download-text';
 import type {
   BillingInvoice,
   CreateInvoiceDto,
@@ -381,7 +382,10 @@ export class BillingInvoiceService {
     throw new Error(INVOICE_EMAIL_NOT_AVAILABLE);
   }
 
-  // Download invoice as PDF
+  // Download invoice as a WEB PAGE (.html) — NOT a PDF, despite the method
+  // name. The buttons used to say "Download PDF"; they now say
+  // "Download (web page)". A real PDF could reuse jsPDF the way receipts do
+  // (lib/utils/billing/receipt-pdf.ts).
   static async downloadInvoicePDF(id: string): Promise<void> {
     try {
       const invoice = await this.getBillingInvoice(id);
@@ -396,7 +400,7 @@ export class BillingInvoiceService {
       // Create a temporary link and trigger download
       const link = document.createElement('a');
       link.href = url;
-      link.download = `invoice-${invoice.invoice_number}.html`;
+      link.download = invoiceDownloadFileName(invoice.invoice_number);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -405,10 +409,10 @@ export class BillingInvoiceService {
       window.URL.revokeObjectURL(url);
 
       console.log(
-        `Invoice PDF download initiated for: ${invoice.invoice_number}`
+        `Invoice web page download initiated for: ${invoice.invoice_number}`
       );
     } catch (error) {
-      console.error('Error downloading invoice PDF:', error);
+      console.error('Error downloading invoice:', error);
       throw error;
     }
   }

@@ -204,17 +204,10 @@ export function useVoidBillingReceipt() {
   });
 }
 
-export function usePrintReceipt() {
-  return useMutation({
-    mutationFn: (id: string) => BillingReceiptService.printReceipt(id),
-    onSuccess: () => {
-      toast.success('Receipt printed successfully');
-    },
-    onError: (error: Error) => {
-      toast.error(error.message || 'Failed to print receipt');
-    }
-  });
-}
+// usePrintReceipt was removed 2026-09-11: it showed a success message over a
+// service method that only logged, so nothing printed.
+// Printing from the receipts list is not built; that Print item calls
+// showPrintNotAvailable (components/billing) and offers Download.
 
 // useEmailReceipt was removed 2026-09-11: it showed a success message over a
 // service method that sent nothing. Emailing is not built;

@@ -12,6 +12,7 @@ import { logger } from '@/lib/utils/enhanced-logger';
 import { trackUsage } from '@/lib/utils/track-usage';
 import { logActivityForCurrentUser, BillingActivityTemplates } from '@/lib/utils/activity-logger-client';
 import { RECEIPT_EMAIL_NOT_AVAILABLE } from '@/lib/services/billing/email-not-available';
+import { RECEIPT_PRINT_NOT_AVAILABLE } from '@/lib/services/billing/print-and-download-text';
 
 export class BillingReceiptService {
   private static supabase = createClientSupabaseClient();
@@ -460,20 +461,13 @@ export class BillingReceiptService {
     }
   }
 
-  static async printReceipt(id: string): Promise<void> {
-    try {
-      // Implementation for printing receipt
-      // This would typically generate a PDF and trigger print dialog
-      const receipt = await this.getBillingReceipt(id);
-
-      // TODO: Implement actual printing logic
-      console.log('Printing receipt:', receipt);
-    } catch (error) {
-      console.error('Error printing receipt:', error);
-      throw new Error(
-        error instanceof Error ? error.message : 'Failed to print receipt'
-      );
-    }
+  // Printing is NOT built. This used to fetch the receipt, log it and resolve,
+  // so the receipts list showed a success message while nothing printed.
+  // It now rejects with a message pointing staff to Download.
+  // Real printing can reuse generateReceiptPdf (lib/utils/billing/receipt-pdf)
+  // the way printSchoolReceiptPdf does (autoPrint + open in a new tab).
+  static async printReceipt(_id: string): Promise<void> {
+    throw new Error(RECEIPT_PRINT_NOT_AVAILABLE);
   }
 
   // Emailing is NOT built. This used to log and resolve, so the receipts list

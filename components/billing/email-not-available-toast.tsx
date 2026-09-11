@@ -1,14 +1,16 @@
 'use client';
 
-// Shown when staff click an Email button on a receipt or invoice. Emailing is
-// not built (see lib/services/billing/email-not-available.ts), so the click
-// explains that and offers the Download action in the same message.
+// Shown when staff click an Email button on a receipt or invoice, or a receipt
+// Print button that cannot print yet. Neither is built (see
+// lib/services/billing/email-not-available.ts and print-and-download-text.ts),
+// so the click explains that and offers the Download action in the same message.
 
 import toast from 'react-hot-toast';
 import {
   INVOICE_EMAIL_NOT_AVAILABLE,
   RECEIPT_EMAIL_NOT_AVAILABLE
 } from '@/lib/services/billing/email-not-available';
+import { RECEIPT_PRINT_NOT_AVAILABLE } from '@/lib/services/billing/print-and-download-text';
 
 export function showEmailNotAvailable(
   kind: 'receipt' | 'invoice',
@@ -17,6 +19,16 @@ export function showEmailNotAvailable(
   const message =
     kind === 'receipt' ? RECEIPT_EMAIL_NOT_AVAILABLE : INVOICE_EMAIL_NOT_AVAILABLE;
 
+  // One id per kind: repeated clicks replace the message instead of stacking.
+  showWithDownload(`billing-email-not-available-${kind}`, message, onDownload);
+}
+
+/** A receipt Print button that cannot print yet: say so and offer Download. */
+export function showPrintNotAvailable(onDownload?: () => void) {
+  showWithDownload('billing-print-not-available-receipt', RECEIPT_PRINT_NOT_AVAILABLE, onDownload);
+}
+
+function showWithDownload(id: string, message: string, onDownload?: () => void) {
   toast(
     (t) => (
       <span className='flex items-center gap-3'>
@@ -35,7 +47,6 @@ export function showEmailNotAvailable(
         )}
       </span>
     ),
-    // One id per kind: repeated clicks replace the message instead of stacking.
-    { id: `billing-email-not-available-${kind}`, duration: 8000 }
+    { id, duration: 8000 }
   );
 }

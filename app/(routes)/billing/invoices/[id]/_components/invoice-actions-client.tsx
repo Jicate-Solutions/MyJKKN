@@ -7,7 +7,8 @@
  *
  * 2026-09-11: "Send Email" showed a success message but nothing was ever
  * emailed. The button now says emailing is not available yet and offers
- * Download instead.
+ * Download instead. "Download PDF" saved a web page (.html), not a PDF, so it
+ * is now labelled "Download (web page)".
  */
 
 
@@ -40,6 +41,7 @@ import {
   EMAIL_NOT_AVAILABLE_LABEL,
   INVOICE_EMAIL_NOT_AVAILABLE
 } from '@/lib/services/billing/email-not-available';
+import { INVOICE_DOWNLOAD_LABEL } from '@/lib/services/billing/print-and-download-text';
 import { showEmailNotAvailable } from '@/components/billing/email-not-available-toast';
 import type { BillingInvoice } from '@/types/billing-schedule';
 
@@ -94,7 +96,7 @@ export function InvoiceActionsClient({
           disabled={isPending || downloadLoading}
         >
           <Download className='mr-2 h-4 w-4' />
-          {downloadLoading ? 'Downloading...' : 'Download PDF'}
+          {downloadLoading ? 'Downloading...' : INVOICE_DOWNLOAD_LABEL}
         </Button>
 
         {invoice.student?.college_email && (

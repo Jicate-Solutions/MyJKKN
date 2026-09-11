@@ -51,6 +51,7 @@ import {
   useDownloadInvoicePDF
 } from '@/hooks/billing/use-billing-invoices';
 import { EMAIL_NOT_AVAILABLE_LABEL } from '@/lib/services/billing/email-not-available';
+import { INVOICE_DOWNLOAD_LABEL } from '@/lib/services/billing/print-and-download-text';
 import { showEmailNotAvailable } from '@/components/billing/email-not-available-toast';
 import { PaginationWithControls } from '@/components/ui/pagination';
 import type { BillingInvoice } from '@/types/billing-schedule';
@@ -387,7 +388,8 @@ export function InvoiceList({
                         disabled={downloadLoading}
                       >
                         <Download className='mr-2 h-4 w-4' />
-                        Download PDF
+                        {/* Saves a web page (.html), not a PDF. */}
+                        {INVOICE_DOWNLOAD_LABEL}
                       </DropdownMenuItem>
                       {/* Emailing is not built: this used to report success
                           after a simulated send. */}

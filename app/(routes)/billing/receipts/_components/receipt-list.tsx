@@ -22,12 +22,15 @@ import type { BillingReceipt } from '@/types/billing-schedule';
 import { BillingReceiptService } from '@/lib/services/billing/receipts/billing-receipt-service';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
-  usePrintReceipt,
   useDownloadReceiptPDF,
   useVoidBillingReceipt
 } from '@/hooks/billing/use-billing-receipts';
 import { EMAIL_NOT_AVAILABLE_LABEL } from '@/lib/services/billing/email-not-available';
-import { showEmailNotAvailable } from '@/components/billing/email-not-available-toast';
+import { PRINT_NOT_AVAILABLE_LABEL } from '@/lib/services/billing/print-and-download-text';
+import {
+  showEmailNotAvailable,
+  showPrintNotAvailable
+} from '@/components/billing/email-not-available-toast';
 import {
   useRequestReceiptCancellation,
   usePendingCancellations
@@ -101,7 +104,6 @@ export function ReceiptList({
   const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
 
   const { canAccess, isSuperAdmin } = usePermissions();
-  const printReceiptMutation = usePrintReceipt();
   const downloadPDFMutation = useDownloadReceiptPDF();
 
   const canViewReceipts = isSuperAdmin || canAccess('billing.receipts', 'view');
@@ -136,14 +138,6 @@ export function ReceiptList({
     } finally {
       setIsLoading(false);
       setReceiptToDelete(null);
-    }
-  };
-
-  const handlePrint = async (receiptId: string) => {
-    try {
-      await printReceiptMutation.mutateAsync(receiptId);
-    } catch (error) {
-      // Error is handled by the mutation
     }
   };
 
@@ -443,12 +437,15 @@ export function ReceiptList({
                           </Link>
                         </DropdownMenuItem>
 
+                        {/* Printing from this list is not built: this used to
+                            show a success message and print nothing. */}
                         <DropdownMenuItem
-                          onClick={() => handlePrint(receipt.id)}
-                          disabled={printReceiptMutation.isPending}
+                          onClick={() =>
+                            showPrintNotAvailable(() => handleDownload(receipt.id))
+                          }
                         >
                           <Printer className='mr-2 h-4 w-4' />
-                          Print
+                          {PRINT_NOT_AVAILABLE_LABEL}
                         </DropdownMenuItem>
 
                         {/* Emailing is not built: this used to open a dialog
