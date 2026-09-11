@@ -93,7 +93,7 @@ describe('SVG: refuse, never rewrite', () => {
   ])('refuses %s and says so', (_label, source, mustSay) => {
     const r = inspectSvg(source);
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toContain(mustSay);
+    if (r.ok === false) expect(r.reason).toContain(mustSay);
   });
 
   it('names every problem at once rather than one per round', () => {
@@ -101,7 +101,7 @@ describe('SVG: refuse, never rewrite', () => {
       '<svg xmlns="http://www.w3.org/2000/svg" onload="x()"><script>y()</script><foreignObject/></svg>',
     );
     expect(r.ok).toBe(false);
-    if (!r.ok) {
+    if (r.ok === false) {
       expect(r.reason).toContain('<script>');
       expect(r.reason).toContain('<foreignObject>');
       expect(r.reason).toContain('event handler');
@@ -158,7 +158,7 @@ describe('PNG: strip the metadata, keep the picture', () => {
     expect(looksLikeJpeg(new Uint8Array(jpeg))).toBe(true);
     const r = stripPngMetadata(new Uint8Array(jpeg));
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toContain('JPEG');
+    if (r.ok === false) expect(r.reason).toContain('JPEG');
   });
 
   it('refuses a truncated PNG rather than storing it', () => {
