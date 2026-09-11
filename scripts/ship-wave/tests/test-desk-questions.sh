@@ -2,6 +2,8 @@
 # test-desk-questions.sh — proof for HUMAN-IN-THE-LOOP §A (question channel + desk).
 # Run from the worktree root:  bash scripts/ship-wave/tests/test-desk-questions.sh
 # Uses a temp $STATE and a fixture Fleet.md; touches nothing live. Prints PASS/FAIL per case, exits 1 on any FAIL.
+# Runs itself under `env -i PATH HOME` — the C locale launchd gives the wave — so a byte-counting bug fails here (round 4).
+[ "${DESK_TEST_ENV_I:-}" = 1 ] || exec env -i PATH="$PATH" HOME="$HOME" DESK_TEST_ENV_I=1 bash "$0" "$@"
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SW="$HERE/.."
@@ -22,7 +24,7 @@ say() { :; }
 . "$SW/policy-learning.sh"
 . "$SW/desk-questions.sh"
 # the check() helper runs assertions in `bash -c` sub-shells — hand them the functions they call
-export -f jq_ say question_writes_valid question_id_valid question_file_valid _q_one_line ask_director questions_open_count policy_active
+export -f jq_ say question_writes_valid question_id_valid question_file_valid question_open_state _q_one_line ask_director _ask_director_locked questions_open_count policy_active
 export QUESTIONS_DIR QUESTIONS_LOG POLICY_DIR QUESTION_ID_RE
 
 FREEZE_OPTS='[
@@ -92,8 +94,8 @@ EOF
   check "5d [$op] nothing applied, file left in place" bash -c "[ ! -e '$STATE/approve-held' ] && [ ! -e '$STATE/FROZEN' ] && [ -f '$STATE/questions/$bid.json' ] && [ ! -e '$STATE/questions/answered/$bid.json' ]"
   rm -f "$STATE/questions/$bid.json"
 done
-check "5e ask_director itself refuses invalid writes (no file written)" bash -c "! ask_director held held 'x' 'y' '[{\"label\":\"a\",\"writes\":[{\"op\":\"delete\"}]}]' >/dev/null && [ \"\$(ls '$STATE/questions'/q-*.json 2>/dev/null | wc -l | tr -d ' ')\" = 0 ]"
-check "5f question_writes_valid accepts every allowed op" question_writes_valid '[{"label":"a","writes":[{"op":"append","file":"approve-held","value":"3410"},{"op":"append","file":"allow-destructive","value":"20260906213000"},{"op":"append","file":"advisory-checks","value":"SDK multi-agent review"},{"op":"unfreeze"},{"op":"ratify","value":"P3"},{"op":"noop"}]}]'
+check "5e ask_director itself refuses invalid writes (no file written)" bash -c "! ask_director held held 'x' 'y' '[{\"label\":\"a\",\"writes\":[{\"op\":\"delete\"}]},{\"label\":\"Keep\",\"writes\":[{\"op\":\"noop\"}]}]' >/dev/null && [ \"\$(ls '$STATE/questions'/q-*.json 2>/dev/null | wc -l | tr -d ' ')\" = 0 ]"
+check "5f question_writes_valid accepts every allowed op" question_writes_valid '[{"label":"a","writes":[{"op":"append","file":"approve-held","value":"3410"},{"op":"append","file":"allow-destructive","value":"20260906213000"},{"op":"append","file":"advisory-checks","value":"SDK multi-agent review"},{"op":"unfreeze"},{"op":"ratify","value":"P3"},{"op":"noop"}]},{"label":"Keep","writes":[{"op":"noop"}]}]'
 
 # ── 6. "other" stores the text and applies nothing ────────────────────────────
 HELD_OPTS='[{"label":"#3410 — fees export","description":"Merges #3410.","writes":[{"op":"append","file":"approve-held","value":"3410"}]},
@@ -117,11 +119,11 @@ check "7b recommended index clamps into range" bash -c "[ \"\$(jq_ '$STATE/quest
 xid="q-20260901-000000-freeze-old"
 cat > "$STATE/questions/$xid.json" <<EOF
 {"id":"$xid","asked_at":"2026-09-01T00:00:00+05:30","kind":"freeze","class":"old","title":"old","body":"",
- "options":[{"label":"Lift the stop","description":"","writes":[{"op":"unfreeze"}]}],"recommended":0,"expires_after_h":48}
+ "options":[{"label":"Lift the stop","description":"","writes":[{"op":"unfreeze"}]},{"label":"Keep","description":"","writes":[{"op":"noop"}]}],"recommended":0,"expires_after_h":48}
 EOF
 check "8a expired question absent from pending" bash -c "! '$DESK' pending | grep -q '$xid'"
 check "8b questions_open_count ignores it" test "$(questions_open_count)" = 0
-check "8c refresh via ask_director revives it (same id, unexpired)" bash -c "ask_director freeze old old '' '[{\"label\":\"Lift the stop\",\"writes\":[{\"op\":\"unfreeze\"}]}]'; [ \"\$ASK_DIRECTOR_ID\" = '$xid' ] && '$DESK' pending | grep -q '$xid'"
+check "8c refresh via ask_director revives it (same id, unexpired)" bash -c "ask_director freeze old old '' '[{\"label\":\"Lift the stop\",\"writes\":[{\"op\":\"unfreeze\"}]},{\"label\":\"Keep\",\"writes\":[{\"op\":\"noop\"}]}]'; [ \"\$ASK_DIRECTOR_ID\" = '$xid' ] && '$DESK' pending | grep -q '$xid'"
 rm -f "$STATE/questions/$xid.json"
 
 # ── 9. ratify applies through policy_ratify ───────────────────────────────────
@@ -190,7 +192,7 @@ open(p, "w").write(json.dumps(q, ensure_ascii=False))
 PY
 }
 export -f mkq
-one_append() { printf '[{"label":"Approve #3410","description":"d","writes":[{"op":"append","file":"%s","value":%s}]}]' "$1" "$2"; }
+one_append() { printf '[{"label":"Approve #3410","description":"d","writes":[{"op":"append","file":"%s","value":%s}]},{"label":"Keep","writes":[{"op":"noop"}]}]' "$1" "$2"; }
 rm -f "$STATE/questions"/q-*.json; : > "$STATE/approve-held"; rm -f "$STATE/allow-destructive" "$STATE/advisory-checks"
 
 # BREAK 1 — one append value must be ONE knob entry as ship-wave.sh reads it (approve-held is split on ',' and whitespace)
@@ -223,7 +225,7 @@ check "BREAK-1f the validator names the offending value" bash -c "question_write
 
 # BREAK 2 — a path-shaped id must never re-apply an answered question
 : > "$STATE/approve-held"
-mkq q-20260910-000110-twice '[{"label":"ok","description":"d","writes":[{"op":"append","file":"approve-held","value":"5555"}]}]' held
+mkq q-20260910-000110-twice '[{"label":"ok","description":"d","writes":[{"op":"append","file":"approve-held","value":"5555"}]},{"label":"Keep","writes":[{"op":"noop"}]}]' held
 "$DESK" answer q-20260910-000110-twice 0 >/dev/null 2>&1
 "$DESK" answer answered/q-20260910-000110-twice 0 > "$STATE/out" 2>&1; rc=$?
 [ $rc -eq 3 ] && [ "$(grep -c 5555 "$STATE/approve-held")" -eq 1 ] && [ -f "$STATE/questions/answered/q-20260910-000110-twice.json" ] && ! grep -q Traceback "$STATE/out" \
@@ -235,7 +237,7 @@ for bad in 'Q-20260910-000110-twice' 'q-20260910-000110-Twice' 'q-20260910-00011
   "$DESK" answer "$bad" 0 >/dev/null 2>&1; rc=$?; [ $rc -eq 3 ] || { ok=0; bad_list="$bad_list [${bad}→rc${rc}]"; }
 done
 [ $ok -eq 1 ] && [ "$(grep -c 5555 "$STATE/approve-held")" -eq 1 ] && pass "BREAK-2c every id outside ^q-[0-9]{8}-[0-9]{6}-[a-z0-9][a-z0-9-]{0,39}\$ is refused with exit 3 before any path is built" || fail "BREAK-2c id shape not enforced:$bad_list"
-check "BREAK-2d an id at the 40-char slug ceiling is still accepted by the shape rule" bash -c "mkq 'q-20260910-000111-$(printf 'a%.0s' $(seq 40))' '[{\"label\":\"ok\",\"writes\":[{\"op\":\"noop\"}]}]' held && '$DESK' answer 'q-20260910-000111-$(printf 'a%.0s' $(seq 40))' 0"
+check "BREAK-2d an id at the 40-char slug ceiling is still accepted by the shape rule" bash -c "mkq 'q-20260910-000111-$(printf 'a%.0s' $(seq 40))' '[{\"label\":\"ok\",\"writes\":[{\"op\":\"noop\"}]},{\"label\":\"Keep\",\"writes\":[{\"op\":\"noop\"}]}]' held && '$DESK' answer 'q-20260910-000111-$(printf 'a%.0s' $(seq 40))' 0"
 
 # BREAK 3 — the desk never reads, applies or moves a file outside $STATE/questions/
 cp "$STATE/questions/answered/q-20260910-000110-twice.json" "$STATE/stray.json"
@@ -265,11 +267,11 @@ check "BREAK-5b ask_director flattens a tab in the class; questions.log stays a 
 printf '# Fleet\n\n## W12 desk — waiting on you\n\nstale\n\n## Blocked\n\nb1\n' > "$FLEET_MD"; strip_section "$FLEET_MD" > "$STATE/b5-before"
 "$DESK" mirror >/dev/null; "$DESK" mirror >/dev/null; strip_section "$FLEET_MD" > "$STATE/b5-after"
 cmp -s "$STATE/b5-before" "$STATE/b5-after" && [ "$(grep -c '^## Injected' "$FLEET_MD")" -eq 0 ] && pass "BREAK-5c title cannot leak a heading outside the section" || fail "BREAK-5c title leaked ($(grep -c '^## Injected' "$FLEET_MD") stray headings)"
-mkq q-20260910-000120-b5d '[{"label":"ok","writes":[{"op":"noop"}]}]' freeze $'line one\n## two'
+mkq q-20260910-000120-b5d '[{"label":"ok","writes":[{"op":"noop"}]},{"label":"Keep","writes":[{"op":"noop"}]}]' freeze $'line one\n## two'
 "$DESK" pending 2>"$STATE/err" > "$STATE/pend"; "$DESK" answer q-20260910-000120-b5d 0 >/dev/null 2>&1; rc=$?
 ! grep -q b5d "$STATE/pend" && grep -q 'invalid question q-20260910-000120-b5d' "$STATE/err" && [ $rc -eq 3 ] && pass "BREAK-5d a hand-written file with a newline in the title is invalid: hidden by pending, answer exit 3" || fail "BREAK-5d multi-line title accepted (rc=$rc)"
 rm -f "$STATE/questions/q-20260910-000120-b5d.json"
-mkq q-20260910-000121-b5e '[{"label":"a\nb","writes":[{"op":"noop"}]}]' freeze
+mkq q-20260910-000121-b5e '[{"label":"a\nb","writes":[{"op":"noop"}]},{"label":"Keep","writes":[{"op":"noop"}]}]' freeze
 "$DESK" answer q-20260910-000121-b5e 0 >/dev/null 2>&1; rc=$?
 [ $rc -eq 3 ] && pass "BREAK-5e a newline inside an option label is invalid too (it is a mirror line)" || fail "BREAK-5e label with newline accepted (rc=$rc)"
 rm -f "$STATE/questions/q-20260910-000121-b5e.json"
@@ -292,14 +294,14 @@ printf '# Fleet\n\n## W12 desk — waiting on you\n\nstale\n\n~~~\n## not a head
 
 # GAP consistency — questions_open_count agrees with pending; a file whose id ≠ its name is invalid, not silently skipped
 rm -f "$STATE/questions"/q-*.json
-mkq q-20260910-000130-inv '[{"label":"x","writes":[{"op":"delete"}]}]' held
+mkq q-20260910-000130-inv '[{"label":"x","writes":[{"op":"delete"}]},{"label":"Keep","writes":[{"op":"noop"}]}]' held
 python3 - "$STATE/questions/q-20260910-000131-mism.json" <<'PY'
 import json, sys, datetime
 json.dump({"id": "q-20260910-000199-other", "asked_at": datetime.datetime.now().astimezone().isoformat(timespec="seconds"), "kind": "held", "class": "c",
            "title": "t", "body": "", "options": [{"label": "x", "writes": [{"op": "noop"}]}], "recommended": 0, "expires_after_h": 48}, open(sys.argv[1], "w"))
 PY
 printf '{"id":"bad name","asked_at":"x","kind":"held","class":"c","title":"t","options":[{"label":"x","writes":[{"op":"noop"}]}]}' > "$STATE/questions/q-badname.json"
-ask_director held held "Real one" "" '[{"label":"ok","writes":[{"op":"noop"}]}]'
+ask_director held held "Real one" "" '[{"label":"ok","writes":[{"op":"noop"}]},{"label":"Keep","writes":[{"op":"noop"}]}]'
 "$DESK" pending 2>"$STATE/err" > "$STATE/pend"
 [ "$(python3 -c 'import json,sys;print(len(json.load(open(sys.argv[1]))))' "$STATE/pend")" -eq 1 ] && [ "$(questions_open_count)" -eq 1 ] \
   && grep -q 'invalid question q-20260910-000130-inv' "$STATE/err" && grep -q 'invalid question q-20260910-000131-mism' "$STATE/err" && grep -q 'invalid question q-badname' "$STATE/err" \
@@ -308,7 +310,7 @@ ask_director held held "Real one" "" '[{"label":"ok","writes":[{"op":"noop"}]}]'
 "$DESK" answer q-20260910-000131-mism 0 >/dev/null 2>&1; rc=$?
 [ $rc -eq 3 ] && [ -f "$STATE/questions/q-20260910-000131-mism.json" ] && pass "GAP-count2 answering the id≠name file is refused (exit 3), file left in place" || fail "GAP-count2 rc=$rc"
 rm -f "$STATE/questions"/q-*.json
-check "GAP-id ask_director with a punctuation-only class still mints a shape-valid id" bash -c "ask_director freeze '!!!' 'Odd class' '' '[{\"label\":\"ok\",\"writes\":[{\"op\":\"noop\"}]}]'; RE='^q-[0-9]{8}-[0-9]{6}-[a-z0-9][a-z0-9-]{0,39}\$'; [[ \$ASK_DIRECTOR_ID =~ \$RE ]]"
+check "GAP-id ask_director with a punctuation-only class still mints a shape-valid id" bash -c "ask_director freeze '!!!' 'Odd class' '' '[{\"label\":\"ok\",\"writes\":[{\"op\":\"noop\"}]},{\"label\":\"Keep\",\"writes\":[{\"op\":\"noop\"}]}]'; RE='^q-[0-9]{8}-[0-9]{6}-[a-z0-9][a-z0-9-]{0,39}\$'; [[ \$ASK_DIRECTOR_ID =~ \$RE ]]"
 
 echo
 if [ "$fails" -eq 0 ]; then echo "ALL PASS"; exit 0; else echo "$fails FAIL"; exit 1; fi
