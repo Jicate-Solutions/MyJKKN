@@ -23,10 +23,11 @@ import { BillingReceiptService } from '@/lib/services/billing/receipts/billing-r
 import { usePermissions } from '@/hooks/use-permissions';
 import {
   usePrintReceipt,
-  useEmailReceipt,
   useDownloadReceiptPDF,
   useVoidBillingReceipt
 } from '@/hooks/billing/use-billing-receipts';
+import { EMAIL_NOT_AVAILABLE_LABEL } from '@/lib/services/billing/email-not-available';
+import { showEmailNotAvailable } from '@/components/billing/email-not-available-toast';
 import {
   useRequestReceiptCancellation,
   usePendingCancellations
@@ -98,18 +99,9 @@ export function ReceiptList({
   );
   const [selectedReceipts, setSelectedReceipts] = useState<string[]>([]);
   const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
-  const [emailDialog, setEmailDialog] = useState<{
-    open: boolean;
-    receiptId: string;
-  }>({
-    open: false,
-    receiptId: ''
-  });
-  const [emailAddress, setEmailAddress] = useState('');
 
   const { canAccess, isSuperAdmin } = usePermissions();
   const printReceiptMutation = usePrintReceipt();
-  const emailReceiptMutation = useEmailReceipt();
   const downloadPDFMutation = useDownloadReceiptPDF();
 
   const canViewReceipts = isSuperAdmin || canAccess('billing.receipts', 'view');
@@ -150,21 +142,6 @@ export function ReceiptList({
   const handlePrint = async (receiptId: string) => {
     try {
       await printReceiptMutation.mutateAsync(receiptId);
-    } catch (error) {
-      // Error is handled by the mutation
-    }
-  };
-
-  const handleEmail = async () => {
-    if (!emailAddress || !emailDialog.receiptId) return;
-
-    try {
-      await emailReceiptMutation.mutateAsync({
-        id: emailDialog.receiptId,
-        email: emailAddress
-      });
-      setEmailDialog({ open: false, receiptId: '' });
-      setEmailAddress('');
     } catch (error) {
       // Error is handled by the mutation
     }
@@ -474,16 +451,17 @@ export function ReceiptList({
                           Print
                         </DropdownMenuItem>
 
+                        {/* Emailing is not built: this used to open a dialog
+                            whose Send button reported success and sent nothing. */}
                         <DropdownMenuItem
                           onClick={() =>
-                            setEmailDialog({
-                              open: true,
-                              receiptId: receipt.id
-                            })
+                            showEmailNotAvailable('receipt', () =>
+                              handleDownload(receipt.id)
+                            )
                           }
                         >
                           <Mail className='mr-2 h-4 w-4' />
-                          Email
+                          {EMAIL_NOT_AVAILABLE_LABEL}
                         </DropdownMenuItem>
 
                         <DropdownMenuItem
@@ -778,46 +756,6 @@ export function ReceiptList({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {/* Email dialog */}
-      <Dialog
-        open={emailDialog.open}
-        onOpenChange={(open) =>
-          setEmailDialog({ open, receiptId: open ? emailDialog.receiptId : '' })
-        }
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Email Receipt</DialogTitle>
-          </DialogHeader>
-          <div className='space-y-4'>
-            <div>
-              <Label htmlFor='email'>Email Address</Label>
-              <Input
-                id='email'
-                type='email'
-                value={emailAddress}
-                onChange={(e) => setEmailAddress(e.target.value)}
-                placeholder='Enter email address'
-              />
-            </div>
-            <div className='flex justify-end space-x-2'>
-              <Button
-                variant='outline'
-                onClick={() => setEmailDialog({ open: false, receiptId: '' })}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleEmail}
-                disabled={!emailAddress || emailReceiptMutation.isPending}
-              >
-                {emailReceiptMutation.isPending ? 'Sending...' : 'Send Email'}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

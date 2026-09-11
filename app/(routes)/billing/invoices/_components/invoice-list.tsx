@@ -9,7 +9,7 @@ import {
   Edit,
   Trash2,
   Download,
-  Send,
+  Mail,
   MoreHorizontal,
   Calendar,
   User,
@@ -48,9 +48,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
   useDeleteBillingInvoice,
-  useSendInvoice,
   useDownloadInvoicePDF
 } from '@/hooks/billing/use-billing-invoices';
+import { EMAIL_NOT_AVAILABLE_LABEL } from '@/lib/services/billing/email-not-available';
+import { showEmailNotAvailable } from '@/components/billing/email-not-available-toast';
 import { PaginationWithControls } from '@/components/ui/pagination';
 import type { BillingInvoice } from '@/types/billing-schedule';
 
@@ -81,7 +82,6 @@ export function InvoiceList({
 
   const { canAccess, isSuperAdmin } = usePermissions();
   const { deleteInvoice, loading: deleteLoading } = useDeleteBillingInvoice();
-  const { sendInvoice, loading: sendLoading } = useSendInvoice();
   const { downloadPDF, loading: downloadLoading } = useDownloadInvoicePDF();
 
   const canEditInvoices = isSuperAdmin || canAccess('billing.invoices', 'edit');
@@ -99,19 +99,6 @@ export function InvoiceList({
       onRefresh();
     } catch (error) {
       console.error('Error deleting invoice:', error);
-    }
-  };
-
-  const handleSendInvoice = async (invoice: BillingInvoice) => {
-    if (!invoice.student?.college_email) {
-      console.error('No email address available for student');
-      return;
-    }
-
-    try {
-      await sendInvoice(invoice.id, invoice.student.college_email);
-    } catch (error) {
-      console.error('Error sending invoice:', error);
     }
   };
 
@@ -402,13 +389,18 @@ export function InvoiceList({
                         <Download className='mr-2 h-4 w-4' />
                         Download PDF
                       </DropdownMenuItem>
+                      {/* Emailing is not built: this used to report success
+                          after a simulated send. */}
                       {canSendInvoices && invoice.student?.college_email && (
                         <DropdownMenuItem
-                          onClick={() => handleSendInvoice(invoice)}
-                          disabled={sendLoading}
+                          onClick={() =>
+                            showEmailNotAvailable('invoice', () =>
+                              handleDownloadPDF(invoice.id)
+                            )
+                          }
                         >
-                          <Send className='mr-2 h-4 w-4' />
-                          Send Email
+                          <Mail className='mr-2 h-4 w-4' />
+                          {EMAIL_NOT_AVAILABLE_LABEL}
                         </DropdownMenuItem>
                       )}
                       <DropdownMenuSeparator />

@@ -189,27 +189,9 @@ export function useDeleteBillingInvoice() {
   return { deleteInvoice, loading };
 }
 
-// Hook for sending invoice
-export function useSendInvoice() {
-  const [loading, setLoading] = useState(false);
-
-  const sendInvoice = useCallback(async (id: string, email: string) => {
-    try {
-      setLoading(true);
-      await BillingInvoiceService.sendInvoice(id, email);
-      toast.success('Invoice sent successfully');
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : 'Failed to send invoice';
-      toast.error(errorMessage);
-      throw error;
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  return { sendInvoice, loading };
-}
+// useSendInvoice was removed 2026-09-11: it showed a success message over a
+// service method that only simulated sending. Emailing is not built;
+// Email buttons call showEmailNotAvailable (components/billing).
 
 // Hook for downloading invoice PDF
 export function useDownloadInvoicePDF() {

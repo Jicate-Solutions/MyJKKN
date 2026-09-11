@@ -216,18 +216,9 @@ export function usePrintReceipt() {
   });
 }
 
-export function useEmailReceipt() {
-  return useMutation({
-    mutationFn: ({ id, email }: { id: string; email: string }) =>
-      BillingReceiptService.emailReceipt(id, email),
-    onSuccess: () => {
-      toast.success('Receipt emailed successfully');
-    },
-    onError: (error: Error) => {
-      toast.error(error.message || 'Failed to email receipt');
-    }
-  });
-}
+// useEmailReceipt was removed 2026-09-11: it showed a success message over a
+// service method that sent nothing. Emailing is not built;
+// Email buttons call showEmailNotAvailable (components/billing).
 
 export function useDownloadReceiptPDF() {
   return useMutation({

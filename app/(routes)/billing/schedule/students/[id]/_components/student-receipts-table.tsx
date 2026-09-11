@@ -33,6 +33,8 @@ import {
 import { toast } from 'react-hot-toast';
 import { usePermissions } from '@/hooks/use-permissions';
 import { BillingReceiptService } from '@/lib/services/billing/receipts/billing-receipt-service';
+import { EMAIL_NOT_AVAILABLE_LABEL } from '@/lib/services/billing/email-not-available';
+import { showEmailNotAvailable } from '@/components/billing/email-not-available-toast';
 import { RequestReceiptCancellationDialog } from '@/components/billing/request-receipt-cancellation-dialog';
 import { usePendingCancellations } from '@/hooks/billing/use-receipt-cancellations';
 import type { BillingReceipt } from '@/types/billing-schedule';
@@ -165,13 +167,10 @@ export function StudentReceiptsTable({
     }
   };
 
-  const handleEmailReceipt = async (receiptId: string) => {
-    try {
-      // TODO: Implement email receipt functionality
-      console.log('Emailing receipt:', receiptId);
-    } catch (error) {
-      console.error('Error emailing receipt:', error);
-    }
+  // Emailing is not built: this button used to do nothing at all on click.
+  // It now says so and offers Download instead.
+  const handleEmailReceipt = (receiptId: string) => {
+    showEmailNotAvailable('receipt', () => handleDownloadReceipt(receiptId));
   };
 
   const handlePrintReceipt = async (receiptId: string) => {
@@ -358,12 +357,13 @@ export function StudentReceiptsTable({
                             variant='ghost'
                             size='sm'
                             onClick={() => handleEmailReceipt(receipt.id)}
+                            aria-label={EMAIL_NOT_AVAILABLE_LABEL}
                           >
                             <Mail className='h-4 w-4' />
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>
-                          <p>Email Receipt</p>
+                          <p>{EMAIL_NOT_AVAILABLE_LABEL}</p>
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
