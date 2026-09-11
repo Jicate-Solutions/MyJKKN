@@ -2721,7 +2721,15 @@ export const PERMISSION_CATEGORIES = [
       // event-type list and the outcome/impact taxonomy. Both ship EMPTY —
       // their content is a Director decision against the JKKN IQAC SOP — so
       // this key opens an editor for lists that do not exist yet, on purpose.
-      { key: 'events.catalogues.manage', label: 'Maintain Event Type & Impact Catalogues' }
+      { key: 'events.catalogues.manage', label: 'Maintain Event Type & Impact Catalogues' },
+      // Review Comments on an event console (2026-09-11). Super admin, the
+      // event's creator and its in-charge see the thread without a key; these
+      // admit everyone else, over institutions they can reach. Replaced the
+      // hardcoded admin/administrator/event_coordinator role names in
+      // fn_can_read_event_review_comments / fn_is_event_review_admin
+      // (20261130090000). Never fold into events.view — students hold it.
+      { key: 'events.review_comments.view', label: 'View & Reply to Event Review Comments' },
+      { key: 'events.review_comments.resolve', label: "Resolve Others' Event Review Comments" }
     ]
   },
   // Course Events (2026-08-13). Paid, multi-session learning courses open to
