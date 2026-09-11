@@ -86,19 +86,19 @@ export class VoiceAgentService {
   }
 
   static async createAgentConfig(data: Partial<VoiceAgentConfig>): Promise<VoiceAgentConfig> {
-    throw new Error('Voice agent service not yet implemented');
+    throw new Error('Voice agents are not available yet.');
   }
 
   static async updateAgentConfig(id: string, data: Partial<VoiceAgentConfig>): Promise<VoiceAgentConfig> {
-    throw new Error('Voice agent service not yet implemented');
+    throw new Error('Voice agents are not available yet.');
   }
 
   static async deleteAgentConfig(id: string): Promise<void> {
-    throw new Error('Voice agent service not yet implemented');
+    throw new Error('Voice agents are not available yet.');
   }
 
   static async initializeDefaultConfigs(institutionId: string): Promise<VoiceAgentConfig[]> {
-    throw new Error('Voice agent service not yet implemented');
+    throw new Error('Voice agents are not available yet.');
   }
 
   static async getAgentCalls(filters: AgentCallFilters): Promise<AgentCallsResult> {
@@ -116,7 +116,7 @@ export class VoiceAgentService {
     institutionId: string;
     metadata?: Record<string, unknown>;
   }): Promise<AgentCall> {
-    throw new Error('Voice agent service not yet implemented');
+    throw new Error('Voice agents are not available yet.');
   }
 
   static async getAnalytics(params: {
