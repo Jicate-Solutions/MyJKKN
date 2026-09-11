@@ -12,9 +12,14 @@
  * Approval consumes a credit FIFO by expiry, and the database refuses an
  * approval with no credit behind it — so this form blocks submission when the
  * available balance is zero rather than letting it fail at the approver.
+ *
+ * WHICH DAYS (2026-09-11): a credit can only be spent AFTER the day it was
+ * worked and no later than its expiry, one calendar month on.
+ * hr_trig_comp_off_consume refuses anything else at approval; the date picker
+ * here is limited to those windows so the request is never filed doomed.
  */
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { AlertCircle, CalendarCheck, Info } from 'lucide-react';
 
 import {
@@ -33,7 +38,17 @@ import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
 import { useCompOffBalance } from '@/hooks/hr/use-comp-off';
 import { formatDays } from './format';
 import { getErrorMessage } from '@/lib/utils';
+import { isBookableCompOffDate } from '@/types/hr-comp-off';
 import { toast } from 'sonner';
+
+const fmtDate = (iso: string) => new Date(`${iso}T00:00:00`).toLocaleDateString('en-GB');
+
+/** The first day a credit can be spent: the day after it was worked. */
+const dayAfter = (iso: string) => {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+};
 
 export function ApplyCompOffDrawer({
   open,
@@ -56,6 +71,19 @@ export function ApplyCompOffDrawer({
   const pending = balance?.pending ?? 0;
   const expired = balance?.expired ?? 0;
 
+  // Credits that can still be spent, soonest expiry first — the order approval
+  // spends them in.
+  const usable = useMemo(
+    () =>
+      (balance?.credits ?? [])
+        .filter((c) => c.effective_status === 'approved')
+        .sort((a, b) => a.expires_on.localeCompare(b.expires_on)),
+    [balance]
+  );
+  const minDate = usable.length > 0 ? usable.map((c) => dayAfter(c.worked_date)).sort()[0] : undefined;
+  const maxDate = usable.length > 0 ? usable[usable.length - 1].expires_on : undefined;
+  const outsideWindow = !!compOffDate && !isBookableCompOffDate(compOffDate, usable);
+
   // Derived rather than synced by an effect — see apply-short-time-off-drawer.
   const effectiveTypeId =
     leaveTypeId || (options.length === 1 ? options[0].leave_type_id : '');
@@ -67,7 +95,7 @@ export function ApplyCompOffDrawer({
 
   const canSubmit =
     !!ctx.employeeId && !!ctx.hrOrgId && !!effectiveTypeId &&
-    !!compOffDate && !!reason.trim() && available > 0 && !mutation.isPending;
+    !!compOffDate && !outsideWindow && !!reason.trim() && available > 0 && !mutation.isPending;
 
   const submit = async () => {
     setError(null);
@@ -134,6 +162,17 @@ export function ApplyCompOffDrawer({
                 <span className="block text-xs text-muted-foreground">
                   Approval spends the credit closest to expiry first.
                 </span>
+                {usable.length > 0 && (
+                  <ul className="mt-1.5 space-y-0.5 text-xs">
+                    {usable.map((c) => (
+                      <li key={c.id}>
+                        Worked {fmtDate(c.worked_date)} — take it between{' '}
+                        <strong>{fmtDate(dayAfter(c.worked_date))}</strong> and{' '}
+                        <strong>{fmtDate(c.expires_on)}</strong>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
 
               {available <= 0 && (
@@ -152,7 +191,7 @@ export function ApplyCompOffDrawer({
                     )}
                     {expired > 0 && (
                       <> <strong>{formatDays(expired)}</strong> credit(s) have passed
-                      their 90-day expiry and can no longer be used.</>
+                      their one-month expiry and can no longer be used.</>
                     )}
                     {pending <= 0 && expired <= 0 && <> Claim a worked day first.</>}
                   </AlertDescription>
@@ -181,7 +220,15 @@ export function ApplyCompOffDrawer({
                   Compensatory Off Date <span className="text-destructive">*</span>
                 </Label>
                 <Input id="compOffDate" type="date" className="mt-1" value={compOffDate}
+                  min={minDate} max={maxDate}
                   onChange={(e) => setCompOffDate(e.target.value)} />
+                {outsideWindow && (
+                  <p className="mt-1 text-xs text-destructive">
+                    No credit covers this date. Compensatory off can only be taken after
+                    the day you worked and within one month of it — pick a date inside one
+                    of the ranges above.
+                  </p>
+                )}
               </div>
 
 

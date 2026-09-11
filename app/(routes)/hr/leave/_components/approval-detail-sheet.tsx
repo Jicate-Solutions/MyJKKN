@@ -32,6 +32,7 @@ import {
 import { StatusBadge } from './request-table';
 import { ApprovalChainTimeline } from './approval-chain-timeline';
 import { LeaveDocumentList } from './leave-document-list';
+import { DecisionEmailStatus } from './decision-email-status';
 import {
   approveLabel, formatBiometricGap, formatDays, formatHours, isReviewStep, stageLabel,
 } from './format';
@@ -277,9 +278,12 @@ export function ApprovalDetailSheet({
               {/* A decided row is undecidable for everyone — the "your own
                   request" explanation below is only right on OPEN rows. */}
               {row.status !== 'pending' && row.status !== 'escalated' ? (
-                <p className="text-xs text-muted-foreground">
-                  Already decided{row.final_approver_name ? ` by ${row.final_approver_name}` : ''}.
-                </p>
+                <div className="min-w-0 space-y-1">
+                  <p className="text-xs text-muted-foreground">
+                    Already decided{row.final_approver_name ? ` by ${row.final_approver_name}` : ''}.
+                  </p>
+                  <DecisionEmailStatus target={{ leaveApplicationId: row.id }} />
+                </div>
               ) : row.can_decide ? (
                 <>
                   {/* The reason sits in the footer beside the button it

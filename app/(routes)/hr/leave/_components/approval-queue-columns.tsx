@@ -45,7 +45,7 @@ export type ApprovalColumnActions = ApprovalRowActionHandlers & {
   onViewDocuments: (row: HRLeaveApprovalQueueRow) => void;
 };
 
-const fmtDate = (d: string | null) =>
+export const fmtDate = (d: string | null) =>
   d ? new Date(`${d}T00:00:00`).toLocaleDateString('en-GB') : '—';
 
 /** 'HH:MM:SS' -> 'HH:MM'. The column is `time without time zone`. */
