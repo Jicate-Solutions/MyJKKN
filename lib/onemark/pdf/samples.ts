@@ -13,7 +13,7 @@
 
 import { OneMarkExamKeys } from '@/types/onemark';
 import { directiveForTags } from './load-paper';
-import type { PaperItem, PaperModel, PaperOption } from './types';
+import type { PaperAsset, PaperItem, PaperModel, PaperOption } from './types';
 
 function opts(...texts: string[]): PaperOption[] {
   return texts.map((text, i) => ({ key: String.fromCharCode(97 + i), text }));
@@ -273,6 +273,49 @@ const ENGLISH_SEEDS: Seed[] = [
   { stemEn: 'Choose the clipped form of "advertisement".', en: ['advert', 'adver', 'tisement', 'advertise'], answer: 'a', explanationEn: 'Advert (or ad) is the clipped form.', tags: ['clipped_words'], bloom: 'K1', unit: 99, unitTitle: '' },
 ];
 
+// ---------------------------------------------------------------------------
+// Wave 3 Lane D — one picture per subject, so the eyeball script prints a
+// paper with a real figure in it (CLAUDE.md #25). Both are inlined here: the
+// fixtures must render with no database, no bucket and no network.
+// ---------------------------------------------------------------------------
+
+/** A three-input gate combination, matching the Physics Q1 stem. Drawn as SVG
+ *  so the vector path through the renderer is exercised. */
+const GATE_DIAGRAM_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 150" width="320" height="150">
+<rect width="320" height="150" fill="#fff"/>
+<g fill="none" stroke="#000" stroke-width="2">
+<path d="M60 30 h34 a26 26 0 0 1 0 44 h-34 z"/>
+<circle cx="126" cy="52" r="5"/>
+<path d="M60 88 h34 a26 26 0 0 1 0 44 h-34 z"/>
+<circle cx="126" cy="110" r="5"/>
+<path d="M200 52 h20 a30 40 0 0 1 0 56 h-20 a54 54 0 0 0 0-56 z"/>
+<path d="M20 42 h40 M20 62 h40 M20 100 h40 M20 120 h40"/>
+<path d="M131 52 h69 M131 110 h69"/>
+<path d="M250 80 h50"/>
+</g>
+<g font-family="serif" font-size="14" fill="#000">
+<text x="6" y="47">A</text><text x="6" y="67">B</text>
+<text x="6" y="105">B</text><text x="6" y="125">C</text>
+<text x="304" y="85">Y</text>
+</g>
+</svg>`;
+
+const GATE_DIAGRAM_DATA_URI = `data:image/svg+xml,${encodeURIComponent(GATE_DIAGRAM_SVG)}`;
+
+/** A 320x120 RGB PNG (605 bytes) — three bars over a baseline. Generated once
+ *  and pinned here so the raster path is exercised deterministically, with no
+ *  image library in the repo and no binary file in git. */
+const CHART_PNG_DATA_URI =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUAAAAB4CAIAAAAMrLyJAAACJElEQVR42u3bwZHFIAxEQUVC/lmaGMAcNKp+GegPXevL1icptvITSABLAljSNeCS1D6ApbmAfZZITT+YAZYAlgSwJIDVsNUsgCWAARbAAAMsgAEGWAADLAEMsAAGGGABDLAEMMACGGCABTDAAAtggCWAARbAAAMsgAEGWAADLAEMsAAGGGABDLAEMMAGBti+ABsYYIABBti+ABtY9gXYwADbF2ADAwwwwLIvwAaWfQE2MMD2BRhggAE2sOwLsIEBti/ABgYYYIABti/ABpZ9ATYwwPYF2MAAAwyw7AuwgQG2L8AGBti+AAMMMMAGln0BNjDA9gXYwAADDDDA9gXYwLIvwAYG2L4AAwwwwAaWfQE2MMD2BTh/YPcCDLAH7V6AAfag3Quwgd3rXoA9aPcCDLAH7V6AAXavewE2sHsBBtiDdi/AAHvQ7gXYwO51L8AetHsBBtiDdi/AAHvQ7gXYwO51L8AetHsBBtiDdi/AALvXvQAb2L0AA+xBuxdggD1o9wJsYPe6F2AP2r0AA+xBuxdggD1o9wJsYPcCDLAH7V6AAfag3Quwgd3rXoAN7F6AAfag3QuwgQ==';
+
+/** Item ids in the fixtures are deterministic (see `build`): the first item of
+ *  each subject is …000000000001. */
+const FIRST_ITEM_ID = '00000000-0000-4000-8000-000000000001';
+
+function withAsset(items: PaperItem[], asset: PaperAsset): PaperItem[] {
+  return items.map((i) => (i.id === FIRST_ITEM_ID ? { ...i, assets: [asset] } : i));
+}
+
 export const SAMPLE_PHYSICS_PAPER: PaperModel = {
   assessmentId: '9d6a7b0e-3c11-4f2a-9b0d-1c2e3f4a5b6c',
   title: 'Physics Part-I mock — Units 1–11',
@@ -284,7 +327,12 @@ export const SAMPLE_PHYSICS_PAPER: PaperModel = {
   facilitatorName: 'Sample Senior Learner',
   studioName: 'Nattraja HSS · 2026-27',
   generatedAt: '2026-09-04T09:00:00.000Z',
-  items: build(OneMarkExamKeys.PHYSICS, 'onemark_phy', PHYSICS_SEEDS),
+  items: withAsset(build(OneMarkExamKeys.PHYSICS, 'onemark_phy', PHYSICS_SEEDS), {
+    id: 'a1000000-0000-4000-8000-000000000001',
+    dataUri: GATE_DIAGRAM_DATA_URI,
+    alt: 'Two NAND gates take inputs A and B, and B and C; their outputs feed one OR gate whose output is Y.',
+    sortOrder: 1,
+  }),
 };
 
 export const SAMPLE_ENGLISH_PAPER: PaperModel = {
@@ -298,7 +346,12 @@ export const SAMPLE_ENGLISH_PAPER: PaperModel = {
   facilitatorName: 'Sample Senior Learner',
   studioName: 'Nattraja HSS · 2026-27',
   generatedAt: '2026-09-04T09:00:00.000Z',
-  items: build(OneMarkExamKeys.ENGLISH, 'onemark_eng', ENGLISH_SEEDS),
+  items: withAsset(build(OneMarkExamKeys.ENGLISH, 'onemark_eng', ENGLISH_SEEDS), {
+    id: 'a1000000-0000-4000-8000-000000000002',
+    dataUri: CHART_PNG_DATA_URI,
+    alt: 'A bar chart with three bars of unequal height standing on a baseline.',
+    sortOrder: 1,
+  }),
 };
 
 /** The same model with every answer and explanation removed — what a
