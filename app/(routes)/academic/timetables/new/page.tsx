@@ -338,11 +338,26 @@ export default function NewTimetablePage() {
       self.findIndex((s) => s.semester_name === semester.semester_name)
   );
 
+  // Sections are offered ONLY once the whole hierarchy is chosen.
+  // Fixed: 2026-09-11. Every one of these filters is optional in the service, so
+  // with any of them blank the query ran as "every active section this user can
+  // see" — and with limit 1000 that was all 539 of them, across every
+  // institution, listed in the scope picker before a semester was even picked.
+  // A section belongs to exactly one semester, so nothing short of the full
+  // chain names the set an operator is actually choosing from.
+  const sectionHierarchyComplete = Boolean(
+    watchInstitutionId &&
+      watchDegreeId &&
+      watchDepartmentId &&
+      watchProgramId &&
+      selectedSemesterId
+  );
+
   // Sections hook
   const {
     data: sectionsData,
-    refetch: fetchSections,
-    isLoading: loadingSections
+    isLoading: loadingSections,
+    isPlaceholderData: sectionsArePlaceholder
   } = useSections({
     institution_id: watchInstitutionId || undefined,
     degree_id: watchDegreeId || undefined,
@@ -362,9 +377,31 @@ export default function NewTimetablePage() {
     // scope: a truncated list would silently write a scope missing 14 sections,
     // and those learners would never see the timetable.
     limit: 1000
-  });
+  }, { enabled: sectionHierarchyComplete });
 
-  const sections = sectionsData?.data ?? [];
+  // useSections keeps the PREVIOUS query's rows as placeholder data while the
+  // next one loads (and while it is disabled), and reports isLoading = false
+  // throughout. So the rows on hand can belong to an earlier, wider selection.
+  // Two guards, both needed:
+  //   - nothing at all until the hierarchy is complete;
+  //   - then only rows that genuinely match every selected level — the same
+  //     predicate the server applies, so the real result is never trimmed, but
+  //     a stale placeholder row can never be shown or pre-ticked.
+  const sections = sectionHierarchyComplete
+    ? (sectionsData?.data ?? []).filter(
+        (section: any) =>
+          section.institution_id === watchInstitutionId &&
+          section.degree_id === watchDegreeId &&
+          section.department_id === watchDepartmentId &&
+          section.program_id === watchProgramId &&
+          section.semester_id === selectedSemesterId
+      )
+    : [];
+
+  // Loading is true while the placeholder is up, not just on a cold fetch —
+  // otherwise the picker would render a stale list as if it were the answer.
+  const sectionsLoading =
+    sectionHierarchyComplete && (loadingSections || sectionsArePlaceholder);
 
   // Deduplicate sections by name to prevent duplicate keys in the dropdown
   const uniqueSections = sections.filter(
@@ -387,9 +424,13 @@ export default function NewTimetablePage() {
   // refuses a genuine second one. For a multi-group semester the operator
   // unticks down to their group. Keyed on the semester so switching it starts
   // from a clean full selection rather than carrying the old semester's ids.
+  //
+  // It must NEVER run on placeholder rows. It fires once per semester, so if it
+  // ticked a stale list the real 24 would arrive afterwards and never be
+  // ticked, and the saved scope would be whatever the previous query held.
   const [scopePrefilledFor, setScopePrefilledFor] = useState<string | null>(null);
   useEffect(() => {
-    if (!selectedSemesterId) {
+    if (!sectionHierarchyComplete) {
       if (scopePrefilledFor !== null) {
         setScopePrefilledFor(null);
         form.setValue('section_ids', []);
@@ -397,7 +438,7 @@ export default function NewTimetablePage() {
       return;
     }
     if (scopePrefilledFor === selectedSemesterId) return;
-    if (loadingSections || scopeSections.length === 0) return;
+    if (sectionsLoading || scopeSections.length === 0) return;
 
     setScopePrefilledFor(selectedSemesterId);
     form.setValue(
@@ -406,7 +447,13 @@ export default function NewTimetablePage() {
       { shouldValidate: false }
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSemesterId, loadingSections, scopeSections.length, scopePrefilledFor]);
+  }, [
+    sectionHierarchyComplete,
+    selectedSemesterId,
+    sectionsLoading,
+    scopeSections.length,
+    scopePrefilledFor
+  ]);
 
   // Staff list for the Class Incharge picker (session_wise timetables only).
   // Scoped to the selected institution; empty/disabled until one is chosen.
@@ -1209,9 +1256,9 @@ export default function NewTimetablePage() {
                             onValueChange={field.onChange}
                             value={field.value}
                             disabled={
-                              loadingSections ||
-                              !selectedSemesterId ||
-                              (sectionsData?.data.length ?? 0) === 0
+                              sectionsLoading ||
+                              !sectionHierarchyComplete ||
+                              sections.length === 0
                             }
                           >
                             <FormControl>
@@ -1290,20 +1337,21 @@ export default function NewTimetablePage() {
                                   'border-red-300 bg-red-50 dark:bg-red-950/20'
                               )}
                             >
-                              {loadingSections && (
+                              {sectionsLoading && (
                                 <p className='py-3 text-center text-sm text-muted-foreground'>
                                   Loading {adapt('sections')}...
                                 </p>
                               )}
 
-                              {!loadingSections && !selectedSemesterId && (
+                              {!sectionHierarchyComplete && (
                                 <p className='py-3 text-center text-sm text-muted-foreground'>
-                                  Select a semester first.
+                                  Select the institution, degree, department,
+                                  program and semester first.
                                 </p>
                               )}
 
-                              {!loadingSections &&
-                                selectedSemesterId &&
+                              {sectionHierarchyComplete &&
+                                !sectionsLoading &&
                                 scopeSections.length === 0 && (
                                   <p className='py-3 text-center text-sm text-muted-foreground'>
                                     No {adapt('sections')} exist for this
@@ -1311,7 +1359,7 @@ export default function NewTimetablePage() {
                                   </p>
                                 )}
 
-                              {!loadingSections &&
+                              {!sectionsLoading &&
                                 scopeSections.map((sec: any) => (
                                   <div
                                     key={`scope-${sec.id}`}

@@ -351,9 +351,26 @@ export default function EditTimetablePage() {
   // For edit mode: if no semester is selected via watch but we have a timetable with semester_id, use that
   const effectiveSemesterId = watchSemesterId || (timetable && !loading ? timetable.semester_id : null);
 
-  const filteredSections = allSections.filter(
-    (section) => !effectiveSemesterId || section.semester_id === effectiveSemesterId
+  // Fixed: 2026-09-11 - Sections are offered ONLY once the whole hierarchy is
+  // chosen. This used to read `!effectiveSemesterId || ...`, which with no
+  // semester matched EVERY section the user can see — up to 1000, across every
+  // institution — straight into the section dropdown and the scope picker.
+  //
+  // The gate reads the FORM's semester, not effectiveSemesterId. That fallback
+  // to the stored timetable's semester exists for the instant before the form
+  // is reset; after a parent field changes and clears the semester, it would
+  // keep showing the OLD semester's sections under a new program.
+  const sectionHierarchyComplete = Boolean(
+    watchInstitutionId &&
+      watchDegreeId &&
+      watchDepartmentId &&
+      watchProgramId &&
+      watchSemesterId
   );
+
+  const filteredSections = sectionHierarchyComplete
+    ? allSections.filter((section) => section.semester_id === watchSemesterId)
+    : [];
 
   // Deduplicate semesters by semester_name to avoid duplicate keys
   const uniqueSemesters = filteredSemesters.filter(
