@@ -28,6 +28,12 @@
 #   title, class, label, description: one printable line, no tab/CR/LF/control; title ≤110, class ≤80.
 #           A "\n## Injected" in a title leaked a heading OUT of the mirror's Fleet-note section every pass.
 #   body:   CR/LF allowed (2–4 sentences); other control characters refused. The mirror quotes every body line.
+#   options: 2–4 per question (AskUserQuestion's range, spec Amendments) — a 1- or 5-option file can never be asked
+#           and would be re-listed every pass forever (round-4 NEW-F). Every option carries ≥1 write; `noop` is the
+#           write for "keep it as it is" — an EMPTY writes list is not "the whole effect of choosing it" (NEW-D).
+#   encoding: the file must be valid UTF-8, and title/class/frozen_line are capped by CHARACTERS in python — never
+#           by bash's ${var:0:N}, which counts BYTES under launchd's C locale and cut a multibyte character in half
+#           (NEW-C: a question written that way was skipped by the desk and never reached the phone).
 #
 # Sourced by ship-wave.sh after policy-learning.sh (needs $STATE, say). Also sourced by the desk helper.
 
@@ -62,8 +68,13 @@ def one_line(name, s, maxlen, allow_empty=False):
     if not s.strip() and not allow_empty: die(f"{name} must not be blank")
     if CTRL.search(s): die(f"{name} must be one plain line (no tab/CR/LF/control characters), got {s!r}")
     if len(s) > maxlen: die(f"{name} longer than {maxlen} chars ({len(s)})")
+raw = os.environb.get(b"Q", b"")
 try:
-    doc = json.loads(os.environ["Q"])
+    text = raw.decode("utf-8")          # strict: a byte-sliced (non-UTF-8) file is refused here, so the mirror flags it
+except UnicodeDecodeError as e:
+    die(f"not valid UTF-8 (byte {e.start}): the question was written with a byte-sliced title")
+try:
+    doc = json.loads(text)
 except Exception as e:
     die(f"not JSON: {e}")
 expect = os.environ.get("EXPECT", "")
@@ -94,12 +105,17 @@ if isinstance(doc, dict):
             if k in doc and (not isinstance(doc[k], int) or isinstance(doc[k], bool) or doc[k] < lo or doc[k] > hi):
                 die(f"{k} must be an integer in {lo}..{hi}, got {doc.get(k)!r}")
         if "frozen_line" in doc and doc["frozen_line"] is not None: one_line("frozen_line", doc["frozen_line"], 400, allow_empty=True)
+    bare = False
 elif isinstance(doc, list) and doc and isinstance(doc[0], dict) and "op" in doc[0]:
     options = [{"label": "-", "writes": doc}]          # bare writes array
+    bare = True
 else:
     options = doc
+    bare = False
 if not isinstance(options, list) or not options:
     die("no options")
+if not bare and not 2 <= len(options) <= 4:
+    die(f"{len(options)} option(s): a question needs 2–4 (AskUserQuestion's range) or it can never be asked")
 for i, o in enumerate(options):
     if not isinstance(o, dict): die(f"option {i}: not an object")
     one_line(f"option {i} label", o.get("label"), 200)
@@ -107,6 +123,8 @@ for i, o in enumerate(options):
     w = o.get("writes")
     if not isinstance(w, list):
         die(f"option {i}: writes missing")
+    if not w:
+        die(f"option {i}: writes is empty — an option needs at least one op (noop = keep it as it is)")
     for op in w:
         if not isinstance(op, dict):
             die(f"option {i}: write is not an object")
@@ -139,6 +157,8 @@ PY
 question_file_valid() {
   local b; b=$(basename "$1" .json)
   question_id_valid "$b" || { printf '%s\n' "file name '$b' is not a question id (q-YYYYmmdd-HHMMSS-<slug>)"; return 1; }
+  # a symlink resolves OUTSIDE <id>.json (its own answered copy, a file outside questions/) — never a question (NEW-G)
+  [ -L "$1" ] && { printf '%s\n' "is a symlink, not a question file — refused unread"; return 1; }
   [ -f "$1" ] || { printf '%s\n' "no such file"; return 1; }
   question_writes_valid "$(cat "$1")" "$b"
 }
@@ -164,9 +184,24 @@ except Exception as e:
 PY
 }
 
-# _q_one_line <text> → <text> with every control character (tab/CR/LF/ESC…) turned into a space, runs squeezed,
-# ends trimmed. The wave composes titles from messages it did not write; a newline in one must not reach the file.
-_q_one_line() { printf '%s' "$1" | tr '\000-\037\177' ' ' | tr -s ' ' | sed -E 's/^ +//; s/ +$//'; }
+# _q_one_line <text> [max-chars] → <text> with every control character (tab/CR/LF/ESC…) turned into a space, runs
+# squeezed, ends trimmed — then capped at max-chars CHARACTERS. Done in python on purpose: bash's ${var:0:N} counts
+# BYTES under the C locale launchd gives the wave (PATH+HOME only) and cut a multibyte character in half at the cap
+# (round-4 NEW-C: 'x'*109+'—…' produced a file that was not UTF-8; the desk skipped it, the mirror listed it nowhere,
+# the receipt said 0 waiting while a PR stayed HELD). Bytes that are not UTF-8 become U+FFFD so the file is always
+# readable. The wave composes titles from messages it did not write; a newline in one must not reach the file.
+# The desk's scoped `unfreeze` compares FROZEN lines through THIS function — both sides flatten the same way.
+_q_one_line() {
+  T="$1" N="${2:-0}" python3 - <<'PY'
+import os, re, sys
+s = os.environb.get(b"T", b"").decode("utf-8", "replace")
+s = re.sub(r"[\x00-\x1f\x7f]", " ", s)
+s = re.sub(r" {2,}", " ", s).strip(" ")
+n = int(os.environ.get("N") or 0)
+if n > 0: s = s[:n].rstrip(" ")
+sys.stdout.buffer.write(s.encode("utf-8"))
+PY
+}
 
 # ask_director <kind> <class> <title> <body> <options-json>
 # Writes $QUESTIONS_DIR/q-<YYYYmmdd-HHMMSS>-<slug>.json, or — when an OPEN question already has the same
@@ -174,7 +209,7 @@ _q_one_line() { printf '%s' "$1" | tr '\000-\037\177' ' ' | tr -s ' ' | sed -E '
 # question, not one per round). One line per call lands in $QUESTIONS_LOG. The receipt line goes through
 # `say` (stdout is the wave's receipt); the id is left in ASK_DIRECTOR_ID for a caller that needs it.
 # Optional env: Q_RECOMMENDED (default 0), Q_EXPIRES_H (default 48).
-# Title and class are flattened to one plain line (control characters → space) and capped (110 / 80).
+# Title and class are flattened to one plain line (control characters → space) and capped (110 / 80 CHARACTERS).
 # Refuses to write a question whose writes fail question_writes_valid — a bad question never reaches the phone.
 ask_director() {
   # one lock (shared with the desk's `answer`) around de-dup + write: four asks of the SAME question at once must
@@ -193,8 +228,8 @@ _ask_director_locked() {
   local kind="$1" cls="$2" title="$3" body="$4" opts="$5" why id existing slug ts doc frozen_line hash4
   ASK_DIRECTOR_ID=""
   case "$kind" in freeze|held|policy|deploy) ;; *) say "  desk: ask_director refused — unknown kind '$kind'"; return 2;; esac
-  title=$(_q_one_line "$title"); title="${title:0:110}"     # the spec's ceiling — a phone shows about that much on one line
-  cls=$(_q_one_line "$cls"); cls="${cls:0:80}"
+  title=$(_q_one_line "$title" 110)     # the spec's ceiling — a phone shows about that much on one line (chars, not bytes)
+  cls=$(_q_one_line "$cls" 80)
   [ -n "$title" ] || { say "  desk: ask_director refused — empty title"; return 1; }
   if ! why=$(question_writes_valid "$opts"); then
     say "  desk: ask_director refused — invalid writes ($why)"
@@ -217,7 +252,7 @@ PY
   # a freeze question is about ONE stop: remember the FROZEN line it was asked about, so the desk's `unfreeze`
   # lifts exactly that stop and refuses when a different (newer, harder) line has landed since (§A2 gap, 2026-09-10)
   frozen_line=""
-  if [ "$kind" = freeze ] && [ -f "${FREEZE:-$STATE/FROZEN}" ]; then frozen_line=$(_q_one_line "$(tail -1 "${FREEZE:-$STATE/FROZEN}")"); frozen_line="${frozen_line:0:400}"; fi
+  if [ "$kind" = freeze ] && [ -f "${FREEZE:-$STATE/FROZEN}" ]; then frozen_line=$(_q_one_line "$(tail -1 "${FREEZE:-$STATE/FROZEN}")" 400); fi
   ts=$(date '+%Y%m%d-%H%M%S')
   if [ -n "$existing" ]; then
     # refresh = the SAME question asked again with what the wave knows NOW: options, body, recommended, expiry

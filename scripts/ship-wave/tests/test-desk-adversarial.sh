@@ -6,6 +6,8 @@
 # Temp $STATE, fixture Fleet.md, touches nothing live. PASS/FAIL per case, exit 1 on any FAIL.
 # Written 2026-09-10 against fb0bd5a0ae; the cases marked (BREAK) fail on that commit and describe the fix.
 # All 18 pass since the fix commit that followed (id shape · per-knob value shape · single-line title/class · fenced/quoted mirror).
+# Runs itself under `env -i PATH HOME` — the C locale launchd gives the wave — so a byte-counting bug fails here (round 4).
+[ "${DESK_TEST_ENV_I:-}" = 1 ] || exec env -i PATH="$PATH" HOME="$HOME" DESK_TEST_ENV_I=1 bash "$0" "$@"
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; SW="$HERE/.."; DESK="$SW/desk/v5-w12-desk.sh"
 export STATE; STATE="$(mktemp -d "${TMPDIR:-/tmp}/desk-adv.XXXXXX")"
@@ -32,7 +34,7 @@ sys.stdout.write("\n".join(out))' "$1"; }
 # ── 1. forbidden ops: refused, nothing applied ────────────────────────────────
 printf 'x\n' > "$STATE/FROZEN"
 for op in delete sql merge run shell git; do
-  mkq "q-20260910-000001-$op" "[{\"label\":\"x\",\"description\":\"d\",\"writes\":[{\"op\":\"$op\",\"file\":\"approve-held\",\"value\":\"1\"}]}]"
+  mkq "q-20260910-000001-$op" "[{\"label\":\"x\",\"description\":\"d\",\"writes\":[{\"op\":\"$op\",\"file\":\"approve-held\",\"value\":\"1\"}]},{\"label\":\"Keep\",\"writes\":[{\"op\":\"noop\"}]}]"
 done
 out=$("$DESK" pending 2>/dev/null); [ "$out" = "[]" ] && pass "1a pending hides all six forbidden-op questions" || fail "1a pending listed a forbidden-op question: $out"
 ok=1; for op in delete sql merge run shell git; do "$DESK" answer "q-20260910-000001-$op" 0 >/dev/null 2>&1; [ $? -eq 3 ] || ok=0; done
@@ -45,7 +47,7 @@ mkq q-20260910-000002-mixed '[{"label":"clean","description":"d","writes":[{"op"
 # ── 2. path traversal in append.file ──────────────────────────────────────────
 ok=1; i=0
 for f in '../FROZEN' 'approve-held/../x' '/etc/passwd' 'APPROVE-HELD' 'approve-held ' 'questions/answered/x' ''; do
-  i=$((i+1)); mkq "q-20260910-00001$i-trav" "[{\"label\":\"x\",\"description\":\"d\",\"writes\":[{\"op\":\"append\",\"file\":\"$f\",\"value\":\"pwned\"}]}]"
+  i=$((i+1)); mkq "q-20260910-00001$i-trav" "[{\"label\":\"x\",\"description\":\"d\",\"writes\":[{\"op\":\"append\",\"file\":\"$f\",\"value\":\"pwned\"}]},{\"label\":\"Keep\",\"writes\":[{\"op\":\"noop\"}]}]"
   "$DESK" answer "q-20260910-00001$i-trav" 0 >/dev/null 2>&1; [ $? -eq 3 ] || ok=0
 done
 [ $ok -eq 1 ] && [ -z "$(grep -rl pwned "$STATE" | grep -v /questions/)" ] && pass "2a every traversal / spoofed knob name refused, 'pwned' landed nowhere" || fail "2a traversal got through"
@@ -70,7 +72,7 @@ n=$(tr ',\n' '  ' < "$STATE/approve-held" | wc -w | tr -d ' ')
 
 # ── 4. answer twice / id as a path ────────────────────────────────────────────
 : > "$STATE/approve-held"
-mkq q-20260910-000050-twice '[{"label":"ok","description":"d","writes":[{"op":"append","file":"approve-held","value":"5555"}]}]'
+mkq q-20260910-000050-twice '[{"label":"ok","description":"d","writes":[{"op":"append","file":"approve-held","value":"5555"}]},{"label":"Keep","writes":[{"op":"noop"}]}]'
 "$DESK" answer q-20260910-000050-twice 0 >/dev/null 2>&1; "$DESK" answer q-20260910-000050-twice 0 >/dev/null 2>&1; rc=$?
 [ $rc -eq 2 ] && [ "$(grep -c 5555 "$STATE/approve-held")" -eq 1 ] && pass "4a plain second answer: exit 2, applied once" || fail "4a second answer re-applied (rc=$rc)"
 "$DESK" answer answered/q-20260910-000050-twice 0 >/dev/null 2>&1; rc=$?
@@ -84,7 +86,7 @@ cp "$(find "$QUESTIONS_DIR" -name 'q-20260910-000050-twice.json' | head -1)" "$S
 
 # ── 5. other free text ────────────────────────────────────────────────────────
 printf 'x\n' > "$STATE/FROZEN"; : > "$STATE/approve-held"
-mkq q-20260910-000060-other '[{"label":"ok","description":"d","writes":[{"op":"unfreeze"}]}]'
+mkq q-20260910-000060-other '[{"label":"ok","description":"d","writes":[{"op":"unfreeze"}]},{"label":"Keep","writes":[{"op":"noop"}]}]'
 "$DESK" answer q-20260910-000060-other other '{"op":"unfreeze"} ; append approve-held 3410 ; $(rm -rf /) ; unfreeze' >/dev/null 2>&1
 [ -f "$STATE/FROZEN" ] && [ ! -s "$STATE/approve-held" ] && [ -f "$QUESTIONS_DIR/answered/q-20260910-000060-other.json" ] \
   && pass "5a op-looking free text stored, nothing applied" || fail "5a other text had an effect"

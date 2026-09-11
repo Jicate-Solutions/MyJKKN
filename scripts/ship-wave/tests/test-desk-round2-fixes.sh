@@ -4,6 +4,8 @@
 # passes after; the fix each one pins is named in its comment.
 # Run from the worktree root:  bash scripts/ship-wave/tests/test-desk-round2-fixes.sh
 # Temp $STATE, fixture Fleet.md, touches nothing live. PASS/FAIL per case, exit 1 on any FAIL.
+# Runs itself under `env -i PATH HOME` — the C locale launchd gives the wave — so a byte-counting bug fails here (round 4).
+[ "${DESK_TEST_ENV_I:-}" = 1 ] || exec env -i PATH="$PATH" HOME="$HOME" DESK_TEST_ENV_I=1 bash "$0" "$@"
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; SW="$HERE/.."; DESK="$SW/desk/v5-w12-desk.sh"
 export STATE; STATE="$(mktemp -d "${TMPDIR:-/tmp}/desk-r2fix.XXXXXX")"
@@ -26,7 +28,7 @@ clean() { rm -f "$QUESTIONS_DIR"/q-*.json "$QUESTIONS_DIR"/answered/*.json; : > 
 # fix: cmd_answer claims the file with an atomic mv into answered/ BEFORE applying (+ flock on questions/.lock);
 # losers exit 2 "already answered" and write no knob line, no log line, no ledger record.
 clean; : > "$STATE/approve-held"
-mkq q-20260910-000120-race '[{"label":"ok","description":"d","writes":[{"op":"append","file":"approve-held","value":"7777"}]}]'
+mkq q-20260910-000120-race '[{"label":"ok","description":"d","writes":[{"op":"append","file":"approve-held","value":"7777"}]},{"label":"Keep","writes":[{"op":"noop"}]}]'
 for i in 1 2 3 4 5 6; do ( "$DESK" answer q-20260910-000120-race 0 > "$STATE/race.$i.out" 2>&1; echo $? > "$STATE/race.$i.rc" ) & done; wait
 n=$(grep -c 7777 "$STATE/approve-held"); l=$(grep -c '"resolved"' "$LEDGER"); a=$(grep -c $'\tanswered\t' "$QUESTIONS_LOG")
 rcs=$(cat "$STATE"/race.*.rc | sort | tr '\n' ' '); tb=$(cat "$STATE"/race.*.out | grep -c Traceback)
@@ -41,17 +43,17 @@ grep -q "already answered" "$STATE"/race.*.out && pass "NEW-1c a loser says 'alr
 # ── NEW-2: a knob whose last line has no trailing newline ────────────────────────────────────────────────────
 # fix: apply_write emits '\n' first when the knob is non-empty and its last byte is not '\n'.
 clean; printf '3273' > "$STATE/approve-held"
-mkq q-20260910-000400-nl '[{"label":"Approve #3410","description":"d","writes":[{"op":"append","file":"approve-held","value":"3410"}]}]' held
+mkq q-20260910-000400-nl '[{"label":"Approve #3410","description":"d","writes":[{"op":"append","file":"approve-held","value":"3410"}]},{"label":"Keep","writes":[{"op":"noop"}]}]' held
 "$DESK" answer q-20260910-000400-nl 0 >/dev/null 2>&1
 [ "$(od -An -c "$STATE/approve-held" | tr -s ' \n' ' ')" = " 3 2 7 3 \\n 3 4 1 0 \\n " ] && pass "NEW-2a approve-held '3273' (no newline) + Approve #3410 → bytes are exactly '3273\\n3410\\n'" \
   || fail "NEW-2a approve-held bytes: $(od -An -c "$STATE/approve-held" | tr -s ' \n' ' ')"
 printf '20260906213000' > "$STATE/allow-destructive"
-mkq q-20260910-000401-nl '[{"label":"Allow","description":"d","writes":[{"op":"append","file":"allow-destructive","value":"20260910030000"}]}]'
+mkq q-20260910-000401-nl '[{"label":"Allow","description":"d","writes":[{"op":"append","file":"allow-destructive","value":"20260910030000"}]},{"label":"Keep","writes":[{"op":"noop"}]}]'
 "$DESK" answer q-20260910-000401-nl 0 >/dev/null 2>&1
 [ "$(cat "$STATE/allow-destructive")" = $'20260906213000\n20260910030000' ] && pass "NEW-2b allow-destructive keeps both versions as whole lines (grep -qx finds each)" \
   || fail "NEW-2b allow-destructive: '$(tr '\n' '|' < "$STATE/allow-destructive")'"
 printf '3273\n' > "$STATE/approve-held"
-mkq q-20260910-000402-nl '[{"label":"Approve #3410","description":"d","writes":[{"op":"append","file":"approve-held","value":"3410"}]}]' held
+mkq q-20260910-000402-nl '[{"label":"Approve #3410","description":"d","writes":[{"op":"append","file":"approve-held","value":"3410"}]},{"label":"Keep","writes":[{"op":"noop"}]}]' held
 "$DESK" answer q-20260910-000402-nl 0 >/dev/null 2>&1
 [ "$(cat "$STATE/approve-held")" = $'3273\n3410' ] && pass "NEW-2c a knob that already ends in a newline gets no blank line" || fail "NEW-2c extra blank line: '$(tr '\n' '|' < "$STATE/approve-held")'"
 
@@ -70,12 +72,12 @@ pend=$("$DESK" pending 2>/dev/null | python3 -c 'import json,sys;print(" ".join(
 RE='^q-[0-9]{8}-[0-9]{6}-[a-z0-9][a-z0-9-]{0,39}$'
 [[ "$a" =~ $RE ]] && [[ "$b" =~ $RE ]] && pass "NEW-3b both ids still match the id shape rule" || fail "NEW-3b id shape broken: '$a' '$b'"
 # the same name taken by an ANSWERED file is a collision too (answering would overwrite that record)
-clean; ask_director held held "Same second twice" b '[{"label":"ok","writes":[{"op":"noop"}]}]'; c=$ASK_DIRECTOR_ID
+clean; ask_director held held "Same second twice" b '[{"label":"ok","writes":[{"op":"noop"}]},{"label":"Keep","writes":[{"op":"noop"}]}]'; c=$ASK_DIRECTOR_ID
 "$DESK" answer "$c" 0 >/dev/null 2>&1
 # force the same second by rewriting the answered file's name to the id the next ask will mint
 h=$(printf 'held\037held\037Same second twice' | python3 -c 'import hashlib,sys;print(hashlib.sha1(sys.stdin.buffer.read()).hexdigest()[:4])')
 nxt="q-$(date '+%Y%m%d-%H%M%S')-held-held-$h"; mv "$QUESTIONS_DIR/answered/$c.json" "$QUESTIONS_DIR/answered/$nxt.json" 2>/dev/null
-ask_director held held "Same second twice" b '[{"label":"ok","writes":[{"op":"noop"}]}]'; d=$ASK_DIRECTOR_ID
+ask_director held held "Same second twice" b '[{"label":"ok","writes":[{"op":"noop"}]},{"label":"Keep","writes":[{"op":"noop"}]}]'; d=$ASK_DIRECTOR_ID
 [ "$d" != "$nxt" ] && [ -f "$QUESTIONS_DIR/$d.json" ] && [ -f "$QUESTIONS_DIR/answered/$nxt.json" ] \
   && pass "NEW-3c a name already used in answered/ is skipped (-2), the answered record survives" \
   || fail "NEW-3c re-used an answered name: new id '$d' vs answered '$nxt' (may be a second-boundary flake)"
@@ -160,10 +162,12 @@ ask_director freeze "peer hold on PR" "Lift the stop?" "A peer asked for a hold.
   || fail "GAP-unfreeze-a frozen_line='$(jq_ "$QUESTIONS_DIR/$soft.json" 'd.get("frozen_line")')'"
 printf '2026-09-10 08:00:00\tdeploy ERROR dpl_abc\thard\n' >> "$STATE/FROZEN"
 out=$("$DESK" answer "$soft" 0 2>&1); rc=$?
-[ $rc -eq 4 ] && [ -f "$STATE/FROZEN" ] && [ "$(wc -l < "$STATE/FROZEN" | tr -d ' ')" -eq 2 ] && printf '%s' "$out" | grep -q 'the stop has changed since you were asked — nothing lifted' \
-  && pass "GAP-unfreeze-b a soft question answered after a hard line landed: FROZEN untouched (2 lines), exit 4, refusal named" \
-  || fail "GAP-unfreeze-b rc=$rc FROZEN lines=$(wc -l < "$STATE/FROZEN" 2>/dev/null) out='$out'"
-[ "$(jq_ "$QUESTIONS_DIR/answered/$soft.json" 'd.get("failed")')" = 1 ] && pass "GAP-unfreeze-c the question is answered with failed:1 (so the wave writes a fresh one)" || fail "GAP-unfreeze-c failed=$(jq_ "$QUESTIONS_DIR/answered/$soft.json" 'd.get("failed")')"
+# round 4 (NEW-A / H11) FLIPPED this case: unfreeze is LINE-SCOPED. The soft question's own line goes; the hard line that
+# landed after it STAYS (the wave's most-severe-wins class is still hard, so nothing ships) — exit 0, receipt says so.
+[ $rc -eq 0 ] && [ "$(cat "$STATE/FROZEN")" = "$(printf '2026-09-10 08:00:00\tdeploy ERROR dpl_abc\thard')" ] && printf '%s' "$out" | grep -q 'a HARD stop is still in force' \
+  && pass "GAP-unfreeze-b a soft question answered after a hard line landed: its own line lifted, the hard line stays (exit 0, receipt names the hard stop)" \
+  || fail "GAP-unfreeze-b rc=$rc FROZEN=[$(cat "$STATE/FROZEN" 2>/dev/null | tr '\n' '|')] out='$out'"
+[ "$(jq_ "$QUESTIONS_DIR/answered/$soft.json" 'd.get("failed")')" = None ] && pass "GAP-unfreeze-c the question is answered clean (no failed key) — it did what it was asked" || fail "GAP-unfreeze-c failed=$(jq_ "$QUESTIONS_DIR/answered/$soft.json" 'd.get("failed")')"
 grep -q '"outcome": "resolved"' "$LEDGER" && pass "GAP-unfreeze-d the resolution is still on the ledger (the Director did decide)" || fail "GAP-unfreeze-d no ledger record"
 ask_director freeze "deploy ERROR" "Production build failed. Lift the stop?" "…" "$OPTS"; hard=$ASK_DIRECTOR_ID
 "$DESK" answer "$hard" 0 >/dev/null 2>&1; rc=$?
@@ -194,8 +198,8 @@ Q_RECOMMENDED=1 ask_director held held "Approve #9?" "new body" '[{"label":"Appr
 [ "$(tr '\n' ' ' < "$STATE/approve-held")" = "9 10 " ] && pass "GAP-dedup-d answering the NEW option applies the new writes" || fail "GAP-dedup-d approve-held '$(tr '\n' ' ' < "$STATE/approve-held")'"
 clean
 # a refresh whose new options are invalid is refused and the open question is left as it was
-ask_director held held "Stays" "b" '[{"label":"ok","writes":[{"op":"noop"}]}]'; sid=$ASK_DIRECTOR_ID
-ask_director held held "Stays" "b2" '[{"label":"bad","writes":[{"op":"merge"}]}]' >/dev/null 2>&1; rc=$?
+ask_director held held "Stays" "b" '[{"label":"ok","writes":[{"op":"noop"}]},{"label":"Keep","writes":[{"op":"noop"}]}]'; sid=$ASK_DIRECTOR_ID
+ask_director held held "Stays" "b2" '[{"label":"bad","writes":[{"op":"merge"}]},{"label":"Keep","writes":[{"op":"noop"}]}]' >/dev/null 2>&1; rc=$?
 [ $rc -ne 0 ] && [ "$(jq_ "$QUESTIONS_DIR/$sid.json" 'd["body"]+"|"+d["options"][0]["label"]')" = "b|ok" ] && pass "GAP-dedup-e a refresh with invalid writes is refused; the open question is unchanged" || fail "GAP-dedup-e rc=$rc"
 clean
 

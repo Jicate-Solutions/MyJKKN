@@ -9,9 +9,12 @@
 # What this may touch — and nothing else:
 #   $STATE/questions/**                      the question files and questions.log
 #   $STATE/approve-held | allow-destructive | advisory-checks   the wave's three knobs (append only)
-#   $STATE/FROZEN                            removed by the `unfreeze` op (= ship-wave.sh --unfreeze)
+#   $STATE/FROZEN                            the `unfreeze` op removes ONLY the line the question was asked about
+#                                            (the file goes when no line remains; a hard line above it stays)
 #   policy_ratify P<n>                       the `ratify` op (= ship-wave.sh --ratify)
-#   $STATE/failure-ledger.jsonl              one "resolved" record per answered freeze question (append)
+#   $STATE/failure-ledger.jsonl              one record per answered freeze question (append): outcome "resolved"
+#                                            when ≥1 write applied and none failed; outcome "refused" (fields
+#                                            chosen/reason) when nothing applied — slice D counts ONLY "resolved"
 #   $FLEET_MD                                ONLY its "## W12 desk — waiting on you" section
 # It never runs the wave. It never merges. It never invents an option: the writes in the file are the contract.
 # An <id> is accepted ONLY in the shape ^q-[0-9]{8}-[0-9]{6}-[a-z0-9][a-z0-9-]{0,39}$ and resolves ONLY to
@@ -23,6 +26,8 @@
 #                                                   exit 0 applied · 2 no such question / usage / already answered ·
 #                                                   3 refused (bad id, op outside the allowlist, malformed value) ·
 #                                                   4 partly failed (an unfreeze whose stop changed counts here) ·
+#                                                   receipt ✓/✗ per write comes from the op's return code, never
+#                                                   from words in the value ('… FAILED gate' applied is ✓) ·
 #                                                   5 expired — nothing applied (DESK_ALLOW_EXPIRED=1 overrides)
 #        v5-w12-desk.sh answer <id> other "<text>"  store the free text verbatim; apply NOTHING
 #        v5-w12-desk.sh mirror                      rewrite the desk section of $FLEET_MD
@@ -92,23 +97,50 @@ apply_write() {  # $1 = one write as JSON → prints what it did; returns 1 if t
       case "$file" in approve-held|allow-destructive|advisory-checks) ;; *) echo "append $file REFUSED (not a knob)"; return 1;; esac
       # a knob edited by hand (phone, printf) may end without '\n'; appending straight on glued '3273'+'3410' into
       # one token that approved NOTHING and destroyed the earlier allow (NEW-2). Start a fresh line first.
-      if [ -s "$STATE/$file" ] && [ -n "$(tail -c1 "$STATE/$file")" ]; then printf '\n' >> "$STATE/$file"; fi
-      printf '%s\n' "$value" >> "$STATE/$file" && echo "append $file $value" ;;
+      if [ -s "$STATE/$file" ] && [ -n "$(tail -c1 "$STATE/$file")" ]; then { printf '\n' >> "$STATE/$file"; } 2>/dev/null; fi
+      # a failed write must SAY so on the receipt (an unwritable knob used to print nothing at all — the ✗ stood alone)
+      if { printf '%s\n' "$value" >> "$STATE/$file"; } 2>/dev/null; then echo "append $file $value"
+      else echo "append $file $value FAILED (cannot write $STATE/$file)"; return 1; fi ;;
     unfreeze)
-      # what ship-wave.sh --unfreeze does — but scoped to the stop the question was ASKED about: the question
-      # carries frozen_line (FROZEN's last line when it was written); if FROZEN's last line is different NOW
-      # (a newer or harder stop landed, or it was already lifted), this tap must not lift it (§A2 gap, 2026-09-10:
-      # a stale soft-freeze question lifted a later hard 'deploy ERROR' latch). The refusal counts as failed so
-      # the question is answered with failed:1 and the wave writes a fresh one for the stop that is on now.
+      # what ship-wave.sh --unfreeze does — but scoped to the stop the question was ASKED about: the question carries
+      # frozen_line (FROZEN's last line when it was written). LINE-SCOPED (round-4 NEW-A = the wave side's H11): FROZEN
+      # is append-only, and the phone's `--freeze "peer hold …"` lands a SOFT line on top of an unresolved HARD one;
+      # the question is then about the soft line. This op removes ONLY the line(s) equal to frozen_line (after the same
+      # flattening on both sides), rewrites the file without them (tmp + mv, atomic) and deletes the file only when no
+      # line remains. Consequence: with a hard line still present the wave's freeze_class_now (most-severe-wins,
+      # slice B) stays HARD and nothing merges or ships — the desk lifted exactly what it was asked about. If no line
+      # matches (a newer or harder stop replaced it, or it was already lifted) this tap lifts nothing: the refusal
+      # counts as failed, the question is answered with failed:1, and the wave writes a fresh one for the stop on now.
       if [ "${Q_HAS_FROZEN_LINE:-0}" != 1 ]; then
         echo "unfreeze REFUSED (this question does not name the stop it was asked about — nothing lifted)"; return 1
       fi
-      local cur=""; [ -f "$FREEZE" ] && cur=$(_q_one_line "$(tail -1 "$FREEZE")"); cur="${cur:0:400}"
-      if [ "$cur" != "${Q_FROZEN_LINE:-}" ]; then
-        echo "unfreeze REFUSED (the stop has changed since you were asked — nothing lifted; now: '${cur:-no stop on}')"; return 1
+      if [ ! -f "$FREEZE" ]; then
+        if [ -z "${Q_FROZEN_LINE:-}" ]; then echo "unfreeze (no stop was on)"; return 0; fi
+        echo "unfreeze REFUSED (the stop has changed since you were asked — nothing lifted; now: 'no stop on')"; return 1
       fi
-      # the freeze CLASS (spec §B) lives in the FROZEN line itself; a sidecar, if the wave ever writes one, goes with it
-      rm -f "$FREEZE" "$FREEZE.class" && echo "unfreeze" ;;
+      local tmp line flat gone=0 kept=0 last="" hard_left
+      tmp="$FREEZE.tmp.$$"; : > "$tmp" || { echo "unfreeze FAILED: cannot write $tmp"; return 1; }
+      while IFS= read -r line || [ -n "$line" ]; do
+        flat=$(_q_one_line "$line" 400); last="$flat"
+        if [ -n "$flat" ] && [ "$flat" = "${Q_FROZEN_LINE:-}" ]; then gone=$((gone+1)); continue; fi
+        printf '%s\n' "$line" >> "$tmp"; kept=$((kept+1))
+      done < "$FREEZE"
+      if [ "$gone" -eq 0 ]; then
+        rm -f "$tmp"; echo "unfreeze REFUSED (the stop has changed since you were asked — nothing lifted; now: '${last:-no stop on}')"; return 1
+      fi
+      if [ "$kept" -eq 0 ]; then
+        # the freeze CLASS (spec §B) lives in the FROZEN line itself; a sidecar, if the wave ever writes one, goes with it
+        rm -f "$tmp" "$FREEZE" "$FREEZE.class" && echo "unfreeze"; return
+      fi
+      mv -f "$tmp" "$FREEZE" || { rm -f "$tmp"; echo "unfreeze FAILED: could not rewrite FROZEN"; return 1; }
+      # what is still in force — the same fail-safe reading as ship-wave.sh freeze_class_now (slice B; keep in step):
+      # a malformed line or a class that is not exactly soft|hard counts as hard
+      hard_left=$(awk -F'\t' 'BEGIN{c="soft"} {if ((NF!=3 && NF!=4) || ($3!="soft" && $3!="hard")) {c="hard"; exit} if ($3=="hard") c="hard"} END{print c}' "$FREEZE" 2>/dev/null)
+      if [ "$hard_left" = hard ]; then
+        echo "unfreeze (lifted $gone line(s); $kept still on — a HARD stop is still in force: nothing merges or ships until it is lifted)"
+      else
+        echo "unfreeze (lifted $gone line(s); $kept soft line(s) still on)"
+      fi ;;
     ratify)
       value=$(printf '%s' "$1" | python3 -c 'import json,sys;print(json.load(sys.stdin)["value"])')
       if out=$(policy_ratify "$value" 2>&1); then echo "ratify $value"; else echo "ratify $value FAILED: $out"; return 1; fi ;;
@@ -135,14 +167,23 @@ cmd_answer() {
 }
 
 _cmd_answer_locked() {
-  local id="$1" choice="${2:-}" text="${3:-}" f ans why st n idx label kind cls title writes applied="" failed=0 w rc
+  local id="$1" choice="${2:-}" text="${3:-}" f ans why st n idx label kind cls title writes applied="" failed=0 ok=0 receipt="" w rc out
   # the id is a NAME, never a path: anything outside the shape is refused before a path is even built
   if ! question_id_valid "$id"; then
     echo "desk: REFUSED — '$(printf '%s' "$id" | tr '\000-\037\177' '?' | cut -c1-80)' is not a question id (q-YYYYmmdd-HHMMSS-<slug>, [a-z0-9-]). Nothing applied."
     qlog "refused	$(printf '%s' "$id" | tr '\000-\037\177' '?' | cut -c1-80)	not a question id"; return 3
   fi
   f="$QUESTIONS_DIR/$id.json"; ans="$QUESTIONS_DIR/answered/$id.json"
+  # a symlink at <id>.json resolves OUTSIDE the question file (its own answered copy, a file outside questions/):
+  # refused before it is read or moved (NEW-G: mv put a self-pointing link over the answered record)
+  if [ -L "$f" ]; then
+    echo "desk: REFUSED $id — questions/$id.json is a symlink, not a question file. Nothing applied."; qlog "refused	$id	symlink"; return 3
+  fi
   [ -f "$f" ] || { echo "desk: no open question $id"; [ -f "$ans" ] && echo "  (already answered)"; return 2; }
+  # an id that was answered before must not overwrite its record: a re-used id is refused, the new file left in place
+  if [ -e "$ans" ] || [ -L "$ans" ]; then
+    echo "desk: REFUSED $id — answered/$id.json already exists (this id was answered before; the record is kept). Nothing applied."; qlog "refused	$id	id re-used"; return 3
+  fi
   # the allowlist and the shape rules are checked HERE, on the file as it is now — not on what pending showed earlier
   if ! why=$(question_file_valid "$f"); then
     why=$(printf '%s' "$why" | tr '\n\t' '  ')
@@ -196,9 +237,12 @@ PY
   # apply, one op at a time, in the order written — exactly these and no others
   while IFS= read -r w; do
     [ -n "$w" ] || continue
-    if out=$(apply_write "$w"); then rc=0; else rc=1; failed=$((failed+1)); fi
+    if out=$(apply_write "$w"); then rc=0; ok=$((ok+1)); else rc=1; failed=$((failed+1)); fi
     applied="$applied${applied:+
 }$out"
+    # ✓/✗ is the op's RETURN CODE — never a word match on the value ('SDK review FAILED gate' applied is ✓; NEW-E)
+    receipt="$receipt$id → $out $([ "$rc" -eq 0 ] && echo ✓ || echo ✗)
+"
   done < <(printf '%s' "$writes" | python3 -c 'import json,sys
 for w in json.load(sys.stdin): print(json.dumps(w))')
   APPLIED="$applied" IDX="$idx" LABEL="$label" FAILED="$failed" python3 - "$f" <<'PY'
@@ -211,12 +255,20 @@ if int(os.environ["FAILED"]): q["failed"] = int(os.environ["FAILED"])
 json.dump(q, open(sys.argv[1], "w"), indent=1, ensure_ascii=False)
 PY
   qlog "answered	$id	$idx	$label	$(printf '%s' "$applied" | tr '\n' ';')"
-  # resolution memory (spec §D): a decided freeze becomes evidence the policy learner can count
+  # resolution memory (spec §D): a decided freeze becomes evidence the policy learner can count — but ONLY a decision
+  # that took effect. An answer whose writes all failed or were refused (stop changed, unwritable knob) records outcome
+  # "refused" with chosen + reason instead (NEW-B: two refused taps proposed AUTO_<CLASS>_UNFREEZE from decisions that
+  # applied nothing). Slice D counts "resolved" records only.
   if [ "$kind" = "freeze" ]; then
-    ledger_record resolved "desk: $title → $label" "$cls" \
-      "$(L="$label" W="$writes" python3 -c 'import json,os;print(json.dumps({"chosen":os.environ["L"],"writes":json.loads(os.environ["W"])}))')"
+    if [ "$ok" -ge 1 ] && [ "$failed" -eq 0 ]; then
+      ledger_record resolved "desk: $title → $label" "$cls" \
+        "$(L="$label" W="$writes" python3 -c 'import json,os;print(json.dumps({"chosen":os.environ["L"],"writes":json.loads(os.environ["W"])}))')"
+    else
+      ledger_record refused "desk: $title → $label (nothing applied)" "$cls" \
+        "$(L="$label" A="$applied" F="$failed" python3 -c 'import json,os;print(json.dumps({"chosen":os.environ["L"],"reason":" ; ".join(a for a in os.environ["A"].split("\n") if a)[:400],"failed":int(os.environ["F"])}))')"
+    fi
   fi
-  printf '%s\n' "$applied" | while IFS= read -r w; do [ -n "$w" ] && echo "$id → $w $( case "$w" in *FAILED*|*REFUSED*) echo ✗;; *) echo ✓;; esac)"; done
+  printf '%s' "$receipt"
   [ "$failed" -eq 0 ] || return 4
 }
 

@@ -5,6 +5,8 @@
 # 4–7 hygiene (a lying receipt, an un-askable question, a destroyed record).
 # Run from the worktree root:  bash scripts/ship-wave/tests/test-desk-adversarial-r4.sh
 # Temp $STATE, fixture Fleet.md, touches nothing live. PASS/FAIL per case, exit 1 on any FAIL.
+# Runs itself under `env -i PATH HOME` — the C locale launchd gives the wave — so a byte-counting bug fails here (round 4).
+[ "${DESK_TEST_ENV_I:-}" = 1 ] || exec env -i PATH="$PATH" HOME="$HOME" DESK_TEST_ENV_I=1 bash "$0" "$@"
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; SW="$HERE/.."; DESK="$SW/desk/v5-w12-desk.sh"
 export STATE; STATE="$(mktemp -d "${TMPDIR:-/tmp}/desk-r4.XXXXXX")"

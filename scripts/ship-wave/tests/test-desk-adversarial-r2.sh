@@ -3,6 +3,8 @@
 # after the round-1 fixes held. Every case here FAILED on that commit; each says what the fix must be.
 # Run from the worktree root:  bash scripts/ship-wave/tests/test-desk-adversarial-r2.sh
 # Temp $STATE, fixture Fleet.md, touches nothing live. PASS/FAIL per case, exit 1 on any FAIL.
+# Runs itself under `env -i PATH HOME` — the C locale launchd gives the wave — so a byte-counting bug fails here (round 4).
+[ "${DESK_TEST_ENV_I:-}" = 1 ] || exec env -i PATH="$PATH" HOME="$HOME" DESK_TEST_ENV_I=1 bash "$0" "$@"
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; SW="$HERE/.."; DESK="$SW/desk/v5-w12-desk.sh"
 export STATE; STATE="$(mktemp -d "${TMPDIR:-/tmp}/desk-adv2.XXXXXX")"
@@ -22,7 +24,7 @@ OPTS='[{"label":"Lift the stop","description":"lifts","writes":[{"op":"unfreeze"
 # (BREAK) fix: cmd_answer must claim the file atomically (mv to <id>.json.claiming or mkdir lock) before applying;
 # the loser exits 2 "already answered" and writes no knob line, no log line, no ledger record.
 : > "$STATE/approve-held"; : > "$LEDGER"
-mkq q-20260910-000120-race '[{"label":"ok","description":"d","writes":[{"op":"append","file":"approve-held","value":"7777"}]}]'
+mkq q-20260910-000120-race '[{"label":"ok","description":"d","writes":[{"op":"append","file":"approve-held","value":"7777"}]},{"label":"Keep","writes":[{"op":"noop"}]}]'
 ( "$DESK" answer q-20260910-000120-race 0 >/dev/null 2>&1; echo $? > "$STATE/r1.rc" ) & ( "$DESK" answer q-20260910-000120-race 0 >/dev/null 2>&1; echo $? > "$STATE/r2.rc" ) & wait
 n=$(grep -c 7777 "$STATE/approve-held"); l=$(grep -c '"resolved"' "$LEDGER"); a=$(grep -c $'\tanswered\t' "$QUESTIONS_LOG")
 [ "$n" -eq 1 ] && [ "$l" -eq 1 ] && [ "$a" -eq 1 ] && pass "1a two concurrent answers on one id: one append, one ledger record, one log line" \
@@ -34,13 +36,13 @@ rm -f "$QUESTIONS_DIR"/q-*.json "$QUESTIONS_DIR"/answered/*.json
 # (or rewrite the file line-wise). ship-wave.sh reads approve-held with tr ',\n' '  '; apply-migrations.sh reads
 # allow-destructive with grep -qx — a concatenated line approves NOTHING and destroys the previous allow.
 printf '3273' > "$STATE/approve-held"
-mkq q-20260910-000400-nl '[{"label":"Approve #3410","description":"d","writes":[{"op":"append","file":"approve-held","value":"3410"}]}]' held
+mkq q-20260910-000400-nl '[{"label":"Approve #3410","description":"d","writes":[{"op":"append","file":"approve-held","value":"3410"}]},{"label":"Keep","writes":[{"op":"noop"}]}]' held
 "$DESK" answer q-20260910-000400-nl 0 >/dev/null 2>&1
 toks=$(tr ',\n' '  ' < "$STATE/approve-held" | tr -s ' ' | sed 's/^ //; s/ $//')
 [ "$toks" = "3273 3410" ] && pass "2a append to approve-held without a trailing newline keeps 3273 and adds 3410" \
   || fail "2a (BREAK) approve-held now reads '$toks' as ship-wave.sh splits it — #3273's approval is gone and #3410 was never approved"
 printf '20260906213000' > "$STATE/allow-destructive"
-mkq q-20260910-000401-nl '[{"label":"Allow","description":"d","writes":[{"op":"append","file":"allow-destructive","value":"20260910030000"}]}]'
+mkq q-20260910-000401-nl '[{"label":"Allow","description":"d","writes":[{"op":"append","file":"allow-destructive","value":"20260910030000"}]},{"label":"Keep","writes":[{"op":"noop"}]}]'
 "$DESK" answer q-20260910-000401-nl 0 >/dev/null 2>&1
 grep -qx 20260906213000 "$STATE/allow-destructive" && grep -qx 20260910030000 "$STATE/allow-destructive" \
   && pass "2b append to allow-destructive without a trailing newline keeps both versions as whole lines" \
