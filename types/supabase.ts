@@ -172732,6 +172732,7 @@ export type Database = {
           periods: Json
           program_id: string | null
           section_id: string | null
+          section_ids: string[] | null
           selected_dates: Json | null
           selected_days: Json | null
           semester_id: string | null
@@ -172768,6 +172769,7 @@ export type Database = {
           periods?: Json
           program_id?: string | null
           section_id?: string | null
+          section_ids?: string[] | null
           selected_dates?: Json | null
           selected_days?: Json | null
           semester_id?: string | null
@@ -172804,6 +172806,7 @@ export type Database = {
           periods?: Json
           program_id?: string | null
           section_id?: string | null
+          section_ids?: string[] | null
           selected_dates?: Json | null
           selected_days?: Json | null
           semester_id?: string | null

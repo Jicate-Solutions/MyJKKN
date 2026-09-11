@@ -17,6 +17,7 @@ import {
 import { ReservationInfo } from './_components/reservation-info';
 import { ReservationActions } from './_components/reservation-actions';
 import { ReservationTimeline } from './_components/reservation-timeline';
+import { ReservationComments } from './_components/reservation-comments';
 import {
   useReservation,
   useReservationApprovals
@@ -147,6 +148,18 @@ export default function ReservationDetailsPage({
         {/* Main Content */}
         <div className='lg:col-span-2 space-y-6'>
           <ReservationInfo reservation={reservation} />
+
+          {/* The conversation on this booking. In the MAIN column, not the
+              sidebar: the Activity Timeline beside it is a log of what already
+              happened, while this is the channel telling the booker what still
+              has to happen before the request can move. Burying that next to
+              the log is how "pending, because you have not attached the event
+              order" goes unread.
+
+              Gates itself — booker, the request's approvers, or resource
+              administrators. Renders nothing for anyone else, including the
+              rest of the institution, who CAN read the booking row itself. */}
+          <ReservationComments reservationId={reservationId} />
         </div>
 
         {/* Sidebar */}
