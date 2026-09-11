@@ -107,6 +107,7 @@ scenario() {
         "pr merge "*) # a merge moves main: one squash commit "… (#n)" lands on the fixture remote
           git -C "$WTDIR" -c user.name=t -c user.email=t@t commit -q --allow-empty -m "merged by the wave (#$3)" && git -C "$WTDIR" push -q jicate HEAD:main 2>/dev/null; return 0;;
         *"--json files"*) case "$3" in 1) echo docs/a.md;; 2) echo app/api/x/route.ts;; 3) echo app/api/fees/route.ts;; 4) echo supabase/migrations/20260910100000_t.sql;; esac;;
+        *"--json headRefOid"*) echo "abc1234${3}000000000000000000000000000000000";;   # per-PR HELD questions carry the head sha (2026-09-11)
         *"pr list"*) echo 4;;
       esac; return 0
     }
@@ -154,7 +155,8 @@ check "1k soft: banner says merging LOW/NORMAL, holding HELD"     $(has "$R" "FR
 check "1l soft: scoreboard shows the class"                      $(has "$R" "frozen: soft (merging LOW/NORMAL, holding HELD)"; echo $?) "$(grep SCOREBOARD "$R")"
 check "1m soft: sweep gate reached after READY (L2 probed the merged route)" $(has "$R" "L2 1 ok"; echo $?) "$(grep 'L2' "$R")"
 check "1n soft: HTML banner carries the class"                   $(grep -qF "FROZEN (soft — merging LOW/NORMAL, holding HELD" "$(cat "$TMP/s1/html.path")"; echo $?)
-check "1o soft: HELD question asked for #4 only (#3 is approved)" $(grep -q 'ASK kind=held class=held title=1 HELD PR ready for your OK: #4' "$TR"; echo $?) "$(grep ASK "$TR")"
+# spec amendment (integrator 2026-09-11): ONE question PER ready HELD PR, class "<n>-<7-char head sha>" — the burst form is gone
+check "1o soft: HELD question asked for #4 only (#3 is approved): 'Approve #4? feat: add table', class 4-abc1234" $(grep -q 'ASK kind=held class=4-abc1234 title=Approve #4? feat: add table' "$TR" && [ "$(grep -c 'ASK kind=held' "$TR")" -eq 1 ]; echo $?) "$(grep ASK "$TR")"
 check "1p H1: preflight rewrote the stale marker from Vercel's READY sha before comparing (Vercel primary, marker fallback)" $(grep -q "last-deployed ← ${SHA0:0:10}" "$R"; echo $?) "$(grep 'last-deployed' "$R")"
 
 echo "── (2) hard freeze: no merge, no deploy, no lanes; one-line reason; HELD question still asked ──"
@@ -167,7 +169,7 @@ check "2d hard: apply NOT run"                                   $(hasnot "$TR" 
 check "2e hard: receipt names the class"                         $(has "$R" "FROZEN (hard) since:"; echo $?)
 check "2f hard: merge stage says hard freeze"                    $(has "$R" "(plan mode or hard freeze — nothing merged)"; echo $?)
 check "2g hard: HTML banner says nothing merges, nothing ships"  $(grep -qF "FROZEN (hard — nothing merges, nothing ships)" "$(cat "$TMP/s2/html.path")"; echo $?)
-check "2h hard: HELD question asked with #3 #4, approve-all and none-today" $(grep -q 'ASK kind=held class=held title=2 HELD PRs ready for your OK: #3 #4' "$TR" && grep -q '"Approve all listed"' "$TR" && grep -q '"None today"' "$TR" && grep -q '"file": "approve-held", "value": "3"' "$TR"; echo $?) "$(grep ASK "$TR")"
+check "2h hard: one HELD question each for #3 and #4 ('Approve #n' append approve-held n / 'Not now' noop)" $([ "$(grep -c 'ASK kind=held class=[34]-abc1234 title=Approve #[34]? ' "$TR")" -eq 2 ] && grep -q '"label": "Approve #3"' "$TR" && grep -q '"label": "Not now"' "$TR" && grep -q '"file": "approve-held", "value": "3"' "$TR" && ! grep -q '"Approve all listed"' "$TR"; echo $?) "$(grep ASK "$TR")"
 check "2i hard + main ahead of Vercel's READY sha (s1's merges): one-line 'NOTHING ships' reason" $(grep -q '^  ⛔ hard freeze — main (.*) is ahead of production (.*) but NOTHING ships' "$R"; echo $?) "$(grep 'hard freeze' "$R")"
 
 echo "── (2x) round 8 (integrator item 1): a FROZEN that EXISTS but is not a regular file reads HARD in run_once — never unfrozen ──"
@@ -300,29 +302,44 @@ echo "── (6) freeze() writes class (field 3) + ledger_class (field 4); unkno
 ) | tee "$TMP/s6.out"
 PASS=$((PASS + $(grep -c '^PASS' "$TMP/s6.out"))); FAIL=$((FAIL + $(grep -c '^FAIL' "$TMP/s6.out")))
 
-echo "── (7) HELD question: asked once per set, re-asked only when the set changes ──"
+echo "── (7) HELD questions (spec amendment): ONE per ready HELD PR, asked once while open, never for an approved PR ──"
+# integrator 2026-09-11: the 2–5-PR burst ("Approve all listed" / "None today") could never be asked — AskUserQuestion takes
+# 2–4 options. Now the REAL ask_director (desk-questions.sh, sourced by the wave) writes one file per PR; the counts below are
+# of those files, so a section that dies half-way reports FAIL 7z instead of reporting nothing.
 (
   export HOME="$TMP/s7"; mkdir -p "$HOME/run"; cd "$ROOT" || exit 9
   set -- go; . "$TMP/wave.sh" >/dev/null 2>&1
+  type -t ask_held_questions >/dev/null && type -t ask_director >/dev/null || { echo "FAIL  7z ask_held_questions / ask_director not defined by the wave"; exit 0; }
+  gh() { case "$*" in *"--json headRefOid"*) echo "abc1234${3}000000000000000000000000000000000";; esac; return 0; }
   mk_plan "$HOME/run/plan.json" "0 0 1"
-  N=0; ask_director() { N=$((N+1)); LAST_TITLE="$3"; LAST_OPTS="$5"; }
-  APPROVE_HELD=""; ask_held_question "$HOME/run"
-  [ "$N" -eq 1 ] && [ "$LAST_TITLE" = "2 HELD PRs ready for your OK: #3 #4" ] && echo "PASS  7a first sweep asks once, title lists #3 #4" || echo "FAIL  7a N=$N title=$LAST_TITLE"
+  heldq() { grep -l '"kind": "held"' "$QUESTIONS_DIR"/q-*.json 2>/dev/null; }
+  APPROVE_HELD=""; ask_held_questions "$HOME/run" >/dev/null
+  [ "$(heldq | grep -c .)" -eq 2 ] && grep -l '"class": "3-abc1234"' $(heldq) | xargs grep -q '"title": "Approve #3? feat: fee ledger"' && grep -l '"class": "4-abc1234"' $(heldq) | xargs grep -q '"title": "Approve #4? feat: add table"' \
+    && echo "PASS  7a first sweep: two questions, 'Approve #3? feat: fee ledger' (3-abc1234) and 'Approve #4? feat: add table' (4-abc1234)" || echo "FAIL  7a $(heldq | tr '\n' ' ')"
   python3 -c '
-import json,sys; o=json.loads(sys.argv[1]); labels=[x["label"] for x in o]
-assert labels[:2]==["#3 feat: fee ledger","#4 feat: add table"], labels
-assert labels[2:]==["Approve all listed","None today"], labels
+import json,sys
+q=[json.load(open(f)) for f in sys.argv[1:]]; q={x["class"]:x for x in q}
+o=q["3-abc1234"]["options"]
+assert [x["label"] for x in o]==["Approve #3","Not now"], o
 assert o[0]["writes"]==[{"op":"append","file":"approve-held","value":"3"}], o[0]
-assert o[2]["writes"]==[{"op":"append","file":"approve-held","value":"3"},{"op":"append","file":"approve-held","value":"4"}], o[2]
-assert o[3]["writes"]==[{"op":"noop"}]
-for x in o: assert len(x["label"])<=40 and all(w["op"] in ("append","noop") for w in x["writes"])' "$LAST_OPTS" && echo "PASS  7b options: one per PR (append approve-held n), Approve all (both appends), None today (noop)" || echo "FAIL  7b $LAST_OPTS"
-  ask_held_question "$HOME/run"
-  [ "$N" -eq 1 ] && echo "PASS  7c same set next round → not asked again" || echo "FAIL  7c N=$N"
-  APPROVE_HELD="3"; ask_held_question "$HOME/run"
-  [ "$N" -eq 2 ] && [ "$LAST_TITLE" = "1 HELD PR ready for your OK: #4" ] && echo "PASS  7d #3 approved → set changed to #4 → asked again" || echo "FAIL  7d N=$N title=$LAST_TITLE"
-  APPROVE_HELD="3 4"; ask_held_question "$HOME/run"
-  [ "$N" -eq 2 ] && echo "PASS  7e every HELD PR approved → nothing to ask" || echo "FAIL  7e N=$N"
+assert o[1]["writes"]==[{"op":"noop"}], o[1]
+assert q["3-abc1234"]["recommended"]==1' $(heldq) && echo "PASS  7b options: 'Approve #3' (append approve-held 3) · 'Not now' (noop, recommended)" || echo "FAIL  7b $(cat $(heldq) | head -30)"
+  ask_held_questions "$HOME/run" >/dev/null
+  [ "$(heldq | grep -c .)" -eq 2 ] && [ "$(awk -F'\t' '$2=="asked"' "$QUESTIONS_LOG" | grep -c .)" -eq 2 ] && [ "$(awk -F'\t' '$2=="refreshed"' "$QUESTIONS_LOG" | grep -c .)" -eq 0 ] \
+    && echo "PASS  7c next round, same PRs → nothing asked or refreshed (2 asked lines in questions.log)" || echo "FAIL  7c $(cat "$QUESTIONS_LOG")"
 ) | tee "$TMP/s7.out"
+(
+  export HOME="$TMP/s7b"; mkdir -p "$HOME/run"; cd "$ROOT" || exit 9
+  set -- go; . "$TMP/wave.sh" >/dev/null 2>&1
+  gh() { case "$*" in *"--json headRefOid"*) echo "abc1234${3}000000000000000000000000000000000";; esac; return 0; }
+  mk_plan "$HOME/run/plan.json" "0 0 1"
+  APPROVE_HELD="3"; ask_held_questions "$HOME/run" >/dev/null
+  n=$(grep -l '"kind": "held"' "$QUESTIONS_DIR"/q-*.json 2>/dev/null | grep -c .)
+  [ "$n" -eq 1 ] && grep -q '"class": "4-abc1234"' "$QUESTIONS_DIR"/q-*.json && echo "PASS  7d #3 approved → only #4 is asked" || echo "FAIL  7d n=$n"
+  APPROVE_HELD="3 4"; ask_held_questions "$HOME/run" >/dev/null
+  [ "$(grep -l '"kind": "held"' "$QUESTIONS_DIR"/q-*.json 2>/dev/null | grep -c .)" -eq 1 ] && echo "PASS  7e every HELD PR approved → nothing new asked" || echo "FAIL  7e"
+) | tee -a "$TMP/s7.out"
+[ "$(grep -cE '^(PASS|FAIL)  7' "$TMP/s7.out")" -eq 5 ] || echo "FAIL  7z section (7) reported $(grep -cE '^(PASS|FAIL)  7' "$TMP/s7.out") of 5 results" | tee -a "$TMP/s7.out"
 PASS=$((PASS + $(grep -c '^PASS' "$TMP/s7.out"))); FAIL=$((FAIL + $(grep -c '^FAIL' "$TMP/s7.out")))
 
 # ═════ regression cases for the adversarial verifier's breaks (2026-09-10) — each FAILED on 5f04de8929 ═════

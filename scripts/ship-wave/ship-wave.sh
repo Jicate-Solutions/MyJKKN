@@ -396,41 +396,172 @@ sys.exit(1)' 2>/dev/null; rc=$?
   return 0   # the latch is written; an absent optional helper must not turn that into a failure code
 }
 
-# ── §A1 hook (c): the HELD list becomes ONE question, by phone ────────────────────────────────────────
-# 14 drafts sat parked on questions nobody asked him. When ≥1 HELD PR is READY, ask once: up to 5 PRs as
-# options (each = append approve-held <n>), plus "Approve all listed" and "None today". Re-asked only when the
-# set changes — $STATE/held-last-set remembers the last set asked, and ask_director itself de-duplicates an
-# identical open question. PRs already in this run's approvals are not asked about (they merge this run).
-ask_held_question() {  # $1 = run dir (its plan.json)
-  local set_now qjson
-  set_now=$(APPROVED="${APPROVE_HELD:-}" python3 -c "
-import json,os,sys
-ap={x for x in os.environ['APPROVED'].replace(',',' ').split() if x}
-rows=[r for r in json.load(open(sys.argv[1]))['ready']['HELD'] if str(r['number']) not in ap][:5]
-print(' '.join(str(r['number']) for r in rows))" "$1/plan.json" 2>/dev/null)
-  [ -n "$set_now" ] || return 0
-  [ "$set_now" = "$(cat "$STATE/held-last-set" 2>/dev/null)" ] && return 0
-  qjson=$(SET="$set_now" python3 - "$1/plan.json" <<'PYQ'
-import json,os,sys
-want=[int(x) for x in os.environ['SET'].split()]
-rows={r['number']:r for r in json.load(open(sys.argv[1]))['ready']['HELD']}
-opts=[]
-for n in want:
-    r=rows[n]; why='; '.join(r.get('tier_reasons') or [])[:120]
-    opts.append({"label":(f"#{n} "+r['title'])[:40],"description":f"Merge #{n} on the next run — held because: {why}","writes":[{"op":"append","file":"approve-held","value":str(n)}]})
-opts.append({"label":"Approve all listed","description":"Merge every PR above on the next run.","writes":[{"op":"append","file":"approve-held","value":str(n)} for n in want]})
-opts.append({"label":"None today","description":"Nothing merges; the wave asks again only when the list changes.","writes":[{"op":"noop"}]})
-title=(f"{len(want)} HELD PR{'s' if len(want)>1 else ''} ready for your OK: "+' '.join('#'+str(n) for n in want))[:110]
-body=(f"These PRs touch money, grades or a migration, so the wave never merges them on its own. Each one's checks are green and it has been quiet 30 minutes. "
-      f"Pick the ones to ship; they merge, apply and deploy on the next run. 'None today' leaves them where they are.")
-json.dump({"title":title,"body":body,"options":opts}, sys.stdout)
-PYQ
+# ── §A1 hook: every ready HELD PR becomes ITS OWN question, by phone (spec "Amendments from the build") ──────────
+# 14 drafts sat parked on questions nobody asked him. AskUserQuestion carries 2–4 options, so the first design (up to 5
+# PRs + "Approve all" + "None today" in one question) could never be asked. Now: ONE question per ready HELD PR —
+# title "Approve #<n>? <PR title ≤60>", class "<n>-<7-char head sha>", options "Approve #<n>" (append approve-held <n>)
+# and "Not now" (noop, the recommended tap: it changes nothing). Asked only when no open question already asks about
+# that PR, and not again after he answered until the PR's head sha changes (the class carries the sha). A PR already in
+# this run's approvals is never asked about — it merges this run. The desk asks up to 4 per pass, oldest first.
+_held_question_exists() {  # $1 = PR number · $2 = class "<n>-<sha7>" → 0 when an open question asks about #n, or this
+  # exact class was already answered (answered "Not now" on this head → quiet until the head moves)
+  N="$1" C="$2" python3 - "${QUESTIONS_DIR:-$STATE/questions}" <<'PY'
+import datetime, glob, json, os, re, sys
+d, n, c = sys.argv[1], os.environ["N"], os.environ["C"]
+ID = re.compile(r"q-[0-9]{8}-[0-9]{6}-[a-z0-9][a-z0-9-]{0,39}")
+mine = re.compile(re.escape(n) + r"-[0-9a-f]{7}")
+now = datetime.datetime.now().astimezone()
+def load(f):
+    try:
+        q = json.load(open(f)); return q if isinstance(q, dict) and ID.fullmatch(os.path.basename(f)[:-5]) else None
+    except Exception: return None
+for f in glob.glob(os.path.join(d, "q-*.json")):
+    q = load(f)
+    if not q or q.get("kind") != "held" or not mine.fullmatch(str(q.get("class", ""))): continue
+    try:
+        t = datetime.datetime.fromisoformat(q["asked_at"]); h = int(q.get("expires_after_h", 48))
+        if t + datetime.timedelta(hours=h) <= now: continue   # expired unanswered: asked again (ask_director refreshes it)
+    except Exception: pass
+    sys.exit(0)
+for f in glob.glob(os.path.join(d, "answered", "q-*.json")):
+    q = load(f)
+    if q and q.get("kind") == "held" and q.get("class") == c: sys.exit(0)
+sys.exit(1)
+PY
+}
+ask_held_questions() {  # $1 = run dir (plan.json; pr/<n>.json from the hydrate step carries the head commit)
+  local n title why sha cls opts asked=0
+  while IFS=$'\t' read -r n title why; do
+    [ -n "$n" ] || continue
+    case " $(printf '%s' "${APPROVE_HELD:-}" | tr ',' ' ') " in *" $n "*) continue;; esac
+    sha=$(python3 -c 'import json,sys;c=json.load(open(sys.argv[1])).get("commits") or [];print((c[-1] or {}).get("oid") or "")' "$1/pr/$n.json" 2>/dev/null)
+    [ -n "$sha" ] || sha=$(gh pr view "$n" --repo "$REPO" --json headRefOid -q .headRefOid 2>/dev/null)
+    sha=$(printf '%s' "$sha" | tr -dc '0-9a-f' | cut -c1-7)
+    if [ "${#sha}" -ne 7 ]; then say "  desk: HELD #$n — its head commit could not be read; not asked this run"; continue; fi
+    cls="$n-$sha"
+    _held_question_exists "$n" "$cls" && continue
+    opts=$(N="$n" W="$why" python3 -c 'import json,os
+n=os.environ["N"]; w=os.environ["W"][:120]
+print(json.dumps([
+ {"label":f"Approve #{n}","description":f"Merge #{n} on the next run (it merges, applies and deploys). Held because: {w}","writes":[{"op":"append","file":"approve-held","value":n}]},
+ {"label":"Not now","description":f"Nothing merges. The wave asks about #{n} again only when it gets a new commit.","writes":[{"op":"noop"}]}]))')
+    Q_RECOMMENDED=1 ask_director held "$cls" "Approve #$n? $title" \
+      "#$n touches money, grades or a migration ($why), so the wave never merges it on its own. Its checks are green and nobody has pushed to it for 30 minutes. Approve and it merges, applies and deploys on the next run; Not now leaves it where it is." \
+      "$opts" && asked=$((asked+1))
+  done < <(python3 -c 'import json,sys
+for r in json.load(open(sys.argv[1]))["ready"]["HELD"]:
+    one = lambda s: " ".join(str(s).split())
+    print(str(r["number"]) + "\t" + one(r.get("title") or "")[:60] + "\t" + one("; ".join(r.get("tier_reasons") or []))[:120])' "$1/plan.json" 2>/dev/null)
+  [ "$asked" -gt 0 ] && say "  desk: $asked HELD approval question(s) written for the Director"
+  return 0
+}
+
+# ── approve-held hygiene (integrator 2026-09-11): a number whose PR is no longer open is not an approval of anything ──
+# The file is never a standing permission (a HELD PR that merges is removed from it), but a PR closed or merged by hand
+# left its number behind for ever. After the sweep, numbers not in this run's open-PR list are dropped and named. Never
+# when the list cannot be trusted: unreadable, or at `gh pr list --limit 200` (a PR beyond the limit would read closed).
+# plan mode only says what it would drop. Under the questions lock, so a desk tap appending meanwhile is never lost.
+approve_held_hygiene() {  # $1 = run dir (light.json = every open PR, as gh listed it)
+  [ -s "$STATE/approve-held" ] || return 0
+  local res drop lk=""
+  if [ "$MODE" = go ] && [ -n "${QUESTIONS_DIR:-}" ] && mkdir -p "$QUESTIONS_DIR" 2>/dev/null && { exec 6>>"$QUESTIONS_DIR/.lock"; } 2>/dev/null; then
+    lk=6; python3 -c 'import fcntl; fcntl.flock(6, fcntl.LOCK_EX)' 2>/dev/null || true
+  fi
+  res=$(WRITE=$([ "$MODE" = go ] && echo 1) python3 - "$1/light.json" "$STATE/approve-held" <<'PY'
+import json, os, re, sys
+try:
+    prs = json.load(open(sys.argv[1]))
+    assert isinstance(prs, list)
+except Exception:
+    print("SKIP the open-PR list is unreadable"); sys.exit()
+if len(prs) >= 200:
+    print("SKIP the open-PR list is at gh's 200 limit — cannot tell a closed PR from one beyond the limit"); sys.exit()
+open_ = {str(p.get("number")) for p in prs if isinstance(p, dict)}
+toks = open(sys.argv[2]).read().replace(",", " ").split()
+drop = [t for t in dict.fromkeys(toks) if re.fullmatch(r"[0-9]+", t) and t not in open_]
+if not drop: sys.exit()
+if os.environ.get("WRITE"):
+    keep = [t for t in toks if t not in drop]
+    tmp = sys.argv[2] + ".new"
+    open(tmp, "w").write("".join(k + "\n" for k in keep)); os.replace(tmp, sys.argv[2])
+print("DROP " + " ".join("#" + t for t in drop))
+PY
 )
-  [ -n "$qjson" ] || return 0
-  printf '%s\n' "$set_now" > "$STATE/held-last-set"
-  ask_director held held "$(python3 -c 'import json,sys;print(json.load(sys.stdin)["title"])' <<<"$qjson")" \
-    "$(python3 -c 'import json,sys;print(json.load(sys.stdin)["body"])' <<<"$qjson")" \
-    "$(python3 -c 'import json,sys;print(json.dumps(json.load(sys.stdin)["options"]))' <<<"$qjson")"
+  [ -n "$lk" ] && exec 6>&-
+  case "$res" in
+    "DROP "*) drop="${res#DROP }"
+      if [ "$MODE" = go ]; then
+        say "  approve-held: dropped $drop — no longer open (merged or closed)"
+        local t; for t in $drop; do APPROVE_HELD=$(printf '%s' "$APPROVE_HELD" | tr ',' ' ' | tr ' ' '\n' | grep -vx "${t#\#}" | tr '\n' ' ' | sed 's/ *$//'); done
+      else say "  approve-held: would drop $drop — no longer open (merged or closed)"; fi;;
+    "SKIP "*) say "  approve-held: hygiene skipped — ${res#SKIP }";;
+  esac
+  return 0
+}
+
+# ── the Director's desk in the receipt (integrator 2026-09-11) ───────────────────────────────────────────────────
+# spec §A2.4: an "Other" answer applies NOTHING and "is surfaced in the next wave receipt for a human to read"; a tap whose
+# writes did not take effect (the stop changed, a proposal no longer listed) is just as easy to miss. Each is printed once:
+# a go run remembers what it printed in $STATE/desk-surfaced (plan prints and remembers nothing). And when questions sit
+# unanswered for DESK_SILENT_MIN minutes with no answer since, the receipt says so — the phone loop may not be running.
+DESK_SILENT_MIN="${DESK_SILENT_MIN:-30}"
+desk_receipt() {
+  type -t questions_open_count >/dev/null 2>&1 || return 0
+  local n; n=$(questions_open_count 2>/dev/null)
+  say "  desk: ${n:-0} question(s) waiting for the Director"
+  MARK=$([ "$MODE" = go ] && echo 1) SILENT_MIN="$DESK_SILENT_MIN" python3 - "${QUESTIONS_DIR:-$STATE/questions}" "$STATE/desk-surfaced" <<'PY'
+import datetime, glob, json, os, re, sys
+qd, seenf = sys.argv[1], sys.argv[2]
+ID = re.compile(r"q-[0-9]{8}-[0-9]{6}-[a-z0-9][a-z0-9-]{0,39}")
+now = datetime.datetime.now().astimezone()
+def load(f):
+    b = os.path.basename(f)[:-5]
+    if not ID.fullmatch(b): return b, None
+    try:
+        q = json.load(open(f)); return b, (q if isinstance(q, dict) else None)
+    except Exception: return b, None
+def ts(s):
+    try:
+        t = datetime.datetime.fromisoformat(str(s)); return t if t.tzinfo else t.astimezone()
+    except Exception: return None
+def one(s, k):
+    s = " ".join(str(s).split()); return s if len(s) <= k else s[:k - 1] + "…"
+def hm(t): return t.strftime("%H:%M") if t.date() == now.date() else t.strftime("%m-%d %H:%M")
+try: seen = {l.strip() for l in open(seenf) if l.strip()}
+except Exception: seen = set()
+new, answers = [], []
+for f in sorted(glob.glob(os.path.join(qd, "answered", "q-*.json"))):
+    b, q = load(f)
+    if not q: continue
+    at = ts(q.get("answered_at"))
+    if at: answers.append(at)
+    ch = q.get("chosen")
+    if b in seen or ch is None: continue
+    title = one(q.get("title", ""), 70)
+    if ch == "other":
+        print(f"  Director wrote: {one(q.get('other_text', ''), 300)}  (answering '{title}')"); new.append(b); continue
+    applied = [a for a in (q.get("applied") or []) if isinstance(a, str)]
+    failed = int(q.get("failed") or 0)
+    if failed or not applied:
+        what = "nothing applied" if len(applied) - failed <= 0 else "not everything applied"
+        print(f"  Director tapped '{one(ch, 40)}' on '{title}' — {what}: {one(' ; '.join(applied) or 'no write took effect', 240)}"); new.append(b)
+waiting = []
+for f in glob.glob(os.path.join(qd, "q-*.json")):
+    b, q = load(f)
+    if not q: continue
+    first, asked = ts(q.get("first_asked_at") or q.get("asked_at")), ts(q.get("asked_at"))
+    try: h = int(q.get("expires_after_h", 48))
+    except Exception: h = 48
+    if first and asked and asked + datetime.timedelta(hours=h) > now: waiting.append(first)
+if waiting:
+    oldest = min(waiting); last = max(answers) if answers else None
+    if now - oldest >= datetime.timedelta(minutes=int(os.environ["SILENT_MIN"])) and (last is None or last < oldest):
+        since = last or oldest
+        print(f"  desk silent since {hm(since)} — {len(waiting)} question(s) waiting, the oldest asked {hm(oldest)}, nothing answered since (is /w12-desk looping on the phone's tab?)")
+if new and os.environ.get("MARK"):
+    with open(seenf, "a") as fh: fh.write("".join(x + "\n" for x in new))
+PY
+  return 0
 }
 
 # ── §C (Director 2026-09-10): "Stopped means no NEW merges — shipping still runs" ──────────────────────
@@ -815,10 +946,11 @@ run_once() {
   # ── 1. sweep + classify ────────────────────────────────────────────────────
   say; say "--- 1. sweep: every open PR on $REPO ---"
   sweep "$run" || return 1
-  # §A1 hook (c): ≥1 HELD PR is READY → ONE question to the Director listing up to 5 of them, re-asked only when the
-  # set changes ($STATE/held-last-set). PRs already approved this run are not asked about. Only a `go` run asks —
-  # `plan` is the dry run that changes nothing. ask_director is slice A's; absent, the HELD line below still prints.
-  if type -t ask_director >/dev/null 2>&1 && [ "$MODE" = "go" ] && [ -z "${FINAL_DEPLOY:-}" ]; then ask_held_question "$run"; fi
+  # approvals for PRs that are no longer open are dropped first (plan only says which), so nothing is asked or merged on them
+  [ -z "${FINAL_DEPLOY:-}" ] && approve_held_hygiene "$run"
+  # §A1 hook, amended: after the READY list, ONE question per ready HELD PR not yet asked (see ask_held_questions). Only a
+  # `go` run asks — `plan` is the dry run that changes nothing. ask_director is slice A's; absent, the HELD line still prints.
+  type -t ask_director >/dev/null 2>&1 && [ "$MODE" = "go" ] && [ -z "${FINAL_DEPLOY:-}" ] && ask_held_questions "$run"
   local c_open c_ready c_conf; c_open=$(python3 -c "import json;print(json.load(open('$run/plan.json'))['counts']['open'])")
   c_ready=$(python3 -c "import json;print(json.load(open('$run/plan.json'))['counts']['ready'])")
   c_conf=$(python3 -c "import json;print(json.load(open('$run/plan.json'))['counts']['conflicted'])")
@@ -1201,6 +1333,17 @@ PY
       freeze "post-deploy sweep failed — L2:${l2bad:- none} L1:${blame:- none} · likely PRs: ${prs_blame:-see merged-map.tsv}"
     fi
   else say "  (nothing shipped / deploy not READY / --no-sweep)"; fi
+
+  # ── 5b. the Director's desk: rules learned from his answers, and what his answers need a human to read ─────
+  say; say "--- 5b. desk: proposals from repeated answers · answers to read · questions waiting ---"
+  # §D: policy_proposals numbers any rule the ledger now supports (P<n> is fixed the first time it prints), then
+  # policy_emit_questions puts each one not yet asked on the phone as ONE question ("Make this a rule" = ratify P<n>).
+  # go only: numbering writes policy-proposals.jsonl, and plan changes nothing.
+  if [ "$MODE" = "go" ] && [ -z "${FINAL_DEPLOY:-}" ] && type -t policy_proposals >/dev/null 2>&1; then
+    policy_proposals 2>&1 | sed 's/^/  /'
+    type -t ask_director >/dev/null 2>&1 && policy_emit_questions
+  fi
+  desk_receipt
 
   # ── 6. scoreboard + HTML report ────────────────────────────────────────────
   local after; after=$(gh pr list --repo "$REPO" --state open --limit 200 --json number -q 'length' 2>/dev/null || echo "?")
