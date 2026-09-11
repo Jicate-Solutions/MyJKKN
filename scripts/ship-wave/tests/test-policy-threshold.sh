@@ -459,6 +459,21 @@ out=$(policy_proposals)
 check "NEW-1 two decisions recorded without writes → ONE receipt line naming the count (2); the guards line is not counted" \
   '[ "$(grep -c "record a decision but no writes" <<<"$out")" = 1 ] && grep -q "proposals: 2 resolved line(s) record a decision but no writes" <<<"$out"' "$out"
 
+# ── integrator 2026-09-11: slice A's desk records a tap whose writes did not apply as outcome "refused" — never evidence ──
+# (desk/v5-w12-desk.sh: "refused" with chosen + reason when nothing applied; round-4 NEW-B: two refused Lift taps proposed
+# AUTO_<CLASS>_UNFREEZE from decisions that changed nothing). The learner must ignore that outcome — even one carrying writes.
+reset_state
+ledger_record froze "$RAW_RACE"
+for i in 1 2 3; do ledger_record refused "desk: The ship wave paused on one item → Lift the stop (nothing applied)" "$CLS_RACE" '{"chosen":"Lift the stop","reason":"unfreeze REFUSED — the stop changed","failed":1}'; done
+for i in 1 2; do ledger_record refused "desk: The ship wave paused on one item → Lift the stop (nothing applied)" "$CLS_RACE" '{"chosen":"Lift the stop","writes":[{"op":"unfreeze"}],"failed":1}'; done
+out=$(policy_proposals)
+check "refused outcomes (3 without writes, 2 WITH identical writes) → no learned proposal, no warning, no 'no writes' notice" \
+  '[ "$(grep -c "\"outcome\": \"refused\"" "$LEDGER")" = 5 ] && ! grep -q "AUTO_FILES_ON" <<<"$out" && ! grep -q "record a decision but no writes" <<<"$out" && ! grep -qi "warn\|malformed" <<<"$out"' "$out"
+ledger_record resolved "desk: The ship wave paused on one item → Lift the stop" "$CLS_RACE" '{"chosen":"Lift the stop","writes":[{"op":"unfreeze"}]}'
+out=$(policy_proposals)
+check "refused + ONE real resolution → still below PROPOSE_AFTER (refused never tops up the count)" \
+  '! grep -q "AUTO_FILES_ON" <<<"$out"' "$out"
+
 # ── robustness (verifier notes): concurrent scans, and the P1 dead-end says why ──
 reset_state
 soft_freeze "concurrent class"

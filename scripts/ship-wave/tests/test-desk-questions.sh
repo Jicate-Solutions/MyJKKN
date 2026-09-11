@@ -178,7 +178,9 @@ check "10g mirror with nothing pending says 'nothing waiting'" bash -c "grep -q 
 check "10h ledger: noop 'Keep it stopped' on a freeze is still a resolution on record" bash -c "grep -q '\"chosen\": \"Keep it stopped\"' '$STATE/failure-ledger.jsonl'"
 
 # ── 11. the desk never touched anything live ──────────────────────────────────
-check "11a no stray files outside the contract in \$STATE" bash -c "[ -z \"\$(ls '$STATE' | grep -vE '^(questions|questions.log|approve-held|allow-destructive|advisory-checks|failure-ledger.jsonl|policy|policy.jsonl|Fleet.md|fleet-orig|rest-before|rest-after|rest-again|out|err|why|pend|b4-.*|b5-.*|g6c-.*|g6f-.*)$')\" ]"
+# policy-proposals.jsonl (integrator 2026-09-11): slice D's `ratify` path numbers proposals there (policy_ratify reads the
+# P<n> → key map and _policy_scan appends new numbers) — part of the `ratify` op's own footprint, like policy.jsonl.
+check "11a no stray files outside the contract in \$STATE" bash -c "[ -z \"\$(ls '$STATE' | grep -vE '^(questions|questions.log|approve-held|allow-destructive|advisory-checks|failure-ledger.jsonl|policy|policy.jsonl|policy-proposals.jsonl|Fleet.md|fleet-orig|rest-before|rest-after|rest-again|out|err|why|pend|b4-.*|b5-.*|g6c-.*|g6f-.*)$')\" ]"
 
 # ── 12. regressions from the adversarial verification of fb0bd5a0ae (2026-09-10) ──────────────────────
 # Each case is named after the break it closes. Every one FAILED before the fix commit and passes after it.
