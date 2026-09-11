@@ -16,6 +16,7 @@ import { PermissionError } from '@/components/errors/permission-error';
 import { Skeleton } from '@/components/ui/skeleton';
 import { FoundationHeader } from '../../_components/foundation-header';
 import { DraftQueue } from './_components/draft-queue';
+import { RequestDraftsPanel } from './_components/request-drafts-panel';
 
 export default function OneMarkReviewPage() {
   const { isLoading, canAccess, userProfile } = usePermissions();
@@ -48,6 +49,7 @@ export default function OneMarkReviewPage() {
         subtitle="Read each draft against the paper it came from, fix what the extraction got wrong, set the answer and the JABT level, then tick it into the live bank."
         crumbs={[{ label: 'Foundation', href: '/foundation' }, { label: 'OneMark review' }]}
       />
+      <RequestDraftsPanel />
       <DraftQueue userId={userProfile.id} />
     </div>
   );
