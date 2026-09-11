@@ -349,7 +349,19 @@ export default function NewTimetablePage() {
     department_id: watchDepartmentId || undefined,
     program_id: watchProgramId || undefined,
     semester_id: selectedSemesterId || undefined,
-    isActive: true
+    isActive: true,
+    // Fixed: 2026-09-11 - SectionService.getSections DEFAULTS TO limit 10 and
+    // orders by created_at DESC, so this call silently returned 10 of JKKN
+    // Dental 4th Year BDS's 24 active sections — the 14 oldest simply were not
+    // offered. Every other useSections call in this module already passes
+    // limit: 1000 for exactly this reason.
+    //
+    // It was merely annoying for the single-select section dropdown (a section
+    // you could not reach). It is DESTRUCTIVE for the scope picker below, which
+    // pre-ticks whatever it is handed and SAVES that as the timetable's declared
+    // scope: a truncated list would silently write a scope missing 14 sections,
+    // and those learners would never see the timetable.
+    limit: 1000
   });
 
   const sections = sectionsData?.data ?? [];
