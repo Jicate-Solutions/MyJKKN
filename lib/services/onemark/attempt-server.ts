@@ -38,8 +38,23 @@ export const ONEMARK_MODES: OneMarkAttemptMode[] = [
 ];
 
 /** Seconds of slack after a clock runs out before a late answer is refused —
- *  covers a slow network on the final tap, not a second attempt. */
+ *  covers a slow network on the final tap, not a second attempt.
+ *
+ *  RULING 7 — the grace covers the LAST ANSWER ONLY. It is the tap the learner
+ *  already had in hand when the clock stopped, arriving late over a slow line;
+ *  it is not fifteen extra seconds of paper. `lateAnswerRefusal` below is what
+ *  makes that true, on two counts: once one answer has landed after the
+ *  deadline the next is refused however soon it comes, AND a late answer to a
+ *  question that already has a response is refused outright, because that
+ *  write is an UPDATE whose created_at never moves and could therefore never
+ *  be seen spending the grace. */
 export const DEADLINE_GRACE_MS = 15_000;
+
+/** Policy key + fallback for the same slack, so the number lives in a config
+ *  row (Lane S3 seeds `onemark.live.grace_seconds = 15`) and this literal is
+ *  only the fallback. */
+export const GRACE_SECONDS_POLICY_KEY = 'onemark.live.grace_seconds';
+export const DEFAULT_GRACE_SECONDS = DEADLINE_GRACE_MS / 1000;
 
 /** The permission the whole lane is gated on — checked server-side in
  *  resolveCaller as well as on the page, so a role whose key was revoked
@@ -371,7 +386,55 @@ export function verifyServedSet(attemptId: string, token: unknown): Set<string> 
 // auto-close in the attempts route.
 // ---------------------------------------------------------------------------
 
+/** @deprecated DO NOT TEST AN ERROR WITH THIS. Use `rpcMissing(error, fnName)`.
+ *
+ *  It matches any message containing "does not exist", including one a
+ *  DEPLOYED function raises about a relation, a column or a missing row — so a
+ *  caller using it reads a broken RPC as an absent one and reports success.
+ *  Kept exported only so a sibling lane's unmerged branch still compiles; it
+ *  has no callers left in this repo and should be deleted with the HMAC token. */
 export const RPC_MISSING = /could not find the function|does not exist/i;
+
+/** Regex-escape a function name before it goes into a pattern. */
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Is THIS error "the function is not deployed", as opposed to "the deployed
+ *  function failed"?
+ *
+ *  The bare `RPC_MISSING` substring test above cannot tell them apart, and the
+ *  difference is the whole alarm. A plpgsql body is free to raise a message
+ *  containing "does not exist" about a relation, a column or a missing row —
+ *  a genuinely BROKEN sweeper — and a caller that reads that as "not deployed
+ *  yet" answers 200 and closes nothing, for ever, silently. That is exactly
+ *  what CLAUDE.md rule #27 forbids.
+ *
+ *  So "absent" is only ever one of three shapes, all of which name the
+ *  function or carry the machine code:
+ *    - PostgREST cannot find it in its schema cache  -> code PGRST202
+ *    - Postgres itself does not have it              -> SQLSTATE 42883
+ *    - the message uses one of those two engines' own phrasings AND names the
+ *      function
+ *  Everything else is a failure and must be reported as one. */
+export function rpcMissing(error: any, fnName: string): boolean {
+  if (!error) return false;
+  const code = typeof error.code === 'string' ? error.code : '';
+  if (code === 'PGRST202' || code === '42883') return true;
+  const message =
+    typeof error === 'string' ? error : typeof error.message === 'string' ? error.message : '';
+  if (!message) return false;
+  const name = escapeRe(fnName);
+  // PostgREST: "Could not find the function public.fn_x(...) in the schema cache"
+  const postgrest = new RegExp(`could not find the function\\s+(public\\.)?${name}\\b`, 'i');
+  // Postgres 42883: "function public.fn_x() does not exist"
+  const postgres = new RegExp(
+    `function\\s+(public\\.)?${name}\\b[^\\n]{0,80}?does not exist`,
+    'i',
+  );
+  return postgrest.test(message) || postgres.test(message);
+}
+
 /** Lane S's fn_onemark_finalize_attempt / fn_onemark_record_response refuse a
  *  closed attempt with "attempt … is submitted, not in_progress (single
  *  submission, decision 19)". Older phrasings kept so a reworded RPC still
@@ -406,8 +469,12 @@ export interface CloseOutcome {
   alreadySubmitted: boolean;
 }
 
-function closeError(message: string, verb: 'Submitting' | 'Answering'): CloseOutcome['error'] {
-  return RPC_MISSING.test(message)
+function closeError(
+  error: any,
+  fnName: string,
+  verb: 'Submitting' | 'Answering',
+): CloseOutcome['error'] {
+  return rpcMissing(error, fnName)
     ? {
         status: 503,
         message: `${verb} is not switched on yet. Please tell whoever runs the programme at your school.`,
@@ -435,7 +502,10 @@ export async function closeSitting(
     if (skipError) {
       const msg = skipError.message ?? '';
       if (ALREADY_SUBMITTED.test(msg)) return { error: null, alreadySubmitted: true };
-      return { error: closeError(msg, 'Submitting'), alreadySubmitted: false };
+      return {
+        error: closeError(skipError, 'fn_onemark_record_response', 'Submitting'),
+        alreadySubmitted: false,
+      };
     }
   }
   const { error: finalError } = await sessionClient.rpc('fn_onemark_finalize_attempt', {
@@ -444,7 +514,193 @@ export async function closeSitting(
   if (finalError) {
     const msg = finalError.message ?? '';
     if (ALREADY_SUBMITTED.test(msg)) return { error: null, alreadySubmitted: true };
-    return { error: closeError(msg, 'Submitting'), alreadySubmitted: false };
+    return {
+      error: closeError(finalError, 'fn_onemark_finalize_attempt', 'Submitting'),
+      alreadySubmitted: false,
+    };
   }
   return { error: null, alreadySubmitted: false };
+}
+
+
+// ---------------------------------------------------------------------------
+// The served set, part 2 — the DATABASE column (Lane S3 item 1).
+// ---------------------------------------------------------------------------
+// `fp_attempts.served_item_ids uuid[]` is the server-side wall the signed
+// token above only approximates: with the column present the RPCs themselves
+// refuse an item id outside the array, so a forged request never reaches the
+// answer key even if this route were bypassed. NULL for live papers, whose set
+// is fp_assessment_items.
+//
+// BOTH CHECKS SHIP TOGETHER FOR ONE RELEASE (Lane L item 1). The column is
+// written when it exists and read first when it is populated; the HMAC token
+// stays minted and stays enforced as the fallback, so this change is safe to
+// merge BEFORE S3's migration is applied and safe to run after it. The token
+// comes out in a follow-up once the column is live and proven.
+
+/** PostgREST's phrasings for "that column is not there" — the shape of the
+ *  error while S3's migration is still a file. */
+export const MISSING_COLUMN =
+  /column .* does not exist|could not find the .* column|42703/i;
+
+/** `nothing_to_write` is NOT `failed`: an empty or all-invalid id list means
+ *  the caller drew nothing, which is the caller's problem to report, not a
+ *  write that went wrong. Conflating the two made a clean no-op read as a
+ *  database failure in the reply. */
+export type ServedSetWrite = 'written' | 'column_missing' | 'failed' | 'nothing_to_write';
+
+/** Persist the drawn set on the attempt. Never throws and never fails the
+ *  sitting: before S3 is applied the column is absent and the token carries
+ *  the whole job, which is exactly the belt-and-braces state. */
+export async function persistServedSet(
+  adminClient: any,
+  attemptId: string,
+  itemIds: string[],
+): Promise<ServedSetWrite> {
+  const ids = [...new Set(itemIds)].filter((id) => typeof id === 'string' && UUID_RE.test(id));
+  if (ids.length === 0) return 'nothing_to_write';
+  try {
+    // No .select() on purpose: a filtered UPDATE's RETURNING projection is
+    // re-filtered by PostgREST, and nothing here needs the row back.
+    const { error } = await adminClient
+      .from('fp_attempts')
+      .update({ served_item_ids: ids })
+      .eq('id', attemptId);
+    if (!error) return 'written';
+    return MISSING_COLUMN.test(error.message ?? '') ? 'column_missing' : 'failed';
+  } catch {
+    return 'failed';
+  }
+}
+
+/** The stored served set, or null when the column is absent, NULL (a live
+ *  paper) or empty — in which case the caller falls back to the token. */
+export async function readServedSetFromDb(
+  adminClient: any,
+  attemptId: string,
+): Promise<Set<string> | null> {
+  try {
+    const { data, error } = await adminClient
+      .from('fp_attempts')
+      .select('served_item_ids')
+      .eq('id', attemptId)
+      .maybeSingle();
+    if (error || !data) return null;
+    const ids = (data as any).served_item_ids;
+    if (!Array.isArray(ids) || ids.length === 0) return null;
+    const strings = ids.filter((v: unknown): v is string => typeof v === 'string');
+    return strings.length ? new Set(strings) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The set this sitting actually served — the stored column first, the signed
+ *  token second. `null` means neither could be established, which is a refusal,
+ *  not an empty set. */
+export async function resolveServedSet(
+  adminClient: any,
+  attemptId: string,
+  token: unknown,
+): Promise<{ served: Set<string> | null; source: 'column' | 'token' | 'none' }> {
+  const fromDb = await readServedSetFromDb(adminClient, attemptId);
+  if (fromDb) return { served: fromDb, source: 'column' };
+  const fromToken = verifyServedSet(attemptId, token);
+  return fromToken
+    ? { served: fromToken, source: 'token' }
+    : { served: null, source: 'none' };
+}
+
+// ---------------------------------------------------------------------------
+// The clock — ruling 7 (the grace covers the last answer only)
+// ---------------------------------------------------------------------------
+
+/** The slack in ms, from the policy row when it exists. */
+export async function graceMs(adminClient: any): Promise<number> {
+  const seconds = await readPolicyInt(
+    adminClient,
+    GRACE_SECONDS_POLICY_KEY,
+    DEFAULT_GRACE_SECONDS,
+  );
+  return seconds * 1000;
+}
+
+/** Why a late answer is refused, or null when the one grace is still there.
+ *
+ *  'spent'    — an answer has already landed after the deadline on this
+ *               sitting. The one grace is used (ruling 7).
+ *  'revision' — this item ALREADY has a response row, so the write would be an
+ *               UPDATE. That matters twice over. Ruling 7's grace is the tap
+ *               the learner already had in hand for a question they had not
+ *               answered; changing an answer they had already given is a
+ *               second bite, not a late first one. And it would be
+ *               UNOBSERVABLE: fn_onemark_record_response is
+ *               `INSERT ... ON CONFLICT (attempt_id, item_id) DO UPDATE SET
+ *               chosen, is_correct, time_ms, skipped` (20260918101500:525-532)
+ *               and never touches created_at, so the row's timestamp stays
+ *               pre-deadline and no later check could ever see the grace being
+ *               spent. Without this branch a scripted client re-POSTs
+ *               already-answered items and revises the whole paper for the
+ *               length of the window. */
+export type LateAnswerRefusal = 'spent' | 'revision';
+
+/** Whether this particular late ANSWER may use the sitting's one grace.
+ *
+ *  One read, filtered in JS rather than with `.gt()`, because both questions
+ *  are asked of the same handful of rows and because a PostgREST filter the
+ *  caller cannot see is a filter the tests cannot honour. A skip is never an
+ *  answer: the auto-submit files blanks as skips after the clock stops and
+ *  must not be read as the learner spending their grace. */
+export async function lateAnswerRefusal(
+  adminClient: any,
+  attemptId: string,
+  itemId: string,
+  deadlineMs: number,
+): Promise<LateAnswerRefusal | null> {
+  try {
+    const { data } = await adminClient
+      .from('fp_responses')
+      .select('item_id, created_at, skipped')
+      .eq('attempt_id', attemptId)
+      .limit(500);
+    const rows: any[] = Array.isArray(data) ? data : [];
+    if (rows.some((r) => r && r.item_id === itemId)) return 'revision';
+    const spent = rows.some((r) => {
+      if (!r || r.skipped === true) return false;
+      const t = new Date(r.created_at).getTime();
+      return Number.isFinite(t) && t > deadlineMs;
+    });
+    return spent ? 'spent' : null;
+  } catch {
+    // A read that failed must not hand out a free extra answer either; the
+    // clock has already run out, and refusing is the safe side.
+    return 'spent';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Ruling 2 — the full review opens when the PAPER closes, not when one
+// learner submits.
+// ---------------------------------------------------------------------------
+// A live paper is sat by a whole group inside one window. Handing the first
+// learner to submit the answer key, the correct option and the explanation for
+// every question hands it to the group — the review would leave the hall
+// before the paper does. So on a LIVE sitting the score and the counts come
+// back the moment it is submitted, and the item-by-item review is released
+// once `config.close_at` has passed. A paper with no close time has no window
+// to protect, so its review opens immediately. Practice, timed and vault
+// review are unchanged: nobody else is sitting them.
+
+/** When a live paper's item-level review opens, or null when it is open now. */
+export function liveReviewOpensAt(assessmentConfig: any): string | null {
+  const closeAt = assessmentConfig?.close_at;
+  if (typeof closeAt !== 'string') return null;
+  const t = new Date(closeAt).getTime();
+  if (!Number.isFinite(t)) return null;
+  return Date.now() >= t ? null : closeAt;
+}
+
+/** Whether the item-level review may be shown for this paper right now. */
+export function liveReviewOpen(assessmentConfig: any): boolean {
+  return liveReviewOpensAt(assessmentConfig) === null;
 }
