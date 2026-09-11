@@ -8,7 +8,8 @@
 # full disk. PROPERTY (P1) no phone tap / phone --freeze removes or downgrades a stop whose class reads HARD; (P2) freeze()
 # never leaves the wave reading a LOWER class than before the call and never reports a stop recorded when it was not.
 # A case named "BREAK?" asserts the property: a FAIL there is a property break (this pass: I7c on B, D2 on A's desk; D2 (HONESTY)
-# is the desk's receipt miscounting on the same full disk). INFO / SKIP lines are informational (spec gaps, liveness, honesty).
+# is the desk's receipt miscounting on the same full disk; re-based in round 9 to accept the refusal wording with FROZEN unchanged).
+# INFO / SKIP lines are informational (spec gaps, liveness, honesty).
 # Run from the worktree root:  bash scripts/ship-wave/tests/verify-freeze-classes-adversarial-v8.sh
 [ "${BASH_VERSINFO[0]}" -ge 4 ] || exec /opt/homebrew/bin/bash "$0" "$@"
 
@@ -267,9 +268,12 @@ if command -v hdiutil >/dev/null && RAMDEV=$(hdiutil attach -nomount ram://8192 
   wave --freeze "$(long_soft 3928)"; L2=$(line_n 2 | wc -c | tr -d ' ')
   wave --freeze "$HARD_MSG"; QH=$(qid_hard)
   check "D2 precondition: FROZEN = soft S0 (its own Lift question) · soft S1 (exactly 4096 B, got $L2) · HARD H; class hard" $([ "$(nlines)" -eq 3 ] && [ "$L2" -eq 4096 ] && [ "$(wave_class)" = hard ] && [ -n "$QS0" ] && [ "$(q_ops "$QS0")" = "noop unfreeze" ]; echo $?) "$(cut -f2,3 "$ST/FROZEN" | cut -c1-60)"
-  fill_to 1; tap "$QS0" "$(lift_idx "$QS0")"; free_all
+  D2B=$(cks "$ST/FROZEN"); fill_to 1; tap "$QS0" "$(lift_idx "$QS0")"; free_all
   check "D2 BREAK? (P1, real desk, ENOSPC) the Lift on S0's question (asked while soft) must not remove the HARD line H: class hard, deploy REFUSED" $([ "$(wf_hard)" -eq 1 ] && [ "$(wave_class)" = hard ] && _contains "$(deploy_gate)" REFUSED; echo $?) "tap rc=$RC · $(printf '%s' "$ANS" | tr '\n' ' ' | cut -c1-260) · now: $(nlines) line(s) $(cut -f3 "$ST/FROZEN" | tr '\n' ' ') · $(run_view)"
-  check "D2 (HONESTY) the desk receipt's line count matches FROZEN" $(_contains "$ANS" "$(( $(nlines) )) soft line(s) still on" || _contains "$ANS" "$(( $(nlines) )) still on"; echo $?) "receipt: $(printf '%s' "$ANS" | grep 'unfreeze' | cut -c1-200) · FROZEN has $(nlines) line(s)"
+  # re-based (round-9 verifier): since desk ad9b634019 a rewrite the full disk cuts short is REFUSED — FROZEN stays byte-identical and
+  # the receipt says 'nothing lifted: could not rewrite the stop file (<reason>)' with no count. Honest = the count matches FROZEN, or
+  # that refusal wording with FROZEN byte-identical and no 'still on' claim.
+  check "D2 (HONESTY) the desk receipt matches FROZEN: its line count, or 'nothing lifted' with FROZEN byte-identical" $( { _contains "$ANS" "$(( $(nlines) )) soft line(s) still on" || _contains "$ANS" "$(( $(nlines) )) still on"; } || { _contains "$ANS" "nothing lifted: could not rewrite the stop file (" && ! _contains "$ANS" "still on" && [ "$(cks "$ST/FROZEN")" = "$D2B" ]; }; echo $?) "receipt: $(printf '%s' "$ANS" | grep 'unfreeze' | cut -c1-200) · FROZEN has $(nlines) line(s) · byte-identical: $([ "$(cks "$ST/FROZEN")" = "$D2B" ] && echo yes || echo NO)"
   ramcase d3; wave --freeze "Director hold on the calendar module"; QS0=$(qid_soft)
   wave --freeze "migration 20260906213000: APPLY failed — $(head -c 6000 /dev/zero | tr '\0' b)"; QH=$(qid_hard)
   fill_to 1; tap "$QS0" "$(lift_idx "$QS0")"; free_all
