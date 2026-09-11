@@ -4,8 +4,8 @@
 // thread in it?
 //
 // ── Why this asks the database instead of computing it here ────────────────
-// The read rule counts five different things — super admin, an admin-class
-// legacy role, an admin-class custom role assignment, the event's in-charge
+// The read rule counts four different things — super admin, the
+// events.review_comments.view key (institution-scoped), the event's in-charge
 // (events.config->'incharges') and the event's creator — and two of them are
 // per-EVENT, not per-user. Reimplementing that in TypeScript would be a second
 // copy of the rule, free to drift from the RLS policy that actually enforces
