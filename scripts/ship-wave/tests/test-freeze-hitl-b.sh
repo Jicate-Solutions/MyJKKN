@@ -196,6 +196,61 @@ QS=$(qid_soft); tap_lift "$QS"
 info "X2s tap: rc=$RC · $(printf '%s' "$ANS" | tr '\n' ' ' | cut -c1-120) · lines=$(nlines)"
 check "X2s only the hashed line was lifted; the hand-written 4-field twin stays (1 line left, rc=0)" $([ "$RC" -eq 0 ] && [ "$(nlines)" -eq 1 ] && [ "$(awk -F'\t' '{print NF}' "$ST/FROZEN")" = 4 ]; echo $?) "rc=$RC $(cat "$ST/FROZEN")"
 
+echo "══ N5a. FROZEN that accepts writes but is NOT a regular file: the stop is not recorded → fatal, no question (round-6 verifier) ══"
+newcase n5a; ln -s /dev/null "$ST/FROZEN"
+wave_cli --freeze "$HARD_MSG"
+QN=$(ls "$ST/questions" 2>/dev/null | grep -c 'q-.*\.json')
+check "N5a-1 symlink→/dev/null: rc≠0 and the receipt names the reason (exactly one line)" $([ "$CLI_RC" -ne 0 ] && [ "$(grep -c 'could not record the stop (FROZEN is not a regular file)' "$C/say.txt")" -eq 1 ]; echo $?) "rc=$CLI_RC $(cat "$C/say.txt")"
+check "N5a-2 no question was written (0 q-*.json) and no 'FROZEN (hard)' claim in the receipt" $([ "$QN" -eq 0 ] && ! grep -q 'FROZEN (hard)' "$C/say.txt"; echo $?) "questions=$QN $(cat "$C/say.txt")"
+check "N5a-3 the run's own view afterwards: FROZEN still the symlink, class read fail-safe hard (no line recorded)" $([ -L "$ST/FROZEN" ] && [ "$(cls_now)" = hard ]; echo $?) "$(ls -l "$ST/FROZEN") $(cls_now)"
+newcase n5f; mkfifo "$ST/FROZEN"; ( cat "$ST/FROZEN" >/dev/null & ) 2>/dev/null   # a reader, so a wrong build cannot hang the suite
+wave_cli --freeze "$HARD_MSG"
+check "N5a-4 FIFO: refused BEFORE the append (rc≠0, reason line present, 0 questions)" $([ "$CLI_RC" -ne 0 ] && [ "$(grep -c 'could not record the stop (FROZEN is not a regular file)' "$C/say.txt")" -eq 1 ] && [ "$(ls "$ST/questions" 2>/dev/null | grep -c 'q-.*\.json')" -eq 0 ]; echo $?) "rc=$CLI_RC $(cat "$C/say.txt")"
+newcase n5d; mkdir "$ST/FROZEN"
+wave_cli --freeze "$HARD_MSG"
+check "N5a-5 directory: rc≠0, 'not a regular file', 0 questions" $([ "$CLI_RC" -ne 0 ] && grep -q 'could not record the stop (FROZEN is not a regular file)' "$C/say.txt" && [ "$(ls "$ST/questions" 2>/dev/null | grep -c 'q-.*\.json')" -eq 0 ]; echo $?) "rc=$CLI_RC $(cat "$C/say.txt")"
+newcase n5b; mkdir -p "$C/else"; : > "$C/else/F"; ln -s "$C/else/F" "$ST/FROZEN"
+wave_cli --freeze "$HARD_MSG"
+check "N5a-6 symlink→regular file still records (rc=0, 1 hard line read back through the link, 1 question)" $([ "$CLI_RC" -eq 0 ] && [ "$(hard_lines)" -eq 1 ] && [ "$(ls "$ST/questions" | grep -c 'q-.*\.json')" -eq 1 ]; echo $?) "rc=$CLI_RC $(cat "$C/say.txt")"
+
+echo "══ N12. --freeze with an empty or missing message refuses in arg parsing — never a live run (round-6 verifier) ══"
+for spelling in 'empty' 'missing' 'blank' 'go-empty'; do
+  newcase "n12-$spelling"
+  case "$spelling" in
+    empty)    wave_cli --freeze "";;
+    missing)  wave_cli --freeze;;
+    blank)    wave_cli --freeze "   ";;
+    go-empty) wave_cli go --freeze "";;
+  esac
+  check "N12 ($spelling) rc≠0, exactly one line '--freeze needs a message', no FROZEN, no lock taken, 0 questions" $([ "$CLI_RC" -ne 0 ] && [ "$(grep -c -- '--freeze needs a message' "$C/say.txt")" -eq 1 ] && [ "$(grep -c '' "$C/say.txt")" -eq 1 ] && [ ! -e "$ST/FROZEN" ] && [ ! -e "$HM/.config/obsidian/.ship-wave.lock" ] && [ "$(ls "$ST/questions" 2>/dev/null | grep -c 'q-.*\.json')" -eq 0 ]; echo $?) "rc=$CLI_RC $(cat "$C/say.txt") lock=$(ls -d "$HM/.config/obsidian/.ship-wave.lock" 2>&1)"
+done
+newcase n12-ok; wave_cli --freeze "$SOFT_MSG"
+check "N12 (control) a real message still records: rc=0, 1 soft line, 1 question" $([ "$CLI_RC" -eq 0 ] && [ "$(soft_lines)" -eq 1 ] && [ "$(ls "$ST/questions" | grep -c 'q-.*\.json')" -eq 1 ]; echo $?) "rc=$CLI_RC $(cat "$C/say.txt")"
+
+echo "══ N1b/N7b. hard ONLY because a line is malformed: the behind-question and the receipt say so — and quote that line, unrepaired ══"
+MAL='a malformed stop line reads as hard (line 1): '
+newcase n1b
+wave_fn freeze "$HARD_MSG" >/dev/null 2>&1; sed -i '' 's/$/\r/' "$ST/FROZEN"; L1V=$(sed -n 1p "$ST/FROZEN" | cat -v)
+wave_cli --freeze "$SOFT_MSG"; QB=$(qid_behind)
+info "N1b body: $(qfield "$QB" body | cut -c1-200)"
+check "N1b-1 CRLF file: class hard, behind-question asked (noop-only), deploy REFUSED naming the malformed line" $([ "$(cls_now)" = hard ] && [ -n "$QB" ] && [ "$(q_ops "$QB")" = noop ] && _contains "$(deploy_gate)" "REFUSED: hard freeze" && _contains "$(deploy_gate)" "$MAL"; echo $?) "$(cls_now) $QB $(deploy_gate)"
+check "N1b-2 the body says 'HARD stop is in force: ${MAL}…' quoting the CRLF hard line (APPLY failed), NOT the soft hold" $(_contains "$(qfield "$QB" body)" "HARD stop is in force: ${MAL}$(date '+%F')" && _contains "$(qfield "$QB" body)" "APPLY failed" && ! _contains "$(qfield "$QB" body)" "HARD stop is in force: $SOFT_MSG"; echo $?) "$(qfield "$QB" body | cut -c1-220)"
+check "N1b-3 the receipt says 'unresolved: ${MAL}…' (once), not the soft message" $([ "$(grep -c "unresolved: $MAL" "$C/say.txt")" -eq 1 ] && ! grep -q "unresolved: $SOFT_MSG" "$C/say.txt"; echo $?) "$(grep 'soft line added' "$C/say.txt" | cut -c1-240)"
+check "N1b-4 the malformed line was NOT repaired: line 1 byte-identical (still ends in ^M), line 2 = the LF soft line, 2 lines" $([ "$(sed -n 1p "$ST/FROZEN" | cat -v)" = "$L1V" ] && _contains "$L1V" '^M' && [ "$(nlines)" -eq 2 ] && [ "$(sed -n 2p "$ST/FROZEN" | cut -f3)" = soft ]; echo $?) "$(cat -v "$ST/FROZEN")"
+check "N1b-5 freeze_line_now returns the malformed line 1, never the soft line" $([ "$(wave_fn freeze_line_now | cat -v)" = "$L1V" ]; echo $?) "$(wave_fn freeze_line_now | cat -v)"
+newcase n7b
+printf '%s\tmigration 1: APPLY failed\trelation exists\thard\tmigration\n' "$(date '+%F %T')" > "$ST/FROZEN"; L1=$(sed -n 1p "$ST/FROZEN")
+wave_cli --freeze "$SOFT_MSG"; QB=$(qid_behind)
+info "N7b body: $(qfield "$QB" body | cut -c1-200)"
+check "N7b-1 tab-shifted hard line: class hard, behind-question noop-only, deploy REFUSED" $([ "$(cls_now)" = hard ] && [ -n "$QB" ] && [ "$(q_ops "$QB")" = noop ] && _contains "$(deploy_gate)" "REFUSED: hard freeze"; echo $?) "$(cls_now) $QB $(deploy_gate)"
+check "N7b-2 the body quotes the shifted line flattened ('migration 1: APPLY failed relation exists hard migration'), not the soft hold" $(_contains "$(qfield "$QB" body)" "HARD stop is in force: ${MAL}" && _contains "$(qfield "$QB" body)" "migration 1: APPLY failed relation exists hard migration" && ! _contains "$(qfield "$QB" body)" "HARD stop is in force: $SOFT_MSG"; echo $?) "$(qfield "$QB" body | cut -c1-220)"
+check "N7b-3 the receipt too: 'unresolved: ${MAL}…migration 1: APPLY failed relation exists'" $(grep -q "unresolved: ${MAL}.*migration 1: APPLY failed relation exists" "$C/say.txt" && ! grep -q "unresolved: $SOFT_MSG" "$C/say.txt"; echo $?) "$(grep 'soft line added' "$C/say.txt" | cut -c1-240)"
+check "N7b-4 line 1 untouched (5 fields, the TAB still in the message), 2 lines" $([ "$(sed -n 1p "$ST/FROZEN")" = "$L1" ] && [ "$(nlines)" -eq 2 ]; echo $?) "$(cat -v "$ST/FROZEN")"
+check "N7b-5 the question file is valid UTF-8 and lists as pending on A's desk" $(python3 -c 'import sys;open(sys.argv[1],"rb").read().decode("utf-8")' "$ST/questions/$QB.json" 2>/dev/null && env -i PATH="$PLAIN_PATH" HOME="$HM" STATE="$ST" SHIP_WAVE_DIR="$TMP" /opt/homebrew/bin/bash "$DESK" pending 2>/dev/null | grep -q "$QB"; echo $?) "$(env -i PATH="$PLAIN_PATH" HOME="$HM" STATE="$ST" SHIP_WAVE_DIR="$TMP" /opt/homebrew/bin/bash "$DESK" pending 2>&1 | head -3)"
+# control: a WELL-FORMED hard line behind the soft one is still quoted by its message (no 'malformed' wording)
+newcase n7c; wave_fn freeze "$HARD_MSG" >/dev/null 2>&1; wave_cli --freeze "$SOFT_MSG"; QB=$(qid_behind)
+check "N7b-6 (control) well-formed hard line: body 'HARD stop is in force: $HARD_MSG', no 'malformed' wording anywhere" $(_contains "$(qfield "$QB" body)" "HARD stop is in force: $HARD_MSG" && ! _contains "$(qfield "$QB" body)" "malformed" && ! grep -q malformed "$C/say.txt"; echo $?) "$(qfield "$QB" body | cut -c1-200)"
+
 echo "══ SAFETY. the live state was never touched ══"
 check "S1 live ~/.config/obsidian/.ship-wave/FROZEN was not created by this run" $([ ! -e "$HOME/.config/obsidian/.ship-wave/FROZEN" ] || [ "$(stat -f %m "$HOME/.config/obsidian/.ship-wave/FROZEN")" -lt "$(stat -f %m "$TMP")" ]; echo $?) "live FROZEN mtime newer than this run"
 

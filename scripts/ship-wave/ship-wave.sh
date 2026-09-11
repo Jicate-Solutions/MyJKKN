@@ -81,7 +81,11 @@ while [[ $# -gt 0 ]]; do
     --ratify) POLICY_RATIFY="${2:-}"; shift;;
     --unguard) UNGUARD="${2:-}"; shift;;
     --unfreeze) _fc=$(tail -1 "$FREEZE" 2>/dev/null | awk -F'\t' '{print $3}'); rm -f "$FREEZE"; echo "freeze cleared${_fc:+ (was $_fc)}"; exit 0;;   # one file = both the latch and its class
-    --freeze) FREEZE_MSG="${2:-}"; shift;;   # raise a stop by hand with a CORRECT class line, e.g. --freeze "peer hold on #3410 — …" (§B soft row)
+    --freeze) FREEZE_MSG="${2:-}"   # raise a stop by hand with a CORRECT class line, e.g. --freeze "peer hold on #3410 — …" (§B soft row)
+      # N12 (round-6 verifier): an empty / missing message used to leave FREEZE_MSG empty, the freeze gate below was
+      # skipped and `go --freeze ""` fell through to a LIVE run with no stop raised. Refuse here, before the lock.
+      [ -n "$(printf '%s' "$FREEZE_MSG" | tr -d ' \t\r\n')" ] || { echo "--freeze needs a message"; exit 2; }
+      shift;;
     --if-changed) IF_CHANGED=1;;   # standing run: skip when no PR / approval / freeze changed since the last run (≤12h)
     *) echo "unknown arg: $1"; exit 2;;
   esac; shift
@@ -146,13 +150,40 @@ freeze_class_now() {  # → the class of the freeze in force: HARD if ANY live F
   local v; v=$(awk -F'\t' 'BEGIN{c="soft";n=0} {n++; if (NF<3 || NF>5 || ($3!="soft" && $3!="hard") || (NF==5 && (length($5)!=40 || $5 !~ /^[0-9a-f]+$/))) {c="hard"; exit} if ($3=="hard") c="hard"} END{if (n==0) c="hard"; print c}' "$FREEZE" 2>/dev/null)
   case "$v" in soft|hard) printf '%s' "$v";; *) printf 'hard';; esac
 }
-freeze_line_now() {  # → the FROZEN line that GOVERNS the class in force: the last hard line when the class is hard, else the last line
+# a line that FAILS the fail-safe validation above (it is what makes the class hard when no well-formed hard line exists)
+_frozen_bad_filter='NF<3 || NF>5 || ($3!="soft" && $3!="hard") || (NF==5 && (length($5)!=40 || $5 !~ /^[0-9a-f]+$/))'
+freeze_bad_line_no() {  # → line number of the LAST malformed line in FROZEN (0 when every line is well-formed)
+  awk -F'\t' "$_frozen_bad_filter"' {n=NR} END{print n+0}' "$FREEZE" 2>/dev/null
+}
+freeze_line_now() {  # → the FROZEN line that GOVERNS the class in force: the last well-formed hard line when the class is hard;
+  # else (N1b/N7b, round-6 verifier) the last MALFORMED line — the one that made the class hard — never tail -1, which
+  # would hand back the soft line just appended as if it were the hard stop; soft class → the last line
   [ -f "$FREEZE" ] || return 0
   if [ "$(freeze_class_now)" = hard ]; then
-    local l; l=$(awk -F'\t' 'NF>=3 && NF<=5 && $3=="hard" && !(NF==5 && (length($5)!=40 || $5 !~ /^[0-9a-f]+$/))' "$FREEZE" 2>/dev/null | tail -1)
+    local l n; l=$(awk -F'\t' 'NF>=3 && NF<=5 && $3=="hard" && !(NF==5 && (length($5)!=40 || $5 !~ /^[0-9a-f]+$/))' "$FREEZE" 2>/dev/null | tail -1)
     [ -n "$l" ] && { printf '%s\n' "$l"; return 0; }
+    n=$(freeze_bad_line_no); [ "${n:-0}" -gt 0 ] && { sed -n "${n}p" "$FREEZE" 2>/dev/null; return 0; }
   fi
   tail -1 "$FREEZE" 2>/dev/null
+}
+freeze_reason_now() {  # → the text to QUOTE for the stop in force: the governing hard line's message — or, when the class is hard
+  # ONLY because a line is malformed (CRLF file, a hand-written line with a TAB in its message), an honest
+  # 'a malformed stop line reads as hard (line n): <raw line, flattened, ≤120 chars>' instead of some other line's message.
+  # The malformed line is quoted, never repaired. Soft class → the last line's message.
+  [ -f "$FREEZE" ] || return 0
+  local l n raw
+  if [ "$(freeze_class_now)" = hard ]; then
+    l=$(awk -F'\t' 'NF>=3 && NF<=5 && $3=="hard" && !(NF==5 && (length($5)!=40 || $5 !~ /^[0-9a-f]+$/))' "$FREEZE" 2>/dev/null | tail -1)
+    [ -n "$l" ] && { printf '%s' "$l" | cut -f2; return 0; }
+    n=$(freeze_bad_line_no)
+    if [ "${n:-0}" -gt 0 ]; then
+      # flatten TAB/CR to one space, cap at 120 (bytes under BSD cut in the C locale); iconv -c drops a sliced multibyte tail
+      raw=$(sed -n "${n}p" "$FREEZE" 2>/dev/null | tr '\t\r' '  ' | cut -c1-120 | iconv -f UTF-8 -t UTF-8 -c 2>/dev/null)
+      printf 'a malformed stop line reads as hard (line %s): %s' "$n" "$raw"; return 0
+    fi
+    printf 'FROZEN is empty — reads as hard (fail safe)'; return 0
+  fi
+  tail -1 "$FREEZE" 2>/dev/null | cut -f2
 }
 # ── the ONE deploy gate (integrator 2026-09-10) ───────────────────────────────────────────────────────
 # Every path that can POST the production deploy hook — this round's merges, the §C main-ahead trigger, the plain-go
@@ -166,7 +197,7 @@ deploy_allowed() {  # → 0 = may fire · 1 = must not, DEPLOY_BLOCK holds the o
   [ "${MODE:-plan}" = go ] || { DEPLOY_BLOCK="plan mode — the deploy stage never acts outside go"; return 1; }
   [ -z "${NO_DEPLOY:-}" ] || { DEPLOY_BLOCK="--no-deploy"; return 1; }
   if [ -f "$FREEZE" ] && [ "$(freeze_class_now)" = hard ]; then
-    DEPLOY_BLOCK="hard freeze — nothing ships until the stop is lifted (--unfreeze): $(freeze_line_now | cut -f2 | cut -c1-120)"; return 1
+    DEPLOY_BLOCK="hard freeze — nothing ships until the stop is lifted (--unfreeze): $(freeze_reason_now | cut -c1-120)"; return 1
   fi
   return 0
 }
@@ -186,16 +217,29 @@ freeze() {
   # X1 (round 5): an append that fails (FROZEN or its dir unwritable) used to be ignored — the receipt said FROZEN,
   # nothing was recorded, and the question was written about whatever line was already there. A run that cannot
   # record a stop must not continue as if unfrozen: say so and end this run non-zero (the trap releases the lock).
+  # N5a (round-6 verifier): a FROZEN that accepts writes but is not a regular file (a symlink to /dev/null, a FIFO, …)
+  # made the append succeed, the receipt announce a hard stop and a question get written — with NOTHING recorded,
+  # so the next run started unfrozen. The stop counts as recorded only when FROZEN is a REGULAR file (or absent and
+  # then created as one) AND the exact line, by its sha1 field, reads back from it. A FIFO is refused BEFORE the
+  # append (an append to a FIFO with no reader blocks forever).
+  if [ -e "$FREEZE" ] && [ ! -f "$FREEZE" ]; then
+    say "  ⛔ could not record the stop (FROZEN is not a regular file) — treating as HARD and stopping this run"
+    exit 5
+  fi
   if ! err=$( { printf '%s\t%s\n' "$line" "$sha" >> "$FREEZE"; } 2>&1 ); then
     reason=$(printf '%s' "$err" | head -1 | sed -E 's/^[^:]*: line [0-9]+: //'); [ -n "$reason" ] || reason="write failed: $FREEZE"
     say "  ⛔ could not write FROZEN ($reason) — treating as HARD and stopping this run"
+    exit 5
+  fi
+  if [ ! -f "$FREEZE" ] || ! grep -qxF -- "$line	$sha" "$FREEZE" 2>/dev/null; then
+    say "  ⛔ could not record the stop (FROZEN is not a regular file) — treating as HARD and stopping this run"
     exit 5
   fi
   now=$(freeze_class_now)
   if [ "$cls" = soft ] && [ "$now" = hard ]; then
     # --freeze from the phone while a hard stop is unresolved: the soft line is recorded (it is a real hold) but the
     # class in force stays HARD — most severe wins; --unfreeze is the only way down (N3)
-    say "  ⛔ FROZEN (soft line added, HARD stop still in force): $msg — an earlier hard stop is unresolved: $(freeze_line_now | cut -f2 | cut -c1-120); nothing merges or ships until --unfreeze"
+    say "  ⛔ FROZEN (soft line added, HARD stop still in force): $msg — an earlier hard stop is unresolved: $(freeze_reason_now | cut -c1-120); nothing merges or ships until --unfreeze"
   elif [ "$cls" = soft ]; then
     say "  ⛔ FROZEN (soft): $msg — merging LOW/NORMAL, holding HELD, until: ship-wave.sh --unfreeze"
   else
@@ -208,13 +252,13 @@ freeze() {
   # §A1: every freeze is ONE question to the Director, by phone. desk-questions.sh (slice A) may be absent — then
   # the wave freezes exactly as before. Option 0 is the safe one ("Keep it stopped"), so recommended=0 never lifts.
   if type -t ask_director >/dev/null 2>&1; then
-    local q_opts q_title q_body q_ver hard_line hard_msg
+    local q_opts q_title q_body q_ver hard_msg
     if [ "$cls" = soft ] && [ "$now" = hard ]; then
       # H11 (B half, round 4→6): this soft line landed BEHIND an unresolved HARD stop. The question must say so —
       # the class in force is HARD, nothing merges or ships — and it must offer no way to lift anything: no
       # `unfreeze` op (the hard stop has its own question; this one was never asked about it) and no frozen_line.
       # The only extra option is the destructive-migration allow when THAT is what the hard stop is about.
-      hard_line=$(freeze_line_now); hard_msg=$(printf '%s' "$hard_line" | cut -f2)
+      hard_msg=$(freeze_reason_now)   # N1b/N7b: names a malformed-but-hard line honestly instead of the soft line's text
       # two options, both noop: A's validator asks 2-4 options of every question; neither may lift anything
       q_opts='{"label":"Keep it stopped","description":"Nothing changes; the HARD stop stays and this hold waits behind it.","writes":[{"op":"noop"}]},'
       q_opts="$q_opts"'{"label":"Noted; I will answer the HARD stop from its own question","description":"Nothing changes here either. The HARD stop is lifted only from the question that was asked about it.","writes":[{"op":"noop"}]}'
@@ -632,7 +676,7 @@ run_once() {
   refresh_freeze_state() { frozen=""; freeze_class=""; hard=""; if [ -f "$FREEZE" ]; then frozen=1; freeze_class=$(freeze_class_now); [ "$freeze_class" = hard ] && hard=1; fi; return 0; }
   if [ -f "$FREEZE" ]; then
     frozen=1; freeze_class=$(freeze_class_now); [ "$freeze_class" = hard ] && hard=1
-    if [ -n "$hard" ]; then say "  ⛔ FROZEN (hard) since: $(head -1 "$FREEZE" | cut -f1) — $(freeze_line_now | cut -f2 | cut -c1-140) — nothing merges, nothing ships this round (sweep/report only). Clear with --unfreeze.$( [ "$(grep -c . "$FREEZE")" -gt 1 ] && printf ' (%s lines in FROZEN; the hard one governs)' "$(grep -c . "$FREEZE")")"
+    if [ -n "$hard" ]; then say "  ⛔ FROZEN (hard) since: $(head -1 "$FREEZE" | cut -f1) — $(freeze_reason_now | cut -c1-140) — nothing merges, nothing ships this round (sweep/report only). Clear with --unfreeze.$( [ "$(grep -c . "$FREEZE")" -gt 1 ] && printf ' (%s lines in FROZEN; the hard one governs)' "$(grep -c . "$FREEZE")")"
     else say "  ⛔ FROZEN (soft) since: $(head -1 "$FREEZE" | cut -f1,2) — merging LOW/NORMAL, holding HELD; deploy + apply + sweep still run. Clear with --unfreeze."; fi
     hand_merged=$(hand_merged_since "$(head -1 "$FREEZE" | cut -f1)" | sed "s/ *$//")
     say "  merged by hand while stopped: ${hand_merged:-none}"
@@ -811,7 +855,7 @@ PY
       prod_is_main=1
       say "  main vs production: production already runs main HEAD (${main_sha:0:7}, $prod_src) — nothing to build"
     elif [ -n "$hard" ]; then
-      say "  ⛔ hard freeze — main (${main_sha:0:7}) is ahead of production (${prod_sha:0:7}$(sha_on_main "$prod_sha" || printf ', not on main as fetched')) but NOTHING ships until the stop is lifted: $(freeze_line_now | cut -f2 | cut -c1-120)"
+      say "  ⛔ hard freeze — main (${main_sha:0:7}) is ahead of production (${prod_sha:0:7}$(sha_on_main "$prod_sha" || printf ', not on main as fetched')) but NOTHING ships until the stop is lifted: $(freeze_reason_now | cut -c1-120)"
     elif ! sha_on_main "$prod_sha"; then
       prod_unknown=1
       say "  main vs production: cannot tell what is deployed — production reports ${prod_sha:0:10} ($prod_src), which is not on jicate/main as fetched; no build fired on a guess, marker untouched. To put main live by hand: /deploy-myjkkn"
