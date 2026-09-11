@@ -1,6 +1,6 @@
 ---
 name: w12-desk
-description: The W12 ship-wave desk — puts the wave's open questions (a freeze, HELD PRs waiting for a number, a policy proposal) in front of the Director as AskUserQuestion taps and writes each tap back with v5-w12-desk.sh. Use on '/w12-desk', 'desk', 'what is waiting on me', 'anything waiting', 'w12 questions', or every tick of '/loop 10m /w12-desk'. Never runs the wave, never merges — it only answers questions the wave already wrote.
+description: The W12 ship-wave desk — puts the wave's open questions (a freeze, HELD PRs waiting for a number, a policy proposal, a stale draft group) in front of the Director as AskUserQuestion taps and writes each tap back with v5-w12-desk.sh; and delivers the wave's stale-draft reminders to the Claude tab that opened the draft, by SendMessage. Use on '/w12-desk', 'desk', 'what is waiting on me', 'anything waiting', 'w12 questions', or every tick of '/loop 10m /w12-desk'. Never runs the wave, never merges — it only answers questions the wave already wrote.
 ---
 
 # /w12-desk — the wave asks, you tap, the desk writes it back
@@ -14,6 +14,20 @@ Director 2026-09-10: "Use always AskUserQuestionTool when you need me." So: no p
 options, no "shall I…" in chat — the question goes through AskUserQuestion, exactly as the wave wrote it.
 
 ## One pass (run every tick)
+
+0. **Reminders for stale drafts (Lane E).** Run: `~/.config/obsidian/v5-w12-desk.sh nudges`
+   It prints one line per reminder the wave has queued: `<request>|<tab name>|live|dead|unknown|<message>`
+   (everything after the fourth `|` is the message). Director 2026-09-11: "Message the tab: the phone desk tab
+   sends the reminder to the Claude tab that started the change. If that tab is closed, skip straight to asking
+   you at 7 days." For each line:
+   - `live` → **SendMessage** to `<tab name>` with `<message>`, word-for-word. Then
+     `~/.config/obsidian/v5-w12-desk.sh nudge-mark <request> delivered "" "<tab name>"`.
+     If SendMessage refuses the name (no such agent, or several share it and it wants a ref), run
+     `nudge-mark <request> tab-closed "<its error, verbatim>"` instead — never guess another tab.
+   - `dead` or `unknown` → `~/.config/obsidian/v5-w12-desk.sh nudge-mark <request> tab-closed <dead|unknown>`.
+   Print one receipt line each: `reminder <request> → sent to <tab name>` or `reminder <request> → tab closed`.
+   No output from `nudges` → say nothing and go on. This step never asks the Director anything: a closed tab
+   simply means the wave asks him at 7 days.
 
 1. Run: `~/.config/obsidian/v5-w12-desk.sh pending`
    It prints a JSON array of open questions (unanswered, unexpired), oldest first. Anything on stderr
@@ -57,6 +71,8 @@ options, no "shall I…" in chat — the question goes through AskUserQuestion, 
 - **Never runs the wave.** No `ship-wave.sh go`, no `--goal`, no deploy hook. The wave's own launchd tick
   reads the knobs you appended on its next run.
 - **Never merges** a PR, closes one, comments on one, or touches git.
+- **Never messages a tab** except with the reminder line `nudges` printed, to the one tab it named, once — and never
+  on its own idea. A reminder is not a question: it does not go to the Director.
 - **Never invents an option.** If a question seems to be missing the right choice, the Director picks
   "Other" and types it; you store it. You do not add an option and you do not act on the free text.
 - **Never rephrases `writes`.** The option's effect is the file's `writes` list, applied by the script.
@@ -65,7 +81,7 @@ options, no "shall I…" in chat — the question goes through AskUserQuestion, 
 - **Never asks twice in one pass** and never re-asks a question the script has already moved to
   `questions/answered/`. Answering an already-answered id again is harmless: the script finds no open file
   and exits 2 without applying anything.
-- Reads and writes nothing outside `$STATE/questions/` except through `v5-w12-desk.sh`.
+- Reads and writes nothing outside `$STATE/questions/` and `$STATE/nudges/` except through `v5-w12-desk.sh`.
 
 ## INSTALL
 

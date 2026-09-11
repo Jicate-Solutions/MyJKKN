@@ -16,6 +16,8 @@
 #                                            when ≥1 write applied and none failed; outcome "refused" (fields
 #                                            chosen/reason) when nothing applied — slice D counts ONLY "resolved"
 #   $FLEET_MD                                ONLY its "## W12 desk — waiting on you" section
+#   $STATE/nudges/<request>.json             Lane E reminders (HUMAN-IN-THE-LOOP.md §E amendments): `nudge-mark` changes a
+#                                            PENDING request's status to delivered | tab-closed — nothing else
 # It never runs the wave. It never merges. It never invents an option: the writes in the file are the contract.
 # An <id> is accepted ONLY in the shape ^q-[0-9]{8}-[0-9]{6}-[a-z0-9][a-z0-9-]{0,39}$ and resolves ONLY to
 # $STATE/questions/<id>.json — "answered/q-…" or "../stray" is refused (exit 3) before any path is built
@@ -31,6 +33,10 @@
 #                                                   5 expired — nothing applied (DESK_ALLOW_EXPIRED=1 overrides)
 #        v5-w12-desk.sh answer <id> other "<text>"  store the free text verbatim; apply NOTHING
 #        v5-w12-desk.sh mirror                      rewrite the desk section of $FLEET_MD
+#        v5-w12-desk.sh nudges                      one line per pending Lane E reminder: <request>|<tab name>|live|dead|unknown|<message>
+#                                                   (desk/desk-nudge-targets.sh — how a draft finds the tab that opened it)
+#        v5-w12-desk.sh nudge-mark <request> delivered|tab-closed [reason] [tab name]
+#                                                   record what the desk did with that reminder · exit 2 not pending · 3 refused
 # ENV    STATE     (default ~/.config/obsidian/.ship-wave)   tests point this at a temp dir
 #        FLEET_MD  (default the Fleet note synced to the phone)
 # INSTALL  ln -sf <ship-policy checkout>/scripts/ship-wave/desk/v5-w12-desk.sh ~/.config/obsidian/v5-w12-desk.sh
@@ -440,5 +446,9 @@ case "${1:-}" in
   answer)  [ -n "${2:-}" ] && [ -n "${3:-}" ] || { echo "usage: v5-w12-desk.sh answer <id> <option-index> | answer <id> other \"<text>\""; exit 2; }
            cmd_answer "$2" "$3" "${4:-}" ;;
   mirror)  cmd_mirror ;;
+  # Lane E reminders (Director 2026-09-11 22:3x: "Message the tab …"): the resolution lives in one tested script beside
+  # this one; the desk tab sends the line with SendMessage and records the result through nudge-mark
+  nudges)     STATE="$STATE" "${BASH:-/opt/homebrew/bin/bash}" "$SW_DIR/desk/desk-nudge-targets.sh" list ;;
+  nudge-mark) shift; STATE="$STATE" "${BASH:-/opt/homebrew/bin/bash}" "$SW_DIR/desk/desk-nudge-targets.sh" mark "$@" ;;
   *) sed -n '/^# USAGE/,/^# INSTALL/p' "$_self"; exit 2 ;;
 esac

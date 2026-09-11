@@ -162,6 +162,10 @@ receipt ("Director wrote: …"); run every test file; then ONE PR, Draft, on top
 
 ## E. Stale draft PRs — Lane E (Director 2026-09-11 12:34)
 
+> **Amended 2026-09-11 22:3x** — see "E amendments" at the end of this section: the 3-day nudge now goes to the Claude
+> tab that opened the draft (not a GitHub comment), drafts of one build get one question, and an unanswered question
+> comes back weekly. Where the two disagree, the amendments win.
+
 His ruling, verbatim: **"nudge at 3 days, ask me at 7"** — a Draft PR untouched for 3 days gets ONE comment nudging
 its author; at 7 days untouched the wave asks the Director (Close / Keep / Nudge again); the wave NEVER closes a
 draft on its own. Lives in `unblock-lanes.sh` (`lane_stale_drafts`, called at the end of `unblock_lanes`, so it runs
@@ -193,3 +197,66 @@ Proof: `tests/test-lane-e.sh` — stubbed `gh` (no network), real `lane_stale_dr
 nothing; 3 days → exactly one comment and a second tick does not comment again; 7 days → one question with the three
 options and a second tick does not re-ask; Keep → silent; Close → the close is invoked once and the PR is dropped;
 Nudge again → one more comment; author activity resets; the wave's own bump does not; plan mode writes nothing.
+
+### E amendments — reminders go to the tab, one question per group, weekly re-ask (Director 2026-09-11 22:3x, by phone)
+
+His four interview answers, verbatim:
+1. **"Message the tab: the phone desk tab sends the reminder to the Claude tab that started the change. If that tab is
+   closed, skip straight to asking you at 7 days."**
+2. **"One question per group: one question names every part. One tap decides them all, so you never close part 1 and
+   leave parts 2 to 5 stuck."**
+3. **"Ask again next week: the question comes back once a week. Nothing is ever closed without your tap."**
+4. **"Keep = quiet for one week"** (already built; now for the whole group).
+
+They replace, in the section above: the 3-day `gh pr comment` (nobody reads those, and every draft was opened by the
+Director's own Claude tabs), the per-PR question, and the de-dup wording. Everything else in §E stands — never an
+auto-close, every `writes` is `noop`, the answer file is the signal, plan mode writes nothing.
+
+- **Groups.** Drafts that belong together are ONE group: one reminder, one question, one marker. Two drafts belong
+  together when they share any of (transitively): **family** — the same build name before `Lane <X>` / `Slice <X>` in
+  the title, same scope ("feat(onemark): Wave 3 Lane S3 / Lane A / …"); **chain** — `PR k/N` with the same N, same scope
+  and the same opening session; **spec** — the same FIRST `specs/<name>.md` path in the body (only the first: later
+  mentions are often references to other documents, and a reference must not pull an unrelated draft into a tap that
+  closes it). A lone draft's group id is its PR number; a group's is `g-<slug>` of its strongest shared key
+  (chain > family > spec). Idle = days since the NEWEST `updatedAt` in the group. A push, a comment or a new part
+  joining resets the whole group; a part leaving the drafts (merged, closed, marked ready) does not.
+- **The 3-day reminder** is a request, not a comment: `$STATE/nudges/<group>.json` with the PR numbers and titles, the
+  claude.ai session id(s) parsed from the PR bodies (`https://claude.ai/code/session_<id>` — a bare link, a markdown
+  link, or a `Claude-Session:` trailer; the first link in a body is the tab that opened it), `first_seen`,
+  `requested_at`, `status: pending` and the one plain `message` to send. The wave runs under launchd and cannot message
+  a tab; the desk tab can. Every `/w12-desk` pass starts with `v5-w12-desk.sh nudges`, which runs
+  `desk/desk-nudge-targets.sh` and prints `<request>|<tab name>|live|dead|unknown|<message>` per pending request.
+  **How a draft finds its tab**, from the fleet's existing records only (read-only, nothing new is kept): the session
+  id `X` is claude.ai row `cse_X`; `v5-row-status.json` joins that row to its tab key when it is the tab's current row;
+  otherwise the transcripts named by `v5-tab-sessions/<u8>` (field 1) are searched for `"bridgeSessionId":"cse_X"` (a
+  restarted tab keeps its old ids there — the proof `v5-ghost-sweep.sh` uses); the name comes from the name spine
+  `v5-tab-names/<u8>`; live = a tmux session `v5-…-<u8>` exists (matched by key, not vault slug). Several sessions in one
+  group are tried most-parts-first; the first live tab wins. `live` → the desk sends the line with **SendMessage** and
+  runs `nudge-mark <request> delivered`; `dead`, `unknown`, or a name SendMessage refuses → `nudge-mark <request>
+  tab-closed`. The desk's reach grows by exactly this: it reads `$STATE/nudges/`, changes a request's `status` from
+  `pending`, and sends that one line to that one tab. It still never comments on a PR, closes one, or merges.
+- **The ask** (unchanged trigger, amended gate): idle ≥ 7 days AND either the request says `tab-closed` (nobody can
+  answer — straight to the question) or the reminder is ≥ 4 days old (from `delivered_at`, else `requested_at`, so a
+  desk that never ran still gets the Director asked). ONE question per group, `kind=held`,
+  `class=stale-draft #<n>` (lone) or `stale-drafts <group>`; the body lists every PR in the group; options
+  **Close / Keep / Nudge again** for a lone draft, **Close all / Keep all / Nudge again** for a group; recommended = Keep.
+  - **Close / Close all** → the wave closes every PR the question listed that is still an open draft, each with a
+    comment, branches kept; a failed close is retried next tick without closing the others twice.
+  - **Keep / Keep all** (and free text) → the whole group is silent for 7 days, then the cycle restarts.
+  - **Nudge again** → a fresh reminder request (same `first_seen`); asked again 7 days later if it stays silent.
+- **Weekly re-ask.** `expires_after_h` = 168 (`DRAFT_REASK_D=7`). Unanswered at expiry, the lane asks again — the same
+  question file, refreshed by `ask_director`'s de-dup (title carries no date or day count) — once a week, forever,
+  unless the group moved since it was asked (then the cycle starts over). Never an auto-close.
+
+State files: `nudges/<group>.json` as above (`status` ∈ pending · delivered · tab-closed · withdrawn — withdrawn when the
+draft moved before the desk sent it). `stale-drafts/<group>` — one marker per group,
+`<date>\t<stage>\t<a>\t<b>\t<epoch>\t<members>\t<closed>`: `nudged` (a = last activity epoch), `asked` (a = question id,
+b = last activity at ask, members = what the question lists, closed = PRs already closed on a Close), `keep` (a =
+quiet-until), `closed` (a = question id). Ledger classes: `lane e nudge | ask | ask again | keep | nudge again | close`.
+
+Proof: `tests/test-lane-e-amendments.sh` (and `tests/test-lane-e.sh`, updated) — stubbed `gh`, tmux and SendMessage;
+temp copies of the mapping files; real `lane_stale_drafts`, real `desk-nudge-targets.sh` through `v5-w12-desk.sh`, real
+desk answers: no `gh pr comment` at 3 days; one request per group; the session id from the trailer, bare-link and
+markdown forms; live/dead/unknown resolution incl. a restarted tab and a renamed vault; 8 OneMark-style titles → one
+group → one question; a `PR k/5` chain → one group; an unanswered question re-asked once per week; Keep silences the
+whole group; Close closes every listed PR once; a tab-closed request reaches the question at 7 days.

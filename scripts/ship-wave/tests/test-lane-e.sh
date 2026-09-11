@@ -1,6 +1,9 @@
 #!/bin/bash
 # test-lane-e.sh — proof for unblock-lanes.sh Lane E (stale Draft PRs; HUMAN-IN-THE-LOOP.md §E).
 # Director 2026-09-11 12:34: "nudge at 3 days, ask me at 7" — and the wave never closes a draft on its own.
+# Amended 2026-09-11 22:3x ("Message the tab …"): the 3-day nudge is a reminder REQUEST for the desk tab, never a
+# GitHub comment, so every case below asserts ZERO `gh pr comment` calls. Groups, tab resolution and the weekly re-ask
+# are proven in test-lane-e-amendments.sh; this file keeps the lone-draft path.
 #
 # Run from the worktree root:  bash scripts/ship-wave/tests/test-lane-e.sh
 # Uses a temp $STATE; touches nothing live. Prints PASS/FAIL per case, exits 1 on any FAIL.
@@ -72,7 +75,7 @@ lines()    { grep -cF -- "$1" "$OUT"; }                       # receipt lines ca
 qfiles()   { ls "$STATE/questions"/q-*.json 2>/dev/null | wc -l | tr -d ' '; }
 asked_log(){ grep -c $'\tasked\t' "$STATE/questions.log" 2>/dev/null || echo 0; }
 stage()    { cut -f2 "$STATE/stale-drafts/$1" 2>/dev/null; }
-mark()     { printf '%s\t%s\t%s\t%s\t%s\n' "$(date '+%F %T')" "$2" "$3" "$4" "$5" > "$STATE/stale-drafts/$1"; }
+mark()     { printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date '+%F %T')" "$2" "$3" "$4" "$5" "${6:-$1}" "${7:-}" > "$STATE/stale-drafts/$1"; }
 qjson()    { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(eval(sys.argv[2],{"d":d}))' "$1" "$2"; }
 find_q()   { grep -l "\"class\": \"stale-draft #$1\"" "$STATE/questions"/q-*.json 2>/dev/null | head -1; }
 ledger_n() { grep -c "$1" "$STATE/failure-ledger.jsonl" 2>/dev/null || echo 0; }
@@ -85,24 +88,24 @@ mkpr 11 2; mk_plan 11; tick
 check "1a idle 2d: receipt says it is under the 3-day line"       eq "$(lines '#11  draft, idle 2d — under the 3-day line')" 1
 check "1b idle 2d: zero comments posted on #11"                  eq "$(comments 11)" 0
 check "1c idle 2d: no marker written"                            test ! -e "$STATE/stale-drafts/11"
-check "1d idle 2d: lane examined exactly 1 draft"                eq "$(lines 'lane E: 1 drafts examined · 0 acted on now')" 1
+check "1d idle 2d: lane examined exactly 1 draft in 1 group"     eq "$(lines 'lane E: 1 drafts examined in 1 group(s) · 0 acted on now')" 1
 
-# ── 2. three days untouched → exactly ONE nudge; the next tick does not comment again ───────────────
+# ── 2. three days untouched → exactly ONE reminder request for the desk, ZERO comments; the next tick writes no second ──
 mkpr 12 3; mk_plan 11 12; tick
-check "2a idle 3d: exactly one 'pr comment' on #12"              eq "$(comments 12)" 1
-check "2b idle 3d: the nudge text is the plain sentence"         grep -q "^pr comment 12 --repo jicate/test --body This draft has had no activity for 3 days — still working on it?" "$TRACE"
+check "2a idle 3d: ZERO 'pr comment' calls on #12, one request file nudges/12.json" bash -c "[ \"\$(comments 12)\" = 0 ] && [ -f '$STATE/nudges/12.json' ]"
+check "2b idle 3d: the request carries the Director's plain line"  eq "$(qjson "$STATE/nudges/12.json" 'd["status"] + "|" + d["message"]')" "pending|Your draft #12 'feat: draft 12' has had no activity for 3 days. Still working on it? The Director will be asked at 7 days."
 check "2c idle 3d: marker stage is nudged"                       eq "$(stage 12)" nudged
-check "2d idle 3d: marker remembers the wave's OWN updatedAt bump (field b == fixture now)" \
-      eq "$(cut -f4 "$STATE/stale-drafts/12")" "$(python3 -c 'import json;print(json.load(open("'"$FIX"'/pr-12.json"))["updatedAt"])')"
-check "2e idle 3d: one ledger record 'nudged its author'"        eq "$(ledger_n 'stale draft #12: nudged its author')" 1
-check "2f idle 3d: receipt line 'nudged its author once'"        eq "$(lines '#12  idle 3d — nudged its author once')" 1
+check "2d idle 3d: marker a = the author's last activity (the fixture's updatedAt, as epoch)" \
+      eq "$(cut -f3 "$STATE/stale-drafts/12")" "$(python3 -c 'import json,datetime;print(int(datetime.datetime.fromisoformat(json.load(open("'"$FIX"'/pr-12.json"))["updatedAt"].replace("Z","+00:00")).timestamp()))')"
+check "2e idle 3d: one ledger record 'reminder requested'"       eq "$(ledger_n 'stale draft #12: reminder requested for the tab that opened it')" 1
+check "2f idle 3d: receipt line 'the desk will remind the Claude tab that opened it'" eq "$(lines '#12  idle 3d — the desk will remind the Claude tab that opened it')" 1
 tick
-check "2g second tick: still exactly one comment on #12"          eq "$(comments 12)" 1
-check "2h second tick: receipt says nudged 0d ago, waiting for 7d" eq "$(lines '#12  nudged 0d ago, idle 3d — the Director is asked at 7d')" 1
+check "2g second tick: still zero comments, still one ledger record" bash -c "[ \"\$(comments 12)\" = 0 ] && [ \"\$(ledger_n 'stale draft #12: reminder requested')\" = 1 ]"
+check "2h second tick: receipt says the reminder waits for the desk" eq "$(lines '#12  reminder waiting for the desk 0d ago, idle 3d — the Director is asked at 7d')" 1
 check "2i second tick: #11 still untouched (0 comments)"          eq "$(comments 11)" 0
 
 # ── 3. seven days untouched (nudged 4 days ago, no reply) → ONE ask_director; the next tick does not re-ask ──
-mkpr 13 7; mark 13 nudged "$(iso_ago 7)" "$(iso_ago 7)" "$(epoch_ago 4)"; mk_plan 13; tick
+mkpr 13 7; mark 13 nudged "$(epoch_ago 7)" "" "$(epoch_ago 4)"; mk_plan 13; tick
 Q13=$(find_q 13)
 check "3a idle 7d: exactly one question file on the desk"        eq "$(qfiles)" 1
 check "3b idle 7d: the question is for #13 (class stale-draft #13, kind held)" bash -c "[ -n '$Q13' ] && [ \"\$(qjson '$Q13' 'd[\"kind\"]')\" = held ]"
@@ -122,8 +125,8 @@ check "3l second tick: still one 'asked' line, zero 'refreshed'" bash -c "[ \"\$
 check "3m second tick: receipt says waiting for the Director"    eq "$(lines "#13  waiting for the Director's answer")" 1
 
 # ── 3n. a nudge only 1 day old does NOT ask yet, even at 30 days idle — the author gets 4 days to reply ──
-mkpr 19 30; mark 19 nudged "$(iso_ago 30)" "$(iso_ago 30)" "$(epoch_ago 1)"; mk_plan 19; tick
-check "3n nudged 1d ago at 30d idle: no question yet, receipt says so" bash -c "[ \"\$(qfiles)\" = 1 ] && [ \"\$(lines '#19  nudged 1d ago, idle 30d')\" = 1 ]"
+mkpr 19 30; mark 19 nudged "$(epoch_ago 30)" "" "$(epoch_ago 1)"; mk_plan 19; tick
+check "3n reminder 1d old at 30d idle: no question yet, receipt says so" bash -c "[ \"\$(qfiles)\" = 1 ] && [ \"\$(lines '#19  reminder request missing 1d ago, idle 30d')\" = 1 ]"
 
 # ── 4. answer Keep (through the REAL desk) → silent for DRAFT_KEEP_D days ───────────────────────────
 mk_plan 13
@@ -140,11 +143,11 @@ tick
 check "4g Keep, next tick: one 'quiet until' line, nothing else"  bash -c "[ \"\$(lines '#13  Director said Keep — quiet until')\" = 1 ] && [ \"\$(comments 13)\" = 0 ] && [ \"\$(qfiles)\" = 0 ]"
 # an expired Keep restarts the cycle
 mark 13 keep "$(epoch_ago 1)" "" "$(epoch_ago 8)"; tick
-check "4h Keep expired: marker gone → fresh nudge lands (1 comment) and stage is nudged again" \
-      bash -c "[ \"\$(lines '#13  the Keep period ended — the lane starts over')\" = 1 ] && [ \"\$(comments 13)\" = 1 ] && [ \"\$(stage 13)\" = nudged ]"
+check "4h Keep expired: marker gone → a fresh reminder request (pending, 0 comments) and stage is nudged again" \
+      bash -c "[ \"\$(lines '#13  the Keep period ended — the lane starts over')\" = 1 ] && [ \"\$(comments 13)\" = 0 ] && [ \"\$(qjson '$STATE/nudges/13.json' 'd[\"status\"]')\" = pending ] && [ \"\$(stage 13)\" = nudged ]"
 
 # ── 5. answer Close (through the REAL desk) → the wave closes it ONCE and drops it from the lane ───
-mkpr 14 9; mark 14 nudged "$(iso_ago 9)" "$(iso_ago 9)" "$(epoch_ago 5)"; mk_plan 14; tick
+mkpr 14 9; mark 14 nudged "$(epoch_ago 9)" "" "$(epoch_ago 5)"; mk_plan 14; tick
 Q14=$(find_q 14)
 check "5a #14 asked (one question, class stale-draft #14)"       bash -c "[ -n '$Q14' ] && [ \"\$(qfiles)\" = 1 ]"
 check "5b nothing closed before the answer"                      eq "$(closes 14)" 0
@@ -164,37 +167,38 @@ mk_plan 11; tick
 check "5k Close, once the sweep no longer lists it: lane examines 1 draft, close count still 1" \
       bash -c "[ \"\$(lines 'lane E: 1 drafts examined')\" = 1 ] && [ \"\$(closes 14)\" = 1 ]"
 
-# ── 6. answer Nudge again → one more comment, re-armed for another 7 days ──────────────────────────
-mkpr 15 8; mark 15 nudged "$(iso_ago 8)" "$(iso_ago 8)" "$(epoch_ago 5)"; mk_plan 15; tick
+# ── 6. answer Nudge again → a fresh reminder request (no comment), re-armed for another 7 days ────────────────────
+mkpr 15 8; mark 15 nudged "$(epoch_ago 8)" "" "$(epoch_ago 5)"; mk_plan 15; tick
 Q15=$(find_q 15); "$DESK" answer "$(basename "$Q15" .json)" 2 >/dev/null; tick
-check "6a Nudge again: exactly one comment on #15"               eq "$(comments 15)" 1
-check "6b Nudge again: marker back to nudged, a = now (re-armed), b = the wave's own bump" \
-      bash -c "[ \"\$(stage 15)\" = nudged ] && [ \"\$(cut -f4 '$STATE/stale-drafts/15')\" = \"\$(python3 -c 'import json;print(json.load(open(\"$FIX/pr-15.json\"))[\"updatedAt\"])')\" ]"
-check "6c Nudge again: receipt says asked again in 7d"           eq "$(lines '#15  Director said Nudge again — nudged; he is asked again in 7d')" 1
+check "6a Nudge again: ZERO comments on #15; the request is pending again" bash -c "[ \"\$(comments 15)\" = 0 ] && [ \"\$(qjson '$STATE/nudges/15.json' 'd[\"status\"]')\" = pending ]"
+check "6b Nudge again: marker back to nudged, a = now (re-armed, within 60 s)" \
+      bash -c "[ \"\$(stage 15)\" = nudged ] && d=\$(( \$(date +%s) - \$(cut -f3 '$STATE/stale-drafts/15') )); [ \$d -ge 0 ] && [ \$d -le 60 ]"
+check "6c Nudge again: receipt says the desk reminds the tab again, asked again in 7d" eq "$(lines '#15  Director said Nudge again — the desk will remind the tab again; he is asked again in 7d')" 1
 tick
-check "6d Nudge again, next tick: still one comment, no new question" bash -c "[ \"\$(comments 15)\" = 1 ] && [ \"\$(qfiles)\" = 0 ]"
+check "6d Nudge again, next tick: still zero comments, no new question" bash -c "[ \"\$(comments 15)\" = 0 ] && [ \"\$(qfiles)\" = 0 ]"
 
 # ── 7. free-text "other" answer applies nothing and reads as Keep ─────────────────────────────────
-mkpr 18 8; mark 18 nudged "$(iso_ago 8)" "$(iso_ago 8)" "$(epoch_ago 5)"; mk_plan 18; tick
+mkpr 18 8; mark 18 nudged "$(epoch_ago 8)" "" "$(epoch_ago 5)"; mk_plan 18; tick
 Q18=$(find_q 18); "$DESK" answer "$(basename "$Q18" .json)" other "ask Priya first" >/dev/null; tick
 check "7a other: marker stage keep, zero closes, zero comments"  bash -c "[ \"\$(stage 18)\" = keep ] && [ \"\$(closes 18)\" = 0 ] && [ \"\$(comments 18)\" = 0 ]"
 check "7b other: receipt says kept"                              eq "$(lines '#18  Director said other — kept; quiet for 7d')" 1
 
-# ── 8. author activity after the nudge resets the count; the wave's own bump does not ───────────────
-mkpr 17 0; mark 17 nudged "$(iso_ago 4)" "$(iso_ago 1)" "$(epoch_ago 1)"; mk_plan 17; tick   # updatedAt = now ≠ b, a day after the nudge
-check "8a a push after the nudge: marker removed, receipt says the lane resets" \
-      bash -c "[ ! -e '$STATE/stale-drafts/17' ] && [ \"\$(lines '#17  activity since the nudge — the lane resets its count')\" = 1 ]"
-mkpr 20 0.001; mark 20 nudged "$(iso_ago 5)" "$(iso_ago 0.002)" "$(epoch_ago 0)"; mk_plan 20; tick   # updatedAt moved ~90 s after our nudge
-check "8b updatedAt settling within 5 min of our nudge is NOT activity: marker kept, b updated to it" \
-      bash -c "[ \"\$(stage 20)\" = nudged ] && [ \"\$(cut -f4 '$STATE/stale-drafts/20')\" = \"\$(python3 -c 'import json;print(json.load(open(\"$FIX/pr-20.json\"))[\"updatedAt\"])')\" ] && [ \"\$(comments 20)\" = 0 ]"
+# ── 8. author activity after the reminder resets the count; an updatedAt no later than the recorded one does not ──
+mkpr 17 0; mark 17 nudged "$(epoch_ago 4)" "" "$(epoch_ago 1)"; mk_plan 17; tick   # updatedAt = now, later than a (4 days ago)
+check "8a a push after the reminder: marker removed, receipt says the lane resets" \
+      bash -c "[ ! -e '$STATE/stale-drafts/17' ] && [ \"\$(lines '#17  activity since the reminder — the lane resets its count')\" = 1 ]"
+mkpr 20 5; a20=$(python3 -c 'import json,datetime;print(int(datetime.datetime.fromisoformat(json.load(open("'"$FIX"'/pr-20.json"))["updatedAt"].replace("Z","+00:00")).timestamp()))')
+mark 20 nudged "$a20" "" "$(epoch_ago 1)"; mk_plan 20; tick
+check "8b updatedAt equal to the recorded last activity is NOT activity: marker kept, waiting line printed, 0 comments" \
+      bash -c "[ \"\$(stage 20)\" = nudged ] && [ \"\$(lines '#20  reminder request missing 1d ago, idle 5d')\" = 1 ] && [ \"\$(comments 20)\" = 0 ]"
 
 # ── 9. not a draft any more / unreadable → left alone; plan mode writes nothing ─────────────────────
 mkpr 21 10 false; mk_plan 21; tick
 check "9a un-drafted PR: left alone (receipt line), no comment"  bash -c "[ \"\$(lines '#21  gh could not read updatedAt, or it is no longer a draft — left alone')\" = 1 ] && [ \"\$(comments 21)\" = 0 ]"
 mkpr 22 3; mk_plan 22; MODE=plan tick; MODE=go
-check "9b plan mode at 3d: 'would nudge' line, zero comments, no marker" \
-      bash -c "[ \"\$(lines '#22  would nudge its author once (idle 3d)')\" = 1 ] && [ \"\$(comments 22)\" = 0 ] && [ ! -e '$STATE/stale-drafts/22' ]"
-mkpr 23 7; mark 23 nudged "$(iso_ago 7)" "$(iso_ago 7)" "$(epoch_ago 4)"; mk_plan 23; MODE=plan tick; MODE=go
+check "9b plan mode at 3d: 'would ask the desk to remind' line, zero comments, no marker, no request" \
+      bash -c "[ \"\$(lines '#22  would ask the desk to remind the Claude tab that opened it (idle 3d)')\" = 1 ] && [ \"\$(comments 22)\" = 0 ] && [ ! -e '$STATE/stale-drafts/22' ] && [ ! -e '$STATE/nudges/22.json' ]"
+mkpr 23 7; mark 23 nudged "$(epoch_ago 7)" "" "$(epoch_ago 4)"; mk_plan 23; MODE=plan tick; MODE=go
 check "9c plan mode at 7d: 'would ask' line, zero question files, marker still nudged" \
       bash -c "[ \"\$(lines '#23  would ask the Director: Close / Keep / Nudge again (idle 7d)')\" = 1 ] && [ \"\$(qfiles)\" = 0 ] && [ \"\$(stage 23)\" = nudged ]"
 
