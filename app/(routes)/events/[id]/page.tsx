@@ -68,6 +68,7 @@ import { canEditEvent } from '../_components/event-display';
 import { EventFormCards } from '@/components/events/registration/event-form-cards';
 import { EventFeedbackLinkCard } from '@/components/events/feedback/event-feedback-link-card';
 import { EventTasksCard } from '@/components/events/shared/event-tasks-card';
+import { EventReviewCommentsCard } from '@/components/events/shared/event-review-comments-card';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
@@ -628,6 +629,15 @@ export default function GeneralEventDetailPage() {
             </CardContent>
           </Card>
         )}
+
+        {/* Review comments — LAST on the page by request: the reviewing
+            authority reads the whole console, then writes what is still wrong
+            at the foot of it. The card gates itself (super admin, admin /
+            administrator / event_coordinator with institution access, the
+            in-charge, the creator) and renders nothing for anyone else, so no
+            props decide who sees it — see
+            hooks/events/shared/use-event-review-comment-access.ts. */}
+        <EventReviewCommentsCard eventId={event.id} />
       </div>
 
       <EditGeneralEventDialog
