@@ -93,7 +93,7 @@ scenario() {
       case "$*" in
         "auth token"|"auth status") return 0;;
         *"--json state,mergeStateStatus"*) echo "OPEN CLEAN false main";;
-        *"--json statusCheckRollup"*) echo 0;;
+        *"--json statusCheckRollup"*) :;;   # the merge-time query prints red check NAMES since the 2026-09-11 port (none = green)
         "pr merge "*) # a squash merge lands the PR's real content on main (not an empty commit): a later diff must see it
           case "$3" in 1) echo "# $RANDOM" >> "$WTDIR/docs/a.md";; 2) echo "// $RANDOM" >> "$WTDIR/app/api/x/route.ts";; 3) mkdir -p "$WTDIR/app/api/fees"; echo "// $RANDOM" >> "$WTDIR/app/api/fees/route.ts";; 4) mkdir -p "$WTDIR/supabase/migrations"; echo "select $RANDOM;" >> "$WTDIR/supabase/migrations/20260910100000_t.sql";; esac
           git -C "$WTDIR" -c user.name=t -c user.email=t@t add -A >/dev/null; git -C "$WTDIR" -c user.name=t -c user.email=t@t commit -q --allow-empty -m "merged by the wave (#$3)" && git -C "$WTDIR" push -q jicate HEAD:main 2>/dev/null; return 0;;

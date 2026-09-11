@@ -87,7 +87,7 @@ scenario() {
       case "$*" in
         "auth token"|"auth status") return 0;;
         *"--json state,mergeStateStatus"*) echo "OPEN CLEAN false main";;
-        *"--json statusCheckRollup"*) echo 0;;
+        *"--json statusCheckRollup"*) :;;   # the merge-time query prints red check NAMES since the 2026-09-11 port (none = green)
         "pr merge "*) # a squash merge lands the PR's real content on main — unless MERGE_EMPTY asks for an empty commit
           if [ -z "$MERGE_EMPTY" ]; then case "$3" in 1) echo "# $RANDOM" >> "$WTDIR/docs/a.md";; 2) echo "// $RANDOM" >> "$WTDIR/app/api/x/route.ts";; 3) mkdir -p "$WTDIR/app/api/fees"; echo "// $RANDOM" >> "$WTDIR/app/api/fees/route.ts";; 4) mkdir -p "$WTDIR/supabase/migrations"; echo "select $RANDOM;" >> "$WTDIR/supabase/migrations/20260910100000_t.sql";; esac; fi
           git -C "$WTDIR" -c user.name=t -c user.email=t@t add -A >/dev/null; git -C "$WTDIR" -c user.name=t -c user.email=t@t commit -q --allow-empty -m "merged by the wave (#$3)" && git -C "$WTDIR" push -q jicate HEAD:main 2>/dev/null; return 0;;
@@ -204,7 +204,14 @@ echo "══ soft-row anchors + one table for B and D ══"
 DFC="${FREEZE_CLASSES_D:-/Users/omm/PROJECTS/MyJKKN/.worktrees/hitl-policy-learning/scripts/ship-wave/freeze-classes.sh}"
 [ -f "$SW/freeze-classes.sh" ] && DFC="$SW/freeze-classes.sh"   # after the integrator's switch the shared file lives here
 ext() { awk '/^classify_freeze\(\) \{/ {p=1} p {print} p && /^}/ {exit}' "$1"; }
-if [ -f "$DFC" ]; then
+if [ -f "$SW/freeze-classes.sh" ] && [ -z "$(ext "$SW/ship-wave.sh")" ]; then
+  # after the integrator's switch (2026-09-11) there is ONE copy: ship-wave.sh sources freeze-classes.sh. Prove it has no
+  # copy of its own and that the function the wave RUNS is the shared file's, body for body (declare -f in both shells).
+  check "ship-wave.sh defines no classify_freeze of its own and sources freeze-classes.sh" $(grep -qF '. "$SW_DIR/freeze-classes.sh"' "$SW/ship-wave.sh"; echo $?) "$(grep -n 'freeze-classes' "$SW/ship-wave.sh")"
+  W_DECL=$( ( export HOME="$TMP/decl"; mkdir -p "$HOME"; cd "$ROOT" || exit 9; set -- plan; . "$TMP/wave.sh" >/dev/null 2>&1; declare -f classify_freeze ) )
+  F_DECL=$( ( . "$SW/freeze-classes.sh"; declare -f classify_freeze ) )
+  check "the classify_freeze the wave runs is freeze-classes.sh's, body for body" $([ -n "$W_DECL" ] && [ "$W_DECL" = "$F_DECL" ]; echo $?) "$(diff <(printf '%s\n' "$W_DECL") <(printf '%s\n' "$F_DECL"))"
+elif [ -f "$DFC" ]; then
   check "classify_freeze in ship-wave.sh is byte-identical to $(basename "$DFC") ($DFC)" $(diff -q <(ext "$SW/ship-wave.sh") <(ext "$DFC") >/dev/null; echo $?) "$(diff <(ext "$SW/ship-wave.sh") <(ext "$DFC"))"
 else echo "INFO  slice D's freeze-classes.sh not found at $DFC — identity check skipped"; fi
 

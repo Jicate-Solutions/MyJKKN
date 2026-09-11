@@ -52,6 +52,9 @@ CLAUDE="${CLAUDE_BIN:-$HOME/.local/bin/claude}"
 REPO="Jicate-Solutions/MyJKKN"
 LOCAL="${MYJKKN_LOCAL:-/Users/omm/PROJECTS/MyJKKN}"     # local checkout is far behind prod — NEVER read code from it
 WT="$LOCAL/.claude/worktrees/ship-main"                  # jicate/main mirror used for the sweep + persona harness
+# 2026-09-11 16:49: the mirror had been pruned from disk; apply-migrations.sh then read "0 files on jicate/main match"
+# and froze the wave with the file plainly on main (4th time this cause). Rebuild it before anything reads it.
+if [ ! -e "$WT/.git" ]; then git -C "$LOCAL" worktree prune >/dev/null 2>&1; git -C "$LOCAL" worktree add --detach "$WT" jicate/main >/dev/null 2>&1 || echo "warn: could not rebuild the jicate/main mirror at $WT" >&2; fi
 SITE="https://www.jkkn.ai"
 HOOK="${MYJKKN_DEPLOY_HOOK:-https://api.vercel.com/v1/integrations/deploy/prj_yH37MwPX0aAAUXNjZX1YlOHoowRM/Y0RfATZ0rv}"
 VPROJ="prj_yH37MwPX0aAAUXNjZX1YlOHoowRM"; VTEAM="team_NKABdbcCWNZRLX7PkHx27JU5"
@@ -134,24 +137,13 @@ unlock() { rm -f "$LOCK/pid"; rmdir "$LOCK" 2>/dev/null; }
 # "destructive statement awaiting allow" is HARD on purpose: the PR's code is already on main, so deploying main
 # would ship code whose schema does not exist yet — the #1516 failure shape. A message this table does not know is
 # HARD (fail safe) and the receipt says it was unclassified, so the table gets the line added rather than guessed.
-classify_freeze() {  # $1 = freeze message → prints soft|hard; returns 1 when the message matched no row (→ hard)
-  case "$1" in
-    *deploy*ERROR*|*deploy*CANCELED*|*"deploy failed"*|*"APPLY failed"*|*"DRY-RUN failed"*|*"destructive statement"*|*"GATE ERROR"*|*"migration gap"*|*"cannot read"*|*"history query failed"*)
-      printf 'hard'; return 0;;
-    # apply-migrations.sh: the SQL ran but the history row or the verify read did not — main and the schema disagree
-    *"history insert failed"*|*"verify read did not find"*)
-      printf 'hard'; return 0;;
-    # a page or route that broke AFTER the deploy is production broken — the spec's own definition of hard
-    *"broken page"*|*"post-deploy sweep failed"*|*"baseline bounce"*)
-      printf 'hard'; return 0;;
-    # soft rows are ANCHORED phrases, not bare substrings: `*hold*` used to turn "threshold"/"uphold" soft (verifier 2026-09-10)
-    # `policy` / `advisory` match only as the FIRST word(s) of the reason: "RLS policy missing …" and "advisory lock
-    # timeout …" are apply failures, not decisions (D's verifier 9j, 2026-09-10)
-    *"peer hold"*|*"Director hold"*|*"director hold"*|*"on hold"*|*"files on jicate/main match"*|*UNRESOLVABLE*|"policy "*|"advisory check"*)
-      printf 'soft'; return 0;;
-    *) printf 'hard'; return 1;;
-  esac
-}
+# ONE table (integrator 2026-09-11, spec "Amendments from the build": "NEVER_RULE must be a single shared source of truth
+# with B's classify_freeze"): classify_freeze lives in freeze-classes.sh, which policy-learning.sh sources too, so a row
+# added there is a row the freeze gate and the policy learner both see. Guarded: if the file is ever missing, every stop
+# reads HARD (fail safe) — nothing merges or ships — and freeze() says the message matched no row.
+# shellcheck source=scripts/ship-wave/freeze-classes.sh
+if [ -f "$SW_DIR/freeze-classes.sh" ]; then . "$SW_DIR/freeze-classes.sh"
+else classify_freeze() { printf 'hard'; return 1; }; fi
 freeze_class_now() {  # → the class of the freeze in force: HARD if ANY live FROZEN line is hard (most severe wins), else soft
   # Round-3 verifier (N3): with "last line wins", `--freeze "peer hold …"` typed on the phone appended a soft line on top
   # of an unresolved hard one and the next run merged and deployed on top of a failed migration. Nothing a phone can
@@ -849,24 +841,41 @@ run_once() {
   [ -n "$frozen" ] && say "  freeze in force at the merge gate: $freeze_class$( [ -n "$hard" ] && printf ' — nothing merges' || printf ' — HELD held')"
   local merged=0 merged_list="" merged_files="$run/merged-files.txt" m_low=0 m_normal=0 m_held=0; : > "$merged_files"; : > "$run/merged-map.tsv"
   INDEX_MERGED=0
+  advisory_only() {  # $1=number → 0 only if EVERY red check on the PR is named in $STATE/advisory-checks
+    [ -s "$STATE/advisory-checks" ] || return 1
+    local bad c
+    bad=$(gh pr view "$1" --repo "$REPO" --json statusCheckRollup -q '.statusCheckRollup[]? | select(((.conclusion // "") | ascii_upcase) as $k | $k=="FAILURE" or $k=="ERROR" or $k=="TIMED_OUT" or $k=="ACTION_REQUIRED" or $k=="STARTUP_FAILURE") | (.name // .context // "?")' 2>/dev/null)
+    [ -n "$bad" ] || return 1
+    while IFS= read -r c; do [ -z "$c" ] && continue; grep -qxF -- "$c" "$STATE/advisory-checks" || return 1; done <<< "$bad"
+    return 0
+  }
   merge_one() {  # $1=number $2=tier — re-verify the instant before the irreversible step
-    local n="$1" t="$2" st i
+    local n="$1" t="$2" st i touches_index=0
     for i in 1 2 3 4 5 6; do
       st=$(gh pr view "$n" --repo "$REPO" --json state,mergeStateStatus,isDraft,baseRefName -q '"\(.state) \(.mergeStateStatus) \(.isDraft) \(.baseRefName)"')
       [ "$st" = "OPEN UNKNOWN false main" ] && { sleep 10; continue; }; break
     done
+    # Director 2026-09-11 12:34 (interview): the AI-review checks are advice, not a gate — the SWEEP already lets a PR
+    # red ONLY on checks named in $STATE/advisory-checks reach READY; this live re-check did not, so on 09-11 09:40 all
+    # nine approved HELD PRs were listed READY and then refused here. Same rule, same knob, applied before the merge.
+    if [ "$st" = "OPEN UNSTABLE false main" ] && advisory_only "$n"; then
+      say "  note   $t #$n — UNSTABLE only on advisory checks (advice, not a gate) — merging"; st="OPEN CLEAN false main"
+    fi
     if [ "$st" != "OPEN CLEAN false main" ]; then say "  HOLD   $t #$n — state now '$st' (changed since sweep), not merging"; return 1; fi
     # Director 14:45: SQL_FILE_INDEX.md is a hand-edited append-only ledger — every merge that touches it re-conflicts
     # every other PR touching it. So at most ONE index-touching PR merges per round; the rest wait for the next sweep.
     if python3 -c "import json,sys;p=json.load(open('$run/plan.json'));rows=[r for b in ('LOW','NORMAL','HELD') for r in p['ready'][b]]+p['quiet_wait'];sys.exit(0 if any(r['number']==$n and 'supabase/SQL_FILE_INDEX.md' in r['files'] for r in rows) else 1)" 2>/dev/null; then
       if [ "${INDEX_MERGED:-0}" -ge 1 ]; then say "  HOLD   $t #$n — touches SQL_FILE_INDEX.md and one index PR already merged this round (next round)"; return 1; fi
-      INDEX_MERGED=$(( ${INDEX_MERGED:-0} + 1 ))
+      touches_index=1   # 09-11 12:23: the quota was charged here, before the merge — one refused index PR then blocked five others while merged=0
     fi
-    local runs; runs=$(gh pr view "$n" --repo "$REPO" --json statusCheckRollup -q '[.statusCheckRollup[]? | select((.conclusion // "" | ascii_upcase) as $c | $c=="FAILURE" or $c=="TIMED_OUT" or $c=="ACTION_REQUIRED" or ((.status // "" | ascii_upcase) as $s | $s=="IN_PROGRESS" or $s=="QUEUED" or $s=="PENDING"))] | length')
-    [ "${runs:-0}" != "0" ] && { say "  HOLD   $t #$n — $runs check(s) failing/pending at merge time"; return 1; }
+    # Director 2026-09-11 12:34 ("Apply the fix and run the wave now"): this third count must honour the same
+    # advisory list — on 09-11 12:23 it refused #3415/#3405/#3394 whose only red checks were the two advisory ones.
+    local runs; runs=$(gh pr view "$n" --repo "$REPO" --json statusCheckRollup -q '.statusCheckRollup[]? | select((.conclusion // "" | ascii_upcase) as $c | $c=="FAILURE" or $c=="TIMED_OUT" or $c=="ACTION_REQUIRED" or ((.status // "" | ascii_upcase) as $s | $s=="IN_PROGRESS" or $s=="QUEUED" or $s=="PENDING")) | (.name // .context // "?")' 2>/dev/null \
+      | { if [ -s "$STATE/advisory-checks" ]; then grep -vxF -f "$STATE/advisory-checks"; else cat; fi; } | grep -c .)
+    [ "${runs:-0}" != "0" ] && { say "  HOLD   $t #$n — $runs non-advisory check(s) failing/pending at merge time"; return 1; }
     local pre_main; pre_main=$(main_sha_now)
     if gh pr merge "$n" --repo "$REPO" --squash --delete-branch >/dev/null 2>"$run/merge-$n.err"; then
-      say "  MERGED $t #$n"; sleep 4
+      say "  MERGED $t #$n"; [ "$touches_index" = 1 ] && INDEX_MERGED=$(( ${INDEX_MERGED:-0} + 1 )); sleep 4
       # Round-3 verifier N8b/N8d: the merged-map row used to be a side effect of `gh pr view --json files`; one transient
       # empty answer left no row (the wave's own merge was later listed as "merged by hand") AND an empty file list
       # that read as docs-only (no build, marker advanced — a route change never shipped). Now:
@@ -908,9 +917,9 @@ run_once() {
     elif [ -n "$APPROVE_HELD" ]; then
       for n in $(printf '%s' "$APPROVE_HELD" | tr ', ' '  '); do
         already_merged "$n" && continue
-        python3 -c "import json,sys;sys.exit(0 if $n in [r['number'] for r in json.load(open('$run/plan.json'))['ready']['HELD']] else 1)" \
-          && { merge_one "$n" HELD && { merged=$((merged+1)); m_held=$((m_held+1)); merged_list="$merged_list #$n"; [ -f "$STATE/approve-held" ] && { grep -vxE "\s*$n\s*" "$STATE/approve-held" || true; } > "$STATE/approve-held.new" && mv "$STATE/approve-held.new" "$STATE/approve-held"; }; } \
-          || say "  HOLD   HELD #$n — not in this run's ready-HELD list, refusing"
+        if python3 -c "import json,sys;sys.exit(0 if $n in [r['number'] for r in json.load(open('$run/plan.json'))['ready']['HELD']] else 1)"; then
+          merge_one "$n" HELD && { merged=$((merged+1)); m_held=$((m_held+1)); merged_list="$merged_list #$n"; [ -f "$STATE/approve-held" ] && { grep -vxE "\s*$n\s*" "$STATE/approve-held" || true; } > "$STATE/approve-held.new" && mv "$STATE/approve-held.new" "$STATE/approve-held"; }
+        else say "  HOLD   HELD #$n — not in this run's ready-HELD list, refusing"; fi
       done
     else
       local held; held=$(python3 -c "import json;print(' '.join('#'+str(r['number'])+' '+r['title'][:40].replace(' ','_') for r in json.load(open('$run/plan.json'))['ready']['HELD']))")

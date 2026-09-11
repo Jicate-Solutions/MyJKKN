@@ -102,7 +102,7 @@ scenario() {
         "auth token"|"auth status") return 0;;
         *"--json state,mergeStateStatus"*)
           if [ -n "$FIRST_HOLD" ] && [ "$3" = "$FIRST_HOLD" ] && [ ! -f "$SDIR/held-once-$3" ]; then : > "$SDIR/held-once-$3"; echo "OPEN BLOCKED false main"; else echo "OPEN CLEAN false main"; fi;;
-        *"--json statusCheckRollup"*) echo 0;;
+        *"--json statusCheckRollup"*) :;;   # the merge-time query prints red check NAMES since the 2026-09-11 port (none = green)
         "pr merge "*)
           if [ -z "$MERGE_EMPTY" ]; then case "$3" in 1) echo "# $RANDOM" >> "$WTDIR/docs/a.md";; 2) echo "// $RANDOM" >> "$WTDIR/app/api/x/route.ts";; 3) mkdir -p "$WTDIR/app/api/fees"; echo "// $RANDOM" >> "$WTDIR/app/api/fees/route.ts";; 4) mkdir -p "$WTDIR/supabase/migrations"; echo "select $RANDOM;" >> "$WTDIR/supabase/migrations/20260910100000_t.sql";; esac; fi
           git -C "$WTDIR" -c user.name=t -c user.email=t@t add -A >/dev/null; git -C "$WTDIR" -c user.name=t -c user.email=t@t commit -q --allow-empty -m "merged by the wave (#$3)" && git -C "$WTDIR" push -q jicate HEAD:main 2>/dev/null

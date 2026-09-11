@@ -71,7 +71,7 @@ scenario() {
       case "$*" in
         "auth token"|"auth status") return 0;;
         *"--json state,mergeStateStatus"*) echo "OPEN CLEAN false main";;
-        *"--json statusCheckRollup"*) echo 0;;
+        *"--json statusCheckRollup"*) :;;   # the merge-time query prints red check NAMES since the 2026-09-11 port (none = green)
         "pr merge "*) return 0;;
         *"--json files"*) case "$3" in 1) echo docs/a.md;; 2) echo app/api/x/route.ts;; 3) echo app/api/fees/route.ts;; 4) echo supabase/migrations/20260910100000_t.sql;; esac;;
         *"pr list"*) echo 4;;

@@ -93,7 +93,7 @@ scenario() {
       case "$*" in
         "auth token"|"auth status") return 0;;
         *"--json state,mergeStateStatus"*) echo "OPEN CLEAN false main";;
-        *"--json statusCheckRollup"*) echo 0;;
+        *"--json statusCheckRollup"*) :;;   # the merge-time query prints red check NAMES since the 2026-09-11 port (none = green)
         "pr merge "*)
           if [ -z "$MERGE_EMPTY" ]; then case "$3" in 1) echo "# $RANDOM" >> "$WTDIR/docs/a.md";; 2) echo "// $RANDOM" >> "$WTDIR/app/api/x/route.ts";; 3) mkdir -p "$WTDIR/app/api/fees"; echo "// $RANDOM" >> "$WTDIR/app/api/fees/route.ts";; 4) mkdir -p "$WTDIR/supabase/migrations"; echo "select $RANDOM;" >> "$WTDIR/supabase/migrations/20260910100000_t.sql";; esac; fi
           git -C "$WTDIR" -c user.name=t -c user.email=t@t add -A >/dev/null; git -C "$WTDIR" -c user.name=t -c user.email=t@t commit -q --allow-empty -m "merged by the wave (#$3)" && git -C "$WTDIR" push -q jicate HEAD:main 2>/dev/null
@@ -215,7 +215,7 @@ mk_plan "$TMP/h5.plan" "1 1 1"
   set -- go --approve-normal; . "$TMP/wave.sh" >/dev/null 2>&1
   sweep() { cp "$FIXPLAN" "$1/plan.json"; return 0; }; unblock_lanes() { :; }; dispatch_clusters() { :; }; alive_helpers() { printf 0; }; rebase_remaining() { return 0; }
   apply_migrations() { echo "APPLY_CALLED" >> "$TRACE"; APPLY_RESULT=s; return 0; }; vtok() { printf tok; }; sleep() { :; }
-  gh() { echo "gh $*" >> "$TRACE"; case "$*" in "auth token"|"auth status") return 0;; *"--json state,mergeStateStatus"*) echo "OPEN CLEAN false main";; *"--json statusCheckRollup"*) echo 0;; *"pr list"*) echo 4;; esac; return 0; }
+  gh() { echo "gh $*" >> "$TRACE"; case "$*" in "auth token"|"auth status") return 0;; *"--json state,mergeStateStatus"*) echo "OPEN CLEAN false main";; *"--json statusCheckRollup"*) :;; *"pr list"*) echo 4;; esac; return 0; }
   curl() { echo "curl $*" >> "$TRACE"; case "$*" in *"-X POST"*) echo '{"job":{"id":"j"}}';; *v6/deployments*) echo "$DJSON";; esac; return 0; }
   ask_director() { :; }; _REDIR_DONE=1; run_once > "$TMP/h5.receipt" 2>&1; echo "rc=$?" >> "$TRACE" )
 check "H5b go run under that hard freeze with spaces in \$STATE: merges=0 POST=0, banner present, hand-merged line present" $([ "$(merges "$TMP/h5.trace")" -eq 0 ] && [ "$(posts "$TMP/h5.trace")" -eq 0 ] && has "$TMP/h5.receipt" "FROZEN (hard)" && has "$TMP/h5.receipt" "merged by hand while stopped:"; echo $?) "$(grep -E 'FROZEN|by hand|rc=' "$TMP/h5.receipt" "$TMP/h5.trace" | head -5)"
