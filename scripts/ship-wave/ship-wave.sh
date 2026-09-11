@@ -1121,13 +1121,35 @@ PY
   say; say "--- 5. sweep (L1 pages as real roles · L2 API routes unauth · L3 tables touched) ---"
   local l1="n/a" l2="n/a" l3="n/a"
   if [ "$ship" -gt 0 ] && [ -z "$NO_SWEEP" ] && [[ "$deploy" == READY* ]]; then
-    local pages apis migs
+    local pages apis migs dyn_pages dyn_apis zid="00000000-0000-0000-0000-000000000000"
+    # 2026-09-11 (wave bug g): both lists used to `grep -v '\['`, dropping every dynamic route and page — a deploy of only
+    # dynamic paths reported "L2 0 ok · 0 fail of 0 routes" and "L1 no page changed", a pass nobody had run. L2 now probes a
+    # dynamic API route with a zero UUID in each [param] / [...param] / [[...param]] segment: no row has that id, so
+    # 401/403/404/405 (and 400) mean the route is up and answering, 5xx = FAIL. L1 needs a real id to load a page, so it
+    # still skips dynamic pages — and says how many, instead of a bare zero.
     pages=$(grep -E '^app/\(routes\)/.*/page\.tsx$' "$merged_files" | grep -v '\[' | sed -E 's#^app/\(routes\)##; s#/page\.tsx$##; s#/\([^)]*\)##g' | sort -u | head -8)
-    apis=$(grep -E '^app/api/.*/route\.ts$' "$merged_files" | grep -v '\[' | sed -E 's#^app##; s#/route\.ts$##' | sort -u | head -15)
+    dyn_pages=$(grep -E '^app/\(routes\)/.*/page\.tsx$' "$merged_files" | grep '\[' | sort -u | grep -c .)
+    apis=$(grep -E '^app/api/.*/route\.ts$' "$merged_files" | sed -E 's#^app##; s#/route\.ts$##' | sort -u | head -15)
+    # one row per route: <probe path> TAB <route as written> — the blame below greps merged-map.tsv for the file as written
+    printf '%s\n' "$apis" | grep . | while IFS= read -r a; do printf '%s\t%s\n' "$(printf '%s' "$a" | sed -E "s#\[\[?[^]/]*\]\]?#$zid#g")" "$a"; done > "$run/l2-probes.tsv"
+    dyn_apis=$(grep -c "$zid" "$run/l2-probes.tsv")
     migs=$(grep -E '^supabase/migrations/' "$merged_files" | sort -u)
-    # L2 — every touched API route, unauthenticated: 401/403/405 = correct, 5xx = FAIL, 200 = WARN (public?)
-    local l2f=0 l2p=0 l2bad=""; for a in $apis; do local code; code=$(curl -s -o /dev/null -w '%{http_code}' -m 20 "$SITE$a"); case "$code" in 5*) l2f=$((l2f+1)); l2bad="$l2bad $a→$code"; say "  L2 FAIL $a → $code";; 401|403|405|400) l2p=$((l2p+1));; *) say "  L2 WARN $a → $code";; esac; done
-    l2="$l2p ok · $l2f fail of $(echo "$apis" | grep -c .) routes"
+    # L2 — every touched API route, unauthenticated: 401/403/405 = correct (404 too for a zero-id probe), 5xx = FAIL, 200 = WARN (public?)
+    local l2f=0 l2p=0 l2bad="" a orig code
+    while IFS=$'\t' read -r a orig; do
+      [ -n "$a" ] || continue
+      code=$(curl -s -o /dev/null -w '%{http_code}' -m 20 "$SITE$a")
+      case "$code" in
+        # ${orig}, braced: under launchd's locale bash read the first byte of '→' as part of the NAME ("orig\xe2: unbound
+        # variable" under set -u) and the whole round died on the first 5xx instead of freezing on it (the unbraced
+        # "$a→$code" before this change did the same — found by tests/test-sweep-dynamic-routes.sh g8/g9)
+        5*) l2f=$((l2f+1)); l2bad="$l2bad ${orig}→${code}"; say "  L2 FAIL $a → $code";;
+        401|403|405|400) l2p=$((l2p+1));;
+        404) if [ "$a" != "$orig" ]; then l2p=$((l2p+1)); else say "  L2 WARN $a → $code"; fi;;
+        *) say "  L2 WARN $a → $code";;
+      esac
+    done < "$run/l2-probes.tsv"
+    l2="$l2p ok · $l2f fail of $(grep -c . "$run/l2-probes.tsv") routes$( [ "$dyn_apis" -gt 0 ] && printf ' (%s dynamic, probed with a zero id)' "$dyn_apis")"
     # L1-lite — Lightpanda sweep (Director 2026-09-06 07:33): every changed page as every persona, sessions minted
     # by admin magiclink (no PERSONA_PASSWORD). Judges status / wrong bounce / JS exception / timeout / crash — never
     # what a person sees (no layout engine). 5xx after a deploy = broken page = FREEZE (and the guard stage holds the
@@ -1164,6 +1186,11 @@ PY
         fi
       else l1="UNAVAILABLE — $sweep not found"; fi
     else l1="no page changed"; fi
+    # (g) never a bare "no page changed" when pages WERE changed but could not be loaded without a real id
+    if [ "${dyn_pages:-0}" -gt 0 ]; then
+      if [ -n "$pages" ]; then l1="$l1 · skipped $dyn_pages dynamic path(s) (a page needs a real id to load)"
+      else l1="no static page changed — skipped $dyn_pages dynamic path(s) (a page needs a real id to load)"; fi
+    fi
     # L3 — tables touched by merged migrations (v1: inventory + the authed persona pass above exercises RLS; a per-role probe is not automated yet)
     if [ -n "$migs" ]; then l3="PARTIAL: $(for m in $migs; do git -C "$WT" show "jicate/main:$m" 2>/dev/null | grep -oiE '(create table|alter table|create policy)[^(]*' | head -3; done | tr '\n' ';' | cut -c1-200)"; else l3="no migration shipped"; fi
     say "  L1 $l1"; say "  L2 $l2"; say "  L3 $l3"
