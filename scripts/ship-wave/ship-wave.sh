@@ -138,16 +138,18 @@ classify_freeze() {  # $1 = freeze message → prints soft|hard; returns 1 when 
 freeze_class_now() {  # → the class of the freeze in force: HARD if ANY live FROZEN line is hard (most severe wins), else soft
   # Round-3 verifier (N3): with "last line wins", `--freeze "peer hold …"` typed on the phone appended a soft line on top
   # of an unresolved hard one and the next run merged and deployed on top of a failed migration. Nothing a phone can
-  # do downgrades a hard stop. Fail-safe reading of every line: a line with fewer than 3 or more than 4 tab fields, a
+  # do downgrades a hard stop. Fail-safe reading of every line: a line with fewer than 3 or more than 5 tab fields (5 only with a sha1 in field 5), a
   # class field that is not exactly soft|hard, an empty file, or an unreadable file all count as hard (N2i: a TAB
   # inside a message pushed the class column right — freeze() now sanitises, and a shifted line still reads hard here).
-  local v; v=$(awk -F'\t' 'BEGIN{c="soft";n=0} {n++; if ((NF!=3 && NF!=4) || ($3!="soft" && $3!="hard")) {c="hard"; exit} if ($3=="hard") c="hard"} END{if (n==0) c="hard"; print c}' "$FREEZE" 2>/dev/null)
+  # field 5 (round 6, X2) = sha1 of fields 1-4, so a question can name EXACTLY the line it was asked about; 3..5 fields are a line
+  # a 5th field must BE a sha1 (40 hex) — a hand-written line whose message carried a TAB (columns shifted right) reads hard
+  local v; v=$(awk -F'\t' 'BEGIN{c="soft";n=0} {n++; if (NF<3 || NF>5 || ($3!="soft" && $3!="hard") || (NF==5 && (length($5)!=40 || $5 !~ /^[0-9a-f]+$/))) {c="hard"; exit} if ($3=="hard") c="hard"} END{if (n==0) c="hard"; print c}' "$FREEZE" 2>/dev/null)
   case "$v" in soft|hard) printf '%s' "$v";; *) printf 'hard';; esac
 }
 freeze_line_now() {  # → the FROZEN line that GOVERNS the class in force: the last hard line when the class is hard, else the last line
   [ -f "$FREEZE" ] || return 0
   if [ "$(freeze_class_now)" = hard ]; then
-    local l; l=$(awk -F'\t' '(NF==3||NF==4) && $3=="hard"' "$FREEZE" 2>/dev/null | tail -1)
+    local l; l=$(awk -F'\t' 'NF>=3 && NF<=5 && $3=="hard" && !(NF==5 && (length($5)!=40 || $5 !~ /^[0-9a-f]+$/))' "$FREEZE" 2>/dev/null | tail -1)
     [ -n "$l" ] && { printf '%s\n' "$l"; return 0; }
   fi
   tail -1 "$FREEZE" 2>/dev/null
@@ -168,8 +170,9 @@ deploy_allowed() {  # → 0 = may fire · 1 = must not, DEPLOY_BLOCK holds the o
   fi
   return 0
 }
+frozen_line_sha1() { printf '%s' "$1" | shasum -a 1 | cut -c1-40; }   # sha1 of a FROZEN line's fields 1-4 (no newline)
 freeze() {
-  local msg cls known=1 lcls=""
+  local msg cls known=1 lcls="" line sha now err reason
   # the FROZEN line is tab-separated: a TAB / CR / LF inside the message would shift the class column (round-3 N2i:
   # "APPLY failed<TAB>soft" read as soft). Every separator becomes one space BEFORE anything reads the message.
   msg=$(printf '%s' "$*" | tr '\t\r\n' '   ')
@@ -177,8 +180,19 @@ freeze() {
   # field 4 = ledger_class of the message: the SAME slug the failure ledger, the desk's question and slice D's
   # policy proposals key on, so "which cause froze us" is one key everywhere (spec §B: "derives it with ledger_class")
   type -t ledger_class >/dev/null 2>&1 && lcls=$(ledger_class "$msg")
-  printf '%s\t%s\t%s\t%s\n' "$(date '+%F %T')" "$msg" "$cls" "${lcls:-$cls}" >> "$FREEZE"
-  if [ "$cls" = soft ] && [ "$(freeze_class_now)" = hard ]; then
+  # field 5 = sha1 of fields 1-4 (round 6, X2): the question's `unfreeze` op carries this hash, so the desk lifts
+  # EXACTLY the line asked about — never a different line whose flattened text happens to share a 400-char prefix
+  line=$(printf '%s\t%s\t%s\t%s' "$(date '+%F %T')" "$msg" "$cls" "${lcls:-$cls}"); sha=$(frozen_line_sha1 "$line")
+  # X1 (round 5): an append that fails (FROZEN or its dir unwritable) used to be ignored — the receipt said FROZEN,
+  # nothing was recorded, and the question was written about whatever line was already there. A run that cannot
+  # record a stop must not continue as if unfrozen: say so and end this run non-zero (the trap releases the lock).
+  if ! err=$( { printf '%s\t%s\n' "$line" "$sha" >> "$FREEZE"; } 2>&1 ); then
+    reason=$(printf '%s' "$err" | head -1 | sed -E 's/^[^:]*: line [0-9]+: //'); [ -n "$reason" ] || reason="write failed: $FREEZE"
+    say "  ⛔ could not write FROZEN ($reason) — treating as HARD and stopping this run"
+    exit 5
+  fi
+  now=$(freeze_class_now)
+  if [ "$cls" = soft ] && [ "$now" = hard ]; then
     # --freeze from the phone while a hard stop is unresolved: the soft line is recorded (it is a real hold) but the
     # class in force stays HARD — most severe wins; --unfreeze is the only way down (N3)
     say "  ⛔ FROZEN (soft line added, HARD stop still in force): $msg — an earlier hard stop is unresolved: $(freeze_line_now | cut -f2 | cut -c1-120); nothing merges or ships until --unfreeze"
@@ -194,18 +208,38 @@ freeze() {
   # §A1: every freeze is ONE question to the Director, by phone. desk-questions.sh (slice A) may be absent — then
   # the wave freezes exactly as before. Option 0 is the safe one ("Keep it stopped"), so recommended=0 never lifts.
   if type -t ask_director >/dev/null 2>&1; then
-    local q_opts q_title q_body q_ver
-    q_opts='{"label":"Keep it stopped","description":"Nothing changes; the wave keeps waiting for you.","writes":[{"op":"noop"}]},'
-    q_opts="$q_opts"'{"label":"Lift the stop","description":"Clears the freeze; the next run merges and ships again as normal.","writes":[{"op":"unfreeze"}]}'
-    case "$msg" in *"destructive statement"*)
-      q_ver=$(printf '%s' "$msg" | grep -oE '[0-9]{14}' | head -1)
-      [ -n "$q_ver" ] && q_opts="$q_opts"',{"label":"Allow this one migration","description":"Lets the wave apply migration '"$q_ver"' once (dry-run, then commit, then verify) and lifts the stop.","writes":[{"op":"append","file":"allow-destructive","value":"'"$q_ver"'"},{"op":"unfreeze"}]}';;
-    esac
-    if [ "$cls" = soft ]; then q_title="The ship wave paused on one item; safe merges and deploys continue"
-    else q_title="The ship wave stopped: production or main may be broken"; fi
-    q_body="What happened: ${msg:0:220}. While stopped, $( [ "$cls" = soft ] && printf 'LOW and NORMAL PRs still merge and ship but HELD PRs wait' || printf 'nothing merges and nothing ships' ). Keep it stopped and nothing changes; lift it and the next run resumes fully."
-    # A1: the question's class is the ledger_class of the trigger (soft/hard rides in the title); same slug as field 4
-    ask_director freeze "${lcls:-$cls}" "$q_title" "$q_body" "[$q_opts]"
+    local q_opts q_title q_body q_ver hard_line hard_msg
+    if [ "$cls" = soft ] && [ "$now" = hard ]; then
+      # H11 (B half, round 4→6): this soft line landed BEHIND an unresolved HARD stop. The question must say so —
+      # the class in force is HARD, nothing merges or ships — and it must offer no way to lift anything: no
+      # `unfreeze` op (the hard stop has its own question; this one was never asked about it) and no frozen_line.
+      # The only extra option is the destructive-migration allow when THAT is what the hard stop is about.
+      hard_line=$(freeze_line_now); hard_msg=$(printf '%s' "$hard_line" | cut -f2)
+      # two options, both noop: A's validator asks 2-4 options of every question; neither may lift anything
+      q_opts='{"label":"Keep it stopped","description":"Nothing changes; the HARD stop stays and this hold waits behind it.","writes":[{"op":"noop"}]},'
+      q_opts="$q_opts"'{"label":"Noted; I will answer the HARD stop from its own question","description":"Nothing changes here either. The HARD stop is lifted only from the question that was asked about it.","writes":[{"op":"noop"}]}'
+      case "$hard_msg" in *"destructive statement"*)
+        q_ver=$(printf '%s' "$hard_msg" | grep -oE '[0-9]{14}' | head -1)
+        [ -n "$q_ver" ] && q_opts="$q_opts"',{"label":"Allow this one migration","description":"Lets the wave apply migration '"$q_ver"' once (dry-run, then commit, then verify). The stop itself is lifted from its own question, not this one.","writes":[{"op":"append","file":"allow-destructive","value":"'"$q_ver"'"}]}';;
+      esac
+      q_title="A HARD stop is already in force: nothing merges or ships; this new hold waits behind it"
+      q_body="A HARD stop is in force: ${hard_msg:0:160}. Nothing merges and nothing ships until that stop is lifted from its own question. New since then: ${msg:0:160} — recorded as a soft hold behind it. Keep it stopped and nothing changes; this question cannot lift the hard stop."
+      # FREEZE pointed at an absent path for this ONE call: ask_director derives frozen_line from FROZEN's last line, and
+      # this question must name no line (there is nothing it may lift). Temporary for the call only (bash: VAR=x fn).
+      FREEZE="$FREEZE.none" ask_director freeze "${lcls:-$cls}" "$q_title" "$q_body" "[$q_opts]"
+    else
+      q_opts='{"label":"Keep it stopped","description":"Nothing changes; the wave keeps waiting for you.","writes":[{"op":"noop"}]},'
+      q_opts="$q_opts"'{"label":"Lift the stop","description":"Clears the freeze; the next run merges and ships again as normal.","writes":[{"op":"unfreeze","line_sha1":"'"$sha"'"}]}'
+      case "$msg" in *"destructive statement"*)
+        q_ver=$(printf '%s' "$msg" | grep -oE '[0-9]{14}' | head -1)
+        [ -n "$q_ver" ] && q_opts="$q_opts"',{"label":"Allow this one migration","description":"Lets the wave apply migration '"$q_ver"' once (dry-run, then commit, then verify) and lifts the stop.","writes":[{"op":"append","file":"allow-destructive","value":"'"$q_ver"'"},{"op":"unfreeze","line_sha1":"'"$sha"'"}]}';;
+      esac
+      if [ "$cls" = soft ]; then q_title="The ship wave paused on one item; safe merges and deploys continue"
+      else q_title="The ship wave stopped: production or main may be broken"; fi
+      q_body="What happened: ${msg:0:220}. While stopped, $( [ "$cls" = soft ] && printf 'LOW and NORMAL PRs still merge and ship but HELD PRs wait' || printf 'nothing merges and nothing ships' ). Keep it stopped and nothing changes; lift it and the next run resumes fully."
+      # A1: the question's class is the ledger_class of the trigger (soft/hard rides in the title); same slug as field 4
+      ask_director freeze "${lcls:-$cls}" "$q_title" "$q_body" "[$q_opts]"
+    fi
   fi
   # tighten alone: what shipped in this round becomes HELD until a human clears it (policy-learning.sh)
   type -t guard_add_from_freeze >/dev/null 2>&1 && guard_add_from_freeze "$msg" "${run:-}"

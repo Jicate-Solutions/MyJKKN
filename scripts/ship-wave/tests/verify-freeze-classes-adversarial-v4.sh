@@ -139,7 +139,7 @@ check "R-N3b banner names the hard cause + line count" $(grep -m1 'FROZEN (hard)
 # R-N2i / N2k
 ( export HOME="$TMP/rn2"; mkdir -p "$HOME"; cd "$ROOT" || exit 9; set -- go; . "$TMP/wave.sh" >/dev/null 2>&1; FREEZE="$TMP/rn2/f"
   rm -f "$FREEZE"; freeze $'migration 20260906213000: APPLY failed\tsoft' >/dev/null; c=$(freeze_class_now); deploy_allowed; d=$?
-  [ "$c" = hard ] && [ $d -ne 0 ] && [ "$(awk -F'\t' '{print NF}' "$FREEZE")" = 4 ] && echo "PASS  R-N2i TAB in hard msg → class=hard deploy refused NF=4: $(tr '\t' '|' < "$FREEZE")" || echo "FAIL  R-N2i class=$c d=$d $(tr '\t' '|' < "$FREEZE")"
+  [ "$c" = hard ] && [ $d -ne 0 ] && [ "$(awk -F'\t' '{print NF}' "$FREEZE")" = 5 ] && echo "PASS  R-N2i TAB in hard msg → class=hard deploy refused NF=5: $(tr '\t' '|' < "$FREEZE")" || echo "FAIL  R-N2i class=$c d=$d $(tr '\t' '|' < "$FREEZE")"
   rm -f "$FREEZE"; freeze $'migration 20260906213000: APPLY failed — <html>\n<body>502</body>\t\r\n</html>' >/dev/null; c=$(freeze_class_now); deploy_allowed; d=$?
   [ "$c" = hard ] && [ $d -ne 0 ] && [ "$(grep -c . "$FREEZE")" -eq 1 ] && echo "PASS  R-N2k HTML 502 body with LF/TAB/CR → one line, hard, refused" || echo "FAIL  R-N2k class=$c d=$d lines=$(grep -c . "$FREEZE")"
 ) | tee "$TMP/rn2.out"; PASS=$((PASS + $(grep -c '^PASS' "$TMP/rn2.out"))); FAIL=$((FAIL + $(grep -c '^FAIL' "$TMP/rn2.out")))
@@ -165,7 +165,7 @@ check "R-N5c2 hard lands between preflight and stage 3: merges=0 POST=0 APPLY=0"
 echo "══ H1. concurrency: 8 simultaneous --freeze, then --freeze racing --unfreeze ══"
 mkdir -p "$TMP/h1/home/.config/obsidian/.ship-wave"; H1F="$TMP/h1/home/.config/obsidian/.ship-wave/FROZEN"
 for i in 1 2 3 4; do ( cli "$TMP/h1/home" --freeze "peer hold on #$i — concurrent" >/dev/null 2>&1 ) & ( cli "$TMP/h1/home" --freeze "stop everything now $i" >/dev/null 2>&1 ) & done; wait
-check "H1a 8 concurrent --freeze → 8 lines, every line NF=4 with field3 ∈ soft|hard, class hard" $([ "$(grep -c . "$H1F")" -eq 8 ] && [ "$(awk -F'\t' 'NF==4 && ($3=="soft"||$3=="hard")' "$H1F" | wc -l | tr -d ' ')" -eq 8 ] && [ "$(awk -F'\t' '$3=="hard"' "$H1F" | wc -l | tr -d ' ')" -eq 4 ]; echo $?) "$(tr '\t' '|' < "$H1F")"
+check "H1a 8 concurrent --freeze → 8 lines, every line NF=5 with field3 ∈ soft|hard, class hard" $([ "$(grep -c . "$H1F")" -eq 8 ] && [ "$(awk -F'\t' 'NF==5 && ($3=="soft"||$3=="hard")' "$H1F" | wc -l | tr -d ' ')" -eq 8 ] && [ "$(awk -F'\t' '$3=="hard"' "$H1F" | wc -l | tr -d ' ')" -eq 4 ]; echo $?) "$(tr '\t' '|' < "$H1F")"
 ( export HOME="$TMP/h1/home"; cd "$ROOT"; set -- go; . "$TMP/wave.sh" >/dev/null 2>&1; [ "$(freeze_class_now)" = hard ] && echo "PASS  H1b class in force = hard" || echo "FAIL  H1b class=$(freeze_class_now)" ) | tee "$TMP/h1b.out"; PASS=$((PASS + $(grep -c '^PASS' "$TMP/h1b.out"))); FAIL=$((FAIL + $(grep -c '^FAIL' "$TMP/h1b.out")))
 mkdir -p "$TMP/h1c/home/.config/obsidian/.ship-wave"; H1CF="$TMP/h1c/home/.config/obsidian/.ship-wave/FROZEN"; printf '%b\n' "$HARD_LINE" > "$H1CF"
 ( cli "$TMP/h1c/home" --unfreeze >/dev/null 2>&1 ) & ( cli "$TMP/h1c/home" --freeze "peer hold on #5 — race" >/dev/null 2>&1 ) & wait
@@ -185,7 +185,7 @@ for loc in en_US.UTF-8 C; do
   msg=$(printf 'peer hold on #3410 — தமிழ் ✓ bad byte \xff here')
   LANG=$loc LC_ALL=$loc cli "$d/home" --freeze "$msg" > "$d/out" 2>&1; rc=$?
   nf=$(awk -F'\t' '{print NF}' "$f" 2>/dev/null | head -1); f3=$(cut -f3 "$f" 2>/dev/null); f2len=$(cut -f2 "$f" 2>/dev/null | wc -c | tr -d ' ')
-  check "H3 LANG=$loc --freeze with Tamil + U+2713 + 0xFF → rc0, one 4-field line, class soft, message kept (len>20)" $([ $rc -eq 0 ] && [ "$(grep -c . "$f")" -eq 1 ] && [ "$nf" = 4 ] && [ "$f3" = soft ] && [ "$f2len" -gt 20 ]; echo $?) "rc=$rc NF=$nf f3=$f3 f2len=$f2len out=$(head -c 300 "$d/out")"
+  check "H3 LANG=$loc --freeze with Tamil + U+2713 + 0xFF → rc0, one 5-field line, class soft, message kept (len>20)" $([ $rc -eq 0 ] && [ "$(grep -c . "$f")" -eq 1 ] && [ "$nf" = 5 ] && [ "$f3" = soft ] && [ "$f2len" -gt 20 ]; echo $?) "rc=$rc NF=$nf f3=$f3 f2len=$f2len out=$(head -c 300 "$d/out")"
 done
 
 echo "══ H4. empty / whitespace / directory / dev-null latch ══"
@@ -243,7 +243,7 @@ check "H8b approve-held '3 3 3' (no freeze) → gh pr merge 3 exactly once" $([ 
 echo "══ H9. /bin/bash 3.2 drives the CLI ══"
 mkdir -p "$TMP/h9/home/.config/obsidian/.ship-wave"
 HOME="$TMP/h9/home" /bin/bash "$SW/ship-wave.sh" --freeze "peer hold on #1 — from bash3" > "$TMP/h9/out" 2>&1; rc=$?
-check "H9a /bin/bash 3.2 --freeze soft → rc0, one 4-field soft line, no error text" $([ $rc -eq 0 ] && [ "$(awk -F'\t' '{print NF}' "$TMP/h9/home/.config/obsidian/.ship-wave/FROZEN")" = 4 ] && [ "$(cut -f3 "$TMP/h9/home/.config/obsidian/.ship-wave/FROZEN")" = soft ] && ! grep -qi 'error\|syntax\|bad substitution' "$TMP/h9/out"; echo $?) "rc=$rc $(cat "$TMP/h9/out")"
+check "H9a /bin/bash 3.2 --freeze soft → rc0, one 5-field soft line, no error text" $([ $rc -eq 0 ] && [ "$(awk -F'\t' '{print NF}' "$TMP/h9/home/.config/obsidian/.ship-wave/FROZEN")" = 5 ] && [ "$(cut -f3 "$TMP/h9/home/.config/obsidian/.ship-wave/FROZEN")" = soft ] && ! grep -qi 'error\|syntax\|bad substitution' "$TMP/h9/out"; echo $?) "rc=$rc $(cat "$TMP/h9/out")"
 HOME="$TMP/h9/home" /bin/bash "$SW/ship-wave.sh" --unfreeze > "$TMP/h9/unf" 2>&1; rc=$?
 check "H9b /bin/bash 3.2 --unfreeze → rc0, file gone" $([ $rc -eq 0 ] && [ ! -e "$TMP/h9/home/.config/obsidian/.ship-wave/FROZEN" ]; echo $?) "$(cat "$TMP/h9/unf")"
 
@@ -295,7 +295,7 @@ echo "══ H15. --unfreeze receipt on a mixed file (E11) + literal class words
 mkdir -p "$TMP/h15/home/.config/obsidian/.ship-wave"; printf '%b\n%b\n' "$HARD_LINE" "$SOFT_LINE" > "$TMP/h15/home/.config/obsidian/.ship-wave/FROZEN"
 echo "INFO  H15a hard+soft file, --unfreeze says: '$(cli "$TMP/h15/home" --unfreeze 2>&1)' (class in force WAS hard)"
 for m in hard soft "soft	hard" ; do d="$TMP/h15-$(printf '%s' "$m" | md5 | cut -c1-5)"; mkdir -p "$d/home/.config/obsidian/.ship-wave"; cli "$d/home" --freeze "$m" >/dev/null 2>&1; f="$d/home/.config/obsidian/.ship-wave/FROZEN"
-  check "H15b --freeze '$(printf '%s' "$m" | tr '\t' '#')' → one 4-field line, class hard (unknown shape)" $([ "$(grep -c . "$f")" -eq 1 ] && [ "$(awk -F'\t' '{print NF}' "$f")" = 4 ] && [ "$(cut -f3 "$f")" = hard ]; echo $?) "$(tr '\t' '|' < "$f")"; done
+  check "H15b --freeze '$(printf '%s' "$m" | tr '\t' '#')' → one 5-field line, class hard (unknown shape)" $([ "$(grep -c . "$f")" -eq 1 ] && [ "$(awk -F'\t' '{print NF}' "$f")" = 5 ] && [ "$(cut -f3 "$f")" = hard ]; echo $?) "$(tr '\t' '|' < "$f")"; done
 
 echo "══ H16. hard freeze + FINAL_DEPLOY-style leftover batch + main ahead (belt and braces) ══"
 PRE='printf "app/api/x/route.ts\n" > "$ST/deploy-pending"' AFTER=auto scenario h16 "0 0 0" "$HARD_LINE" "$SHA_G" "$(ready_at "$SHA_G")" "" go

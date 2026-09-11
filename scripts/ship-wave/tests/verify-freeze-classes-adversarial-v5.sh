@@ -60,8 +60,8 @@ qfield() { python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get(sy
 lift_idx() { python3 -c 'import json,sys;q=json.load(open(sys.argv[1]));print([i for i,o in enumerate(q["options"]) if any(w["op"]=="unfreeze" for w in o["writes"])][0])' "$ST/questions/$1.json"; }
 # the REAL desk, launchd-shaped environment (PATH+HOME only, C locale) + the two knobs tests may set
 tap_lift() { local id="$1" idx; idx=$(lift_idx "$id"); ANS=$(env -i PATH="$PLAIN_PATH" HOME="$HM" STATE="$ST" SHIP_WAVE_DIR="$TMP" /opt/homebrew/bin/bash "$DESK" answer "$id" "$idx" 2>&1); RC=$?; }
-hard_lines() { [ -f "$ST/FROZEN" ] && awk -F'\t' '(NF==3||NF==4) && $3=="hard"' "$ST/FROZEN" | wc -l | tr -d ' ' || echo 0; }
-soft_lines() { [ -f "$ST/FROZEN" ] && awk -F'\t' '(NF==3||NF==4) && $3=="soft"' "$ST/FROZEN" | wc -l | tr -d ' ' || echo 0; }
+hard_lines() { [ -f "$ST/FROZEN" ] && awk -F'\t' '(NF>=3&&NF<=5) && $3=="hard"' "$ST/FROZEN" | wc -l | tr -d ' ' || echo 0; }
+soft_lines() { [ -f "$ST/FROZEN" ] && awk -F'\t' '(NF>=3&&NF<=5) && $3=="soft"' "$ST/FROZEN" | wc -l | tr -d ' ' || echo 0; }
 nlines() { [ -f "$ST/FROZEN" ] && grep -c '' "$ST/FROZEN" || echo 0; }
 HARD_MSG="migration 20260906213000: APPLY failed — relation exists"
 SOFT_MSG="peer hold on #3410 — Director asked to wait"

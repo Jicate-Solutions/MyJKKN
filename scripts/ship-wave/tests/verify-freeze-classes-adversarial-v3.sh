@@ -145,7 +145,7 @@ check "R-N3c the CLI itself said the HARD stop is still in force" $(grep -q 'HAR
 ( export HOME="$TMP/rn2"; mkdir -p "$HOME"; cd "$ROOT" || exit 9; set -- go; . "$TMP/wave.sh" >/dev/null 2>&1
   FREEZE="$TMP/rn2/f"
   rm -f "$FREEZE"; freeze $'migration 20260906213000: APPLY failed\tsoft' >/dev/null; c=$(freeze_class_now); deploy_allowed; d=$?
-  if [ "$c" = hard ] && [ $d -ne 0 ] && [ "$(awk -F'\t' '{print NF}' "$FREEZE")" = 4 ]; then echo "PASS  R-N2i the v2 TAB message → one 4-field line, class hard, deploy refused: $(tr '\t' '|' < "$FREEZE")"; else echo "FAIL  R-N2i class=$c deploy_allowed=$d line=$(tr '\t' '|' < "$FREEZE")"; fi
+  if [ "$c" = hard ] && [ $d -ne 0 ] && [ "$(awk -F'\t' '{print NF}' "$FREEZE")" = 5 ]; then echo "PASS  R-N2i the v2 TAB message → one 5-field line, class hard, deploy refused: $(tr '\t' '|' < "$FREEZE")"; else echo "FAIL  R-N2i class=$c deploy_allowed=$d line=$(tr '\t' '|' < "$FREEZE")"; fi
   rm -f "$FREEZE"; freeze $'deploy dpl_1 → ERROR; on main but NOT live: #5\nsecond line\tx\tsoft' >/dev/null; c=$(freeze_class_now); deploy_allowed; d=$?
   if [ "$c" = hard ] && [ $d -ne 0 ] && [ "$(grep -c . "$FREEZE")" -eq 1 ]; then echo "PASS  R-N2j the v2 NEWLINE message → ONE line, hard, deploy refused"; else echo "FAIL  R-N2j class=$c lines=$(grep -c . "$FREEZE")"; fi
   rm -f "$FREEZE"; freeze $'deploy dpl_1 → ERROR: <html><body>502</body></html>\tgateway' >/dev/null; c=$(freeze_class_now)
@@ -272,7 +272,7 @@ check "E11 --unfreeze clears the whole latch (spec: one file = latch + class)" $
 echo "══ E12. two --freeze calls at the same instant ══"
 mkdir -p "$TMP/e12/home/.config/obsidian/.ship-wave"; E12F="$TMP/e12/home/.config/obsidian/.ship-wave/FROZEN"
 ( HOME="$TMP/e12/home" bash "$SW/ship-wave.sh" --freeze "peer hold on #1 — first" >/dev/null 2>&1 ) & ( HOME="$TMP/e12/home" bash "$SW/ship-wave.sh" --freeze "production is broken, stop everything" >/dev/null 2>&1 ) & wait
-check "E12 concurrent soft + unknown(hard) --freeze → 2 intact lines, class in force hard" $([ "$(grep -c . "$E12F")" -eq 2 ] && [ "$(awk -F'\t' '(NF==3||NF==4)' "$E12F" | wc -l | tr -d ' ')" -eq 2 ] && grep -q $'\thard' "$E12F"; echo $?) "$(tr '\t' '|' < "$E12F")"
+check "E12 concurrent soft + unknown(hard) --freeze → 2 intact lines, class in force hard" $([ "$(grep -c . "$E12F")" -eq 2 ] && [ "$(awk -F'\t' '(NF>=3&&NF<=5)' "$E12F" | wc -l | tr -d ' ')" -eq 2 ] && grep -q $'\thard' "$E12F"; echo $?) "$(tr '\t' '|' < "$E12F")"
 ( export HOME="$TMP/e12/home"; cd "$ROOT" || exit 9; set -- go; . "$TMP/wave.sh" >/dev/null 2>&1; [ "$(freeze_class_now)" = hard ] && echo "PASS  E12b freeze_class_now on that file = hard" || echo "FAIL  E12b class=$(freeze_class_now)" ) | tee "$TMP/e12.out"; PASS=$((PASS + $(grep -c '^PASS' "$TMP/e12.out"))); FAIL=$((FAIL + $(grep -c '^FAIL' "$TMP/e12.out")))
 
 echo "══ E13. odd messages through the CLI ══"
@@ -280,7 +280,7 @@ for m in '-n' '--' '%s%s\t%d' '*' '"quoted" and \\backslash' "'single'"; do
   d="$TMP/e13-$(printf '%s' "$m" | md5 | cut -c1-6)"; mkdir -p "$d/home/.config/obsidian/.ship-wave"
   HOME="$d/home" bash "$SW/ship-wave.sh" --freeze "$m" > "$d/out" 2>&1; rc=$?
   f="$d/home/.config/obsidian/.ship-wave/FROZEN"
-  check "E13 --freeze '$m' → rc 0, exactly one 4-field line, field 3 = hard (unknown shape)" $([ $rc -eq 0 ] && [ "$(grep -c . "$f")" -eq 1 ] && [ "$(awk -F'\t' '{print NF}' "$f")" = 4 ] && [ "$(cut -f3 "$f")" = hard ]; echo $?) "rc=$rc $(tr '\t' '|' < "$f" 2>/dev/null) $(head -2 "$d/out")"
+  check "E13 --freeze '$m' → rc 0, exactly one 5-field line, field 3 = hard (unknown shape)" $([ $rc -eq 0 ] && [ "$(grep -c . "$f")" -eq 1 ] && [ "$(awk -F'\t' '{print NF}' "$f")" = 5 ] && [ "$(cut -f3 "$f")" = hard ]; echo $?) "rc=$rc $(tr '\t' '|' < "$f" 2>/dev/null) $(head -2 "$d/out")"
 done
 
 echo "══ E14. hard freeze + production already on main HEAD + a leftover batch ══"

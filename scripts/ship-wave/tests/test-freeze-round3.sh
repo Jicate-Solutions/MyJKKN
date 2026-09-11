@@ -144,7 +144,7 @@ echo "══ N2i. separators inside a freeze message never reach the class colum
   FREEZE="$TMP/n2i/f"
   rm -f "$FREEZE"; freeze $'migration 20260906213000: APPLY failed\tsoft' >/dev/null
   c=$(freeze_class_now); deploy_allowed; d=$?; nf=$(awk -F'\t' '{print NF}' "$FREEZE" | head -1)
-  if [ "$c" = hard ] && [ $d -ne 0 ] && [ "$nf" = 4 ] && [ "$(cut -f3 "$FREEZE")" = hard ]; then echo "PASS  N2i-a TAB inside a hard message → one 4-field line, field 3 = hard, deploy refused"; else printf 'FAIL  N2i-a class=%s deploy_allowed=%s NF=%s line=%s\n' "$c" "$d" "$nf" "$(tr '\t' '|' < "$FREEZE")"; fi
+  if [ "$c" = hard ] && [ $d -ne 0 ] && [ "$nf" = 5 ] && [ "$(cut -f3 "$FREEZE")" = hard ]; then echo "PASS  N2i-a TAB inside a hard message → one 5-field line, field 3 = hard, deploy refused"; else printf 'FAIL  N2i-a class=%s deploy_allowed=%s NF=%s line=%s\n' "$c" "$d" "$nf" "$(tr '\t' '|' < "$FREEZE")"; fi
   rm -f "$FREEZE"; freeze $'deploy dpl_1 → ERROR; on main but NOT live: #5\nsecond line\tx\tsoft' >/dev/null
   c=$(freeze_class_now); deploy_allowed; d=$?
   if [ "$c" = hard ] && [ $d -ne 0 ] && [ "$(grep -c . "$FREEZE")" -eq 1 ]; then echo "PASS  N2i-b LF + TAB inside a hard message → ONE line written, hard, deploy refused"; else printf 'FAIL  N2i-b class=%s deploy_allowed=%s lines=%s\n' "$c" "$d" "$(grep -c . "$FREEZE")"; fi

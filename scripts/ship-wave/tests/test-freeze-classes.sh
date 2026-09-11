@@ -214,7 +214,7 @@ check "4b --unfreeze reports the class it cleared"               $([ "$out" = "f
 # spec gap: the §B soft row "peer/Director hold" had no entry point — a hand-written 2-field line reads as HARD
 out=$(HOME="$TMP/s4/home" bash "$SW/ship-wave.sh" --freeze "peer hold on #3410 — Director asked to wait" 2>&1)
 FZ="$TMP/s4/home/.config/obsidian/.ship-wave/FROZEN"
-check "4c --freeze 'peer hold …' writes a 4-field line classed soft" $([ "$(awk -F'\t' 'END{print NF" "$3}' "$FZ")" = "4 soft" ]; echo $?) "$(cat "$FZ")"
+check "4c --freeze 'peer hold …' writes a 5-field line (field 5 = sha1) classed soft" $([ "$(awk -F'\t' 'END{print NF" "$3}' "$FZ")" = "5 soft" ]; echo $?) "$(cat "$FZ")"
 check "4d --freeze field 4 is the ledger_class slug of the message" $([ "$(awk -F'\t' 'END{print $4}' "$FZ")" = "peer hold on pr director asked to wait" ]; echo $?) "$(awk -F'\t' 'END{print $4}' "$FZ")"
 check "4e --freeze printed the soft line (merges/ships nothing — no run happened)" $(grep -q 'FROZEN (soft): peer hold on #3410' <<<"$out"; echo $?) "$out"
 out=$(HOME="$TMP/s4/home" bash "$SW/ship-wave.sh" --unfreeze 2>&1)
@@ -266,7 +266,7 @@ echo "── (6) freeze() writes class (field 3) + ledger_class (field 4); unkno
   M1="migration 20260908120000: 0 files on jicate/main match (need exactly 1)"
   freeze "$M1" > "$HOME/f1.out"
   l=$(tail -1 "$FREEZE"); c=$(printf '%s' "$l" | awk -F'\t' '{print NF" "$3}')
-  [ "$c" = "4 soft" ] && echo "PASS  6a freeze() wrote 4 tab-separated fields, class soft" || echo "FAIL  6a fields/class: $c"
+  [ "$c" = "5 soft" ] && echo "PASS  6a freeze() wrote 5 tab-separated fields, class soft" || echo "FAIL  6a fields/class: $c"
   [ "$(printf '%s' "$l" | awk -F'\t' '{print $4}')" = "$(ledger_class "$M1")" ] && echo "PASS  6a2 field 4 == ledger_class(message) — the key the ledger and slice D use ($(ledger_class "$M1"))" || echo "FAIL  6a2 field4=$(printf '%s' "$l" | awk -F'\t' '{print $4}') ledger_class=$(ledger_class "$M1")"
   grep -q 'FROZEN (soft):.*merging LOW/NORMAL, holding HELD' "$HOME/f1.out" && echo "PASS  6b soft freeze line says merging LOW/NORMAL, holding HELD" || echo "FAIL  6b $(cat "$HOME/f1.out")"
   grep -q "^kind=freeze class=$(ledger_class "$M1") title=The ship wave paused" "$ASKLOG" && grep -q '"label":"Keep it stopped"' "$ASKLOG" && grep -q '"op":"unfreeze"' "$ASKLOG" && echo "PASS  6c freeze asked the Director (kind=freeze, class=<ledger slug>, soft title, Lift/Keep options)" || echo "FAIL  6c $(cat "$ASKLOG")"
