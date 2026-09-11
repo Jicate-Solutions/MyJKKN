@@ -134,7 +134,8 @@ echo "── B. FROZEN with two lines / legacy two fields ──"
   FREEZE="$TMP/frz1"; printf '%s\tpeer hold on #1\tsoft\n%s\tmigration 1: APPLY failed — x\thard\n' "$T0" "$T1" > "$FREEZE"
   [ "$(freeze_class_now)" = hard ] && echo "PASS  B1 soft then hard → hard ($(freeze_class_now))" || echo "FAIL  B1 soft then hard → $(freeze_class_now)"
   FREEZE="$TMP/frz2"; printf '%s\tmigration 1: APPLY failed — x\thard\n%s\tpeer hold on #1\tsoft\n' "$T0" "$T1" > "$FREEZE"
-  [ "$(freeze_class_now)" = soft ] && echo "PASS  B2 hard then soft → soft (LAST line wins: $(freeze_class_now))" || echo "FAIL  B2 hard then soft → $(freeze_class_now)"
+  # round 3 (N3): most severe wins — a soft line appended after a hard one (the phone's --freeze) never downgrades the stop
+  [ "$(freeze_class_now)" = hard ] && echo "PASS  B2 hard then soft → hard (most severe wins: $(freeze_class_now))" || echo "FAIL  B2 hard then soft → $(freeze_class_now)"
   FREEZE="$TMP/frz3"; printf '%s\tdeploy dpl_1 → ERROR; on main but NOT live: #5\n' "$T0" > "$FREEZE"
   [ "$(freeze_class_now)" = hard ] && echo "PASS  B3 legacy 2-field line → hard" || echo "FAIL  B3 legacy 2-field → $(freeze_class_now)"
   FREEZE="$TMP/frz4"; printf '%s\tpeer hold on #3410 — Director asked to wait\n' "$T0" > "$FREEZE"
@@ -145,9 +146,9 @@ echo "── B. FROZEN with two lines / legacy two fields ──"
 ) | tee "$TMP/B.txt"
 PASS=$((PASS + $(grep -c '^PASS' "$TMP/B.txt"))); FAIL=$((FAIL + $(grep -c '^FAIL' "$TMP/B.txt")))
 
-# B-run: hard-then-soft file drives a real round → merges LOW (soft wins), legacy file drives a round → merges nothing
+# B-run: hard-then-soft file drives a real round → merges NOTHING (round 3: the hard line governs whatever follows it), legacy file drives a round → merges nothing
 scenario b_hs "1 1 1" "$T0\tmigration 1: APPLY failed — x\thard\n$T1\tpeer hold on #1\tsoft\n" "$SHA0" "$READY_META" "" go --approve-normal
-check "B8 hard→soft file: round runs as SOFT (LOW #1 merged, HELD #3/#4 not)" $( has "$TMP/b_hs/trace.txt" "gh pr merge 1 " && hasnot "$TMP/b_hs/trace.txt" "gh pr merge 3 " && hasnot "$TMP/b_hs/trace.txt" "gh pr merge 4 "; echo $?) "$(grep 'pr merge' "$TMP/b_hs/trace.txt")"
+check "B8 hard→soft file: round runs as HARD (no merge at all, no hook — the appended soft line does not lift the stop)" $( hasnot "$TMP/b_hs/trace.txt" "gh pr merge" && hasnot "$TMP/b_hs/trace.txt" "curl -s -X POST"; echo $?) "$(grep -E 'pr merge|POST' "$TMP/b_hs/trace.txt")"
 scenario b_legacy "1 1 1" "$T0\tdeploy dpl_1 → ERROR; on main but NOT live: #5\n" "$SHA0" "$READY_META" "" go --approve-normal --approve-held 3
 check "B9 legacy 2-field file: round runs as HARD (no merge, no hook, no apply)" $( hasnot "$TMP/b_legacy/trace.txt" "gh pr merge" && hasnot "$TMP/b_legacy/trace.txt" "curl -s -X POST" && hasnot "$TMP/b_legacy/trace.txt" "APPLY_CALLED"; echo $?) "$(grep -E 'pr merge|POST|APPLY' "$TMP/b_legacy/trace.txt")"
 check "B9b legacy file: receipt banner says hard"  $(has "$TMP/b_legacy/receipt.txt" "FROZEN (hard) since:"; echo $?) "$(grep FROZEN "$TMP/b_legacy/receipt.txt" | head -2)"

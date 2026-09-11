@@ -170,6 +170,17 @@ check "2g hard: HTML banner says nothing merges, nothing ships"  $(grep -qF "FRO
 check "2h hard: HELD question asked with #3 #4, approve-all and none-today" $(grep -q 'ASK kind=held class=held title=2 HELD PRs ready for your OK: #3 #4' "$TR" && grep -q '"Approve all listed"' "$TR" && grep -q '"None today"' "$TR" && grep -q '"file": "approve-held", "value": "3"' "$TR"; echo $?) "$(grep ASK "$TR")"
 check "2i hard + main ahead of Vercel's READY sha (s1's merges): one-line 'NOTHING ships' reason" $(grep -q '^  ⛔ hard freeze — main (.*) is ahead of production (.*) but NOTHING ships' "$R"; echo $?) "$(grep 'hard freeze' "$R")"
 
+echo "── (2x) round 8 (integrator item 1): a FROZEN that EXISTS but is not a regular file reads HARD in run_once — never unfrozen ──"
+PRE='mkdir "$ST/FROZEN"; : > "$ST/FROZEN/keep"' scenario s2d "1 1 0" "" "$SHA0" "$(ready_at "$SHA0")" "" go --approve-normal
+R="$TMP/s2d/receipt.txt"; TR="$TMP/s2d/trace.txt"
+check "2x-a directory FROZEN: nothing merged (LOW #1 and NORMAL #2 were ready)" $(has "$TR" "gh pr view" >/dev/null; hasnot "$TR" "gh pr merge"; echo $?) "$(grep 'gh pr merge' "$TR")"
+check "2x-b directory FROZEN: deploy hook NOT fired"             $([ "$(posts "$TR")" -eq 0 ]; echo $?) "$(posts "$TR") POSTs"
+check "2x-c directory FROZEN: receipt 'FROZEN (hard) since: unknown — FROZEN is not a regular file — reads as hard (fail safe)'" $(has "$R" "FROZEN (hard) since: unknown — FROZEN is not a regular file — reads as hard (fail safe)"; echo $?) "$(grep FROZEN "$R" | head -3)"
+check "2x-d directory FROZEN: scoreboard 'frozen: hard', run_once returned 0, the directory untouched" $(has "$R" "frozen: hard" && has "$TR" "rc=0" && [ -f "$TMP/s2d/home/.config/obsidian/.ship-wave/FROZEN/keep" ]; echo $?) "$(grep SCOREBOARD "$R") $(grep '^rc=' "$TR")"
+PRE='ln -s /dev/null "$ST/FROZEN"' scenario s2n "1 1 0" "" "$SHA0" "$(ready_at "$SHA0")" "" go --approve-normal
+R="$TMP/s2n/receipt.txt"; TR="$TMP/s2n/trace.txt"
+check "2x-e FROZEN → /dev/null: nothing merged, hook NOT fired, receipt names 'not a regular file', scoreboard 'frozen: hard'" $(hasnot "$TR" "gh pr merge" && [ "$(posts "$TR")" -eq 0 ] && has "$R" "FROZEN is not a regular file" && has "$R" "frozen: hard"; echo $?) "$(grep -E 'FROZEN|merge' "$R" | head -4)"
+
 echo "── (3) soft freeze + main ahead of production, zero merges → deploy + apply + sweep; hand-merges listed ──"
 # commits land on main AFTER the freeze started: #77 by hand (squash shape), #79 by hand (GitHub's merge-button shape),
 # #78 by the wave (in a run's merged-map.tsv) — and s1's own merges #1 #2 are the wave's too
@@ -214,7 +225,7 @@ check "4b --unfreeze reports the class it cleared"               $([ "$out" = "f
 # spec gap: the §B soft row "peer/Director hold" had no entry point — a hand-written 2-field line reads as HARD
 out=$(HOME="$TMP/s4/home" bash "$SW/ship-wave.sh" --freeze "peer hold on #3410 — Director asked to wait" 2>&1)
 FZ="$TMP/s4/home/.config/obsidian/.ship-wave/FROZEN"
-check "4c --freeze 'peer hold …' writes a 4-field line classed soft" $([ "$(awk -F'\t' 'END{print NF" "$3}' "$FZ")" = "4 soft" ]; echo $?) "$(cat "$FZ")"
+check "4c --freeze 'peer hold …' writes a 5-field line (field 5 = sha1) classed soft" $([ "$(awk -F'\t' 'END{print NF" "$3}' "$FZ")" = "5 soft" ]; echo $?) "$(cat "$FZ")"
 check "4d --freeze field 4 is the ledger_class slug of the message" $([ "$(awk -F'\t' 'END{print $4}' "$FZ")" = "peer hold on pr director asked to wait" ]; echo $?) "$(awk -F'\t' 'END{print $4}' "$FZ")"
 check "4e --freeze printed the soft line (merges/ships nothing — no run happened)" $(grep -q 'FROZEN (soft): peer hold on #3410' <<<"$out"; echo $?) "$out"
 out=$(HOME="$TMP/s4/home" bash "$SW/ship-wave.sh" --unfreeze 2>&1)
@@ -266,7 +277,7 @@ echo "── (6) freeze() writes class (field 3) + ledger_class (field 4); unkno
   M1="migration 20260908120000: 0 files on jicate/main match (need exactly 1)"
   freeze "$M1" > "$HOME/f1.out"
   l=$(tail -1 "$FREEZE"); c=$(printf '%s' "$l" | awk -F'\t' '{print NF" "$3}')
-  [ "$c" = "4 soft" ] && echo "PASS  6a freeze() wrote 4 tab-separated fields, class soft" || echo "FAIL  6a fields/class: $c"
+  [ "$c" = "5 soft" ] && echo "PASS  6a freeze() wrote 5 tab-separated fields, class soft" || echo "FAIL  6a fields/class: $c"
   [ "$(printf '%s' "$l" | awk -F'\t' '{print $4}')" = "$(ledger_class "$M1")" ] && echo "PASS  6a2 field 4 == ledger_class(message) — the key the ledger and slice D use ($(ledger_class "$M1"))" || echo "FAIL  6a2 field4=$(printf '%s' "$l" | awk -F'\t' '{print $4}') ledger_class=$(ledger_class "$M1")"
   grep -q 'FROZEN (soft):.*merging LOW/NORMAL, holding HELD' "$HOME/f1.out" && echo "PASS  6b soft freeze line says merging LOW/NORMAL, holding HELD" || echo "FAIL  6b $(cat "$HOME/f1.out")"
   grep -q "^kind=freeze class=$(ledger_class "$M1") title=The ship wave paused" "$ASKLOG" && grep -q '"label":"Keep it stopped"' "$ASKLOG" && grep -q '"op":"unfreeze"' "$ASKLOG" && echo "PASS  6c freeze asked the Director (kind=freeze, class=<ledger slug>, soft title, Lift/Keep options)" || echo "FAIL  6c $(cat "$ASKLOG")"
