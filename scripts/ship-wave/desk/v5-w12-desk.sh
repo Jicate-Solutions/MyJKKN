@@ -118,11 +118,19 @@ apply_write() {  # $1 = one write as JSON → prints what it did; returns 1 if t
         if [ -z "${Q_FROZEN_LINE:-}" ]; then echo "unfreeze (no stop was on)"; return 0; fi
         echo "unfreeze REFUSED (the stop has changed since you were asked — nothing lifted; now: 'no stop on')"; return 1
       fi
-      local tmp line flat gone=0 kept=0 last="" hard_left
+      local tmp line flat gone=0 kept=0 last="" hard_left q_sha f5
+      # round 6 (X2): the wave writes sha1(fields 1-4) as FROZEN field 5 and puts the same hash in this op as
+      # `line_sha1`. When the op carries it, ONLY a line whose field 5 equals it is lifted — the exact line asked
+      # about, never a neighbour sharing a flattened prefix. Without it (a hand-shaped question, older files) the
+      # FULL flattened line is compared — no 400-char cap on the comparison; the cap is for what is displayed.
+      q_sha=$(printf '%s' "$1" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("line_sha1") or "")')
       tmp="$FREEZE.tmp.$$"; : > "$tmp" || { echo "unfreeze FAILED: cannot write $tmp"; return 1; }
       while IFS= read -r line || [ -n "$line" ]; do
-        flat=$(_q_one_line "$line" 400); last="$flat"
-        if [ -n "$flat" ] && [ "$flat" = "${Q_FROZEN_LINE:-}" ]; then gone=$((gone+1)); continue; fi
+        flat=$(_q_one_line "$line"); last="${flat:0:400}"
+        if [ -n "$q_sha" ]; then
+          f5=$(printf '%s' "$line" | tr -d '\r' | awk -F'\t' 'NF>=5 {print $5}')
+          if [ -n "$f5" ] && [ "$f5" = "$q_sha" ]; then gone=$((gone+1)); continue; fi
+        elif [ -n "$flat" ] && [ "$flat" = "${Q_FROZEN_LINE:-}" ]; then gone=$((gone+1)); continue; fi
         printf '%s\n' "$line" >> "$tmp"; kept=$((kept+1))
       done < "$FREEZE"
       if [ "$gone" -eq 0 ]; then
@@ -135,7 +143,7 @@ apply_write() {  # $1 = one write as JSON → prints what it did; returns 1 if t
       mv -f "$tmp" "$FREEZE" || { rm -f "$tmp"; echo "unfreeze FAILED: could not rewrite FROZEN"; return 1; }
       # what is still in force — the same fail-safe reading as ship-wave.sh freeze_class_now (slice B; keep in step):
       # a malformed line or a class that is not exactly soft|hard counts as hard
-      hard_left=$(awk -F'\t' 'BEGIN{c="soft"} {if ((NF!=3 && NF!=4) || ($3!="soft" && $3!="hard")) {c="hard"; exit} if ($3=="hard") c="hard"} END{print c}' "$FREEZE" 2>/dev/null)
+      hard_left=$(awk -F'\t' 'BEGIN{c="soft"} {if (NF<3 || NF>5 || ($3!="soft" && $3!="hard") || (NF==5 && (length($5)!=40 || $5 !~ /^[0-9a-f]+$/))) {c="hard"; exit} if ($3=="hard") c="hard"} END{print c}' "$FREEZE" 2>/dev/null)
       if [ "$hard_left" = hard ]; then
         echo "unfreeze (lifted $gone line(s); $kept still on — a HARD stop is still in force: nothing merges or ships until it is lifted)"
       else
