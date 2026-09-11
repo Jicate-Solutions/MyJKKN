@@ -159,3 +159,37 @@ knob names (NEW-3: any non-empty file name was accepted, including "../frozen").
 source line after policy-learning.sh; wire the three triggers in ship-wave.sh (freeze() → question; per-PR HELD
 questions after the READY list; policy_emit_questions after policy_proposals); route "Other" answers into the
 receipt ("Director wrote: …"); run every test file; then ONE PR, Draft, on top of #3392.
+
+## E. Stale draft PRs — Lane E (Director 2026-09-11 12:34)
+
+His ruling, verbatim: **"nudge at 3 days, ask me at 7"** — a Draft PR untouched for 3 days gets ONE comment nudging
+its author; at 7 days untouched the wave asks the Director (Close / Keep / Nudge again); the wave NEVER closes a
+draft on its own. Lives in `unblock-lanes.sh` (`lane_stale_drafts`, called at the end of `unblock_lanes`, so it runs
+whenever the lanes run — soft freeze included, hard freeze not).
+
+- **Untouched** = the PR's `updatedAt` from `gh pr view --json updatedAt,isDraft`, drafts only (`isDraft == true`),
+  taken from the sweep's `plan.json` `draft` list. Days, not hours: `DRAFT_NUDGE_D=3`, `DRAFT_ASK_D=7`.
+- **The nudge** is one plain sentence by `gh pr comment`, once per silence. The comment itself moves `updatedAt`; the
+  lane remembers its own bump so it never reads as the author's reply. Anything else that moves `updatedAt` (more
+  than 5 minutes after the nudge) is activity: the count resets to zero and the cycle starts over.
+- **The ask** goes through §A1 `ask_director` as `kind=held`, `class=stale-draft #<n>`, options exactly **Close /
+  Keep / Nudge again**, recommended = Keep (the one that changes nothing), `expires_after_h` = 7 days. It fires
+  only when idle ≥ 7 days AND the nudge is ≥ 4 days old, so a draft first seen at 30 days idle still gets its
+  author four days to answer the nudge. Every option's `writes` is `noop`: the desk applies nothing and its op
+  allowlist is unchanged (that list is policy). The ANSWER is the signal — the lane reads the desk's own
+  `$STATE/questions/answered/<id>.json` (`chosen`) on the next tick.
+  - **Close** → the wave runs `gh pr close <n> --comment …` (branch kept), once; the PR is dropped from the lane.
+  - **Keep** → the lane is silent on that PR for `DRAFT_KEEP_D=7` more days, then the cycle restarts from a nudge.
+  - **Nudge again** → one more comment now; the Director is asked again in 7 days if it stays silent.
+  - "Other" free text applies nothing (§A2.4) and is read as Keep.
+- **plan mode** prints "would nudge / would ask / would close" and writes nothing.
+
+State files introduced (all under `$STATE`): `stale-drafts/<n>` — one marker per PR,
+`<date>\t<stage>\t<a>\t<b>\t<epoch>` with stage ∈ `nudged` (a = updatedAt before the nudge, b = after it, epoch = when),
+`asked` (a = question id, b = updatedAt at ask time), `keep` (a = quiet-until epoch), `closed` (a = question id).
+Ledger records: `unblocked` with class `lane e nudge | ask | keep | nudge again | close`.
+
+Proof: `tests/test-lane-e.sh` — stubbed `gh` (no network), real `lane_stale_drafts`, real desk answer path: 2 days →
+nothing; 3 days → exactly one comment and a second tick does not comment again; 7 days → one question with the three
+options and a second tick does not re-ask; Keep → silent; Close → the close is invoked once and the PR is dropped;
+Nudge again → one more comment; author activity resets; the wave's own bump does not; plan mode writes nothing.
