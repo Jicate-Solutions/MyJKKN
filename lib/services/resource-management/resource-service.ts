@@ -2,6 +2,7 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { StorageService } from '@/lib/storage/storage-service';
+import { logger } from '@/lib/utils/enhanced-logger';
 import {
   logActivityForCurrentUser,
   ResourceManagementActivityTemplates,
@@ -957,9 +958,24 @@ export class ResourceService {
    * window across two concurrent users; a third user's stale 0006 form kept
    * losing the race).
    *
+   * BUG-003978 (2026-09-11): the probe and the MAX scan below are ordinary
+   * client-side selects, and RLS narrows BOTH to the caller's own institution.
+   * A code already held by a sibling JKKN institution is invisible, so the
+   * probe says "free", the MAX comes back stale, the INSERT meets the global
+   * unique index and raises 23505, and this loop recomputes the same stale
+   * value five times before giving up. The RLS asymmetry is deliberately not
+   * being changed, so allocation now goes through the SECURITY DEFINER
+   * fn_allocate_resource_code, which scans the whole prefix family. The old
+   * client-side path is kept as a fallback for when that function is missing
+   * (migration not yet applied) or errors — a degraded allocation beats
+   * blocking resource creation outright.
+   *
    * Behavior:
-   *   - If the candidate isn't taken, returns it unchanged.
-   *   - If taken, computes MAX(suffix) for the prefix family and returns
+   *   - Asks fn_allocate_resource_code first when a prefix is resolvable. It
+   *     echoes a genuinely free candidate back, else returns prefix+(MAX+1)
+   *     computed across the ENTIRE family.
+   *   - Falls back to: if the candidate isn't taken, returns it unchanged; if
+   *     taken, computes MAX(suffix) for the prefix family and returns
    *     prefix + (MAX+1). Repeats up to 5 times in case the DB advances mid
    *     loop (e.g. two browser tabs racing).
    *   - If the candidate doesn't match the RES-<CAT>-<INST>-<NNNN> shape, or
@@ -979,6 +995,14 @@ export class ResourceService {
       categoryId,
       institutionId
     );
+
+    if (prefix) {
+      const allocated = await this.allocateResourceCodeViaRpc(
+        prefix,
+        candidateCode
+      );
+      if (allocated) return allocated;
+    }
 
     let code = candidateCode;
     for (let attempt = 0; attempt <= MAX_REGEN_ATTEMPTS; attempt++) {
@@ -1005,6 +1029,56 @@ export class ResourceService {
     throw new Error(
       'A resource with this code already exists. Please use a different code.'
     );
+  }
+
+  /**
+   * Ask the database to allocate the next free code for a prefix family.
+   *
+   * public.fn_allocate_resource_code is SECURITY DEFINER, so it reads the
+   * WHOLE `RES-<CAT>-<INST>-` family — including rows owned by the ten sibling
+   * JKKN institutions that RLS hides from this caller. That invisibility is
+   * the root of BUG-003978; see supabase/migrations/20260911120200_resource_code_allocator.sql.
+   *
+   * Returns null (never throws) when the function is unavailable, so every
+   * caller can degrade to the legacy client-side scan instead of failing the
+   * user's create outright.
+   */
+  private static async allocateResourceCodeViaRpc(
+    prefix: string,
+    candidateCode?: string | null
+  ): Promise<string | null> {
+    try {
+      const { data, error } = await (this.supabase as any).rpc(
+        'fn_allocate_resource_code',
+        {
+          p_prefix: prefix,
+          p_candidate: candidateCode || null
+        }
+      );
+
+      if (error) throw error;
+
+      if (typeof data === 'string' && data.startsWith(prefix) && data.length > prefix.length) {
+        return data;
+      }
+
+      logger.warn(
+        'ResourceService',
+        'fn_allocate_resource_code returned an unusable value; falling back to the client-side scan',
+        { prefix, returned: data }
+      );
+      return null;
+    } catch (error) {
+      // Migration not applied, EXECUTE revoked, or a transient failure. The
+      // fallback path is RLS-narrowed and can therefore still mint a colliding
+      // code — which is exactly the pre-fix behaviour, not a regression.
+      logger.warn(
+        'ResourceService',
+        'Resource code allocator RPC failed; falling back to the RLS-narrowed client-side scan',
+        { prefix, error }
+      );
+      return null;
+    }
   }
 
   /**
@@ -1115,6 +1189,20 @@ export class ResourceService {
       // form's preview code stays in lockstep with the createResource retry logic.
       const prefix = await this.resolveResourceCodePrefix('', categoryId, institutionId);
       if (!prefix) return 0;
+
+      // Preferred: the SECURITY DEFINER allocator, which sees the sibling
+      // institutions' rows that RLS hides from this caller. It returns the next
+      // free CODE; the generator adds 1 to whatever we return, so hand back
+      // suffix-1 (BUG-003978 — a preview seeded from the narrowed MAX is the
+      // stale number the user later gets told is "already taken").
+      const allocated = await this.allocateResourceCodeViaRpc(prefix, null);
+      if (allocated) {
+        const suffix = parseInt(allocated.substring(prefix.length), 10);
+        if (Number.isFinite(suffix) && suffix > 0) {
+          return suffix - 1;
+        }
+      }
+
       return await this.fetchMaxResourceCodeSuffix(prefix);
     } catch (error) {
       console.error('Error getting resource count:', error);

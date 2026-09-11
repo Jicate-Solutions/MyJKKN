@@ -24,6 +24,7 @@ import { NextRequest, NextResponse, connection } from 'next/server';
 import ExcelJS from 'exceljs';
 import { z } from 'zod';
 import { generateResourceCode } from '@/lib/utils/resource-id-generator';
+import { logger } from '@/lib/utils/enhanced-logger';
 import {
   RESOURCE_STATUS,
   BOOKING_TYPE
@@ -602,9 +603,43 @@ export async function POST(request: NextRequest) {
       )
     );
 
-    // For each unique prefix, query the MAX existing numeric suffix.
+    // For each unique prefix, seed the counter from the MAX existing numeric
+    // suffix.
+    //
+    // BUG-003978: reading that MAX with a plain select is wrong. RLS narrows it
+    // to the importer's own institution, so codes already held by the ten
+    // sibling JKKN institutions are invisible, the seed comes back stale, and
+    // the batch insert dies on the global unique index. The SECURITY DEFINER
+    // fn_allocate_resource_code scans the whole prefix family; it returns the
+    // next free CODE, and generateResourceCode adds 1 to the seed, so the seed
+    // is that suffix minus 1. If the function is unavailable (migration not
+    // applied yet, EXECUTE revoked, transient failure) we fall back to the old
+    // narrowed scan rather than failing the whole import.
     await Promise.all(
       [...uniquePrefixes].map(async (prefix) => {
+        try {
+          const { data: allocated, error: allocError } = await (supabase as any).rpc(
+            'fn_allocate_resource_code',
+            { p_prefix: prefix, p_candidate: null }
+          );
+          if (allocError) throw allocError;
+
+          if (typeof allocated === 'string' && allocated.startsWith(prefix)) {
+            const nextSuffix = parseInt(allocated.substring(prefix.length), 10);
+            if (Number.isFinite(nextSuffix) && nextSuffix > 0) {
+              codeCounters.set(prefix, nextSuffix - 1);
+              return;
+            }
+          }
+          throw new Error(`allocator returned an unusable value: ${String(allocated)}`);
+        } catch (error) {
+          logger.warn(
+            'ResourceImport',
+            'Resource code allocator RPC failed; falling back to the RLS-narrowed MAX scan',
+            { prefix, error }
+          );
+        }
+
         const { data: existing } = await (supabase as any)
           .from('resources')
           .select('resource_code')
