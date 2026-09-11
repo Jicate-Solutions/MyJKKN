@@ -18,6 +18,10 @@ ROOT=$(cd "$(dirname "$0")/../../.." && pwd); SW="$ROOT/scripts/ship-wave"
 DESK_SW="${DESK_SW:-/Users/omm/PROJECTS/MyJKKN/.worktrees/hitl-desk/scripts/ship-wave}"   # slice A's desk, for H11
 [ -f "$SW/desk-questions.sh" ] && DESK_SW="$SW"   # after the integrator's rebase the desk lives here
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/ship-wave-freeze-r3.XXXXXX")
+# round 8: FROZEN keeps a message's raw bytes (an invalid UTF-8 byte is no longer cut off by tr), so this harness's OWN
+# grep / cut / tr must be byte-wise whatever the caller's terminal locale is (under C.UTF-8 BSD grep never matches such a
+# line and cut refuses it). The wave side still runs the launchd way (env -i) or with the locale a case sets explicitly.
+export LC_ALL=C
 PASS=0; FAIL=0
 ok()   { PASS=$((PASS+1)); printf 'PASS  %s\n' "$1"; }
 bad()  { FAIL=$((FAIL+1)); printf 'FAIL  %s\n      %s\n' "$1" "${2:-}"; }

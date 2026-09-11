@@ -80,11 +80,15 @@ while [[ $# -gt 0 ]]; do
     --policy|--guards) POLICY_SHOW=1;;
     --ratify) POLICY_RATIFY="${2:-}"; shift;;
     --unguard) UNGUARD="${2:-}"; shift;;
-    --unfreeze) _fc=$(tail -1 "$FREEZE" 2>/dev/null | awk -F'\t' '{print $3}'); rm -f "$FREEZE"; echo "freeze cleared${_fc:+ (was $_fc)}"; exit 0;;   # one file = both the latch and its class
+    --unfreeze) _fc=$( [ -f "$FREEZE" ] && tail -1 "$FREEZE" 2>/dev/null | awk -F'\t' '{print $3}'); rm -f "$FREEZE" 2>/dev/null   # one file = both the latch and its class
+      # round 8: a FROZEN that is not a regular file reads HARD (fail safe) — rm -f cannot remove a directory, so say so
+      if [ -e "$FREEZE" ]; then echo "freeze NOT cleared — FROZEN is not a regular file and could not be removed: $FREEZE (remove it by hand)"; exit 1; fi
+      echo "freeze cleared${_fc:+ (was $_fc)}"; exit 0;;
     --freeze) FREEZE_MSG="${2:-}"   # raise a stop by hand with a CORRECT class line, e.g. --freeze "peer hold on #3410 — …" (§B soft row)
       # N12 (round-6 verifier): an empty / missing message used to leave FREEZE_MSG empty, the freeze gate below was
       # skipped and `go --freeze ""` fell through to a LIVE run with no stop raised. Refuse here, before the lock.
-      [ -n "$(printf '%s' "$FREEZE_MSG" | tr -d ' \t\r\n')" ] || { echo "--freeze needs a message"; exit 2; }
+      # round 8 (H16): vertical tab, form feed, NBSP (C2 A0) and U+3000 (E3 80 80) are blank too — byte-wise, in the C locale
+      [ -n "$(printf '%s' "$FREEZE_MSG" | LC_ALL=C tr -d ' \t\r\n\v\f' | LC_ALL=C sed -e "s/$(printf '\302\240')//g" -e "s/$(printf '\343\200\200')//g")" ] || { echo "--freeze needs a message"; exit 2; }
       shift;;
     --if-changed) IF_CHANGED=1;;   # standing run: skip when no PR / approval / freeze changed since the last run (≤12h)
     *) echo "unknown arg: $1"; exit 2;;
@@ -147,18 +151,23 @@ freeze_class_now() {  # → the class of the freeze in force: HARD if ANY live F
   # inside a message pushed the class column right — freeze() now sanitises, and a shifted line still reads hard here).
   # field 5 (round 6, X2) = sha1 of fields 1-4, so a question can name EXACTLY the line it was asked about; 3..5 fields are a line
   # a 5th field must BE a sha1 (40 hex) — a hand-written line whose message carried a TAB (columns shifted right) reads hard
+  # round 8 (integrator item 1): a FROZEN path that EXISTS but is not a regular file (a directory, a FIFO, a symlink to
+  # /dev/null) reads HARD — and is never read (a FIFO without a writer would block the reader)
+  if [ -e "$FREEZE" ] && [ ! -f "$FREEZE" ]; then printf 'hard'; return 0; fi
   local v; v=$(awk -F'\t' 'BEGIN{c="soft";n=0} {n++; if (NF<3 || NF>5 || ($3!="soft" && $3!="hard") || (NF==5 && (length($5)!=40 || $5 !~ /^[0-9a-f]+$/))) {c="hard"; exit} if ($3=="hard") c="hard"} END{if (n==0) c="hard"; print c}' "$FREEZE" 2>/dev/null)
   case "$v" in soft|hard) printf '%s' "$v";; *) printf 'hard';; esac
 }
 # a line that FAILS the fail-safe validation above (it is what makes the class hard when no well-formed hard line exists)
 _frozen_bad_filter='NF<3 || NF>5 || ($3!="soft" && $3!="hard") || (NF==5 && (length($5)!=40 || $5 !~ /^[0-9a-f]+$/))'
 freeze_bad_line_no() {  # → line number of the LAST malformed line in FROZEN (0 when every line is well-formed)
+  [ -f "$FREEZE" ] || { echo 0; return 0; }
   awk -F'\t' "$_frozen_bad_filter"' {n=NR} END{print n+0}' "$FREEZE" 2>/dev/null
 }
 freeze_line_now() {  # → the FROZEN line that GOVERNS the class in force: the last well-formed hard line when the class is hard;
   # else (N1b/N7b, round-6 verifier) the last MALFORMED line — the one that made the class hard — never tail -1, which
   # would hand back the soft line just appended as if it were the hard stop; soft class → the last line
-  [ -f "$FREEZE" ] || return 0
+  [ -e "$FREEZE" ] || return 0
+  [ -f "$FREEZE" ] || { printf -- '-\tFROZEN is not a regular file — reads as hard (fail safe)\thard\n'; return 0; }
   if [ "$(freeze_class_now)" = hard ]; then
     local l n; l=$(awk -F'\t' 'NF>=3 && NF<=5 && $3=="hard" && !(NF==5 && (length($5)!=40 || $5 !~ /^[0-9a-f]+$/))' "$FREEZE" 2>/dev/null | tail -1)
     [ -n "$l" ] && { printf '%s\n' "$l"; return 0; }
@@ -170,7 +179,8 @@ freeze_reason_now() {  # → the text to QUOTE for the stop in force: the govern
   # ONLY because a line is malformed (CRLF file, a hand-written line with a TAB in its message), an honest
   # 'a malformed stop line reads as hard (line n): <raw line, flattened, ≤120 chars>' instead of some other line's message.
   # The malformed line is quoted, never repaired. Soft class → the last line's message.
-  [ -f "$FREEZE" ] || return 0
+  [ -e "$FREEZE" ] || return 0
+  [ -f "$FREEZE" ] || { printf 'FROZEN is not a regular file — reads as hard (fail safe)'; return 0; }
   local l n raw
   if [ "$(freeze_class_now)" = hard ]; then
     l=$(awk -F'\t' 'NF>=3 && NF<=5 && $3=="hard" && !(NF==5 && (length($5)!=40 || $5 !~ /^[0-9a-f]+$/))' "$FREEZE" 2>/dev/null | tail -1)
@@ -196,45 +206,135 @@ deploy_allowed() {  # → 0 = may fire · 1 = must not, DEPLOY_BLOCK holds the o
   DEPLOY_BLOCK=""
   [ "${MODE:-plan}" = go ] || { DEPLOY_BLOCK="plan mode — the deploy stage never acts outside go"; return 1; }
   [ -z "${NO_DEPLOY:-}" ] || { DEPLOY_BLOCK="--no-deploy"; return 1; }
-  if [ -f "$FREEZE" ] && [ "$(freeze_class_now)" = hard ]; then
+  if [ -e "$FREEZE" ] && [ "$(freeze_class_now)" = hard ]; then   # -e, not -f: a non-regular FROZEN reads hard (round 8)
     DEPLOY_BLOCK="hard freeze — nothing ships until the stop is lifted (--unfreeze): $(freeze_reason_now | cut -c1-120)"; return 1
   fi
   return 0
 }
 frozen_line_sha1() { printf '%s' "$1" | shasum -a 1 | cut -c1-40; }   # sha1 of a FROZEN line's fields 1-4 (no newline)
+_freeze_rank() { case "$1" in hard) echo 2;; soft) echo 1;; *) echo 0;; esac; }   # none < soft < hard
+# a question body must be valid UTF-8 or slice A's validator refuses it and the stop never reaches the phone (round-7 H9a-3):
+# drop invalid bytes / a byte-sliced multibyte tail. FROZEN itself keeps the raw text.
+_freeze_utf8() { local o; o=$(printf '%s' "$1" | iconv -f UTF-8 -t UTF-8 -c 2>/dev/null); printf '%s' "${o:-$1}"; }
+_freeze_well_formed_hard() {  # $1 = file → 0 when it holds at least one well-formed hard line
+  awk -F'\t' 'NF>=3 && NF<=5 && $3=="hard" && !(NF==5 && (length($5)!=40 || $5 !~ /^[0-9a-f]+$/)) {f=1} END{exit f?0:1}' "$1" 2>/dev/null
+}
 freeze() {
   local msg cls known=1 lcls="" line sha now err reason
+  local tgt hop lnk qd lk_fd="" rc before after smsg="" sline="" ssha="" slcls="" tmp n ts
+  # round 8 (R8-13 / verifier H17): every byte-wise tool below (tr, grep -F, cut, sed) runs in the C locale — the launchd
+  # shape. Under a UTF-8 terminal locale BSD grep never matches a line holding an invalid byte, so the read-back failed and
+  # tr stopped at the byte and cut a hard message down to a soft one. Exported for this call only (restored on return).
+  local -x LC_ALL=C
   # the FROZEN line is tab-separated: a TAB / CR / LF inside the message would shift the class column (round-3 N2i:
   # "APPLY failed<TAB>soft" read as soft). Every separator becomes one space BEFORE anything reads the message.
-  msg=$(printf '%s' "$*" | tr '\t\r\n' '   ')
+  # C locale (round-7 H17): under a UTF-8 terminal locale BSD tr stops at an invalid byte and a hard message was cut to soft
+  msg=$(printf '%s' "$*" | LC_ALL=C tr '\t\r\n' '   ')
   cls=$(classify_freeze "$msg") || known=""
   # field 4 = ledger_class of the message: the SAME slug the failure ledger, the desk's question and slice D's
   # policy proposals key on, so "which cause froze us" is one key everywhere (spec §B: "derives it with ledger_class")
   type -t ledger_class >/dev/null 2>&1 && lcls=$(ledger_class "$msg")
   # field 5 = sha1 of fields 1-4 (round 6, X2): the question's `unfreeze` op carries this hash, so the desk lifts
   # EXACTLY the line asked about — never a different line whose flattened text happens to share a 400-char prefix
-  line=$(printf '%s\t%s\t%s\t%s' "$(date '+%F %T')" "$msg" "$cls" "${lcls:-$cls}"); sha=$(frozen_line_sha1 "$line")
-  # X1 (round 5): an append that fails (FROZEN or its dir unwritable) used to be ignored — the receipt said FROZEN,
-  # nothing was recorded, and the question was written about whatever line was already there. A run that cannot
-  # record a stop must not continue as if unfrozen: say so and end this run non-zero (the trap releases the lock).
-  # N5a (round-6 verifier): a FROZEN that accepts writes but is not a regular file (a symlink to /dev/null, a FIFO, …)
-  # made the append succeed, the receipt announce a hard stop and a question get written — with NOTHING recorded,
-  # so the next run started unfrozen. The stop counts as recorded only when FROZEN is a REGULAR file (or absent and
-  # then created as one) AND the exact line, by its sha1 field, reads back from it. A FIFO is refused BEFORE the
-  # append (an append to a FIFO with no reader blocks forever).
-  if [ -e "$FREEZE" ] && [ ! -f "$FREEZE" ]; then
+  ts=$(date '+%F %T')   # one stamp for this call: a kept-hard line (below) carries the same second as the new line
+  line=$(printf '%s\t%s\t%s\t%s' "$ts" "$msg" "$cls" "${lcls:-$cls}"); sha=$(frozen_line_sha1 "$line")
+  # ── how a stop is recorded (round 8, verifier H13/H14/H15 — the CLASS of "an append changes what the file reads") ──
+  # An append used to be the write: onto an EMPTY FROZEN (reads hard) a soft line made the class soft; onto a line with no
+  # trailing newline (a partial write, reads hard) it fused into one well-formed SOFT line; and a failed append left a
+  # 0-byte FROZEN. Now the new content is built in a temp file beside the real target — existing bytes, a newline if they
+  # lack one, then the line — its class is compared with the class in force BEFORE the call, and only then is it renamed
+  # over FROZEN (atomic). Invariants: the class never goes DOWN (refused loudly, exit 5, nothing replaced); a failed temp
+  # write never creates or truncates FROZEN; the stop counts as recorded only when its exact line (by sha) reads back.
+  # X1 (round 5): a run that cannot record a stop must not continue as if unfrozen: say so and end this run non-zero (the
+  # trap releases the lock). N5a (round-6 verifier): FROZEN must be a REGULAR file (or absent and then created as one) —
+  # a symlink to /dev/null, a FIFO or a directory is refused before anything is read or written.
+  tgt="$FREEZE"; hop=0   # resolve a symlink chain to the file it names: the temp must live in THAT directory for the rename
+  while [ -L "$tgt" ] && [ "$hop" -lt 16 ]; do
+    lnk=$(readlink "$tgt"); case "$lnk" in /*) tgt="$lnk";; *) tgt="$(dirname "$tgt")/$lnk";; esac; hop=$((hop+1))
+  done
+  if [ -L "$tgt" ]; then say "  ⛔ could not write FROZEN (too many levels of symbolic links) — treating as HARD and stopping this run"; exit 5; fi
+  if [ -e "$tgt" ] && [ ! -f "$tgt" ]; then
     say "  ⛔ could not record the stop (FROZEN is not a regular file) — treating as HARD and stopping this run"
     exit 5
   fi
-  if ! err=$( { printf '%s\t%s\n' "$line" "$sha" >> "$FREEZE"; } 2>&1 ); then
-    reason=$(printf '%s' "$err" | head -1 | sed -E 's/^[^:]*: line [0-9]+: //'); [ -n "$reason" ] || reason="write failed: $FREEZE"
+  if [ -e "$tgt" ] && { [ ! -w "$tgt" ] || [ ! -r "$tgt" ]; }; then
+    say "  ⛔ could not write FROZEN (Permission denied) — treating as HARD and stopping this run"
+    exit 5
+  fi
+  # serialise against the desk (its `answer` rewrites FROZEN under this lock) and against a second freeze() — a
+  # read-modify-write without it could rename one writer's copy over the other's line (flock on an inherited fd, as the desk)
+  qd="${QUESTIONS_DIR:-$STATE/questions}"
+  if mkdir -p "$qd" 2>/dev/null && { exec 7>>"$qd/.lock"; } 2>/dev/null; then
+    lk_fd=7
+    python3 -c 'import errno,fcntl,sys,time
+for _ in range(600):
+    try:
+        fcntl.flock(7, fcntl.LOCK_EX | fcntl.LOCK_NB); sys.exit(0)
+    except OSError as e:
+        if e.errno not in (errno.EAGAIN, errno.EWOULDBLOCK, errno.EACCES): sys.exit(2)
+        time.sleep(0.1)
+sys.exit(1)' 2>/dev/null; rc=$?
+  fi
+  # round 8: no rename without the lock — a copy renamed over FROZEN while another writer holds it could drop a line that
+  # writer had already read back and reported recorded (a lower class). Refuse loudly instead (nothing written, exit 5).
+  if [ -z "$lk_fd" ] || [ "${rc:-1}" -ne 0 ]; then
+    say "  ⛔ could not write FROZEN (the questions lock $( [ -z "$lk_fd" ] && printf 'could not be opened: %s/.lock' "$qd" || { [ "$rc" -eq 1 ] && printf 'stayed busy for 60 s' || printf 'failed, rc=%s' "$rc"; } )) — treating as HARD and stopping this run"
+    exit 5
+  fi
+  if [ -e "$tgt" ]; then before=$(FREEZE="$tgt" freeze_class_now); else before=none; fi
+  # a HARD reading that no LINE of its own will keep after the append — an empty or blank-only file (H13/H14: a failed
+  # append left 0 bytes), or an unterminated malformed last line (H15: a write cut short) — is kept as ONE real, well-formed
+  # hard line before the new one, so neither this append nor a later lift of some other line can lose that hardness.
+  # A TERMINATED malformed line (CRLF, a TAB-shifted hand-written line) needs none: it stays in the file byte-for-byte and
+  # keeps reading hard, and the question asked about it can still lift it (the class check below proves the first part).
+  if [ "$before" = hard ] && ! _freeze_well_formed_hard "$tgt"; then
+    n=$(FREEZE="$tgt" freeze_bad_line_no)
+    if [ -z "$(tr -d ' \t\r\n\v\f' < "$tgt" 2>/dev/null)" ] \
+       || { [ -n "$(tail -c1 "$tgt" 2>/dev/null)" ] && [ "${n:-0}" -gt 0 ] && [ "$n" -eq "$(grep -c '' "$tgt")" ]; }; then
+      smsg="FROZEN was empty or cut short, reads as hard (fail safe)"
+      type -t ledger_class >/dev/null 2>&1 && slcls=$(ledger_class "$smsg")
+      sline=$(printf '%s\t%s\t%s\t%s' "$ts" "$smsg" hard "${slcls:-hard}")
+      ssha=$(frozen_line_sha1 "$sline")
+    fi
+  fi
+  if ! tmp=$(mktemp "$(dirname "$tgt")/.FROZEN.tmp.XXXXXX" 2>&1); then
+    reason=${tmp##*: }; say "  ⛔ could not write FROZEN (${reason:-no temp file beside it}) — treating as HARD and stopping this run"
+    exit 5
+  fi
+  if ! err=$( {
+        { [ ! -s "$tgt" ] || cat "$tgt"; } &&
+        { [ ! -s "$tgt" ] || [ -z "$(tail -c1 "$tgt")" ] || printf '\n'; } &&
+        { [ -z "$sline" ] || printf '%s\t%s\n' "$sline" "$ssha"; } &&
+        printf '%s\t%s\n' "$line" "$sha"
+      } 2>&1 >"$tmp" ) \
+     || ! grep -qxF -- "$line	$sha" "$tmp" 2>/dev/null \
+     || { [ -n "$sline" ] && ! grep -qxF -- "$sline	$ssha" "$tmp" 2>/dev/null; } \
+     || { [ -s "$tgt" ] && [ "$(wc -c < "$tmp")" -le "$(wc -c < "$tgt")" ]; }; then
+    rm -f "$tmp"
+    reason=$(printf '%s' "$err" | head -1 | sed -E 's/^[^:]*: line [0-9]+: //; s/^.*: //'); [ -n "$reason" ] || reason="the new copy is short"
     say "  ⛔ could not write FROZEN ($reason) — treating as HARD and stopping this run"
     exit 5
   fi
-  if [ ! -f "$FREEZE" ] || ! grep -qxF -- "$line	$sha" "$FREEZE" 2>/dev/null; then
-    say "  ⛔ could not record the stop (FROZEN is not a regular file) — treating as HARD and stopping this run"
+  after=$(FREEZE="$tmp" freeze_class_now)
+  if [ "$(_freeze_rank "$after")" -lt "$(_freeze_rank "$before")" ]; then
+    rm -f "$tmp"
+    say "  ⛔ could not record the stop (the new FROZEN would read $after, lower than the $before in force now) — nothing replaced; treating as HARD and stopping this run"
     exit 5
   fi
+  chmod 644 "$tmp" 2>/dev/null
+  if ! err=$(mv -f "$tmp" "$tgt" 2>&1); then
+    rm -f "$tmp"; reason=${err##*: }
+    say "  ⛔ could not write FROZEN (${reason:-rename failed}) — treating as HARD and stopping this run"
+    exit 5
+  fi
+  if [ ! -f "$FREEZE" ] || ! grep -qxF -- "$line	$sha" "$FREEZE" 2>/dev/null \
+     || { [ -n "$sline" ] && ! grep -qxF -- "$sline	$ssha" "$FREEZE" 2>/dev/null; } \
+     || [ "$(_freeze_rank "$(freeze_class_now)")" -lt "$(_freeze_rank "$before")" ]; then
+    say "  ⛔ could not record the stop (the write did not read back from FROZEN) — treating as HARD and stopping this run"
+    exit 5
+  fi
+  [ -n "$lk_fd" ] && exec 7>&-   # released BEFORE ask_director, which takes the same lock
+  [ -n "$sline" ] && say "  ⛔ FROZEN read as HARD with no well-formed hard line — kept as a hard line of its own: $smsg"
   now=$(freeze_class_now)
   if [ "$cls" = soft ] && [ "$now" = hard ]; then
     # --freeze from the phone while a hard stop is unresolved: the soft line is recorded (it is a real hold) but the
@@ -268,6 +368,7 @@ freeze() {
       esac
       q_title="A HARD stop is already in force: nothing merges or ships; this new hold waits behind it"
       q_body="A HARD stop is in force: ${hard_msg:0:160}. Nothing merges and nothing ships until that stop is lifted from its own question. New since then: ${msg:0:160} — recorded as a soft hold behind it. Keep it stopped and nothing changes; this question cannot lift the hard stop."
+      q_body=$(_freeze_utf8 "$q_body")
       # FREEZE pointed at an absent path for this ONE call: ask_director derives frozen_line from FROZEN's last line, and
       # this question must name no line (there is nothing it may lift). Temporary for the call only (bash: VAR=x fn).
       FREEZE="$FREEZE.none" ask_director freeze "${lcls:-$cls}" "$q_title" "$q_body" "[$q_opts]"
@@ -281,6 +382,7 @@ freeze() {
       if [ "$cls" = soft ]; then q_title="The ship wave paused on one item; safe merges and deploys continue"
       else q_title="The ship wave stopped: production or main may be broken"; fi
       q_body="What happened: ${msg:0:220}. While stopped, $( [ "$cls" = soft ] && printf 'LOW and NORMAL PRs still merge and ship but HELD PRs wait' || printf 'nothing merges and nothing ships' ). Keep it stopped and nothing changes; lift it and the next run resumes fully."
+      q_body=$(_freeze_utf8 "$q_body")
       # A1: the question's class is the ledger_class of the trigger (soft/hard rides in the title); same slug as field 4
       ask_director freeze "${lcls:-$cls}" "$q_title" "$q_body" "[$q_opts]"
     fi
@@ -673,12 +775,15 @@ run_once() {
   local frozen="" freeze_class="" hard="" hand_merged=""
   # §B: the latch is re-read at every gate, not only here — a freeze that lands mid-round (--freeze from the phone
   # between preflight and the merge stage, round-3 N5c) must hold HELD and, if hard, merge nothing at all
-  refresh_freeze_state() { frozen=""; freeze_class=""; hard=""; if [ -f "$FREEZE" ]; then frozen=1; freeze_class=$(freeze_class_now); [ "$freeze_class" = hard ] && hard=1; fi; return 0; }
-  if [ -f "$FREEZE" ]; then
+  refresh_freeze_state() { frozen=""; freeze_class=""; hard=""; if [ -e "$FREEZE" ]; then frozen=1; freeze_class=$(freeze_class_now); [ "$freeze_class" = hard ] && hard=1; fi; return 0; }
+  # round 8: -e, not -f — a FROZEN that exists but is not a regular file reads HARD here too, and is never read
+  if [ -e "$FREEZE" ]; then
     frozen=1; freeze_class=$(freeze_class_now); [ "$freeze_class" = hard ] && hard=1
-    if [ -n "$hard" ]; then say "  ⛔ FROZEN (hard) since: $(head -1 "$FREEZE" | cut -f1) — $(freeze_reason_now | cut -c1-140) — nothing merges, nothing ships this round (sweep/report only). Clear with --unfreeze.$( [ "$(grep -c . "$FREEZE")" -gt 1 ] && printf ' (%s lines in FROZEN; the hard one governs)' "$(grep -c . "$FREEZE")")"
+    local fz_since="" fz_n=0
+    if [ -f "$FREEZE" ]; then fz_since=$(head -1 "$FREEZE" | cut -f1); fz_n=$(grep -c . "$FREEZE"); fi
+    if [ -n "$hard" ]; then say "  ⛔ FROZEN (hard) since: ${fz_since:-unknown} — $(freeze_reason_now | cut -c1-140) — nothing merges, nothing ships this round (sweep/report only). Clear with --unfreeze.$( [ "$fz_n" -gt 1 ] && printf ' (%s lines in FROZEN; the hard one governs)' "$fz_n")"
     else say "  ⛔ FROZEN (soft) since: $(head -1 "$FREEZE" | cut -f1,2) — merging LOW/NORMAL, holding HELD; deploy + apply + sweep still run. Clear with --unfreeze."; fi
-    hand_merged=$(hand_merged_since "$(head -1 "$FREEZE" | cut -f1)" | sed "s/ *$//")
+    [ -n "$fz_since" ] && hand_merged=$(hand_merged_since "$fz_since" | sed "s/ *$//")
     say "  merged by hand while stopped: ${hand_merged:-none}"
   fi
   local tok; tok=$(vtok); [ -n "$tok" ] || say "  warn: no Vercel CLI token — deploy verification will be blind"
@@ -1020,7 +1125,7 @@ PY
           if [ -n "$regress" ]; then
             local rprs; rprs=$(for rp in $regress; do grep -F "app${rp#*:}" "$run/merged-map.tsv" 2>/dev/null | cut -f1 | sort -u | sed 's/^/#/'; done | tr '\n' ' ')
             freeze "baseline bounce after deploy — these loaded 200 before and now bounce to /auth/login: $regress · likely PRs: ${rprs:-see merged-map.tsv}; on main:$merged_list"
-          elif [ ! -f "$STATE/FROZEN" ]; then
+          elif [ ! -e "$STATE/FROZEN" ]; then
             cp "$run/l1.json" "$base" 2>/dev/null && say "  L1 baseline refreshed from this clean sweep"
           fi
         fi
@@ -1039,11 +1144,11 @@ PY
 
   # ── 6. scoreboard + HTML report ────────────────────────────────────────────
   local after; after=$(gh pr list --repo "$REPO" --state open --limit 200 --json number -q 'length' 2>/dev/null || echo "?")
-  say; say "=== SCOREBOARD · open PRs: $c_open → $after (target 0) · ready left: $([ -n "${FINAL_DEPLOY:-}" ] && echo "$c_ready" || echo $((c_ready-merged))) · conflicted: $c_conf ($DISPATCHED tabs sent) · merged: $([ -n "${FINAL_DEPLOY:-}" ] && echo "0 (final pass: $merged file(s) built)" || echo "$merged") · migrations: $APPLY_RESULT · deploy: $deploy · frozen: $([ -f "$FREEZE" ] && freeze_class_now || echo no)$([ -f "$FREEZE" ] && [ "$(freeze_class_now)" = soft ] && printf ' (merging LOW/NORMAL, holding HELD)') ==="
+  say; say "=== SCOREBOARD · open PRs: $c_open → $after (target 0) · ready left: $([ -n "${FINAL_DEPLOY:-}" ] && echo "$c_ready" || echo $((c_ready-merged))) · conflicted: $c_conf ($DISPATCHED tabs sent) · merged: $([ -n "${FINAL_DEPLOY:-}" ] && echo "0 (final pass: $merged file(s) built)" || echo "$merged") · migrations: $APPLY_RESULT · deploy: $deploy · frozen: $([ -e "$FREEZE" ] && freeze_class_now || echo no)$([ -e "$FREEZE" ] && [ "$(freeze_class_now)" = soft ] && printf ' (merging LOW/NORMAL, holding HELD)') ==="
   type -t ledger_record >/dev/null 2>&1 && ledger_record round \
     "merged=$merged low=$m_low normal=$m_normal held=$m_held open=$c_open->$after ready=$c_ready conflicted=$c_conf dispatched=$DISPATCHED migrations=$APPLY_RESULT deploy=$deploy"
   local html="$LOCAL/artifacts/ship-wave-$ts.html"; mkdir -p "$LOCAL/artifacts"
-  RUN="$run" TS="$ts" OPEN="$c_open" AFTER="$after" MERGED="$merged" MLIST="$merged_list" DEPLOY="$deploy" L1="$l1" L2="$l2" L3="migrations: $APPLY_RESULT · $l3" DISP="$DISPATCHED" MODE="$MODE" RECEIPT="$RECEIPT" FROZEN="$( [ -f "$FREEZE" ] && freeze_line_now | cut -f1,2 || echo "")" FROZEN_CLASS="$( [ -f "$FREEZE" ] && freeze_class_now || echo "")" HAND_MERGED="${hand_merged:-}" python3 - "$html" <<'PY'
+  RUN="$run" TS="$ts" OPEN="$c_open" AFTER="$after" MERGED="$merged" MLIST="$merged_list" DEPLOY="$deploy" L1="$l1" L2="$l2" L3="migrations: $APPLY_RESULT · $l3" DISP="$DISPATCHED" MODE="$MODE" RECEIPT="$RECEIPT" FROZEN="$( [ -e "$FREEZE" ] && freeze_line_now | cut -f1,2 || echo "")" FROZEN_CLASS="$( [ -e "$FREEZE" ] && freeze_class_now || echo "")" HAND_MERGED="${hand_merged:-}" python3 - "$html" <<'PY'
 import json, os, sys, html as H
 run=os.environ["RUN"]; plan=json.load(open(f"{run}/plan.json")); c=plan["counts"]; e=H.escape
 def rows(lst, extra=lambda r:""): return "".join(f"<tr><td><a href='https://github.com/Jicate-Solutions/MyJKKN/pull/{r['number']}'>#{r['number']}</a></td><td>{e(r['title'])}</td><td><span class='t {r['tier']}'>{r['tier']}</span></td><td>{e(extra(r))}</td></tr>" for r in lst) or "<tr><td colspan=4 class=m>none</td></tr>"
@@ -1105,7 +1210,7 @@ if [ -n "$GOAL" ]; then
     say "=== goal round $round/$GOAL_ROUNDS · open=$left · movable=$movable ==="
     [ "$left" = "0" ] && { say "=== GOAL MET: open PRs = 0 ==="; break; }
     # §B: a SOFT freeze keeps the safe work going, so the goal loop keeps rounding; only a HARD freeze ends it
-    if [ -f "$FREEZE" ]; then
+    if [ -e "$FREEZE" ]; then
       if [ "$(freeze_class_now)" = hard ]; then say "=== FROZEN (hard) — goal loop ends; Director must look, then --unfreeze ==="; break
       else say "=== FROZEN (soft) — rounds continue: LOW/NORMAL merge and ship, HELD waits ==="; fi
     fi

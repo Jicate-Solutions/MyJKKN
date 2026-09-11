@@ -170,6 +170,17 @@ check "2g hard: HTML banner says nothing merges, nothing ships"  $(grep -qF "FRO
 check "2h hard: HELD question asked with #3 #4, approve-all and none-today" $(grep -q 'ASK kind=held class=held title=2 HELD PRs ready for your OK: #3 #4' "$TR" && grep -q '"Approve all listed"' "$TR" && grep -q '"None today"' "$TR" && grep -q '"file": "approve-held", "value": "3"' "$TR"; echo $?) "$(grep ASK "$TR")"
 check "2i hard + main ahead of Vercel's READY sha (s1's merges): one-line 'NOTHING ships' reason" $(grep -q '^  ⛔ hard freeze — main (.*) is ahead of production (.*) but NOTHING ships' "$R"; echo $?) "$(grep 'hard freeze' "$R")"
 
+echo "── (2x) round 8 (integrator item 1): a FROZEN that EXISTS but is not a regular file reads HARD in run_once — never unfrozen ──"
+PRE='mkdir "$ST/FROZEN"; : > "$ST/FROZEN/keep"' scenario s2d "1 1 0" "" "$SHA0" "$(ready_at "$SHA0")" "" go --approve-normal
+R="$TMP/s2d/receipt.txt"; TR="$TMP/s2d/trace.txt"
+check "2x-a directory FROZEN: nothing merged (LOW #1 and NORMAL #2 were ready)" $(has "$TR" "gh pr view" >/dev/null; hasnot "$TR" "gh pr merge"; echo $?) "$(grep 'gh pr merge' "$TR")"
+check "2x-b directory FROZEN: deploy hook NOT fired"             $([ "$(posts "$TR")" -eq 0 ]; echo $?) "$(posts "$TR") POSTs"
+check "2x-c directory FROZEN: receipt 'FROZEN (hard) since: unknown — FROZEN is not a regular file — reads as hard (fail safe)'" $(has "$R" "FROZEN (hard) since: unknown — FROZEN is not a regular file — reads as hard (fail safe)"; echo $?) "$(grep FROZEN "$R" | head -3)"
+check "2x-d directory FROZEN: scoreboard 'frozen: hard', run_once returned 0, the directory untouched" $(has "$R" "frozen: hard" && has "$TR" "rc=0" && [ -f "$TMP/s2d/home/.config/obsidian/.ship-wave/FROZEN/keep" ]; echo $?) "$(grep SCOREBOARD "$R") $(grep '^rc=' "$TR")"
+PRE='ln -s /dev/null "$ST/FROZEN"' scenario s2n "1 1 0" "" "$SHA0" "$(ready_at "$SHA0")" "" go --approve-normal
+R="$TMP/s2n/receipt.txt"; TR="$TMP/s2n/trace.txt"
+check "2x-e FROZEN → /dev/null: nothing merged, hook NOT fired, receipt names 'not a regular file', scoreboard 'frozen: hard'" $(hasnot "$TR" "gh pr merge" && [ "$(posts "$TR")" -eq 0 ] && has "$R" "FROZEN is not a regular file" && has "$R" "frozen: hard"; echo $?) "$(grep -E 'FROZEN|merge' "$R" | head -4)"
+
 echo "── (3) soft freeze + main ahead of production, zero merges → deploy + apply + sweep; hand-merges listed ──"
 # commits land on main AFTER the freeze started: #77 by hand (squash shape), #79 by hand (GitHub's merge-button shape),
 # #78 by the wave (in a run's merged-map.tsv) — and s1's own merges #1 #2 are the wave's too

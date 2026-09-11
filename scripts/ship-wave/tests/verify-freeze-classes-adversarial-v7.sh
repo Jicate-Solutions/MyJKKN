@@ -16,6 +16,10 @@ DESK_SW="${DESK_SW:-/Users/omm/PROJECTS/MyJKKN/.worktrees/hitl-desk/scripts/ship
 [ -f "$SW/desk-questions.sh" ] && DESK_SW="$SW"
 [ -f "$DESK_SW/desk-questions.sh" ] || { echo "no desk at $DESK_SW"; exit 2; }
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/ship-wave-freeze-v7.XXXXXX")
+# round 8: FROZEN keeps a message's raw bytes (an invalid UTF-8 byte is no longer cut off by tr), so this harness's OWN
+# grep / cut / tr must be byte-wise whatever the caller's terminal locale is (under C.UTF-8 BSD grep never matches such a
+# line and cut refuses it). The wave side still runs the launchd way (env -i) or with the locale a case sets explicitly.
+export LC_ALL=C
 PASS=0; FAIL=0
 ok()   { PASS=$((PASS+1)); printf 'PASS  %s\n' "$1"; }
 bad()  { FAIL=$((FAIL+1)); printf 'FAIL  %s\n      %s\n' "$1" "${2:-}"; }
@@ -41,7 +45,8 @@ wave_bounded() { /opt/homebrew/bin/timeout 15 env -i PATH="$PLAIN_PATH" HOME="$H
 wave_fn() { ( a=("$@"); export HOME="$HM"; cd "$ROOT"; set -- plan; . "$TMP/ship-wave.sh" >/dev/null 2>&1; "${a[@]}" ); }
 cls_now() { wave_fn freeze_class_now 2>/dev/null; echo; }
 # what a run's start sees (ship-wave.sh: `if [ -f "$FREEZE" ]; then frozen=1; freeze_class=$(freeze_class_now) …`)
-run_view() { ( export HOME="$HM"; cd "$ROOT"; set -- plan; . "$TMP/ship-wave.sh" >/dev/null 2>&1; if [ -f "$FREEZE" ]; then echo "frozen=1 class=$(freeze_class_now)"; else echo "frozen=0 class=none"; fi ); }
+# round 8 (integrator item 1): run_once now gates on -e — a FROZEN that exists but is not a regular file reads HARD
+run_view() { ( export HOME="$HM"; cd "$ROOT"; set -- plan; . "$TMP/ship-wave.sh" >/dev/null 2>&1; if [ -e "$FREEZE" ]; then echo "frozen=1 class=$(freeze_class_now)"; else echo "frozen=0 class=none"; fi ); }
 deploy_gate() { ( export HOME="$HM"; cd "$ROOT"; set -- plan; . "$TMP/ship-wave.sh" >/dev/null 2>&1; MODE=go; if deploy_allowed; then echo "ALLOWED"; else echo "REFUSED: $DEPLOY_BLOCK"; fi ); }
 qcount() { ls "$ST/questions" 2>/dev/null | grep -c 'q-.*\.json'; }
 qlist() { python3 - "$ST/questions" <<'PY'
@@ -195,7 +200,8 @@ echo "══ H9. a message carrying an INVALID UTF-8 byte: read-back and message
 newcase h9a; BADMSG="$(printf 'deploy dpl_1 \xe2\x80 ERROR bad-byte\xff tail')"
 wave --freeze "$BADMSG"
 check "H9a launchd C locale: recorded whole (the tail after the bad byte kept), rc=0, 1 hard line, class hard, deploy REFUSED" $([ "$CLI_RC" -eq 0 ] && [ "$(hard_lines)" -eq 1 ] && grep -q 'tail' "$ST/FROZEN" && [ "$(cls_now)" = hard ] && _contains "$(deploy_gate)" "REFUSED: hard freeze"; echo $?) "rc=$CLI_RC $(cat -v "$ST/FROZEN")"
-check "H9a-2 the missing question is LOUD, not silent: the receipt says 'ask_director refused'" $(grep -q 'ask_director refused' "$C/say.txt"; echo $?) "$(cat "$C/say.txt")"
+# re-based in round 8 (H9a-3 fixed): the question body goes through iconv -c, so the stop now REACHES the phone — no refusal
+check "H9a-2 the question is not refused (round 8: body made valid UTF-8): no 'ask_director refused' in the receipt, the question is valid UTF-8" $(! grep -q 'ask_director refused' "$C/say.txt" && [ -n "$(qid_hard)" ] && valid_utf8 "$ST/questions/$(qid_hard).json"; echo $?) "$(cat "$C/say.txt")"
 check "H9a-3 (LIVENESS, informational — expected to FAIL: A's validator refuses a non-UTF-8 question, so a hard stop whose message carries a bad byte reaches no phone) a question was asked" $([ "$(qcount)" -eq 1 ]; echo $?) "questions=$(qcount) · $(grep 'ask_director' "$C/say.txt")"
 newcase h9b
 env -i PATH="$PLAIN_PATH" HOME="$HM" LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 /opt/homebrew/bin/bash "$TMP/ship-wave.sh" --freeze "$BADMSG" >> "$C/say.txt" 2>&1; CLI_RC=$?
@@ -244,7 +250,12 @@ echo "══ H14. a REAL origin for the empty FROZEN: a HARD freeze whose append
 newcase h14
 # the receipt goes through a PIPE: under `ulimit -f 0` a receipt redirected into a file could not be written either
 env -i PATH="$PLAIN_PATH" HOME="$HM" /opt/homebrew/bin/bash -c 'trap "" XFSZ; ulimit -f 0; exec /opt/homebrew/bin/bash "$1" --freeze "$2"' _ "$TMP/ship-wave.sh" "$HARD_MSG" 2>&1 | cat >> "$C/say.txt"; CLI_RC=${PIPESTATUS[0]}
-check "H14a the failed hard freeze exits 5 loudly ('could not write FROZEN'), writes no question — and leaves a 0-byte FROZEN that reads hard" $([ "$CLI_RC" -eq 5 ] && grep -q 'could not write FROZEN' "$C/say.txt" && [ "$(qcount)" -eq 0 ] && [ -f "$ST/FROZEN" ] && [ ! -s "$ST/FROZEN" ] && [ "$(cls_now)" = hard ]; echo $?) "rc=$CLI_RC $(cat "$C/say.txt") bytes=$(wc -c < "$ST/FROZEN" 2>/dev/null)"
+# re-based in round 8: the new content is built in a temp file beside FROZEN and renamed over it, so a failed write never
+# creates or truncates FROZEN — the 0-byte file this case found is no longer left behind (and no temp file either)
+check "H14a the failed hard freeze exits 5 loudly ('could not write FROZEN'), writes no question — and creates NO FROZEN and no temp file (round 8)" $([ "$CLI_RC" -eq 5 ] && grep -q 'could not write FROZEN' "$C/say.txt" && [ "$(qcount)" -eq 0 ] && [ ! -e "$ST/FROZEN" ] && [ -z "$(find "$ST" -name '.FROZEN.tmp.*')" ]; echo $?) "rc=$CLI_RC $(cat "$C/say.txt") bytes=$(wc -c < "$ST/FROZEN" 2>/dev/null)"
+# re-based in round 8: the 0-byte FROZEN a PRE-round-8 build left on a full disk still exists on disks upgraded in place —
+# seed exactly that leftover, then the Director's phone soft freeze (the property this case guards is unchanged)
+: > "$ST/FROZEN"
 wave --freeze "$SOFT_MSG"
 check "H14b (PROPERTY) the Director's later phone '--freeze <soft>' leaves the class HARD (the lost hard stop is not downgraded)" $([ "$(cls_now)" = hard ] && _contains "$(deploy_gate)" "REFUSED: hard freeze"; echo $?) "class=$(cls_now) · $(deploy_gate)"
 
@@ -260,7 +271,8 @@ QH=$(qid_hard); printf '%s' "$(cat "$ST/FROZEN")" > "$ST/FROZEN.x" && mv "$ST/FR
 wave --freeze "$SOFT_MSG"
 check "H15d glued onto a full hard line: class stays hard, deploy REFUSED (safe)" $([ "$(cls_now)" = hard ] && _contains "$(deploy_gate)" "REFUSED: hard freeze"; echo $?) "$(cls_now)"
 tap "$QH" "$(lift_idx "$QH")"
-check "H15e (LIVENESS, informational) the hard question's own Lift still lifts its stop after the glue" $([ "$RC" -eq 0 ] && [ ! -e "$ST/FROZEN" ]; echo $?) "rc=$RC $ANS"
+# re-based in round 8: nothing is glued any more — the soft hold lands on its own line, so the hard Lift leaves it on (class soft)
+check "H15e (LIVENESS, informational) the hard question's own Lift still lifts its stop after the (formerly glued) append; the soft hold stays on its own line" $([ "$RC" -eq 0 ] && [ -e "$ST/FROZEN" ] && [ "$(nlines)" -eq 1 ] && [ "$(soft_lines)" -eq 1 ] && [ "$(cls_now)" = soft ]; echo $?) "rc=$RC $ANS"
 
 echo "══ H16. --freeze with a message made only of NON-ASCII / other whitespace (\\v, \\f, NBSP, U+3000) ══"
 for m in "$(printf '\v')" "$(printf '\f\f')" "$(printf '\xc2\xa0')" "$(printf '\xe3\x80\x80')"; do
