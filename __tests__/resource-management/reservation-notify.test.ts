@@ -136,9 +136,13 @@ vi.mock('next/server', async () => {
   return { ...actual, connection: () => Promise.resolve() };
 });
 
-const createNotificationMock = vi.fn(async (dto: any) => ({ id: `notif-${dto.user_id}` }));
+// Typed with the real arity: the tests below assert the 3rd argument (the service
+// client), and a 1-parameter mock makes `mock.calls[0][2]` a type error on CI.
+const createNotificationMock = vi.fn(
+  async (dto: any, _options?: any, _client?: any) => ({ id: `notif-${dto.user_id}` })
+);
 vi.mock('@/lib/services/notification/notification-service', () => ({
-  createNotification: (...args: any[]) => createNotificationMock(...(args as [any]))
+  createNotification: (...args: [any, any?, any?]) => createNotificationMock(...args)
 }));
 
 // SUTs imported AFTER the mocks.
