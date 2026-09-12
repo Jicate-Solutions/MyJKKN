@@ -5,11 +5,18 @@
 // Distinct from usePageSearch(), which fuzzy-matches the static route manifest
 // client-side. Page titles are not secret, so that search can run in the
 // browser; RECORDS are, so this one runs entirely in the database behind
-// fn_global_record_search() (SECURITY DEFINER), which applies the per-entity
-// permission key and role_has_institution_access() per row before returning
-// anything. Nothing here filters for security — the client is not a gate.
+// fn_global_record_search() (SECURITY INVOKER), where each table's own RLS
+// decides what comes back — a row the caller cannot SELECT cannot be
+// returned. The function's user_has_permission() check is a short-circuit and
+// a group label, NOT the boundary, and it deliberately no longer calls
+// role_has_institution_access(): a second, simpler institution rule competing
+// with the policy RLS actually applies is what leaked lead phone numbers on
+// 2026-09-12. Nothing here filters for security — the client is not a gate.
 //
-// Migration: supabase/migrations/20261201090000_global_record_search.sql
+// Migrations, in order (the LAST one is the live definition):
+//   20261201090000  created it — SECURITY DEFINER, the defect
+//   20261201100000  re-issued as SECURITY INVOKER — the fix
+//   20261201140000  + departments, programmes, institutions
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
