@@ -90,6 +90,13 @@ import { useEngagementMetrics } from '@/hooks/analytics/use-engagement-metrics';
 import { useAtRiskStudents } from '@/hooks/analytics/use-at-risk-students';
 import { useHierarchyData } from '@/hooks/analytics/use-hierarchy-data';
 import type { OrganizationalLevel, EngagementLevel } from '@/types/analytics';
+import { toast } from 'sonner';
+import { downloadCsv } from '@/lib/utils/csv-export';
+import {
+  ENGAGEMENT_EXPORT_COLUMNS,
+  engagementExportFilename,
+  engagementRowsForExport
+} from './_components/engagement-export';
 
 const SEVERITY_COLORS = {
   [ACTIVITY_SEVERITY.LOW]: 'bg-green-100 text-green-800',
@@ -226,7 +233,12 @@ function ActivityPageInner() {
            engagementFilters?.level === 'program' ? 'semester' :
            engagementFilters?.level === 'semester' ? 'section' : 'all',
     parentId: engagementFilters?.id,
-    enabled: activeTab === 'engagement' && !!engagementFilters?.id
+    // A section has nothing below it to break down. (This used to send
+    // level=all here, which asked for every institution's breakdown.)
+    enabled:
+      activeTab === 'engagement' &&
+      !!engagementFilters?.id &&
+      engagementFilters.level !== 'section'
   });
 
   // Permission checking - temporarily allow all users to test data
@@ -248,6 +260,24 @@ function ActivityPageInner() {
   };
 
   // Engagement Analytics handlers
+
+  // Exports the learner table for the current selection from the rows this page
+  // already loaded (engagementMetrics.students), so no new query runs and the
+  // file holds only what the server scoped for this viewer.
+  const handleExportEngagement = () => {
+    const rows = engagementRowsForExport(engagementMetrics?.students);
+    if (!engagementFilters || rows.length === 0) {
+      toast.info('There are no learners to download for this selection.');
+      return;
+    }
+    downloadCsv(
+      rows,
+      ENGAGEMENT_EXPORT_COLUMNS,
+      engagementExportFilename(engagementFilters.level)
+    );
+    toast.success(`Downloaded ${rows.length} ${rows.length === 1 ? 'learner' : 'learners'}.`);
+  };
+
   const handleRefreshEngagement = useCallback(async () => {
     setIsRefreshing(true);
     try {
@@ -1002,10 +1032,8 @@ function ActivityPageInner() {
               </div>
               <EngagementFilters
                 onFilterChange={(filters) => setEngagementFilters(filters)}
-                onExport={() => {
-                  // TODO: Implement export functionality
-                  console.log('Export engagement data');
-                }}
+                onExport={handleExportEngagement}
+                exportDisabled={engagementLoading || !engagementMetrics?.students?.length}
               />
             </div>
 

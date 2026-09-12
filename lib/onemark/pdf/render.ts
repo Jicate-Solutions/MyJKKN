@@ -13,7 +13,7 @@ import chromium from '@sparticuz/chromium';
 import { pdfFontFaceCss } from '@/lib/utils/bos/pdf-fonts';
 import { answerKeyHtml, footerTemplate, questionPaperHtml } from './document';
 import { arrangeForSeries } from './layout';
-import { GlyphCoverageError, paperGlyphGaps } from './notation';
+import { paperGlyphGaps } from './notation';
 import type { ArrangedPaper, PaperModel, PaperSeries } from './types';
 
 let browser: Browser | null = null;
@@ -94,22 +94,31 @@ function filenameFor(model: PaperModel, series: PaperSeries, key: boolean): stri
 }
 
 /** A character no embedded face can set would print as a box on Vercel while
- *  looking right on a developer Mac. Refuse, naming the item and the glyph,
- *  rather than hand a hall a paper with a box in it (CLAUDE.md #25/#27). */
-function refuseUncoverable(model: PaperModel): void {
+ *  looking right on a developer Mac. notation.ts prints the visible marker
+ *  "[?]" in its place instead (MISSING_GLYPH_HTML), so the paper still prints;
+ *  this names the item and the glyph in the server log — ids and code points
+ *  only, never item text — so the wording can be fixed. Until 2026-09-12 this
+ *  refused the whole paper (route 422), which took down the answer key of a
+ *  live Physics paper over one ᵣ in an explanation. */
+function logUncoverable(model: PaperModel, doc: 'paper' | 'answer-key'): void {
   const gaps = paperGlyphGaps(model);
-  if (gaps.length) throw new GlyphCoverageError(gaps);
+  if (!gaps.length) return;
+  console.warn(
+    `[onemark-pdf] ${doc} ${model.assessmentId}: printed "[?]" for characters no embedded font carries — ${gaps
+      .map((g) => `${g.itemId}: ${g.glyphs.join(' ')}`)
+      .join('; ')}`,
+  );
 }
 
 export async function renderQuestionPaperPdf(model: PaperModel, series: PaperSeries): Promise<RenderedPaper> {
-  refuseUncoverable(model);
+  logUncoverable(model, 'paper');
   const paper = arrangeForSeries(model, series);
   const buffer = await htmlToPdf(questionPaperHtml(paper), footerWithFonts(paper));
   return { buffer, filename: filenameFor(model, series, false) };
 }
 
 export async function renderAnswerKeyPdf(model: PaperModel, series: PaperSeries): Promise<RenderedPaper> {
-  refuseUncoverable(model);
+  logUncoverable(model, 'answer-key');
   const paper = arrangeForSeries(model, series);
   const buffer = await htmlToPdf(answerKeyHtml(paper), footerWithFonts(paper));
   return { buffer, filename: filenameFor(model, series, true) };

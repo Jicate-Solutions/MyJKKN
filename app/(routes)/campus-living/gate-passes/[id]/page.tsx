@@ -1,425 +1,728 @@
 'use client';
 
-import { use } from 'react';
+/**
+ * /campus-living/gate-passes/[id] — where the warden actually decides.
+ *
+ * Three things a decision needs, all on one screen:
+ *
+ *   1. WHO is asking — the full learner record, auto-fetched. Nothing here is
+ *      retyped by the learner or the warden: roll number, institution, degree,
+ *      department, programme, semester, section, academic year and the hostel
+ *      they live in all come off the learner profile.
+ *   2. A WAY TO CHECK — the parent's number as a tap-to-call link, and a
+ *      control that records the call so the next person can see it happened.
+ *   3. THE DECISION — approve or reject, each behind a confirmation, with a
+ *      rejection reason the learner will read.
+ *
+ * The page this replaced showed a name, an email and four raw ISO timestamps.
+ */
+
+import { use, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { toast } from 'sonner';
-import { ContentLayout } from '@/components/layout/content-layout';
-import { PageBreadcrumb } from '@/components/navigation';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { useAuth } from '@/hooks/use-auth';
-import { useGatePass, useReturnGatePass } from '@/hooks/campus-living/use-gate-passes';
 import {
-  ArrowLeft,
-  User,
-  Calendar,
-  MapPin,
-  QrCode,
-  Clock,
-  CheckCircle2,
   AlertTriangle,
-  Loader2,
-  Shield,
+  ArrowLeft,
+  Ban,
+  Bed,
+  Building2,
+  CalendarClock,
+  Car,
+  Check,
+  CheckCircle2,
+  Clock,
   DoorOpen,
+  FileText,
+  GraduationCap,
+  Loader2,
   LogIn,
-  Bell
+  MapPin,
+  Paperclip,
+  PhoneCall,
+  User,
+  Users,
+  X,
 } from 'lucide-react';
 
+import { ContentLayout } from '@/components/layout/content-layout';
+import { PageBreadcrumb } from '@/components/navigation';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Textarea } from '@/components/ui/textarea';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
-const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success'; color: string }> = {
-  requested: { label: 'Pending Approval', variant: 'outline', color: 'text-yellow-600' },
-  rejected: { label: 'Rejected', variant: 'destructive', color: 'text-red-600' },
-  issued: { label: 'Issued', variant: 'outline', color: 'text-gray-600' },
-  active: { label: 'Active - Out', variant: 'default', color: 'text-blue-600' },
-  returned: { label: 'Returned', variant: 'success', color: 'text-green-600' },
-  overdue: { label: 'Overdue', variant: 'destructive', color: 'text-red-600' },
-  cancelled: { label: 'Cancelled', variant: 'secondary', color: 'text-gray-600' },
-};
+import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
+import {
+  useApproveGatePass,
+  useGatePassDetail,
+  useRecordParentCall,
+  useRejectGatePass,
+  useReturnGatePass,
+} from '@/hooks/campus-living/use-gate-passes';
+import { GATE_PASS_STATUS_CONFIG, formatMoment } from '../_components/columns';
+import type { GatePassContactNumber, GatePassDetail } from '@/types/campus-living';
 
-const passTypeLabels: Record<string, string> = {
-  regular_out: 'Regular Out',
-  overnight: 'Overnight',
-  emergency: 'Emergency',
-  visitor_accompanied: 'Visitor Accompanied',
-};
-
-const timelineIcons: Record<string, React.ReactNode> = {
-  issued: <QrCode className="h-4 w-4 text-purple-600" />,
-  approved: <CheckCircle2 className="h-4 w-4 text-green-600" />,
-  exit: <DoorOpen className="h-4 w-4 text-blue-600" />,
-  entry: <LogIn className="h-4 w-4 text-green-600" />,
-  notified: <Bell className="h-4 w-4 text-amber-600" />,
-  overdue: <AlertTriangle className="h-4 w-4 text-red-600" />,
-};
-
-function formatMoment(value: string | null | undefined) {
-  if (!value) return '--';
-  const parsed = new Date(String(value).replace(' ', 'T'));
-  return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleString('en-IN');
+/** A labelled value that renders an em dash rather than an empty cell. */
+function Field({
+  label,
+  value,
+  icon: Icon,
+}: {
+  label: string;
+  value: string | number | null | undefined;
+  icon?: React.ComponentType<{ className?: string }>;
+}) {
+  return (
+    <div className="min-w-0">
+      <p className="flex items-center gap-1 text-xs text-muted-foreground">
+        {Icon && <Icon className="h-3 w-3 shrink-0" />}
+        {label}
+      </p>
+      <p className="mt-0.5 truncate text-sm font-medium">
+        {value === null || value === undefined || value === '' ? '—' : value}
+      </p>
+    </div>
+  );
 }
 
 /**
- * Build the activity list from the row's own timestamps.
+ * The timeline, built from real timestamps only.
  *
- * This page used to render `pass.timeline`, which no query on this table has
- * ever produced — GatePassService.getGatePass selects `*` plus the leave
- * request, and `timeline` is not a column. On the first real row the page
- * would have thrown on `.map` of undefined; it survived only because
- * hostel_gate_passes held zero rows.
- *
- * Only events that carry a real timestamp are listed. Approval and rejection
- * have no timestamp column of their own (approved_by / rejected_by record WHO,
- * not WHEN), so they are deliberately absent rather than dated from updated_at,
- * which the row's trigger moves on every write.
+ * Approval and rejection now carry their own `approved_at` / `rejected_at` —
+ * before the rebuild they recorded only WHO, so the timeline could not date
+ * them and deliberately left them out rather than dating them from
+ * `updated_at`, which the row's trigger moves on every single write.
  */
-function buildTimeline(pass: {
-  created_at?: string | null;
-  out_time?: string | null;
-  actual_return?: string | null;
-  expected_return?: string | null;
-  reason?: string | null;
-  gate_security_out?: string | null;
-  gate_security_in?: string | null;
-}) {
-  const events: { icon: string; event: string; time: string; by: string }[] = [];
+function buildTimeline(detail: GatePassDetail) {
+  const { pass, approverName, rejectorName, parentConfirmedByName } = pass_and_names(detail);
+  const events: { icon: React.ReactNode; label: string; at: string; by: string }[] = [];
 
   if (pass.created_at) {
     events.push({
-      icon: 'issued',
-      // Only the request path writes a reason, so its presence is what
-      // distinguishes "a learner asked for this" from "a warden issued it".
-      event: pass.reason ? 'Request raised' : 'Pass created',
-      time: formatMoment(pass.created_at),
+      icon: <FileText className="h-4 w-4 text-purple-600" />,
+      label: pass.reason ? 'Request raised' : 'Pass created at the desk',
+      at: pass.created_at,
       by: pass.reason ? 'Learner' : 'Hostel office',
+    });
+  }
+  if (pass.parent_confirmed_at) {
+    events.push({
+      icon: <PhoneCall className="h-4 w-4 text-sky-600" />,
+      label: `Parent called${pass.parent_confirmed_number ? ` on ${pass.parent_confirmed_number}` : ''}`,
+      at: pass.parent_confirmed_at,
+      by: parentConfirmedByName ?? 'Warden',
+    });
+  }
+  if (pass.approved_at) {
+    events.push({
+      icon: <CheckCircle2 className="h-4 w-4 text-green-600" />,
+      label: 'Approved',
+      at: pass.approved_at,
+      by: approverName ?? 'Warden',
+    });
+  }
+  if (pass.rejected_at) {
+    events.push({
+      icon: <Ban className="h-4 w-4 text-red-600" />,
+      label: 'Rejected',
+      at: pass.rejected_at,
+      by: rejectorName ?? 'Warden',
     });
   }
   if (pass.out_time) {
     events.push({
-      icon: 'exit',
-      event: 'Left campus',
-      time: formatMoment(pass.out_time),
+      icon: <DoorOpen className="h-4 w-4 text-blue-600" />,
+      label: 'Left campus',
+      at: pass.out_time,
       by: pass.gate_security_out ? 'Gate security' : 'Not recorded',
     });
   }
   if (pass.actual_return) {
     events.push({
-      icon: 'entry',
-      event: 'Returned to campus',
-      time: formatMoment(pass.actual_return),
+      icon: <LogIn className="h-4 w-4 text-green-600" />,
+      label: 'Returned to campus',
+      at: pass.actual_return,
       by: pass.gate_security_in ? 'Gate security' : 'Not recorded',
-    });
-  } else if (pass.expected_return && new Date(String(pass.expected_return).replace(' ', 'T')) < new Date()) {
-    events.push({
-      icon: 'overdue',
-      event: 'Overdue — expected back',
-      time: formatMoment(pass.expected_return),
-      by: 'System',
     });
   }
 
-  return events;
+  return events.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+}
+
+function pass_and_names(detail: GatePassDetail) {
+  return {
+    pass: detail.pass,
+    approverName: detail.approverName,
+    rejectorName: detail.rejectorName,
+    parentConfirmedByName: detail.parentConfirmedByName,
+  };
 }
 
 export default function GatePassDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { profile } = useAuth();
-  const { data: passData, isLoading } = useGatePass(id);
+  const { canAccess, isSuperAdmin } = usePermissions();
+
+  const { data: detail, isLoading } = useGatePassDetail(id);
+  const approve = useApproveGatePass();
+  const reject = useRejectGatePass();
+  const recordCall = useRecordParentCall();
   const returnPass = useReturnGatePass();
-  const pass = passData as any;
 
-  const handleRecordReturn = () => {
-    if (!profile?.id) {
-      toast.error('Unable to identify security user — please sign in again');
-      return;
-    }
-    returnPass.mutate({ id, securityId: profile.id });
-  };
+  const canDecide = isSuperAdmin || canAccess('campus_living.gate_passes', 'approve');
+  const canEdit = isSuperAdmin || canAccess('campus_living.gate_passes', 'edit');
 
-  if (isLoading || !pass) {
+  const [approveOpen, setApproveOpen] = useState(false);
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+  const [callTarget, setCallTarget] = useState<GatePassContactNumber | null>(null);
+
+  const timeline = useMemo(() => (detail ? buildTimeline(detail) : []), [detail]);
+
+  if (isLoading) {
     return (
-      <ContentLayout title="Gate Pass Details">
-        <div className="flex items-center justify-center min-h-[400px]">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <ContentLayout title="Gate Pass">
+        <div className="mt-4 space-y-4">
+          <Skeleton className="h-24 w-full" />
+          <div className="grid gap-4 lg:grid-cols-3">
+            <Skeleton className="h-72 lg:col-span-2" />
+            <Skeleton className="h-72" />
+          </div>
         </div>
       </ContentLayout>
     );
   }
 
-  const sCfg = statusConfig[pass.status] ?? { label: pass.status, variant: 'outline' as const, color: '' };
+  if (!detail) {
+    return (
+      <ContentLayout title="Gate Pass">
+        <Card className="mt-4">
+          <CardContent className="p-8 text-center">
+            <AlertTriangle className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
+            <p className="text-base font-medium">This gate pass could not be opened</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              It may have been deleted, or it belongs to an institution you cannot see.
+            </p>
+            <Button variant="outline" className="mt-4" asChild>
+              <Link href="/campus-living/gate-passes">Back to gate passes</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </ContentLayout>
+    );
+  }
 
-  // A pass that has only been requested has no number yet — pass_number is
-  // nullable from 20260907020000 onwards, so every read of it needs a fallback.
-  const passLabel = pass.pass_number ?? 'Gate Pass Request';
-  const learnerName = pass.learner?.full_name ?? 'Unknown learner';
-  const timeline = buildTimeline(pass);
+  const { pass, learner, leaveType, contacts } = detail;
+  const statusCfg = GATE_PASS_STATUS_CONFIG[pass.status] ?? {
+    label: pass.status,
+    variant: 'outline' as const,
+  };
+  const isPending = pass.status === 'requested';
+  const title = pass.pass_number ?? 'Gate Pass Request';
 
-  // Calculate time remaining / overdue
-  const now = new Date();
-  const expectedReturn = new Date(String(pass.expected_return ?? '').replace(' ', 'T'));
-  const isOverdue = !pass.actual_return && now > expectedReturn;
-  const timeDiff = Math.abs(expectedReturn.getTime() - now.getTime());
-  const hoursRemaining = Math.floor(timeDiff / (1000 * 60 * 60));
-  const minutesRemaining = Math.floor((timeDiff % (1000 * 60 * 60)) / (1000 * 60));
+  async function handleApprove() {
+    if (!profile?.id) return;
+    try {
+      await approve.mutateAsync({ id, approverId: profile.id });
+    } catch {
+      // the mutation's onError toast reports it
+    } finally {
+      setApproveOpen(false);
+    }
+  }
+
+  async function handleReject() {
+    if (!profile?.id || !rejectReason.trim()) return;
+    try {
+      await reject.mutateAsync({ id, rejectedBy: profile.id, reason: rejectReason.trim() });
+    } catch {
+      // same
+    } finally {
+      setRejectOpen(false);
+      setRejectReason('');
+    }
+  }
+
+  async function confirmCallRecorded() {
+    if (!profile?.id || !callTarget) return;
+    try {
+      await recordCall.mutateAsync({ id, userId: profile.id, number: callTarget.number });
+    } catch {
+      // same
+    } finally {
+      setCallTarget(null);
+    }
+  }
 
   return (
-    <ContentLayout title="Gate Pass Details">
+    <ContentLayout title="Gate Pass">
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
           { label: 'Campus Living', href: '/campus-living' },
           { label: 'Gate Passes', href: '/campus-living/gate-passes' },
-          { label: passLabel },
+          { label: title },
         ]}
       />
 
-      <div className="space-y-6 mt-4">
-        {/* Header */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start">
+      <div className="mt-4 space-y-6">
+        {/* ── Header ─────────────────────────────────────────────── */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-3">
-            <Button variant="ghost" size="icon" asChild>
+            <Button variant="ghost" size="icon" asChild className="shrink-0">
               <Link href="/campus-living/gate-passes">
                 <ArrowLeft className="h-4 w-4" />
               </Link>
             </Button>
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="text-2xl font-bold">{passLabel}</h1>
-                <Badge variant={sCfg.variant}>{sCfg.label}</Badge>
-                <Badge variant="outline">{passTypeLabels[pass.pass_type] ?? pass.pass_type}</Badge>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-2xl font-bold">{title}</h1>
+                <Badge variant={statusCfg.variant}>{statusCfg.label}</Badge>
+                {leaveType && (
+                  <Badge
+                    variant="outline"
+                    style={{ borderColor: leaveType.color_code, color: leaveType.color_code }}
+                  >
+                    {leaveType.leave_type_name}
+                  </Badge>
+                )}
               </div>
-              <p className="text-sm text-muted-foreground mt-1">
-                {learnerName}
-                {pass.learner?.email ? ` · ${pass.learner.email}` : ''}
+              <p className="mt-1 text-sm text-muted-foreground">
+                {learner?.full_name ?? 'Learner record unavailable'}
+                {learner?.roll_number ? ` · ${learner.roll_number}` : ''}
               </p>
             </div>
           </div>
 
-          {pass.status === 'active' && (
-            <Button onClick={handleRecordReturn} disabled={returnPass.isPending}>
+          {/* A returned pass is closed; an active one can still be closed by
+              hand when the learner came back without scanning. */}
+          {canEdit && (pass.status === 'active' || pass.status === 'overdue') && (
+            <Button
+              onClick={() => profile?.id && returnPass.mutate({ id, securityId: profile.id })}
+              disabled={returnPass.isPending}
+            >
               {returnPass.isPending ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
                 <LogIn className="mr-2 h-4 w-4" />
               )}
-              Record Return
+              Record return by hand
             </Button>
           )}
         </div>
 
-        {/* Overdue Warning */}
-        {isOverdue && !pass.actual_return && (
-          <div className="flex items-center gap-3 p-4 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg">
-            <AlertTriangle className="h-5 w-5 text-red-600 shrink-0" />
+        {/* A rejected pass says why, at the top, where it cannot be missed. */}
+        {pass.status === 'rejected' && pass.rejection_reason && (
+          <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950/40">
+            <Ban className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
             <div>
-              <p className="font-medium text-red-800 dark:text-red-200">
-                Overdue by {hoursRemaining}h {minutesRemaining}m
-              </p>
-              <p className="text-sm text-red-600 dark:text-red-300">
-                Student was expected back at {pass.expected_return}. Parent has been notified.
-              </p>
+              <p className="font-medium text-red-800 dark:text-red-200">Request rejected</p>
+              <p className="text-sm text-red-700 dark:text-red-300">{pass.rejection_reason}</p>
             </div>
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Main Content */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Pass Details */}
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <div className="space-y-6 lg:col-span-2">
+            {/* ── Who is asking ──────────────────────────────────── */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Pass Details</CardTitle>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <User className="h-4 w-4" />
+                  Learner
+                </CardTitle>
+                <CardDescription>
+                  Read from the learner profile — nothing here was typed into the request.
+                </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="p-3 bg-muted/50 rounded-lg">
-                    <p className="text-xs text-muted-foreground flex items-center gap-1">
-                      <DoorOpen className="h-3 w-3" /> Out Time
-                    </p>
-                    <p className="font-medium mt-1">{pass.out_time}</p>
+                {learner ? (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-4">
+                      {learner.photo_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element -- remote learner photo, next/image adds nothing here
+                        <img
+                          src={learner.photo_url}
+                          alt={learner.full_name}
+                          className="h-20 w-20 shrink-0 rounded-lg border object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-lg border bg-muted">
+                          <User className="h-8 w-8 text-muted-foreground" />
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <p className="truncate text-lg font-bold">{learner.full_name}</p>
+                        <p className="font-mono text-sm text-muted-foreground">
+                          {learner.roll_number ?? 'No roll number'}
+                        </p>
+                        {learner.lifecycle_status && learner.lifecycle_status !== 'active' && (
+                          <Badge variant="destructive" className="mt-1 capitalize">
+                            {learner.lifecycle_status.replace(/_/g, ' ')}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4 border-t pt-4 md:grid-cols-3">
+                      <Field label="Institution" value={learner.institution_name} icon={Building2} />
+                      <Field label="Degree" value={learner.degree_name} icon={GraduationCap} />
+                      <Field label="Department" value={learner.department_name} />
+                      <Field label="Programme" value={learner.programme_name} />
+                      <Field label="Semester" value={learner.semester_name} />
+                      <Field label="Section" value={learner.section_name} />
+                      <Field label="Academic year" value={learner.academic_year_name} />
+                      <Field label="Year of study" value={learner.year_of_study} />
+                      <Field
+                        label="Hostel"
+                        value={[learner.block_name, learner.room_number, learner.bed_number]
+                          .filter(Boolean)
+                          .join(' · ')}
+                        icon={Bed}
+                      />
+                    </div>
                   </div>
-                  <div className="p-3 bg-muted/50 rounded-lg">
-                    <p className="text-xs text-muted-foreground flex items-center gap-1">
-                      <Clock className="h-3 w-3" /> Expected Return
-                    </p>
-                    <p className="font-medium mt-1">{pass.expected_return}</p>
-                  </div>
-                  <div className="p-3 bg-muted/50 rounded-lg">
-                    <p className="text-xs text-muted-foreground flex items-center gap-1">
-                      <LogIn className="h-3 w-3" /> Actual Return
-                    </p>
-                    <p className={`font-medium mt-1 ${isOverdue && !pass.actual_return ? 'text-red-600' : ''}`}>
-                      {pass.actual_return ?? (isOverdue ? 'OVERDUE' : 'Pending')}
-                    </p>
-                  </div>
-                  <div className="p-3 bg-muted/50 rounded-lg">
-                    <p className="text-xs text-muted-foreground flex items-center gap-1">
-                      <MapPin className="h-3 w-3" /> Destination
-                    </p>
-                    <p className="font-medium mt-1">{pass.destination}</p>
-                  </div>
+                ) : (
+                  <p className="py-4 text-center text-sm text-muted-foreground">
+                    The learner record could not be read. The request itself is still shown
+                    below.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* ── What they asked for ────────────────────────────── */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">The request</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
+                  <Field
+                    label="Type"
+                    value={leaveType?.leave_type_name ?? 'Unspecified'}
+                    icon={FileText}
+                  />
+                  <Field label="Destination" value={pass.destination} icon={MapPin} />
+                  <Field
+                    label="Mode of transport"
+                    value={pass.transport_mode}
+                    icon={Car}
+                  />
+                  <Field
+                    label="Person accompanying"
+                    value={pass.accompanying_person ?? 'Travelling alone'}
+                    icon={Users}
+                  />
+                  <Field
+                    label="Planned out"
+                    value={formatMoment(pass.planned_out_at)}
+                    icon={CalendarClock}
+                  />
+                  <Field
+                    label="Due back"
+                    value={formatMoment(pass.expected_return)}
+                    icon={Clock}
+                  />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4 mt-4">
-                  <div className="text-sm">
-                    <p className="text-muted-foreground">Approved By</p>
-                    <p className="font-medium">{pass.approved_by ?? 'Awaiting approval'}</p>
+                {pass.reason && (
+                  <div className="rounded-md border bg-muted/40 p-3">
+                    <p className="text-xs text-muted-foreground">Reason given</p>
+                    <p className="mt-1 whitespace-pre-wrap text-sm">{pass.reason}</p>
                   </div>
-                  <div className="text-sm">
-                    <p className="text-muted-foreground">Security (Exit)</p>
-                    <p className="font-medium">{pass.gate_security_out ?? 'Not recorded'}</p>
-                  </div>
-                  <div className="text-sm">
-                    <p className="text-muted-foreground">Security (Entry)</p>
-                    <p className="font-medium">{pass.gate_security_in ?? 'Not returned yet'}</p>
-                  </div>
-                  <div className="text-sm">
-                    <p className="text-muted-foreground">Parent Notified</p>
-                    <Badge variant={pass.parent_notified ? 'success' : 'outline'}>
-                      {pass.parent_notified ? 'Yes' : 'No'}
-                    </Badge>
-                  </div>
+                )}
+
+                {pass.attachment_url && (
+                  <Button variant="outline" size="sm" asChild>
+                    <a href={pass.attachment_url} target="_blank" rel="noreferrer">
+                      <Paperclip className="mr-2 h-4 w-4" />
+                      Open supporting document
+                    </a>
+                  </Button>
+                )}
+
+                <div className="grid grid-cols-2 gap-4 border-t pt-4 md:grid-cols-3">
+                  <Field label="Left campus at" value={formatMoment(pass.out_time)} />
+                  <Field label="Returned at" value={formatMoment(pass.actual_return)} />
+                  <Field
+                    label="Parent notified by gate"
+                    value={pass.parent_notified ? 'Yes' : 'No'}
+                  />
                 </div>
               </CardContent>
             </Card>
 
-            {/* Timeline */}
+            {/* ── Timeline ───────────────────────────────────────── */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Activity Timeline</CardTitle>
+                <CardTitle className="text-base">What has happened</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  {timeline.map((event, idx) => (
-                    <div key={idx} className="flex items-start gap-4">
-                      <div className="flex flex-col items-center">
-                        <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center">
-                          {timelineIcons[event.icon] ?? <Clock className="h-4 w-4" />}
+                {timeline.length === 0 ? (
+                  <p className="py-2 text-sm text-muted-foreground">Nothing recorded yet.</p>
+                ) : (
+                  <div className="space-y-4">
+                    {timeline.map((e, i) => (
+                      <div key={`${e.label}-${e.at}`} className="flex items-start gap-4">
+                        <div className="flex flex-col items-center">
+                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted">
+                            {e.icon}
+                          </div>
+                          {i < timeline.length - 1 && <div className="h-6 w-0.5 bg-muted" />}
                         </div>
-                        {idx < timeline.length - 1 && (
-                          <div className="w-0.5 h-6 bg-muted" />
-                        )}
-                      </div>
-                      <div className="flex-1 pb-2">
-                        <div className="flex items-center justify-between">
-                          <p className="font-medium text-sm">{event.event}</p>
-                          <p className="text-xs text-muted-foreground">{event.time}</p>
+                        <div className="flex-1 pb-1">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-sm font-medium">{e.label}</p>
+                            <p className="text-xs text-muted-foreground">{formatMoment(e.at)}</p>
+                          </div>
+                          <p className="text-sm text-muted-foreground">By: {e.by}</p>
                         </div>
-                        <p className="text-sm text-muted-foreground">By: {event.by}</p>
                       </div>
-                    </div>
-                  ))}
-
-                  {/* Pending return */}
-                  {!pass.actual_return && (
-                    <div className="flex items-start gap-4">
-                      <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center">
-                        <LogIn className="h-4 w-4 text-muted-foreground" />
-                      </div>
-                      <div className="flex-1">
-                        <p className="font-medium text-sm text-muted-foreground">Return Entry</p>
-                        <p className="text-sm text-muted-foreground">Awaiting QR scan at gate</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
 
-          {/* Sidebar */}
+          {/* ── Sidebar: call, then decide ─────────────────────────── */}
           <div className="space-y-6">
-            {/* QR Code Display */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <QrCode className="h-5 w-5" />
-                  Gate Pass QR
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <PhoneCall className="h-4 w-4" />
+                  Call the parent
                 </CardTitle>
-                <CardDescription>Show at security gate for scanning</CardDescription>
+                <CardDescription>
+                  Tap a number to dial. Record the call so the next person can see it
+                  happened.
+                </CardDescription>
               </CardHeader>
-              <CardContent className="flex flex-col items-center">
-                <div className="w-48 h-48 bg-muted rounded-lg flex items-center justify-center border-2 border-dashed">
-                  <div className="text-center">
-                    <QrCode className="h-16 w-16 text-muted-foreground mx-auto mb-2" />
-                    <p className="text-xs text-muted-foreground">QR Code</p>
-                    <p className="text-xs font-mono mt-1">{pass.pass_number ?? 'Not issued yet'}</p>
+              <CardContent className="space-y-2">
+                {contacts.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No phone number is on file for this learner.
+                  </p>
+                ) : (
+                  contacts.map((c) => (
+                    <div
+                      key={`${c.label}-${c.number}`}
+                      className="flex items-center gap-2 rounded-md border p-2"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs text-muted-foreground">{c.label}</p>
+                        <a
+                          href={`tel:${c.number.replace(/\s+/g, '')}`}
+                          className="block truncate font-mono text-sm font-medium text-primary hover:underline"
+                        >
+                          {c.number}
+                        </a>
+                      </div>
+                      {canEdit && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 shrink-0"
+                          onClick={() => setCallTarget(c)}
+                        >
+                          Spoke to them
+                        </Button>
+                      )}
+                    </div>
+                  ))
+                )}
+
+                {pass.parent_confirmed_at && (
+                  <div className="flex items-start gap-2 rounded-md border border-green-200 bg-green-50 p-2 text-xs text-green-800 dark:border-green-800 dark:bg-green-950/40 dark:text-green-200">
+                    <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>
+                      Called {pass.parent_confirmed_number ?? ''} on{' '}
+                      {formatMoment(pass.parent_confirmed_at)}
+                      {detail.parentConfirmedByName ? ` by ${detail.parentConfirmedByName}` : ''}.
+                    </span>
                   </div>
-                </div>
-                <p className="text-xs text-muted-foreground mt-3 text-center">
-                  Security will scan this code at exit and entry gates
+                )}
+              </CardContent>
+            </Card>
+
+            {canDecide && isPending && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Your decision</CardTitle>
+                  <CardDescription>
+                    The learner sees the outcome, and a rejection reason, in My Hostel.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <Button className="w-full" onClick={() => setApproveOpen(true)}>
+                    <Check className="mr-2 h-4 w-4" />
+                    Approve
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="w-full text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
+                    onClick={() => {
+                      setRejectReason('');
+                      setRejectOpen(true);
+                    }}
+                  >
+                    <X className="mr-2 h-4 w-4" />
+                    Reject
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+
+            {canDecide && !isPending && (
+              <Card>
+                <CardContent className="p-4 text-sm text-muted-foreground">
+                  This request has already been decided — it is now{' '}
+                  <strong>{statusCfg.label.toLowerCase()}</strong>.
+                </CardContent>
+              </Card>
+            )}
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">At the gate</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm text-muted-foreground">
+                <p>
+                  Once approved, the learner scans their MyJKKN QR at the gate. The out and in
+                  times record themselves — there is no separate pass QR to print or carry.
                 </p>
-              </CardContent>
-            </Card>
-
-            {/* Learner Info — from the profiles embed on getGatePass.
-                Roll number, department, block and room used to be rendered off
-                a nested object that no query on this table produces. They are
-                left out rather than invented: this row's only link to a person
-                is learner_id → profiles. */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <User className="h-5 w-5" />
-                  Learner
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm">
-                <div>
-                  <p className="text-muted-foreground">Name</p>
-                  <p className="font-medium">{learnerName}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Email</p>
-                  <p className="font-medium break-all">{pass.learner?.email ?? 'Not recorded'}</p>
-                </div>
-                {pass.reason && (
-                  <div>
-                    <p className="text-muted-foreground">Reason given</p>
-                    <p className="font-medium">{pass.reason}</p>
-                  </div>
-                )}
-                {pass.rejection_reason && (
-                  <div>
-                    <p className="text-muted-foreground">Rejected because</p>
-                    <p className="font-medium text-red-600">{pass.rejection_reason}</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Time Status */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Clock className="h-5 w-5" />
-                  Time Status
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {!pass.actual_return && !isOverdue && (
-                  <div className="text-center p-4 bg-blue-50 dark:bg-blue-950 rounded-lg">
-                    <p className="text-sm text-muted-foreground">Time Remaining</p>
-                    <p className="text-2xl font-bold text-blue-600">{hoursRemaining}h {minutesRemaining}m</p>
-                  </div>
-                )}
-                {isOverdue && !pass.actual_return && (
-                  <div className="text-center p-4 bg-red-50 dark:bg-red-950 rounded-lg">
-                    <p className="text-sm text-muted-foreground">Overdue By</p>
-                    <p className="text-2xl font-bold text-red-600">{hoursRemaining}h {minutesRemaining}m</p>
-                  </div>
-                )}
-                {pass.actual_return && (
-                  <div className="text-center p-4 bg-green-50 dark:bg-green-950 rounded-lg">
-                    <p className="text-sm text-muted-foreground">Returned At</p>
-                    <p className="text-lg font-bold text-green-600">{pass.actual_return}</p>
-                  </div>
-                )}
+                <Field label="Recorded out by" value={pass.gate_security_out ? 'Gate security' : null} />
+                <Field label="Recorded in by" value={pass.gate_security_in ? 'Gate security' : null} />
               </CardContent>
             </Card>
           </div>
         </div>
       </div>
+
+      {/* ── Approve confirmation ───────────────────────────────────── */}
+      <AlertDialog open={approveOpen} onOpenChange={setApproveOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Approve this gate pass?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  <strong>{learner?.full_name ?? 'This learner'}</strong> will be allowed out to{' '}
+                  <strong>{pass.destination}</strong>, due back{' '}
+                  {formatMoment(pass.expected_return)}.
+                </p>
+                {pass.parent_confirmed_at ? (
+                  <p className="text-green-700 dark:text-green-400">
+                    A parent was called on {formatMoment(pass.parent_confirmed_at)}.
+                  </p>
+                ) : (
+                  <p className="text-amber-700 dark:text-amber-400">
+                    No parent call has been recorded. You can still approve.
+                  </p>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={approve.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleApprove} disabled={approve.isPending}>
+              {approve.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Check className="mr-2 h-4 w-4" />
+              )}
+              Approve
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ── Reject, reason required ────────────────────────────────── */}
+      <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject this request</DialogTitle>
+            <DialogDescription>
+              {learner?.full_name ?? 'The learner'} reads this reason, so say what would
+              change your answer.
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            placeholder="Reason for rejection…"
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            rows={3}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleReject}
+              disabled={!rejectReason.trim() || reject.isPending}
+            >
+              {reject.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <X className="mr-2 h-4 w-4" />
+              )}
+              Reject request
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Record the call ────────────────────────────────────────── */}
+      <AlertDialog open={!!callTarget} onOpenChange={(o) => !o && setCallTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Record this call?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This records that you spoke to the {callTarget?.label.toLowerCase()} on{' '}
+              {callTarget?.number}. It is stored against the request so anyone reviewing it
+              later can see the parent was contacted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={recordCall.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmCallRecorded} disabled={recordCall.isPending}>
+              {recordCall.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <PhoneCall className="mr-2 h-4 w-4" />
+              )}
+              Record it
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </ContentLayout>
   );
 }
