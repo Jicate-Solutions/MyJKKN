@@ -100,6 +100,14 @@ DECLARE
   v_taken      boolean;
   v_guard      integer := 0;
 BEGIN
+  -- Authorisation (CI secdef authz-guard, 2026-09-13). auth.uid() IS NULL means postgres /
+  -- service_role — the import route's server path — and keeps working. A signed-in caller
+  -- must hold the same permission that opens /resource-management/resources/new.
+  IF auth.uid() IS NOT NULL
+     AND NOT (is_super_admin() OR user_has_permission('resources.resources.create')) THEN
+    RAISE EXCEPTION 'fn_allocate_resource_code: resources.resources.create required'
+      USING ERRCODE = '42501';
+  END IF;
   v_prefix := upper(btrim(COALESCE(p_prefix, '')));
 
   -- Strict shape: RES-<CAT>-<INST>- with alphanumerics only. This is what

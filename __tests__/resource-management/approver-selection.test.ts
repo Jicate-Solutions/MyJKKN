@@ -162,7 +162,7 @@ describe('ProfileService.getProfilesForApproverSelection', () => {
   it('keeps a role holder whose institution_id is NULL when an institution filter is supplied', async () => {
     const central = profile({
       id: 'u-central',
-      full_name: 'Central Staff',
+      full_name: 'Central Approver',
       institution_id: null
     });
     (globalThis as any).__profileClient = makeClient([central], ['u-central']);

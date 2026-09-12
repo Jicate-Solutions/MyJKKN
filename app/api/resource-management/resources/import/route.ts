@@ -18,8 +18,7 @@ export const dynamic = 'force-dynamic';
 // (institution → department, parent_category → subcategory). Rows that fail
 // at any stage are reported with row numbers; the rest are batch-inserted.
 
-import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
+import { createClient } from '@/lib/supabase/server';
 import { NextRequest, NextResponse, connection } from 'next/server';
 import ExcelJS from 'exceljs';
 import { z } from 'zod';
@@ -293,20 +292,7 @@ export async function POST(request: NextRequest) {
   await connection();
   try {
     // ── Auth ─────────────────────────────────────────────────────────────
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          get: (name: string) => cookieStore.get(name)?.value,
-          set: (name: string, value: string, options: any) =>
-            cookieStore.set(name, value, options),
-          remove: (name: string, options: any) =>
-            cookieStore.set(name, '', { ...options, maxAge: 0 })
-        }
-      }
-    );
+    const supabase = await createClient();
 
     const {
       data: { user },
@@ -367,7 +353,7 @@ export async function POST(request: NextRequest) {
       }
 
       const result = validateRow(data, rowNumber);
-      if (!result.ok) {
+      if (result.ok === false) {
         allErrors.push(...result.errors);
         return;
       }
