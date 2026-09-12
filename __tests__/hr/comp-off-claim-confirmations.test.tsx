@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CompOffClaimQueueRow } from '@/types/hr-comp-off';
 
 const mutateAsync = vi.fn();
+const revokeAsync = vi.fn();
 const table = vi.hoisted(() => ({ selectAll: false, reset: vi.fn() }));
 
 const base = {
@@ -24,6 +25,7 @@ const base = {
   worked_date: '2098-12-06', expires_on: '2099-01-06', credit_days: 1, source: 'claim' as const,
   notes: null, documents: [], created_at: '2098-12-07T10:00:00Z',
   status: 'pending' as const, decided_at: null, rejection_reason: null,
+  revoked_at: null, revoke_reason: null,
 };
 const priya: CompOffClaimQueueRow = {
   ...base, id: 'claim-priya', employee_id: 'emp-1', employee_name: 'Priya Raman', employee_code: 'CET042',
@@ -39,6 +41,9 @@ vi.mock('@/hooks/hr/use-comp-off', () => ({
     data: [priya, kumar], isLoading: false, error: null, refetch: vi.fn(), isFetching: false, dataUpdatedAt: 1,
   }),
   useDecideCompOffClaim: () => ({ mutateAsync, isPending: false }),
+  useRevokeCompOffClaim: () => ({ mutateAsync: revokeAsync, isPending: false }),
+  // Asked per row when the revoke dialog opens; no claim here is approved.
+  useCompOffRevokeBlockReason: () => ({ data: null, isFetching: false }),
   useCompOffClaimsBiometric: () => ({
     data: [
       { claim_id: 'claim-priya', status: 'not_required', in_at: null, out_at: null, source: null },

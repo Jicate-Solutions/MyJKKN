@@ -272,10 +272,10 @@ export default function CompensatoryOffPage() {
             emptyMessage="No compensatory off requests yet. Use Apply to book one."
           >
             {rows.map((a) => (
-              <RequestRow key={a.id} status={a.status}>
+              <RequestRow key={a.id} status={a.status} revoked={a.revoked_at !== null}>
                 <TableCell className="pl-4 font-medium">{fmtDate(a.start_date)}</TableCell>
                 <TableCell className="text-right tabular-nums">{formatDays(a.total_days)}</TableCell>
-                <TableCell><StatusBadge status={a.status} /></TableCell>
+                <TableCell><StatusBadge status={a.status} revoked={a.revoked_at !== null} /></TableCell>
               </RequestRow>
             ))}
           </RequestTable>
