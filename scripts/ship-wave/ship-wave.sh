@@ -130,7 +130,7 @@ if [ -n "${UNGUARD:-}" ]; then guard_remove "$UNGUARD"; exit 0; fi
 
 # ── pacing (Director 2026-09-06 21:20): a standing run that finds nothing changed is skipped, and three
 # skipped runs in a row print the NEEDS-YOU list once instead of a fourth identical receipt ─────────────
-if [ -n "${IF_CHANGED:-}" ] && [ "$MODE" = "go" ] && unchanged_since_last_run; then exit 0; fi
+# (the check itself now runs after unblock-lanes.sh is sourced -- it defines unchanged_since_last_run)
 
 # ── single-flight: two ship waves merging at once would race main ─────────────
 if ! mkdir "$LOCK" 2>/dev/null; then
@@ -141,7 +141,7 @@ echo $$ > "$LOCK/pid"; trap unlock EXIT
 
 # ── the classifier, shared by the sweep and the post-merge re-cluster ─────────
 classify() {  # $1=prs.json $2=plan.json  (ONLY / QUIET_MIN from env)
-  ONLY="$ONLY" QUIET_MIN="$QUIET_MIN" GUARDS_ENV="$(guards_env 2>/dev/null)" python3 - "$1" "$2" <<'PY'
+  ONLY="$ONLY" QUIET_MIN="$QUIET_MIN" GUARDS_ENV="$(guards_env 2>/dev/null)" ADVISORY_CHECKS="$(cat "$STATE/advisory-checks" 2>/dev/null)" python3 - "$1" "$2" <<'PY'
 import json, sys, os, re, datetime
 GUARDS = [g for g in os.environ.get("GUARDS_ENV", "").split() if g]
 from collections import Counter, defaultdict
@@ -175,9 +175,15 @@ def tier(p):
     if not p["isDraft"] and all(LOW_RX.search(f) and not f.startswith(".github/") for f in files):
         return "LOW", ["docs/types/tests only"]
     return "NORMAL", []
+# Director 2026-09-10 05:55 (interview): a check named in $STATE/advisory-checks (one exact name per
+# line) is ADVICE, not a gate — its failure never moves a PR out of ready. Written for the two AI-review
+# jobs ("SDK multi-agent review", "Deep review status") that went red on every PR when their subscription
+# hit a spend limit; GitHub's own branch ruleset never required them, only the wave's all-green rule did.
+# Delete the line from that file and the check is a gate again — no code change, same as allow-destructive.
+ADVISORY = {l.strip() for l in os.environ.get("ADVISORY_CHECKS","").splitlines() if l.strip()}
 def ci(p):
     runs = p.get("statusCheckRollup") or []
-    bad = [r.get("name") for r in runs if (r.get("conclusion") or "").upper() in ("FAILURE","TIMED_OUT","ACTION_REQUIRED","STARTUP_FAILURE","ERROR")]
+    bad = [r.get("name") for r in runs if (r.get("conclusion") or "").upper() in ("FAILURE","TIMED_OUT","ACTION_REQUIRED","STARTUP_FAILURE","ERROR") and (r.get("name") or "") not in ADVISORY]
     if bad: return "FAIL", bad[:3]
     pend = [r.get("name") for r in runs if (r.get("status") or "").upper() in ("IN_PROGRESS","QUEUED","PENDING","EXPECTED") or ((r.get("status") or "").upper()=="COMPLETED" and r.get("conclusion") is None)]
     if pend: return "PENDING", pend[:3]
@@ -201,7 +207,10 @@ for p in prs:
     if row["base"] != "main": plan["stacked"].append(row)
     elif p["isDraft"]: plan["draft"].append(row)
     elif p["mergeStateStatus"]=="DIRTY": plan["conflicted"].append(row)
-    elif p["mergeStateStatus"]!="CLEAN": plan["blocked"].append(row)
+    # GitHub says UNSTABLE when a NON-required check failed and the merge is still allowed. If every one of
+    # those failures is on the advisory list (v=="OK" after filtering), the PR is not blocked — it falls through
+    # to the same quiet/ready tests a CLEAN PR gets. Any real failure leaves v=="FAIL" and it stays blocked.
+    elif p["mergeStateStatus"]!="CLEAN" and not (p["mergeStateStatus"]=="UNSTABLE" and v=="OK"): plan["blocked"].append(row)
     elif v!="OK": plan["waiting_ci"].append(row)
     elif age < quiet: plan["quiet_wait"].append(row)          # interview: author may still be typing
     else: plan["ready"][t].append(row)
@@ -360,6 +369,13 @@ Could you rebase onto \`jicate/main\` and resolve it? The ship wave will pick th
 # shellcheck source=scripts/ship-wave/unblock-lanes.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/unblock-lanes.sh"
 
+# Pacing, moved down from line 133 (2026-09-08): unchanged_since_last_run lives in
+# unblock-lanes.sh, sourced just above, so the original call site ran 227 lines too early --
+# every --if-changed run printed "unchanged_since_last_run: command not found" and then swept
+# anyway. Everything between there and here is definitions and variable setup, so skipping
+# here is still free.
+if [ -n "${IF_CHANGED:-}" ] && [ "$MODE" = "go" ] && unchanged_since_last_run; then exit 0; fi
+
 run_once() {
   local ts; ts=$(date '+%Y%m%d-%H%M%S')
   local run="$STATE/run-$ts"; mkdir -p "$run"
@@ -517,7 +533,11 @@ PY
   # PR. Safe because 3b has already applied the (additive-only) migrations: schema ahead of code is the
   # harmless direction. A plain `go` (no --goal) still deploys immediately, and flushes any leftover batch.
   if [ -n "${FINAL_DEPLOY:-}" ]; then
-    merged_files="$pending"; merged=$(grep -c . "$pending" 2>/dev/null || echo 0); merged_list=" (batched: $merged file(s) merged this run)"
+    # The deploy step drains $pending, but the L3 sweep below still needs the list.
+    # Copy it into the run dir instead of pointing at the file that is about to vanish
+    # (2026-09-08: three "deploy-pending: No such file" errors in every goal run's sweep).
+    merged_files="$run/merged-files.txt"; cp "$pending" "$merged_files" 2>/dev/null || : > "$merged_files"
+    merged=$(grep -c . "$merged_files" 2>/dev/null || echo 0); merged_list=" (batched: $merged file(s) merged this run)"
   elif [ -n "$GOAL" ] && [ "$merged" -gt 0 ] && [ "$apply_ok" -ne 0 ] && [ -z "$NO_DEPLOY" ]; then
     cat "$merged_files" >> "$pending"; DEPLOY_DEFERRED=1
     deploy="deferred — goal runs deploy ONCE at the end ($(grep -c . "$pending") file(s) waiting; migrations already applied)"

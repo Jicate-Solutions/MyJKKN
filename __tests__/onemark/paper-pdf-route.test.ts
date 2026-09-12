@@ -117,14 +117,16 @@ describe('GET /api/foundation/onemark/paper/[id]/pdf', () => {
     expect(JSON.stringify(body)).not.toContain('fp_items');
   });
 
-  it('422 naming the item and the glyph when no embedded font can print a character — never a box', async () => {
-    const { GlyphCoverageError } = await import('@/lib/onemark/pdf/notation');
-    renderImpl = () => Promise.reject(new GlyphCoverageError([{ itemId: 'item-9', glyphs: ['‰ U+2030'] }]));
+  it('has no 422 any more: an unprintable character prints "[?]" in the renderer, and a real render failure is a plain 500', async () => {
+    // Until 2026-09-12 a GlyphCoverageError became a 422 and the whole answer
+    // key failed over one ᵣ. The renderer now prints a placeholder instead
+    // (paper-pdf-unprintable-glyphs.test.ts), so the only failure left here is
+    // a genuine one, answered with the fixed message.
+    renderImpl = () => Promise.reject(new Error('Chromium crashed'));
     const res = await call('?series=A');
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(500);
     const body = await res.json();
-    expect(body.gaps).toEqual([{ itemId: 'item-9', glyphs: ['‰ U+2030'] }]);
-    expect(body.error).toMatch(/cannot print/);
+    expect(body).toEqual({ error: 'Could not render the paper' });
   });
 
   it('streams the question paper WITHOUT answers by default', async () => {

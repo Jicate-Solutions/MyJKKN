@@ -37,6 +37,13 @@ import { InstitutionComparisonChart } from './_components/institution-comparison
 import { MaintenanceAnalyticsCard } from './_components/maintenance-analytics-card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { toast } from 'sonner';
+import { downloadCsv } from '@/lib/utils/csv-export';
+import {
+  RESOURCE_ANALYTICS_EXPORT_COLUMNS,
+  rankResourcesForExport,
+  resourceAnalyticsFilename
+} from './_components/resource-analytics-export';
 
 export default function AnalyticsDashboardPage() {
   return (
@@ -71,9 +78,22 @@ function AnalyticsDashboardContent() {
   const { data: maintenanceData, isLoading: loadingMaintenance } =
     useMaintenanceAnalytics(rbacFilters);
 
+  // Exports the Top Performing Resources table in full, from the `data` this
+  // page already loaded with `rbacFilters`, so no new query runs.
   const handleExport = () => {
-    // TODO: Implement export functionality
-    console.log('Exporting analytics data...');
+    const resources = rankResourcesForExport(data?.reservations?.by_resource ?? []);
+    if (resources.length === 0) {
+      toast.info('There are no resource reservations to download for this period.');
+      return;
+    }
+    downloadCsv(
+      resources,
+      RESOURCE_ANALYTICS_EXPORT_COLUMNS,
+      resourceAnalyticsFilename(period)
+    );
+    toast.success(
+      `Downloaded ${resources.length} ${resources.length === 1 ? 'resource' : 'resources'}.`
+    );
   };
 
   const getPeriodLabel = (period: AnalyticsPeriod) => {
@@ -119,7 +139,7 @@ function AnalyticsDashboardContent() {
           </p>
         </div>
         <div className='flex items-center gap-4'>
-          <Button variant='outline' onClick={handleExport}>
+          <Button variant='outline' onClick={handleExport} disabled={isLoading}>
             <Download className='mr-2 h-4 w-4' />
             Export Report
           </Button>
