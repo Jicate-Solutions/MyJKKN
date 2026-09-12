@@ -283,7 +283,7 @@ describe('other roles and bad input', () => {
     }
   });
 
-  it('admin, counsellor and accounts staff: only their own institution, like a principal (2026-09-12)', async () => {
+  it('admin, counsellor and accounts team members: only their own institution, like a principal (2026-09-12)', async () => {
     for (const [role, userId] of [
       ['admin', IDS.adminA],
       ['administrator', IDS.administratorA],

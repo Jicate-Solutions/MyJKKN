@@ -236,7 +236,7 @@ describe('GET /api/analytics/engagement (learner table and cards)', () => {
   });
 });
 
-describe('admin, counsellor and accounts staff: their own institution, like a principal (2026-09-12)', () => {
+describe('admin, counsellor and accounts team members: their own institution, like a principal (2026-09-12)', () => {
   // profiles.role as stored: 'admin' and 'administrator', 'admission_counselor'
   // and 'expo_counselor', 'accounts'. Each is on Institution A.
   const STAFF = [

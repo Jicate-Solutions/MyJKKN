@@ -33,7 +33,7 @@ describe('levelOpenToScope', () => {
 });
 
 describe('isEngagementInstitutionStaffRole (own institution, like a principal)', () => {
-  it('names the stored role spellings for admin, counsellor and accounts staff', () => {
+  it('names the stored role spellings for admin, counsellor and accounts team members', () => {
     expect([...ENGAGEMENT_INSTITUTION_STAFF_ROLES].sort()).toEqual(
       ['accounts', 'admin', 'administrator', 'admission_counselor', 'expo_counselor'].sort()
     );
