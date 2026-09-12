@@ -53,6 +53,32 @@ export default async function ImprovementBoardPage() {
     .eq('is_active', true)
     .order('display_order', { ascending: true });
 
+  // Departments the viewer can target, scoped to their own institution so the
+  // picker stays a short, meaningful list instead of every department in the
+  // cluster. RLS (`departments_select_by_role`) admits
+  // `role_has_institution_access(institution_id)`, so any signed-in member of
+  // the institution — a learner included — can read this list.
+  const institutionId = profile.institution_id || '';
+  let departments: { id: string; name: string }[] = [];
+  if (institutionId) {
+    const { data: departmentRows } = await supabase
+      .from('departments')
+      .select('id, department_name, display_name')
+      .eq('is_active', true)
+      .eq('institution_id', institutionId)
+      .order('department_order', { ascending: true, nullsFirst: false })
+      .order('department_name', { ascending: true });
+
+    departments = ((departmentRows || []) as {
+      id: string;
+      department_name: string | null;
+      display_name: string | null;
+    }[]).map((d) => ({
+      id: d.id,
+      name: d.display_name || d.department_name || 'Unnamed department'
+    }));
+  }
+
   // Ideas the viewer can see (RLS enforces open/sensitive scoping).
   const { data: rawIdeas } = await supabase
     .from('improvement_ideas')
@@ -102,8 +128,9 @@ export default async function ImprovementBoardPage() {
       <ImprovementBoardClient
         userId={profile.id}
         userName={profile.full_name || 'You'}
-        institutionId={profile.institution_id || ''}
+        institutionId={institutionId}
         initialAreas={areaList}
+        initialDepartments={departments}
         initialIdeas={ideas}
       />
     </ContentLayout>
