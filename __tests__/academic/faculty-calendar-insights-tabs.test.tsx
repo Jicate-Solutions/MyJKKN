@@ -55,8 +55,8 @@ vi.mock('@/components/ui/select', () => ({
   ),
   SelectTrigger: () => null,
   SelectValue: () => null,
-  SelectContent: ({ children }: { children: ReactNode }) => <>{children}</>,
-  SelectItem: ({ value, children }: any) => <option value={value}>{children}</option>
+  SelectContent: ({ children: c }: { children: ReactNode }) => <>{c}</>,
+  SelectItem: ({ value, children: c }: any) => <option value={value}>{c}</option>
 }));
 
 import { AvailabilityTab } from '@/app/(routes)/academic/timetables/faculty-calendar/admin/_components/availability-tab';
@@ -151,22 +151,22 @@ describe('Availability tab', () => {
 
   it('warns when the viewer holds no leave permission', () => {
     render(<AvailabilityTab {...baseProps} leavePermission='none' />);
-    expect(screen.getByText(/can't view staff leave for this institution/)).toBeInTheDocument();
+    expect(screen.getByText(/can't view leave records for this institution/)).toBeInTheDocument();
   });
 
   it('warns when the leave permission does not reach this institution', () => {
     h.leaveVisibility = ok(false);
     render(<AvailabilityTab {...baseProps} leavePermission='scoped' />);
-    expect(screen.getByText(/can't view staff leave for this institution/)).toBeInTheDocument();
+    expect(screen.getByText(/can't view leave records for this institution/)).toBeInTheDocument();
   });
 
   it('does not warn when the leave permission reaches this institution, or for a super admin', () => {
     h.leaveVisibility = ok(true);
     render(<AvailabilityTab {...baseProps} leavePermission='scoped' />);
-    expect(screen.queryByText(/can't view staff leave/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/can't view leave records/)).not.toBeInTheDocument();
     cleanup();
     render(<AvailabilityTab {...baseProps} leavePermission='all' />);
-    expect(screen.queryByText(/can't view staff leave/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/can't view leave records/)).not.toBeInTheDocument();
   });
 
   it('says so plainly when the institution is not the viewer’s', () => {
@@ -285,7 +285,7 @@ describe('Conflicts tab', () => {
     });
     render(<ConflictsTab {...baseProps} />);
     expect(screen.getByText('1 clash')).toBeInTheDocument();
-    expect(screen.getByText('Two classes')).toBeInTheDocument();
+    expect(screen.getByText('Two sessions')).toBeInTheDocument();
     expect(screen.getByText('Mon 14 Sep, 10:20–10:50')).toBeInTheDocument();
     expect(screen.getByText('Class: CS301 · A (TT a), 10:00–10:50')).toBeInTheDocument();
     expect(screen.getByText(/may be a planned combined class/)).toBeInTheDocument();

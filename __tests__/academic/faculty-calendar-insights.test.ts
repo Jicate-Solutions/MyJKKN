@@ -511,7 +511,7 @@ describe('Rule 3: Conflicts', () => {
     expect(clashes.map((c) => c.type)).toEqual(['class-event']);
   });
 
-  it('does not report a meeting with an event duty, back-to-back classes, or two people', () => {
+  it('does not report a meeting with an event duty, back-to-back sessions, or two people', () => {
     expect(
       findClashes([entry('s1', 'meeting', MON, '10:00', '11:00'), entry('s1', 'event', MON, '10:30', '11:30')])
     ).toHaveLength(0);
@@ -587,7 +587,7 @@ describe('Nothing outside the viewer’s institution', () => {
     expect(await FacultyCalendarInsightsService.isLeaveVisibleForInstitution(scope)).toBe(false);
   });
 
-  it('keeps staff whose teaching flag is unset, drops marked non-teaching staff without classes', () => {
+  it('keeps people whose teaching flag is unset, drops marked non-teaching people without sessions', () => {
     const row = (staffId: string, isTeaching: boolean | null) => ({ ...person(staffId), isTeaching });
     const picked = FacultyCalendarInsightsService.pickSeniorLearners(
       [row('t', true), row('unset', null), row('office', false), row('office-teaching', false)],
@@ -610,7 +610,7 @@ describe('Nothing outside the viewer’s institution', () => {
     expect(h.fromCalls).toEqual([]);
   });
 
-  it('drops staff and clashes belonging to another institution', async () => {
+  it('drops people and clashes belonging to another institution', async () => {
     h.tables.staff = {
       data: [
         { id: 's1', first_name: 'Asha', last_name: 'R', profile_id: 'prof-1', institution_id: INST, category: { is_teaching: true } },
@@ -640,8 +640,8 @@ describe('Nothing outside the viewer’s institution', () => {
     ];
 
     const scope = { institutionId: INST, accessibleInstitutionIds: [INST] };
-    const staff = await FacultyCalendarInsightsService.getStaff(scope);
-    expect(staff.map((s) => s.staffId)).toEqual(['s1']);
+    const people = await FacultyCalendarInsightsService.getStaff(scope);
+    expect(people.map((s) => s.staffId)).toEqual(['s1']);
     expect(h.filterCalls).toContainEqual(['staff', 'eq', ['institution_id', INST]]);
 
     const { clashes } = await FacultyCalendarInsightsService.getConflicts(scope, MON);

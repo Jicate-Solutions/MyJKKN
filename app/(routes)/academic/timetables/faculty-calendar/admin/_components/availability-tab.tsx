@@ -150,7 +150,7 @@ export function AvailabilityTab({
 
       {leaveHidden && (
         <InsightsNotice tone='warning'>
-          You can&apos;t view staff leave for this institution, so approved leave may not be shown
+          You can&apos;t view leave records for this institution, so approved leave may not be shown
           here. A Senior Learner on leave may appear free.
         </InsightsNotice>
       )}
@@ -173,15 +173,15 @@ export function AvailabilityTab({
         <>
           {availability.data?.diaryFailed && (
             <InsightsNotice tone='warning'>
-              Meetings and event duties could not be checked just now, so only classes and leave are
-              shown. Refresh to try again.
+              Meetings and event duties could not be checked just now, so only timetable sessions and leave
+              are shown. Refresh to try again.
             </InsightsNotice>
           )}
           {!availability.data?.diaryFailed && (availability.data?.withoutLogin ?? 0) > 0 && (
             <InsightsNotice>
               {availability.data?.withoutLogin} Senior Learner
               {availability.data?.withoutLogin === 1 ? ' has' : 's have'} no login account, so only
-              their classes and leave are checked.
+              their timetable sessions and leave are checked.
             </InsightsNotice>
           )}
 

@@ -38,7 +38,7 @@ interface Props {
 }
 
 const TYPE_LABEL: Record<ClashType, string> = {
-  'class-class': 'Two classes',
+  'class-class': 'Two sessions',
   'class-meeting': 'Class and meeting',
   'class-event': 'Class and event duty'
 };
@@ -74,7 +74,7 @@ export function ConflictsTab({
       />
 
       <p className='text-sm text-muted-foreground'>
-        Senior Learners booked into two things at the same time: two classes, or a class with a
+        Senior Learners booked into two things at the same time: two sessions, or a session with a
         meeting or an event duty.
       </p>
 
@@ -96,7 +96,7 @@ export function ConflictsTab({
           {data.diaryFailed && (
             <InsightsNotice tone='warning'>
               Meetings and event duties could not be checked just now, so only clashes between two
-              classes are shown. Refresh to try again.
+              sessions are shown. Refresh to try again.
             </InsightsNotice>
           )}
           {!data.diaryFailed && data.withoutLogin > 0 && (
