@@ -14,6 +14,8 @@
  *   withdrawCandidate  — R2.1 soft-status change
  *   markNoShow         — R2.4
  *   updateStatus       — joined / offer_rescinded / offer_issued transitions
+ *   assertMayUpdateStatus — the permission + HR-organisation gate the status
+ *                        route now runs BEFORE any of those transitions
  *   buildApprovalChain — reads hr_approval_flows, freezes snapshot
  */
 
@@ -76,6 +78,138 @@ export interface CandidateFilters extends BaseCandidateFilters {
 function sanitizeSearchTerm(search: string): string {
   return search.replace(/[,()"\\:*%]/g, ' ').trim();
 }
+
+/**
+ * A refusal that is a PERMISSION refusal, not a bad request.
+ *
+ * Carried as its own class so a route can answer 403 with a machine-readable
+ * `reason` instead of folding the refusal into the same 400 that a malformed
+ * body produces. `reason` is a stable key for the UI; `message` is the sentence
+ * a person reads.
+ */
+export type RecruitmentRefusalReason =
+  | 'missing_permission'
+  | 'outside_your_organisation'
+  /** The route's own gate admitted the caller and the DATABASE then refused. */
+  | 'refused_by_database';
+
+export class RecruitmentForbiddenError extends Error {
+  readonly reason: RecruitmentRefusalReason;
+  /** PostgREST/Postgres code when the refusal came from the database, else null. */
+  readonly dbCode: string | null;
+  constructor(reason: RecruitmentRefusalReason, message: string, dbCode: string | null = null) {
+    super(message);
+    this.name = 'RecruitmentForbiddenError';
+    this.reason = reason;
+    this.dbCode = dbCode;
+  }
+}
+
+/**
+ * A write that reached the database and came back refused, translated into a
+ * named refusal instead of being re-thrown as-is.
+ *
+ * WHY THIS EXISTS (review round 1, P3). `assertMayUpdateStatus` below and the
+ * RLS UPDATE policy are NOT the same predicate, and cannot be:
+ *
+ *   gate:   hr_organization_id ∈ fn_my_hr_organization_ids()
+ *   policy: role_has_institution_access(institution_id)
+ *
+ * A `.edit` + `.view` holder who is active staff of the candidate's institution
+ * passes the gate; if their ROLE's scope does not reach that institution the
+ * policy still refuses. The gate is therefore necessary but not sufficient, and
+ * the residue has to be named rather than leaked.
+ *
+ * `throw error` on a PostgrestError is not enough: postgrest-js returns a PLAIN
+ * OBJECT, so `err instanceof Error` is false and a route catch that reads
+ * `err.message` off an `Error` answered **400 "Unknown error"** — the exact
+ * signature PR #3418 fixed for approve/reject. Worse, an RLS-filtered
+ * `.update().select().single()` matches ZERO rows, which PostgREST reports as
+ * `PGRST116` ("JSON object requested, multiple (or no) rows returned") — a
+ * refusal that looks like a 404 and reads like a parse error.
+ *
+ * Mapping (CLAUDE.md #27 — a permission failure is NAMED, never silent):
+ *   PGRST116 / 42501 / PGRST301 → 403 `refused_by_database`
+ *   23xxx (constraint)          → 409, surfaced by the route
+ *   anything else               → re-thrown untouched, so a real bug stays loud
+ */
+function isPostgrestError(
+  err: unknown
+): err is { code?: string; message?: string; details?: string; hint?: string } {
+  return typeof err === 'object' && err !== null && 'code' in err && !(err instanceof Error);
+}
+
+/** Postgres/PostgREST codes that mean "you were refused", not "your input was bad". */
+const DB_REFUSAL_CODES = new Set(['PGRST116', 'PGRST301', '42501']);
+
+export class RecruitmentDbConflictError extends Error {
+  readonly dbCode: string;
+  constructor(message: string, dbCode: string) {
+    super(message);
+    this.name = 'RecruitmentDbConflictError';
+    this.dbCode = dbCode;
+  }
+}
+
+/**
+ * Translate a PostgREST failure on a candidate write into a named refusal.
+ *
+ * `what` names the act in the sentence a person reads, e.g. "change this
+ * candidate's status".
+ */
+function translateCandidateWriteError(err: unknown, what: string): never {
+  if (isPostgrestError(err)) {
+    const code = String(err.code ?? '');
+    if (DB_REFUSAL_CODES.has(code)) {
+      throw new RecruitmentForbiddenError(
+        'refused_by_database',
+        `The database refused to ${what}. Your permissions allow the action, but this ` +
+          'candidate belongs to an institution your role is not scoped to reach ' +
+          '(the row-level policy requires role_has_institution_access on their institution). ' +
+          'Ask an HR administrator to widen your role’s institution scope, or ask the ' +
+          'candidate’s own HR team to act.',
+        code || null
+      );
+    }
+    if (code.startsWith('23')) {
+      throw new RecruitmentDbConflictError(
+        `The database rejected the attempt to ${what} because it conflicts with an ` +
+          `existing record (${code}). Reload the candidate and try again.`,
+        code
+      );
+    }
+  }
+  throw err;
+}
+
+/**
+ * A zero-row UPDATE that PostgREST did NOT report as an error.
+ *
+ * `.update().select()` without `.single()` returns `{ data: [], error: null }`
+ * when RLS filtered every row — success-shaped, and silent. Named here for the
+ * same reason as above.
+ */
+function assertWriteLanded(rows: unknown[] | null, what: string): void {
+  if (!rows || rows.length === 0) {
+    throw new RecruitmentForbiddenError(
+      'refused_by_database',
+      `The database refused to ${what} — no row was changed. This is a row-level ` +
+        'permission refusal, not a missing candidate. Ask an HR administrator to widen ' +
+        'your role’s institution scope, or ask the candidate’s own HR team to act.',
+      'zero_rows'
+    );
+  }
+}
+
+/**
+ * The forward-transition map `updateStatus` enforces. Hoisted out of the method
+ * so the Issue Offer predicate below can be proven to agree with it.
+ */
+export const CANDIDATE_FORWARD_TRANSITIONS: Partial<Record<CandidateStatus, CandidateStatus[]>> = {
+  approved:       ['package_fixed', 'offer_issued'],
+  package_fixed:  ['offer_issued'],
+  offer_issued:   ['joined', 'no_show', 'offer_rescinded'],
+};
 
 export class RecruitmentService {
   // ----- List / Get -----
@@ -549,11 +683,108 @@ export class RecruitmentService {
       .eq('id', id)
       .select()
       .single();
-    if (error) throw error;
+    // Same named refusal as updateStatus: this method is reached through the
+    // same route, so an RLS refusal here must not answer 400 "Unknown error".
+    if (error) translateCandidateWriteError(error, 'mark this candidate as a no-show');
+    assertWriteLanded(data ? [data] : [], 'mark this candidate as a no-show');
     return data as HRRecruitmentCandidate;
   }
 
   // ----- Status transitions (joined / offer_rescinded / offer_issued) -----
+
+  /**
+   * Who may move a candidate's status, checked BEFORE the write is attempted.
+   *
+   * WHAT THIS FIXES. The status route
+   * (app/api/hr/recruitment/candidates/[id]/status/route.ts) authenticated the
+   * caller and then went straight into updateStatus, whose only test is the
+   * forward-transition map. The write itself was not unguarded — the UPDATE
+   * policy on hr_recruitment_candidates requires
+   * `hr.recruitment.edit AND role_has_institution_access(institution_id)` — but
+   * an RLS refusal on an `.update().select().single()` matches zero rows and
+   * raises PGRST116, which is not an `Error` instance, so the route's catch
+   * reported **HTTP 400 "Unknown error"**. That is the exact failure signature
+   * PR #3418 spent a fix on for the approve/reject paths: the caller is told
+   * nothing, and the refusal is indistinguishable from a bad payload.
+   *
+   * This PR is the first to put a UI control on this transition, so the refusal
+   * is made explicit here (CLAUDE.md #27 — a permission failure is a named
+   * refusal, never a silent bounce) and, because it runs before the write, it
+   * also holds if a future caller ever reaches updateStatus through a
+   * service-role client, which RLS would not stop at all.
+   *
+   * WHAT IS CHECKED
+   *   0. is_admin() — the bypass the RLS UPDATE policy itself carries. See the
+   *      note below: omitting it was a REGRESSION, not a hardening.
+   *   1. hr.recruitment.edit — the module's own management key.
+   *   2. hr.recruitment.view — required alongside, defence in depth. In the
+   *      live catalogue every `.edit` holder also holds `.view` (0 exceptions),
+   *      so this removes nobody's access today.
+   *   3. hr_organization_id ∈ fn_my_hr_organization_ids() — the same predicate
+   *      the rest of the HR module scopes by, skipped for a super admin (who
+   *      bypasses every other branch of the module too).
+   *
+   * WHY is_admin() IS HERE (review round 1, P5). The UPDATE policy on
+   * hr_recruitment_candidates (supabase/setup/03_policies.sql ~5353) reads:
+   *
+   *   is_super_admin() OR is_admin()
+   *   OR (user_has_permission('hr.recruitment.edit')
+   *       AND role_has_institution_access(institution_id))
+   *
+   * `user_has_permission()` bypasses for `profiles.is_super_admin = true` ONLY —
+   * it does NOT bypass for `profiles.role IN ('admin','administrator',
+   * 'super_admin')`, which is what `is_admin()` adds. So without this branch a
+   * profile whose ROLE is admin but whose `is_super_admin` is false, holding
+   * neither recruitment key, could update a candidate's status yesterday through
+   * RLS and would get a 403 today. `canMarkJoined` on the candidate page carries
+   * no permission gate at all, so that person sees "Mark as Joined", clicks it,
+   * and the button breaks. A gate in front of a policy must not be NARROWER than
+   * the policy for an existing, working path — it may only name refusals the
+   * policy would also make. This route matches the policy now.
+   *
+   * The org test is skipped for both bypasses for the same reason: `is_admin()`
+   * is cluster-wide in the policy too, so applying HR-organisation scoping to it
+   * here would re-introduce exactly the narrowing this fixes.
+   *
+   * Throws {@link RecruitmentForbiddenError}; the route maps it to 403 plus the
+   * machine-readable `reason`.
+   */
+  static async assertMayUpdateStatus(
+    supabase: SupabaseClient,
+    candidate: Pick<HRRecruitmentCandidate, 'hr_organization_id'>
+  ): Promise<void> {
+    // The policy's own two bypasses, read FIRST. They must be tested before the
+    // permission-key refusal below, or an admin-role profile holding neither key
+    // is thrown out before its bypass is ever consulted.
+    const [{ data: isSuperAdmin }, { data: isAdmin }] = await Promise.all([
+      supabase.rpc('is_super_admin'),
+      supabase.rpc('is_admin'),
+    ]);
+    if (isSuperAdmin || isAdmin) return;
+
+    const [{ data: canEdit }, { data: canView }] = await Promise.all([
+      supabase.rpc('user_has_permission', { permission_name: 'hr.recruitment.edit' }),
+      supabase.rpc('user_has_permission', { permission_name: 'hr.recruitment.view' }),
+    ]);
+    if (!canEdit || !canView) {
+      throw new RecruitmentForbiddenError(
+        'missing_permission',
+        'You do not have permission to change a candidate’s status ' +
+          '(needs hr.recruitment.edit and hr.recruitment.view). ' +
+          'Ask an HR administrator to grant it.'
+      );
+    }
+
+    const { data: myOrgs } = await supabase.rpc('fn_my_hr_organization_ids');
+    const orgs = Array.isArray(myOrgs) ? (myOrgs as unknown[]).map(String) : [];
+    if (!candidate.hr_organization_id || !orgs.includes(String(candidate.hr_organization_id))) {
+      throw new RecruitmentForbiddenError(
+        'outside_your_organisation',
+        'This candidate belongs to an HR organisation you are not part of, ' +
+          'so you cannot change their status. Ask their own HR team to act.'
+      );
+    }
+  }
 
   static async updateStatus(
     supabase: SupabaseClient,
@@ -563,14 +794,8 @@ export class RecruitmentService {
     const candidate = await this.getCandidate(supabase, id);
     if (!candidate) throw new Error('Candidate not found');
 
-    // Define valid forward transitions only
-    const validTransitions: Partial<Record<CandidateStatus, CandidateStatus[]>> = {
-      approved:       ['package_fixed', 'offer_issued'],
-      package_fixed:  ['offer_issued'],
-      offer_issued:   ['joined', 'no_show', 'offer_rescinded'],
-    };
-
-    const allowed = validTransitions[candidate.status] ?? [];
+    // Valid forward transitions only — see CANDIDATE_FORWARD_TRANSITIONS.
+    const allowed = CANDIDATE_FORWARD_TRANSITIONS[candidate.status] ?? [];
     if (!allowed.includes(newStatus)) {
       throw new Error(
         `Transition '${candidate.status}' → '${newStatus}' is not allowed. ` +
@@ -582,6 +807,24 @@ export class RecruitmentService {
     if (newStatus === 'joined') {
       updatePayload.actual_joining_date = new Date().toISOString().split('T')[0];
     }
+    // Stamp WHEN the offer went out and WHO sent it (review round 1, P6).
+    //
+    // Without these two columns the only trace of the click was the status
+    // itself, and fn_my_desk_waiting's offer branch kept `waiting_since =
+    // submitted_at` — so the Director's desk still read "162 days" and climbing
+    // after HR acted, with one sentence of `detail` changed. That reads as
+    // "nothing happened" and defeats the queue the button exists to serve. The
+    // migration in this PR uses COALESCE(offer_issued_at, submitted_at) as
+    // waiting_since, so an issued offer's age restarts from the day it was
+    // issued; these writes are what makes that COALESCE ever fire.
+    //
+    // offer_issued_by is resolved from the caller's own session, never from a
+    // client-supplied id.
+    if (newStatus === 'offer_issued') {
+      updatePayload.offer_issued_at = new Date().toISOString();
+      const { data: auth } = await supabase.auth.getUser();
+      updatePayload.offer_issued_by = auth?.user?.id ?? null;
+    }
 
     const { data, error } = await supabase
       .from('hr_recruitment_candidates')
@@ -589,7 +832,13 @@ export class RecruitmentService {
       .eq('id', id)
       .select()
       .single();
-    if (error) throw error;
+    // A refusal that came from the DATABASE is named, not re-thrown raw: the
+    // gate above and the RLS policy are different predicates, so a caller the
+    // gate admits can still be refused here (see translateCandidateWriteError).
+    if (error) translateCandidateWriteError(error, 'change this candidate’s status');
+    // PGRST116 covers the zero-row case for `.single()`, but assert the row
+    // anyway — a future caller dropping `.single()` must not get silence.
+    assertWriteLanded(data ? [data] : [], 'change this candidate’s status');
     return data as HRRecruitmentCandidate;
   }
 

@@ -4333,6 +4333,14 @@ CREATE TABLE IF NOT EXISTS public.hr_recruitment_candidates (
   rejection_reason        text,
   expected_joining_date   date,
   actual_joining_date     date,
+  -- Updated: 2026-09-12 (20261202090000_fn_my_desk_waiting_offer_issued.sql) —
+  -- record WHEN the offer went out and WHO sent it. Nullable, NOT backfilled:
+  -- rows that reached 'offer_issued' before the Issue Offer control existed have
+  -- no such moment to record. fn_my_desk_waiting's offer branch reads
+  -- COALESCE(offer_issued_at, submitted_at) as waiting_since, so an issued
+  -- offer's age on the desk restarts from the day it was issued.
+  offer_issued_at         timestamptz,
+  offer_issued_by         uuid REFERENCES public.profiles(id),
   submitted_by            uuid NOT NULL REFERENCES public.profiles(id),
   submitted_at            timestamptz NOT NULL DEFAULT now(),
   created_at              timestamptz NOT NULL DEFAULT now(),
