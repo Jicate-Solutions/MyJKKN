@@ -107,7 +107,7 @@ Extend, do not replace:
 - **Threshold 2.** `policy_proposals` gains: for each freeze `class`, if the Director has resolved it the SAME
   way (same `writes` shape, ignoring the value) ≥2 times, emit proposal `P<n> AUTO_<CLASS>_<ACTION>` with the
   two dated resolutions as evidence. Threshold is a constant `PROPOSE_AFTER=2` at the top of the file.
-- **Never destructive.** A hard-coded `NEVER_RULE` list of classes whose proposals are never generated:
+- **Never destructive.** A hard-coded `NEVER_RULE` list of categories whose proposals are never generated:
   anything whose message matched `DROP|TRUNCATE|DELETE FROM|destructive|APPLY failed|deploy ERROR`. Comment
   quotes the Director: "Anything that deletes or drops data can never become a rule — that stays yours every
   single time."
@@ -252,7 +252,7 @@ State files: `nudges/<group>.json` as above (`status` ∈ pending · delivered �
 draft moved before the desk sent it). `stale-drafts/<group>` — one marker per group,
 `<date>\t<stage>\t<a>\t<b>\t<epoch>\t<members>\t<closed>`: `nudged` (a = last activity epoch), `asked` (a = question id,
 b = last activity at ask, members = what the question lists, closed = PRs already closed on a Close), `keep` (a =
-quiet-until), `closed` (a = question id). Ledger classes: `lane e nudge | ask | ask again | keep | nudge again | close`.
+quiet-until), `closed` (a = question id). Ledger categories: `lane e nudge | ask | ask again | keep | nudge again | close`.
 
 Proof: `tests/test-lane-e-amendments.sh` (and `tests/test-lane-e.sh`, updated) — stubbed `gh`, tmux and SendMessage;
 temp copies of the mapping files; real `lane_stale_drafts`, real `desk-nudge-targets.sh` through `v5-w12-desk.sh`, real
