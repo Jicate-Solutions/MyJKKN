@@ -69,23 +69,57 @@ export default function ProposalTimeline({ proposalId }: TimelineProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Re-read when the tab comes back to the foreground.
+  //
+  // WHY: this component fetched exactly once. Its deps are [proposalId,
+  // supabase], and createClientSupabaseClient() returns a singleton, so neither
+  // ever changes — there was no second read for the life of the tab. It is also
+  // mounted via next/dynamic({ ssr: false }) from a 'use client' page, so the
+  // approver's router.refresh() on the proposals screen cannot reach it either.
+  //
+  // The effect of that: someone leaves this page open, the proposal is decided
+  // elsewhere, and the stepper keeps showing the old step indefinitely. It
+  // happened on 2026-09-07 — a proposal approved at 12:50Z still read
+  // "Submitted" on a tab opened before then, and was reported as a broken
+  // stepper. The mapping was right; the data was stale. It cost a bug hunt.
+  //
+  // A visibilitychange re-read is the proportionate fix: a proposal is decided
+  // rarely and read occasionally, so a realtime subscription (the
+  // postgres_changes pattern used by bug-reports) would hold an open channel
+  // for an event that fires once. Coming back to the tab is exactly when the
+  // reader needs the truth.
   useEffect(() => {
     if (!proposalId) return;
+    let cancelled = false;
 
-    (async () => {
+    const read = async () => {
       const { data, error: fetchError } = await (supabase as any)
         .from('event_proposals')
         .select('*')
         .eq('id', proposalId)
         .single();
 
+      if (cancelled) return;
       if (fetchError) {
         setError(fetchError.message);
       } else {
+        setError(null);
         setProposal(data as EventProposal);
       }
       setLoading(false);
-    })();
+    };
+
+    read();
+
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') read();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [proposalId, supabase]);
 
   if (loading) {
