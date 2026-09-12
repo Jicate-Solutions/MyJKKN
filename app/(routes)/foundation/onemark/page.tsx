@@ -14,13 +14,22 @@ import type { LucideIcon } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
 import { PermissionError } from '@/components/errors/permission-error';
 import { Skeleton } from '@/components/ui/skeleton';
+import type { OneMarkStringKey } from '@/lib/onemark/i18n';
+import { OneMarkLocaleToggle } from '@/lib/onemark/i18n/locale-toggle';
+import { useOneMarkT } from '@/lib/onemark/i18n/use-onemark-t';
 import { FoundationHeader } from '../_components/foundation-header';
+
+// The hub carries the interface-language switch (decision 5): it is the first
+// OneMark screen a learner opens, so the choice is available before anything
+// else is read. The copy below is keyed rather than written inline — the
+// dictionaries live in lib/onemark/i18n and English is the fallback for every
+// key a native reviewer has not yet answered (ruling 10).
 
 interface Surface {
   href: string;
-  title: string;
-  description: string;
-  audience: string;
+  titleKey: OneMarkStringKey;
+  descriptionKey: OneMarkStringKey;
+  audienceKey: OneMarkStringKey;
   action: string;
   permission: string;
   icon: LucideIcon;
@@ -29,27 +38,27 @@ interface Surface {
 const SURFACES: Surface[] = [
   {
     href: '/foundation/onemark/practice',
-    title: 'Practice',
-    description: 'Answer one-score items from the live bank, unit by unit, and see your score as you go.',
-    audience: 'Learners',
+    titleKey: 'hub.card.practice.title',
+    descriptionKey: 'hub.card.practice.description',
+    audienceKey: 'hub.card.practice.audience',
     action: 'practice.take',
     permission: 'foundation.practice.take',
     icon: PenLine,
   },
   {
     href: '/foundation/onemark/paper',
-    title: 'Paper',
-    description: 'Assemble a one-score paper from the live bank against a unit list.',
-    audience: 'Senior Learners',
+    titleKey: 'hub.card.paper.title',
+    descriptionKey: 'hub.card.paper.description',
+    audienceKey: 'hub.card.paper.audience',
     action: 'assessments.manage',
     permission: 'foundation.assessments.manage',
     icon: FileText,
   },
   {
     href: '/foundation/onemark/review',
-    title: 'Review drafts',
-    description: 'Read each draft against its source paper, set the answer and level, then tick it into the live bank.',
-    audience: 'Subject Senior Learners',
+    titleKey: 'hub.card.review.title',
+    descriptionKey: 'hub.card.review.description',
+    audienceKey: 'hub.card.review.audience',
     action: 'items.manage',
     permission: 'foundation.items.manage',
     icon: CheckSquare,
@@ -58,6 +67,7 @@ const SURFACES: Surface[] = [
 
 export default function OneMarkHubPage() {
   const { isLoading, canAccess } = usePermissions();
+  const { t } = useOneMarkT();
 
   if (isLoading) {
     return (
@@ -75,7 +85,7 @@ export default function OneMarkHubPage() {
     return (
       <div className="mx-auto w-full max-w-3xl px-4 py-10 md:px-8">
         <PermissionError
-          message="You don't have access to OneMark — contact your school's resource person."
+          message={t('hub.noAccess')}
           requiredPermission={SURFACES.map((s) => s.permission)}
         />
       </div>
@@ -86,12 +96,13 @@ export default function OneMarkHubPage() {
     <div className="mx-auto w-full max-w-5xl space-y-8 px-4 py-6 md:px-8">
       <FoundationHeader
         title="OneMark"
-        subtitle="One-score items lifted from past board papers: practise them, assemble them into a paper, or approve new drafts into the bank."
+        subtitle={t('hub.subtitle')}
         crumbs={[{ label: 'Foundation', href: '/foundation' }, { label: 'OneMark' }]}
+        actions={<OneMarkLocaleToggle />}
       />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {visible.map(({ href, title, description, audience, icon: Icon }) => (
+        {visible.map(({ href, titleKey, descriptionKey, audienceKey, icon: Icon }) => (
           <Link
             key={href}
             href={href}
@@ -101,11 +112,13 @@ export default function OneMarkHubPage() {
               <Icon className="h-5 w-5" />
             </span>
             <div className="flex-1 space-y-1">
-              <p className="text-sm font-semibold text-foreground">{title}</p>
-              <p className="text-sm text-muted-foreground">{description}</p>
+              <p className="text-sm font-semibold text-foreground">{t(titleKey)}</p>
+              <p className="text-sm text-muted-foreground">{t(descriptionKey)}</p>
             </div>
             <div className="flex items-center justify-between text-xs">
-              <span className="uppercase tracking-wider text-muted-foreground">{audience}</span>
+              <span className="uppercase tracking-wider text-muted-foreground">
+                {t(audienceKey)}
+              </span>
               <ArrowRight className="h-4 w-4 text-[#0b6d41] transition-transform group-hover:translate-x-0.5" />
             </div>
           </Link>
