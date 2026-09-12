@@ -53,6 +53,14 @@
 // was: it is now the second, cosmetic pass over a list the database has already
 // narrowed, not the only one.
 //
+// HOW THE READS PAGE (changed 2026-09-12). Keyset, not offset — see fetchPaged()
+// below. The table reached 4,923 rows on 2026-09-12 and only grows, and an
+// offset walk re-derives and discards every row before the one it wants, so the
+// cost of reading the archive was rising with the square of the changelog. The
+// module boundary above is unaffected by this and is re-applied on every page,
+// cursor pages included: `.or()` is one top-level node and PostgREST ANDs the
+// top-level nodes, so a cursor narrows and can never widen.
+//
 // The function is deliberately NOT narrower than the page — it reproduces the
 // multi-role OR-merge, the profiles.role safety net, live handover keys and the
 // super-admin bypass, because a server filter that hides a module the page
@@ -84,35 +92,66 @@ const RECENT_DAYS = 90;
 
 /**
  * PostgREST caps a single response — Supabase's default `db-max-rows` is 1,000 —
- * and it does so SILENTLY: a plain select of the ~4,700 entries returns the
+ * and it does so SILENTLY: a plain select of the ~4,900 entries returns the
  * first 1,000 with no error, which would drop months of history off the page
- * with nothing to notice. Every read below therefore pages, and uses the exact
- * row count returned by the same request to decide when it has everything.
+ * with nothing to notice. Every read below therefore pages.
  */
 const PAGE_ROWS = 1000;
 
+/**
+ * A loop stop that cannot be reasoned away. Keyset paging advances strictly —
+ * the last row of a page is, by construction, before every row of the next —
+ * so this can only fire if the sort or the cursor stops being a total order.
+ * Loudly, then, rather than spinning against the database forever.
+ */
+const MAX_PAGES = 200;
+
 type Page<T> = { data: T[] | null; error: { message: string } | null; count: number | null };
 
-async function fetchAll<T>(
-  pageAt: (from: number, to: number) => PromiseLike<Page<T>>
+/**
+ * PAGING IS KEYSET, NOT OFFSET (changed 2026-09-12).
+ *
+ * It used to be `.range(rows.length, rows.length + 999)`, walked with a growing
+ * offset. PostgREST turns an offset into OFFSET n, and Postgres implements that
+ * by producing and discarding the first n rows of the ordered set: page 5 of
+ * the archive re-derived rows 1..4,000 to throw them away. Reading the whole
+ * archive therefore cost O(n²/PAGE_ROWS) row-productions, and got worse every
+ * time the sync added a commit — 4,923 entries live on 2026-09-12.
+ *
+ * A cursor replaces the offset. Each page asks for the rows strictly AFTER the
+ * last row of the previous one, expressed on the same composite sort key, which
+ * is a seek into changelog_entries_date_idx (entry_date DESC, ordinal ASC)
+ * rather than a scan from the top. Every page costs the same as the first.
+ *
+ * `count: 'exact'` now rides on the FIRST request only. PostgREST answers an
+ * exact count with a COUNT over the whole filtered set, in addition to the rows
+ * — so asking on all five archive pages paid for five full counts to learn one
+ * number that does not change between them. Round-TRIPS are unchanged (the
+ * 1,000-row cap fixes those); what drops is the work inside each one.
+ */
+async function fetchPaged<T>(
+  page: (cursor: T | null, withCount: boolean) => PromiseLike<Page<T>>
 ): Promise<T[]> {
   const rows: T[] = [];
   let expected: number | null = null;
 
-  for (;;) {
-    const { data, error, count } = await pageAt(rows.length, rows.length + PAGE_ROWS - 1);
+  for (let i = 0; ; i++) {
+    if (i >= MAX_PAGES) {
+      throw new Error(`changelog paging did not terminate after ${MAX_PAGES} pages`);
+    }
+    const first = i === 0;
+    const { data, error, count } = await page(first ? null : rows[rows.length - 1], first);
     if (error) throw new Error(error.message);
-    if (expected === null) expected = count;
+    if (first) expected = count;
 
     const got = data ?? [];
     rows.push(...got);
 
     if (got.length === 0) break;
-    // The offset advances by what the server actually returned, not by
-    // PAGE_ROWS, so a deployment whose cap is lower than 1,000 still walks the
-    // whole table instead of stopping at the first short page. `count` is the
-    // authority on when to stop; the short-page test is only the fallback for a
-    // response that carries no count.
+    // `count` from the first request is the authority on when to stop, so a run
+    // whose total lands exactly on a page boundary does not pay for an extra
+    // empty request. The short-page test is the fallback for a response that
+    // carries no count, and also covers a deployment whose cap is below 1,000.
     if (expected !== null ? rows.length >= expected : got.length < PAGE_ROWS) break;
   }
 
@@ -144,6 +183,104 @@ function newestFirst(query: any) {
     .order('sha', { ascending: false });
 }
 
+/** The four columns that make the sort above total — the cursor, in other words. */
+interface SortKey {
+  entry_date: string;
+  ordinal: number;
+  app_key: string;
+  sha: string;
+}
+
+/**
+ * "Strictly after this row", written out on the composite sort key.
+ *
+ * Row-value comparison — `(entry_date, ordinal, app_key, sha) < (…)` — would say
+ * this in one line, but PostgREST has no syntax for it and the sort mixes
+ * directions anyway, so it is spelled as the equivalent OR of four
+ * lexicographic cases. Read against newestFirst(): descend on entry_date,
+ * ascend on ordinal, ascend on app_key, descend on sha.
+ *
+ * `.or()` is ONE top-level node, and PostgREST ANDs top-level nodes together —
+ * so the `.in('module_key', visible)` boundary applied by the caller still
+ * binds every cursor page. A cursor can only ever narrow the set; it has no way
+ * to reach a module the caller may not see. Proved in
+ * __tests__/lib/changelog/route-keyset-paging.test.ts rather than asserted here.
+ *
+ * The interpolated values are safe because isSortKey() below has already
+ * rejected everything that is not a plain date / non-negative integer / short
+ * identifier / hex hash — in particular commas and parentheses, which are the
+ * only characters that could restructure this filter.
+ */
+function after(query: any, k: SortKey) {
+  const d = k.entry_date;
+  return query.or(
+    [
+      `entry_date.lt.${d}`,
+      `and(entry_date.eq.${d},ordinal.gt.${k.ordinal})`,
+      `and(entry_date.eq.${d},ordinal.eq.${k.ordinal},app_key.gt.${k.app_key})`,
+      `and(entry_date.eq.${d},ordinal.eq.${k.ordinal},app_key.eq.${k.app_key},sha.lt.${k.sha})`,
+    ].join(',')
+  );
+}
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+/** `app_key` is an application slug; 'myjkkn' is the only one today. */
+const APP_KEY_RE = /^[A-Za-z0-9_-]{1,64}$/;
+/** A twelve-character short hash today; the width is not pinned here. */
+const SHA_RE = /^[0-9a-fA-F]{4,64}$/;
+
+/**
+ * Is this a cursor we are willing to put in a query filter?
+ *
+ * Deliberately shaped like the `?before=` check above and for the same reason:
+ * the values reach PostgREST. The caller treats a `false` here as a 400 rather
+ * than as "no cursor" — a cursor that fails validation must never widen the
+ * answer to the whole window, which is the direction `?before=` falls in (it
+ * re-derives today's boundary) and the direction a paging cursor must not.
+ */
+function isSortKey(v: unknown): v is SortKey {
+  if (typeof v !== 'object' || v === null) return false;
+  const k = v as Record<string, unknown>;
+  return (
+    typeof k.entry_date === 'string' &&
+    DATE_RE.test(k.entry_date) &&
+    !Number.isNaN(Date.parse(k.entry_date)) &&
+    typeof k.ordinal === 'number' &&
+    Number.isSafeInteger(k.ordinal) &&
+    k.ordinal >= 0 &&
+    // `ordinal` is an integer column; anything past its range is a forgery, and
+    // a filter Postgres would reject with a 400 of its own.
+    k.ordinal <= 2147483647 &&
+    typeof k.app_key === 'string' &&
+    APP_KEY_RE.test(k.app_key) &&
+    typeof k.sha === 'string' &&
+    SHA_RE.test(k.sha)
+  );
+}
+
+/**
+ * Opaque to the caller on purpose: base64url of the four sort columns. Opaque
+ * so that the sort key can change — it already has once, when `ordinal`
+ * replaced `created_at` — without a client holding a URL shaped like the old
+ * one. Nothing secret is in it; it is the position, not a capability, and the
+ * module boundary is re-applied from the session on every page regardless of
+ * what a cursor says.
+ */
+function encodeCursor(k: SortKey): string {
+  return Buffer.from(JSON.stringify(k), 'utf8').toString('base64url');
+}
+
+/** null means "this string is not a cursor" — never "start from the beginning". */
+function decodeCursor(raw: string): SortKey | null {
+  try {
+    const json = Buffer.from(raw, 'base64url').toString('utf8');
+    const parsed: unknown = JSON.parse(json);
+    return isSortKey(parsed) ? { ...(parsed as SortKey) } : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * A date in IST, as YYYY-MM-DD (which is what en-CA formats to).
  *
@@ -172,12 +309,24 @@ function recentFrom(): string {
 // absent from the projection is a PostgREST detail worth not depending on, and a
 // 400 from it would only appear at runtime against a table that does not exist
 // yet locally. toEntry() drops it, so the payload shape is unchanged.
+//
+// `app_key` joined it on 2026-09-12: the cursor that replaced the offset is the
+// sort key, and the sort ends on (app_key, sha). toEntry() drops it too.
+//
+// `entry_at` joined on 2026-09-12 — the instant the change landed, which the
+// page shows beside the date (Director: "can we also add time to the whatsnew
+// so that we know when the change happened"). It is NOT part of the sort or the
+// cursor: the sort key is unchanged, and entry_at is NULL on every row written
+// before that date, so ordering on it would shuffle the whole page for the
+// window between this deploy and the next sync.
 const ENTRY_COLUMNS =
-  'sha,entry_date,kind,module_key,subject,author,pr_number,breaking,ordinal';
+  'sha,entry_date,entry_at,kind,module_key,subject,author,pr_number,breaking,ordinal,app_key';
 
-interface EntryRow {
+interface EntryRow extends SortKey {
   sha: string;
   entry_date: string;
+  /** ISO 8601, or null for a row the sync has not re-read since 2026-09-12. */
+  entry_at: string | null;
   kind: ChangeKind;
   module_key: string;
   subject: string;
@@ -185,6 +334,7 @@ interface EntryRow {
   pr_number: number | null;
   breaking: boolean;
   ordinal: number;
+  app_key: string;
 }
 
 /** Row -> the short keys the page reads. ~4,700 of these travel to a phone. */
@@ -196,6 +346,10 @@ function toEntry(r: EntryRow): ChangelogEntry {
     m: r.module_key,
     s: r.subject,
     a: r.author,
+    // Absent rather than null when the row predates the column, for the same
+    // reason as `p` and `b` below: ChangelogEntry.at is optional and the page
+    // tests for its presence.
+    ...(r.entry_at ? { at: r.entry_at } : {}),
     // Both stay ABSENT rather than null when they do not apply: the page tests
     // `e.p &&` / `e.b === 1`, and the data contract asserts on `'p' in e`.
     ...(r.pr_number ? { p: r.pr_number } : {}),
@@ -250,26 +404,38 @@ async function readVisibleModules(supabase: Db): Promise<string[]> {
   return (data as string[] | null) ?? [];
 }
 
-/** One window of entries, newest first, the whole window. */
+/**
+ * One window of entries, newest first, the whole window.
+ *
+ * `start` resumes strictly after a position the caller was previously served.
+ * It is threaded into the SAME builder as the module boundary, never around it.
+ */
 async function readEntries(
   supabase: Db,
   part: Exclude<Part, 'meta'>,
   cutoff: string,
-  visible: string[]
-): Promise<ChangelogEntry[]> {
-  const rows = await fetchAll<EntryRow>((from, to) => {
+  visible: string[],
+  start: SortKey | null
+): Promise<EntryRow[]> {
+  return fetchPaged<EntryRow>((cursor, withCount) => {
     const scoped = supabase
       .from('changelog_entries')
-      .select(ENTRY_COLUMNS, { count: 'exact' })
+      .select(ENTRY_COLUMNS, withCount ? { count: 'exact' } : undefined)
       // The boundary. Applied in the database, on the partial index
       // changelog_entries (module_key) WHERE NOT hidden, so it costs a filter
-      // rather than a scan.
+      // rather than a scan. It is re-applied on EVERY page, cursor pages
+      // included — a cursor is a position, not a permission.
       .in('module_key', visible);
-    return newestFirst(
-      part === 'recent' ? scoped.gte('entry_date', cutoff) : scoped.lt('entry_date', cutoff)
-    ).range(from, to);
+    const windowed =
+      part === 'recent' ? scoped.gte('entry_date', cutoff) : scoped.lt('entry_date', cutoff);
+    // The caller's resume point on the first page; this page's own last row on
+    // every page after it.
+    const from = cursor ?? start;
+    // Always `.range(0, …)`. The offset that used to grow with every page is
+    // what this change removes; a non-zero `from` anywhere below would mean it
+    // had quietly come back.
+    return newestFirst(from ? after(windowed, from) : windowed).range(0, PAGE_ROWS - 1);
   });
-  return rows.map(toEntry);
 }
 
 /**
@@ -292,28 +458,38 @@ async function readMeta(
   visible: string[]
 ): Promise<ChangelogMeta> {
   const [scan, moduleRows, sync] = await Promise.all([
-    fetchAll<Pick<EntryRow, 'entry_date' | 'author' | 'module_key'>>((from, to) =>
-      newestFirst(
-        supabase
+    // The scan selects the four sort columns as well as the three it reduces —
+    // they are the cursor, and without them this read could not page by keyset.
+    fetchPaged<Pick<EntryRow, 'entry_date' | 'author' | 'module_key'> & SortKey>(
+      (cursor, withCount) => {
+        const scoped = supabase
           .from('changelog_entries')
-          .select('entry_date,author,module_key', { count: 'exact' })
+          .select(
+            'entry_date,author,module_key,ordinal,app_key,sha',
+            withCount ? { count: 'exact' } : undefined
+          )
           // Same boundary as readEntries, and it must be the same or the header
           // counts would describe a list this reader is never served.
-          .in('module_key', visible)
-      ).range(from, to)
+          .in('module_key', visible);
+        return newestFirst(cursor ? after(scoped, cursor) : scoped).range(0, PAGE_ROWS - 1);
+      }
     ),
-    fetchAll<ModuleRow>((from, to) =>
-      supabase
+    // Keyset here too, on the primary key. The table is small enough that it has
+    // never needed a second page, which is exactly why it must not be the one
+    // read that would silently truncate if it ever did.
+    fetchPaged<ModuleRow>((cursor, withCount) => {
+      const scoped = supabase
         .from('changelog_modules')
-        .select('key,label,perm,href', { count: 'exact' })
+        .select('key,label,perm,href', withCount ? { count: 'exact' } : undefined)
         // The "areas" dropdown is built from this. Left unscoped it would name
         // every module on the platform while selecting entries from none of
         // them — leaking the module list back out of the boundary the entries
         // just went behind.
-        .in('key', visible)
+        .in('key', visible);
+      return (cursor ? scoped.gt('key', cursor.key) : scoped)
         .order('key', { ascending: true })
-        .range(from, to)
-    ),
+        .range(0, PAGE_ROWS - 1);
+    }),
     supabase.from('changelog_sync').select('last_synced_at,last_ref').limit(1).maybeSingle(),
   ]);
 
@@ -395,13 +571,39 @@ export async function GET(request: Request) {
       ? pinned
       : recentFrom();
 
+  // Resume a read strictly after a position this route previously served.
+  // Opaque, and validated hard before it reaches a query filter — but unlike
+  // `?before=` above, an unreadable one is a 400 rather than a fallback. The
+  // fallback for a cutoff is "today's boundary", which is narrow; the fallback
+  // for a cursor would be "start from the beginning", which hands back the
+  // whole window to a caller who asked for a slice of it.
+  const raw = new URL(request.url).searchParams.get('cursor');
+  const start = raw === null ? null : decodeCursor(raw);
+  if (raw !== null && start === null) {
+    return NextResponse.json({ error: 'cursor is not readable' }, { status: 400 });
+  }
+  if (start !== null && part === 'meta') {
+    // meta describes the whole window; resuming it partway would return counts
+    // that describe neither the window nor the slice.
+    return NextResponse.json({ error: 'cursor does not apply to part=meta' }, { status: 400 });
+  }
+
   let body: ChangelogMeta | ChangelogEntry[];
+  // The position of the last row served, so a caller can continue from here
+  // without re-reading what it already has. A HEADER, not a body field: the
+  // ?part= payload shapes are a contract (lib/changelog/types.ts, and two
+  // contract suites assert on them), and adding a key to an array response
+  // would mean changing every reader to unwrap it.
+  let last: SortKey | null = null;
   try {
     const visible = await readVisibleModules(supabase);
-    body =
-      part === 'meta'
-        ? await readMeta(supabase, cutoff, visible)
-        : await readEntries(supabase, part, cutoff, visible);
+    if (part === 'meta') {
+      body = await readMeta(supabase, cutoff, visible);
+    } else {
+      const rows = await readEntries(supabase, part, cutoff, visible, start);
+      last = rows[rows.length - 1] ?? null;
+      body = rows.map(toEntry);
+    }
   } catch (error) {
     // Kept in production: this is the difference between "the changelog is empty"
     // and "the database read failed", and the two look identical from the page.
@@ -414,6 +616,16 @@ export async function GET(request: Request) {
       // Private: this is behind a session, so no shared cache may hold it.
       // The service worker keeps its own offline copy (app/sw.ts, NetworkFirst).
       'Cache-Control': 'private, no-cache, must-revalidate',
+      ...(last
+        ? {
+            'X-Changelog-Cursor': encodeCursor({
+              entry_date: last.entry_date,
+              ordinal: last.ordinal,
+              app_key: last.app_key,
+              sha: last.sha,
+            }),
+          }
+        : {}),
     },
   });
 }

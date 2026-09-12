@@ -10,7 +10,7 @@ Last updated: 2026-04-24
 
 Architecture and design specs live under `specs/` at the repo root (not under `docs/`). Index them here for discoverability.
 
-- [specs/counselor-taxonomy-spec.md](../specs/counselor-taxonomy-spec.md) — Counselor taxonomy spec: 4 personas (admission, learner, staff, health). DRAFT awaiting Omm review.
+- [specs/whats-new-multi-app-changelog-spec-2026-09-12.md](../specs/whats-new-multi-app-changelog-spec-2026-09-12.md) — What's New across every app ("one shared list, seen from every app"): which Application Hub entries are candidates and how they were counted, how another repository's history reaches `changelog_entries` (reusable workflow + authenticated ingest, weighed against a central cloner and a per-app manifest), how a remote app reads its own slice (B2A key; why a static `.json` slice is rejected on `proxy.ts:274`), what an app with no role model may see, four defects the second writer will trip, and six decisions for the Director. DRAFT.
 - [specs/ai-pulse-usage-axis-and-graduation-flip-runbook-2026-07-26.md](../specs/ai-pulse-usage-axis-and-graduation-flip-runbook-2026-07-26.md) — AI Pulse prompt-build usage axis: reuse-signal substrate (decision #20) + the two-stage graduation flip/rollback runbook. Substrate shipped DARK; activation is the Director's call.
 - [specs/ai-pulse-golive-flip-runbook-2026-07-26.md](../specs/ai-pulse-golive-flip-runbook-2026-07-26.md) — AI Pulse go-live flip runbook: consolidated Director-facing runbook to turn on all 4 dark AI Pulse features (prompt graduation, usage axis, Senior Learners leaderboard, reach-weighted publish). Exact flip + rollback SQL per feature, recommended sequence, preconditions, and verification reads. All flag names/defaults cross-checked against live prod.
 

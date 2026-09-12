@@ -6,6 +6,8 @@ import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
 import { RecruitmentPackageService } from '@/lib/services/hr/recruitment-package-service';
+import { createServiceRoleClient } from '@/lib/supabase/server';
+import { HrScopeError, assertCandidatePackagesInScope } from '@/lib/hr/scope-gate';
 
 async function getClient() {
   const cookieStore = await cookies();
@@ -40,10 +42,21 @@ export async function GET(
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+    // Institution scope is answered BEFORE the read, and answered as 403 —
+    // RLS alone would return an empty list, which hides the leak it prevents.
+    const scope = await assertCandidatePackagesInScope({
+      admin: createServiceRoleClient(),
+      supabase,
+      userId: user.id,
+      candidateId: id,
+    });
+    if (scope === 'not_found') return NextResponse.json({ error: 'Candidate not found' }, { status: 404 });
+
     const packages = await RecruitmentPackageService.listPackages(supabase, id);
     return NextResponse.json({ data: packages });
   } catch (err) {
     console.error('[hr/recruitment/candidates/:id/packages] GET error', err);
+    if (err instanceof HrScopeError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Unknown error' },
       { status: 500 }
@@ -62,6 +75,16 @@ export async function POST(
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+    // Institution scope is answered BEFORE the read, and answered as 403 —
+    // RLS alone would return an empty list, which hides the leak it prevents.
+    const scope = await assertCandidatePackagesInScope({
+      admin: createServiceRoleClient(),
+      supabase,
+      userId: user.id,
+      candidateId: id,
+    });
+    if (scope === 'not_found') return NextResponse.json({ error: 'Candidate not found' }, { status: 404 });
+
     const body = await request.json();
 
     const created = await RecruitmentPackageService.proposePackage(supabase, {
@@ -73,6 +96,7 @@ export async function POST(
     return NextResponse.json({ data: created }, { status: 201 });
   } catch (err) {
     console.error('[hr/recruitment/candidates/:id/packages] POST error', err);
+    if (err instanceof HrScopeError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Unknown error' },
       { status: 400 }
