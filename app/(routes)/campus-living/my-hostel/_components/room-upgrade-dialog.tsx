@@ -71,15 +71,35 @@ export function RoomUpgradeDialog({
 
   const selected = rooms.find((r) => r.room_id === roomId) ?? null;
 
-  const grouped = useMemo(
-    () =>
-      rooms.reduce<Record<string, UpgradeRoomOption[]>>((acc, r) => {
+  // A target category may seat learners in MORE than its own rooms
+  // (hostel_category_room_sources): Premium also draws on Deluxe rooms. The RPC
+  // already returns native rooms first, so preserving its order and grouping by
+  // category keeps the borrowed pool clearly separated and below.
+  const categoryGroups = useMemo(() => {
+    const order: string[] = [];
+    const byCategory = new Map<string, UpgradeRoomOption[]>();
+    for (const r of rooms) {
+      if (!byCategory.has(r.source_category_id)) {
+        byCategory.set(r.source_category_id, []);
+        order.push(r.source_category_id);
+      }
+      byCategory.get(r.source_category_id)!.push(r);
+    }
+    return order.map((id) => {
+      const list = byCategory.get(id)!;
+      const byPlace = list.reduce<Record<string, UpgradeRoomOption[]>>((acc, r) => {
         const key = `${r.block_name} · ${floorLabel(r.floor)}`;
         (acc[key] ??= []).push(r);
         return acc;
-      }, {}),
-    [rooms]
-  );
+      }, {});
+      return {
+        categoryId: id,
+        categoryName: list[0].source_category_name,
+        isNative: list[0].is_native,
+        places: Object.entries(byPlace),
+      };
+    });
+  }, [rooms]);
 
   const reset = () => { setRoomId(''); setStep('pick'); };
 
@@ -142,7 +162,7 @@ export function RoomUpgradeDialog({
             <DialogHeader>
               <DialogTitle>{isBook ? `Book a ${categoryName} room` : `Upgrade to ${categoryName}`}</DialogTitle>
               <DialogDescription>
-                Only {categoryName} rooms with a free bed are shown. Pick a room to continue.
+                Only rooms with a free bed are shown. Pick a room to continue.
               </DialogDescription>
             </DialogHeader>
 
@@ -155,30 +175,45 @@ export function RoomUpgradeDialog({
                 No available rooms right now{isBook ? '' : ' — close this and choose “Join waitlist” instead'}.
               </p>
             ) : (
-              <div className="space-y-4 max-h-[360px] overflow-y-auto">
-                {Object.entries(grouped).map(([group, list]) => (
-                  <div key={group} className="space-y-2">
-                    <p className="text-xs font-medium text-muted-foreground">{group}</p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {list.map((r) => (
-                        <button
-                          key={r.room_id}
-                          type="button"
-                          onClick={() => setRoomId(r.room_id)}
-                          className={`flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm text-left ${
-                            roomId === r.room_id ? 'border-primary bg-primary/10' : 'hover:bg-muted'
-                          }`}
-                        >
-                          <span className="flex items-center gap-1.5 min-w-0">
-                            <DoorOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
-                            <span className="truncate">Room {r.room_number}</span>
-                          </span>
-                          <Badge variant="outline" className="shrink-0 font-normal">
-                            {r.available_beds} of {r.capacity} beds free
-                          </Badge>
-                        </button>
-                      ))}
+              <div className="space-y-5 max-h-[360px] overflow-y-auto">
+                {categoryGroups.map((cat) => (
+                  <div key={cat.categoryId} className="space-y-2">
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold">{cat.categoryName} rooms</p>
+                      {!cat.isNative && (
+                        <p className="text-xs text-muted-foreground">
+                          Pick one of these and you still move into the{' '}
+                          <span className="font-medium text-foreground">{categoryName}</span>{' '}
+                          category — same {isBook ? 'category' : 'upgrade fee'}, same benefits. Only
+                          the room is a {cat.categoryName}.
+                        </p>
+                      )}
                     </div>
+                    {cat.places.map(([place, list]) => (
+                      <div key={place} className="space-y-2">
+                        <p className="text-xs font-medium text-muted-foreground">{place}</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {list.map((r) => (
+                            <button
+                              key={r.room_id}
+                              type="button"
+                              onClick={() => setRoomId(r.room_id)}
+                              className={`flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm text-left ${
+                                roomId === r.room_id ? 'border-primary bg-primary/10' : 'hover:bg-muted'
+                              }`}
+                            >
+                              <span className="flex items-center gap-1.5 min-w-0">
+                                <DoorOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                <span className="truncate">Room {r.room_number}</span>
+                              </span>
+                              <Badge variant="outline" className="shrink-0 font-normal">
+                                {r.available_beds} of {r.capacity} beds free
+                              </Badge>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 ))}
               </div>
@@ -216,6 +251,11 @@ export function RoomUpgradeDialog({
                     <span className="text-muted-foreground">Room</span>
                     <span className="font-medium text-right">
                       {selected.block_name} · {floorLabel(selected.floor)} · Room {selected.room_number}
+                      {!selected.is_native && (
+                        <span className="block text-xs font-normal text-muted-foreground">
+                          {selected.source_category_name}
+                        </span>
+                      )}
                     </span>
                   </div>
                   <div className="flex items-center justify-between gap-3 px-3 py-2">
@@ -227,6 +267,14 @@ export function RoomUpgradeDialog({
                   </div>
                   {!isBook && feeRow}
                 </div>
+                {!selected.is_native && (
+                  <div className="rounded-md border border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+                    This is a {selected.source_category_name}, not a {categoryName}. Your category
+                    still becomes {categoryName}
+                    {!isBook && upgradeFee > 0 ? ` and the ${categoryName} upgrade fee of ${inr(upgradeFee)} is what you pay` : ''}
+                    , and you keep every {categoryName} benefit. Only the room differs.
+                  </div>
+                )}
                 <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
                   On confirm, this room is assigned to you immediately
                   {isBook ? (

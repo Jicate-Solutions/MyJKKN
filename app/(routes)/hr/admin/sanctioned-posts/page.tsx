@@ -219,11 +219,10 @@ async function fetchInstitutions(): Promise<InstitutionOption[]> {
   const supabase = createClientSupabaseClient();
   const { data, error } = await (supabase as any)
     .from('institutions')
-    // Only institutions that are IN the HR module. The !inner embed is the
-    // intended row-drop here, not the usual silent-loss hazard: an excluded
-    // institution must not be offered as a choice.
-    .select('id, name, hr_organizations!inner(included_in_hr)')
-    .eq('hr_organizations.included_in_hr', true)
+    // Every active institution, hr_organizations.included_in_hr or not.
+    // Recruitment is group-wide: that flag gates the HR module proper (leave,
+    // payroll, attendance) and no recruitment table carries its RLS gate.
+    .select('id, name')
     .eq('is_active', true)
     .order('name', { ascending: true });
   if (error) throw error;

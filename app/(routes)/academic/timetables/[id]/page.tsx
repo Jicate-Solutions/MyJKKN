@@ -444,6 +444,14 @@ export default function TimetableDetailPage() {
   // Filter sections by semester for slot dialog
   // Fixed: 2025-11-07 - Filter sections based on timetable semester using useMemo
   // ===================================
+  // Extracted so the dependency array below stays statically checkable.
+  const declaredScope = (timetable as any)?.section_ids as
+    | string[]
+    | null
+    | undefined;
+  const loadedTimetableId = timetable?.id;
+  const timetableSemesterId = timetable?.semester_id;
+
   const filteredSections = useMemo(() => {
     if (timetable?.semester_id && sections.length > 0) {
       const filtered = sections.filter(
@@ -457,10 +465,40 @@ export default function TimetableDetailPage() {
         });
       }
 
+      // Updated: 2026-09-11 - Narrow to the timetable's DECLARED scope. A
+      // semester-level timetable covers the sections it named at creation, so
+      // offering the whole semester here let a planner drop a TROIZ section
+      // into an ADD group's grid — a slot no learner in scope would ever see,
+      // and a section whose real timetable is a different row entirely.
+      //
+      // A NULL or empty scope falls back to the whole semester. That is the
+      // pre-2026-09-11 behaviour and it is what templates and any row written
+      // outside the create form still get; narrowing them to nothing would
+      // leave the planner with an empty picker and no way to explain it.
+      const scope = declaredScope;
+      if (scope && scope.length > 0) {
+        const inScope = filtered.filter((section) => scope.includes(section.id));
+
+        // A scope that matches nothing in the semester means the two have
+        // drifted — a section deleted or moved after the timetable was made.
+        // Falling back is better than an empty picker with no explanation.
+        if (inScope.length === 0) {
+          logger.warn(
+            'academic/timetables',
+            'Declared section scope matches no section in this semester - falling back to the full semester',
+            { timetableId: loadedTimetableId, scope }
+          );
+          return filtered;
+        }
+
+        return inScope;
+      }
+
       return filtered;
     }
     return [];
-  }, [timetable?.semester_id, sections]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timetableSemesterId, declaredScope, loadedTimetableId, sections]);
 
   // ===================================
   // Navigation Warning
