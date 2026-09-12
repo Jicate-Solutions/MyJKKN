@@ -831,6 +831,42 @@ describe('upcomingVaultDays', () => {
   });
 });
 
+describe('#3421 second half — the standing pool\'s shuffle_options must reach practice', () => {
+  // #3421 set shuffle_options on both live practice pools, but the flag was
+  // only ever read in the assigned-paper branch, and the pool row was selected
+  // without its `config` at all. So practice, timed and vault review served
+  // options in stored order — and every AI-drafted item stores the correct
+  // option first, which made the first option always right. These cases fail
+  // on the pre-fix route: it reported optionsShuffled false either way.
+
+  it('shuffles a practice sitting when the pool asks for it', async () => {
+    assessmentRow = {
+      id: POOL_ID,
+      title: 'Practice — Physics',
+      exam_definition_id: EXAM_ID,
+      config: { shuffle_options: true },
+    };
+    const res = await startSitting(post({ mode: 'practice', examDefinitionId: EXAM_ID }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.optionsShuffled).toBe(true);
+    expect(JSON.stringify(body.questions)).not.toContain('"answer"');
+  });
+
+  it('leaves the order alone when the pool does not ask for it', async () => {
+    const res = await startSitting(post({ mode: 'practice', examDefinitionId: EXAM_ID }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).optionsShuffled).toBe(false);
+  });
+
+  it('reads the pool row WITH its config, or the flag can never be seen', async () => {
+    await startSitting(post({ mode: 'practice', examDefinitionId: EXAM_ID }));
+    const poolSelects = selects.filter((s) => s.startsWith('fp_assessments:'));
+    expect(poolSelects.length).toBeGreaterThan(0);
+    expect(poolSelects.some((s) => s.includes('config'))).toBe(true);
+  });
+})
+
 // ===========================================================================
 // Wave 3 Lane L — live-sitting operations
 // ===========================================================================

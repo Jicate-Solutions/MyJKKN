@@ -29,13 +29,31 @@ import {
 } from '@/lib/navigation/record-search';
 import { MENU_PERMISSIONS } from '@/lib/sidebarMenuLink';
 
+// The CURRENT definition of the function. 20261201090000 created it as
+// SECURITY DEFINER, which was a confidentiality defect (it bypassed RLS and
+// substituted a simpler check); 20261201100000 re-issues it as SECURITY
+// INVOKER. These assertions must track the LATEST definition — pinned to the
+// superseded file, this suite would have gone on certifying the vulnerable
+// version, green, forever.
 const MIGRATION = readFileSync(
   path.join(
     process.cwd(),
-    'supabase/migrations/20261201090000_global_record_search.sql'
+    'supabase/migrations/20261201100000_global_record_search_security_invoker.sql'
   ),
   'utf8'
 );
+
+/**
+ * The migration with SQL line-comments removed.
+ *
+ * The header explains the defect and necessarily QUOTES the very constructs
+ * these assertions count — user_has_permission('<key>'), and
+ * role_has_institution_access(). Counting the raw file therefore counts the
+ * prose as if it were code.
+ */
+const MIGRATION_CODE = MIGRATION.split('\n')
+  .filter((line) => !line.trim().startsWith('--'))
+  .join('\n');
 
 const ENTITIES = Object.keys(RECORD_ENTITIES) as RecordEntity[];
 
@@ -78,13 +96,13 @@ describe('global record search — permission key agreement', () => {
     // Count the permission gates in the function body. A future edit that adds
     // a fifth entity to the SQL without adding it here would leave a category
     // of record searchable that the frontend cannot route or label.
-    const gates = MIGRATION.match(/user_has_permission\('[^']+'\)/g) ?? [];
+    const gates = MIGRATION_CODE.match(/user_has_permission\('[^']+'\)/g) ?? [];
     expect(gates).toHaveLength(ENTITIES.length);
   });
 
   it('locks the function against anon', () => {
-    // The single most consequential line in the migration: Supabase grants
-    // EXECUTE to anon by default on every new function.
+    // Supabase grants EXECUTE to anon by default on every new function, and
+    // CREATE OR REPLACE does not reset that.
     expect(MIGRATION).toMatch(
       /REVOKE EXECUTE ON FUNCTION public\.fn_global_record_search\(text, integer\) FROM anon, PUBLIC;/
     );
@@ -93,11 +111,34 @@ describe('global record search — permission key agreement', () => {
     );
   });
 
+  it('is SECURITY INVOKER, so RLS stays the authority', () => {
+    // THE REGRESSION GUARD FOR THE 2026-09-12 DEFECT.
+    // SECURITY DEFINER here does not ADD a check, it REPLACES each table's RLS
+    // policy — and those policies are far richer than anything reproduced in
+    // this function. admission_leads additionally requires an allowlist and
+    // excludes strict counsellors; staff switches on a scope tier that
+    // includes 'own_records' (profile_id = auth.uid()), which
+    // role_has_institution_access() cannot express at all. Measured live:
+    // a staff_counselor with 0 RLS-readable leads was returned 10 of them,
+    // names and phone numbers included.
+    expect(MIGRATION).toMatch(/\bSECURITY INVOKER\b/);
+    expect(MIGRATION).not.toMatch(/^\s*SECURITY DEFINER\b/m);
+  });
+
+  it('does not re-implement institution scoping in the predicates', () => {
+    // role_has_institution_access() inside the query body is the shape of the
+    // original bug: a second, simpler authorization rule competing with the
+    // policy RLS actually applies. Mentions in COMMENTS are fine and expected
+    // (the migration explains why it was removed); a call in a WHERE clause is
+    // not.
+    expect(MIGRATION_CODE).not.toMatch(/role_has_institution_access\s*\(/);
+  });
+
   it('excludes NULL-institution rows in every entity block', () => {
-    // role_has_institution_access() returns TRUE for a NULL institution_id.
-    // Inheriting that default would publish orphan rows to every user, so each
-    // block carries its own IS NOT NULL guard.
-    const guards = MIGRATION.match(/\.institution_id IS NOT NULL/g) ?? [];
+    // Some table policies permit a NULL institution_id, and 3
+    // learners_profiles rows have one. Search should not surface orphan rows
+    // platform-wide, so each block carries its own IS NOT NULL guard.
+    const guards = MIGRATION_CODE.match(/\.institution_id IS NOT NULL/g) ?? [];
     expect(guards).toHaveLength(ENTITIES.length);
   });
 });

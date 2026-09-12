@@ -477,8 +477,12 @@ export default function NIRFDashboardPage() {
               this dashboard in place of the evidence-row count.
             </p>
             <p>
-              <strong>Coverage formula (placeholder):</strong> evidence_rows /
-              metrics_seeded. The real NIRF weighted formula (per official MoE rubric)
+              {/* Was "evidence_rows / metrics_seeded" — rows over metrics, clamped
+                  to 100%. NIRF's 11,396 evidence rows sit on 4 of 17 catalogue
+                  metrics, so every NIRF bar read 100%. Fixed 2026-09-07. */}
+              <strong>Coverage:</strong> distinct metrics carrying evidence ÷
+              active metrics in this platform&apos;s NIRF catalogue.
+              The real NIRF weighted formula (per official MoE rubric)
               lands once the full 14-sub-metric catalog is seeded and per-college
               submission templates are built.
             </p>

@@ -23,11 +23,11 @@ const ALL_MODULES = [
 const TODAY = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 
 const ALL_ENTRIES = [
-  { sha: 'a1', entry_date: TODAY, kind: 'new',   module_key: 'billing',        subject: 'Invoice split',  author: 'A', pr_number: 1, breaking: false, ordinal: 1 },
-  { sha: 'a2', entry_date: TODAY, kind: 'fixed', module_key: 'billing',        subject: 'Receipt total',  author: 'A', pr_number: 2, breaking: false, ordinal: 2 },
-  { sha: 'b1', entry_date: TODAY, kind: 'new',   module_key: 'administration', subject: 'Role audit',     author: 'B', pr_number: 3, breaking: false, ordinal: 3 },
-  { sha: 'b2', entry_date: TODAY, kind: 'security', module_key: 'administration', subject: 'Token scope', author: 'B', pr_number: 4, breaking: false, ordinal: 4 },
-  { sha: 'c1', entry_date: TODAY, kind: 'faster', module_key: 'platform',      subject: 'Faster sign-in', author: 'C', pr_number: 5, breaking: false, ordinal: 5 },
+  { sha: 'a1', entry_date: TODAY, kind: 'new',   module_key: 'billing',        subject: 'Invoice split',  author: 'A', pr_number: 1, breaking: false, ordinal: 1, app_key: 'myjkkn' },
+  { sha: 'a2', entry_date: TODAY, kind: 'fixed', module_key: 'billing',        subject: 'Receipt total',  author: 'A', pr_number: 2, breaking: false, ordinal: 2, app_key: 'myjkkn' },
+  { sha: 'b1', entry_date: TODAY, kind: 'new',   module_key: 'administration', subject: 'Role audit',     author: 'B', pr_number: 3, breaking: false, ordinal: 3, app_key: 'myjkkn' },
+  { sha: 'b2', entry_date: TODAY, kind: 'security', module_key: 'administration', subject: 'Token scope', author: 'B', pr_number: 4, breaking: false, ordinal: 4, app_key: 'myjkkn' },
+  { sha: 'c1', entry_date: TODAY, kind: 'faster', module_key: 'platform',      subject: 'Faster sign-in', author: 'C', pr_number: 5, breaking: false, ordinal: 5, app_key: 'myjkkn' },
 ];
 
 /**

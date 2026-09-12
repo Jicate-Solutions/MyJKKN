@@ -1,5 +1,7 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logActivityForCurrentUser, BillingActivityTemplates } from '@/lib/utils/activity-logger-client';
+import { INVOICE_EMAIL_NOT_AVAILABLE } from '@/lib/services/billing/email-not-available';
+import { invoiceDownloadFileName } from '@/lib/services/billing/print-and-download-text';
 import type {
   BillingInvoice,
   CreateInvoiceDto,
@@ -371,123 +373,19 @@ export class BillingInvoiceService {
     }
   }
 
-  // Send invoice via email
-  static async sendInvoice(id: string, email: string): Promise<void> {
-    try {
-      const invoice = await this.getBillingInvoice(id);
-
-      // Generate HTML content for the invoice
-      const invoiceHTML = this.generateInvoiceHTML(invoice);
-
-      // Generate email content
-      const emailSubject = `Invoice ${invoice.invoice_number} - ${invoice.institution?.name}`;
-      const emailBody = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <h2 style="color: #2563eb; border-bottom: 2px solid #2563eb; padding-bottom: 10px;">
-            Invoice Notification
-          </h2>
-          
-          <p>Dear ${invoice.student?.first_name || ''} ${invoice.student?.last_name || ''},</p>
-          
-          <p>Please find attached your invoice with the following details:</p>
-          
-          <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 20px 0;">
-            <p><strong>Invoice Number:</strong> ${invoice.invoice_number}</p>
-            <p><strong>Invoice Date:</strong> ${new Date(
-              invoice.invoice_date
-            ).toLocaleDateString('en-IN')}</p>
-            <p><strong>Amount:</strong> ${new Intl.NumberFormat('en-IN', {
-              style: 'currency',
-              currency: 'INR'
-            }).format(invoice.grand_total)}</p>
-            ${
-              invoice.due_date
-                ? `<p><strong>Due Date:</strong> ${new Date(
-                    invoice.due_date
-                  ).toLocaleDateString('en-IN')}</p>`
-                : ''
-            }
-          </div>
-          
-          ${
-            invoice.payment_terms
-              ? `
-            <div style="background: #fff3cd; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #ffc107;">
-              <h4 style="margin: 0 0 10px 0; color: #856404;">Payment Terms:</h4>
-              <p style="margin: 0; color: #856404;">${invoice.payment_terms}</p>
-            </div>
-          `
-              : ''
-          }
-          
-          <p>The complete invoice is attached below for your reference.</p>
-          
-          <p>If you have any questions regarding this invoice, please contact our billing department.</p>
-          
-          <p>Thank you,<br>
-          <strong>${invoice.institution?.name}</strong></p>
-          
-          <hr style="margin: 30px 0; border: none; border-top: 1px solid #e9ecef;">
-          
-          <div style="color: #666; font-size: 12px;">
-            <p>This is an automated message. Please do not reply to this email.</p>
-            <p>Invoice generated on: ${new Date().toLocaleString('en-IN')}</p>
-          </div>
-        </div>
-        
-        <hr style="margin: 40px 0;">
-        
-        <!-- Invoice HTML Content -->
-        ${invoiceHTML}
-      `;
-
-      // In a real implementation, you would use an email service like:
-      // - Supabase Edge Functions with email service
-      // - SendGrid, Mailgun, AWS SES, etc.
-      // - SMTP configuration
-
-      console.log('=== EMAIL SENDING SIMULATION ===');
-      console.log('To:', email);
-      console.log('Subject:', emailSubject);
-      console.log('Email content generated successfully');
-      console.log('Invoice HTML content included');
-
-      // Simulate email sending delay
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-
-      console.log(
-        `✓ Invoice ${invoice.invoice_number} email sent successfully to ${email}`
-      );
-
-      // TODO: Replace with actual email service integration
-      // Example integration:
-      /*
-      const { data, error } = await (this.supabase as any).functions.invoke('send-email', {
-        body: {
-          to: email,
-          subject: emailSubject,
-          html: emailBody,
-          attachments: [
-            {
-              filename: `invoice-${invoice.invoice_number}.html`,
-              content: invoiceHTML,
-              contentType: 'text/html'
-            }
-          ]
-        }
-      });
-      
-      if (error) {
-        throw new Error(`Failed to send email: ${error.message}`);
-      }
-      */
-    } catch (error) {
-      console.error('Error sending invoice:', error);
-      throw error;
-    }
+  // Send invoice via email — NOT BUILT.
+  // This used to SIMULATE sending: it built an email body, waited 1.5 s and
+  // logged a fake success line, so the invoices list showed a success message
+  // while nothing was sent (there is no send-email edge function). It now rejects with a message pointing staff to Download. Real
+  // emailing needs an email service decision first.
+  static async sendInvoice(_id: string, _email: string): Promise<void> {
+    throw new Error(INVOICE_EMAIL_NOT_AVAILABLE);
   }
 
-  // Download invoice as PDF
+  // Download invoice as a WEB PAGE (.html) — NOT a PDF, despite the method
+  // name. The buttons used to say "Download PDF"; they now say
+  // "Download (web page)". A real PDF could reuse jsPDF the way receipts do
+  // (lib/utils/billing/receipt-pdf.ts).
   static async downloadInvoicePDF(id: string): Promise<void> {
     try {
       const invoice = await this.getBillingInvoice(id);
@@ -502,7 +400,7 @@ export class BillingInvoiceService {
       // Create a temporary link and trigger download
       const link = document.createElement('a');
       link.href = url;
-      link.download = `invoice-${invoice.invoice_number}.html`;
+      link.download = invoiceDownloadFileName(invoice.invoice_number);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -511,10 +409,10 @@ export class BillingInvoiceService {
       window.URL.revokeObjectURL(url);
 
       console.log(
-        `Invoice PDF download initiated for: ${invoice.invoice_number}`
+        `Invoice web page download initiated for: ${invoice.invoice_number}`
       );
     } catch (error) {
-      console.error('Error downloading invoice PDF:', error);
+      console.error('Error downloading invoice:', error);
       throw error;
     }
   }

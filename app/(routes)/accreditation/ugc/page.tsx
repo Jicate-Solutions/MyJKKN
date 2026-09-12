@@ -425,8 +425,12 @@ export default function UGCDashboardPage() {
               NIRF + UGC enrolment metrics.
             </p>
             <p>
-              <strong>Coverage formula (placeholder):</strong> evidence_rows /
-              metrics_seeded. Real weighted UGC formula lands as the full
+              {/* Was "evidence_rows / metrics_seeded" — rows over metrics, clamped
+                  to 100%. Fixed 2026-09-07; see coverage-measure.ts. */}
+              <strong>Coverage:</strong> distinct metrics carrying evidence ÷
+              active metrics in this platform&apos;s UGC catalogue, which today
+              holds 2 placeholder entries and not the full UGC schedule.
+              Real weighted UGC formula lands as the full
               catalog is seeded per{' '}
               <code>docs/one-jkkn-one-data.md §8</code>.
             </p>
