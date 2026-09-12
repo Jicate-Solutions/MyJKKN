@@ -17,7 +17,7 @@
 // against the application and streams the bytes.
 
 import { useState } from 'react';
-import { AlertTriangle, Eye, FileText, ImageIcon } from 'lucide-react';
+import { Eye, FileText, ImageIcon } from 'lucide-react';
 
 import { LeaveDocumentViewer, leaveDocumentHref } from './leave-document-viewer';
 import type { LeaveDocument } from '@/types/hr';
@@ -31,12 +31,6 @@ function humanSize(bytes?: number): string | null {
 
 interface LeaveDocumentListProps {
   documents: LeaveDocument[] | null | undefined;
-  /**
-   * True when the type wanted a document and this request does not have one —
-   * an emergency filed before the certificate existed. Rendered as a warning
-   * rather than silence, so "it is coming" is a state an approver can see.
-   */
-  outstanding?: boolean;
   /** Hide the block entirely when there is nothing to say. */
   hideWhenEmpty?: boolean;
   /** Passed to the viewer's subtitle: whose document this is. */
@@ -45,7 +39,6 @@ interface LeaveDocumentListProps {
 
 export function LeaveDocumentList({
   documents,
-  outstanding = false,
   hideWhenEmpty = false,
   viewerTitle,
 }: LeaveDocumentListProps) {
@@ -54,27 +47,14 @@ export function LeaveDocumentList({
   // with three attachments opens the one the approver actually pointed at.
   const [viewing, setViewing] = useState<number | null>(null);
 
-  if (docs.length === 0 && !outstanding && hideWhenEmpty) return null;
+  if (docs.length === 0 && hideWhenEmpty) return null;
 
   return (
     <div>
       <p className="mb-2 text-xs text-muted-foreground">Supporting documents</p>
 
-      {outstanding && (
-        <div className="mb-2 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800">
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span>
-            Filed as an emergency without the document. It is due within 48 hours of
-            the request.
-          </span>
-        </div>
-      )}
-
       {docs.length === 0 ? (
-        // No dash under the emergency warning: that block already says there is
-        // nothing here and why, so a dash beneath it reads as a second, emptier
-        // answer to the same question.
-        outstanding ? null : <p className="text-sm text-muted-foreground">—</p>
+        <p className="text-sm text-muted-foreground">—</p>
       ) : (
         <ul className="space-y-1.5">
           {docs.map((doc, i) => {

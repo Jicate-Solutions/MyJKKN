@@ -66690,6 +66690,51 @@ export type Database = {
           },
         ]
       }
+      hostel_category_room_sources: {
+        Row: {
+          category_id: string
+          created_at: string
+          id: string
+          is_active: boolean
+          sort_order: number
+          source_category_id: string
+          updated_at: string
+        }
+        Insert: {
+          category_id: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          sort_order?: number
+          source_category_id: string
+          updated_at?: string
+        }
+        Update: {
+          category_id?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          sort_order?: number
+          source_category_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_category_room_sources_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_category_room_sources_source_category_id_fkey"
+            columns: ["source_category_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hostel_category_upgrade_fees: {
         Row: {
           amount: number
@@ -67371,6 +67416,102 @@ export type Database = {
             columns: ["uploaded_by"]
             isOneToOne: false
             referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hostel_cleaning_booking_reschedules: {
+        Row: {
+          booking_id: string
+          created_at: string
+          from_cleaner_id: string | null
+          from_cleaner_name: string | null
+          from_date: string
+          from_slot_end: string
+          from_slot_start: string
+          id: string
+          institution_id: string
+          reason_code: string
+          reason_note: string | null
+          rescheduled_by: string
+          to_cleaner_id: string | null
+          to_cleaner_name: string | null
+          to_date: string
+          to_slot_end: string
+          to_slot_start: string
+        }
+        Insert: {
+          booking_id: string
+          created_at?: string
+          from_cleaner_id?: string | null
+          from_cleaner_name?: string | null
+          from_date: string
+          from_slot_end: string
+          from_slot_start: string
+          id?: string
+          institution_id: string
+          reason_code: string
+          reason_note?: string | null
+          rescheduled_by: string
+          to_cleaner_id?: string | null
+          to_cleaner_name?: string | null
+          to_date: string
+          to_slot_end: string
+          to_slot_start: string
+        }
+        Update: {
+          booking_id?: string
+          created_at?: string
+          from_cleaner_id?: string | null
+          from_cleaner_name?: string | null
+          from_date?: string
+          from_slot_end?: string
+          from_slot_start?: string
+          id?: string
+          institution_id?: string
+          reason_code?: string
+          reason_note?: string | null
+          rescheduled_by?: string
+          to_cleaner_id?: string | null
+          to_cleaner_name?: string | null
+          to_date?: string
+          to_slot_end?: string
+          to_slot_start?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_cleaning_booking_reschedules_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_cleaning_bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_cleaning_booking_reschedules_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_cleaning_booking_reschedules_from_cleaner_id_fkey"
+            columns: ["from_cleaner_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_cleaners"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_cleaning_booking_reschedules_to_cleaner_id_fkey"
+            columns: ["to_cleaner_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_cleaners"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_cleaning_booking_reschedules_rescheduled_by_fkey"
+            columns: ["rescheduled_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -76005,6 +76146,8 @@ export type Database = {
           capacity: number
           category_id: string | null
           created_at: string | null
+          effective_capacity: number | null
+          extra_bed_count: number
           floor: number
           furniture: Json | null
           has_attached_bathroom: boolean | null
@@ -76031,6 +76174,8 @@ export type Database = {
           capacity: number
           category_id?: string | null
           created_at?: string | null
+          effective_capacity?: number | null
+          extra_bed_count?: number
           floor: number
           furniture?: Json | null
           has_attached_bathroom?: boolean | null
@@ -76057,6 +76202,8 @@ export type Database = {
           capacity?: number
           category_id?: string | null
           created_at?: string | null
+          effective_capacity?: number | null
+          extra_bed_count?: number
           floor?: number
           furniture?: Json | null
           has_attached_bathroom?: boolean | null
@@ -79294,9 +79441,14 @@ export type Database = {
           id: string
           notes: string | null
           rejection_reason: string | null
+          revoke_reason: string | null
+          revoked_at: string | null
+          revoked_by: string | null
           source: string
           status: string
           updated_at: string
+          work_location: string | null
+          work_place: string | null
           worked_date: string
         }
         Insert: {
@@ -79315,9 +79467,14 @@ export type Database = {
           id?: string
           notes?: string | null
           rejection_reason?: string | null
+          revoke_reason?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
           source?: string
           status?: string
           updated_at?: string
+          work_location?: string | null
+          work_place?: string | null
           worked_date: string
         }
         Update: {
@@ -79336,9 +79493,14 @@ export type Database = {
           id?: string
           notes?: string | null
           rejection_reason?: string | null
+          revoke_reason?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
           source?: string
           status?: string
           updated_at?: string
+          work_location?: string | null
+          work_place?: string | null
           worked_date?: string
         }
         Relationships: [
@@ -79546,6 +79708,76 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_institutions_needing_admission_counselors"
             referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      hr_decision_emails: {
+        Row: {
+          attempts: number
+          comp_off_credit_id: string | null
+          created_at: string
+          decision: string
+          employee_id: string
+          id: string
+          last_error: string | null
+          leave_application_id: string | null
+          next_attempt_at: string
+          resend_id: string | null
+          sent_at: string | null
+          status: string
+          to_email: string | null
+        }
+        Insert: {
+          attempts?: number
+          comp_off_credit_id?: string | null
+          created_at?: string
+          decision: string
+          employee_id: string
+          id?: string
+          last_error?: string | null
+          leave_application_id?: string | null
+          next_attempt_at?: string
+          resend_id?: string | null
+          sent_at?: string | null
+          status?: string
+          to_email?: string | null
+        }
+        Update: {
+          attempts?: number
+          comp_off_credit_id?: string | null
+          created_at?: string
+          decision?: string
+          employee_id?: string
+          id?: string
+          last_error?: string | null
+          leave_application_id?: string | null
+          next_attempt_at?: string
+          resend_id?: string | null
+          sent_at?: string | null
+          status?: string
+          to_email?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_decision_emails_comp_off_credit_id_fkey"
+            columns: ["comp_off_credit_id"]
+            isOneToOne: false
+            referencedRelation: "hr_comp_off_credits"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_decision_emails_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_decision_emails_leave_application_id_fkey"
+            columns: ["leave_application_id"]
+            isOneToOne: false
+            referencedRelation: "hr_leave_applications"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -80977,6 +81209,9 @@ export type Database = {
           leave_type_id: string
           reason: string
           rejection_reason: string | null
+          revoke_reason: string | null
+          revoked_at: string | null
+          revoked_by: string | null
           start_date: string
           start_time: string | null
           status: string
@@ -81005,6 +81240,9 @@ export type Database = {
           leave_type_id: string
           reason: string
           rejection_reason?: string | null
+          revoke_reason?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
           start_date: string
           start_time?: string | null
           status?: string
@@ -81033,6 +81271,9 @@ export type Database = {
           leave_type_id?: string
           reason?: string
           rejection_reason?: string | null
+          revoke_reason?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
           start_date?: string
           start_time?: string | null
           status?: string
@@ -127427,6 +127668,452 @@ export type Database = {
           },
         ]
       }
+      online_meeting_action_items: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          created_by: string | null
+          detail: string | null
+          due_date: string | null
+          id: string
+          institution_id: string
+          meeting_id: string
+          owner_participant_id: string | null
+          status: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          detail?: string | null
+          due_date?: string | null
+          id?: string
+          institution_id: string
+          meeting_id: string
+          owner_participant_id?: string | null
+          status?: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          detail?: string | null
+          due_date?: string | null
+          id?: string
+          institution_id?: string
+          meeting_id?: string
+          owner_participant_id?: string | null
+          status?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "online_meeting_action_items_meeting_id_fkey"
+            columns: ["meeting_id"]
+            isOneToOne: false
+            referencedRelation: "online_meetings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "online_meeting_action_items_owner_participant_id_fkey"
+            columns: ["owner_participant_id"]
+            isOneToOne: false
+            referencedRelation: "online_meeting_participants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      online_meeting_agenda_items: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          detail: string | null
+          duration_min: number | null
+          id: string
+          institution_id: string
+          meeting_id: string
+          presenter_participant_id: string | null
+          sort_order: number
+          status: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          detail?: string | null
+          duration_min?: number | null
+          id?: string
+          institution_id: string
+          meeting_id: string
+          presenter_participant_id?: string | null
+          sort_order?: number
+          status?: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          detail?: string | null
+          duration_min?: number | null
+          id?: string
+          institution_id?: string
+          meeting_id?: string
+          presenter_participant_id?: string | null
+          sort_order?: number
+          status?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "online_meeting_agenda_items_meeting_id_fkey"
+            columns: ["meeting_id"]
+            isOneToOne: false
+            referencedRelation: "online_meetings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "online_meeting_agenda_items_presenter_participant_id_fkey"
+            columns: ["presenter_participant_id"]
+            isOneToOne: false
+            referencedRelation: "online_meeting_participants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      online_meeting_attendance: {
+        Row: {
+          created_at: string
+          engagement_signals: Json
+          id: string
+          institution_id: string
+          joined_at: string | null
+          meeting_id: string
+          participant_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          engagement_signals?: Json
+          id?: string
+          institution_id: string
+          joined_at?: string | null
+          meeting_id: string
+          participant_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          engagement_signals?: Json
+          id?: string
+          institution_id?: string
+          joined_at?: string | null
+          meeting_id?: string
+          participant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "online_meeting_attendance_meeting_id_fkey"
+            columns: ["meeting_id"]
+            isOneToOne: false
+            referencedRelation: "online_meetings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "online_meeting_attendance_participant_id_fkey"
+            columns: ["participant_id"]
+            isOneToOne: false
+            referencedRelation: "online_meeting_participants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      online_meeting_minutes: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          institution_id: string
+          meeting_id: string
+          published_at: string | null
+          recorded_by: string | null
+          updated_at: string
+        }
+        Insert: {
+          content?: string
+          created_at?: string
+          id?: string
+          institution_id: string
+          meeting_id: string
+          published_at?: string | null
+          recorded_by?: string | null
+          updated_at?: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          institution_id?: string
+          meeting_id?: string
+          published_at?: string | null
+          recorded_by?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "online_meeting_minutes_meeting_id_fkey"
+            columns: ["meeting_id"]
+            isOneToOne: true
+            referencedRelation: "online_meetings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      online_meeting_participants: {
+        Row: {
+          created_at: string
+          external_email: string | null
+          external_name: string | null
+          external_organization: string | null
+          id: string
+          institution_id: string
+          invite_status: string
+          invited_at: string
+          invited_by: string | null
+          invited_via: string
+          join_token: string
+          meeting_id: string
+          participant_kind: string
+          profile_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          external_email?: string | null
+          external_name?: string | null
+          external_organization?: string | null
+          id?: string
+          institution_id: string
+          invite_status?: string
+          invited_at?: string
+          invited_by?: string | null
+          invited_via?: string
+          join_token?: string
+          meeting_id: string
+          participant_kind: string
+          profile_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          external_email?: string | null
+          external_name?: string | null
+          external_organization?: string | null
+          id?: string
+          institution_id?: string
+          invite_status?: string
+          invited_at?: string
+          invited_by?: string | null
+          invited_via?: string
+          join_token?: string
+          meeting_id?: string
+          participant_kind?: string
+          profile_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "online_meeting_participants_meeting_id_fkey"
+            columns: ["meeting_id"]
+            isOneToOne: false
+            referencedRelation: "online_meetings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      online_meeting_poll_responses: {
+        Row: {
+          id: string
+          option_id: string
+          participant_id: string
+          poll_id: string
+          responded_at: string
+        }
+        Insert: {
+          id?: string
+          option_id: string
+          participant_id: string
+          poll_id: string
+          responded_at?: string
+        }
+        Update: {
+          id?: string
+          option_id?: string
+          participant_id?: string
+          poll_id?: string
+          responded_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "online_meeting_poll_responses_participant_id_fkey"
+            columns: ["participant_id"]
+            isOneToOne: false
+            referencedRelation: "online_meeting_participants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "online_meeting_poll_responses_poll_id_fkey"
+            columns: ["poll_id"]
+            isOneToOne: false
+            referencedRelation: "online_meeting_polls"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      online_meeting_polls: {
+        Row: {
+          closed_at: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          institution_id: string
+          is_open: boolean
+          issued_at: string
+          meeting_id: string
+          options: Json
+          question: string
+          updated_at: string
+        }
+        Insert: {
+          closed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          institution_id: string
+          is_open?: boolean
+          issued_at?: string
+          meeting_id: string
+          options: Json
+          question: string
+          updated_at?: string
+        }
+        Update: {
+          closed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          institution_id?: string
+          is_open?: boolean
+          issued_at?: string
+          meeting_id?: string
+          options?: Json
+          question?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "online_meeting_polls_meeting_id_fkey"
+            columns: ["meeting_id"]
+            isOneToOne: false
+            referencedRelation: "online_meetings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      online_meetings: {
+        Row: {
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          ends_at: string
+          engagement_config: Json
+          google_event_id: string | null
+          host_profile_id: string
+          id: string
+          institution_id: string
+          join_mode: string
+          meet_source: string
+          meet_url: string | null
+          open_join_token: string | null
+          quiz: Json
+          recording_url: string | null
+          series_id: string | null
+          starts_at: string
+          status: string
+          timezone: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          ends_at: string
+          engagement_config?: Json
+          google_event_id?: string | null
+          host_profile_id: string
+          id?: string
+          institution_id: string
+          join_mode?: string
+          meet_source?: string
+          meet_url?: string | null
+          open_join_token?: string | null
+          quiz?: Json
+          recording_url?: string | null
+          series_id?: string | null
+          starts_at: string
+          status?: string
+          timezone?: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          ends_at?: string
+          engagement_config?: Json
+          google_event_id?: string | null
+          host_profile_id?: string
+          id?: string
+          institution_id?: string
+          join_mode?: string
+          meet_source?: string
+          meet_url?: string | null
+          open_join_token?: string | null
+          quiz?: Json
+          recording_url?: string | null
+          series_id?: string | null
+          starts_at?: string
+          status?: string
+          timezone?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "online_meetings_host_profile_id_fkey"
+            columns: ["host_profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ops_cycletime_measurements: {
         Row: {
           created_at: string
@@ -172139,6 +172826,7 @@ export type Database = {
           periods: Json
           program_id: string | null
           section_id: string | null
+          section_ids: string[] | null
           selected_dates: Json | null
           selected_days: Json | null
           semester_id: string | null
@@ -172175,6 +172863,7 @@ export type Database = {
           periods?: Json
           program_id?: string | null
           section_id?: string | null
+          section_ids?: string[] | null
           selected_dates?: Json | null
           selected_days?: Json | null
           semester_id?: string | null
@@ -172211,6 +172900,7 @@ export type Database = {
           periods?: Json
           program_id?: string | null
           section_id?: string | null
+          section_ids?: string[] | null
           selected_dates?: Json | null
           selected_days?: Json | null
           semester_id?: string | null
@@ -196230,8 +196920,25 @@ export type Database = {
           type_name: string
         }[]
       }
+      fn_cl_housekeeping_reschedule: {
+        Args: {
+          p_booking_id: string
+          p_cleaner_id?: string
+          p_clear_cleaner?: boolean
+          p_date: string
+          p_reason_code: string
+          p_reason_note?: string
+          p_slot_start: string
+        }
+        Returns: Json
+      }
       fn_cl_housekeeping_slots: {
-        Args: { p_date: string; p_room_id: string; p_type_id: string }
+        Args: {
+          p_date: string
+          p_exclude_booking_id?: string
+          p_room_id: string
+          p_type_id: string
+        }
         Returns: Json
       }
       fn_cl_my_block_ids: { Args: never; Returns: string[] }
@@ -198050,6 +198757,34 @@ export type Database = {
         }
         Returns: string
       }
+      fn_hr_decision_emails_claim: {
+        Args: {
+          p_comp_off_credit_id?: string
+          p_leave_application_id?: string
+          p_limit?: number
+        }
+        Returns: {
+          attempts: number
+          comp_off_credit_id: string | null
+          created_at: string
+          decision: string
+          employee_id: string
+          id: string
+          last_error: string | null
+          leave_application_id: string | null
+          next_attempt_at: string
+          resend_id: string | null
+          sent_at: string | null
+          status: string
+          to_email: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "hr_decision_emails"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       fn_hr_delete_work_pattern: { Args: { p_id: string }; Returns: Json }
       fn_hr_institution_included: {
         Args: { p_institution_id: string }
@@ -198096,9 +198831,25 @@ export type Database = {
         Args: { p_employee_id: string; p_flow_id: string }
         Returns: Json
       }
+      fn_hr_comp_off_can_revoke: {
+        Args: { p_credit_id: string }
+        Returns: boolean
+      }
+      fn_hr_comp_off_revoke_block_reason: {
+        Args: { p_credit_id: string }
+        Returns: string
+      }
       fn_hr_leave_can_finalize: {
         Args: { p_application_id: string }
         Returns: boolean
+      }
+      fn_hr_leave_can_revoke: {
+        Args: { p_application_id: string }
+        Returns: boolean
+      }
+      fn_hr_leave_revoke_block_reason: {
+        Args: { p_application_id: string }
+        Returns: string
       }
       fn_hr_leave_chain_step: {
         Args: {
@@ -207106,6 +207857,9 @@ export type Database = {
           reason: string
           rejection_reason: string
           request_category: string
+          revoke_reason: string
+          revoked_at: string
+          revoked_by_name: string
           staff_code: string
           staff_name: string
           start_date: string

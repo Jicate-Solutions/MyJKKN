@@ -60,12 +60,25 @@
 // blocked write comes back EMPTY rather than as an error, so every write here
 // asserts on the rows actually returned.
 //
-// Gated by accreditation.naac.narrative.VIEW (MENU_PERMISSIONS). Opening the
-// page and answering an assignment addressed to you needs only view; assigning
-// or reassigning anyone else additionally needs .manage. Gating the whole page
-// on .manage shipped the accept/decline buttons to an audience of nobody —
-// that key is true on one role held by one person, while the 102 HODs and 10
-// principals who are the intended owners hit the access-denied panel.
+// Gated by accreditation.naac.narrative.VIEW (MENU_PERMISSIONS) OR BY BEING
+// NAMED ON THE DESK. Opening the page and answering an assignment addressed to
+// you needs only view; assigning or reassigning anyone else additionally needs
+// .manage. Gating the whole page on .manage shipped the accept/decline buttons
+// to an audience of nobody — that key is true on one role held by one person,
+// while the 102 HODs and 10 principals who are the intended owners hit the
+// access-denied panel.
+//
+// Widening that gate to .view fixed it for hod and principal AND STOPPED THERE.
+// Seven of the fourteen people named as body owners on 2026-09-09 are role
+// `faculty`, and no role grants faculty either accreditation key — so the half
+// of the roster that fn_accreditation_assign_metric_owner's body-owner branch
+// was written for still met the access-denied card on the only screen that
+// calls it, and Director decision 2 was unreachable for them. The third door
+// therefore asks the OWNERSHIP TABLE rather than a permission key: assignment
+// is ownership, so being named is the entitlement. A viewer who gets in that
+// way sees only the bodies they are named on, because RLS shows them only
+// those, and a denied read must never render as "Nobody yet". The reasoning
+// lives in _lib/named-owner-door.ts.
 //
 // The acknowledgement write goes through fn_accreditation_acknowledge_ownership
 // rather than a direct update, because the FOR ALL policy below demands .manage
@@ -86,7 +99,7 @@
 
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
@@ -95,6 +108,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SearchableSelect } from '@/components/ui/searchable-select';
+import { fetchOwnerCandidates } from '@/lib/services/accreditation/owner-candidates';
 import {
   Select,
   SelectContent,
@@ -160,21 +174,22 @@ import {
   appliesToNobody,
   scopeSentence,
 } from '../../_lib/institution-body-scope';
+import {
+  isNamedOwner,
+  bodiesNamedOnAt,
+  claimableScope,
+  namedOwnerScopeSentence,
+} from './_lib/named-owner-door';
 import { useInstitutionBodyScope } from '@/hooks/accreditation/use-institution-bodies';
 
 /**
- * The pool a coordinator picks from. Mirrors the narrative owner desk
- * (faculty / hod / principal) and adds accreditation_officer — the role
- * literally named for this job.
+ * The pool a coordinator picks from — principal / hod / faculty plus
+ * accreditation_officer, the role literally named for this job — read through
+ * fn_accreditation_owner_candidates so it unions profiles.role with user_roles
+ * instead of trusting the legacy scalar alone. See
+ * lib/services/accreditation/owner-candidates.ts for why the union cannot
+ * happen in the browser.
  */
-const OWNER_CANDIDATE_ROLES = [
-  'principal',
-  'hod',
-  'faculty',
-  'accreditation_officer',
-];
-
-const CANDIDATE_LIMIT = 500;
 const UNASSIGNED_VALUE = '__unassigned__';
 /** Non-empty by necessity: an empty-string Radix item value crashes the
  * dropdown on first open, which no build or type check would catch. */
@@ -252,6 +267,44 @@ function useOwnerRows(institutionId: string | null) {
   });
 }
 
+/**
+ * The ownership rows the SIGNED-IN PERSON holds, anywhere — this page's door.
+ *
+ * Deliberately NOT the institution query above. `accred_metric_owners_select`
+ * carries a standalone `owner_user_id = auth.uid()` branch, so this read
+ * succeeds for somebody holding no accreditation permission at all, which is
+ * exactly the case that had to be reachable: on 2026-09-09 seven of the
+ * fourteen live body owners were role `faculty`, and no role grants faculty
+ * accreditation.naac.narrative.view — so the .view gate below shut half the
+ * roster out of the only screen that can delegate. See _lib/named-owner-door.ts
+ * for why being named is the entitlement and no key can decide it.
+ *
+ * `.eq('owner_user_id', userId)` is not redundant with RLS. Once a body owner
+ * can read the rows inside a body they own (migration 20261127090000), an
+ * unfiltered read answers "can I see something", not "am I named".
+ *
+ * Not scoped to a campus, because the campus picker below defaults from the
+ * profile and the door must not depend on which campus happens to be selected.
+ */
+function useMyOwnerships(userId: string | null) {
+  return useQuery({
+    queryKey: ['accreditation', 'my-ownerships', userId],
+    enabled: !!userId,
+    queryFn: async (): Promise<OwnerRow[]> => {
+      const sb = createClientSupabaseClient() as any;
+      const { data, error } = await sb
+        .from('accreditation_metric_owners')
+        .select(
+          'id, institution_id, body_code, metric_code, programme_id, owner_user_id, assignment_status, acknowledged_at, previous_owner_user_id, owner_changed_at',
+        )
+        .eq('owner_user_id', userId);
+      if (error) throw error;
+      return (data ?? []) as OwnerRow[];
+    },
+    staleTime: 60 * 1000,
+  });
+}
+
 function useInstitutions() {
   return useQuery({
     queryKey: ['institutions', 'owner-desk'],
@@ -296,14 +349,7 @@ function useCandidateOwners() {
     queryKey: ['profiles', 'metric-owner-candidates'],
     queryFn: async (): Promise<CandidateProfile[]> => {
       const sb = createClientSupabaseClient() as any;
-      const { data, error } = await sb
-        .from('profiles')
-        .select('id, full_name, email')
-        .in('role', OWNER_CANDIDATE_ROLES)
-        .order('full_name', { ascending: true })
-        .limit(CANDIDATE_LIMIT);
-      if (error) throw error;
-      return (data ?? []) as CandidateProfile[];
+      return fetchOwnerCandidates(sb);
     },
     staleTime: 10 * 60 * 1000,
   });
@@ -454,6 +500,40 @@ function AccessDenied() {
   );
 }
 
+/**
+ * Shown INSTEAD of AccessDenied when the door read itself failed.
+ *
+ * For a viewer holding no accreditation key, "are you named on this desk" is the
+ * only question that decides the page, so a failed answer is not a refusal. The
+ * access-denied card would state a fact we do not have — and it would state it
+ * to the very people this page was reopened for, who would reasonably believe
+ * they had been locked out again.
+ */
+function OwnershipCheckFailed() {
+  return (
+    <ContentLayout title="Assign Metric Owners">
+      <Card className="max-w-xl">
+        <CardHeader>
+          <CardTitle className="text-lg">
+            We could not check whether this desk is yours
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm text-muted-foreground">
+          <p>
+            Opening this page depends on whether you are named as an
+            accreditation owner, and that check did not come back. Nothing has
+            been refused and nothing has changed — we simply cannot tell yet.
+          </p>
+          <p>
+            Reload the page. If it keeps happening, tell your IQAC coordinator
+            that the owner list could not be read.
+          </p>
+        </CardContent>
+      </Card>
+    </ContentLayout>
+  );
+}
+
 function StatusBadge({ status }: { status: AssignmentStatus | null }) {
   if (status === 'confirmed') {
     return (
@@ -491,8 +571,8 @@ export default function AccreditationOwnersPage() {
 
   // Two powers, deliberately separate (Director decision 8).
   //
-  //   canManage — ASSIGN and reassign. One role holds it, held by one person.
-  //   canView   — open the page and answer an assignment addressed to you.
+  //   canManage           — ASSIGN and reassign anyone. One role holds it.
+  //   canViewByPermission — open the page because a key says so.
   //
   // Gating the whole page on canManage shipped the accept/decline buttons to an
   // audience of nobody: the 102 HODs and 10 principals who are the intended
@@ -502,13 +582,41 @@ export default function AccreditationOwnersPage() {
   // imposition decision 8 exists to prevent. So the page opens on view, and the
   // assign controls stay behind manage.
   const canManage = isSuperAdmin || can('accreditation.naac.narrative.manage');
-  const canView = canManage || can('accreditation.naac.narrative.view');
+  const canViewByPermission =
+    canManage || can('accreditation.naac.narrative.view');
 
   // profiles.id IS auth.users.id, so this is the same identity the RPC derives
   // from auth.uid() and the same one accreditation_metric_owners.owner_user_id
   // stores. Compared here because RLS cannot express "the row's own owner" for
   // rendering purposes — only the function enforces it on the write.
   const currentUserId = (userProfile?.id as string | undefined) ?? null;
+
+  // THE THIRD WAY IN, and the one the roster actually needs. Widening .view
+  // reached hod and principal and stopped there; seven of the fourteen people
+  // named as body owners on 2026-09-09 are role `faculty`, which no role grants
+  // either accreditation key. They hold the body-level row that
+  // fn_accreditation_assign_metric_owner's second branch was written for — the
+  // database already lets them delegate — and met an access-denied card on the
+  // only screen that calls it. Being named IS the entitlement (assignment is
+  // ownership, Director 2026-09-08), so the door asks the ownership table, not
+  // a permission key.
+  const {
+    data: myOwnerships,
+    isLoading: myOwnershipsLoading,
+    error: myOwnershipsError,
+  } = useMyOwnerships(currentUserId);
+  const myRows = useMemo(() => myOwnerships ?? [], [myOwnerships]);
+  const canView =
+    canViewByPermission || isNamedOwner(myRows, currentUserId);
+
+  // True when being named is the ONLY reason this page opened. Such a viewer
+  // reads under RLS with no accreditation permission, so they can see their own
+  // rows and (once 20261127090000 is applied) the rows inside a body they own —
+  // and nothing else on the campus. What the page may COUNT and LIST narrows to
+  // match, because rendering the full desk to them would print "Nobody yet"
+  // over owners who exist and are merely invisible.
+  const openedAsNamedOwner =
+    !canViewByPermission && isNamedOwner(myRows, currentUserId);
 
   const [institutionId, setInstitutionId] = useState<string | null>(null);
   const [bodyFilter, setBodyFilter] = useState<string>('all');
@@ -568,6 +676,24 @@ export default function AccreditationOwnersPage() {
   const { scope: bodyScope, isLoading: scopeLoading } =
     useInstitutionBodyScope(activeInstitution);
 
+  // The bodies a named-owner-only viewer is on at the campus in view. Empty for
+  // everyone else, and empty for a named owner who has switched to a campus they
+  // are not named on — which the sentence below states rather than rendering as
+  // an empty desk.
+  const namedOnBodies = useMemo(
+    () => bodiesNamedOnAt(myRows, currentUserId, activeInstitution),
+    [myRows, currentUserId, activeInstitution],
+  );
+
+  // The scope this viewer may make CLAIMS about. For anyone holding a key it is
+  // the campus's own scope, unchanged. For a viewer who got in by being named it
+  // is narrowed to the bodies they can actually read, so no count and no "Nobody
+  // yet" ever describes a body whose rows RLS is withholding from them.
+  const visibleScope = useMemo(
+    () => claimableScope(bodyScope, openedAsNamedOwner ? namedOnBodies : null),
+    [bodyScope, openedAsNamedOwner, namedOnBodies],
+  );
+
   // 🔴 THE FILTER SITS HERE — between the read and the count, never between
   // the count and the render. `tally`, `byBody` and `visibleMetrics` all derive
   // from `metrics`, so narrowing it moves the DENOMINATOR with the list.
@@ -575,9 +701,12 @@ export default function AccreditationOwnersPage() {
   // unreachable total IS the bug: 7 of the 107 metrics can never apply to an
   // engineering college, so 107 is a target that college cannot hit.
   // Engineering reads NAAC 69 + NIRF 17 + NBA 9 + AICTE 1 + ABET 0 = 96.
+  //
+  // `visibleScope` — not `bodyScope` — because a named-owner-only viewer's
+  // denominator has to move with their narrowed list for the same reason.
   const metrics = useMemo(
-    () => filterMetricsToScope(framework ?? [], bodyScope),
-    [framework, bodyScope],
+    () => filterMetricsToScope(framework ?? [], visibleScope),
+    [framework, visibleScope],
   );
   const rows = useMemo(() => ownerRows ?? [], [ownerRows]);
 
@@ -602,8 +731,8 @@ export default function AccreditationOwnersPage() {
   // needs an accountable person, so the body list comes from the mapping rather
   // than from whichever bodies happen to carry rows in the framework.
   const bodies = useMemo(
-    () => bodiesForScope(bodyScope, listBodyCodes(metrics)),
-    [bodyScope, metrics],
+    () => bodiesForScope(visibleScope, listBodyCodes(metrics)),
+    [visibleScope, metrics],
   );
 
   /**
@@ -871,8 +1000,15 @@ export default function AccreditationOwnersPage() {
           'The change was not saved — you may not have access to this campus.',
         );
       }
+      // "They have been told" was false for three of the four people the
+      // Director's decision names, and false in the moment for all four: this
+      // upsert wrote no trail row at all until 20261125153000, and
+      // accreditation-ownership-notify reads nothing else. Now the change IS
+      // recorded, and the cron sends on its next run — which is a future tense,
+      // not a past one, and the message says so.
       toast.success(
-        `${label} is now owned by ${personLabel(nextOwnerId)}. They have been told.`,
+        `${label} is now owned by ${personLabel(nextOwnerId)}. The change is ` +
+          `recorded; everyone affected will be told.`,
       );
       await invalidate();
     } catch (e) {
@@ -1101,6 +1237,21 @@ export default function AccreditationOwnersPage() {
       ? trailMetric
       : null;
 
+  // A body owner's own body is fully owned BY INHERITANCE, so the page's default
+  // 'unassigned' view opens empty for exactly the person it was reopened for —
+  // and an empty first screen reads as "this page is broken", not as "nothing is
+  // unowned". Move them to the full list, which is also where the metric they
+  // came to delegate is. Once only: a deliberate choice afterwards is never
+  // overwritten, and the guard is a ref rather than state so it cannot itself
+  // trigger a render.
+  const showFilterDefaulted = useRef(false);
+  useEffect(() => {
+    if (openedAsNamedOwner && !showFilterDefaulted.current) {
+      showFilterDefaulted.current = true;
+      setShowFilter('all');
+    }
+  }, [openedAsNamedOwner]);
+
   const trailEvents = useMemo(() => {
     if (!trail || trail.kind !== 'ok' || !activeTrailBody) return [];
     return sortEventsNewestFirst(
@@ -1112,13 +1263,22 @@ export default function AccreditationOwnersPage() {
   }, [trail, activeTrailBody, effectiveTrailMetric]);
 
   // --------------------------------------------------------------------------
-  if (permsLoading) {
+  // Wait for the door read too, but only when the permission keys have already
+  // said no — otherwise a named owner is shown the access-denied card for a beat
+  // before the page appears, which is the same refusal this fix removes, just
+  // briefer. A viewer who holds a key never waits on it.
+  if (permsLoading || (!canViewByPermission && myOwnershipsLoading)) {
     return (
       <ContentLayout title="Assign Metric Owners">
         <Skeleton className="h-40 w-full" />
       </ContentLayout>
     );
   }
+  // A FAILED CHECK IS NOT A REFUSAL. Only reached when the permission keys have
+  // already said no, so the ownership read was the deciding answer and it never
+  // arrived. AccessDenied here would tell a named owner they have no access on
+  // the strength of a read that failed.
+  if (!canViewByPermission && myOwnershipsError) return <OwnershipCheckFailed />;
   if (!canView) return <AccessDenied />;
 
   // The scope decides the denominator, so a count rendered before it resolves
@@ -1183,20 +1343,34 @@ export default function AccreditationOwnersPage() {
             </div>
 
             {/* Which bodies this campus answers to, said out loud, so a
-                narrowed list is never mistaken for a short one. */}
+                narrowed list is never mistaken for a short one.
+
+                A viewer who is here because they are NAMED gets the other
+                sentence: the campus's full body list would describe a desk they
+                are not being shown, and "Record them" points at an admin screen
+                they cannot open. */}
             {!campusOutOfScope && !loading && (
               <p className="text-xs text-muted-foreground">
-                {scopeSentence(bodyScope, activeInstitutionName)}
-                {bodyScope.kind === 'unprovisioned' && (
+                {openedAsNamedOwner ? (
+                  namedOwnerScopeSentence(
+                    visibleScope.kind === 'known' ? visibleScope.bodies : [],
+                    activeInstitutionName,
+                  )
+                ) : (
                   <>
-                    {' '}
-                    <Link
-                      href="/accreditation/manage/bodies"
-                      className="underline underline-offset-2"
-                    >
-                      Record them
-                    </Link>
-                    .
+                    {scopeSentence(bodyScope, activeInstitutionName)}
+                    {bodyScope.kind === 'unprovisioned' && (
+                      <>
+                        {' '}
+                        <Link
+                          href="/accreditation/manage/bodies"
+                          className="underline underline-offset-2"
+                        >
+                          Record them
+                        </Link>
+                        .
+                      </>
+                    )}
                   </>
                 )}
               </p>
