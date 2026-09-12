@@ -13,7 +13,7 @@
 
 ### Definition layer (already dynamic)
 - `bos_taxonomy` (institution-scoped: `institutions_id`, `code`, `name`, `is_hierarchical`, `is_system`, `is_active`, audit cols) + `bos_taxonomy_levels` (`taxonomy_id`, `code`, `name`, `description`, `verb_examples`, `sort_order`). Migration `20260508_create_bos_taxonomy_master.sql`. UI at `app/(routes)/bos/taxonomy/`, API at `app/api/bos/taxonomies/`.
-- **Live JABT = 17 elements**, verified in prod: K1–K6 (13 institutions) · AF1–AF5 (10) · PS-a/b/c (13) · HD, L2L (9) · AIU (13). Names identical across all copies (`name_variants=1` for every code). The August "C + three bands" restructure **has been executed** — DB, documents (`artifacts/advanced-blooms-taxonomy.html` v2 21-Aug, teacher card v2 — local, gitignored `artifacts/`, not in the repo) and code type (`types/obe.ts AdvancedDimension`) all agree.
+- **Live JABT = 17 elements**, verified in prod: K1–K6 (13 institutions) · AF1–AF5 (10) · PS-a/b/c (13) · HD, L2L (9) · AIU (13). Names identical across all copies (`name_variants=1` for every code). The August "C + three bands" restructure **has been executed** — DB, documents (`artifacts/advanced-blooms-taxonomy.html` v2 21-Aug, Senior Learner card v2 — local, gitignored `artifacts/`, not in the repo) and code type (`types/obe.ts AdvancedDimension`) all agree.
 - Lesson labels re-derived: `curriculum_lesson` non-K JABT labels are AF3 ×575 · HD ×343 · L2L ×331 (no stale A-codes).
 - Governance (`bos_regulation_taxonomies.taxonomy_type`): 7 × `jkkn_advanced` (R-2026), 7 × `blooms`, 1 × `finks`.
 - Both prod CHECK constraints (`obe_regulation_config_taxonomy_type_check`, `chk_curriculum_lesson_primary_taxonomy`) already allow `jkkn_advanced`. The repo's migration files were behind prod; **PR #3097 (MERGED 2026-09-06)** repaired that drift with `supabase/migrations/20260908104215_taxonomy_check_constraints_repo_drift.sql`, so a from-scratch replay now admits `jkkn_advanced` too. This spec builds on it, does not duplicate it.
@@ -43,7 +43,7 @@ Verified by grep on `jicate/main`:
 | **D1** | Level renamed/added mid-semester — existing papers/marks? | **Old papers keep their version.** Every paper snapshots the taxonomy version current at its creation; new papers use the new version. |
 | **D2** | Can a level be deleted? | **Retire only, never delete.** Retired levels vanish from new dropdowns, stay readable on all history. |
 | **D3** | One definition or per-college? | **One shared list; colleges switch parts on/off.** Today's 13 per-institution copies converge to one master + per-college activation (the activation pattern already exists in the data: AF at 10, HD/L2L at 9). |
-| **D4** | Who edits? | **Super admin + one named curriculum owner; every change logged** (who/what/when/why, visible on the page). *Open: the owner's name.* |
+| **D4** | Who edits? | **Super admin + one named learning-framework owner; every change logged** (who/what/when/why, visible on the page). *Open: the owner's name.* |
 | **D5** | Order and weights on the page? | **Both.** Order exists (`sort_order`); weight is a new column so rules like "AIU = 2 of 25" live in data, not code. |
 | **D6→D9** | PDE's Fink copy / scope of JABT | Director's ruling, verbatim: **"JABT REPLACES ALL TAXONOMIES AT JKKN."** Pinned in D9/D10. |
 | **D7** | Edits live instantly? | **Date-publish.** Changes queue and take effect on a chosen date (e.g. term start). |
