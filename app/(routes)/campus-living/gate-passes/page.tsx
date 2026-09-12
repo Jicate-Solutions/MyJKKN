@@ -1,25 +1,50 @@
 'use client';
 
-import { useState } from 'react';
+/**
+ * /campus-living/gate-passes — the warden's queue.
+ *
+ * Six tabs over one advanced DataTable (URL state, sort, column visibility,
+ * resizing, real CSV/XLS export). The page this replaced hand-rolled a
+ * <Table>, filtered it with a client-side `.filter()` over whatever the first
+ * page happened to contain, and had an Export button that raised a
+ * "ships next" toast.
+ *
+ * Approve and Reject are available inline as shortcuts, each behind a
+ * confirmation. The decision this page is really for happens one click deeper,
+ * on the detail page, where the learner's dossier and the parent's phone
+ * number are — a warden approving from a row has not read either.
+ */
+
+import { useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { toast } from 'sonner';
+import {
+  AlertTriangle,
+  Check,
+  Clock,
+  DoorOpen,
+  Loader2,
+  ScanLine,
+  X,
+} from 'lucide-react';
+
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { Card, CardContent } from '@/components/ui/card';
+import { DataTable } from '@/components/data-table/data-table';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
+import { Card, CardContent } from '@/components/ui/card';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import {
   Dialog,
   DialogContent,
@@ -28,155 +53,152 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Skeleton } from '@/components/ui/skeleton';
+
 import { useAuth } from '@/hooks/use-auth';
-import {
-  useGatePasses,
-  usePendingGatePassRequests,
-  useApproveGatePass,
-  useRejectGatePass,
-} from '@/hooks/campus-living/use-gate-passes';
-import {
-  Search,
-  Loader2,
-  DoorOpen,
-  Clock,
-  AlertTriangle,
-  CheckCircle2,
-  QrCode,
-  ScanLine,
-  Download,
-  Check,
-  X,
-  MapPin,
-  FileText,
-} from 'lucide-react';
+import { usePermissions } from '@/hooks/use-permissions';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useApproveGatePass, useRejectGatePass } from '@/hooks/campus-living/use-gate-passes';
+import { GatePassService } from '@/lib/services/campus-living/gate-pass-service';
+import { logger } from '@/lib/utils/enhanced-logger';
+import type { GatePassListRow, GatePassStatus } from '@/types/campus-living';
+import { getGatePassColumns } from './_components/columns';
 
-const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' }> = {
-  requested: { label: 'Pending', variant: 'outline' },
-  issued: { label: 'Issued', variant: 'outline' },
-  active: { label: 'Active', variant: 'default' },
-  returned: { label: 'Returned', variant: 'success' },
-  overdue: { label: 'Overdue', variant: 'destructive' },
-  rejected: { label: 'Rejected', variant: 'destructive' },
-  cancelled: { label: 'Cancelled', variant: 'secondary' },
-};
-
-const passTypeConfig: Record<string, { label: string; color: string }> = {
-  regular_out: { label: 'Regular', color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300' },
-  overnight: { label: 'Overnight', color: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300' },
-  emergency: { label: 'Emergency', color: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300' },
-  visitor_accompanied: { label: 'Visitor', color: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300' },
-};
-
-function formatDateTime(dateStr: string | null) {
-  if (!dateStr) return '--';
-  try {
-    return new Date(dateStr).toLocaleString('en-IN', {
-      day: '2-digit',
-      month: 'short',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  } catch {
-    return dateStr;
-  }
-}
+/** Which statuses each tab shows. `null` means every status. */
+const TABS: { value: string; label: string; statuses: GatePassStatus[] | null }[] = [
+  { value: 'pending', label: 'Pending', statuses: ['requested'] },
+  { value: 'approved', label: 'Approved', statuses: ['issued'] },
+  { value: 'out', label: 'Out now', statuses: ['active', 'overdue'] },
+  { value: 'returned', label: 'Returned', statuses: ['returned'] },
+  { value: 'rejected', label: 'Rejected', statuses: ['rejected', 'cancelled'] },
+  { value: 'all', label: 'All', statuses: null },
+];
 
 export default function GatePassesPage() {
   const { profile } = useAuth();
+  const { canAccess, isSuperAdmin, isLoading: permsLoading } = usePermissions();
   const searchParams = useSearchParams();
-  const learnerId = searchParams.get('learner') ?? undefined;
-  const institutionId = profile?.institution_id ?? '';
-  const { data: passesRaw, isLoading } = useGatePasses(
-    institutionId,
-    learnerId ? { learner_id: learnerId } : undefined,
+  const learnerFilter = searchParams.get('learner') ?? undefined;
+
+  const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess();
+
+  /**
+   * The institutions this user can actually see, passed through explicitly.
+   *
+   * NOT `isSuperAdmin ? undefined : profile.institution_id`. That branch
+   * silently strips access from a secondary role carrying scope='all', and RLS
+   * gates the rows regardless — so the caller says what it can see and the
+   * service does not second-guess it.
+   */
+  const institutionIds = useMemo(
+    () => institutions.map((i) => i.id),
+    [institutions],
   );
-  const { data: pendingRequests } = usePendingGatePassRequests(institutionId);
-  const approveGatePass = useApproveGatePass();
-  const rejectGatePass = useRejectGatePass();
 
-  const passes = ((passesRaw as any)?.data ?? []) as any[];
+  const canDecide = isSuperAdmin || canAccess('campus_living.gate_passes', 'approve');
+  const canIssue = canDecide;
+  const canScan = isSuperAdmin || canAccess('campus_living.gate_passes', 'edit');
 
-  // First-row learner label powers the "Filtered to learner X" chip when the
-  // page is opened via the residents drawer deep-link (?learner=<id>).
-  const learnerLabel = learnerId
-    ? (passes[0] as any)?.learner?.full_name ?? (passes[0] as any)?.learner?.email ?? learnerId
-    : null;
+  const [activeTab, setActiveTab] = useState(learnerFilter ? 'all' : 'pending');
+  const [refetchKey, setRefetchKey] = useState(0);
 
-  // When deep-linked from ?learner=<id>, the learner-filtered passes belong on the
-  // "All" tab — the Pending tab pulls from a separate institution-wide request hook.
-  const pending = learnerId
-    ? []
-    : ((pendingRequests ?? []) as any[]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState(learnerId ? 'all' : 'pending');
+  const approve = useApproveGatePass();
+  const reject = useRejectGatePass();
 
-  // Reject dialog state
-  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
-  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [approveTarget, setApproveTarget] = useState<GatePassListRow | null>(null);
+  const [rejectTarget, setRejectTarget] = useState<GatePassListRow | null>(null);
   const [rejectReason, setRejectReason] = useState('');
-  const [isApproving, setIsApproving] = useState<string | null>(null);
 
-  const getFilteredPasses = (tab: string) => {
-    return passes?.filter((p: any) => {
-      const matchesSearch =
-        (p.learner?.full_name ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (p.learner_id ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (p.pass_number ?? '').toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesTab =
-        tab === 'all' ? true :
-        tab === 'active' ? (p.status === 'active' || p.status === 'issued') :
-        tab === 'overdue' ? p.status === 'overdue' :
-        tab === 'returned' ? p.status === 'returned' :
-        true;
-      return matchesSearch && matchesTab;
-    }) ?? [];
-  };
+  const statuses = TABS.find((t) => t.value === activeTab)?.statuses ?? null;
 
-  const activeCount = passes?.filter((p: any) => p.status === 'active' || p.status === 'issued').length ?? 0;
-  const overdueCount = passes?.filter((p: any) => p.status === 'overdue').length ?? 0;
-  const pendingCount = pending.length;
+  const fetchData = useCallback(
+    async (params: { page: number; limit: number; search: string }) => {
+      try {
+        const { data, count } = await GatePassService.getGatePasses(
+          institutionIds,
+          {
+            ...(statuses ? { status: statuses } : {}),
+            ...(learnerFilter ? { learner_id: learnerFilter } : {}),
+          },
+          params.page,
+          params.limit,
+        );
 
-  const handleApprove = async (id: string) => {
-    if (!profile?.id) return;
-    setIsApproving(id);
+        // Search is client-side over the page the server returned. The queue
+        // is a working set of pending decisions, not an archive — a warden
+        // searching it is looking for a name they know is in front of them.
+        const q = params.search.trim().toLowerCase();
+        const rows = q
+          ? data.filter(
+              (r) =>
+                r.learner_name.toLowerCase().includes(q) ||
+                (r.pass_number ?? '').toLowerCase().includes(q) ||
+                r.destination.toLowerCase().includes(q) ||
+                r.leave_type_name.toLowerCase().includes(q),
+            )
+          : data;
+
+        return {
+          success: true,
+          data: rows,
+          pagination: {
+            page: params.page,
+            limit: params.limit,
+            total_pages: Math.max(1, Math.ceil(count / params.limit)),
+            total_items: count,
+          },
+        };
+      } catch (error) {
+        logger.error('campus-living/gate-passes', 'Failed to load the queue', error);
+        throw error;
+      }
+    },
+    [institutionIds, statuses, learnerFilter],
+  );
+
+  const columns = useMemo(
+    () =>
+      getGatePassColumns({
+        canDecide,
+        onApprove: (row) => setApproveTarget(row),
+        onReject: (row) => {
+          setRejectReason('');
+          setRejectTarget(row);
+        },
+      }),
+    [canDecide],
+  );
+
+  async function confirmApprove() {
+    if (!approveTarget || !profile?.id) return;
     try {
-      await approveGatePass.mutateAsync({ id, approverId: profile.id });
+      await approve.mutateAsync({ id: approveTarget.id, approverId: profile.id });
+      setRefetchKey((k) => k + 1);
     } catch {
-      // Surfaced to the operator by the mutation's own onError toast. Caught
-      // here so a refusal (no permission, or somebody already decided this
-      // request) does not leave an unhandled rejection behind the toast.
+      // the mutation's onError toast is the operator-facing report
     } finally {
-      setIsApproving(null);
+      setApproveTarget(null);
     }
-  };
+  }
 
-  const handleRejectConfirm = async () => {
-    if (!rejectingId || !profile?.id || !rejectReason.trim()) return;
+  async function confirmReject() {
+    if (!rejectTarget || !profile?.id || !rejectReason.trim()) return;
     try {
-      await rejectGatePass.mutateAsync({
-        id: rejectingId,
+      await reject.mutateAsync({
+        id: rejectTarget.id,
         rejectedBy: profile.id,
         reason: rejectReason.trim(),
       });
+      setRefetchKey((k) => k + 1);
     } catch {
-      // Same as approve: the toast is the operator-facing report.
+      // same
     } finally {
-      setRejectDialogOpen(false);
-      setRejectingId(null);
+      setRejectTarget(null);
       setRejectReason('');
     }
-  };
-
-  if (isLoading) {
-    return (
-      <ContentLayout title="Gate Passes">
-        <div className="flex items-center justify-center min-h-[400px]">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
-      </ContentLayout>
-    );
   }
+
+  const notReady = permsLoading || institutionsLoading;
 
   return (
     <ContentLayout title="Gate Passes">
@@ -188,346 +210,206 @@ export default function GatePassesPage() {
         ]}
       />
 
-      <div className="space-y-6 mt-4">
-        {/* Header */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start">
+      <div className="mt-4 space-y-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h1 className="text-2xl font-bold py-1">Gate Passes</h1>
-            <p className="text-sm sm:text-base text-muted-foreground">
-              Track student exit and entry with QR-based gate pass system
+            <h1 className="py-1 text-2xl font-bold">Gate Passes</h1>
+            <p className="text-sm text-muted-foreground sm:text-base">
+              Residents apply, you decide, and the gate records the movement when they scan
+              their MyJKKN QR.
             </p>
           </div>
-          <div className="flex gap-2">
-            <Button asChild>
-              <Link href="/campus-living/gate-passes/scan">
-                <ScanLine className="mr-2 h-4 w-4" />
-                Scan at Gate
-              </Link>
-            </Button>
-            <Button variant="outline" asChild>
-              <Link href="/campus-living/gate-passes/new">
-                <DoorOpen className="mr-2 h-4 w-4" />
-                Issue Gate Pass
-              </Link>
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() =>
-                toast.info('Gate-pass export ships next.', {
-                  description: 'CSV export of gate-pass logs will be available once the export endpoint is live.',
-                })
-              }
-            >
-              <Download className="mr-2 h-4 w-4" />
-              Export
-            </Button>
+          <div className="flex flex-wrap gap-2">
+            {canScan && (
+              <Button asChild>
+                <Link href="/campus-living/gate-passes/scan">
+                  <ScanLine className="mr-2 h-4 w-4" />
+                  Scan at Gate
+                </Link>
+              </Button>
+            )}
+            {canIssue && (
+              <Button variant="outline" asChild>
+                <Link href="/campus-living/gate-passes/new">
+                  <DoorOpen className="mr-2 h-4 w-4" />
+                  Issue directly
+                </Link>
+              </Button>
+            )}
           </div>
         </div>
 
-        {/* Deep-link chip when arrived via ?learner=… from residents drawer */}
-        {learnerId && (
+        {/* Deep link from the residents drawer (?learner=…). */}
+        {learnerFilter && (
           <div className="flex items-center gap-2 rounded-md border border-dashed bg-muted/40 px-3 py-2 text-sm">
-            <span className="text-muted-foreground">Filtered to learner:</span>
-            <span className="font-medium">{learnerLabel}</span>
-            <Button variant="ghost" size="sm" className="h-7 px-2 ml-auto" asChild>
+            <span className="text-muted-foreground">Showing one learner&apos;s passes only.</span>
+            <Button variant="ghost" size="sm" className="ml-auto h-7 px-2" asChild>
               <Link href="/campus-living/gate-passes">
-                <X className="h-3.5 w-3.5 mr-1" />
+                <X className="mr-1 h-3.5 w-3.5" />
                 Clear
               </Link>
             </Button>
           </div>
         )}
 
-        {/* Overdue Alert */}
-        {overdueCount > 0 && (
-          <div className="flex items-center gap-3 p-4 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg">
-            <AlertTriangle className="h-5 w-5 text-red-600 shrink-0" />
-            <div className="flex-1">
-              <p className="font-medium text-red-800 dark:text-red-200">
-                {overdueCount} Overdue Gate Pass{overdueCount > 1 ? 'es' : ''}
-              </p>
-              <p className="text-sm text-red-600 dark:text-red-300">
-                Students haven&apos;t returned by expected time. Parents have been notified.
-              </p>
-            </div>
-            <Button variant="outline" size="sm" className="border-red-200 text-red-700" onClick={() => setActiveTab('overdue')}>
-              View Overdue
-            </Button>
-          </div>
+        {/* A learner deep-link is a history view; the tabs are a queue view.
+            Mixing them is how the old page ended up showing "Pending (0)" for
+            a learner who had pending requests. */}
+        {!learnerFilter && (
+          <Tabs
+            value={activeTab}
+            onValueChange={(v) => {
+              setActiveTab(v);
+              setRefetchKey((k) => k + 1);
+            }}
+          >
+            <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
+              {TABS.map((t) => (
+                <TabsTrigger key={t.value} value={t.value}>
+                  {t.value === 'pending' && <Clock className="mr-1.5 h-3.5 w-3.5" />}
+                  {t.value === 'out' && <AlertTriangle className="mr-1.5 h-3.5 w-3.5" />}
+                  {t.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
         )}
 
-        {/* Summary */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
-          <Card className={pendingCount > 0 ? 'border-yellow-300 dark:border-yellow-700' : ''}>
-            <CardContent className="p-4 flex items-center gap-3">
-              <Clock className="h-8 w-8 text-yellow-600" />
-              <div>
-                <p className="text-2xl font-bold text-yellow-600">{pendingCount}</p>
-                <p className="text-xs text-muted-foreground">Pending</p>
-              </div>
-            </CardContent>
-          </Card>
+        {notReady ? (
+          <div className="space-y-3">
+            <Skeleton className="h-9 w-64" />
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-12 w-full" />
+            ))}
+          </div>
+        ) : institutionIds.length === 0 ? (
+          // An empty institution list and an empty queue look identical, and
+          // only one of them is a permissions problem. Say which.
           <Card>
-            <CardContent className="p-4 flex items-center gap-3">
-              <DoorOpen className="h-8 w-8 text-blue-600" />
-              <div>
-                <p className="text-2xl font-bold">{activeCount}</p>
-                <p className="text-xs text-muted-foreground">Currently Out</p>
-              </div>
+            <CardContent className="p-8 text-center text-sm text-muted-foreground">
+              You have no institution access, so no gate passes can be listed. Ask an
+              administrator to grant your role access to an institution.
             </CardContent>
           </Card>
-          <Card className={overdueCount > 0 ? 'border-red-200' : ''}>
-            <CardContent className="p-4 flex items-center gap-3">
-              <AlertTriangle className="h-8 w-8 text-red-600" />
-              <div>
-                <p className="text-2xl font-bold text-red-600">{overdueCount}</p>
-                <p className="text-xs text-muted-foreground">Overdue</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4 flex items-center gap-3">
-              <CheckCircle2 className="h-8 w-8 text-green-600" />
-              <div>
-                <p className="text-2xl font-bold">{passes?.filter((p: any) => p.status === 'returned').length ?? 0}</p>
-                <p className="text-xs text-muted-foreground">Returned Today</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4 flex items-center gap-3">
-              <QrCode className="h-8 w-8 text-purple-600" />
-              <div>
-                <p className="text-2xl font-bold">{passes?.length ?? 0}</p>
-                <p className="text-xs text-muted-foreground">Total Passes</p>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Search */}
-        <div className="relative max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search by name, roll number, pass number..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9"
+        ) : (
+          <DataTable<GatePassListRow, unknown>
+            fetchDataFn={fetchData}
+            getColumns={() => columns}
+            idField="id"
+            refetchKey={refetchKey}
+            exportConfig={{
+              entityName: 'gate-passes',
+              columnMapping: {
+                learner_name: 'Learner',
+                learner_email: 'Email',
+                leave_type_name: 'Type',
+                destination: 'Destination',
+                reason: 'Reason',
+                planned_out_at: 'Planned out',
+                expected_return: 'Due back',
+                out_time: 'Left at',
+                actual_return: 'Back at',
+                parent_confirmed_at: 'Parent called',
+                pass_number: 'Pass number',
+                status: 'Status',
+                created_at: 'Requested at',
+              },
+              columnWidths: [
+                { wch: 24 }, { wch: 28 }, { wch: 18 }, { wch: 24 }, { wch: 32 },
+                { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 },
+                { wch: 22 }, { wch: 14 }, { wch: 20 },
+              ],
+              headers: [
+                'learner_name', 'learner_email', 'leave_type_name', 'destination', 'reason',
+                'planned_out_at', 'expected_return', 'out_time', 'actual_return',
+                'parent_confirmed_at', 'pass_number', 'status', 'created_at',
+              ],
+            }}
+            config={{
+              enableUrlState: true,
+              enableDateFilter: false,
+              enableExport: true,
+              enableRowSelection: true,
+              enableSearch: true,
+              enableColumnFilters: false,
+              enableColumnVisibility: true,
+              enableColumnResizing: true,
+              columnResizingTableId: 'gate-passes-table',
+            }}
           />
-        </div>
-
-        {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-          <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
-            <TabsTrigger value="pending" className={pendingCount > 0 ? 'text-yellow-600' : ''}>
-              Pending ({pendingCount})
-            </TabsTrigger>
-            <TabsTrigger value="active">
-              Active ({activeCount})
-            </TabsTrigger>
-            <TabsTrigger value="overdue" className={overdueCount > 0 ? 'text-red-600' : ''}>
-              Overdue ({overdueCount})
-            </TabsTrigger>
-            <TabsTrigger value="returned">Returned</TabsTrigger>
-            <TabsTrigger value="all">All</TabsTrigger>
-          </TabsList>
-
-          {/* ── Pending Requests Tab ────────────────────────────── */}
-          <TabsContent value="pending">
-            <Card>
-              <CardContent className="p-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Student</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Destination</TableHead>
-                      <TableHead>Reason</TableHead>
-                      <TableHead>Expected Return</TableHead>
-                      <TableHead>Requested</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {pending.map((req: any) => {
-                      const ptCfg = passTypeConfig[req.pass_type] ?? { label: req.pass_type, color: '' };
-                      return (
-                        <TableRow key={req.id}>
-                          <TableCell>
-                            <div>
-                              <p className="font-medium">{req.learner?.full_name ?? 'Unknown'}</p>
-                              <p className="text-xs text-muted-foreground">{req.learner?.email ?? ''}</p>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Badge className={`text-xs ${ptCfg.color}`}>{ptCfg.label}</Badge>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-1.5">
-                              <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                              <span className="text-sm">{req.destination}</span>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-start gap-1.5 max-w-[200px]">
-                              <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
-                              <span className="text-sm text-muted-foreground truncate">{req.reason ?? '--'}</span>
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-sm">{formatDateTime(req.expected_return)}</TableCell>
-                          <TableCell className="text-sm text-muted-foreground">{formatDateTime(req.created_at)}</TableCell>
-                          <TableCell>
-                            <div className="flex justify-end gap-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="text-green-700 border-green-300 hover:bg-green-50 dark:hover:bg-green-950/30"
-                                onClick={() => handleApprove(req.id)}
-                                disabled={isApproving === req.id}
-                              >
-                                {isApproving === req.id ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                  <>
-                                    <Check className="mr-1 h-4 w-4" />
-                                    Approve
-                                  </>
-                                )}
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="text-red-700 border-red-300 hover:bg-red-50 dark:hover:bg-red-950/30"
-                                onClick={() => {
-                                  setRejectingId(req.id);
-                                  setRejectDialogOpen(true);
-                                }}
-                              >
-                                <X className="mr-1 h-4 w-4" />
-                                Reject
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                    {pending.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                          <CheckCircle2 className="h-8 w-8 mx-auto mb-2 opacity-40" />
-                          No pending requests
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* ── Existing tabs (Active, Overdue, Returned, All) ─── */}
-          {['active', 'overdue', 'returned', 'all'].map((tab) => (
-            <TabsContent key={tab} value={tab}>
-              <Card>
-                <CardContent className="p-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Pass No.</TableHead>
-                        <TableHead>Student</TableHead>
-                        <TableHead>Type</TableHead>
-                        <TableHead>Out Time</TableHead>
-                        <TableHead>Expected Return</TableHead>
-                        <TableHead>Actual Return</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead></TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {getFilteredPasses(tab).map((pass: any) => {
-                        const sCfg = statusConfig[pass.status] ?? { label: pass.status, variant: 'outline' as const };
-                        const ptCfg = passTypeConfig[pass.pass_type] ?? { label: pass.pass_type, color: '' };
-                        return (
-                          <TableRow key={pass.id} className={pass.status === 'overdue' ? 'bg-red-50/50 dark:bg-red-950/20' : ''}>
-                            <TableCell className="font-mono text-xs">{pass.pass_number ?? '--'}</TableCell>
-                            <TableCell>
-                              <div>
-                                <p className="font-medium">{pass.learner?.full_name ?? 'Unknown'}</p>
-                                <p className="text-xs text-muted-foreground">{pass.learner_id?.slice(0, 8)}</p>
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <Badge className={`text-xs ${ptCfg.color}`}>{ptCfg.label}</Badge>
-                            </TableCell>
-                            <TableCell className="text-sm">{formatDateTime(pass.out_time)}</TableCell>
-                            <TableCell className="text-sm">{formatDateTime(pass.expected_return)}</TableCell>
-                            <TableCell className="text-sm">
-                              {pass.actual_return ? formatDateTime(pass.actual_return) : (
-                                <span className="text-muted-foreground">--</span>
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant={sCfg.variant}>{sCfg.label}</Badge>
-                            </TableCell>
-                            <TableCell>
-                              <Button variant="ghost" size="sm" asChild>
-                                <Link href={`/campus-living/gate-passes/${pass.id}`}>
-                                  View
-                                </Link>
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                      {getFilteredPasses(tab).length === 0 && (
-                        <TableRow>
-                          <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                            No gate passes found
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-            </TabsContent>
-          ))}
-        </Tabs>
+        )}
       </div>
 
-      {/* ── Reject Dialog ───────────────────────────────────── */}
-      <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
+      {/* ── Approve, behind a confirmation ─────────────────────────── */}
+      <AlertDialog open={!!approveTarget} onOpenChange={(o) => !o && setApproveTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Approve this gate pass?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  <strong>{approveTarget?.learner_name}</strong> will be allowed out to{' '}
+                  <strong>{approveTarget?.destination}</strong>, due back{' '}
+                  {approveTarget?.expected_return
+                    ? new Date(approveTarget.expected_return).toLocaleString('en-IN')
+                    : '—'}
+                  .
+                </p>
+                {/* Advisory, never a block: a parent who cannot be reached must
+                    not make the decision impossible. */}
+                {!approveTarget?.parent_confirmed_at && (
+                  <p className="text-amber-700 dark:text-amber-400">
+                    No parent call has been recorded for this request. Open the request to
+                    call the parent first, or approve without it.
+                  </p>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={approve.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmApprove} disabled={approve.isPending}>
+              {approve.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Check className="mr-2 h-4 w-4" />
+              )}
+              Approve
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ── Reject, reason required ────────────────────────────────── */}
+      <Dialog open={!!rejectTarget} onOpenChange={(o) => !o && setRejectTarget(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Reject Gate Pass Request</DialogTitle>
+            <DialogTitle>Reject {rejectTarget?.learner_name}&apos;s request</DialogTitle>
             <DialogDescription>
-              Please provide a reason for rejecting this request. The student will see this reason.
+              The learner reads this reason, so say what would change your answer.
             </DialogDescription>
           </DialogHeader>
           <Textarea
-            placeholder="Reason for rejection..."
+            placeholder="Reason for rejection…"
             value={rejectReason}
             onChange={(e) => setRejectReason(e.target.value)}
             rows={3}
           />
           <DialogFooter>
-            <Button variant="outline" onClick={() => {
-              setRejectDialogOpen(false);
-              setRejectReason('');
-            }}>
+            <Button variant="outline" onClick={() => setRejectTarget(null)}>
               Cancel
             </Button>
             <Button
               variant="destructive"
-              onClick={handleRejectConfirm}
-              disabled={!rejectReason.trim() || rejectGatePass.isPending}
+              onClick={confirmReject}
+              disabled={!rejectReason.trim() || reject.isPending}
             >
-              {rejectGatePass.isPending ? (
+              {reject.isPending ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
                 <X className="mr-2 h-4 w-4" />
               )}
-              Reject Request
+              Reject request
             </Button>
           </DialogFooter>
         </DialogContent>
