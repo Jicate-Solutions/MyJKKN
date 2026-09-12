@@ -947,6 +947,13 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.leave.view', label: 'View Leave Applications' },
       { key: 'hr.leave.apply', label: 'Apply for Leave' },
       { key: 'hr.leave.approve', label: 'Approve Leave Applications' },
+      // Taking an APPROVED decision back. Deliberately separate from
+      // hr.leave.approve: the final approver of a request may revoke it on chain
+      // membership alone (fn_hr_leave_revoke_block_reason), and this key is the
+      // second, independent lane that lets HR act on a request they are not on
+      // the chain of. Granted in 20260912100000 to hr_head, managing_director,
+      // principal, cao, vice_principal, hod.
+      { key: 'hr.leave.revoke', label: 'Revoke an Approved Leave Decision' },
       { key: 'hr.leave.cancel', label: 'Cancel Own Leave Pre-Approval' },
       { key: 'hr.leave.withdraw', label: 'Withdraw Own Leave Post-Approval' },
       { key: 'hr.leave.balance.view', label: 'View Leave Balances' },

@@ -10925,3 +10925,56 @@ CREATE POLICY hde_select ON public.hr_decision_emails
 REVOKE ALL ON public.hr_decision_emails FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON public.hr_decision_emails TO authenticated;
 GRANT ALL ON public.hr_decision_emails TO service_role;
+
+
+-- =====================================================================================
+-- Mirrored from supabase/migrations/20260912100000_hr_leave_revoke_approved_decision.sql  (2026-09-12)
+-- Revoking an APPROVED leave / short-time-off / comp-off-claim decision.
+-- A revocation stores status='rejected'; revoked_at is what tells the two apart.
+-- =====================================================================================
+-- -------------------------------------------------------------------------------------
+-- 6. RLS
+--
+-- Without this the trigger above never runs for the person it is written for. For an
+-- APPROVED row hla_update admits only super admins, the applicant, and hr.leave.approve
+-- holders: fn_is_designated_leave_approver tests approval_chain -> current_step, and
+-- current_step has advanced PAST the final step the moment the request was granted. A
+-- Principal who granted the leave is therefore refused by the policy itself, before any
+-- trigger has an opinion.
+-- -------------------------------------------------------------------------------------
+DROP POLICY IF EXISTS hla_update ON public.hr_leave_applications;
+CREATE POLICY hla_update ON public.hr_leave_applications
+  FOR UPDATE
+  USING (
+    (SELECT public.is_super_admin())
+    OR (employee_id IN (SELECT unnest(public.fn_my_staff_ids())))
+    OR ((SELECT public.user_has_permission('hr.leave.approve'))
+        AND hr_organization_id IN (SELECT unnest(public.fn_my_hr_organization_ids())))
+    OR public.fn_is_designated_leave_approver(id)
+    OR public.fn_hr_leave_can_revoke(id)
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR ((status)::text <> ALL (ARRAY['approved'::text, 'rejected'::text]))
+    OR ((SELECT public.user_has_permission('hr.leave.approve'))
+        AND hr_organization_id IN (SELECT unnest(public.fn_my_hr_organization_ids())))
+    OR public.fn_is_designated_leave_approver(id)
+    OR public.fn_hr_leave_can_revoke(id)
+  );
+
+DROP POLICY IF EXISTS hcoc_update ON public.hr_comp_off_credits;
+CREATE POLICY hcoc_update ON public.hr_comp_off_credits
+  FOR UPDATE
+  USING (
+    (SELECT public.is_super_admin())
+    OR (((SELECT public.user_has_permission('hr.leave.approve'))
+         OR (SELECT public.user_has_permission('hr.leave.revoke')))
+        AND hr_organization_id IN (SELECT unnest(public.fn_my_hr_organization_ids())))
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (((SELECT public.user_has_permission('hr.leave.approve'))
+         OR (SELECT public.user_has_permission('hr.leave.revoke')))
+        AND hr_organization_id IN (SELECT unnest(public.fn_my_hr_organization_ids()))
+        AND NOT (employee_id IN (SELECT unnest(public.fn_my_staff_ids()))))
+  );

@@ -12,7 +12,7 @@
 // precomputed by toTableRow(), so the sorter, the cells and the export agree.
 
 import type { ColumnDef } from '@tanstack/react-table';
-import { Check, Eye, FileText, MoreHorizontal, X } from 'lucide-react';
+import { Check, Eye, FileText, MoreHorizontal, RotateCcw, X } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -38,6 +38,8 @@ export interface CompOffClaimActions {
   onViewProof: (row: CompOffClaimTableRow) => void;
   onApprove: (row: CompOffClaimTableRow) => void;
   onReject: (row: CompOffClaimTableRow) => void;
+  /** Opens the revoke confirmation for an APPROVED claim. */
+  onRevoke: (row: CompOffClaimTableRow) => void;
   /** True while any decision is in flight — disables every row at once. */
   isPending: boolean;
   /** Local (IST) YYYY-MM-DD — the date the expiry rules are judged on. */
@@ -231,7 +233,7 @@ export function getCompOffClaimColumns(a: CompOffClaimActions): ColumnDef<CompOf
         return (
           <div className="min-w-0" title={r.rejection_reason ?? undefined}>
             <div className="flex flex-wrap items-center gap-1">
-              <StatusBadge status={BADGE_STATUS[r.status]} />
+              <StatusBadge status={BADGE_STATUS[r.status]} revoked={r.revoked_at !== null} />
               {r.status === 'consumed' && (
                 <Badge variant="outline" className="font-normal text-muted-foreground">used</Badge>
               )}
@@ -323,6 +325,26 @@ export function CompOffClaimRowActions({
           )}
 
           <DropdownMenuSeparator />
+          {/*
+            REVOKE — the one action a decided claim still has. 'consumed' is
+            deliberately NOT offered: that credit has already been spent by a
+            booked leave, and taking it back on its own would leave that leave
+            standing on a credit that no longer exists. The dialog asks Postgres,
+            which names the leave to revoke first.
+          */}
+          {row.status === 'approved' && row.revoked_at === null && !own && (
+            <>
+              <DropdownMenuItem
+                disabled={actions.isPending}
+                onSelect={later(actions.onRevoke)}
+                className="text-amber-700 focus:text-amber-700 dark:text-amber-400"
+              >
+                <RotateCcw className="mr-2 h-4 w-4" />
+                Revoke approval…
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          )}
           {!pending ? (
             <DropdownMenuItem disabled>Already decided</DropdownMenuItem>
           ) : own ? (
