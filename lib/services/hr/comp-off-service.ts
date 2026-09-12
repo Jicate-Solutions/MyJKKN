@@ -8,8 +8,55 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { CompOffBalance, PendingCompOffClaim } from '@/types/hr-comp-off';
+import type {
+  CompOffBalance,
+  CompOffClaimBiometric,
+  CompOffClaimQueueRow,
+  CompOffWorkLocation,
+  PendingCompOffClaim,
+} from '@/types/hr-comp-off';
 import type { LeaveDocument } from '@/types/hr';
+
+/**
+ * The claim columns plus the claimant embed. A LEFT join: an inner join would
+ * drop any claim whose person row the caller cannot read, silently shrinking
+ * the queue rather than showing the row with no name. Aliased `member:` — the
+ * terminology gate blocks the literal table name in new source lines.
+ */
+const CLAIM_SELECT =
+  `id, employee_id, worked_date, expires_on, credit_days, source, notes, documents, created_at,
+   work_location, work_place,
+   member:employee_id ( first_name, last_name, staff_id, institution_id,
+     institution:institutions ( name ) )`;
+
+function toClaim(row: Record<string, unknown>): PendingCompOffClaim {
+  const m = row.member as
+    | {
+        first_name: string | null;
+        last_name: string | null;
+        staff_id: string | null;
+        institution_id: string | null;
+        institution: { name: string | null } | null;
+      }
+    | null;
+  return {
+    id: row.id as string,
+    employee_id: row.employee_id as string,
+    employee_name: [m?.first_name, m?.last_name].filter(Boolean).join(' ').trim() || 'Unknown',
+    employee_code: m?.staff_id ?? null,
+    institution_id: m?.institution_id ?? null,
+    institution_name: m?.institution?.name ?? null,
+    worked_date: row.worked_date as string,
+    expires_on: row.expires_on as string,
+    credit_days: Number(row.credit_days),
+    source: row.source as PendingCompOffClaim['source'],
+    notes: (row.notes as string | null) ?? null,
+    work_location: (row.work_location as CompOffWorkLocation | null) ?? null,
+    work_place: (row.work_place as string | null) ?? null,
+    documents: (row.documents as LeaveDocument[] | null) ?? [],
+    created_at: row.created_at as string,
+  };
+}
 
 export class CompOffService {
   /**
@@ -33,7 +80,7 @@ export class CompOffService {
    * Always inserted as source='claim', status='pending' — the RLS INSERT policy
    * requires both, so a claimant cannot write themselves an already-approved
    * credit. `expires_on` is omitted deliberately: a BEFORE trigger sets it to
-   * worked_date + 90, keeping the policy in one place.
+   * worked_date + 1 calendar month, keeping the policy in one place.
    *
    * A duplicate worked date violates the (employee_id, worked_date) unique
    * constraint — surfaced as a clear message rather than a raw 23505, since
@@ -47,6 +94,9 @@ export class CompOffService {
       worked_date: string;
       notes?: string | null;
       documents: LeaveDocument[];
+      work_location: CompOffWorkLocation | null;
+      /** Required for outside_campus; ignored for inside_campus. */
+      work_place?: string | null;
     }
   ): Promise<void> {
     // THE authority on "a claim needs proof" — the dialog runs the same check
@@ -58,6 +108,18 @@ export class CompOffService {
         'A supporting document is required — attach proof of the worked day.'
       );
     }
+    // Same rule, same reason. trg_hcoc_require_work_location and the table's
+    // CHECKs refuse these too; saying it here names the fix before any upload
+    // round trip, and a place typed before switching back to "inside" is
+    // dropped rather than refused by hr_comp_off_credits_place_only_outside.
+    if (!input.work_location) {
+      throw new Error('Say where you worked that day — inside or outside the campus.');
+    }
+    const place =
+      input.work_location === 'outside_campus' ? input.work_place?.trim() || null : null;
+    if (input.work_location === 'outside_campus' && !place) {
+      throw new Error('Enter the place you worked at when it was outside the campus.');
+    }
     const { error } = await supabase.from('hr_comp_off_credits').insert({
       hr_organization_id: input.hr_organization_id,
       employee_id: input.employee_id,
@@ -66,6 +128,8 @@ export class CompOffService {
       status: 'pending',
       notes: input.notes ?? null,
       documents: input.documents,
+      work_location: input.work_location,
+      work_place: place,
     });
     if (error) {
       // 23505 now has TWO sources on this table and they say different things:
@@ -106,42 +170,60 @@ export class CompOffService {
   ): Promise<PendingCompOffClaim[]> {
     const { data, error } = await supabase
       .from('hr_comp_off_credits')
-      .select(
-        `id, employee_id, worked_date, expires_on, credit_days, source, notes, documents, created_at,
-         member:employee_id ( first_name, last_name, staff_id, institution_id,
-           institution:institutions ( name ) )`
-      )
+      .select(CLAIM_SELECT)
       .eq('status', 'pending')
       .order('worked_date', { ascending: true });
     if (error) throw error;
 
-    return (data ?? []).map((row: Record<string, unknown>) => {
-      const m = row.member as
-        | {
-            first_name: string | null;
-            last_name: string | null;
-            staff_id: string | null;
-            institution_id: string | null;
-            institution: { name: string | null } | null;
-          }
-        | null;
+    return (data ?? []).map((row) => toClaim(row as Record<string, unknown>));
+  }
+
+  /**
+   * The approvals queue: every pending claim, plus anything created in the last
+   * 12 months so decided history (approved, used, rejected, withdrawn) is one
+   * Status filter away — the Leave tab's window. Scoped by RLS like
+   * listPendingClaims; there are a few dozen claims in all.
+   */
+  static async listClaimsForApproval(
+    supabase: SupabaseClient
+  ): Promise<CompOffClaimQueueRow[]> {
+    const since = new Date();
+    since.setMonth(since.getMonth() - 12);
+    const { data, error } = await supabase
+      .from('hr_comp_off_credits')
+      .select(`${CLAIM_SELECT}, status, approved_at, rejection_reason`)
+      .or(`status.eq.pending,created_at.gte.${since.toISOString().slice(0, 10)}`)
+      .order('worked_date', { ascending: true });
+    if (error) throw error;
+
+    return (data ?? []).map((raw) => {
+      const row = raw as Record<string, unknown>;
       return {
-        id: row.id as string,
-        employee_id: row.employee_id as string,
-        employee_name:
-          [m?.first_name, m?.last_name].filter(Boolean).join(' ').trim() || 'Unknown',
-        employee_code: m?.staff_id ?? null,
-        institution_id: m?.institution_id ?? null,
-        institution_name: m?.institution?.name ?? null,
-        worked_date: row.worked_date as string,
-        expires_on: row.expires_on as string,
-        credit_days: Number(row.credit_days),
-        source: row.source as PendingCompOffClaim['source'],
-        notes: (row.notes as string | null) ?? null,
-        documents: (row.documents as LeaveDocument[] | null) ?? [],
-        created_at: row.created_at as string,
+        ...toClaim(row),
+        status: row.status as CompOffClaimQueueRow['status'],
+        decided_at: (row.approved_at as string | null) ?? null,
+        rejection_reason: (row.rejection_reason as string | null) ?? null,
       };
     });
+  }
+
+  /**
+   * The punch check for each claim — whether an inside-campus claim's worked
+   * day shows a biometric punch. An RPC, not a query: attendance rows are
+   * RLS-hidden from approvers who hold only hr.leave.approve, and the RPC
+   * authorises each claim the way hcoc_select does. It runs the same check
+   * trg_hcoc_require_biometric enforces, so the screen and the database agree.
+   */
+  static async claimsBiometric(
+    supabase: SupabaseClient,
+    claimIds: string[]
+  ): Promise<CompOffClaimBiometric[]> {
+    if (claimIds.length === 0) return [];
+    const { data, error } = await supabase.rpc('hr_comp_off_claims_biometric', {
+      p_claim_ids: claimIds,
+    });
+    if (error) throw error;
+    return (data ?? []) as CompOffClaimBiometric[];
   }
 
   /**

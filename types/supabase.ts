@@ -79444,6 +79444,8 @@ export type Database = {
           source: string
           status: string
           updated_at: string
+          work_location: string | null
+          work_place: string | null
           worked_date: string
         }
         Insert: {
@@ -79465,6 +79467,8 @@ export type Database = {
           source?: string
           status?: string
           updated_at?: string
+          work_location?: string | null
+          work_place?: string | null
           worked_date: string
         }
         Update: {
@@ -79486,6 +79490,8 @@ export type Database = {
           source?: string
           status?: string
           updated_at?: string
+          work_location?: string | null
+          work_place?: string | null
           worked_date?: string
         }
         Relationships: [
@@ -79693,6 +79699,76 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_institutions_needing_admission_counselors"
             referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      hr_decision_emails: {
+        Row: {
+          attempts: number
+          comp_off_credit_id: string | null
+          created_at: string
+          decision: string
+          employee_id: string
+          id: string
+          last_error: string | null
+          leave_application_id: string | null
+          next_attempt_at: string
+          resend_id: string | null
+          sent_at: string | null
+          status: string
+          to_email: string | null
+        }
+        Insert: {
+          attempts?: number
+          comp_off_credit_id?: string | null
+          created_at?: string
+          decision: string
+          employee_id: string
+          id?: string
+          last_error?: string | null
+          leave_application_id?: string | null
+          next_attempt_at?: string
+          resend_id?: string | null
+          sent_at?: string | null
+          status?: string
+          to_email?: string | null
+        }
+        Update: {
+          attempts?: number
+          comp_off_credit_id?: string | null
+          created_at?: string
+          decision?: string
+          employee_id?: string
+          id?: string
+          last_error?: string | null
+          leave_application_id?: string | null
+          next_attempt_at?: string
+          resend_id?: string | null
+          sent_at?: string | null
+          status?: string
+          to_email?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_decision_emails_comp_off_credit_id_fkey"
+            columns: ["comp_off_credit_id"]
+            isOneToOne: false
+            referencedRelation: "hr_comp_off_credits"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_decision_emails_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_decision_emails_leave_application_id_fkey"
+            columns: ["leave_application_id"]
+            isOneToOne: false
+            referencedRelation: "hr_leave_applications"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -198662,6 +198738,34 @@ export type Database = {
           p_to: string
         }
         Returns: string
+      }
+      fn_hr_decision_emails_claim: {
+        Args: {
+          p_comp_off_credit_id?: string
+          p_leave_application_id?: string
+          p_limit?: number
+        }
+        Returns: {
+          attempts: number
+          comp_off_credit_id: string | null
+          created_at: string
+          decision: string
+          employee_id: string
+          id: string
+          last_error: string | null
+          leave_application_id: string | null
+          next_attempt_at: string
+          resend_id: string | null
+          sent_at: string | null
+          status: string
+          to_email: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "hr_decision_emails"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       fn_hr_delete_work_pattern: { Args: { p_id: string }; Returns: Json }
       fn_hr_institution_included: {

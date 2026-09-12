@@ -4,7 +4,7 @@
  * Compensatory Off tab — Request | Balance.
  *
  * Backed by the hr_comp_off_credits ledger: comp off is EARNED (one day per
- * day worked, expiring 90 days later), not granted annually, so it cannot be
+ * day worked, expiring one calendar month later), not granted annually, so it cannot be
  * expressed in hr_leave_balances. Booking one consumes a credit FIFO by
  * expiry, and the database refuses an approval with no credit behind it.
  */
@@ -33,6 +33,7 @@ import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
 import {
   COMP_OFF_STATUS_LABELS,
   COMP_OFF_EXPIRY_WARNING_DAYS,
+  formatWorkLocation,
   type CompOffEffectiveStatus,
 } from '@/types/hr-comp-off';
 import type { HRLeaveApplicationWithType } from '@/types/hr';
@@ -51,6 +52,7 @@ const CREDIT_TONE: Record<CompOffEffectiveStatus, string> = {
   consumed: 'border-muted-foreground/30 bg-muted text-muted-foreground',
   expired: 'border-red-600/30 bg-red-600/10 text-red-700 dark:text-red-400',
   rejected: 'border-red-600/30 bg-red-600/10 text-red-700 dark:text-red-400',
+  withdrawn: 'border-muted-foreground/30 bg-muted text-muted-foreground',
 };
 
 export default function CompensatoryOffPage() {
@@ -132,6 +134,7 @@ export default function CompensatoryOffPage() {
           <RequestTable
             columns={[
               { key: 'worked', label: 'Worked Date' },
+              { key: 'location', label: 'Location' },
               { key: 'expiry', label: 'Expiry Date' },
               { key: 'days', label: 'Days', align: 'right' },
               { key: 'source', label: 'Source' },
@@ -152,6 +155,17 @@ export default function CompensatoryOffPage() {
                   status={c.effective_status === 'approved' ? 'approved' : 'pending'}
                 >
                   <TableCell className="pl-4 font-medium">{fmtDate(c.worked_date)}</TableCell>
+                  <TableCell className={cn(!c.work_location && 'text-muted-foreground')}>
+                    {formatWorkLocation(c.work_location ?? null, c.source)}
+                    {c.work_place && (
+                      <span
+                        className="block max-w-[180px] truncate text-xs text-muted-foreground"
+                        title={c.work_place}
+                      >
+                        {c.work_place}
+                      </span>
+                    )}
+                  </TableCell>
                   <TableCell>
                     {fmtDate(c.expires_on)}
                     {expiringSoon && (
@@ -170,6 +184,9 @@ export default function CompensatoryOffPage() {
                         'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium',
                         CREDIT_TONE[c.effective_status]
                       )}
+                      // A rejection says why — including the nightly auto-reject
+                      // of a claim nobody decided before it expired.
+                      title={c.status === 'rejected' ? c.rejection_reason ?? undefined : undefined}
                     >
                       {COMP_OFF_STATUS_LABELS[c.effective_status]}
                     </span>
@@ -195,7 +212,8 @@ export default function CompensatoryOffPage() {
           <Alert>
             <Info className="h-4 w-4" />
             <AlertDescription className="text-xs">
-              One day is earned per day worked and stays usable for 90 days. Booking spends
+              One day is earned per day worked and can be taken as compensatory off on
+              any day after it, up to one month from the day worked. Booking spends
               the credit closest to expiry first. Automatic crediting from attendance is not
               enabled yet — claim worked days here in the meantime.
             </AlertDescription>

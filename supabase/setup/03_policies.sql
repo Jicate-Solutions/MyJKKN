@@ -10907,3 +10907,21 @@ CREATE POLICY hcrs_delete ON public.hostel_category_room_sources
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.hostel_category_room_sources TO authenticated;
 GRANT ALL ON public.hostel_category_room_sources TO service_role;
 
+-- hr_decision_emails (20260911200000): whoever can see the request can see what
+-- happened to its email; nobody writes through the API (trigger + service role).
+DROP POLICY IF EXISTS hde_select ON public.hr_decision_emails;
+CREATE POLICY hde_select ON public.hr_decision_emails
+  FOR SELECT TO authenticated
+  USING (
+    (leave_application_id IS NOT NULL AND EXISTS (
+      SELECT 1 FROM public.hr_leave_applications a
+      WHERE a.id = hr_decision_emails.leave_application_id))
+    OR
+    (comp_off_credit_id IS NOT NULL AND EXISTS (
+      SELECT 1 FROM public.hr_comp_off_credits c
+      WHERE c.id = hr_decision_emails.comp_off_credit_id))
+  );
+
+REVOKE ALL ON public.hr_decision_emails FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.hr_decision_emails TO authenticated;
+GRANT ALL ON public.hr_decision_emails TO service_role;

@@ -55542,6 +55542,237 @@ END;
 $fn$;
 
 -- =============================================================================
+-- Mirrored from supabase/migrations/20260911160000_hr_comp_off_claim_work_location.sql
+-- (function half; the trigger is in 04_triggers.sql, the columns in 01_tables.sql).
+-- The same migration also rebuilt hr_comp_off_balance() to return
+-- work_location / work_place in each credit -- full body in the migration.
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION public.hr_trig_comp_off_require_work_location()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF NEW.source = 'claim' AND NEW.work_location IS NULL THEN
+    RAISE EXCEPTION
+      'Say where you worked that day — inside or outside the campus — before submitting the claim.'
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.hr_trig_comp_off_require_work_location() FROM PUBLIC, anon, authenticated;
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260911190000_hr_comp_off_claim_biometric_check.sql
+-- An INSIDE-CAMPUS claim needs a punch on the worked day before approval.
+-- fn_hr_comp_off_biometric_check -> status: punched | no_punch | not_uploaded |
+-- no_device (staff.biometric_id blank) | not_required (outside) | not_recorded
+-- (no location). trg_hcoc_require_biometric refuses no_punch / not_uploaded;
+-- hr_comp_off_claims_biometric() is the client read, authorised like hcoc_select.
+-- Full bodies in the migration.
+-- =============================================================================
+
+REVOKE ALL ON FUNCTION public.fn_hr_comp_off_biometric_check(uuid, date, text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.hr_comp_off_claims_biometric(uuid[]) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.hr_comp_off_claims_biometric(uuid[]) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.hr_trig_comp_off_require_biometric() FROM PUBLIC, anon, authenticated;
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260911180000_hr_comp_off_auto_reject_expired_claims.sql
+-- Pending claims past their expiry (IST today) are rejected nightly by pg_cron
+-- job 'hr-comp-off-reject-expired-claims' (50 18 * * * = 00:20 IST); claims in a
+-- LOCKED attendance month are skipped (the lock guard would abort the batch).
+-- An expired claim can no longer be approved (trigger in 04_triggers.sql).
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION public.fn_hr_comp_off_reject_expired_claims()
+RETURNS integer
+LANGUAGE plpgsql
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_today   date := (now() AT TIME ZONE 'Asia/Kolkata')::date;
+  v_count   integer;
+  v_skipped integer;
+BEGIN
+  WITH locked AS (
+    SELECT c.id
+    FROM public.hr_comp_off_credits c
+    JOIN public.staff s ON s.id = c.employee_id
+    JOIN public.hr_attendance_periods ap
+      ON ap.institution_id = s.institution_id
+     AND ap.status = 'locked'
+     AND make_date(ap.period_year, ap.period_month, 1) <= c.worked_date
+     AND (make_date(ap.period_year, ap.period_month, 1) + interval '1 month')::date > c.worked_date
+    WHERE c.status = 'pending' AND c.expires_on < v_today
+  )
+  UPDATE public.hr_comp_off_credits c
+     SET status = 'rejected',
+         approved_at = now(),
+         rejection_reason = format(
+           'Automatically rejected: not approved before the credit''s one-month expiry on %s.',
+           to_char(c.expires_on, 'DD/MM/YYYY'))
+   WHERE c.status = 'pending'
+     AND c.expires_on < v_today
+     AND c.id NOT IN (SELECT id FROM locked);
+
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+
+  SELECT count(*) INTO v_skipped
+  FROM public.hr_comp_off_credits c
+  WHERE c.status = 'pending' AND c.expires_on < v_today;
+
+  IF v_count > 0 OR v_skipped > 0 THEN
+    RAISE NOTICE 'fn_hr_comp_off_reject_expired_claims: rejected %, left pending in locked months %',
+      v_count, v_skipped;
+  END IF;
+
+  RETURN v_count;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_hr_comp_off_reject_expired_claims() FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.hr_trig_comp_off_block_expired_approval()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF OLD.status = 'pending'
+     AND NEW.status = 'approved'
+     AND NEW.expires_on < (now() AT TIME ZONE 'Asia/Kolkata')::date THEN
+    RAISE EXCEPTION
+      'This claim expired on %, so it can no longer be approved. It will be rejected automatically overnight.',
+      to_char(NEW.expires_on, 'DD/MM/YYYY')
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.hr_trig_comp_off_block_expired_approval() FROM PUBLIC, anon, authenticated;
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260911170000_hr_comp_off_one_month_validity.sql
+-- A credit is valid for ONE CALENDAR MONTH from the day worked (was 90 days),
+-- and a comp-off leave consumes only credits whose window covers its dates:
+--   worked_date < leave start AND expires_on >= leave end.
+-- The same migration re-dated all 27 existing credits (one-time; the locked-
+-- period guard was disabled for that single UPDATE only).
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION public.hr_comp_off_set_expiry()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE
+  v_derived boolean := NEW.expires_on IS NULL;
+BEGIN
+  IF v_derived THEN
+    NEW.expires_on := (NEW.worked_date + INTERVAL '1 month')::date;
+
+    IF TG_OP = 'INSERT' AND NEW.expires_on < CURRENT_DATE THEN
+      RAISE EXCEPTION
+        'Compensatory off must be claimed within one month of the day worked. % was % days ago, so the credit would have expired on %.',
+        to_char(NEW.worked_date, 'DD/MM/YYYY'),
+        (CURRENT_DATE - NEW.worked_date),
+        to_char(NEW.expires_on, 'DD/MM/YYYY')
+        USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+
+  NEW.updated_at := now();
+  RETURN NEW;
+END $function$;
+
+CREATE OR REPLACE FUNCTION public.hr_trig_comp_off_consume()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE
+  v_category text;
+  v_needed   numeric;
+  v_avail    numeric;
+  r          record;
+BEGIN
+  IF TG_OP = 'UPDATE' AND OLD.status = NEW.status THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT request_category INTO v_category
+  FROM public.hr_leave_types WHERE id = NEW.leave_type_id;
+  IF v_category IS DISTINCT FROM 'compensatory_off' THEN
+    RETURN NEW;
+  END IF;
+
+  IF NEW.status = 'approved' AND OLD.status <> 'approved' THEN
+    v_needed := NEW.total_days;
+
+    IF v_needed <> floor(v_needed) THEN
+      RAISE EXCEPTION
+        'Compensatory off must be booked in whole days (requested %). Credits are earned one full day per day worked.',
+        v_needed;
+    END IF;
+
+    PERFORM pg_advisory_xact_lock(hashtextextended(NEW.employee_id::text, 0));
+
+    SELECT COALESCE(sum(credit_days), 0) INTO v_avail
+    FROM public.hr_comp_off_credits
+    WHERE employee_id = NEW.employee_id
+      AND status = 'approved'
+      AND worked_date < NEW.start_date
+      AND expires_on >= NEW.end_date;
+
+    IF v_avail < v_needed THEN
+      RAISE EXCEPTION
+        'No compensatory off credit covers % to %: a credit can only be used after the day worked and within one month of it. % day(s) available for these dates, % requested.',
+        to_char(NEW.start_date, 'DD/MM/YYYY'), to_char(NEW.end_date, 'DD/MM/YYYY'),
+        v_avail, v_needed;
+    END IF;
+
+    FOR r IN
+      SELECT id, credit_days FROM public.hr_comp_off_credits
+      WHERE employee_id = NEW.employee_id
+        AND status = 'approved'
+        AND worked_date < NEW.start_date
+        AND expires_on >= NEW.end_date
+      ORDER BY expires_on, worked_date
+      FOR UPDATE
+    LOOP
+      EXIT WHEN v_needed <= 0;
+      UPDATE public.hr_comp_off_credits
+         SET status = 'consumed',
+             consumed_by_application_id = NEW.id,
+             consumed_at = now()
+       WHERE id = r.id AND status = 'approved';
+      IF FOUND THEN
+        v_needed := v_needed - r.credit_days;
+      END IF;
+    END LOOP;
+
+    IF v_needed > 0 THEN
+      RAISE EXCEPTION 'Compensatory off credits were consumed concurrently; please retry.';
+    END IF;
+
+  ELSIF NEW.status IN ('cancelled','rejected','withdrawn') AND OLD.status = 'approved' THEN
+    UPDATE public.hr_comp_off_credits
+       SET status = 'approved',
+           consumed_by_application_id = NULL,
+           consumed_at = NULL
+     WHERE consumed_by_application_id = NEW.id;
+  END IF;
+
+  RETURN NEW;
+END $function$;
+
+-- =============================================================================
 -- Mirrored from supabase/migrations/20260827200000_hr_comp_off_claims_respect_locked_month.sql
 -- (functions half; the trigger is mirrored in 04_triggers.sql)
 -- =============================================================================
@@ -57441,7 +57672,20 @@ $function$;
 -- refuses a day-leave request exceeding accrued + carried - used - pending. The
 -- database gate behind LeaveService's friendly message -- that check is
 -- TypeScript only and was bypassed once already when `error` went undestructured.
+--
+-- 2026-09-11 (migration 20260911150000_hr_leave_balance_guard_date_consistent):
+-- the test is now DATE-CONSISTENT, delegated to
+-- fn_hr_leave_balance_shortfall(employee, type, year, application, start, days).
+-- At the request's start date and at every LATER dated draw on the same balance,
+-- consumption up to that date (this request included) must fit within accrual by
+-- that date. It used to subtract later-dated pending leave from accrual as of the
+-- start date, which refused 18 of 129 pending requests on approval. `used` is
+-- placed in time like fn_hr_leave_monthly_ledger: month overrides at their
+-- month, approved requests (outside an overridden month) at their start, the
+-- remainder at the start of the year. Full bodies in the migration.
 
+REVOKE ALL ON FUNCTION public.fn_hr_leave_balance_shortfall(uuid, uuid, uuid, uuid, date, numeric) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_hr_leave_balance_shortfall(uuid, uuid, uuid, uuid, date, numeric) TO service_role;
 REVOKE ALL ON FUNCTION public.fn_hr_leave_accrual_days(text, numeric, numeric, date, date, date) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.fn_hr_leave_accrued_days(uuid, uuid, uuid, date) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.fn_hr_leave_pending_days(uuid, uuid, uuid) FROM PUBLIC, anon;
@@ -65133,3 +65377,92 @@ BEGIN
                       AND uf2.to_hostel_category_id = c.id))
   ORDER BY hf.amount;
 END $function$;
+
+-- hr_decision_emails (20260911200000) ----------------------------------------
+-- Enqueue one applicant email per FINAL decision made by a signed-in person.
+CREATE OR REPLACE FUNCTION public.hr_trig_enqueue_decision_email()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_email text;
+BEGIN
+  -- A person decided. pg_cron jobs and maintenance SQL carry no auth.uid().
+  IF auth.uid() IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  SELECT nullif(btrim(s.institution_email), '')
+    INTO v_email
+    FROM public.staff s
+   WHERE s.id = NEW.employee_id;
+
+  IF TG_TABLE_NAME = 'hr_leave_applications' THEN
+    INSERT INTO public.hr_decision_emails
+      (leave_application_id, employee_id, decision, to_email, status, last_error)
+    VALUES
+      (NEW.id, NEW.employee_id, NEW.status, v_email,
+       CASE WHEN v_email IS NULL THEN 'skipped' ELSE 'pending' END,
+       CASE WHEN v_email IS NULL THEN 'No institution email on the staff record' END)
+    ON CONFLICT DO NOTHING;
+  ELSE
+    INSERT INTO public.hr_decision_emails
+      (comp_off_credit_id, employee_id, decision, to_email, status, last_error)
+    VALUES
+      (NEW.id, NEW.employee_id, NEW.status, v_email,
+       CASE WHEN v_email IS NULL THEN 'skipped' ELSE 'pending' END,
+       CASE WHEN v_email IS NULL THEN 'No institution email on the staff record' END)
+    ON CONFLICT DO NOTHING;
+  END IF;
+
+  RETURN NULL;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.hr_trig_enqueue_decision_email() FROM PUBLIC, anon, authenticated;
+
+-- Claim due rows for sending (service role only): lease 10 min, SKIP LOCKED;
+-- rows unsent 3 days after the decision are marked failed, never sent late.
+CREATE OR REPLACE FUNCTION public.fn_hr_decision_emails_claim(
+  p_leave_application_id uuid DEFAULT NULL,
+  p_comp_off_credit_id   uuid DEFAULT NULL,
+  p_limit                integer DEFAULT 50
+)
+RETURNS SETOF public.hr_decision_emails
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
+BEGIN
+  UPDATE public.hr_decision_emails
+     SET status = 'failed',
+         last_error = concat_ws(' · ', last_error, 'Not sent within 3 days of the decision')
+   WHERE status = 'pending'
+     AND created_at < now() - interval '3 days';
+
+  RETURN QUERY
+  WITH due AS (
+    SELECT e.id
+      FROM public.hr_decision_emails e
+     WHERE e.status = 'pending'
+       AND e.next_attempt_at <= now()
+       AND (p_leave_application_id IS NULL OR e.leave_application_id = p_leave_application_id)
+       AND (p_comp_off_credit_id IS NULL OR e.comp_off_credit_id = p_comp_off_credit_id)
+     ORDER BY e.created_at
+     LIMIT greatest(1, least(coalesce(p_limit, 50), 200))
+     FOR UPDATE SKIP LOCKED
+  )
+  UPDATE public.hr_decision_emails e
+     SET attempts = e.attempts + 1,
+         next_attempt_at = now() + interval '10 minutes'
+    FROM due
+   WHERE e.id = due.id
+  RETURNING e.*;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.fn_hr_decision_emails_claim(uuid, uuid, integer)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_hr_decision_emails_claim(uuid, uuid, integer)
+  TO service_role;

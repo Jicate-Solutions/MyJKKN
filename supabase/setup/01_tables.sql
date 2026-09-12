@@ -8673,6 +8673,32 @@ COMMENT ON COLUMN public.hr_comp_off_credits.documents IS
   'Supporting documents (LeaveDocument[] shape, Google Drive-backed) attached when the credit was claimed. Empty array for hr_grant/attendance sources.';
 
 -- =============================================================================
+-- Mirrored from supabase/migrations/20260911160000_hr_comp_off_claim_work_location.sql
+-- (columns + CHECKs; the require-on-insert trigger is in 02_functions.sql /
+-- 04_triggers.sql). Required on NEW claims only -- older rows keep NULL.
+-- =============================================================================
+
+ALTER TABLE public.hr_comp_off_credits
+  ADD COLUMN IF NOT EXISTS work_location text,
+  ADD COLUMN IF NOT EXISTS work_place    text;
+
+ALTER TABLE public.hr_comp_off_credits
+  ADD CONSTRAINT hr_comp_off_credits_work_location_check
+    CHECK (work_location IS NULL OR work_location IN ('inside_campus', 'outside_campus')),
+  ADD CONSTRAINT hr_comp_off_credits_outside_needs_place
+    CHECK (work_location IS DISTINCT FROM 'outside_campus'
+           OR NULLIF(btrim(work_place), '') IS NOT NULL),
+  ADD CONSTRAINT hr_comp_off_credits_place_only_outside
+    CHECK (work_place IS NULL OR work_location = 'outside_campus'),
+  ADD CONSTRAINT hr_comp_off_credits_work_place_length
+    CHECK (work_place IS NULL OR char_length(work_place) <= 200);
+
+COMMENT ON COLUMN public.hr_comp_off_credits.work_location IS
+  'Where the claimed day was worked: inside_campus | outside_campus. Required on new source=claim rows (trg_hcoc_require_work_location); NULL on claims filed before 2026-09-11 and on hr_grant/attendance credits.';
+COMMENT ON COLUMN public.hr_comp_off_credits.work_place IS
+  'Where, in words, when work_location = outside_campus (required then, NULL otherwise).';
+
+-- =============================================================================
 -- Mirrored from supabase/migrations/20260827170000_hr_attendance_regularizations_staff_rewire.sql
 -- (FK half; the SELECT/INSERT policies are mirrored in 03_policies.sql)
 -- =============================================================================
@@ -9811,3 +9837,44 @@ COMMENT ON TABLE public.hostel_category_room_sources IS
   'billing category and its benefits; only the physical room comes from elsewhere. '
   'Read it through fn_cl_category_room_sources(), never directly — that function '
   'also yields the native source (COALESCE(room_source_category_id, id)).';
+
+-- ============================================================================
+-- hr_decision_emails — outbox of approved/rejected emails to the applicant
+-- (migration 20260911200000_hr_decision_email_outbox.sql). Policies in
+-- 03_policies.sql, enqueue triggers in 04_triggers.sql, functions in
+-- 02_functions.sql. Sent by lib/services/hr/decision-email-service.ts.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.hr_decision_emails (
+  id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  leave_application_id uuid REFERENCES public.hr_leave_applications(id) ON DELETE CASCADE,
+  comp_off_credit_id   uuid REFERENCES public.hr_comp_off_credits(id) ON DELETE CASCADE,
+  employee_id          uuid NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
+  decision             text NOT NULL CHECK (decision IN ('approved', 'rejected')),
+  to_email             text,
+  status               text NOT NULL DEFAULT 'pending'
+                         CHECK (status IN ('pending', 'sent', 'failed', 'skipped')),
+  attempts             smallint NOT NULL DEFAULT 0,
+  next_attempt_at      timestamptz NOT NULL DEFAULT now(),
+  last_error           text,
+  resend_id            text,
+  created_at           timestamptz NOT NULL DEFAULT now(),
+  sent_at              timestamptz,
+  CONSTRAINT hr_decision_emails_one_record
+    CHECK (num_nonnulls(leave_application_id, comp_off_credit_id) = 1),
+  CONSTRAINT hr_decision_emails_pending_has_address
+    CHECK (status <> 'pending' OR to_email IS NOT NULL)
+);
+
+ALTER TABLE public.hr_decision_emails ENABLE ROW LEVEL SECURITY;
+
+CREATE UNIQUE INDEX IF NOT EXISTS hr_decision_emails_leave_uq
+  ON public.hr_decision_emails (leave_application_id, decision)
+  WHERE leave_application_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS hr_decision_emails_comp_off_uq
+  ON public.hr_decision_emails (comp_off_credit_id, decision)
+  WHERE comp_off_credit_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS hr_decision_emails_employee_idx
+  ON public.hr_decision_emails (employee_id);
+CREATE INDEX IF NOT EXISTS hr_decision_emails_due_idx
+  ON public.hr_decision_emails (next_attempt_at)
+  WHERE status = 'pending';
