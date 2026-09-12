@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { EngagementService } from '@/lib/services/analytics/engagement-service';
+import { ENGAGEMENT_INSTITUTION_STAFF_ROLES } from '@/lib/services/analytics/engagement-scope';
 import type { AtRiskRequest, OrganizationalLevel } from '@/types/analytics';
 
 /**
@@ -37,14 +38,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
     }
 
-    // Allow access for admins, faculty, and counselors
-    const allowedRoles = [
+    // Allow access for principals, HODs, faculty, and admin, counsellor and
+    // accounts staff (by their stored role names; the old 'counselor' no longer
+    // exists). The scope gate below holds every role to its own scope.
+    const allowedRoles: string[] = [
       'principal',
       'hod',
       'faculty',
-      'admin',
-      'counselor',
-      'accounts'
+      ...ENGAGEMENT_INSTITUTION_STAFF_ROLES
     ];
 
     if (!profile.is_super_admin && !allowedRoles.includes(profile.role)) {

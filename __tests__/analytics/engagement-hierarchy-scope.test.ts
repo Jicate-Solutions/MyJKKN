@@ -283,10 +283,40 @@ describe('other roles and bad input', () => {
     }
   });
 
-  it('admin (no engagement scope defined for the role) is refused, not widened', async () => {
-    expectRefused(await hierarchy(IDS.adminA, 'department', IDS.instA));
-    calls = [];
-    expectRefused(await hierarchy(IDS.adminA, 'institution'));
+  it('admin, counsellor and accounts staff: only their own institution, like a principal (2026-09-12)', async () => {
+    for (const [role, userId] of [
+      ['admin', IDS.adminA],
+      ['administrator', IDS.administratorA],
+      ['admission_counselor', IDS.admissionCounselorA],
+      ['expo_counselor', IDS.expoCounselorA],
+      ['accounts', IDS.accountsA]
+    ] as const) {
+      calls = [];
+      const inst = await hierarchy(userId, 'institution');
+      expect(inst.status, role).toBe(200);
+      expect(inst.ids, role).toEqual([IDS.instA]);
+      const depts = await hierarchy(userId, 'department', IDS.instA);
+      expect(depts.status, role).toBe(200);
+      expect(depts.ids, role).toEqual([IDS.deptA1, IDS.deptA2].sort());
+      calls = [];
+      expectRefused(await hierarchy(userId, 'department', IDS.instB));
+      calls = [];
+      expectRefused(await hierarchy(userId, 'program', IDS.deptB1));
+    }
+  });
+
+  it('other roles with no engagement scope are refused, not widened', async () => {
+    for (const userId of [
+      IDS.legacyCounselorA,
+      IDS.learnerCounselorA,
+      IDS.institutionAdminA,
+      IDS.accountsNoInstitution
+    ]) {
+      calls = [];
+      expectRefused(await hierarchy(userId, 'department', IDS.instA));
+      calls = [];
+      expectRefused(await hierarchy(userId, 'institution'));
+    }
   });
 
   it('a parent_id that is not an id is a 400', async () => {

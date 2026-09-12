@@ -211,6 +211,14 @@ export const IDS = {
   hodA1: id('5003'),
   facultyA1: id('5004'),
   adminA: id('5005'),
+  administratorA: id('5006'),
+  admissionCounselorA: id('5007'),
+  expoCounselorA: id('5008'),
+  accountsA: id('5009'),
+  legacyCounselorA: id('500a'),
+  learnerCounselorA: id('500b'),
+  institutionAdminA: id('500c'),
+  accountsNoInstitution: id('500d'),
   staffFacultyA1: id('6004')
 };
 
@@ -278,6 +286,17 @@ export function buildOrgDb(): Db {
       { id: IDS.hodA1, role: 'hod', is_super_admin: false, institution_id: IDS.instA, department_id: IDS.deptA1 },
       { id: IDS.facultyA1, role: 'faculty', is_super_admin: false, institution_id: IDS.instA, department_id: IDS.deptA1 },
       { id: IDS.adminA, role: 'admin', is_super_admin: false, institution_id: IDS.instA, department_id: null },
+      // Admin, counsellor and accounts staff by their stored role names: their own institution (2026-09-12).
+      { id: IDS.administratorA, role: 'administrator', is_super_admin: false, institution_id: IDS.instA, department_id: null },
+      { id: IDS.admissionCounselorA, role: 'admission_counselor', is_super_admin: false, institution_id: IDS.instA, department_id: null },
+      { id: IDS.expoCounselorA, role: 'expo_counselor', is_super_admin: false, institution_id: IDS.instA, department_id: null },
+      { id: IDS.accountsA, role: 'accounts', is_super_admin: false, institution_id: IDS.instA, department_id: null },
+      // Still refused: the retired 'counselor' name, other counsellor roles,
+      // institution_admin, and accounts staff whose profile has no institution.
+      { id: IDS.legacyCounselorA, role: 'counselor', is_super_admin: false, institution_id: IDS.instA, department_id: null },
+      { id: IDS.learnerCounselorA, role: 'learner_counselor', is_super_admin: false, institution_id: IDS.instA, department_id: null },
+      { id: IDS.institutionAdminA, role: 'institution_admin', is_super_admin: false, institution_id: IDS.instA, department_id: null },
+      { id: IDS.accountsNoInstitution, role: 'accounts', is_super_admin: false, institution_id: null, department_id: null },
       { id: IDS.learnerA1, role: 'student', full_name: 'Learner A1', email: 'a1@jkkn.ac.in', phone_number: '900000001' },
       { id: IDS.learnerA2, role: 'student', full_name: 'Learner A2', email: 'a2@jkkn.ac.in', phone_number: '900000002' },
       { id: IDS.learnerB1, role: 'student', full_name: 'Learner B1', email: 'b1@jkkn.ac.in', phone_number: '900000003' },

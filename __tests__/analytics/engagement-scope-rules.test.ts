@@ -8,9 +8,11 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import {
+  ENGAGEMENT_INSTITUTION_STAFF_ROLES,
   allChoiceAllowed,
   applyEngagementScope,
   choicesHaveUnits,
+  isEngagementInstitutionStaffRole,
   levelOpenToScope,
   placementInScope,
   scopeRefusalReason,
@@ -27,6 +29,36 @@ describe('levelOpenToScope', () => {
     expect(open('institution')).toEqual(LEVELS);
     expect(open('department')).toEqual(['department', 'program', 'semester', 'section']);
     expect(open('section')).toEqual(['section']);
+  });
+});
+
+describe('isEngagementInstitutionStaffRole (own institution, like a principal)', () => {
+  it('names the stored role spellings for admin, counsellor and accounts staff', () => {
+    expect([...ENGAGEMENT_INSTITUTION_STAFF_ROLES].sort()).toEqual(
+      ['accounts', 'admin', 'administrator', 'admission_counselor', 'expo_counselor'].sort()
+    );
+    for (const role of ENGAGEMENT_INSTITUTION_STAFF_ROLES) {
+      expect(isEngagementInstitutionStaffRole(role), role).toBe(true);
+    }
+  });
+
+  it('leaves every other role alone, including the retired "counselor" name', () => {
+    for (const role of [
+      'counselor',
+      'learner_counselor',
+      'staff_counselor',
+      'health_counselor',
+      'institution_admin',
+      'principal',
+      'hod',
+      'faculty',
+      'student',
+      '',
+      null,
+      undefined
+    ]) {
+      expect(isEngagementInstitutionStaffRole(role), String(role)).toBe(false);
+    }
   });
 });
 

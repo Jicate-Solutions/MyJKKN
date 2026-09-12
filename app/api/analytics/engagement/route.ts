@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { EngagementService } from '@/lib/services/analytics/engagement-service';
+import { ENGAGEMENT_INSTITUTION_STAFF_ROLES } from '@/lib/services/analytics/engagement-scope';
 import type { EngagementMetricsRequest, OrganizationalLevel } from '@/types/analytics';
 
 /**
@@ -45,14 +46,15 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Only allow specific roles to access analytics
-    const allowedRoles = [
+    // Only allow specific roles to access analytics. Admin, counsellor and
+    // accounts staff are listed by their stored role names (the old 'counselor'
+    // no longer exists); the scope gate below holds every role to its own
+    // institution, department or sections.
+    const allowedRoles: string[] = [
       'principal',
       'hod',
       'faculty',
-      'admin',
-      'accounts',
-      'counselor'
+      ...ENGAGEMENT_INSTITUTION_STAFF_ROLES
     ];
 
     if (!profile.is_super_admin && !allowedRoles.includes(profile.role)) {

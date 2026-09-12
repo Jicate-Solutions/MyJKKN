@@ -6,14 +6,21 @@
 // SAME rules.
 //
 // WHERE THE SCOPE COMES FROM
-//   EngagementService.getUserAccessScope() is the analytics module's one scope
-//   source (the health-score, lifecycle-dashboard and usage-report services read
-//   it too). It is unchanged by this file:
-//     super admin  -> global
-//     principal    -> institution: profiles.institution_id
-//     hod          -> department:  profiles.department_id
-//     faculty      -> section:     the sections they teach (timetable_slots)
-//     anyone else  -> section with no ids, i.e. nothing
+//   EngagementService.getEngagementAccessScope() is the one scope source for
+//   every engagement path (gate, filter and the filter choices on screen). It
+//   is the module's general getUserAccessScope() (which the health-score,
+//   lifecycle-dashboard and usage-report services read, unchanged) plus one
+//   rule for admin, counsellor and accounts staff. It resolves:
+//     super admin     -> global
+//     principal       -> institution: profiles.institution_id
+//     admin,          -> institution: profiles.institution_id, the same as a
+//     counsellor and     principal (Director's decision, 2026-09-12; the stored
+//     accounts staff     role names are ENGAGEMENT_INSTITUTION_STAFF_ROLES below).
+//                        Only getEngagementAccessScope() does this, so what
+//                        the other readers of the scope get is unchanged.
+//     hod             -> department:  profiles.department_id
+//     faculty         -> section:     the sections they teach (timetable_slots)
+//     anyone else     -> section with no ids, i.e. nothing
 //
 // WHY IT IS ENFORCED IN CODE
 //   Every engagement read goes through the service-role client, which bypasses
@@ -35,6 +42,40 @@ import type { AccessScope, AccessScopeType, OrganizationalLevel } from '@/types/
 
 /** The selection value the filters use for "All Institutions". */
 export const ALL_INSTITUTIONS_ID = 'all';
+
+/**
+ * The profiles.role values that see their own institution's engagement, the
+ * same as a principal. Director's decision, 2026-09-12: admin, counsellor and
+ * accounts staff see engagement figures for their own college, nothing from
+ * other colleges.
+ *
+ * These are the stored spellings, taken from the code and migrations:
+ *   admin       'admin' and 'administrator'. Both are stored: the production
+ *               count noted in 20260730160200_learner_contribution_scores_engine.sql
+ *               found 1 'admin' and 2 'administrator', and the Administrator
+ *               test account (app/auth/test-login) is 'administrator'.
+ *   counsellor  'admission_counselor' and 'expo_counselor'. The old 'counselor'
+ *               was renamed to 'admission_counselor', with 'expo_counselor'
+ *               split from it, in 20260430_counselor_taxonomy_phase3_rename_and_expo.sql,
+ *               which expects no 'counselor' rows left and moved the
+ *               student_engagement_scores policy to both keys.
+ *   accounts    'accounts' (the Accountant test account; Role Management
+ *               counts users by it).
+ *
+ * Not listed, so still refused: learner_counselor, staff_counselor,
+ * health_counselor and institution_admin (other roles, no decision yet).
+ */
+export const ENGAGEMENT_INSTITUTION_STAFF_ROLES = [
+  'admin',
+  'administrator',
+  'admission_counselor',
+  'expo_counselor',
+  'accounts'
+] as const;
+
+export function isEngagementInstitutionStaffRole(role: string | null | undefined): boolean {
+  return !!role && (ENGAGEMENT_INSTITUTION_STAFF_ROLES as readonly string[]).includes(role);
+}
 
 /** Where a unit (institution, department, program, semester, section) sits. */
 export interface EngagementPlacement {

@@ -220,8 +220,106 @@ describe('GET /api/analytics/engagement (learner table and cards)', () => {
     expectRefused(await metrics(IDS.facultyA1, 'department', IDS.deptA1));
   });
 
-  it('admin (no engagement scope defined for the role) is refused, not widened', async () => {
-    expectRefused(await metrics(IDS.adminA, 'institution', IDS.instA));
+  it('other roles with no engagement scope are refused, not widened', async () => {
+    // The retired 'counselor' name, the other counsellor roles and
+    // institution_admin have no decision yet; accounts staff whose profile has
+    // no institution have nothing to be scoped to.
+    for (const userId of [
+      IDS.legacyCounselorA,
+      IDS.learnerCounselorA,
+      IDS.institutionAdminA,
+      IDS.accountsNoInstitution
+    ]) {
+      expectRefused(await metrics(userId, 'institution', IDS.instA));
+      expectRefused(await metrics(userId, 'institution', 'all'));
+    }
+  });
+});
+
+describe('admin, counsellor and accounts staff: their own institution, like a principal (2026-09-12)', () => {
+  // profiles.role as stored: 'admin' and 'administrator', 'admission_counselor'
+  // and 'expo_counselor', 'accounts'. Each is on Institution A.
+  const STAFF = [
+    ['admin', IDS.adminA],
+    ['administrator', IDS.administratorA],
+    ['admission_counselor', IDS.admissionCounselorA],
+    ['expo_counselor', IDS.expoCounselorA],
+    ['accounts', IDS.accountsA]
+  ] as const;
+
+  it('table and cards: own institution and anything in it; "all" narrows to it', async () => {
+    for (const [role, userId] of STAFF) {
+      const own = await metrics(userId, 'institution', IDS.instA);
+      expect(own.status, role).toBe(200);
+      expect(own.learners, role).toEqual([IDS.learnerA1, IDS.learnerA2].sort());
+      const all = await metrics(userId, 'institution', 'all');
+      expect(all.status, role).toBe(200);
+      expect(all.learners, role).toEqual([IDS.learnerA1, IDS.learnerA2].sort());
+      expect((await metrics(userId, 'department', IDS.deptA2)).learners, role).toEqual([IDS.learnerA2]);
+      expect((await metrics(userId, 'section', IDS.secA1)).learners, role).toEqual([IDS.learnerA1]);
+    }
+  });
+
+  it('table and cards: another institution, or anything inside it, is 403 before any learner row is read', async () => {
+    for (const [role, userId] of STAFF) {
+      for (const [level, id] of [
+        ['institution', IDS.instB],
+        ['department', IDS.deptB1],
+        ['program', IDS.progB1],
+        ['semester', IDS.semB1],
+        ['section', IDS.secB1]
+      ] as const) {
+        calls = [];
+        expectRefused(await metrics(userId, level, id));
+        expect(learnerRowsRead(), `${role} ${level}`).toBe(false);
+      }
+    }
+  });
+
+  it('at-risk: own institution only, and the query carries it', async () => {
+    for (const [role, userId] of STAFF) {
+      calls = [];
+      const own = await atRisk(userId, 'institution', 'all');
+      expect(own.status, role).toBe(200);
+      expect(own.learners, role).toEqual([IDS.learnerA2]);
+      expect(
+        calls.some(
+          (c) => c.table === 'student_engagement_scores' && c.op === 'in' && c.column === 'institution_id'
+        ),
+        role
+      ).toBe(true);
+      expectRefused(await atRisk(userId, 'institution', IDS.instB));
+      expectRefused(await atRisk(userId, 'department', IDS.deptB1));
+    }
+  });
+
+  it('section compare: a semester in own institution; one elsewhere is 403', async () => {
+    for (const [role, userId] of STAFF) {
+      const own = await compare(userId, IDS.semA2);
+      expect(own.status, role).toBe(200);
+      expect(own.sections, role).toEqual([IDS.secA2]);
+      expectRefused(await compare(userId, IDS.semB1));
+    }
+  });
+
+  it('learner detail: a learner in own institution; one elsewhere (even with no section) is 403', async () => {
+    for (const [role, userId] of STAFF) {
+      expect((await student(userId, IDS.learnerA2)).status, role).toBe(200);
+      expectRefused(await student(userId, IDS.learnerB1));
+      expectRefused(await student(userId, IDS.learnerBNoSection));
+    }
+  });
+
+  it('scope: the filters get only their institution, the same as a principal', async () => {
+    for (const [role, userId] of STAFF) {
+      currentUserId = userId;
+      const res = await getScopeRoute();
+      const body = await res.json();
+      expect(res.status, role).toBe(200);
+      expect(body.data.type, role).toBe('institution');
+      expect(body.data.institutionIds, role).toEqual([IDS.instA]);
+      expect(body.data.departmentIds, role).toBeNull();
+    }
   });
 });
 

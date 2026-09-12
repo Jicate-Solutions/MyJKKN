@@ -7,6 +7,7 @@ import { EngagementService } from '@/lib/services/analytics/engagement-service';
 import {
   ALL_INSTITUTIONS_ID,
   BREAKDOWN_PARENT_LEVEL,
+  ENGAGEMENT_INSTITUTION_STAFF_ROLES,
   applyEngagementScope
 } from '@/lib/services/analytics/engagement-scope';
 
@@ -50,14 +51,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
     }
 
-    // Allow access for analytics roles
-    const allowedRoles = [
+    // Allow access for analytics roles. Admin, counsellor and accounts staff are
+    // listed by their stored role names (the old 'counselor' no longer exists);
+    // the scope gate below holds every role to its own scope.
+    const allowedRoles: string[] = [
       'principal',
       'hod',
       'faculty',
-      'admin',
-      'counselor',
-      'accounts'
+      ...ENGAGEMENT_INSTITUTION_STAFF_ROLES
     ];
 
     if (!profile.is_super_admin && !allowedRoles.includes(profile.role)) {

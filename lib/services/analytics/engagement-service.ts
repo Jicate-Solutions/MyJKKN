@@ -21,6 +21,7 @@ import {
   accessAllowed,
   accessRefused,
   applyEngagementScope,
+  isEngagementInstitutionStaffRole,
   isUuid,
   levelOpenToScope,
   placementInScope,
@@ -58,9 +59,33 @@ async function getStudentQueryLimit(): Promise<number> {
  */
 export class EngagementService {
   /**
-   * Get user's access scope based on their role and permissions
+   * Get user's access scope based on their role and permissions.
+   *
+   * This is the analytics module's general scope (health-score, lifecycle
+   * dashboard and usage-report services read it). Admin, counsellor and
+   * accounts staff get no scope here; only Engagement Analytics widens them,
+   * through getEngagementAccessScope() below.
    */
   static async getUserAccessScope(userId: string): Promise<AccessScope> {
+    return this.resolveAccessScope(userId, false);
+  }
+
+  /**
+   * The scope for Engagement Analytics (/users/activity > Engagement). The same
+   * as getUserAccessScope(), plus: admin, counsellor and accounts staff
+   * (ENGAGEMENT_INSTITUTION_STAFF_ROLES, by stored role name) see their own
+   * institution, the same as a principal, and nothing outside it. Director's
+   * decision, 2026-09-12. Every engagement gate, filter and the filter choices
+   * on screen read this one.
+   */
+  static async getEngagementAccessScope(userId: string): Promise<AccessScope> {
+    return this.resolveAccessScope(userId, true);
+  }
+
+  private static async resolveAccessScope(
+    userId: string,
+    institutionStaffAsPrincipal: boolean
+  ): Promise<AccessScope> {
     const supabase = await createServiceRoleClient();
 
     const { data: profile } = await supabase
@@ -80,6 +105,19 @@ export class EngagementService {
 
     // Principal has institution-level access
     if (profile.role === 'principal' && profile.institution_id) {
+      return {
+        type: 'institution',
+        institutionIds: [profile.institution_id]
+      };
+    }
+
+    // Engagement only: admin, counsellor and accounts staff see their own
+    // institution, like a principal. A profile with no institution gets nothing.
+    if (
+      institutionStaffAsPrincipal &&
+      isEngagementInstitutionStaffRole(profile.role) &&
+      profile.institution_id
+    ) {
       return {
         type: 'institution',
         institutionIds: [profile.institution_id]
@@ -133,7 +171,7 @@ export class EngagementService {
     level: OrganizationalLevel,
     id: string
   ): Promise<EngagementAccess> {
-    const scope = await this.getUserAccessScope(userId);
+    const scope = await this.getEngagementAccessScope(userId);
     return this.checkScopeAccess(scope, level, id);
   }
 
@@ -184,7 +222,7 @@ export class EngagementService {
     userId: string,
     studentId: string
   ): Promise<EngagementAccess> {
-    const scope = await this.getUserAccessScope(userId);
+    const scope = await this.getEngagementAccessScope(userId);
 
     if (!isUuid(studentId)) {
       return accessRefused(scope, 400, INVALID_SELECTION_REASON);
@@ -267,7 +305,7 @@ export class EngagementService {
    * the screen loads their names itself.
    */
   static async getScopeChoices(userId: string): Promise<EngagementScopeChoices> {
-    const scope = await this.getUserAccessScope(userId);
+    const scope = await this.getEngagementAccessScope(userId);
     const none: EngagementScopeChoices = {
       type: scope.type,
       institutionIds: null,
@@ -876,7 +914,7 @@ export class EngagementService {
   ): Promise<StudentEngagementDetail | null> {
     try {
       const supabase = await createServiceRoleClient();
-      const accessScope = await this.getUserAccessScope(userId);
+      const accessScope = await this.getEngagementAccessScope(userId);
 
       if (!scopeHasUnits(accessScope)) {
         return null;
