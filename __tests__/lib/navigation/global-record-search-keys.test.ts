@@ -1,20 +1,18 @@
 // Global record search decides, per entity, whether the caller may see a row.
-// The permission key that decision uses is written in THREE places:
+// The permission key behind that decision is written in TWO places:
 //
 //   1. supabase/migrations/20261201090000_global_record_search.sql
 //      — user_has_permission('<key>') inside fn_global_record_search
-//   2. lib/navigation/record-search.ts
-//      — RECORD_ENTITIES[entity].permission
-//   3. lib/sidebarMenuLink.ts
+//   2. lib/sidebarMenuLink.ts
 //      — MENU_PERMISSIONS for the detail route the hit links to
 //
-// If (1) and (3) drift apart, the palette offers a result and the destination
-// then refuses it — a hit you cannot open, which reads to the user as a broken
-// link rather than as a permission boundary. If (1) and (2) drift apart, the
-// frontend renders a group the database will never populate.
+// If they drift apart, the palette offers a result and the destination then
+// refuses it — a hit you cannot open, which reads to a user as a broken link
+// rather than as a permission boundary.
 //
-// These are three different files in two different languages, so nothing but a
-// test keeps them honest.
+// RECORD_ENTITIES deliberately does NOT carry a third copy of the key; this
+// test derives it from the route map instead. Two files in two different
+// languages, and nothing but this test keeps them honest.
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -60,22 +58,19 @@ function resolveRoutePermission(route: string): string | undefined {
 }
 
 describe('global record search — permission key agreement', () => {
-  it.each(ENTITIES)(
-    '%s: the migration gates on the same key the metadata declares',
-    (entity) => {
-      const { permission } = RECORD_ENTITIES[entity];
-      expect(MIGRATION).toContain(`user_has_permission('${permission}')`);
-    }
-  );
+  it.each(ENTITIES)('%s: the detail route maps to a permission at all', (entity) => {
+    // href('[id]') yields the ROUTE TEMPLATE, which is how MENU_PERMISSIONS
+    // spells dynamic segments.
+    const routeTemplate = RECORD_ENTITIES[entity].href('[id]');
+    expect(resolveRoutePermission(routeTemplate)).toBeTruthy();
+  });
 
   it.each(ENTITIES)(
-    '%s: the detail route resolves to that same permission',
+    '%s: the migration gates on the key that route resolves to',
     (entity) => {
-      const meta = RECORD_ENTITIES[entity];
-      // href('[id]') yields the ROUTE TEMPLATE, which is how MENU_PERMISSIONS
-      // spells dynamic segments.
-      const routeTemplate = meta.href('[id]');
-      expect(resolveRoutePermission(routeTemplate)).toBe(meta.permission);
+      const routeTemplate = RECORD_ENTITIES[entity].href('[id]');
+      const expected = resolveRoutePermission(routeTemplate);
+      expect(MIGRATION).toContain(`user_has_permission('${expected}')`);
     }
   );
 

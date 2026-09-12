@@ -6,10 +6,12 @@
 // from entity to href therefore lives here, next to the rest of the
 // navigation layer.
 //
-// Each `permission` below is the SAME key the RPC gates that entity on, and
-// the same key lib/sidebarMenuLink.ts maps to the detail route. Keeping the
-// three in agreement is what stops the palette from offering a result that
-// bounces the user off a locked page when they click it.
+// The permission key that gates each entity is deliberately NOT repeated here.
+// It already exists in two places that must agree — the migration's
+// user_has_permission() call and MENU_PERMISSIONS for the detail route — and a
+// third copy in this file would be one more thing to drift. The drift guard in
+// __tests__/lib/navigation/global-record-search-keys.test.ts derives the key
+// from the route map and pins it against the SQL.
 
 export type RecordEntity = 'learner' | 'staff' | 'lead' | 'course';
 
@@ -27,8 +29,6 @@ interface RecordEntityMeta {
   label: string;
   /** lucide-react icon name, resolved through ICON_MAP like page results. */
   iconName: string;
-  /** Permission key gating this entity — mirrors the RPC and the route map. */
-  permission: string;
   /** Detail route for one record. */
   href: (id: string) => string;
   /** Stable render order in the palette. */
@@ -39,28 +39,24 @@ export const RECORD_ENTITIES: Record<RecordEntity, RecordEntityMeta> = {
   learner: {
     label: 'Learners',
     iconName: 'GraduationCap',
-    permission: 'learners.profiles.view',
     href: (id) => `/learners/profiles/${id}`,
     order: 1,
   },
   staff: {
-    label: 'Staff',
+    label: 'Team Members',
     iconName: 'Users',
-    permission: 'staff.view',
     href: (id) => `/staff/list/${id}`,
     order: 2,
   },
   lead: {
     label: 'Admission Leads',
     iconName: 'UserPlus',
-    permission: 'admission.leads.view',
     href: (id) => `/admission/leads/${id}`,
     order: 3,
   },
   course: {
     label: 'Courses',
     iconName: 'BookOpen',
-    permission: 'courses.view',
     href: (id) => `/courses/${id}`,
     order: 4,
   },

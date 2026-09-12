@@ -297,7 +297,7 @@ export function CommandPaletteModal({ isOpen, onClose, onNavigate, onPermissions
                 {recordsPending && recordHits.length === 0 && (
                   <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
                     <Loader2 className="h-3 w-3 animate-spin" />
-                    Searching learners, staff, leads and courses…
+                    Searching learners, team members, leads and courses…
                   </div>
                 )}
 
