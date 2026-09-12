@@ -22,7 +22,7 @@
  * ON THE NUMBERS BELOW — these are a FIXTURE, not a production snapshot. The
  * shape is real (14 active departments, 5 owned, the 5 unowned ones that carry
  * ideas) and the per-department figures are the ones quoted in the brief that
- * commissioned this change. Those figures sum to 19, while the same brief puts
+ * commissioned this change. An early split summed to 19, while the same brief puts
  * the stranded total at 12; both cannot be right, and the discrepancy is
  * recorded here rather than smoothed over. Nothing in the shipped code depends
  * on either figure — the count is read live per department — so these tests
@@ -76,14 +76,24 @@ const OWNED_LABELS = [
 
 /**
  * Ideas in Logged per department. Fixture values — see the header note on the
- * brief's two irreconcilable totals. The five unowned entries sum to 19.
+ * brief's two totals: 19 counted every status, 12 counts only `logged`. 12 is
+ * the real stranded figure and the five unowned entries below sum to it.
  */
 const WAITING_BY_LABEL: Record<string, number> = {
-  'CDC / Placement': 6,
-  Library: 5,
-  Transport: 4,
+  // Measured live 2026-09-12 against project kvizhngldtiuufknvehv, counting
+  // ONLY ideas still in `logged` — the sole state the notifier acts on. These
+  // five sum to 12, and the owned areas hold the other 21 (COE 11, Admissions
+  // 4, Events 3, Fees & Finance 2, HR 1), reconciling to the 33 logged ideas.
+  // An earlier cut of this file used 6/5/4/2/2 = 19; those were per-area totals
+  // across EVERY status (all 55 ideas), not the waiting count, and they
+  // contradicted this suite's own stated total of 12.
+  'CDC / Placement': 3,
+  Library: 3,
+  Transport: 3,
   'IQAC / Accreditation': 2,
-  'Mess & Hostel': 2,
+  // Exactly 1 — so the singular branch ("1 idea waiting") is the one production
+  // renders today, and is covered here rather than only the plural path.
+  'Mess & Hostel': 1,
   // An owned department also has ideas waiting — they ARE being announced, so
   // this row must stay quiet. Without it the "owned rows show nothing" test
   // would pass for the wrong reason.
@@ -224,21 +234,27 @@ describe('an unowned department states what being unowned costs', () => {
 
     const cdc = rowFor('CDC / Placement');
     expect(cdc).toHaveTextContent('No owner yet');
-    expect(cdc).toHaveTextContent('6 ideas waiting — nobody is being told');
+    expect(cdc).toHaveTextContent('3 ideas waiting — nobody is being told');
 
     // Every unowned department carrying ideas says so, not just the first.
     expect(rowFor('Library')).toHaveTextContent(
-      '5 ideas waiting — nobody is being told'
+      '3 ideas waiting — nobody is being told'
     );
     expect(rowFor('Transport')).toHaveTextContent(
-      '4 ideas waiting — nobody is being told'
+      '3 ideas waiting — nobody is being told'
     );
     expect(rowFor('IQAC / Accreditation')).toHaveTextContent(
       '2 ideas waiting — nobody is being told'
     );
+    // The live singular case: Mess & Hostel has exactly one waiting idea, so
+    // the "1 idea" branch is the one production renders on day one.
     expect(rowFor('Mess & Hostel')).toHaveTextContent(
-      '2 ideas waiting — nobody is being told'
+      '1 idea waiting — nobody is being told'
     );
+    expect(rowFor('Mess & Hostel')).not.toHaveTextContent('1 ideas');
+
+    // The five badges above sum to the 12 the header reports.
+    expect(3 + 3 + 3 + 2 + 1).toBe(12);
   });
 
   it('says "idea", not "ideas", when exactly one is waiting', async () => {
@@ -295,11 +311,11 @@ describe('the header count carries the total, not just the gap', () => {
   it('adds the stranded total to the "still unowned" badge', async () => {
     await renderScreen();
 
-    // 14 departments, 5 owned → 9 unowned; 6+5+4+2+2 = 19 ideas behind them.
+    // 14 departments, 5 owned → 9 unowned; 3+3+3+2+1 = 12 ideas behind them.
     // Admissions' 3 are excluded: that department HAS an owner, so its ideas
     // are already being announced and are not part of the unowned cost.
     expect(
-      screen.getByText(/9 still unowned · 19 ideas waiting/)
+      screen.getByText(/9 still unowned · 12 ideas waiting/)
     ).toBeInTheDocument();
   });
 

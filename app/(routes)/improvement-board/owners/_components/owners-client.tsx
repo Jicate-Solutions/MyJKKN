@@ -409,7 +409,11 @@ function DepartmentOwners({ canAssign }: { canAssign: boolean }) {
                             )}
                           </span>
                         ) : (
-                          <span className="flex flex-col gap-1.5">
+                          <div className="flex flex-col gap-1.5">
+                            {/* A div, not a span: <Badge> renders a <div>   */}
+                            {/* (components/ui/badge.tsx), and a div inside a */}
+                            {/* span is invalid HTML. React does not warn on  */}
+                            {/* this pair, so jsdom stays green either way.   */}
                             <span className="text-muted-foreground flex items-center gap-1.5 text-sm">
                               <UserX className="h-3.5 w-3.5 shrink-0" />
                               No owner yet
@@ -430,7 +434,7 @@ function DepartmentOwners({ canAssign }: { canAssign: boolean }) {
                                   waiting — nobody is being told
                                 </Badge>
                               )}
-                          </span>
+                          </div>
                         )}
                       </TableCell>
 

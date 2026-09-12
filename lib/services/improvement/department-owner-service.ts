@@ -44,6 +44,16 @@
  *
  * WHAT AN UNOWNED DEPARTMENT COSTS (added 2026-09-12)
  * ----------------------------------------------------------------------------
+ * KNOWN DIVERGENCE, verified against the live catalogue 2026-09-12: the
+ * notifier matches ANY `hr_additional_roles` row with `improvement_area_id`
+ * set, `is_current`, and a staff->profile link — it does NOT filter
+ * `role_type`. This screen does filter `role_type = 'department_owner'`.
+ * Today only department_owner rows carry `improvement_area_id` (5 rows / 5
+ * areas) and the two agree on all 14 active areas, so the badge is true as
+ * shipped. The first non-department_owner improvement role to use
+ * `improvement_area_id` would make "nobody is being told" assert a
+ * falsehood — align the two definitions before that happens.
+ *
  * `fn_improvement_untriaged_notify` walks every idea still in Logged, resolves
  * the current holders of its department, and — when that resolves to NOBODY —
  * executes a bare CONTINUE. On purpose: it writes no ledger row, so the idea
