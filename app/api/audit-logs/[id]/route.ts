@@ -26,7 +26,9 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const log = await getAuditLog(id);
+    // Request-scoped server client, so RLS sees the caller (the service's
+    // default client carries no session on the server).
+    const log = await getAuditLog(id, supabase);
 
     if (!log) {
       return NextResponse.json(
@@ -61,7 +63,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    await deleteAuditLog(id);
+    await deleteAuditLog(id, supabase);
 
     return NextResponse.json({
       success: true,

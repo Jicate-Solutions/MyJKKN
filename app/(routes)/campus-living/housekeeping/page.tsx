@@ -332,13 +332,16 @@ export default function HousekeepingBookingsPage() {
         />
       </div>
 
-      {/* Read-only, so it needs no refetch on close. Keyed like the others so a
-          different booking mounts a fresh dialog rather than reusing stale state. */}
+      {/* Keyed like the others so a different booking mounts a fresh dialog
+          rather than reusing stale state. Mostly read-only, but removing a photo
+          changes the row's Before/After counts, hence onChanged. */}
       <BookingDetailDialog
         key={`view-${viewTarget?.id ?? 'none'}`}
         booking={viewTarget}
         open={viewTarget !== null}
         onOpenChange={(o) => !o && setViewTarget(null)}
+        canExecute={canExecute}
+        onChanged={bumpRefetch}
       />
 
       {/* Keyed on the booking id so opening a different booking MOUNTS a fresh

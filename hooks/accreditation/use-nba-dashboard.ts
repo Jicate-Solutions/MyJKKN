@@ -9,6 +9,29 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import type { Database } from '@/types/supabase';
+
+/**
+ * Columns read from `programs`, constrained to columns that actually exist.
+ *
+ * The Supabase client is cast `as any` throughout this file, so a `.select()`
+ * naming a non-existent column type-checks, builds, and only fails at REQUEST
+ * time with PostgREST 42703 — which this hook rethrows, leaving React Query
+ * `undefined` and the page showing its "no programs" empty state. That is
+ * exactly how `program_code` (a column `programs` has never had) shipped.
+ *
+ * `satisfies` re-attaches the generated schema to the one string the cast
+ * detaches it from: adding a column name that `programs` does not have is now a
+ * compile error here, which the PR-scoped typecheck gate enforces.
+ */
+const ENGINEERING_PROGRAM_COLUMNS = [
+  'id',
+  'program_name',
+  'program_id',
+  'institution_id',
+] as const satisfies readonly (keyof Database['public']['Tables']['programs']['Row'])[];
+
+export const ENGINEERING_PROGRAM_SELECT = ENGINEERING_PROGRAM_COLUMNS.join(', ');
 
 export const nbaKeys = {
   all: ['accreditation', 'nba'] as const,
@@ -28,6 +51,11 @@ export interface NBAMetric {
 export interface EngineeringProgram {
   id: string;
   program_name: string | null;
+  /**
+   * Business code shown in the programme switcher (e.g. 'CSE', 'CSE-SH').
+   * Sourced from `programs.program_id` — there is NO `program_code` column on
+   * `programs`. Same mapping as admission/settings/seat-config.
+   */
   program_code: string | null;
   institution_id: string;
   institution_name: string | null;
@@ -61,10 +89,16 @@ export function useNBAEvidenceCounts() {
         .select('metric_code')
         .eq('body_code', 'NBA');
       if (error) throw error;
-      return (data ?? []).reduce<Record<string, number>>((acc, row: any) => {
-        acc[row.metric_code] = (acc[row.metric_code] ?? 0) + 1;
-        return acc;
-      }, {});
+      // Accumulator typed on the parameter, not as a type argument: `data` is
+      // `any` here (the client is cast), and TS2347 forbids type arguments on an
+      // untyped call. Same shape as the `instMap` reduce below.
+      return (data ?? []).reduce(
+        (acc: Record<string, number>, row: any) => {
+          acc[row.metric_code] = (acc[row.metric_code] ?? 0) + 1;
+          return acc;
+        },
+        {} as Record<string, number>,
+      );
     },
     staleTime: 5 * 60 * 1000,
   });
@@ -90,7 +124,7 @@ export function useEngineeringPrograms() {
 
       const { data: progs, error: pErr } = await sb
         .from('programs')
-        .select('id, program_name, program_code, institution_id')
+        .select(ENGINEERING_PROGRAM_SELECT)
         .in('institution_id', engIds);
       if (pErr) throw pErr;
 
@@ -105,7 +139,7 @@ export function useEngineeringPrograms() {
       return (progs ?? []).map((p: any) => ({
         id: p.id,
         program_name: p.program_name ?? null,
-        program_code: p.program_code ?? null,
+        program_code: p.program_id ?? null,
         institution_id: p.institution_id,
         institution_name: instMap[p.institution_id] ?? null,
       }));

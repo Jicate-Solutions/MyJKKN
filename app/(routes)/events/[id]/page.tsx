@@ -67,7 +67,9 @@ import { EditGeneralEventDialog } from '../_components/edit-general-event-dialog
 import { canEditEvent } from '../_components/event-display';
 import { EventFormCards } from '@/components/events/registration/event-form-cards';
 import { EventFeedbackLinkCard } from '@/components/events/feedback/event-feedback-link-card';
+import { EventInstagramCard } from '@/components/events/social/event-instagram-card';
 import { EventTasksCard } from '@/components/events/shared/event-tasks-card';
+import { EventReviewCommentsCard } from '@/components/events/shared/event-review-comments-card';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
@@ -581,6 +583,14 @@ export default function GeneralEventDetailPage() {
             is the authority, and a denial surfaces as an error toast. */}
         <EventFeedbackLinkCard eventId={event.id} />
 
+        {/* Instagram reception — how the event was received publicly, next to
+            how attendees rated it. Ungated for the same reason as the feedback
+            card above: the DB is the authority. Reading rides events.view via
+            RLS on event_ig_posts, and linking needs events.social.manage, so a
+            viewer without it sees the numbers and gets an explicit permission
+            message if they try to link — not a hidden card. */}
+        <EventInstagramCard eventId={event.id} />
+
         {/* Shared event logistics — sponsors, budget, committees, check-in, QR,
             volunteers, incidents, certificates, bulk import, analytics, kit.
             Tournaments have had these since Events Platform PR1; a wizard-created
@@ -628,6 +638,15 @@ export default function GeneralEventDetailPage() {
             </CardContent>
           </Card>
         )}
+
+        {/* Review comments — LAST on the page by request: the reviewing
+            authority reads the whole console, then writes what is still wrong
+            at the foot of it. The card gates itself (super admin, admin /
+            administrator / event_coordinator with institution access, the
+            in-charge, the creator) and renders nothing for anyone else, so no
+            props decide who sees it — see
+            hooks/events/shared/use-event-review-comment-access.ts. */}
+        <EventReviewCommentsCard eventId={event.id} />
       </div>
 
       <EditGeneralEventDialog
