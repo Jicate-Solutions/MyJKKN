@@ -111,6 +111,21 @@ const NOTIFICATION_WRITE = /insert\s+into\s+(public\.)?notifications\b/i;
 
 const UNTRIAGED = authoritativeDefinitionOf('fn_improvement_untriaged_notify');
 
+/**
+ * The one-time repair that backfilled user_notifications for the notices already
+ * fired into the void.
+ *
+ * PINNED BY NAME, deliberately. It used to be read off `UNTRIAGED` — whichever
+ * migration currently defines the function — which held only while exactly one
+ * migration followed the bug. It is a ONE-TIME repair: it lives in this file,
+ * has been applied, and must NOT be copied into every later migration that
+ * happens to touch the function. Reading it off the winning definition made
+ * those assertions fail the moment a second migration replaced the function,
+ * and would have pushed its author to paste a dead backfill forward to go green.
+ */
+const BACKFILL_FILE = '20261113000000_improvement_untriaged_notice_reaches_the_bell.sql';
+const BACKFILL_SQL = read(BACKFILL_FILE);
+
 // ---------------------------------------------------------------------------
 // The bug itself.
 // ---------------------------------------------------------------------------
@@ -160,10 +175,59 @@ describe('delivery changed; the escalation policy did not', () => {
     expect(/\bCONTINUE;/i.test(body)).toBe(true);
   });
 
-  it('still announces an idea once, ever (ledger + idempotency key)', () => {
+  it('still announces an idea once per stall — never twice for the same stall', () => {
+    // SUPERSEDED INVARIANT, deliberately. This read `ON CONFLICT (idea_id)` and
+    // was titled "once, ever". 20261202090000 makes the ledger per (idea, stage),
+    // because an idea now has TWO ways to stall — nobody OPENED it (logged) and
+    // nobody DECIDED it (under_review) — and a ledger keyed on idea_id alone
+    // silently blanked the second chase for any idea already announced for the
+    // first. "Once, ever" was never the goal; "never twice for the same stall"
+    // was, and that is what is asserted here.
     expect(/improvement_untriaged_notices/i.test(body)).toBe(true);
-    expect(/on\s+conflict\s*\(\s*idea_id\s*\)\s*do\s+nothing/i.test(body)).toBe(true);
+    expect(
+      /on\s+conflict\s*\(\s*idea_id\s*,\s*stage\s*\)\s*do\s+nothing/i.test(body),
+      'the ledger write must be keyed on (idea_id, stage)'
+    ).toBe(true);
+    // A ledger key alone is not enough: notifications carry their own
+    // idempotency guard, and the two stalls MUST NOT share a key or the second
+    // one silently collapses into the first.
     expect(/'improvement\.untriaged\|'/i.test(body)).toBe(true);
+    expect(/'improvement\.review_stale\|'/i.test(body)).toBe(true);
+    expect(
+      /'improvement\.untriaged\|'/i.source !== /'improvement\.review_stale\|'/i.source
+    ).toBe(true);
+  });
+
+  it('never writes the ledger without naming which stall it announced', () => {
+    // A ledger row with no stage is unattributable, and its UNIQUE (idea_id,
+    // stage) would then blank whichever stall happened to run second.
+    // Matched in the COLUMN LIST specifically — the position that decides what is
+    // written — not anywhere in the statement. An earlier cut of this guard asked
+    // only whether the word appeared somewhere between INSERT and the first `;`,
+    // and `ON CONFLICT (idea_id, stage)` sits inside that span: deleting stage
+    // from the column list and VALUES left the guard green on broken SQL.
+    // Proven by falsification, not by reading.
+    const ledgerWrites = body.match(
+      /insert\s+into\s+(public\.)?improvement_untriaged_notices\s*\(([^)]*)\)/gi
+    );
+    expect(ledgerWrites, 'expected at least one ledger write').not.toBeNull();
+    for (const w of ledgerWrites!) {
+      const columnList = w.slice(w.indexOf('(') + 1, w.lastIndexOf(')'));
+      expect(
+        /\bstage\b/i.test(columnList),
+        `ledger write omits stage from its COLUMN LIST: ${columnList.trim()}`
+      ).toBe(true);
+    }
+  });
+
+  it('tells a real person for BOTH stalls — the bell, not just the row', () => {
+    // The defect #3315 fixed was a notifications row nobody could see. Stall 2
+    // must not reintroduce it: every announcement needs a user_notifications
+    // write, so there must be one per stall.
+    const junctionWrites = body.match(
+      /insert\s+into\s+(public\.)?user_notifications\b/gi
+    );
+    expect(junctionWrites?.length ?? 0).toBeGreaterThanOrEqual(2);
   });
 
   it('still keeps its own category, expiry and metadata', () => {
@@ -193,8 +257,8 @@ describe('the notices already fired into the void are backfilled', () => {
     // that this is deliberate: an idea is announced ONCE, EVER. So the ten ideas
     // already in the ledger are never swept again and a forward-only fix leaves
     // them permanently silent.
-    const outsideFunction = UNTRIAGED.sql.replace(
-      bodyOf(UNTRIAGED.sql, 'fn_improvement_untriaged_notify'),
+    const outsideFunction = BACKFILL_SQL.replace(
+      bodyOf(BACKFILL_SQL, 'fn_improvement_untriaged_notify'),
       ''
     );
     expect(JUNCTION_WRITE.test(outsideFunction)).toBe(true);
@@ -203,8 +267,8 @@ describe('the notices already fired into the void are backfilled', () => {
   });
 
   it('the backfill is a no-op on a second run', () => {
-    const outsideFunction = UNTRIAGED.sql.replace(
-      bodyOf(UNTRIAGED.sql, 'fn_improvement_untriaged_notify'),
+    const outsideFunction = BACKFILL_SQL.replace(
+      bodyOf(BACKFILL_SQL, 'fn_improvement_untriaged_notify'),
       ''
     );
     expect(/not\s+exists\s*\(/i.test(outsideFunction)).toBe(true);
