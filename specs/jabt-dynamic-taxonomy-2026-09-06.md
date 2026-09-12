@@ -1,6 +1,7 @@
 # Dynamic JABT Registry — Spec
 
 **Date:** 2026-09-06 · **Status:** DRAFT — interview complete; ONE decision pending (D12, see below) · **Author:** Claude (pane "JABT"), rulings by the Director via tap-interview over Remote Control
+**Revised:** 2026-09-12 — reconciled against `jicate/main`: #3097 has MERGED (the CHECK-constraint drift repair is now in the repo), #3093 was CLOSED, #3154 (AIU evidence trail) merged; the 17-element structure in `types/obe.ts` re-confirmed. No decision changed; D12 still open.
 
 **The ask (Director, 06:50 IST):** *"Can JABT be dynamic — one dedicated MyJKKN page defines JABT, and adding a new dimension or level there changes every other page in MyJKKN accordingly?"*
 
@@ -12,10 +13,10 @@
 
 ### Definition layer (already dynamic)
 - `bos_taxonomy` (institution-scoped: `institutions_id`, `code`, `name`, `is_hierarchical`, `is_system`, `is_active`, audit cols) + `bos_taxonomy_levels` (`taxonomy_id`, `code`, `name`, `description`, `verb_examples`, `sort_order`). Migration `20260508_create_bos_taxonomy_master.sql`. UI at `app/(routes)/bos/taxonomy/`, API at `app/api/bos/taxonomies/`.
-- **Live JABT = 17 elements**, verified in prod: K1–K6 (13 institutions) · AF1–AF5 (10) · PS-a/b/c (13) · HD, L2L (9) · AIU (13). Names identical across all copies (`name_variants=1` for every code). The August "C + three bands" restructure **has been executed** — DB, documents (`artifacts/advanced-blooms-taxonomy.html` v2 21-Aug, teacher card v2) and code type (`types/obe.ts AdvancedDimension`) all agree.
+- **Live JABT = 17 elements**, verified in prod: K1–K6 (13 institutions) · AF1–AF5 (10) · PS-a/b/c (13) · HD, L2L (9) · AIU (13). Names identical across all copies (`name_variants=1` for every code). The August "C + three bands" restructure **has been executed** — DB, documents (`artifacts/advanced-blooms-taxonomy.html` v2 21-Aug, teacher card v2 — local, gitignored `artifacts/`, not in the repo) and code type (`types/obe.ts AdvancedDimension`) all agree.
 - Lesson labels re-derived: `curriculum_lesson` non-K JABT labels are AF3 ×575 · HD ×343 · L2L ×331 (no stale A-codes).
 - Governance (`bos_regulation_taxonomies.taxonomy_type`): 7 × `jkkn_advanced` (R-2026), 7 × `blooms`, 1 × `finks`.
-- Both prod CHECK constraints (`obe_regulation_config_taxonomy_type_check`, `chk_curriculum_lesson_primary_taxonomy`) already allow `jkkn_advanced`. The repo's migration files are behind prod — **open PR #3097** is the repair; this spec builds on it, does not duplicate it.
+- Both prod CHECK constraints (`obe_regulation_config_taxonomy_type_check`, `chk_curriculum_lesson_primary_taxonomy`) already allow `jkkn_advanced`. The repo's migration files were behind prod; **PR #3097 (MERGED 2026-09-06)** repaired that drift with `supabase/migrations/20260908104215_taxonomy_check_constraints_repo_drift.sql`, so a from-scratch replay now admits `jkkn_advanced` too. This spec builds on it, does not duplicate it.
 
 ### Consumption layer (static — the actual problem)
 Verified by grep on `jicate/main`:
@@ -29,8 +30,9 @@ Verified by grep on `jicate/main`:
 
 ### Adjacent PRs
 - **#3099 MERGED** 2026-09-05 (UI renders JABT correctly — third framework taught to the UI).
-- **#3097 OPEN** (repo-drift repair for the two CHECK constraints) — prerequisite context, no file overlap with this spec.
-- **#3093 OPEN** (3 files: `types/obe.ts`, taxonomy-badge, regulation-config) — appears **superseded by merged #3099**; Director/maintainer to close or rebase. Not this spec's job; flagged for hygiene.
+- **#3097 MERGED** 2026-09-06 (repo-drift repair for the two CHECK constraints, migration `20260908104215`) — prerequisite landed; no file overlap with this spec.
+- **#3093 CLOSED** 2026-09 without merge (superseded by #3099) — hygiene item resolved.
+- **#3154 MERGED** 2026-09-06 (captures what the in-app AI produced before the learner changed it — the AIU evidence trail). Adjacent to D13 and to the AIU weight review; it stores evidence, it does not define the element.
 
 ---
 
@@ -49,7 +51,7 @@ Verified by grep on `jicate/main`:
 | **D9** | Replace-all mechanics | **Retire Bloom's and Fink's: anything NEW picks only JABT; old records written in Bloom's/Fink's stay readable forever. No data conversion.** |
 | **D10** | PDE timing under replace-all | **Phase 2, after OneMark proves the registry.** PDE scoring is live; it moves as its own careful step. |
 | **D11** | Sequence vs the August restructure | Moot — verified this morning the 17-code restructure **already ran in production**. "One wave" = this build. |
-| **D12** | Freeze the 17 elements as final | ⏳ **PENDING.** Director is reading the Astra alignment study (`artifacts/jabt-astra-alignment-2026-09-06.html`) before the final word. Everything below is designed so the freeze slots in without rework. |
+| **D12** | Freeze the 17 elements as final | ⏳ **PENDING.** Director is reading the Astra alignment study (`artifacts/jabt-astra-alignment-2026-09-06.html`, local gitignored `artifacts/`) before the final word. Still pending as of 2026-09-12. Everything below is designed so the freeze slots in without rework. |
 | **D13** | Astra-driven evidence rules | Recommended in the study, decided together with D12: ① L2L evidence demonstrated **live**, never document-only; ② **digital**-skill PS marked in-room, unaided (computer-use AI can now do the task); ③ CBT results (Foundation, OneMark) count **only from proctored sittings**. Plus: **AIU weight review = the page's first scheduled edit** (its 2/25 predates Astra). |
 
 **Context for D12/D13:** GPT-6 Astra (OpenAI, released 3–4 Sep 2026) — computer use at superhuman speed, sustained multi-step autonomy, identity-faking. The study's finding: 11 of 17 JABT elements are observation-marked and immune; K1–K6 hold in supervised settings; L2L's paper evidence is the one casualty; AIU strengthens. Zero element changes required.
@@ -63,7 +65,7 @@ Verified by grep on `jicate/main`:
 2. New table `bos_taxonomy_publications`: immutable published snapshots of a taxonomy's full element set — `id`, `taxonomy_code`, `version_no`, `snapshot jsonb`, `effective_date`, `published_by`, `note`, `created_at`. Implements **D1** (a paper stores the `publication_id` current at creation), **D7** (rows with future `effective_date` are queued), and **D4** (the audit trail is the publication history plus an edit log).
 3. New table `bos_taxonomy_institution_activation` (`taxonomy_code`, `element_code`, `institutions_id`, `is_active`) — **D3**'s per-college switches, seeded from today's live 13-copy shape so nothing changes on day one. Convergence of the 13 copies to one master row set happens here with a data-preserving seed (current rows are the source of truth; nothing dropped).
 4. RPC lockdown per the standing rule: every new function ships with `REVOKE EXECUTE FROM anon, PUBLIC; GRANT TO authenticated`.
-5. **Not in this wave:** replacing the two CHECK constraints with FKs to the registry (needs #3097 landed first + its own gated migration), and setting `is_active=false` on the `blooms`/`finks` `bos_taxonomy` rows (**D9**'s retire cutover — its own dated, gated step).
+5. **Not in this wave:** replacing the two CHECK constraints with FKs to the registry (#3097 has landed; the FK swap still needs its own gated migration), and setting `is_active=false` on the `blooms`/`finks` `bos_taxonomy` rows (**D9**'s retire cutover — its own dated, gated step).
 
 ### 3.2 Server-side registry
 `lib/services/taxonomy/registry.ts` — `getTaxonomy(framework, { at?: Date, institutionId? })` reads the published snapshot (D1/D7-aware), cached with `revalidateTag('taxonomy')` fired on publish. This is the single source every consumer imports.
@@ -91,7 +93,7 @@ Extend `app/(routes)/bos/taxonomy/` master UI: add / rename / retire element, re
 1. **D12** — the freeze of the 17 (Director, after reading the Astra study).
 2. **D4** — who is the named curriculum owner (a person, by name).
 3. **AIU weight** — the page's first scheduled edit; value decided when the page exists.
-4. **#3093** — close as superseded by #3099, or rebase (maintainer hygiene).
+4. ~~**#3093** — close as superseded by #3099, or rebase.~~ Resolved: closed 2026-09.
 5. Retire-cutover date for Bloom's/Fink's under D9 (a `bos_taxonomy_publications` row with an `effective_date`, once the registry is live).
 
 ## 6 · Safety rails
