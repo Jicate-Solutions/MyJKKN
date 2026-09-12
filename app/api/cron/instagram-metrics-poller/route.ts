@@ -56,7 +56,7 @@ import type { IgCallConfig } from '@/lib/instagram/api-client';
 // metrics outside its IgAccountMetric/IgMediaMetric unions (online_followers,
 // ig_reels_* watch-time, views). Route-local helpers below call the base Graph
 // client directly for those.
-import { graphRequestData } from '@/lib/meta/graph-api-client';
+import { graphRequestData, normalizeMetaToken } from '@/lib/meta/graph-api-client';
 import { MetaGraphError } from '@/lib/meta/types';
 import type {
   IgAccountMetric,
@@ -1085,11 +1085,11 @@ async function seedIgAccounts(supabase: SupabaseClient): Promise<{
   errors: Array<{ ig_user_id?: string; name?: string; error: string }>;
 }> {
   const errors: Array<{ ig_user_id?: string; name?: string; error: string }> = [];
-  const token =
+  const token = normalizeMetaToken(
     process.env.META_IG_SYSTEM_USER_TOKEN ||
-    process.env.MESSENGER_PAGE_ACCESS_TOKEN ||
-    process.env.META_PAGE_ACCESS_TOKEN ||
-    '';
+      process.env.MESSENGER_PAGE_ACCESS_TOKEN ||
+      process.env.META_PAGE_ACCESS_TOKEN
+  );
   if (!token) {
     return {
       discovered: 0,
