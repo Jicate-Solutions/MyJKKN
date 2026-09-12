@@ -11,7 +11,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { leaveDocumentRequirement } from '@/lib/hr/leave-document-rule';
 import {
-  applyDecision, buildChain, finalStepIndex, readApprovers,
+  applyDecision, applyRevocation, buildChain, finalStepIndex, readApprovers,
 } from '@/lib/hr/leave/approval-chain';
 import type {
   HRLeaveApplication,
@@ -332,8 +332,15 @@ export class LeaveService {
       throw new Error(`Leave blocked by blackout: ${blocked.title} (${blocked.start_date} → ${blocked.end_date})`);
     }
 
-    // 3. Min advance notice (decision 20) — bypassed if is_emergency (decision 27)
-    if (!payload.is_emergency && leaveType.min_advance_notice_days > 0) {
+    // 3. Min advance notice (decision 20).
+    //
+    // The `!payload.is_emergency &&` guard that stood here was decision 27's
+    // bypass; the Emergency feature was removed 2026-09-12, so the rule now
+    // applies without exception. The two types that carried a notice were set
+    // to zero in the same change (20260912150000) precisely because every one
+    // of their requests had been filed through that bypass — enforcing the old
+    // figures would have made them unfileable rather than restoring a rule.
+    if (leaveType.min_advance_notice_days > 0) {
       const todayIso = new Date().toISOString().split('T')[0];
       const noticeDays = Math.floor(
         (new Date(payload.start_date).getTime() - new Date(todayIso).getTime()) / (1000 * 60 * 60 * 24)
@@ -344,8 +351,8 @@ export class LeaveService {
         // instruction. Say what happened and what to do instead.
         throw new Error(
           noticeDays < 0
-            ? `${leaveType.leave_type_name} cannot be applied for a past date — ${payload.start_date} was ${Math.abs(noticeDays)} day(s) ago. It needs ${leaveType.min_advance_notice_days} day(s) notice, or tick Emergency leave if this could not have been filed in time.`
-            : `${leaveType.leave_type_name} needs ${leaveType.min_advance_notice_days} day(s) advance notice; ${payload.start_date} is only ${noticeDays} day(s) away. Pick a later date, or tick Emergency leave.`
+            ? `${leaveType.leave_type_name} cannot be applied for a past date — ${payload.start_date} was ${Math.abs(noticeDays)} day(s) ago. It needs ${leaveType.min_advance_notice_days} day(s) notice.`
+            : `${leaveType.leave_type_name} needs ${leaveType.min_advance_notice_days} day(s) advance notice; ${payload.start_date} is only ${noticeDays} day(s) away. Pick a later date.`
         );
       }
     }
@@ -377,7 +384,6 @@ export class LeaveService {
         document_required_after_days: leaveType.document_required_after_days ?? null,
       },
       durationDays,
-      payload.is_emergency ?? false,
     );
     if (documentRule.required && (payload.documents?.length ?? 0) === 0) {
       throw new Error(
@@ -536,7 +542,8 @@ export class LeaveService {
       end_time: payload.end_time ?? null,
       reason: payload.reason,
       documents: payload.documents ?? [],
-      is_emergency: payload.is_emergency ?? false,
+      // is_emergency is not written any more: the column keeps its `false`
+      // default, and the 186 rows that carry `true` stay as they are.
       approval_chain,
       current_step: 0,
       applied_by: payload.applied_by,
@@ -792,6 +799,82 @@ export class LeaveService {
         final_approver_id: approverId,
         final_decided_at: new Date().toISOString(),
         rejection_reason,
+      })
+      .eq('id', applicationId)
+      .select()
+      .single();
+    if (error) throw error;
+    return data as HRLeaveApplication;
+  }
+
+  /**
+   * Take an APPROVED decision back (2026-09-12).
+   *
+   * The request becomes 'rejected' — the status every downstream trigger already
+   * knows how to undo an approval into. Nothing here reverses the balance, the
+   * comp-off credit or the counselor duty log: hr_trig_update_leave_balance,
+   * hr_trig_comp_off_consume and fn_trg_hr_leave_applications_duty_log each have
+   * an approved -> rejected branch and have had one since before this feature.
+   * Re-implementing any of them client-side would be a second answer that can
+   * disagree with the enforced one.
+   *
+   * THE ATTENDANCE DAY IS NOT TOUCHED HERE. The stamp is reversed by the route
+   * handler through recomputeForRevokedLeave, because the day evaluator is
+   * TypeScript and the caller's client cannot write hr_attendance_records.
+   *
+   * WHY THE REFUSAL IS ASKED OF POSTGRES. Whether this caller may revoke depends
+   * on the FINAL step of the frozen chain, which can be routed to a role — and
+   * user_roles / custom_roles are not readable by an ordinary member of staff, so
+   * a browser-side answer comes back empty for exactly the people it is meant to
+   * admit. fn_hr_leave_revoke_block_reason runs SECURITY DEFINER and returns
+   * the sentence the enforcing trigger raises, so the message the approver sees
+   * here and the reason the database gives can never drift apart.
+   */
+  static async revokeApplication(
+    supabase: SupabaseClient,
+    applicationId: string,
+    revokerId: string,
+    reason: string
+  ) {
+    const trimmed = reason.trim();
+    if (!trimmed) throw new Error('A reason is required to revoke an approved request.');
+
+    const app = await this.getApplication(supabase, applicationId);
+    if (!app) throw new Error('Application not found');
+    if (app.status !== 'approved') {
+      throw new Error(`Only an approved request can be revoked. Status: ${app.status}`);
+    }
+
+    const { data: blockReason, error: blockError } = await supabase.rpc(
+      'fn_hr_leave_revoke_block_reason',
+      { p_application_id: applicationId }
+    );
+    if (blockError) throw blockError;
+    if (blockReason) throw new Error(blockReason as string);
+
+    const now = new Date().toISOString();
+    const chain = [...app.approval_chain];
+    const finalIdx = finalStepIndex(chain);
+    if (chain[finalIdx]) {
+      chain[finalIdx] = applyRevocation(chain[finalIdx], {
+        by: revokerId,
+        at: now,
+        comment: trimmed,
+      });
+    }
+
+    const { data, error } = await supabase
+      .from('hr_leave_applications')
+      .update({
+        status: 'rejected',
+        approval_chain: chain,
+        // The applicant reads rejection_reason; revoke_reason is the same text
+        // kept under its own name so a report can tell the two apart without
+        // parsing prose. revoked_at / revoked_by are stamped by trg_hla_revoke_gate.
+        rejection_reason: trimmed,
+        revoke_reason: trimmed,
+        final_approver_id: revokerId,
+        final_decided_at: now,
       })
       .eq('id', applicationId)
       .select()

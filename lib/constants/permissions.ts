@@ -947,6 +947,13 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.leave.view', label: 'View Leave Applications' },
       { key: 'hr.leave.apply', label: 'Apply for Leave' },
       { key: 'hr.leave.approve', label: 'Approve Leave Applications' },
+      // Taking an APPROVED decision back. Deliberately separate from
+      // hr.leave.approve: the final approver of a request may revoke it on chain
+      // membership alone (fn_hr_leave_revoke_block_reason), and this key is the
+      // second, independent lane that lets HR act on a request they are not on
+      // the chain of. Granted in 20260912100000 to hr_head, managing_director,
+      // principal, cao, vice_principal, hod.
+      { key: 'hr.leave.revoke', label: 'Revoke an Approved Leave Decision' },
       { key: 'hr.leave.cancel', label: 'Cancel Own Leave Pre-Approval' },
       { key: 'hr.leave.withdraw', label: 'Withdraw Own Leave Post-Approval' },
       { key: 'hr.leave.balance.view', label: 'View Leave Balances' },
@@ -954,6 +961,19 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.leave.encashment.approve', label: 'Approve Leave Encashment' },
       { key: 'hr.leave.types.manage', label: 'Manage HR Leave Types' },
       { key: 'hr.leave.balance.manage', label: 'Generate Leave Balances' },
+
+      // ── Correcting a balance by hand (2026-09-08) ─────────────────────────
+      // A SEPARATE, NARROWER KEY THAN .manage ON PURPOSE. `.manage` generates
+      // balances from policy; this one overwrites consumed days, entitlement and
+      // a month's total directly, with no application and no approval chain
+      // behind it, and the figures feed payroll-adjacent reporting.
+      //
+      // 20260906130000 had made those levers super-admin only, removing them
+      // from hr_head. This key gives them back to the HR Head ALONE, rather than
+      // reusing .manage — which seven roles hold, six of them people who were
+      // never meant to have this. Every write still lands in
+      // hr_leave_balance_adjustments with a mandatory reason.
+      { key: 'hr.leave.balance.adjust', label: 'Adjust Leave Balances by Hand' },
 
       // ── HR academic years (2026-08-10) ───────────────────────────────────
       // The leave/payroll calendar HR owns, replacing the borrowed
@@ -1056,6 +1076,13 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.attendance.approve_team', label: 'Approve Attendance for Own Team' },
       { key: 'hr.attendance.regularize_approve', label: 'Approve Attendance Regularization Requests' },
       { key: 'hr.attendance.override', label: 'Override Attendance Records & Biometric Configuration' },
+      // Registered 2026-09-09. The migration that introduced this key
+      // (20260908073506_hr_manual_attendance_for_staff_without_biometric.sql)
+      // granted it to hr_head in the database but never added it here, so
+      // Role Management had no toggle: nobody could see who held it, and no
+      // other role could ever be given it. This registers the key only — the
+      // grant is unchanged and still hr_head alone.
+      { key: 'hr.attendance.manual.generate', label: 'Generate Manual Attendance for Team Members Without Biometric' },
       { key: 'hr.attendance.audit_export', label: 'Export the Attendance Audit Log' },
 
       // ── Attendance month close (2026-08-22) ──────────────────────────────
@@ -2165,6 +2192,7 @@ export const PERMISSION_CATEGORIES = [
       { key: 'campus_living.housekeeping.cleaners_manage', label: 'Manage Cleaner Directory' },
       { key: 'campus_living.housekeeping.availability_manage', label: 'Manage Booking Availability' },
       { key: 'campus_living.housekeeping.assign', label: 'Assign Cleaner to Booking' },
+      { key: 'campus_living.housekeeping.reschedule', label: 'Reschedule Booking' },
       { key: 'campus_living.housekeeping.execute', label: 'Record Cleaning (photos, start/finish)' },
       { key: 'campus_living.housekeeping.cancel', label: "Cancel Another's Booking" },
       { key: 'campus_living.housekeeping.waive', label: 'Waive Feedback Hold' },
@@ -2700,7 +2728,24 @@ export const PERMISSION_CATEGORIES = [
       // event-type list and the outcome/impact taxonomy. Both ship EMPTY —
       // their content is a Director decision against the JKKN IQAC SOP — so
       // this key opens an editor for lists that do not exist yet, on purpose.
-      { key: 'events.catalogues.manage', label: 'Maintain Event Type & Impact Catalogues' }
+      { key: 'events.catalogues.manage', label: 'Maintain Event Type & Impact Catalogues' },
+      // Instagram reception (2026-09-09). Grants writing event_ig_posts — the
+      // claim that a given Instagram post covered a given event. Reading an
+      // event's reception rides events.view, exactly as target classes do:
+      // whoever can see the event can see how it was received, and only
+      // ASSERTING the coverage needs this key. It is separate because the
+      // claim is a judgement call that accreditation evidence may later lean
+      // on, and because linking reaches data (ig_posts) that the events
+      // permissions otherwise say nothing about.
+      { key: 'events.social.manage', label: 'Link Instagram Posts to an Event' },
+      // Review Comments on an event console (2026-09-11). Super admin, the
+      // event's creator and its in-charge see the thread without a key; these
+      // admit everyone else, over institutions they can reach. Replaced the
+      // hardcoded admin/administrator/event_coordinator role names in
+      // fn_can_read_event_review_comments / fn_is_event_review_admin
+      // (20261130090000). Never fold into events.view — students hold it.
+      { key: 'events.review_comments.view', label: 'View & Reply to Event Review Comments' },
+      { key: 'events.review_comments.resolve', label: "Resolve Others' Event Review Comments" }
     ]
   },
   // Course Events (2026-08-13). Paid, multi-session learning courses open to
@@ -2941,6 +2986,35 @@ export const PERMISSION_CATEGORIES = [
       // Super Admin
       { key: 'aiPulse:policies.manage', label: 'Manage AI Pulse policies' },
       { key: 'aiPulse:value_lists.manage', label: 'Manage AI Pulse value-list master tables' }
+    ]
+  },
+  {
+    // Online Meetings — dynamic team meetings with AI Pulse engagement
+    // (2026-09-09). Migrations 20260909120000..20260909120300.
+    //
+    // Grants live in 20260909120300_online_meetings_permissions.sql. Declaring
+    // a key here does NOTHING on its own — a key exists for a role only once it
+    // is in that role's custom_roles.permissions JSONB, and a declared-but-
+    // ungranted key renders an empty page rather than an error.
+    //
+    // Note the two notations, matching the ai_pulse block above: the module
+    // root uses dot notation because that is what the sidebar map reads, and
+    // the actions use colon notation.
+    //
+    // A host needs NO key to run their own meeting — fn_om_is_host_or_manager
+    // in the RLS policies grants that. The polls/quiz/minutes keys exist so a
+    // co-host or secretary can be given those abilities on meetings they do
+    // not host, without being made a manager of everything.
+    name: 'Online Meetings',
+    key: 'online_meetings',
+    permissions: [
+      { key: 'online_meetings.view', label: 'View Online Meetings module' },
+      { key: 'onlineMeeting:create', label: 'Schedule an online meeting' },
+      { key: 'onlineMeeting:manage.all', label: 'Manage every online meeting in accessible institutions' },
+      { key: 'onlineMeeting:polls.run', label: 'Issue live polls during a meeting' },
+      { key: 'onlineMeeting:quiz.author', label: 'Author a post-meeting quiz' },
+      { key: 'onlineMeeting:minutes.manage', label: 'Record and publish meeting minutes' },
+      { key: 'onlineMeeting:report.view', label: 'View attendance and engagement reports' }
     ]
   },
   {

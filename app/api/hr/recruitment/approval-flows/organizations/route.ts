@@ -24,7 +24,16 @@ async function getClient() {
   );
 }
 
-/** HR organizations visible to the caller (flow builder org selector). */
+/**
+ * HR organizations visible to the caller — every one of them.
+ *
+ * NO included_in_hr filter, deliberately. Recruitment runs group-wide: that
+ * flag gates the HR module proper (leave, payroll, attendance, staff records)
+ * and no recruitment table carries its restrictive RLS policy. Filtering here
+ * both hid three institutions from the workflow org selector and dropped them
+ * from the id -> name map, which rendered raw UUIDs in the table's
+ * Organization column.
+ */
 export async function GET() {
   await connection();
   try {
@@ -35,8 +44,6 @@ export async function GET() {
     const { data, error } = await supabase
       .from('hr_organizations')
       .select('id, name, institution_id')
-      // Excluded institutions are not part of the HR module.
-      .eq('included_in_hr', true)
       .order('name', { ascending: true });
     if (error) throw error;
     return NextResponse.json({ data: data ?? [] });

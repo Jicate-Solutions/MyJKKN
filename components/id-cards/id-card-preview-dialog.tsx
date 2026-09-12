@@ -767,7 +767,7 @@ function SheetPreview({ pages }: { pages: SheetPage[] }) {
                       ) : null}
                     </div>
                     {caption && (
-                      <div style={inlineStyle(captionStyle())} title={caption}>
+                      <div style={inlineStyle(captionStyle(page.geometry))} title={caption}>
                         {caption}
                       </div>
                     )}
