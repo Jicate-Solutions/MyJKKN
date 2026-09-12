@@ -38,6 +38,11 @@ describe('normalizeMetaToken', () => {
     expect(normalizeMetaToken(messy, 'test:crlf')).toBe(CLEAN);
   });
 
+  it('removes a newline plus trailing spaces (the wrapped-paste shape with padding)', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(normalizeMetaToken(`${WRAPPED}   `, 'test:newline-trailing-spaces')).toBe(CLEAN);
+  });
+
   it('returns a clean token unchanged and does not warn', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     expect(normalizeMetaToken(CLEAN, 'test:clean')).toBe(CLEAN);
