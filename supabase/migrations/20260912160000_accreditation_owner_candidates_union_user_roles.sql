@@ -86,5 +86,5 @@ comment on function public.fn_accreditation_owner_candidates() is
 
 -- A DROP+CREATE loses the ACL, and a function nobody may execute fails exactly
 -- like the bug it fixes. Granted explicitly, every time.
-revoke all on function public.fn_accreditation_owner_candidates() from public;
-grant execute on function public.fn_accreditation_owner_candidates() to authenticated;
+REVOKE ALL ON FUNCTION public.fn_accreditation_owner_candidates() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_accreditation_owner_candidates() TO authenticated;
