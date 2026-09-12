@@ -136,23 +136,30 @@ export function getBookingColumns({
       cell: ({ row }) => {
         const b = row.original;
         if (b.status === 'cancelled') return <span className='text-muted-foreground'>—</span>;
-        const mark = (has: boolean, label: string) => (
+        // A phase holds several photos, so the count is the useful signal — the
+        // tick alone cannot tell one photo from six.
+        const mark = (count: number, label: string) => (
           <span
             className='flex items-center gap-1 whitespace-nowrap text-xs'
-            title={has ? `${label} photo uploaded` : `No ${label.toLowerCase()} photo`}
+            title={
+              count === 0
+                ? `No ${label.toLowerCase()} photo`
+                : `${count} ${label.toLowerCase()} photo${count === 1 ? '' : 's'} uploaded`
+            }
           >
-            {has ? (
+            {count > 0 ? (
               <CheckCircle2 className='h-3.5 w-3.5 text-emerald-600' />
             ) : (
               <ImageIcon className='h-3.5 w-3.5 text-muted-foreground' />
             )}
             {label}
+            {count > 0 && <span className='text-muted-foreground'>({count})</span>}
           </span>
         );
         return (
           <div className='flex flex-col gap-1'>
-            {mark(b.has_before_photo, 'Before')}
-            {mark(b.has_after_photo, 'After')}
+            {mark(b.before_photo_count, 'Before')}
+            {mark(b.after_photo_count, 'After')}
           </div>
         );
       },

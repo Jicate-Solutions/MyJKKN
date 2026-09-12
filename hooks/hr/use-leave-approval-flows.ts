@@ -213,3 +213,35 @@ export function useCanFinalizeLeave(applicationId: string | undefined) {
     staleTime: 60_000,
   });
 }
+
+/**
+ * Why may this caller NOT revoke this approved request? null = they may.
+ *
+ * A REASON, not a boolean, and asked of Postgres for the same reason
+ * useCanFinalizeLeave is: the answer turns on the FINAL step of a frozen chain
+ * that is usually routed to a role, and custom_roles is unreadable client-side.
+ * fn_hr_leave_revoke_block_reason returns the exact sentence trg_hla_revoke_gate
+ * raises, so the dialog cannot explain the refusal differently from the database.
+ *
+ * Asked PER ROW, on demand, never precomputed in hr_leave_approval_queue():
+ * running fn_leave_step_admits across ~976 approved rows is the shape that
+ * produced the 57014 statement timeouts on that RPC in Sep 2026.
+ *
+ * staleTime 0 — a month closed, or somebody else revoked it, between opening the
+ * queue and opening this dialog is precisely the case this call exists for.
+ */
+export function useLeaveRevokeBlockReason(applicationId: string | undefined) {
+  const supabase = createClientSupabaseClient();
+  return useQuery({
+    queryKey: [KEY, 'revoke-block-reason', applicationId ?? null],
+    enabled: Boolean(applicationId),
+    queryFn: async () => {
+      const { data, error } = await (supabase as any).rpc('fn_hr_leave_revoke_block_reason', {
+        p_application_id: applicationId,
+      });
+      if (error) throw error;
+      return (data as string | null) ?? null;
+    },
+    staleTime: 0,
+  });
+}
