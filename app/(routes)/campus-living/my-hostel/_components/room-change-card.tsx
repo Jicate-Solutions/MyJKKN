@@ -39,12 +39,18 @@ export function RoomChangeCard() {
   const [picked, setPicked] = useState<UpgradeRoomOption | null>(null);
   const [confirming, setConfirming] = useState(false);
 
+  // Grouped by room category first (the RPC returns the resident's own category
+  // first), then by block. A Premium resident may move into a Deluxe room and
+  // keep the Premium category, so the room's own category has to be visible.
   const grouped = useMemo(() => {
-    const map = new Map<string, UpgradeRoomOption[]>();
+    const map = new Map<string, { isNative: boolean; blocks: Map<string, UpgradeRoomOption[]> }>();
     for (const r of rooms) {
-      const key = r.block_name ?? 'Block';
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(r);
+      const catKey = r.source_category_name ?? 'Rooms';
+      if (!map.has(catKey)) map.set(catKey, { isNative: r.is_native, blocks: new Map() });
+      const blocks = map.get(catKey)!.blocks;
+      const blockKey = r.block_name ?? 'Block';
+      if (!blocks.has(blockKey)) blocks.set(blockKey, []);
+      blocks.get(blockKey)!.push(r);
     }
     return map;
   }, [rooms]);
@@ -77,8 +83,8 @@ export function RoomChangeCard() {
           <DoorOpen className="h-5 w-5 text-primary" /> Change My Room
         </CardTitle>
         <CardDescription>
-          Picked the wrong room? Move to another {status.category_name ?? 'room'} — same
-          category, no extra fee.
+          Picked the wrong room? Move to another room available to you — your{' '}
+          {status.category_name ?? 'current'} category and fee are unchanged.
         </CardDescription>
       </CardHeader>
 
@@ -114,8 +120,8 @@ export function RoomChangeCard() {
 
             {status.reason === 'no_rooms' ? (
               <p className="py-2 text-sm text-muted-foreground">
-                No other {status.category_name ?? ''} rooms are free right now — please check back
-                later or contact the hostel office.
+                No other rooms are free for you right now — please check back later or contact the
+                hostel office.
               </p>
             ) : roomsLoading ? (
               <div className="flex items-center py-4 text-sm text-muted-foreground">
@@ -128,36 +134,48 @@ export function RoomChangeCard() {
             ) : (
               <>
                 <p className="text-sm text-muted-foreground">
-                  {rooms.length} available {status.category_name ?? ''} room
-                  {rooms.length === 1 ? '' : 's'} — pick one:
+                  {rooms.length} available room{rooms.length === 1 ? '' : 's'} — pick one:
                 </p>
-                <div className="max-h-[320px] space-y-4 overflow-y-auto">
-                  {Array.from(grouped.entries()).map(([block, list]) => (
-                    <div key={block} className="space-y-2">
-                      <p className="text-xs font-semibold text-muted-foreground">{block}</p>
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        {list.map((r) => (
-                          <button
-                            key={r.room_id}
-                            type="button"
-                            onClick={() => setPicked(r)}
-                            className={`rounded-md border p-3 text-left transition-colors hover:bg-muted/50 ${
-                              picked?.room_id === r.room_id
-                                ? 'border-primary bg-primary/5 ring-1 ring-primary'
-                                : ''
-                            }`}
-                          >
-                            <p className="font-medium">Room {r.room_number}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {floorLabel(r.floor)} · {r.capacity} beds
-                            </p>
-                            <Badge variant="outline" className="mt-1.5">
-                              <BedDouble className="mr-1 h-3 w-3" />
-                              {r.available_beds} free
-                            </Badge>
-                          </button>
-                        ))}
+                <div className="max-h-[320px] space-y-5 overflow-y-auto">
+                  {Array.from(grouped.entries()).map(([catName, cat]) => (
+                    <div key={catName} className="space-y-2">
+                      <div className="space-y-1">
+                        <p className="text-sm font-semibold">{catName} rooms</p>
+                        {!cat.isNative && (
+                          <p className="text-xs text-muted-foreground">
+                            You stay in the {status.category_name ?? 'same'} category and pay
+                            nothing extra — only the room is a {catName}.
+                          </p>
+                        )}
                       </div>
+                      {Array.from(cat.blocks.entries()).map(([block, list]) => (
+                        <div key={block} className="space-y-2">
+                          <p className="text-xs font-semibold text-muted-foreground">{block}</p>
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            {list.map((r) => (
+                              <button
+                                key={r.room_id}
+                                type="button"
+                                onClick={() => setPicked(r)}
+                                className={`rounded-md border p-3 text-left transition-colors hover:bg-muted/50 ${
+                                  picked?.room_id === r.room_id
+                                    ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                                    : ''
+                                }`}
+                              >
+                                <p className="font-medium">Room {r.room_number}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {floorLabel(r.floor)} · {r.capacity} beds
+                                </p>
+                                <Badge variant="outline" className="mt-1.5">
+                                  <BedDouble className="mr-1 h-3 w-3" />
+                                  {r.available_beds} free
+                                </Badge>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   ))}
                 </div>

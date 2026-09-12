@@ -9,6 +9,14 @@
 // real user. Reading it from a Server Component would run as `anon` and return
 // nothing (ref feedback_browser_supabase_client_serverside_returns_empty).
 //
+// IT ALSO CARRIES THE BATCH'S OWN STAGE (2026-09-07). public.cohort_status_events
+// has held the audit shape for a cohort-level change since the spine shipped and
+// had ZERO rows, because nothing anywhere moved a batch from "taking
+// applications" to "running" to "finished". The stage control lives here rather
+// than on a page of its own: this is the screen where somebody looks at who is
+// in the batch, which is the fact the decision turns on — and a new route would
+// spend headroom this project does not have.
+//
 // WHY THIS PAGE EXISTS. fn_soi_remove_member has been in the database since
 // 2026-08-23 and SoiBatchService.removeMember has wrapped it since — a rule that
 // somebody may only be taken out of a batch WITH a written reason, and no screen
@@ -37,7 +45,7 @@ import { MembersWorkspace } from './_components/members-workspace';
 export const metadata: Metadata = {
   title: 'School of Influencer — Members',
   description:
-    'See who holds a place in each School of Influencer batch, and take somebody off a batch with a written reason that stays on their record.',
+    'See who holds a place in each School of Influencer batch, move a batch to its next stage, and take somebody off a batch — each with a written reason that stays on the record.',
 };
 
 interface PageProps {

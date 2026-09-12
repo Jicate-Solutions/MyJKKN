@@ -41,6 +41,7 @@ import {
   Boxes,
   ShoppingCart,
   CalendarClock,
+  Video,
   UserSearch,
   Flame,
   FolderTree,
@@ -1192,6 +1193,16 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/startup-studio/school-of-influence/admin/attendance': 'cohort.manage',
   // Same reasoning for the batch roster — it is the only screen somebody can be
   // taken off a batch from, so it must not be reachable by typing the URL.
+  //
+  // ⚠️ THIS KEY IS NOT THE WHOLE GATE for this one route. The screen also carries
+  // the batch stage control, and its database authority (fn_cohort_can_set_status,
+  // migration 20261115043000) admits FOUR keys, not one: 'cohort.manage',
+  // 'cohort.edit', 'cohort.school_of_influence.manage' and
+  // 'cohort.school_of_influence.edit' — because the table's two UPDATE policies
+  // between them do. lib/navigation/permission-filter.ts therefore carries a
+  // NAMED rule for this path (SOI_MEMBERS_KEYS) admitting all four, so the guard
+  // is not narrower than the write it fronts. Change one and change the other;
+  // the single-key gate here silently locked out users the database admitted.
   '/startup-studio/school-of-influence/admin/members': 'cohort.manage',
   // 2026-08-13 (BUG-005799 / BUG-005800): the other three admin screens were
   // never declared, so each one inherited '/startup-studio' ->
@@ -1668,6 +1679,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // something every meetings user should see by default.
   '/meetings/series': 'meetings.series.view',
   '/meetings/series/rules': 'meetings.series.view',
+
+  // Online Meetings — dynamic team meetings with the AI Pulse engagement layer
+  // and external-guest support. Separate module from /meetings above; see the
+  // sidebar entry for why. The guest surface is /join/[token], which is public
+  // and allow-listed in proxy.ts, so it is deliberately NOT listed here.
+  '/online-meetings': 'online_meetings.view',
+  '/online-meetings/new': 'onlineMeeting:create',
 
   // CDC — module landing hub
   '/cdc': 'cdc.view',
@@ -3485,6 +3503,25 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/meetings/adoption', label: 'Adoption', active: pathname.startsWith('/meetings/adoption') },
             { href: '/meetings/webhooks', label: 'Webhooks', active: pathname.startsWith('/meetings/webhooks') },
             { href: '/meetings/embed', label: 'Embed & Theming', active: pathname.startsWith('/meetings/embed') },
+          ]
+        },
+        {
+          // Online Meetings — a DIFFERENT thing from the booking module above,
+          // deliberately given its own top-level menu rather than a submenu
+          // under it. /meetings is Calendly-shaped: one host, one attendee per
+          // booking (meeting_bookings has singular attendee_name/attendee_email
+          // columns). This is a team meeting with N participants, external
+          // guests, live polls and an engagement report. Same subject, different
+          // data model — burying it inside the other would guarantee somebody
+          // eventually wires one to the other's tables.
+          href: '/online-meetings',
+          label: 'Online Meetings',
+          active:
+            pathname === '/online-meetings' || pathname.startsWith('/online-meetings/'),
+          icon: Video,
+          submenus: [
+            { href: '/online-meetings', label: 'All Meetings', active: pathname === '/online-meetings' },
+            { href: '/online-meetings/new', label: 'Schedule a Team Meeting', active: pathname.startsWith('/online-meetings/new') },
           ]
         }
       ]

@@ -56,6 +56,13 @@ export function RoomDetailsContent({
       <div className="text-muted-foreground">Actual Capacity:</div>
       <div>{room.actual_capacity ?? '—'}</div>
 
+      <div className="text-muted-foreground">Extra Beds:</div>
+      <div>
+        {room.extra_bed_count > 0
+          ? `${room.extra_bed_count} (temporary — ${room.effective_capacity} beds allocatable)`
+          : '—'}
+      </div>
+
       <div className="text-muted-foreground">Status:</div>
       <div>
         <Badge variant="outline" className="capitalize">

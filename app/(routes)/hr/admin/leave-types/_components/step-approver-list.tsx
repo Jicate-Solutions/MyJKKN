@@ -38,9 +38,20 @@ export interface DraftApprover {
   approver_name: string | null;
 }
 
-let seq = 0;
+/*
+ * Not a module-level counter — see the same note on newStep in
+ * leave-approval-flow-dialog.tsx. Turbopack resets module state on Fast Refresh
+ * while React keeps the list, so `a${++seq}` reissued keys that were already on
+ * screen. Approvers are added one at a time inside a step, so the collision
+ * shows up here as duplicated `a1` rows rather than duplicated steps.
+ */
+const draftKey = (prefix: string): string => {
+  const c: any = (globalThis as any).crypto;
+  return `${prefix}${c?.randomUUID ? c.randomUUID() : `${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`}`;
+};
+
 export const newApprover = (p?: Partial<DraftApprover>): DraftApprover => ({
-  key: `a${++seq}`,
+  key: draftKey('a'),
   mode: 'role',
   approver_role: '',
   approver_user_id: null,

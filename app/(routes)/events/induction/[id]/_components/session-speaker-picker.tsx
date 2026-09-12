@@ -176,9 +176,11 @@ export function SessionSpeakerPicker({
     let cancelled = false;
     const t = setTimeout(async () => {
       try {
-        const rows = await PersonAvailabilityService.getPeopleConflicts(ids, startIso, endIso, excludeSessionId);
+        // excludeSessionId goes to the PEOPLE call so re-opening a saved session
+        // does not report its own speakers as clashing with themselves. The guest
+        // RPC has no such parameter yet, so guests keep the 3-arg call.
         const [people, guests] = await Promise.all([
-          PersonAvailabilityService.getPeopleConflicts(profileIds, startIso, endIso),
+          PersonAvailabilityService.getPeopleConflicts(profileIds, startIso, endIso, excludeSessionId),
           PersonAvailabilityService.getGuestConflicts(guestIds, startIso, endIso),
         ]);
         if (cancelled) return;
@@ -197,11 +199,20 @@ export function SessionSpeakerPicker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idsKey, startIso, endIso, hasWindow, excludeSessionId]);
 
-  // Tiered policy: a meeting OR event-speaking clash is a HARD block (a person
-  // truly can't be in two of those at once); a teaching/class clash is a SOFT
-  // advisory (often covered by a substitute). The save handler enforces the block.
-  const isHardConflict = (c: PersonConflict) => c.source === 'meeting' || c.source === 'event';
-  const hardConflicted = value.filter((u) => (conflicts[u.id] ?? []).some(isHardConflict));
+  // Tiered policy, three levels — the save handler enforces the same split:
+  //   BLOCKING  meeting  — nobody is in a meeting and on a stage at once.
+  //   CONFIRM   event    — already speaking at an overlapping session. In a
+  //                        COMBINED programme (2-3 colleges running the same
+  //                        induction side by side) that is the intended
+  //                        arrangement, not a mistake: the same chief guest is
+  //                        deliberately on both colleges' schedules. So it warns
+  //                        and asks, rather than refusing.
+  //   ADVISORY  teaching — often covered by a substitute; never blocks.
+  const isBlockingConflict = (c: PersonConflict) => c.source === 'meeting';
+  const isConfirmConflict = (c: PersonConflict) => c.source === 'event';
+  const isHardConflict = (c: PersonConflict) => isBlockingConflict(c) || isConfirmConflict(c);
+  const blockedConflicted = value.filter((u) => (conflicts[u.id] ?? []).some(isBlockingConflict));
+  const confirmConflicted = value.filter((u) => (conflicts[u.id] ?? []).some(isConfirmConflict));
   const softConflicted = value.filter((u) => (conflicts[u.id] ?? []).some((c) => !isHardConflict(c)));
 
   // Filtered candidate search (debounced) — by type + filters + name.
@@ -296,15 +307,19 @@ export function SessionSpeakerPicker({
               key={u.id}
               variant="secondary"
               className={`gap-1 pr-1 ${
-                (conflicts[u.id] ?? []).some(isHardConflict)
+                (conflicts[u.id] ?? []).some(isBlockingConflict)
                   ? 'ring-1 ring-red-400'
-                  : conflicts[u.id]?.length
-                    ? 'ring-1 ring-amber-400'
-                    : ''
+                  : (conflicts[u.id] ?? []).some(isConfirmConflict)
+                    ? 'ring-1 ring-blue-400'
+                    : conflicts[u.id]?.length
+                      ? 'ring-1 ring-amber-400'
+                      : ''
               }`}
             >
-              {(conflicts[u.id] ?? []).some(isHardConflict) ? (
+              {(conflicts[u.id] ?? []).some(isBlockingConflict) ? (
                 <AlertTriangle className="h-3 w-3 text-red-500" />
+              ) : (conflicts[u.id] ?? []).some(isConfirmConflict) ? (
+                <AlertTriangle className="h-3 w-3 text-blue-500" />
               ) : conflicts[u.id]?.length ? (
                 <AlertTriangle className="h-3 w-3 text-amber-500" />
               ) : null}
@@ -323,21 +338,43 @@ export function SessionSpeakerPicker({
         </div>
       )}
 
-      {/* HARD conflict (meeting / event) — blocks the save (admins can override). */}
-      {hasWindow && hardConflicted.length > 0 && (
+      {/* BLOCKING conflict (meeting) — refuses the save (admins can override). */}
+      {hasWindow && blockedConflicted.length > 0 && (
         <div className="rounded-md border border-red-300 bg-red-50 p-2 text-[11px] text-red-900 dark:border-red-700/50 dark:bg-red-950/40 dark:text-red-200">
           <div className="mb-1 flex items-center gap-1 font-medium">
-            <AlertTriangle className="h-3.5 w-3.5" /> Double-booked — can&apos;t be assigned at this time
+            <AlertTriangle className="h-3.5 w-3.5" /> In a meeting — can&apos;t be assigned at this time
           </div>
           <ul className="space-y-0.5">
-            {hardConflicted.map((u) => (
+            {blockedConflicted.map((u) => (
               <li key={u.id}>
                 <span className="font-medium">{u.full_name || u.email}</span>:{' '}
-                {(conflicts[u.id] ?? []).filter(isHardConflict).map((c) => c.label + (fmtRange(c) ? ` (${fmtRange(c)})` : '')).join('; ')}
+                {(conflicts[u.id] ?? []).filter(isBlockingConflict).map((c) => c.label + (fmtRange(c) ? ` (${fmtRange(c)})` : '')).join('; ')}
               </li>
             ))}
           </ul>
-          <p className="mt-1 text-red-700 dark:text-red-300/80">A meeting or another event clashes — pick another time, or an admin can force it when saving.</p>
+          <p className="mt-1 text-red-700 dark:text-red-300/80">Pick another time, or an admin can force it when saving.</p>
+        </div>
+      )}
+
+      {/* CONFIRM conflict (already speaking elsewhere) — the combined-programme
+          case. Shown so the coordinator KNOWS, then confirmed at save rather
+          than refused: 2-3 colleges deliberately share one chief guest. */}
+      {hasWindow && confirmConflicted.length > 0 && (
+        <div className="rounded-md border border-blue-300 bg-blue-50 p-2 text-[11px] text-blue-900 dark:border-blue-700/50 dark:bg-blue-950/40 dark:text-blue-200">
+          <div className="mb-1 flex items-center gap-1 font-medium">
+            <AlertTriangle className="h-3.5 w-3.5" /> Already speaking elsewhere at this time
+          </div>
+          <ul className="space-y-0.5">
+            {confirmConflicted.map((u) => (
+              <li key={u.id}>
+                <span className="font-medium">{u.full_name || u.email}</span>:{' '}
+                {(conflicts[u.id] ?? []).filter(isConfirmConflict).map((c) => c.label + (fmtRange(c) ? ` (${fmtRange(c)})` : '')).join('; ')}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1 text-blue-700 dark:text-blue-300/80">
+            Expected for a combined programme — you&apos;ll be asked to confirm when you save.
+          </p>
         </div>
       )}
 

@@ -28,13 +28,24 @@ const floorLabel = (f: number) => (f === 0 ? 'Ground floor' : `Floor ${f}`);
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  learner: LearnerHostelite | null;
+  /** Only the id and the current category name are used, so a Pick keeps this
+   *  reusable from surfaces that hold no full LearnerHostelite — the allocation
+   *  detail page passes the learners_profiles.id its upgrade-context RPC
+   *  returns. A full LearnerHostelite still satisfies this. */
+  learner: Pick<
+    LearnerHostelite,
+    'id' | 'hostel_category_name' | 'first_name' | 'last_name'
+  > | null;
+  /** Display name, for callers that hold a full_name rather than first/last —
+   *  the allocation detail page has one and no name parts to split. Without
+   *  this the header fell back to "(unnamed)". */
+  learnerName?: string | null;
   onCommitted: () => void;
 }
 
 type Step = 'category' | 'room' | 'confirm';
 
-export function AdminRoomUpgradeDialog({ open, onOpenChange, learner, onCommitted }: Props) {
+export function AdminRoomUpgradeDialog({ open, onOpenChange, learner, learnerName, onCommitted }: Props) {
   const learnerId = learner?.id ?? null;
   const { data: options = [], isLoading: optsLoading } = useAdminRoomUpgradeOptions(open ? learnerId : null);
   const [picked, setPicked] = useState<UpgradeRoomCategoryOption | null>(null);
@@ -51,9 +62,15 @@ export function AdminRoomUpgradeDialog({ open, onOpenChange, learner, onCommitte
   }, [open]);
 
   const selectedRoom = rooms.find((r) => r.room_id === roomId) ?? null;
+  // Grouped by the ROOM's own category: a target category may seat learners in
+  // more than its own rooms (hostel_category_room_sources), so a Premium upgrade
+  // can be placed in a Deluxe room. The RPC returns the native rooms first.
   const grouped = useMemo(
     () => rooms.reduce<Record<string, UpgradeRoomOption[]>>((acc, r) => {
-      (acc[`${r.block_name} · ${floorLabel(r.floor)}`] ??= []).push(r);
+      const key = r.is_native
+        ? `${r.block_name} · ${floorLabel(r.floor)}`
+        : `${r.source_category_name} · ${r.block_name} · ${floorLabel(r.floor)}`;
+      (acc[key] ??= []).push(r);
       return acc;
     }, {}),
     [rooms],
@@ -81,9 +98,11 @@ export function AdminRoomUpgradeDialog({ open, onOpenChange, learner, onCommitte
     }
   }
 
-  const name = learner
-    ? [learner.first_name, learner.last_name].filter(Boolean).join(' ') || '(unnamed)'
-    : '';
+  const name =
+    learnerName?.trim() ||
+    (learner
+      ? [learner.first_name, learner.last_name].filter(Boolean).join(' ') || '(unnamed)'
+      : '');
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -92,7 +111,7 @@ export function AdminRoomUpgradeDialog({ open, onOpenChange, learner, onCommitte
           <DialogTitle>Upgrade room — {name}</DialogTitle>
           <DialogDescription>
             {step === 'category'
-              ? 'Pick a room category to move this learner into. Only room-picked (e.g. Premium) categories are shown here — Classic/Deluxe and mess use the bulk flow.'
+              ? 'Pick a room category to move this learner into. Every category priced above their current one is listed; office-allocated tiers are marked, and for those "Upgrade category only" is usually the right action.'
               : step === 'room'
                 ? `Only ${picked?.name} rooms with a free bed are shown. Pick a room.`
                 : 'Review and confirm — the learner is moved into the room immediately and the upgrade fee is billed.'}
@@ -106,7 +125,9 @@ export function AdminRoomUpgradeDialog({ open, onOpenChange, learner, onCommitte
             </div>
           ) : options.length === 0 ? (
             <p className='text-sm text-muted-foreground py-6'>
-              No room-picked upgrade categories available for this learner (gender / fee / current category).
+              No upgrade categories available for this learner. Every higher category is ruled
+              out by gender, by costing no more than their current one, or by needing a
+              configured upgrade-fee pair from that category that does not exist yet.
             </p>
           ) : (
             <div className='space-y-2'>
@@ -115,12 +136,20 @@ export function AdminRoomUpgradeDialog({ open, onOpenChange, learner, onCommitte
                 return (
                   <div key={opt.category_id} className='flex items-center justify-between gap-3 rounded-md border p-3'>
                     <div className='min-w-0'>
-                      <p className='font-medium'>
+                      {/* A div, not a p: Badge renders a div, and a div inside a p is
+                          invalid HTML that trips React's hydration check. */}
+                      <div className='flex flex-wrap items-center gap-1.5 font-medium'>
                         {learner?.hostel_category_name && (
                           <span className='text-muted-foreground'>{learner.hostel_category_name} → </span>
                         )}
                         {opt.name}
-                      </p>
+                        {/* Auto tiers are normally seated by the allocation run, not
+                            picked here. Showing them is right — the office does place
+                            people directly — but say which is which. */}
+                        {opt.allocation_mode === 'auto' && (
+                          <Badge variant='secondary' className='font-normal'>Office-allocated</Badge>
+                        )}
+                      </div>
                       <p className='text-xs text-muted-foreground'>
                         Upgrade fee {inr(opt.upgrade_fee)} · {opt.available_beds} bed{opt.available_beds === 1 ? '' : 's'} free
                       </p>
@@ -185,6 +214,12 @@ export function AdminRoomUpgradeDialog({ open, onOpenChange, learner, onCommitte
               </Row>
               <Row label='Room'>
                 {selectedRoom.block_name} · {floorLabel(selectedRoom.floor)} · Room {selectedRoom.room_number}
+                {!selectedRoom.is_native && (
+                  <span className='block text-xs font-normal text-muted-foreground'>
+                    {selectedRoom.source_category_name} room — the learner still moves to{' '}
+                    {picked.name} and is billed the {picked.name} upgrade fee.
+                  </span>
+                )}
               </Row>
               <Row label='Capacity'>
                 <span className='flex items-center gap-1.5'>
