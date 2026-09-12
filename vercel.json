@@ -134,6 +134,10 @@
       "schedule": "45 * * * *"
     },
     {
+      "path": "/api/cron/campus-living/gate-pass-overdue?secret=${CRON_SECRET}",
+      "schedule": "35 * * * *"
+    },
+    {
       "path": "/api/cron/grievance-sla-breach-check?secret=${CRON_SECRET}",
       "schedule": "23 * * * *"
     },

@@ -143,6 +143,10 @@ u.target { text-decoration: underline; text-underline-offset: 2pt; font-weight: 
    keeps every non-Latin script out of KaTeX; this chain is the belt to that
    brace, so a stray \\text{} code point still meets an embedded face. */
 .katex { font-size: 1.02em; font-family: KaTeX_Main, 'Tinos', 'Noto Sans Tamil', serif; }
+/* The "[?]" notation.ts prints for a character no embedded face carries. Set
+   in Tinos explicitly: inside a KaTeX leaf the inherited face (KaTeX_Math)
+   has no brackets or question mark of its own. */
+.glyph-missing { font-family: 'Tinos', serif; font-style: normal; font-weight: 400; }
 .end-mark { text-align: center; margin-top: 16pt; letter-spacing: 0.3em; }
 
 /* ---------- answer key ---------- */

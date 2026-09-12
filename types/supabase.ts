@@ -69723,8 +69723,12 @@ export type Database = {
       }
       hostel_gate_passes: {
         Row: {
+          accompanying_person: string | null
           actual_return: string | null
+          approved_at: string | null
           approved_by: string | null
+          attachment_url: string | null
+          block_id: string | null
           cancellation_reason: string | null
           cancelled_by: string | null
           created_at: string | null
@@ -69736,20 +69740,31 @@ export type Database = {
           institution_id: string
           learner_id: string
           leave_request_id: string | null
+          leave_type_id: string | null
           out_time: string | null
+          parent_confirmed_at: string | null
+          parent_confirmed_by: string | null
+          parent_confirmed_number: string | null
           parent_notified: boolean | null
           pass_number: string | null
-          pass_type: Database["public"]["Enums"]["gate_pass_type_enum"]
+          pass_type: Database["public"]["Enums"]["gate_pass_type_enum"] | null
+          planned_out_at: string | null
           qr_code: string | null
           reason: string | null
+          rejected_at: string | null
           rejected_by: string | null
           rejection_reason: string | null
           status: Database["public"]["Enums"]["gate_pass_status_enum"]
+          transport_mode: string | null
           updated_at: string | null
         }
         Insert: {
+          accompanying_person?: string | null
           actual_return?: string | null
+          approved_at?: string | null
           approved_by?: string | null
+          attachment_url?: string | null
+          block_id?: string | null
           cancellation_reason?: string | null
           cancelled_by?: string | null
           created_at?: string | null
@@ -69761,20 +69776,31 @@ export type Database = {
           institution_id: string
           learner_id: string
           leave_request_id?: string | null
+          leave_type_id?: string | null
           out_time?: string | null
+          parent_confirmed_at?: string | null
+          parent_confirmed_by?: string | null
+          parent_confirmed_number?: string | null
           parent_notified?: boolean | null
           pass_number?: string | null
-          pass_type: Database["public"]["Enums"]["gate_pass_type_enum"]
+          pass_type?: Database["public"]["Enums"]["gate_pass_type_enum"] | null
+          planned_out_at?: string | null
           qr_code?: string | null
           reason?: string | null
+          rejected_at?: string | null
           rejected_by?: string | null
           rejection_reason?: string | null
           status?: Database["public"]["Enums"]["gate_pass_status_enum"]
+          transport_mode?: string | null
           updated_at?: string | null
         }
         Update: {
+          accompanying_person?: string | null
           actual_return?: string | null
+          approved_at?: string | null
           approved_by?: string | null
+          attachment_url?: string | null
+          block_id?: string | null
           cancellation_reason?: string | null
           cancelled_by?: string | null
           created_at?: string | null
@@ -69786,18 +69812,46 @@ export type Database = {
           institution_id?: string
           learner_id?: string
           leave_request_id?: string | null
+          leave_type_id?: string | null
           out_time?: string | null
+          parent_confirmed_at?: string | null
+          parent_confirmed_by?: string | null
+          parent_confirmed_number?: string | null
           parent_notified?: boolean | null
           pass_number?: string | null
-          pass_type?: Database["public"]["Enums"]["gate_pass_type_enum"]
+          pass_type?: Database["public"]["Enums"]["gate_pass_type_enum"] | null
+          planned_out_at?: string | null
           qr_code?: string | null
           reason?: string | null
+          rejected_at?: string | null
           rejected_by?: string | null
           rejection_reason?: string | null
           status?: Database["public"]["Enums"]["gate_pass_status_enum"]
+          transport_mode?: string | null
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "hostel_gate_passes_leave_type_id_fkey"
+            columns: ["leave_type_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_leave_types"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_gate_passes_block_id_fkey"
+            columns: ["block_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_blocks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_gate_passes_parent_confirmed_by_fkey"
+            columns: ["parent_confirmed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "hostel_gate_passes_approved_by_fkey"
             columns: ["approved_by"]

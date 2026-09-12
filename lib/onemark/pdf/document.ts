@@ -17,7 +17,7 @@
 //   • The coverage summary reports the JABT level mix (decision 6) — there is
 //     no Easy / Medium / Hard anywhere.
 
-import { escapeHtml, itemTextToHtml } from './notation';
+import { escapeHtml, itemTextToHtml, printableText } from './notation';
 import {
   OPTION_KEYS_EN,
   OPTION_KEYS_TA,
@@ -286,8 +286,8 @@ function unitShort(item: ArrangedItem['item']): string | null {
 function topicReference(item: ArrangedItem['item']): string | null {
   if (!item.topicLabel) return null;
   const m = item.topicLabel.match(/^Unit\s+(\d+):\s*(.*)$/i);
-  if (m) return `U${m[1]} · ${escapeHtml(m[2])}`;
-  return escapeHtml(item.topicLabel.split(/\s+[—–-]\s+/)[0]);
+  if (m) return `U${m[1]} · ${printableText(m[2])}`;
+  return printableText(item.topicLabel.split(/\s+[—–-]\s+/)[0]);
 }
 
 function tally(values: Array<string | null>): Array<[string, number]> {
@@ -308,7 +308,7 @@ function coverageSummary(paper: ArrangedPaper): string {
   const items = paper.items.map((a) => a.item);
   const units = tally(items.map((i) => unitShort(i)))
     .sort((a, b) => unitSortKey(a[0]) - unitSortKey(b[0]))
-    .map(([u, n]) => `${escapeHtml(u)}×${n}`)
+    .map(([u, n]) => `${printableText(u)}×${n}`)
     .join('  ');
   const levels = tally(items.map((i) => i.bloomLevel))
     .sort((a, b) => a[0].localeCompare(b[0]))
@@ -386,8 +386,8 @@ export function answerKeyHtml(paper: ArrangedPaper): string {
   <div><b>Test ID :</b> ${shortId(paper.model.assessmentId)}</div>
   ${seriesCell}
   <div><b>Items :</b> ${n} &nbsp; <b>Score :</b> ${n}</div>
-  <div><b>Senior Learner :</b> ${escapeHtml(paper.model.facilitatorName ?? '—')}</div>
-  <div><b>Learning Studio :</b> ${escapeHtml(paper.model.studioName ?? '—')}</div>
+  <div><b>Senior Learner :</b> ${printableText(paper.model.facilitatorName ?? '—')}</div>
+  <div><b>Learning Studio :</b> ${printableText(paper.model.studioName ?? '—')}</div>
   <div><b>Generated :</b> ${escapeHtml(fmtDate(paper.model.generatedAt))}</div>
 </div>
 <div class="rule"></div>

@@ -1339,6 +1339,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Gated on the WRITE key, not .view: the scan screen exists only to record
   // exits and returns, so a read-only holder has nothing to do there.
   '/campus-living/gate-passes/scan': 'campus_living.gate_passes.edit',
+  // The learner's lane. `.create` is the "Request Gate Pass" key, held by
+  // student among others.
+  '/campus-living/gate-passes/request': 'campus_living.gate_passes.create',
+  // The staff lane, gated on .approve rather than inheriting .view from the
+  // parent path: submitting this form issues an ALREADY-APPROVED pass, so it
+  // is the same decision the Approve button takes.
+  '/campus-living/gate-passes/new': 'campus_living.gate_passes.approve',
   '/campus-living/mess': 'campus_living.mess.view',
   '/campus-living/mess/menu': 'campus_living.mess.menu.view',
   '/campus-living/mess/meals': 'campus_living.mess.meals.view',
