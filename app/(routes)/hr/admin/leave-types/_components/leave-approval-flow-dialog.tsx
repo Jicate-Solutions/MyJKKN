@@ -36,6 +36,10 @@ import {
 import {
   Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle,
 } from '@/components/ui/drawer';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -49,12 +53,14 @@ import {
   useClearLeaveApprovalFlow,
   useLeaveApprovalFlow,
   useLeaveApproverRoles,
+  usePreviewLeaveChainDrift,
+  useResyncPendingLeaveChains,
   useSaveLeaveApprovalFlow,
 } from '@/hooks/hr/use-leave-approval-flows';
 import { useHrOrgMappings } from '@/hooks/hr/use-hr-org-mappings';
 import type {
-  HRLeaveType, LeaveApprovalFlowStep, LeaveFlowRunMode, LeaveFlowStepSource,
-  LeaveStepQuorum,
+  HRLeaveType, LeaveApprovalFlowStep, LeaveChainResyncResult, LeaveFlowRunMode,
+  LeaveFlowStepSource, LeaveStepQuorum,
 } from '@/types/hr-leave-types';
 import { getErrorMessage } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -118,6 +124,24 @@ export function LeaveApprovalFlowDialog({
 
   const save = useSaveLeaveApprovalFlow();
   const clear = useClearLeaveApprovalFlow();
+  const previewDrift = usePreviewLeaveChainDrift();
+  const resync = useResyncPendingLeaveChains();
+
+  /**
+   * The re-route offer, raised after a save or a clear.
+   *
+   * A chain is FROZEN at apply time, so editing a flow does nothing for requests
+   * already in flight — they keep routing to whoever the previous flow named. We
+   * ask rather than act: an edit is often a typo fix nobody wants rippling out
+   * across hundreds of live requests.
+   *
+   * `flowId` is the flow that GOVERNS the type after the change, which is not
+   * always the one just written — clearing a per-type flow hands the type back to
+   * the organisation catch-all, so that is the id we re-sync against.
+   */
+  const [reroute, setReroute] = useState<
+    { flowId: string; drift: LeaveChainResyncResult } | null
+  >(null);
 
   const [steps, setSteps] = useState<DraftStep[]>([]);
   const [stepSource, setStepSource] = useState<LeaveFlowStepSource>('explicit');
@@ -227,10 +251,48 @@ export function LeaveApprovalFlowDialog({
   const ladderNeedsFallback =
     stepSource === 'role_ladder' && ladder.length > 0 && !fallbackRole && !fallbackUserId;
 
+  /**
+   * Offer to re-route the requests `flowId` now governs, if there are any.
+   *
+   * Failure here is deliberately non-fatal: the flow itself saved, and a drift
+   * count that could not be read is a worse reason to show an error than no
+   * reason at all. The admin can re-open and save again to be asked once more.
+   */
+  const offerReroute = async (flowId: string | undefined) => {
+    if (!flowId) return;
+    try {
+      const drift = await previewDrift.mutateAsync(flowId);
+      if ((drift.eligible ?? 0) > 0) setReroute({ flowId, drift });
+    } catch {
+      /* the save stands; the offer is the only thing lost */
+    }
+  };
+
+  const handleReroute = async () => {
+    if (!reroute) return;
+    try {
+      const r = await resync.mutateAsync(reroute.flowId);
+      const parts = [`${r.resynced ?? 0} request${r.resynced === 1 ? '' : 's'} re-routed`];
+      if (r.skipped_decided > 0) {
+        parts.push(`${r.skipped_decided} skipped — already part-approved`);
+      }
+      // Its own sentence, because unlike a part-approved request this one needs
+      // the attendance period unlocked rather than a second click.
+      if (r.skipped_locked > 0) {
+        parts.push(`${r.skipped_locked} skipped — the attendance period is closed`);
+      }
+      toast.success(`${parts.join('. ')}.`);
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setReroute(null);
+    }
+  };
+
   const handleSave = async () => {
     if (!leaveType || !hrOrgId) return;
     try {
-      await save.mutateAsync({
+      const saved = await save.mutateAsync({
         id: resolved?.own?.id,
         hrOrgId,
         leaveTypeId: leaveType.id,
@@ -274,6 +336,9 @@ export function LeaveApprovalFlowDialog({
       });
       toast.success(`Approval flow saved for ${leaveType.leave_type_name}`);
       onOpenChange(false);
+      // save() returns the row it wrote, which is the flow that governs this type
+      // from now on — including on a first save, where there was no id to pass in.
+      await offerReroute(saved?.id);
     } catch (err) {
       toast.error(getErrorMessage(err));
     }
@@ -285,6 +350,10 @@ export function LeaveApprovalFlowDialog({
       await clear.mutateAsync({ flowId: resolved.own.id, hrOrgId, leaveTypeId: leaveType.id });
       toast.success('Reverted to the organization default');
       onOpenChange(false);
+      // The catch-all is what governs this type now. If the organisation has
+      // none, the type has no flow at all and no chain can be built for it —
+      // there is nothing to offer.
+      await offerReroute(resolved.fallback?.id);
     } catch (err) {
       toast.error(getErrorMessage(err));
     }
@@ -534,21 +603,73 @@ export function LeaveApprovalFlowDialog({
    * `sm:rounded-lg`). A drawer is anchored, full-width by design, and keeps its
    * footer reachable.
    */
+  /*
+   * Rendered beside BOTH the drawer and the dialog, and outside either, because
+   * it outlives them: the flow editor closes on save, and this is what opens
+   * next. Its own AlertDialog rather than a third state of the editor, so
+   * "re-route 154 live requests" is a deliberate second decision.
+   */
+  const rerouteDialog = (
+    <AlertDialog open={!!reroute} onOpenChange={(v) => { if (!v) setReroute(null); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Re-route pending requests?</AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <div className="space-y-2">
+              <p>
+                {reroute?.drift.eligible} pending request
+                {reroute?.drift.eligible === 1 ? '' : 's'} still use the approvers this
+                flow named before your change. Re-routing rebuilds them from the flow
+                you just saved.
+              </p>
+              {!!reroute?.drift.skipped_decided && (
+                <p>
+                  {reroute.drift.skipped_decided} more{' '}
+                  {reroute.drift.skipped_decided === 1 ? 'is' : 'are'} already
+                  part-approved and will keep their current approvers — a decision
+                  someone has recorded is never discarded.
+                </p>
+              )}
+              {!!reroute?.drift.skipped_locked && (
+                <p>
+                  {reroute.drift.skipped_locked} cannot be changed at all: their dates
+                  fall in a closed attendance period.
+                </p>
+              )}
+            </div>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={resync.isPending}>Leave them</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={(e) => { e.preventDefault(); void handleReroute(); }}
+            disabled={resync.isPending}
+          >
+            {resync.isPending ? 'Re-routing…' : 'Re-route'}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+
   if (isMobile) {
     return (
-      <Drawer open={open} onOpenChange={onOpenChange}>
-        <DrawerContent className="max-h-[90vh]">
-          <DrawerHeader className="text-left">
-            <DrawerTitle>{title}</DrawerTitle>
-            <DrawerDescription>{description}</DrawerDescription>
-          </DrawerHeader>
-          {/* min-h-0 flex-1 for the same reason as the dialog below: DrawerContent
-              is `flex h-auto flex-col`, so without them this body grows to fit its
-              content and pushes DrawerFooter — Save included — past the 90vh cap. */}
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-2">{body}</div>
-          <DrawerFooter className="gap-2">{footer}</DrawerFooter>
-        </DrawerContent>
-      </Drawer>
+      <>
+        <Drawer open={open} onOpenChange={onOpenChange}>
+          <DrawerContent className="max-h-[90vh]">
+            <DrawerHeader className="text-left">
+              <DrawerTitle>{title}</DrawerTitle>
+              <DrawerDescription>{description}</DrawerDescription>
+            </DrawerHeader>
+            {/* min-h-0 flex-1 for the same reason as the dialog below: DrawerContent
+                is `flex h-auto flex-col`, so without them this body grows to fit its
+                content and pushes DrawerFooter — Save included — past the 90vh cap. */}
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-2">{body}</div>
+            <DrawerFooter className="gap-2">{footer}</DrawerFooter>
+          </DrawerContent>
+        </Drawer>
+        {rerouteDialog}
+      </>
     );
   }
 
@@ -573,15 +694,18 @@ export function LeaveApprovalFlowDialog({
    * keeps the p-6 gutter.
    */
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[90vh] max-w-2xl flex-col">
-        <DialogHeader className="shrink-0">
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
-        </DialogHeader>
-        <div className="-mx-6 min-h-0 flex-1 space-y-4 overflow-y-auto px-6">{body}</div>
-        <DialogFooter className="shrink-0 gap-2 sm:justify-between">{footer}</DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="flex max-h-[90vh] max-w-2xl flex-col">
+          <DialogHeader className="shrink-0">
+            <DialogTitle>{title}</DialogTitle>
+            <DialogDescription>{description}</DialogDescription>
+          </DialogHeader>
+          <div className="-mx-6 min-h-0 flex-1 space-y-4 overflow-y-auto px-6">{body}</div>
+          <DialogFooter className="shrink-0 gap-2 sm:justify-between">{footer}</DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {rerouteDialog}
+    </>
   );
 }

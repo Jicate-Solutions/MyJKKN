@@ -22,13 +22,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { useApplyLeave } from '@/hooks/hr/use-leave';
-import { useLeavePeriodUsage, useLeaveAccruedAsOf } from '@/hooks/hr/use-hr-leave-types';
+import { useLeavePeriodUsage, useLeaveAccruedAsOfMany } from '@/hooks/hr/use-hr-leave-types';
 import { useDayOccupancy } from '@/hooks/hr/use-day-occupancy';
 import { Progress } from '@/components/ui/progress';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
@@ -39,7 +38,7 @@ import { formatDays } from './format';
 import { LeaveDocumentUpload } from './leave-document-upload';
 import { leaveDocumentRequirement } from '@/lib/hr/leave-document-rule';
 import { LIMIT_PERIOD_LABELS } from '@/types/hr-leave-types';
-import type { LeaveDocument, LeaveDurationType } from '@/types/hr';
+import type { HRLeaveBalanceWithType, LeaveDocument, LeaveDurationType } from '@/types/hr';
 import { toast } from 'sonner';
 
 const DURATIONS: Array<{ value: LeaveDurationType; label: string; days: number }> = [
@@ -78,7 +77,6 @@ export function ApplyLeaveDrawer({
   const [endDate, setEndDate] = useState('');
   const [durationType, setDurationType] = useState<LeaveDurationType>('full');
   const [reason, setReason] = useState('');
-  const [isEmergency, setIsEmergency] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Picked but NOT uploaded — see LeaveDocumentUpload for why the upload
   // waits for Submit.
@@ -124,12 +122,13 @@ export function ApplyLeaveDrawer({
    * August date, which the server then refused with 23514. Keyed on startDate
    * for the same reason useLeavePeriodUsage below is.
    */
-  const { data: accruedAsOfStart } = useLeaveAccruedAsOf(
+  const accruedByType = useLeaveAccruedAsOfMany(
     ctx.employeeId || undefined,
-    leaveTypeId || undefined,
+    options.map((b) => b.leave_type_id),
     ctx.hrAcademicYearId || null,
     startDate || undefined
   );
+  const accruedAsOfStart = accruedByType[leaveTypeId];
 
   /**
    * READ from the view, not recomputed.
@@ -143,10 +142,18 @@ export function ApplyLeaveDrawer({
    * used and pending are the same figures the trigger reads, so the arithmetic
    * below is trg_hla_balance_guard's, line for line.
    */
-  const available = selected
-    ? (accruedAsOfStart !== undefined && startDate
-        ? accruedAsOfStart + selected.carried_forward - selected.used - selected.pending
-        : selected.available)
+  const availableOn = (b: HRLeaveBalanceWithType): number => {
+    const accrued = accruedByType[b.leave_type_id];
+    return accrued !== undefined && startDate
+      ? accrued + b.carried_forward - b.used - b.pending
+      : b.available;
+  };
+
+  const available = selected ? availableOn(selected) : null;
+
+  /** The start date as the form prints it, once. */
+  const startLabel = startDate
+    ? new Date(`${startDate}T00:00:00`).toLocaleDateString('en-GB')
     : null;
 
   /** True when this month's credit has not accrued by the date being requested. */
@@ -172,9 +179,12 @@ export function ApplyLeaveDrawer({
    *
    * It was server-only, so the whole form could be filled in and the rule only
    * surfaced as a 400 on Submit — which is how "You gave -38" reached a user.
-   * Mirrors LeaveService.applyLeave exactly, including the is_emergency bypass:
-   * a difference between the two would either block a request the server would
-   * take, or promise one it will refuse.
+   * Mirrors LeaveService.applyLeave exactly: a difference between the two would
+   * either block a request the server would take, or promise one it will refuse.
+   *
+   * There is no longer an exception to it — the Emergency checkbox that bypassed
+   * it was removed 2026-09-12, and the two types that carried a notice were set
+   * to zero in the same change.
    */
   const noticeDays = useMemo(() => {
     if (!startDate) return null;
@@ -186,7 +196,7 @@ export function ApplyLeaveDrawer({
 
   const requiredNotice = selected?.min_advance_notice_days ?? 0;
   const shortNotice =
-    !isEmergency && requiredNotice > 0 && noticeDays !== null && noticeDays < requiredNotice;
+    requiredNotice > 0 && noticeDays !== null && noticeDays < requiredNotice;
 
   const overContinuous =
     selected?.max_continuous_days != null && requestedDays > selected.max_continuous_days;
@@ -243,12 +253,11 @@ export function ApplyLeaveDrawer({
         }
       : null,
     requestedDays,
-    isEmergency,
   );
 
   const reset = () => {
     setLeaveTypeId(''); setStartDate(''); setEndDate('');
-    setDurationType('full'); setReason(''); setIsEmergency(false); setError(null);
+    setDurationType('full'); setReason(''); setError(null);
     setDocumentFiles([]); setUploadError(null); setUploading(false);
     uploadedRef.current = new WeakMap();
   };
@@ -325,7 +334,6 @@ export function ApplyLeaveDrawer({
         start_time: null,
         end_time: null,
         reason,
-        is_emergency: isEmergency,
         documents,
         applied_by: '', // server fills from the authenticated user
         department_id: null,
@@ -379,16 +387,88 @@ export function ApplyLeaveDrawer({
             </Alert>
           ) : (
             <>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label htmlFor="from">Start Date <span className="text-destructive">*</span></Label>
+                  <Input id="from" type="date" className="mt-1" value={startDate}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setStartDate(v);
+                      // Same-day default, and never leave end before start.
+                      if (!endDate || endDate < v) setEndDate(v);
+                      // Clearing the date puts the form back at its first
+                      // question. Leaving the type selected would strand a
+                      // chosen type with no balance card under it, since every
+                      // figure there is resolved at the start date.
+                      if (!v) setLeaveTypeId('');
+                    }} />
+                </div>
+                <div>
+                  <Label htmlFor="to">End Date <span className="text-destructive">*</span></Label>
+                  <Input id="to" type="date" className="mt-1" value={endDate} min={startDate}
+                    onChange={(e) => setEndDate(e.target.value)} />
+                </div>
+              </div>
+
+              {notInHr && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    Your employment category is not managed in HR, so leave cannot be
+                    applied for here. Contact HR if you believe this is an error.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {closedHit.length > 0 && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    Attendance for {describeClosedMonths(closedHit)}{' '}
+                    {closedHit.length > 1 ? 'are' : 'is'} closed, so leave covering{' '}
+                    {closedHit.length > 1 ? 'those months' : 'that month'} can no longer be
+                    applied for. Choose a date in an open month, or ask HR to reopen the month.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {clash && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    Only one request is allowed per day, and you already have {clash}.
+                    Pick different dates, or cancel that request first.
+                  </AlertDescription>
+                </Alert>
+              )}
+
               <div>
                 <Label htmlFor="leaveType">Leave Type <span className="text-destructive">*</span></Label>
-                <Select value={leaveTypeId} onValueChange={setLeaveTypeId}>
+                {/* DATES FIRST, deliberately. Every figure below this dropdown
+                    — what has accrued, what the month's cap leaves — is
+                    resolved at the request's START DATE, so offering the choice
+                    before there is a date to resolve it at is what made the
+                    drawer quote the current month to someone applying in
+                    another one. */}
+                <Select value={leaveTypeId} onValueChange={setLeaveTypeId} disabled={!startDate}>
                   <SelectTrigger id="leaveType" className="mt-1">
-                    <SelectValue placeholder={ctx.isLoading ? 'Loading…' : 'Select a leave type'} />
+                    <SelectValue
+                      placeholder={
+                        !startDate
+                          ? 'Pick your dates first'
+                          : ctx.isLoading
+                            ? 'Loading…'
+                            : 'Select a leave type'
+                      }
+                    />
                   </SelectTrigger>
                   <SelectContent>
                     {options.map((b) => {
-                      // Same figure the card below and the server use.
-                      const avail = b.available;
+                      // As at the picked start date — the same figure the card
+                      // below and trg_hla_balance_guard use. It used to be the
+                      // view's CURRENT_DATE figure, so the list offered a day
+                      // the card then withdrew.
+                      const avail = availableOn(b);
                       return (
                         <SelectItem key={b.leave_type_id} value={b.leave_type_id}>
                           {b.leave_type_name}
@@ -403,11 +483,11 @@ export function ApplyLeaveDrawer({
                 {/* The entitlement used to be one muted line here and was easy
                     to miss. It decides whether the request can be submitted at
                     all, so it gets a card — matching the short-time-off drawer. */}
-                {selected && (
+                {selected && startDate && (
                   <div className="mt-2 rounded-md border bg-muted/30 p-3">
                     <div className="flex items-baseline justify-between gap-2">
                       <span className="text-xs font-medium text-muted-foreground">
-                        Your balance · this academic year
+                        Your balance · as at {startLabel}
                       </span>
                       {selected.max_continuous_days != null && (
                         <span className="text-[11px] text-muted-foreground">
@@ -459,7 +539,7 @@ export function ApplyLeaveDrawer({
                     {accruesLater && (
                       <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-500">
                         Only {formatDays(accruedAsOfStart)} day(s) had accrued by{' '}
-                        {new Date(`${startDate}T00:00:00`).toLocaleDateString('en-GB')} — a later
+                        {startLabel} — a later
                         month&apos;s credit cannot pay for an earlier absence. Move the dates
                         forward, or apply once that month begins.
                       </p>
@@ -513,46 +593,6 @@ export function ApplyLeaveDrawer({
                 )}
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label htmlFor="from">Start Date <span className="text-destructive">*</span></Label>
-                  <Input id="from" type="date" className="mt-1" value={startDate}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setStartDate(v);
-                      // Same-day default, and never leave end before start.
-                      if (!endDate || endDate < v) setEndDate(v);
-                    }} />
-                </div>
-                <div>
-                  <Label htmlFor="to">End Date <span className="text-destructive">*</span></Label>
-                  <Input id="to" type="date" className="mt-1" value={endDate} min={startDate}
-                    onChange={(e) => setEndDate(e.target.value)} />
-                </div>
-              </div>
-
-              {notInHr && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>
-                    Your employment category is not managed in HR, so leave cannot be
-                    applied for here. Contact HR if you believe this is an error.
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              {closedHit.length > 0 && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>
-                    Attendance for {describeClosedMonths(closedHit)}{' '}
-                    {closedHit.length > 1 ? 'are' : 'is'} closed, so leave covering{' '}
-                    {closedHit.length > 1 ? 'those months' : 'that month'} can no longer be
-                    applied for. Choose a date in an open month, or ask HR to reopen the month.
-                  </AlertDescription>
-                </Alert>
-              )}
-
               <div>
                 <Label htmlFor="duration">Duration</Label>
                 <Select value={effectiveDuration} onValueChange={(v) => setDurationType(v as LeaveDurationType)}>
@@ -591,16 +631,6 @@ export function ApplyLeaveDrawer({
                   </AlertDescription>
                 </Alert>
               )}
-              {clash && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>
-                    Only one request is allowed per day, and you already have {clash}.
-                    Pick different dates, or cancel that request first.
-                  </AlertDescription>
-                </Alert>
-              )}
-
               {shortNotice && (
                 <Alert variant="destructive">
                   <AlertCircle className="h-4 w-4" />
@@ -616,8 +646,7 @@ export function ApplyLeaveDrawer({
                         notice; {startDate} is only {noticeDays} day(s) away.
                       </>
                     )}{' '}
-                    Tick <strong>Emergency leave</strong> below if it could not have been
-                    filed in time.
+                    Pick a later start date.
                   </AlertDescription>
                 </Alert>
               )}
@@ -670,17 +699,6 @@ export function ApplyLeaveDrawer({
                   error={uploadError}
                 />
               )}
-
-              <div className="flex items-start gap-2">
-                <Checkbox id="emergency" checked={isEmergency}
-                  onCheckedChange={(v) => setIsEmergency(v === true)} />
-                <Label htmlFor="emergency" className="cursor-pointer text-sm font-normal leading-snug">
-                  Emergency leave
-                  <span className="block text-xs text-muted-foreground">
-                    Bypasses advance notice; supporting documents required within 48h.
-                  </span>
-                </Label>
-              </div>
 
               {error && (
                 <Alert variant="destructive">
