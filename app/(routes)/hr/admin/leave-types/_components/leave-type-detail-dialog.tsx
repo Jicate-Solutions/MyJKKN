@@ -40,6 +40,7 @@ import {
   useLeaveApproverRoles,
 } from '@/hooks/hr/use-leave-approval-flows';
 import { useMediaQuery } from '@/hooks/use-media-query';
+import { buildChain, isFinalStep } from '@/lib/hr/leave/approval-chain';
 import { LEAVE_DURATION_LABELS } from '@/types/hr';
 import {
   ACCRUAL_TYPE_LABELS,
@@ -48,7 +49,6 @@ import {
   STO_LIMIT_MODE_LABELS,
   STO_LIMIT_PERIOD_LABELS,
   type HRLeaveType,
-  type LeaveApprovalFlowStep,
 } from '@/types/hr-leave-types';
 
 /** Renders '—' for null/undefined/'' so an empty column never looks like a bug. */
@@ -127,9 +127,29 @@ function ApprovalFlowSection({ t }: { t: HRLeaveType }) {
   const roleName = (key: string | null) =>
     key ? (roles?.find((r) => r.role_key === key)?.role_name ?? null) : null;
 
-  const steps = [...(effective.steps ?? [])].sort(
-    (a, b) => Number(a.chain_order ?? 0) - Number(b.chain_order ?? 0),
-  );
+  /*
+   * THE CHAIN AN APPLICATION WOULD GET, not the stored steps. buildChain() is
+   * what freezes a chain at apply time, so reading the flow through it keeps
+   * this list honest for every shape the editor can save:
+   *   - a step's full approver SET. The stored step's singular approver_role
+   *     mirrors only the FIRST approver, and reading it dropped the CAO from
+   *     every [Principal, CAO] step (19 of 67 live flows, 2026-09-11) while
+   *     the database gate admitted both;
+   *   - a parallel flow, which becomes ONE step holding everyone;
+   *   - a role ladder, which stores no steps at all. It resolves per
+   *     applicant; passing every rung shows the route for someone who holds
+   *     none of them, which is the longest one.
+   */
+  const isLadder = effective.step_source === 'role_ladder';
+  const chain = buildChain({
+    flow: effective,
+    rungsAbove: isLadder ? (effective.role_ladder ?? []) : [],
+  });
+  const fallback = effective.fallback_approver;
+  const fallbackLabel = fallback
+    ? (fallback.approver_user_id ? fallback.approver_name : null) ??
+      roleName(fallback.approver_role)
+    : null;
 
   return (
     <Section title="Approval flow">
@@ -149,11 +169,11 @@ function ApprovalFlowSection({ t }: { t: HRLeaveType }) {
           : 'Never'}
       </Field>
 
-      <div className="col-span-full">
+      <div className="col-span-full" data-testid="approval-flow-steps">
         <p className="mb-1 text-xs text-muted-foreground">
           Approvers, in order
         </p>
-        {steps.length === 0 ? (
+        {chain.length === 0 ? (
           // A flow with no steps cannot complete; buildApprovalChain treats it
           // as a configuration error rather than an auto-approval.
           <p className="text-sm text-destructive">
@@ -161,51 +181,82 @@ function ApprovalFlowSection({ t }: { t: HRLeaveType }) {
           </p>
         ) : (
           <ol className="space-y-1">
-            {steps.map((step: LeaveApprovalFlowStep, i: number) => {
-              /*
-               * PRECEDENCE MIRRORS hr_trig_leave_enforce_approver: it reads
-               * approver_user_id first and only falls through to approver_role
-               * when that is null.
-               *
-               * approver_name alone is NOT the test. The seeded organisation
-               * catch-alls carry approver_name 'HR / Approving Authority' with
-               * approver_user_id null and approver_role 'principal' — a generic
-               * label, not a person. Preferring the name would tell all 58
-               * inheriting types that a specific individual approves them, when
-               * the Principal role is what actually gates the step.
-               */
-              const pinned = step.approver_user_id ? step.approver_name : null;
-              const role = roleName(step.approver_role);
+            {chain.map((step, i) => {
+              const approvers = step.approvers ?? [];
+              // By configuration, not position — the step the engine lets grant.
+              const final = isFinalStep(chain, i);
               return (
                 <li
-                  key={`${step.chain_order}-${i}`}
-                  className="flex flex-wrap items-center gap-2 rounded-md border px-2 py-1.5 text-sm"
+                  key={`${step.step_order}-${i}`}
+                  data-step={i + 1}
+                  className="flex items-start gap-2 rounded-md border px-2 py-1.5 text-sm"
                 >
-                  <span className="text-xs text-muted-foreground">{i + 1}</span>
-                  <span className="font-medium">
-                    {pinned ?? role ?? 'Any permitted approver'}
-                  </span>
-                  {pinned ? (
-                    // A pinned person acts regardless of role, so the role is
-                    // context, not the gate.
-                    role && (
-                      <span className="text-xs text-muted-foreground">({role})</span>
-                    )
-                  ) : (
-                    <span className="text-xs text-muted-foreground">
-                      {role ? 'anyone holding this role' : 'any approver permitted to decide'}
-                    </span>
-                  )}
+                  <span className="mt-0.5 text-xs text-muted-foreground">{i + 1}</span>
+                  <div className="min-w-0 flex-1 space-y-0.5">
+                    <ul className="space-y-0.5">
+                      {approvers.map((a, j) => {
+                        /*
+                         * PRECEDENCE MIRRORS hr_trig_leave_enforce_approver: it
+                         * reads approver_user_id first and only falls through to
+                         * approver_role when that is null.
+                         *
+                         * approver_name alone is NOT the test. The seeded
+                         * organisation catch-alls carry approver_name 'HR /
+                         * Approving Authority' with approver_user_id null and
+                         * approver_role 'principal' — a generic label, not a
+                         * person. Preferring the name would tell all 58
+                         * inheriting types that a specific individual approves
+                         * them, when the Principal role is what gates the step.
+                         */
+                        const pinned = a.approver_user_id ? a.approver_name : null;
+                        const role = roleName(a.approver_role);
+                        return (
+                          <li key={j} className="flex flex-wrap items-center gap-x-2">
+                            <span className="font-medium">
+                              {pinned ?? role ?? 'Any permitted approver'}
+                            </span>
+                            {pinned ? (
+                              // A pinned person acts regardless of role, so the
+                              // role is context, not the gate.
+                              role && (
+                                <span className="text-xs text-muted-foreground">({role})</span>
+                              )
+                            ) : (
+                              <span className="text-xs text-muted-foreground">
+                                {role ? 'anyone holding this role' : 'any approver permitted to decide'}
+                              </span>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                    {approvers.length > 1 && (
+                      <p className="text-xs text-muted-foreground">
+                        {step.quorum === 'all'
+                          ? 'All of them must approve.'
+                          : final
+                            ? 'Any one of them can approve.'
+                            : 'Any one of them can clear this step.'}
+                      </p>
+                    )}
+                  </div>
                   <Badge
-                    variant={step.step_type === 'final' ? 'default' : 'outline'}
-                    className="ml-auto text-[10px]"
+                    variant={final ? 'default' : 'outline'}
+                    className="shrink-0 text-[10px]"
                   >
-                    {step.step_type === 'final' ? 'Approves' : 'Reviews'}
+                    {final ? 'Approves' : 'Reviews'}
                   </Badge>
                 </li>
               );
             })}
           </ol>
+        )}
+        {isLadder && (
+          <p className="mt-1 text-xs text-muted-foreground">
+            Role ladder: each request starts at the rung above the applicant&apos;s
+            own role, so most applicants pass through fewer steps than this.
+            {fallbackLabel && ` Someone at the top rung goes to ${fallbackLabel}.`}
+          </p>
         )}
       </div>
     </Section>
