@@ -51,28 +51,98 @@ const ENTRIES = Array.from({ length: 2400 }, (_, i) => ({
   pr_number: i,
   breaking: false,
   ordinal: i,
+  app_key: 'myjkkn',
 }));
+
+/**
+ * The route's own sort, so the fake can hand back an ORDERED set the way
+ * PostgREST does. It matters now in a way it did not before: offset paging
+ * sliced whatever order it was given, while keyset paging is only correct over
+ * the order it asked for, so a fake that ignored .order() would model a server
+ * this route never talks to.
+ */
+function newestFirst(a: any, b: any): number {
+  if (a.entry_date !== b.entry_date) return a.entry_date < b.entry_date ? 1 : -1;
+  if (a.ordinal !== b.ordinal) return a.ordinal - b.ordinal;
+  if (a.app_key !== b.app_key) return a.app_key < b.app_key ? -1 : 1;
+  return a.sha < b.sha ? 1 : -1;
+}
 
 /** How many rows the fake server will return at most, whatever range is asked. */
 let serverCap = 1000;
 
+/**
+ * Split a PostgREST filter list on its TOP-LEVEL commas — `and(a,b),c` is two
+ * terms, not three.
+ */
+function splitTop(s: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '(') depth++;
+    else if (s[i] === ')') depth--;
+    else if (s[i] === ',' && depth === 0) {
+      out.push(s.slice(start, i));
+      start = i + 1;
+    }
+  }
+  out.push(s.slice(start));
+  return out;
+}
+
+/** One `col.op.value` leaf, compared the way Postgres would compare that column. */
+function leaf(row: any, term: string): boolean {
+  const [col, op, ...rest] = term.split('.');
+  const raw = rest.join('.');
+  const actual = row[col];
+  const v = typeof actual === 'number' ? Number(raw) : raw;
+  switch (op) {
+    case 'eq': return actual === v;
+    case 'lt': return actual < v;
+    case 'gt': return actual > v;
+    case 'lte': return actual <= v;
+    case 'gte': return actual >= v;
+    default: throw new Error(`fake db: unsupported operator ${op}`);
+  }
+}
+
+/** `.or('a,and(b,c)')` — the keyset predicate the route builds. */
+function orMatches(row: any, expr: string): boolean {
+  return splitTop(expr).some((t) =>
+    t.startsWith('and(') && t.endsWith(')')
+      ? splitTop(t.slice(4, -1)).every((c) => leaf(row, c))
+      : leaf(row, t)
+  );
+}
+
+/** Every `.range()` the fake served, so a test can assert on the paging shape. */
+let ranges: Array<{ from: number; to: number; counted: boolean }> = [];
+
 function table(rows: any[]) {
   let out = [...rows];
+  let counted = false;
   const b: any = {
-    select: () => b,
+    select: (_cols: string, opts?: { count?: string }) => { counted = opts?.count === 'exact'; return b; },
     in: (col: string, vals: string[]) => { out = out.filter((r) => vals.includes(r[col])); return b; },
     gte: (col: string, v: string) => { out = out.filter((r) => r[col] >= v); return b; },
+    gt: (col: string, v: string) => { out = out.filter((r) => r[col] > v); return b; },
     lt: (col: string, v: string) => { out = out.filter((r) => r[col] < v); return b; },
+    or: (expr: string) => { out = out.filter((r) => orMatches(r, expr)); return b; },
     order: () => b,
     limit: () => b,
     maybeSingle: async () => ({ data: out[0] ?? null, error: null }),
-    range: async (from: number, to: number) => ({
-      // The cap is applied to the WINDOW, exactly as PostgREST does: ask for
-      // 1,000 and be handed fewer, with the true total still in `count`.
-      data: out.slice(from, Math.min(to + 1, from + serverCap)),
-      error: null,
-      count: out.length,
-    }),
+    range: async (from: number, to: number) => {
+      ranges.push({ from, to, counted });
+      return {
+        // The cap is applied to the WINDOW, exactly as PostgREST does: ask for
+        // 1,000 and be handed fewer, with the true total still in `count`.
+        data: out.slice(from, Math.min(to + 1, from + serverCap)),
+        error: null,
+        // A response only carries a count when one was asked for.
+        count: counted ? out.length : null,
+      };
+    },
   };
   return b;
 }
@@ -96,7 +166,7 @@ function makeClient(user: { id: string } | null = { id: 'u-1' }, failEntries = f
         if (failEntries) {
           return { select: () => ({ in: () => ({ gte: () => ({ order: () => ({ order: () => ({ order: () => ({ order: () => ({ range: async () => ({ data: null, error: { message: 'boom' }, count: null }) }) }) }) }) }) }) }) } as any;
         }
-        return table(ENTRIES);
+        return table([...ENTRIES].sort(newestFirst));
       }
       if (t === 'changelog_modules') return table(MODULES);
       return table([{ last_synced_at: null, last_ref: null }]);
@@ -116,6 +186,7 @@ const U = 'https://x.test/api/whats-new';
 beforeEach(() => {
   vi.resetModules();
   serverCap = 1000;
+  ranges = [];
   client = makeClient();
 });
 
