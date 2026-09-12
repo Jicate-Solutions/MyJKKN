@@ -376,6 +376,16 @@ tick; Q11=$(qfile_for "stale-draft #231"); "$DESK" answer "$(basename "$Q11" .js
 check "11a Nudge again: the request is pending again, first_seen kept, zero comments" \
       bash -c "[ \"\$(jget '$STATE/nudges/231.json' 'd[\"status\"], d[\"first_seen\"]')\" = \"('pending', '2026-09-01T00:00:00+05:30')\" ] && [ \"$(comments)\" = 0 ] && [ \"$(stage 231)\" = nudged ]"
 
+# ════ 11b. a revived tab: a new key on the same transcript, the dead old key sorting first ═════════════════════
+reset_all
+tab eeeeeeee 44444444-4444-4444-4444-444444444444 JKKNKB "revived builder (eeee)"   # the old key, tmux gone
+tab ffffffff 44444444-4444-4444-4444-444444444444 JKKNKB "revived builder"          # W8 --revive: new key, same transcript
+bridge 44444444-4444-4444-4444-444444444444 REVIVEDSESS00000000000001
+live v5-jkknkb-ffffffff
+mkpr 236 3 "fix(o): revived tab" "https://claude.ai/code/session_REVIVEDSESS00000000000001"; mk_plan 236; tick
+check "11b-1 one id, two keys on one transcript, only the newer live → live, the live key's name" \
+      eq "$("$DESK" nudges 2>/dev/null | grep '^236|' | cut -d'|' -f2,3)" "revived builder|live"
+
 # ════ 12. plan mode writes nothing; wiring ═════════════════════════════════════════════════════════════════════
 reset_all
 for n in 241 242; do mkpr $n 8 "feat(sports): Fixtures Lane $((n-240)) — part" "x"; done

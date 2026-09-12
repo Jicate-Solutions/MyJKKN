@@ -23,6 +23,8 @@
 #   3. Otherwise the tab transcripts named by v5-tab-sessions/<u8> (field 1 = session id) are searched for
 #      "bridgeSessionId":"cse_<id>". A tab restarted since (W9/W10/W11 resume the same transcript) still carries its
 #      old ids there — the same ownership proof v5-ghost-sweep.sh uses. ~20 s over the whole fleet, once per request.
+#      A revived tab (W5/W8) is a NEW key on the SAME transcript, so one id can match several keys; every match is
+#      kept and a live one wins over a dead one (2026-09-12: the dead old key sorted first and hid the live tab).
 #   4. The tab's name is the name spine v5-tab-names/<u8> (before " @ "). Live = a tmux session v5-…-<u8> exists on
 #      the obsidian socket — matched by the key, not by the vault slug (a tab whose vault was renamed keeps its old
 #      session name; 2026-09-11 129b12ef).
@@ -44,7 +46,7 @@ _live_keys() {  # every tab key with a live tmux session v5-…-<u8>, one per li
   $DESK_TMUX list-sessions -F '#{session_name}' 2>/dev/null | sed -nE 's/^v5-.*-([0-9a-f]{8})$/\1/p' | sort -u
 }
 
-# resolve <session-id> → prints "<u8>" or nothing
+# resolve <session-id> → prints every "<u8>" that carries it, one per line (current row first), or nothing
 _u8_for_session() {
   local sid="$1" u8="" f t tsid
   [[ "$sid" =~ ^[A-Za-z0-9]{8,64}$ ]] || return 0
@@ -68,7 +70,7 @@ PY
     for t in "$CLAUDE_PROJECTS"/*/"$tsid".jsonl; do
       [ -f "$t" ] || continue
       if LC_ALL=C grep -qF "\"bridgeSessionId\":\"cse_$sid\"" "$t" 2>/dev/null; then
-        printf '%s' "$(basename "$f")"; return 0
+        basename "$f"; break   # keep looking: a revived tab is another key on this same transcript
       fi
     done
   done
@@ -89,12 +91,12 @@ cmd_list() {
     [[ "$req" =~ $REQUEST_RE ]] || { echo "desk: skipped nudge request '$req' — not a PR number or g-<slug>" >&2; continue; }
     state=unknown; name="-"; first_dead=""
     for sid in $sessions; do
-      u8=$(_u8_for_session "$sid")
-      [ -n "$u8" ] || continue
-      case "$live" in
-        *" $u8 "*) state=live; name=$(_tab_name "$u8"); break;;
-        *) [ -n "$first_dead" ] || first_dead="$u8";;
-      esac
+      for u8 in $(_u8_for_session "$sid"); do
+        case "$live" in
+          *" $u8 "*) state=live; name=$(_tab_name "$u8"); break 2;;
+          *) [ -n "$first_dead" ] || first_dead="$u8";;
+        esac
+      done
     done
     if [ "$state" != live ] && [ -n "$first_dead" ]; then state=dead; name=$(_tab_name "$first_dead"); fi
     printf '%s|%s|%s|%s\n' "$req" "$name" "$state" "$msg"
