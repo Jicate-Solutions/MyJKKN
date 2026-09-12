@@ -29,11 +29,16 @@ import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/re
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { ReactNode } from 'react';
 
-const createIdea = vi.fn(() => Promise.resolve({ id: 'idea-1' }));
+// Typed to accept its arguments: the tests read them back from
+// createIdea.mock.calls, and a zero-arg vi.fn() makes the spread below a
+// TS2493 ("tuple type '[]' has no element at index '0'").
+const createIdea = vi.fn((..._args: unknown[]) =>
+  Promise.resolve({ id: 'idea-1' })
+);
 
 vi.mock('@/lib/services/improvement/improvement-service', () => ({
   ImprovementService: {
-    createIdea: (...args: unknown[]) => createIdea(...(args as [])),
+    createIdea: (...args: unknown[]) => createIdea(...args),
   },
 }));
 
