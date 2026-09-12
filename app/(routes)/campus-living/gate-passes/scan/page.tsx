@@ -3,30 +3,38 @@
 /**
  * /campus-living/gate-passes/scan — the screen a guard works a shift on.
  *
- * The gate-pass subsystem already existed and nobody used it, because using
- * it meant finding a learner in a list, opening the record, and working out
- * which of two buttons applied. This page removes all of that: scan the card,
- * read one line and one colour, tap once.
+ * Scan the learner's MyJKKN QR. One line, one colour, and the movement is
+ * ALREADY RECORDED by the time the screen paints:
  *
- *   GREEN  APPROVED         → one tap records the exit
- *   RED    NO APPROVED PASS → nothing to tap; the learner is stopped
- *   AMBER  RETURNING        → one tap records the return
+ *   GREEN  Marked OUT 8:04 PM
+ *   AMBER  Marked IN 9:47 PM · 17 minutes late
+ *   RED    GATE PASS NOT APPROVED — contact the warden. Do not allow.
  *
  * RED IS A HARD BLOCK. There is deliberately no override control anywhere on
- * this page — the Director chose a hard block over a recorded override.
+ * this page, and no tap that could become one.
  *
- * Camera lifecycle is the canonical html5-qrcode pattern from
- * app/(routes)/resource-management/scan/page.tsx, plus the wake-lock and
- * haptic from components/marathon/bib-scanner.tsx: this runs on a phone held
- * one-handed at a gate at night, where the screen must not sleep between
- * learners and the guard cannot always look down to read a toast.
+ * AUTO-RECORD, NOT TAP-TO-CONFIRM. The previous build showed a verdict and
+ * waited for a button. At a gate during a rush that button is the bottleneck,
+ * so the write now happens in the same request as the decision. The guard's
+ * protection against a double movement is not a confirmation tap, it is three
+ * things that have to hold at once: a 2.5s decode debounce, a 10s per-card
+ * cooldown, and a status-scoped UPDATE server-side that simply matches no rows
+ * if another gate got there first.
  *
- * Gated on `campus_living.gate_passes.edit` — the WRITE key — because the
- * only purpose of the page is to write. A read-only holder has no use for it.
+ * ONE REQUEST, SERVER-SIDE. /api/campus-living/gate-passes/scan resolves the
+ * card, decides, writes the pass, writes hostel_access_log and notifies the
+ * parent. The log half cannot be done from a browser at all — gate_security
+ * holds no `.create` and role_has_block_access is false for them — so putting
+ * the decision anywhere else would mean a gate whose audit trail is silently
+ * always empty.
  *
- * navMeta declares the button entry point on the gate-pass list; required by
- * scripts/assert-nav-coverage.mjs (which also verifies the parent really
- * links here).
+ * Camera lifecycle is the canonical html5-qrcode pattern, plus the wake lock
+ * and haptic from the bib scanner: this runs on a phone held one-handed at a
+ * gate at night, where the screen must not sleep between learners and the
+ * guard cannot always look down to read a toast.
+ *
+ * Gated on `campus_living.gate_passes.edit` — the WRITE key — because the only
+ * purpose of the page is to write.
  */
 
 import Link from 'next/link';
@@ -41,10 +49,10 @@ import {
   Loader2,
   LogIn,
   LogOut,
+  PhoneOff,
   QrCode,
   Search,
   ShieldAlert,
-  Clock,
 } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -52,20 +60,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 
-import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useRecordExit, useReturnGatePass } from '@/hooks/campus-living/use-gate-passes';
-
-import { GatePassService } from '@/lib/services/campus-living/gate-pass-service';
-import {
-  approverName,
-  resolveScannedLearner,
-  type ScannedLearner,
-} from '@/lib/services/campus-living/gate-scan-service';
-import {
-  decideScan,
-  type GateDecision,
-} from '@/lib/services/campus-living/gate-scan-resolve';
+import { useGateScan } from '@/hooks/campus-living/use-gate-passes';
+import type { GateScanResponse } from '@/app/api/campus-living/gate-passes/scan/route';
 
 export const navMeta = {
   invokedFrom: '/campus-living/gate-passes',
@@ -73,28 +70,16 @@ export const navMeta = {
 
 const QR_ELEMENT_ID = 'gate-pass-qr-reader';
 
-/** Everything the verdict panel renders for one scan. */
-interface ScanResult {
-  /** The code that produced this result, so a completed movement can put
-   *  that one card on cooldown. */
-  code: string;
-  learner: ScannedLearner;
-  decision: GateDecision;
-  approvedBy: string | null;
-}
-
 /**
  * How long one card is ignored after a movement is recorded on it.
  *
  * Without this, a card left in front of the lens re-decodes seconds after
- * "Let out" and comes back as RETURNING — and one stray tap on a button
- * sized for a gloved thumb would walk the learner straight back in. The
- * 2.5s decode debounce is not enough: it only suppresses the repeat, not
- * the reversal.
+ * being marked OUT and the next scan would mark it back IN. The 2.5s decode
+ * debounce is not enough: it suppresses the repeat, not the reversal.
  */
 const POST_ACTION_COOLDOWN_MS = 10_000;
 
-/** One completed action, so the guard can glance back at the last few. */
+/** One completed movement, so the guard can glance back at the last few. */
 interface ShiftEntry {
   name: string;
   direction: 'out' | 'in';
@@ -112,21 +97,16 @@ function initials(name: string): string {
 }
 
 export default function GatePassScanPage() {
-  const { profile } = useAuth();
   const { canAccess, isSuperAdmin } = usePermissions();
   const canScan = isSuperAdmin || canAccess('campus_living.gate_passes', 'edit');
 
   const [scanMode, setScanMode] = useState<'qr' | 'manual'>('qr');
   const [cameraActive, setCameraActive] = useState(false);
   const [manualInput, setManualInput] = useState('');
-  const [lookupBusy, setLookupBusy] = useState(false);
-  const [writeBusy, setWriteBusy] = useState(false);
-  const [result, setResult] = useState<ScanResult | null>(null);
-  const [unrecognised, setUnrecognised] = useState<string | null>(null);
+  const [result, setResult] = useState<GateScanResponse | null>(null);
   const [shiftLog, setShiftLog] = useState<ShiftEntry[]>([]);
 
-  const recordExit = useRecordExit();
-  const recordReturn = useReturnGatePass();
+  const gateScan = useGateScan();
 
   const scannerRef = useRef<any>(null);
   const wakeLockRef = useRef<any>(null);
@@ -134,57 +114,62 @@ export default function GatePassScanPage() {
   const lastScanAtRef = useRef<number>(0);
   const cooldownRef = useRef<{ code: string; at: number } | null>(null);
 
-  // -------- Lookup ------------------------------------------------------
-  const handleCode = useCallback(async (rawCode: string) => {
-    const code = (rawCode ?? '').trim();
-    if (!code) return;
+  // -------- One scan --------------------------------------------------
+  const handleCode = useCallback(
+    async (rawCode: string) => {
+      const code = (rawCode ?? '').trim();
+      if (!code) return;
 
-    // A card that was just acted on is ignored for a beat, so the movement
-    // cannot be reversed by the same card sitting in front of the lens.
-    const cooling = cooldownRef.current;
-    if (cooling && cooling.code === code && Date.now() - cooling.at < POST_ACTION_COOLDOWN_MS) {
-      toast('Already recorded — move to the next learner');
-      return;
-    }
-
-    setLookupBusy(true);
-    setUnrecognised(null);
-    setResult(null);
-    try {
-      const learner = await resolveScannedLearner(code);
-      if (!learner) {
-        setUnrecognised(code);
+      // A card that was just acted on is ignored for a beat, so the movement
+      // cannot be reversed by the same card sitting in front of the lens.
+      const cooling = cooldownRef.current;
+      if (cooling && cooling.code === code && Date.now() - cooling.at < POST_ACTION_COOLDOWN_MS) {
+        toast('Already recorded — move to the next learner');
         return;
       }
 
-      const passes = await GatePassService.getScannablePassesForLearner(learner.profileId);
-      // The subject is judged before the passes: a learner who has left can
-      // still be holding a valid-looking card, and often an open pass too.
-      const decision = decideScan(learner.subject, passes, new Date());
-
-      // Only GREEN shows an approver — on AMBER the guard needs the clock,
-      // not the paperwork.
-      const decidedId = decision.pass?.id;
-      const approvedByName =
-        decidedId && decision.verdict === 'approved'
-          ? await approverName(passes.find((p) => p.id === decidedId)?.approved_by ?? null)
-          : null;
-
-      setResult({ code, learner, decision, approvedBy: approvedByName });
-      // Haptic confirmation — the guard does not have to watch the screen to
-      // know the scan registered.
+      setResult(null);
       try {
-        navigator.vibrate?.(decision.verdict === 'blocked' ? [80, 60, 80] : 100);
+        const res = await gateScan.mutateAsync({ code });
+        setResult(res);
+
+        // Haptic confirmation — the guard does not have to watch the screen to
+        // know the scan registered, and a refusal buzzes differently.
+        try {
+          navigator.vibrate?.(
+            res.verdict === 'blocked' || res.verdict === 'unrecognised' ? [80, 60, 80] : 100,
+          );
+        } catch {
+          // vibration unsupported — the colour band is still correct
+        }
+
+        if (res.recorded) {
+          // This card goes on cooldown only once something was actually
+          // written. A refused scan must stay re-scannable — the guard may be
+          // trying again after the learner fetched their pass.
+          cooldownRef.current = { code, at: Date.now() };
+          setShiftLog((log) =>
+            [
+              {
+                name: res.learner?.name ?? 'Unknown',
+                direction: res.recorded!.direction,
+                at: new Date(res.recorded!.at).toLocaleTimeString('en-IN', {
+                  hour: 'numeric',
+                  minute: '2-digit',
+                  hour12: true,
+                }),
+                late: res.recorded!.isLate,
+              },
+              ...log,
+            ].slice(0, 8),
+          );
+        }
       } catch {
-        // vibration unsupported — visual state is still correct
+        // the mutation's onError toast is the guard-facing report
       }
-    } catch (err: any) {
-      setUnrecognised(code);
-      toast.error(err?.message || 'Could not read that card');
-    } finally {
-      setLookupBusy(false);
-    }
-  }, []);
+    },
+    [gateScan],
+  );
 
   // -------- QR-mode camera lifecycle ------------------------------------
   useEffect(() => {
@@ -215,7 +200,7 @@ export default function GatePassScanPage() {
           },
           () => {
             // expected per-frame no-match noise
-          }
+          },
         );
       } catch (err) {
         console.error('Gate scanner start failed', err);
@@ -225,7 +210,7 @@ export default function GatePassScanPage() {
           // typed-code path rather than leaving a dead screen.
           setScanMode('manual');
         }
-        toast.error('Camera unavailable — type the card number instead');
+        toast.error('Camera unavailable — type the ID instead');
       }
     };
 
@@ -269,67 +254,6 @@ export default function GatePassScanPage() {
     };
   }, [cameraActive]);
 
-  // -------- The one tap -------------------------------------------------
-  const handleAction = async () => {
-    if (!result?.decision.pass || !result.decision.action) return;
-    if (!profile?.id) {
-      toast.error('Your account is still loading — try again in a moment');
-      return;
-    }
-
-    const { pass, action, isLate } = result.decision;
-    const learnerName = result.learner.fullName;
-
-    setWriteBusy(true);
-    try {
-      if (action === 'out') {
-        await recordExit.mutateAsync({ id: pass.id, securityId: profile.id });
-      } else {
-        await recordReturn.mutateAsync({ id: pass.id, securityId: profile.id });
-      }
-
-      // Marking OUT notifies the parent; a late return notifies them too.
-      // Fire-and-forget: a parent with no linked account must never block a
-      // gate that has already opened.
-      if (action === 'out' || isLate) {
-        void fetch('/api/campus-living/gate-passes/notify-parent', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            passId: pass.id,
-            event: action === 'out' ? 'out' : 'late_return',
-          }),
-        }).catch(() => {
-          /* notification failure is logged server-side */
-        });
-      }
-
-      setShiftLog((log) =>
-        [
-          {
-            name: learnerName,
-            direction: action,
-            at: new Date().toLocaleTimeString('en-IN', {
-              hour: 'numeric',
-              minute: '2-digit',
-              hour12: true,
-            }),
-            late: isLate,
-          },
-          ...log,
-        ].slice(0, 8)
-      );
-      // Put THIS card on cooldown before clearing the panel, so a card still
-      // in frame cannot immediately re-resolve and offer the opposite action.
-      cooldownRef.current = { code: result.code, at: Date.now() };
-      setResult(null);
-    } catch {
-      // the mutation hooks already toast the failure
-    } finally {
-      setWriteBusy(false);
-    }
-  };
-
   const handleManualSubmit = async () => {
     if (!manualInput.trim()) return;
     await handleCode(manualInput);
@@ -338,7 +262,6 @@ export default function GatePassScanPage() {
 
   const clearScan = () => {
     setResult(null);
-    setUnrecognised(null);
     lastScanTokenRef.current = '';
   };
 
@@ -361,7 +284,7 @@ export default function GatePassScanPage() {
   }
 
   // -------- Verdict panel styling ---------------------------------------
-  const verdict = result?.decision.verdict ?? null;
+  const verdict = result?.verdict ?? null;
   const panelClass =
     verdict === 'approved'
       ? 'bg-green-600 text-white'
@@ -369,7 +292,9 @@ export default function GatePassScanPage() {
         ? 'bg-amber-400 text-black'
         : verdict === 'blocked'
           ? 'bg-red-700 text-white'
-          : '';
+          : verdict === 'unrecognised'
+            ? 'bg-slate-600 text-white'
+            : '';
 
   return (
     <ContentLayout title="Gate Scan">
@@ -385,13 +310,13 @@ export default function GatePassScanPage() {
           <div className="min-w-0">
             <h1 className="truncate text-xl font-bold">Gate Scan</h1>
             <p className="truncate text-xs text-muted-foreground">
-              Scan a learner&apos;s ID card. One tap records the movement.
+              Scan the learner&apos;s MyJKKN QR. The time records itself.
             </p>
           </div>
         </div>
 
         {/* ── The answer ──────────────────────────────────────────── */}
-        {lookupBusy && (
+        {gateScan.isPending && (
           <Card>
             <CardContent className="flex min-h-36 items-center justify-center gap-3 p-6">
               <Loader2 className="h-7 w-7 animate-spin text-primary" />
@@ -400,134 +325,91 @@ export default function GatePassScanPage() {
           </Card>
         )}
 
-        {!lookupBusy && unrecognised && (
-          <Card className="border-2 border-slate-400">
-            <CardContent className="space-y-3 p-6 text-center">
-              <QrCode className="mx-auto h-10 w-10 text-slate-500" />
-              <p className="text-2xl font-bold">Card not recognised</p>
-              <p className="break-all text-sm text-muted-foreground">
-                Nothing on file for{' '}
-                <span className="font-mono">
-                  {unrecognised.slice(0, 40)}
-                  {unrecognised.length > 40 ? '…' : ''}
-                </span>
-              </p>
-              <Button variant="outline" className="h-12 w-full text-base" onClick={clearScan}>
-                Scan again
-              </Button>
-            </CardContent>
-          </Card>
-        )}
-
-        {!lookupBusy && result && (
+        {!gateScan.isPending && result && (
           <div className="overflow-hidden rounded-xl border-2 shadow-sm">
             {/* Colour band + the one line */}
             <div className={`px-4 py-5 ${panelClass}`}>
               <p className="text-3xl font-black leading-none tracking-tight sm:text-4xl">
-                {result.decision.headline}
+                {result.headline}
               </p>
               <p className="mt-2 text-base font-medium leading-snug sm:text-lg">
-                {result.decision.detail}
+                {result.detail}
               </p>
-              {result.decision.verdict === 'approved' && result.approvedBy && (
-                <p className="mt-1 text-sm opacity-90">approved by {result.approvedBy}</p>
-              )}
             </div>
 
             {/* Face + name — the guard checks this against the person */}
-            <div className="flex items-center gap-4 bg-background px-4 py-4">
-              {result.learner.photoUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={result.learner.photoUrl}
-                  alt={result.learner.fullName}
-                  className="h-20 w-20 shrink-0 rounded-lg border object-cover"
-                />
-              ) : (
-                <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-lg border bg-muted text-2xl font-bold text-muted-foreground">
-                  {initials(result.learner.fullName)}
-                </div>
-              )}
-              <div className="min-w-0">
-                <p className="truncate text-xl font-bold leading-tight">
-                  {result.learner.fullName}
-                </p>
-                {result.decision.pass && (
-                  <p className="truncate font-mono text-xs text-muted-foreground">
-                    {result.decision.pass.pass_number}
-                  </p>
+            {result.learner && (
+              <div className="flex items-center gap-4 bg-background px-4 py-4">
+                {result.learner.photoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={result.learner.photoUrl}
+                    alt={result.learner.name}
+                    className="h-20 w-20 shrink-0 rounded-lg border object-cover"
+                  />
+                ) : (
+                  <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-lg border bg-muted text-2xl font-bold text-muted-foreground">
+                    {initials(result.learner.name)}
+                  </div>
                 )}
+                <div className="min-w-0">
+                  <p className="truncate text-xl font-bold leading-tight">
+                    {result.learner.name}
+                  </p>
+                  {result.learner.passNumber && (
+                    <p className="truncate font-mono text-xs text-muted-foreground">
+                      {result.learner.passNumber}
+                    </p>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
 
-            {/* The one tap. RED has none — that is the decision, not an omission. */}
             <div className="space-y-2 bg-background px-4 pb-4">
-              {result.decision.action === 'out' && (
-                <Button
-                  className="h-20 w-full bg-green-600 text-2xl font-bold hover:bg-green-700"
-                  onClick={() => void handleAction()}
-                  disabled={writeBusy}
-                >
-                  {writeBusy ? (
-                    <Loader2 className="h-7 w-7 animate-spin" />
-                  ) : (
-                    <>
-                      <LogOut className="mr-3 h-7 w-7" />
-                      Let out
-                    </>
-                  )}
-                </Button>
-              )}
-
-              {result.decision.action === 'in' && (
-                <Button
-                  className="h-20 w-full bg-amber-500 text-2xl font-bold text-black hover:bg-amber-600"
-                  onClick={() => void handleAction()}
-                  disabled={writeBusy}
-                >
-                  {writeBusy ? (
-                    <Loader2 className="h-7 w-7 animate-spin" />
-                  ) : (
-                    <>
-                      <LogIn className="mr-3 h-7 w-7" />
-                      Let in
-                    </>
-                  )}
-                </Button>
-              )}
-
-              {result.decision.verdict === 'blocked' && (
+              {/* RED has no control at all. That is the decision, not an omission. */}
+              {result.verdict === 'blocked' && (
                 <div className="rounded-lg border-2 border-red-300 bg-red-50 p-3 text-center dark:border-red-800 dark:bg-red-950/40">
-                  {result.decision.blockedReason === 'has_left' ? (
-                    <>
-                      <p className="flex items-center justify-center gap-2 text-base font-semibold text-red-800 dark:text-red-200">
-                        <ShieldAlert className="h-5 w-5 shrink-0" />
-                        Do not accept this card.
-                      </p>
-                      <p className="mt-1 text-sm text-red-700 dark:text-red-300">
-                        This person has left. A new pass must not be issued —
-                        send them to the office.
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-base font-semibold text-red-800 dark:text-red-200">
-                        Do not let this learner out.
-                      </p>
-                      <p className="mt-1 text-sm text-red-700 dark:text-red-300">
-                        A warden must issue a pass first.
-                      </p>
-                    </>
+                  <p className="flex items-center justify-center gap-2 text-base font-semibold text-red-800 dark:text-red-200">
+                    <ShieldAlert className="h-5 w-5 shrink-0" />
+                    Do not allow.
+                  </p>
+                  <p className="mt-1 text-sm text-red-700 dark:text-red-300">
+                    {result.blockedReason === 'has_left'
+                      ? 'This person has left. Send them to the office — a new pass must not be issued.'
+                      : result.blockedReason === 'not_a_learner'
+                        ? 'This card is not a hostel resident’s. Direct them to the main campus entrance.'
+                        : 'Send them to the warden. No override exists on this screen.'}
+                  </p>
+                </div>
+              )}
+
+              {/* The movement is already written. Say what could not be done
+                  alongside it rather than letting silence imply it all worked. */}
+              {result.recorded && (
+                <div className="space-y-1 rounded-lg border bg-muted/40 p-3 text-sm">
+                  <p className="flex items-center gap-2 font-medium">
+                    {result.recorded.direction === 'out' ? (
+                      <LogOut className="h-4 w-4 text-green-600" />
+                    ) : (
+                      <LogIn className="h-4 w-4 text-amber-600" />
+                    )}
+                    Movement recorded.
+                  </p>
+                  {result.parentNotified === false && (
+                    <p className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+                      <PhoneOff className="h-3.5 w-3.5 shrink-0" />
+                      No parent could be notified for this learner.
+                    </p>
+                  )}
+                  {!result.logged && (
+                    <p className="text-muted-foreground">
+                      The movement was saved, but it could not be written to the access log.
+                    </p>
                   )}
                 </div>
               )}
 
-              <Button
-                variant="outline"
-                className="h-12 w-full text-base"
-                onClick={clearScan}
-                disabled={writeBusy}
-              >
+              <Button variant="outline" className="h-14 w-full text-lg" onClick={clearScan}>
                 Next learner
               </Button>
             </div>
@@ -596,22 +478,22 @@ export default function GatePassScanPage() {
                     inputMode="text"
                     autoComplete="off"
                     className="h-14 text-base"
-                    placeholder="Card number or ID"
+                    placeholder="JKKN ID, e.g. 348295-7"
                     value={manualInput}
                     onChange={(e) => setManualInput(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && void handleManualSubmit()}
-                    disabled={lookupBusy}
+                    disabled={gateScan.isPending}
                   />
                   <Button
                     className="h-14 px-5"
                     onClick={() => void handleManualSubmit()}
-                    disabled={lookupBusy || !manualInput.trim()}
+                    disabled={gateScan.isPending || !manualInput.trim()}
                   >
                     <Search className="h-5 w-5" />
                   </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Accepts the ID printed on the card, either shape.
+                  Accepts the JKKN ID printed on the card, or an older card&apos;s ID.
                 </p>
               </div>
             )}
@@ -632,11 +514,7 @@ export default function GatePassScanPage() {
                       <LogIn className="h-4 w-4 shrink-0 text-amber-600" />
                     )}
                     <span className="min-w-0 flex-1 truncate text-sm font-medium">{e.name}</span>
-                    {e.late && (
-                      <span className="flex shrink-0 items-center gap-1 text-xs text-red-600">
-                        <Clock className="h-3 w-3" /> late
-                      </span>
-                    )}
+                    {e.late && <span className="shrink-0 text-xs text-red-600">late</span>}
                     <span className="shrink-0 text-xs text-muted-foreground">{e.at}</span>
                   </li>
                 ))}

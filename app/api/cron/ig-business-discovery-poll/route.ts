@@ -37,6 +37,7 @@ import {
   type BdErrorLogRow,
   type SuppressedHandle,
 } from '@/lib/instagram/business-discovery-errors';
+import { normalizeMetaToken } from '@/lib/meta/graph-api-client';
 
 const GRAPH_API = 'https://graph.facebook.com/v25.0';
 const RECENT_MEDIA_LIMIT = 25;
@@ -234,11 +235,11 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   const start = Date.now();
-  const token =
+  const token = normalizeMetaToken(
     process.env.META_IG_SYSTEM_USER_TOKEN ||
-    process.env.MESSENGER_PAGE_ACCESS_TOKEN ||
-    process.env.META_PAGE_ACCESS_TOKEN ||
-    '';
+      process.env.MESSENGER_PAGE_ACCESS_TOKEN ||
+      process.env.META_PAGE_ACCESS_TOKEN
+  );
   if (!token) {
     return NextResponse.json(
       { success: false, error: 'no Meta token configured' },
