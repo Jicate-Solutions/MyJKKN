@@ -67,3 +67,57 @@ INSERT INTO hr_staff_bank_accounts VALUES
 INSERT INTO hr_attendance_periods VALUES
  ('90000000-1111-0000-0000-00000000000a','11111111-0000-0000-0000-000000000001'),
  ('90000000-1111-0000-0000-00000000000b','22222222-0000-0000-0000-000000000002') ON CONFLICT DO NOTHING;
+
+-- ---------------------------------------------------------------------------
+-- Sections 4-6 of the migration: interviews and scorecards, keyed through the
+-- candidate rather than through an institution column of their own.
+-- ---------------------------------------------------------------------------
+
+-- The migration REVOKEs from `anon` and GRANTs to `authenticated`/`service_role`
+-- by name. A bare cluster has none of them, and the migration would abort on the
+-- GRANT — so the throwaway must model Supabase's role set, not just its tables.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='anon')         THEN CREATE ROLE anon NOLOGIN;         END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated NOLOGIN; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role')  THEN CREATE ROLE service_role NOLOGIN;  END IF;
+END $$;
+
+-- app_user reads as a signed-in user does, so it inherits `authenticated` and
+-- with it EXECUTE on the new definer helper — rather than being granted the
+-- function directly, which would not prove the production grant is right.
+GRANT authenticated TO app_user;
+
+-- The candidate carries the institution; interviews and scorecards inherit it.
+ALTER TABLE public.hr_recruitment_candidates ADD COLUMN IF NOT EXISTS institution_id uuid;
+UPDATE public.hr_recruitment_candidates SET institution_id='11111111-0000-0000-0000-000000000001'
+  WHERE id='c0000000-0000-0000-0000-00000000000a';
+UPDATE public.hr_recruitment_candidates SET institution_id='22222222-0000-0000-0000-000000000002'
+  WHERE id='c0000000-0000-0000-0000-00000000000b';
+
+CREATE TABLE IF NOT EXISTS public.hr_recruitment_interviews (
+  id uuid PRIMARY KEY, candidate_id uuid, panel_member_ids uuid[] DEFAULT '{}');
+CREATE TABLE IF NOT EXISTS public.hr_recruitment_scorecards (
+  id uuid PRIMARY KEY, candidate_id uuid, interviewer_id uuid);
+
+-- Stand-ins for the production permissive policies: a permission key, no
+-- institution dimension — the bug, reproduced.
+ALTER TABLE public.hr_recruitment_interviews ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS p_sel ON public.hr_recruitment_interviews;
+CREATE POLICY p_sel ON public.hr_recruitment_interviews FOR SELECT USING (true);
+ALTER TABLE public.hr_recruitment_scorecards ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS p_sel ON public.hr_recruitment_scorecards;
+CREATE POLICY p_sel ON public.hr_recruitment_scorecards FOR SELECT USING (true);
+
+-- GRANT SELECT ON ALL TABLES above ran before these existed; grant explicitly.
+GRANT SELECT ON public.hr_recruitment_interviews, public.hr_recruitment_scorecards TO app_user;
+
+-- Institution A's row has an empty panel; institution B's names eeee…01, who is
+-- the reader used to prove the identity escape hatches still open.
+INSERT INTO hr_recruitment_interviews VALUES
+ ('11000000-0000-0000-0000-00000000000a','c0000000-0000-0000-0000-00000000000a','{}'),
+ ('11000000-0000-0000-0000-00000000000b','c0000000-0000-0000-0000-00000000000b',
+  '{eeeeeeee-0000-0000-0000-000000000001}') ON CONFLICT DO NOTHING;
+INSERT INTO hr_recruitment_scorecards VALUES
+ ('55000000-0000-0000-0000-00000000000a','c0000000-0000-0000-0000-00000000000a',null),
+ ('55000000-0000-0000-0000-00000000000b','c0000000-0000-0000-0000-00000000000b',
+  'eeeeeeee-0000-0000-0000-000000000001') ON CONFLICT DO NOTHING;

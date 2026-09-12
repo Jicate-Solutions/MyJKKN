@@ -93,3 +93,79 @@ CREATE POLICY hr_scope_gate ON public.hr_attendance_periods
     OR institution_id IS NULL
     OR public.role_has_institution_access(institution_id)
   );
+
+-- ---------------------------------------------------------------------------
+-- 4. The reader-scope question for a candidate, asked once.
+--
+-- hr_recruitment_interviews and hr_recruitment_scorecards carry no institution
+-- column of their own — the institution belongs to the CANDIDATE being hired.
+-- This helper asks the scope question across that link, exactly the way
+-- fn_hr_staff_institution_included (20260906160000) asks it across staff.
+--
+-- WHY SECURITY DEFINER. hr_recruitment_candidates carries its own RLS, and its
+-- SELECT policy demands hr.recruitment.view on top of institution access. Asking
+-- the question through a plain invoker-rights subquery would therefore silently
+-- couple these two gates to a SECOND permission key: a reader holding only
+-- hr.recruitment.scorecards.view would match no candidate row, and the
+-- RESTRICTIVE policy would confine them to their own scorecards even inside
+-- their own institution. The definer reads the institution link and nothing
+-- else. It cannot widen anything on its own, because its answer is AND-ed
+-- inside a RESTRICTIVE policy — it can only ever subtract.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_hr_candidate_institution_in_scope(p_candidate_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT p_candidate_id IS NULL
+      OR EXISTS (SELECT 1
+                   FROM public.hr_recruitment_candidates c
+                  WHERE c.id = p_candidate_id
+                    AND public.role_has_institution_access(c.institution_id));
+$$;
+
+-- Supabase's ALTER DEFAULT PRIVILEGES grants EXECUTE on every new function to
+-- `anon` directly, separately from PUBLIC, so revoking PUBLIC alone leaves the
+-- function callable with the anon key that ships in every browser bundle. Both
+-- are named here. The resulting ACL matches the sibling gate helpers already in
+-- production: authenticated + service_role, never anon.
+REVOKE EXECUTE ON FUNCTION public.fn_hr_candidate_institution_in_scope(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_candidate_institution_in_scope(uuid) TO authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- 5. Interview records — same ungated class as the three above. The permissive
+--    policy grants on hr.recruitment.view alone, so every `own`-scoped holder
+--    of that key reads every institution's interview schedule, panel and notes.
+--    The parent hr_recruitment_candidates IS already scoped, which is what
+--    makes this the leak it is: the candidate is hidden, their interview is not.
+-- ---------------------------------------------------------------------------
+DROP POLICY IF EXISTS hr_scope_gate ON public.hr_recruitment_interviews;
+CREATE POLICY hr_scope_gate ON public.hr_recruitment_interviews
+  AS RESTRICTIVE FOR SELECT
+  USING (
+    (SELECT public.is_super_admin())
+    OR candidate_id IS NULL
+    OR public.fn_hr_candidate_institution_in_scope(candidate_id)
+    -- identity path repeated from hr_recruitment_interviews_select_permission:
+    -- a panel member keeps sight of the interview they are sitting on, whatever
+    -- institution it belongs to.
+    OR (SELECT auth.uid()) = ANY (panel_member_ids)
+  );
+
+-- ---------------------------------------------------------------------------
+-- 6. Scorecards — the interviewer's written assessment of a candidate, granted
+--    on hr.recruitment.scorecards.view with no institution dimension.
+-- ---------------------------------------------------------------------------
+DROP POLICY IF EXISTS hr_scope_gate ON public.hr_recruitment_scorecards;
+CREATE POLICY hr_scope_gate ON public.hr_recruitment_scorecards
+  AS RESTRICTIVE FOR SELECT
+  USING (
+    (SELECT public.is_super_admin())
+    OR candidate_id IS NULL
+    OR public.fn_hr_candidate_institution_in_scope(candidate_id)
+    -- identity path repeated from hr_recruitment_scorecards_select_permission:
+    -- the interviewer who wrote a scorecard keeps their own.
+    OR interviewer_id = (SELECT auth.uid())
+  );
