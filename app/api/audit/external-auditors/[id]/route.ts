@@ -93,25 +93,36 @@ export const DELETE = withAuth(async (_request, auth, context) => {
     }
     const supabase = auth.supabase;
 
-    const nowIso = new Date().toISOString();
-    const { error: updErr } = await (supabase as any)
-      .from('user_institution_access')
-      .update({ is_active: false, expires_at: nowIso })
-      .eq('user_id', userId);
-    if (updErr && /expires_at/.test(updErr.message || '')) {
-      // Fallback: is_active only.
-      const { error: fb } = await (supabase as any)
-        .from('user_institution_access')
-        .update({ is_active: false })
-        .eq('user_id', userId);
-      if (fb) throw fb;
-      return NextResponse.json({
-        data: { user_id: userId, revoked: true },
-        metadata: { warning: 'expires_at column missing — only is_active flipped.' },
-      });
-    }
-    if (updErr) throw updErr;
-    return NextResponse.json({ data: { user_id: userId, revoked: true } });
+    // Offboarding an external auditor goes through revoke_all_user_institution_access
+    // (SECURITY DEFINER) rather than writing to user_institution_access directly.
+    // Two reasons, both load-bearing:
+    //
+    //   1. The direct write could never have worked. withAuth hands us the
+    //      CALLER'S RLS-scoped client ("never uses SERVICE_ROLE_KEY for data
+    //      queries"), and user_institution_access has no UPDATE/DELETE policy
+    //      for `authenticated` and no SELECT policy for other people's rows.
+    //      The old update matched zero rows, PostgREST does not treat that as
+    //      an error, and this endpoint returned {revoked: true} regardless.
+    //
+    //   2. Even had it worked, flipping is_active is not a revoke: 38 RLS
+    //      policies across 31 tables (all of Internship, WhatsApp automation,
+    //      LTI, off-days, both leave-approval tables) read this table without
+    //      consulting is_active. The RPC deletes the rows, so there is nothing
+    //      left for a policy to miss.
+    //
+    // The delete is recorded in role_audit_log by trg_log_institution_access_change.
+    const { data: removed, error: rpcErr } = await (supabase as any).rpc(
+      'revoke_all_user_institution_access',
+      { target_user_id: userId }
+    );
+    if (rpcErr) throw rpcErr;
+
+    // Report what actually happened. `revoked: 0` is a real answer — it means
+    // the auditor held no cross-institution grants — and is far more useful
+    // than the unconditional `revoked: true` this endpoint used to return.
+    return NextResponse.json({
+      data: { user_id: userId, revoked: true, grants_removed: removed ?? 0 },
+    });
   } catch (error) {
     console.error('[audit/external-auditors/:id] DELETE error:', error);
     return NextResponse.json(

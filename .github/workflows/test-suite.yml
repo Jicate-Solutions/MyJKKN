@@ -64,6 +64,7 @@ name: Test suite
 #          __tests__/organizations/institution-leadership-posts.test.ts  LEADERSHIP_TEST_*
 #          __tests__/organizations/leadership-appointment-basis.test.ts  LEADERSHIP_TEST_*
 #          __tests__/users/permission-holder-count.test.ts               PHC_TEST_*
+#          __tests__/app/accreditation/answering-counts-as-opened.test.ts ACK_SEEN_TEST_*
 #   A sixth file that would need the service has to use one of those prefixes
 #   or add its own here — an unlisted prefix falls back to `runner` and fails
 #   with "role does not exist", loudly, not silently.
@@ -188,6 +189,7 @@ jobs:
       AQS_TEST_PGUSER: postgres
       LEADERSHIP_TEST_PGUSER: postgres
       PHC_TEST_PGUSER: postgres
+      ACK_SEEN_TEST_PGUSER: postgres
 
     steps:
       - uses: actions/checkout@v4

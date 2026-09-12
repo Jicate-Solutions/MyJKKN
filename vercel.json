@@ -66,6 +66,10 @@
       "schedule": "9,39 * * * *"
     },
     {
+      "path": "/api/cron/onemark-live-autoclose?secret=${CRON_SECRET}",
+      "schedule": "4,14,24,34,44,54 * * * *"
+    },
+    {
       "path": "/api/cron/meeting-trigger-reconcile?secret=${CRON_SECRET}",
       "schedule": "23 * * * *"
     },
