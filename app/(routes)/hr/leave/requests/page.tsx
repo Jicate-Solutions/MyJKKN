@@ -208,7 +208,7 @@ export default function LeaveRequestsPage() {
             emptyMessage="No leave requests yet. Use Apply to submit one."
           >
             {rows.map((a) => (
-              <RequestRow key={a.id} status={a.status}>
+              <RequestRow key={a.id} status={a.status} revoked={a.revoked_at !== null}>
                 {/* Opens the detail SHEET rather than navigating to
                     /hr/leave/[id]. The page still exists and renders the same
                     body, so a bookmarked request URL keeps working — but
@@ -235,7 +235,7 @@ export default function LeaveRequestsPage() {
                 <TableCell className="text-muted-foreground">
                   {LEAVE_DURATION_LABELS[a.duration_type] ?? a.duration_type}
                 </TableCell>
-                <TableCell><StatusBadge status={a.status} /></TableCell>
+                <TableCell><StatusBadge status={a.status} revoked={a.revoked_at !== null} /></TableCell>
                 {/* "Pending" says nothing for six days while a request moves up
                     a three-step chain. This says which step it is on; the leave
                     name links to the full timeline. */}

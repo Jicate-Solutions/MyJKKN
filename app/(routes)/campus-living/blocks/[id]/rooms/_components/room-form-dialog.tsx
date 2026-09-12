@@ -43,6 +43,7 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Loader2 } from 'lucide-react';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useActiveHostelCategories } from '@/hooks/campus-living/use-hostel-categories';
 import {
   useCreateHostelRoom,
@@ -86,6 +87,11 @@ const formSchema = z
     // Real bed-count; can differ from sanctioned capacity (a 6-bed dorm
     // fitting 7). String round-trip so '' → null (nullable column).
     actual_capacity: z.string().optional(),
+    // Temporary beds beyond the sanctioned capacity, for a learner who has to
+    // be placed in an already-full room. Adds allocatable beds; deliberately
+    // absent from the fee formula, which stays on `capacity`. Super-admin only.
+    // String round-trip so a cleared input means 0, not NaN.
+    extra_bed_count: z.string().optional(),
     // Kept as a string so an empty input round-trips to null (annual_fee is
     // nullable). z.coerce.number() would turn '' into 0 and hide "no fee set".
     annual_fee: z.string().optional(),
@@ -107,6 +113,16 @@ const formSchema = z
         message: 'Category is required for student rooms',
       });
     }
+    // Mirror the DB CHECK (0..10) so the refusal arrives in the form rather
+    // than as a 23514 toast after the round trip.
+    const extra = Number(data.extra_bed_count ?? '0');
+    if (!Number.isInteger(extra) || extra < 0 || extra > 10) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['extra_bed_count'],
+        message: 'Extra beds must be a whole number from 0 to 10',
+      });
+    }
   });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -121,6 +137,7 @@ const DEFAULTS: FormValues = {
   category_id: '',
   capacity: 2,
   actual_capacity: '',
+  extra_bed_count: '0',
   annual_fee: '',
   renovated: '',
   painting: '',
@@ -147,6 +164,7 @@ export function RoomFormDialog({
   blockType,
   room,
 }: RoomFormDialogProps) {
+  const { isSuperAdmin } = usePermissions();
   const createRoom = useCreateHostelRoom();
   const updateRoom = useUpdateHostelRoom();
   const { hostelCategories: allCategories, loading: categoriesLoading } =
@@ -191,6 +209,7 @@ export function RoomFormDialog({
         capacity: room.capacity,
         actual_capacity:
           room.actual_capacity != null ? String(room.actual_capacity) : '',
+        extra_bed_count: String(room.extra_bed_count ?? 0),
         annual_fee: room.annual_fee != null ? String(room.annual_fee) : '',
         renovated: room.renovated ?? '',
         painting: room.painting ?? '',
@@ -239,6 +258,12 @@ export function RoomFormDialog({
             : null,
         has_attached_bathroom: data.has_attached_bathroom,
         is_accessible: data.is_accessible,
+        // Super-admin only. The key is OMITTED entirely for everyone else --
+        // a BEFORE trigger raises 42501 on any change to it, so sending even
+        // an unchanged value would refuse a warden's edit of the other fields.
+        ...(isSuperAdmin
+          ? { extra_bed_count: Number(data.extra_bed_count || '0') }
+          : {}),
       };
 
       if (mode === 'create') {
@@ -489,6 +514,31 @@ export function RoomFormDialog({
                   </FormItem>
                 )}
               />
+
+              {isSuperAdmin && (
+                <FormField
+                  control={form.control}
+                  name="extra_bed_count"
+                  render={({ field }) => (
+                    <FormItem className="sm:col-span-2">
+                      <FormLabel>Extra Beds (temporary)</FormLabel>
+                      <FormControl>
+                        <Input type="number" min={0} max={10} {...field} />
+                      </FormControl>
+                      <p className="text-xs text-muted-foreground">
+                        Beds added on top of the sanctioned capacity so a learner
+                        can be placed in a room that is already full. They become
+                        real, allocatable beds (numbered E1, E2&hellip;) and count
+                        toward availability &mdash; they do <strong>not</strong>{' '}
+                        change the room fee, which stays based on the capacity
+                        above. Set it back to 0 once the bed is removed; that is
+                        refused while someone is still allocated to it.
+                      </p>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
 
               <FormField
                 control={form.control}

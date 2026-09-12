@@ -6,11 +6,23 @@ import { HousekeepingBookingService } from '@/lib/services/campus-living/houseke
 import { bookingErrorMessage } from '@/lib/services/campus-living/housekeeping-rules';
 import { getErrorMessage } from '@/lib/utils';
 import { isRpcFailure } from '@/types/campus-living/housekeeping';
+import type { RescheduleBookingDto } from '@/types/campus-living/housekeeping';
 
 export const housekeepingBookingKeys = {
   all: ['housekeeping-bookings'] as const,
-  slots: (roomId?: string, typeId?: string, date?: string) =>
-    ['housekeeping-bookings', 'slots', roomId ?? '-', typeId ?? '-', date ?? '-'] as const,
+  /** excludeBookingId is part of the key: the same room/type/date grid differs
+   *  depending on whether a booking is being left out of the capacity count. */
+  slots: (roomId?: string, typeId?: string, date?: string, excludeBookingId?: string) =>
+    [
+      'housekeeping-bookings',
+      'slots',
+      roomId ?? '-',
+      typeId ?? '-',
+      date ?? '-',
+      excludeBookingId ?? '-',
+    ] as const,
+  reschedules: (bookingId?: string) =>
+    ['housekeeping-bookings', 'reschedules', bookingId ?? 'none'] as const,
   /** The admin table's status tiles. Keyed on the filters only — the page and
    *  page size must NOT be in here, or the totals would change as you page. */
   statusCounts: (filters: Record<string, unknown>) =>
@@ -44,12 +56,32 @@ function invalidateBookingSurfaces(qc: ReturnType<typeof useQueryClient>) {
   qc.invalidateQueries({ queryKey: ['hostel-attendance'] });
 }
 
-export function useSlotGrid(roomId?: string, typeId?: string, date?: string) {
+export function useSlotGrid(
+  roomId?: string,
+  typeId?: string,
+  date?: string,
+  excludeBookingId?: string,
+) {
   return useQuery({
-    queryKey: housekeepingBookingKeys.slots(roomId, typeId, date),
+    queryKey: housekeepingBookingKeys.slots(roomId, typeId, date, excludeBookingId),
     queryFn: () =>
-      HousekeepingBookingService.getSlots(roomId as string, typeId as string, date as string),
+      HousekeepingBookingService.getSlots(
+        roomId as string,
+        typeId as string,
+        date as string,
+        excludeBookingId,
+      ),
     enabled: Boolean(roomId && typeId && date),
+  });
+}
+
+/** Every move a booking has made, oldest first. Both the admin timeline and
+ *  the learner's history read this. */
+export function useBookingReschedules(bookingId?: string) {
+  return useQuery({
+    queryKey: housekeepingBookingKeys.reschedules(bookingId),
+    queryFn: () => HousekeepingBookingService.listReschedules(bookingId as string),
+    enabled: Boolean(bookingId),
   });
 }
 
@@ -107,6 +139,36 @@ export function useBookingPhotos(bookingId: string) {
     queryKey: housekeepingBookingKeys.photos(bookingId),
     queryFn: () => HousekeepingBookingService.listPhotos(bookingId),
     enabled: Boolean(bookingId),
+  });
+}
+
+/**
+ * Remove one before/after photo.
+ *
+ * Routed through the API rather than the service because the Drive file has to
+ * go with the row, and only the server holds the Drive credentials. The route's
+ * own copy is already actionable (the last-photo 409), so it is surfaced as-is.
+ */
+export function useDeleteBookingPhoto() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ photoId }: { photoId: string; bookingId: string }) => {
+      const res = await fetch(`/api/campus-living/housekeeping/photos/${photoId}`, {
+        method: 'DELETE',
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error ?? 'Could not remove the photo.');
+      return json;
+    },
+    onSuccess: (_data, { bookingId }) => {
+      toast.success('Photo removed');
+      qc.invalidateQueries({ queryKey: housekeepingBookingKeys.photos(bookingId) });
+      qc.invalidateQueries({ queryKey: housekeepingBookingKeys.detail(bookingId) });
+      // The table's Before/After counts come off the board rows, not the photo
+      // query — without this the cell keeps the old count until a reload.
+      qc.invalidateQueries({ queryKey: housekeepingBookingKeys.all });
+    },
+    onError: (error) => toast.error(getErrorMessage(error)),
   });
 }
 
@@ -180,6 +242,36 @@ export function useAssignCleaner() {
       }
     },
     onError: (error) => toast.error(`Could not assign: ${getErrorMessage(error)}`),
+  });
+}
+
+/**
+ * Move a booking, then tell the room.
+ *
+ * The notification is fired only on success and is never awaited into the
+ * result: sendNotification failing must not report a completed reschedule as an
+ * error. The RPC's own refusals come back as { success: false } and are turned
+ * into copy by bookingErrorMessage, exactly like assign and cancel.
+ */
+export function useRescheduleBooking() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (dto: RescheduleBookingDto) => HousekeepingBookingService.reschedule(dto),
+    onSuccess: (result, dto) => {
+      invalidateBookingSurfaces(qc);
+      qc.invalidateQueries({ queryKey: housekeepingBookingKeys.reschedules(dto.bookingId) });
+      if (isRpcFailure(result)) {
+        toast.error(bookingErrorMessage(result.error_code, 'Could not reschedule this booking'));
+        return;
+      }
+      void HousekeepingBookingService.notifyRescheduled(dto.bookingId);
+      toast.success(
+        result.cleaner_name
+          ? `Moved to ${result.booking_date} at ${result.slot_start} — ${result.cleaner_name}`
+          : `Moved to ${result.booking_date} at ${result.slot_start}`,
+      );
+    },
+    onError: (error) => toast.error(`Could not reschedule: ${getErrorMessage(error)}`),
   });
 }
 

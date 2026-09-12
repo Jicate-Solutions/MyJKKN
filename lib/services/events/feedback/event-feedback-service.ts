@@ -109,6 +109,31 @@ function formatAnswer(value: unknown): string {
 }
 
 export class EventFeedbackService {
+  // ─── Authority ──────────────────────────────────────────────
+
+  /**
+   * May the signed-in user WRITE this event's feedback forms?
+   *
+   * Delegates to the same SECURITY DEFINER function the event_feedback_*_manage
+   * policies call, so the UI can never disagree with RLS about who is a
+   * coordinator. It exists only to decide what to SHOW: the database still
+   * refuses every write from a caller this returns false for, and still allows
+   * every write from one it returns true for.
+   *
+   * The page's own canEditEvent() is NOT a substitute — it knows the creator,
+   * the super admin and same-institution rows, but not the appointed in-charge
+   * in events.config->'incharges', who is precisely the person the builder is
+   * for.
+   */
+  static async canManage(eventId: string): Promise<boolean> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await (supabase as any).rpc('fn_can_manage_event_feedback', {
+      p_event_id: eventId,
+    });
+    if (error) throw error;
+    return data === true;
+  }
+
   // ─── Forms ──────────────────────────────────────────────────
 
   /** Every feedback form on the event, in display order, with question + response counts. */
@@ -525,6 +550,51 @@ export class EventFeedbackService {
       .maybeSingle();
     if (error) throw error;
     return (data as EventFeedbackResponse | null) ?? null;
+  }
+
+  /**
+   * Would self-registration succeed for the caller on this form? Read-only.
+   *
+   * Asked when myRegistrationId() came back null. An event run WITHOUT
+   * collecting registrations has no participant rows at all, and since a
+   * response keys on events_registrations.id that used to mean nobody could ever
+   * rate it. This distinguishes "you are not on the list, but you may join" from
+   * "this form is not for you".
+   *
+   * Deliberately NOT the writing twin: calling that on page load would mint a
+   * registration for everyone who merely opened the form and closed it, which
+   * would corrupt the event's turnout figure.
+   */
+  static async canSelfRegister(formId: string): Promise<boolean> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await (supabase as any).rpc(
+      'fn_can_self_register_for_event_feedback',
+      { p_form_id: formId }
+    );
+    if (error) throw error;
+    return data === true;
+  }
+
+  /**
+   * Create the caller's own registration on the event behind this form, and
+   * return its id — or the id they already had.
+   *
+   * Called at SUBMIT, not on page load, so the participant list only gains
+   * people who actually answered. Idempotent in the database, so a double tap
+   * cannot produce two participants.
+   *
+   * Returns null when the database refuses (closed form, wrong audience, draft
+   * event, or attendance was taken before the form opened). The caller must
+   * treat null as "you may not answer" rather than retrying.
+   */
+  static async selfRegister(formId: string): Promise<string | null> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await (supabase as any).rpc(
+      'fn_self_register_for_event_feedback',
+      { p_form_id: formId }
+    );
+    if (error) throw error;
+    return (data as string | null) ?? null;
   }
 
   /**

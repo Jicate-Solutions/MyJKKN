@@ -818,8 +818,19 @@ CREATE TABLE IF NOT EXISTS public.timetables (
     usage_count INTEGER DEFAULT 0,
     created_from_template_id UUID,
     -- Updated: 2026-03-22 - Added cycle-based timetable support
-    num_cycles INTEGER DEFAULT NULL CHECK (num_cycles IS NULL OR (num_cycles >= 1 AND num_cycles <= 52))
+    num_cycles INTEGER DEFAULT NULL CHECK (num_cycles IS NULL OR (num_cycles >= 1 AND num_cycles <= 52)),
+    -- Updated: 2026-09-11 - Declared section scope. For a semester-level row
+    -- (section_id NULL) this IS the uniqueness scope: two semester-level
+    -- timetables for one semester clash only when their dates overlap AND these
+    -- sets intersect. That is what lets three parallel section groups in one
+    -- semester (A..H, ADD 4A..H, TROIZ A..H) each hold their own timetable on
+    -- identical dates. NULL means "not declared"; callers then fall back to the
+    -- union of the slots' own section_ids.
+    section_ids UUID[]
 );
+
+CREATE INDEX IF NOT EXISTS idx_timetables_section_ids
+    ON public.timetables USING gin (section_ids);
 
 -- Timetable Slot Continuity
 CREATE TABLE IF NOT EXISTS public.timetable_slot_continuity (
@@ -1479,6 +1490,7 @@ CREATE TABLE IF NOT EXISTS public.bug_reports (
         WHEN page_url ~ '/my-bug-reports/' THEN 'my-bug-reports'
         WHEN page_url ~ '/notifications/' THEN 'notifications'
         WHEN page_url ~ '/okr/' THEN 'okr'
+        WHEN page_url ~ '/online-meetings/' THEN 'online-meetings'
         WHEN page_url ~ '/organizations?/' THEN 'organizations'
         WHEN page_url ~ '/profile/' THEN 'profile'
         WHEN page_url ~ '/resource-management/' THEN 'resource-management'
@@ -1535,6 +1547,7 @@ CREATE TABLE IF NOT EXISTS public.bug_reports (
         WHEN page_url ~ '/my-bug-reports/' THEN substring(page_url FROM '/my-bug-reports/([^/?#]+)')
         WHEN page_url ~ '/notifications/' THEN substring(page_url FROM '/notifications/([^/?#]+)')
         WHEN page_url ~ '/okr/' THEN substring(page_url FROM '/okr/([^/?#]+)')
+        WHEN page_url ~ '/online-meetings/' THEN substring(page_url FROM '/online-meetings/([^/?#]+)')
         WHEN page_url ~ '/organizations?/' THEN substring(page_url FROM '/organizations?/([^/?#]+)')
         WHEN page_url ~ '/profile/' THEN substring(page_url FROM '/profile/([^/?#]+)')
         WHEN page_url ~ '/resource-management/' THEN substring(page_url FROM '/resource-management/([^/?#]+)')
@@ -8660,6 +8673,32 @@ COMMENT ON COLUMN public.hr_comp_off_credits.documents IS
   'Supporting documents (LeaveDocument[] shape, Google Drive-backed) attached when the credit was claimed. Empty array for hr_grant/attendance sources.';
 
 -- =============================================================================
+-- Mirrored from supabase/migrations/20260911160000_hr_comp_off_claim_work_location.sql
+-- (columns + CHECKs; the require-on-insert trigger is in 02_functions.sql /
+-- 04_triggers.sql). Required on NEW claims only -- older rows keep NULL.
+-- =============================================================================
+
+ALTER TABLE public.hr_comp_off_credits
+  ADD COLUMN IF NOT EXISTS work_location text,
+  ADD COLUMN IF NOT EXISTS work_place    text;
+
+ALTER TABLE public.hr_comp_off_credits
+  ADD CONSTRAINT hr_comp_off_credits_work_location_check
+    CHECK (work_location IS NULL OR work_location IN ('inside_campus', 'outside_campus')),
+  ADD CONSTRAINT hr_comp_off_credits_outside_needs_place
+    CHECK (work_location IS DISTINCT FROM 'outside_campus'
+           OR NULLIF(btrim(work_place), '') IS NOT NULL),
+  ADD CONSTRAINT hr_comp_off_credits_place_only_outside
+    CHECK (work_place IS NULL OR work_location = 'outside_campus'),
+  ADD CONSTRAINT hr_comp_off_credits_work_place_length
+    CHECK (work_place IS NULL OR char_length(work_place) <= 200);
+
+COMMENT ON COLUMN public.hr_comp_off_credits.work_location IS
+  'Where the claimed day was worked: inside_campus | outside_campus. Required on new source=claim rows (trg_hcoc_require_work_location); NULL on claims filed before 2026-09-11 and on hr_grant/attendance credits.';
+COMMENT ON COLUMN public.hr_comp_off_credits.work_place IS
+  'Where, in words, when work_location = outside_campus (required then, NULL otherwise).';
+
+-- =============================================================================
 -- Mirrored from supabase/migrations/20260827170000_hr_attendance_regularizations_staff_rewire.sql
 -- (FK half; the SELECT/INSERT policies are mirrored in 03_policies.sql)
 -- =============================================================================
@@ -9514,6 +9553,64 @@ CREATE INDEX idx_hk_feedback_learner     ON public.hostel_cleaning_feedback (lea
 ALTER TABLE public.hostel_cleaning_feedback ENABLE ROW LEVEL SECURITY;
 
 -- ==========================================================================
+-- 10. hostel_cleaning_booking_reschedules  (one row per move)
+--     Updated: 2026-09-09 — see supabase/migrations/20260909160010_housekeeping_reschedule_schema.sql
+--
+--     Never updated. A booking pushed twice has two reasons and the learner
+--     is shown both, which is why this is a table and not columns on the
+--     booking. The cleaner NAMES are snapshots for the same reason
+--     bookings.cleaner_name is one: learners must never need SELECT on
+--     hostel_cleaners, which holds staff phone numbers.
+-- ==========================================================================
+CREATE TABLE public.hostel_cleaning_booking_reschedules (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  booking_id        uuid NOT NULL REFERENCES public.hostel_cleaning_bookings(id) ON DELETE CASCADE,
+  institution_id    uuid NOT NULL REFERENCES public.institutions(id),
+
+  from_date         date NOT NULL,
+  from_slot_start   time NOT NULL,
+  from_slot_end     time NOT NULL,
+  to_date           date NOT NULL,
+  to_slot_start     time NOT NULL,
+  to_slot_end       time NOT NULL,
+
+  from_cleaner_id   uuid REFERENCES public.hostel_cleaners(id),
+  from_cleaner_name text,
+  to_cleaner_id     uuid REFERENCES public.hostel_cleaners(id),
+  to_cleaner_name   text,
+
+  reason_code       text NOT NULL CHECK (reason_code IN (
+                      'cleaner_unavailable',
+                      'cleaner_on_leave',
+                      'slot_full',
+                      'learner_requested',
+                      'emergency',
+                      'other')),
+  reason_note       text,
+
+  rescheduled_by    uuid NOT NULL REFERENCES public.profiles(id),
+  created_at        timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT ck_hk_reschedule_note_for_other
+    CHECK (reason_code <> 'other'
+           OR nullif(btrim(COALESCE(reason_note, '')), '') IS NOT NULL),
+  CONSTRAINT ck_hk_reschedule_slot_moved
+    CHECK ((to_date, to_slot_start) IS DISTINCT FROM (from_date, from_slot_start))
+);
+
+CREATE INDEX idx_hk_reschedules_booking      ON public.hostel_cleaning_booking_reschedules (booking_id, created_at);
+
+CREATE INDEX idx_hk_reschedules_institution  ON public.hostel_cleaning_booking_reschedules (institution_id);
+
+CREATE INDEX idx_hk_reschedules_by           ON public.hostel_cleaning_booking_reschedules (rescheduled_by);
+
+CREATE INDEX idx_hk_reschedules_from_cleaner ON public.hostel_cleaning_booking_reschedules (from_cleaner_id);
+
+CREATE INDEX idx_hk_reschedules_to_cleaner   ON public.hostel_cleaning_booking_reschedules (to_cleaner_id);
+
+ALTER TABLE public.hostel_cleaning_booking_reschedules ENABLE ROW LEVEL SECURITY;
+
+-- ==========================================================================
 -- ANON LOCK
 --
 -- Supabase ships `ALTER DEFAULT PRIVILEGES ... GRANT ALL ON TABLES TO anon`,
@@ -9532,6 +9629,8 @@ ALTER TABLE public.hostel_cleaning_feedback ENABLE ROW LEVEL SECURITY;
 --              _cancel), and no policy exists for them either.
 --   feedback — no UPDATE/DELETE: a rating is a record of what someone said at
 --              the time, not an editable field.
+--   reschedules — SELECT only: rows are written by fn_cl_housekeeping_reschedule
+--              alone, and the table has no write policy either.
 -- ==========================================================================
 REVOKE ALL ON TABLE public.hostel_cleaning_types            FROM anon, PUBLIC;
 REVOKE ALL ON TABLE public.hostel_cleaning_type_expenses    FROM anon, PUBLIC;
@@ -9542,6 +9641,7 @@ REVOKE ALL ON TABLE public.hostel_cleaning_availability     FROM anon, PUBLIC;
 REVOKE ALL ON TABLE public.hostel_cleaning_bookings         FROM anon, PUBLIC;
 REVOKE ALL ON TABLE public.hostel_cleaning_booking_photos   FROM anon, PUBLIC;
 REVOKE ALL ON TABLE public.hostel_cleaning_feedback         FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.hostel_cleaning_booking_reschedules FROM anon, PUBLIC;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.hostel_cleaning_types            TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.hostel_cleaning_type_expenses    TO authenticated;
@@ -9552,6 +9652,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.hostel_cleaning_availabilit
 GRANT SELECT, UPDATE                 ON TABLE public.hostel_cleaning_bookings         TO authenticated;
 GRANT SELECT, INSERT, DELETE         ON TABLE public.hostel_cleaning_booking_photos   TO authenticated;
 GRANT SELECT, INSERT                 ON TABLE public.hostel_cleaning_feedback         TO authenticated;
+GRANT SELECT                         ON TABLE public.hostel_cleaning_booking_reschedules TO authenticated;
 
 -- ============================================================================
 -- Events · institutional event number + target classes + two empty catalogues
@@ -9701,3 +9802,114 @@ CREATE TABLE IF NOT EXISTS public.hr_leave_approver_scopes (
 REVOKE ALL ON public.hr_leave_approver_scopes FROM anon, PUBLIC;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_leave_approver_scopes TO authenticated;
 ALTER TABLE public.hr_leave_approver_scopes ENABLE ROW LEVEL SECURITY;
+
+
+-- ===== 20261128000000_hostel_category_room_sources =====
+-- No institution_id: hostel_categories itself has none. Categories are global
+-- and scoped by gender ('type'), and every pool query still filters rooms by
+-- fn_room_serves_institution(), so tenancy is enforced on the ROOM, not here.
+
+CREATE TABLE IF NOT EXISTS public.hostel_category_room_sources (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  category_id         uuid NOT NULL REFERENCES public.hostel_categories(id) ON DELETE CASCADE,
+  source_category_id  uuid NOT NULL REFERENCES public.hostel_categories(id) ON DELETE CASCADE,
+  sort_order          integer NOT NULL DEFAULT 0,
+  is_active           boolean NOT NULL DEFAULT true,
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  updated_at          timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hcrs_not_self CHECK (category_id <> source_category_id),
+  CONSTRAINT hcrs_unique_pair UNIQUE (category_id, source_category_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_hcrs_category_active
+  ON public.hostel_category_room_sources (category_id) WHERE is_active;
+CREATE INDEX IF NOT EXISTS idx_hcrs_source
+  ON public.hostel_category_room_sources (source_category_id);
+
+ALTER TABLE public.hostel_category_room_sources ENABLE ROW LEVEL SECURITY;
+
+DROP TRIGGER IF EXISTS trg_hcrs_updated_at ON public.hostel_category_room_sources;
+CREATE TRIGGER trg_hcrs_updated_at
+  BEFORE UPDATE ON public.hostel_category_room_sources
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+COMMENT ON TABLE public.hostel_category_room_sources IS
+  'Extra room categories a category may seat its learners in. The learner keeps the '
+  'billing category and its benefits; only the physical room comes from elsewhere. '
+  'Read it through fn_cl_category_room_sources(), never directly — that function '
+  'also yields the native source (COALESCE(room_source_category_id, id)).';
+
+-- ============================================================================
+-- hr_decision_emails — outbox of approved/rejected emails to the applicant
+-- (migration 20260911200000_hr_decision_email_outbox.sql). Policies in
+-- 03_policies.sql, enqueue triggers in 04_triggers.sql, functions in
+-- 02_functions.sql. Sent by lib/services/hr/decision-email-service.ts.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.hr_decision_emails (
+  id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  leave_application_id uuid REFERENCES public.hr_leave_applications(id) ON DELETE CASCADE,
+  comp_off_credit_id   uuid REFERENCES public.hr_comp_off_credits(id) ON DELETE CASCADE,
+  employee_id          uuid NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
+  decision             text NOT NULL CHECK (decision IN ('approved', 'rejected')),
+  to_email             text,
+  status               text NOT NULL DEFAULT 'pending'
+                         CHECK (status IN ('pending', 'sent', 'failed', 'skipped')),
+  attempts             smallint NOT NULL DEFAULT 0,
+  next_attempt_at      timestamptz NOT NULL DEFAULT now(),
+  last_error           text,
+  resend_id            text,
+  created_at           timestamptz NOT NULL DEFAULT now(),
+  sent_at              timestamptz,
+  CONSTRAINT hr_decision_emails_one_record
+    CHECK (num_nonnulls(leave_application_id, comp_off_credit_id) = 1),
+  CONSTRAINT hr_decision_emails_pending_has_address
+    CHECK (status <> 'pending' OR to_email IS NOT NULL)
+);
+
+ALTER TABLE public.hr_decision_emails ENABLE ROW LEVEL SECURITY;
+
+CREATE UNIQUE INDEX IF NOT EXISTS hr_decision_emails_leave_uq
+  ON public.hr_decision_emails (leave_application_id, decision)
+  WHERE leave_application_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS hr_decision_emails_comp_off_uq
+  ON public.hr_decision_emails (comp_off_credit_id, decision)
+  WHERE comp_off_credit_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS hr_decision_emails_employee_idx
+  ON public.hr_decision_emails (employee_id);
+CREATE INDEX IF NOT EXISTS hr_decision_emails_due_idx
+  ON public.hr_decision_emails (next_attempt_at)
+  WHERE status = 'pending';
+
+
+-- =====================================================================================
+-- Mirrored from supabase/migrations/20260912100000_hr_leave_revoke_approved_decision.sql  (2026-09-12)
+-- Revoking an APPROVED leave / short-time-off / comp-off-claim decision.
+-- A revocation stores status='rejected'; revoked_at is what tells the two apart.
+-- =====================================================================================
+-- -------------------------------------------------------------------------------------
+-- 1. Audit columns
+--
+-- The status stays 'rejected' — inside the existing CHECK, understood by every trigger,
+-- report and filter already written. `revoked_at IS NOT NULL` is the ONE fact that
+-- separates "approved, then taken back" from "refused on day one", which are materially
+-- different things to the applicant and must not render identically.
+-- -------------------------------------------------------------------------------------
+ALTER TABLE public.hr_leave_applications
+  ADD COLUMN IF NOT EXISTS revoked_at    timestamptz,
+  ADD COLUMN IF NOT EXISTS revoked_by    uuid REFERENCES public.profiles(id),
+  ADD COLUMN IF NOT EXISTS revoke_reason text;
+
+ALTER TABLE public.hr_comp_off_credits
+  ADD COLUMN IF NOT EXISTS revoked_at    timestamptz,
+  ADD COLUMN IF NOT EXISTS revoked_by    uuid REFERENCES public.profiles(id),
+  ADD COLUMN IF NOT EXISTS revoke_reason text;
+
+COMMENT ON COLUMN public.hr_leave_applications.revoked_at IS
+  'Set when an APPROVED request was taken back. status is ''rejected''; this is what tells a revocation apart from an ordinary rejection.';
+COMMENT ON COLUMN public.hr_comp_off_credits.revoked_at IS
+  'Set when an APPROVED credit claim was taken back. status is ''rejected''.';
+
+ALTER TABLE public.hr_decision_emails
+  DROP CONSTRAINT IF EXISTS hr_decision_emails_decision_check;
+ALTER TABLE public.hr_decision_emails
+  ADD CONSTRAINT hr_decision_emails_decision_check
+  CHECK (decision = ANY (ARRAY['approved'::text, 'rejected'::text, 'revoked'::text]));

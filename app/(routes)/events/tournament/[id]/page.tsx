@@ -74,6 +74,7 @@ import { EditTournamentDialog } from '../_components/edit-tournament-dialog';
 import { NaacCriteriaChips } from '@/components/events/shared/naac-criteria-field';
 import { EventLogistics } from '@/components/events/shared/event-logistics';
 import { EventTasksCard } from '@/components/events/shared/event-tasks-card';
+import { EventReviewCommentsCard } from '@/components/events/shared/event-review-comments-card';
 import { useTournamentAccess } from '@/hooks/events/use-tournament-access';
 
 function divisionLabel(d: TournamentDivision): string {
@@ -616,6 +617,12 @@ export default function TournamentManagePage() {
         canManage={canManage}
         canEditTasks={canManage || access.isTaskOnly}
       />
+
+      {/* Review comments — the reviewing authority's remarks on this tournament
+          and the in-charge's replies. Takes no permission props: it asks the
+          same SQL function the SELECT policy uses, so a committee member with
+          task-only access sees nothing here. */}
+      <EventReviewCommentsCard eventId={id} />
 
       {/* onSaved is a no-op: useUpdateTournament/useUpdateDivision already
           invalidate this page's detail query. */}

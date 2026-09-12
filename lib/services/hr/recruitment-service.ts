@@ -399,182 +399,66 @@ export class RecruitmentService {
 
   // ----- Approve / Reject -----
 
+  /**
+   * Approve the candidate's current approval-chain step.
+   *
+   * Delegates to the SECURITY DEFINER RPC `fn_decide_recruitment_candidate`, which
+   * self-authorizes against the frozen `approval_chain` and performs the write.
+   *
+   * This used to authorize in TypeScript and then UPDATE through the caller's own
+   * RLS-bound client. That UPDATE policy requires `hr.recruitment.edit`, which the
+   * approver roles `hod`, `board` and `medical_superintendent` do not hold — they
+   * hold `hr.recruitment.approve` only. So the service said "authorized", the policy
+   * matched zero rows, `.single()` raised PGRST116, and the route turned a
+   * PostgrestError (not an `Error` instance) into `{"error":"Unknown error"}`. Every
+   * teaching_faculty chain opens on a `hod` step, so no HOD could ever approve.
+   * `updateStepComment` below already had to solve exactly this for the review
+   * comment; the decision itself was left behind.
+   *
+   * The authorization rules (pinned approver / role holder / super admin / override
+   * key, and the comment an override must carry) now live in the function body, in
+   * SQL — a definer function that wrote a chain handed to it by the client would let
+   * any caller approve themselves. See the migration for the full rationale.
+   *
+   * @param _approverId — unused: the RPC resolves the actor from `auth.uid()`, which
+   *   is the same user the route authenticated. Kept so callers need no change.
+   */
   static async approveCandidate(
     supabase: SupabaseClient,
     id: string,
-    approverId: string,
+    _approverId: string,
     comment?: string
   ): Promise<HRRecruitmentCandidate> {
-    const candidate = await this.getCandidate(supabase, id);
-    if (!candidate) throw new Error('Candidate not found');
-
-    // ---------------------------------------------------------------------
-    // Step-approver enforcement (dynamic flows, 2026-07-06 — ALWAYS ON).
-    // The flow builder (/hr/admin/recruitment-approval-flows) is the single
-    // source of truth for who acts at each step; the old platform_policies
-    // toggle + /hr/admin/recruitment-approvals-scope page were removed.
-    //   - step pinned to a user → only that user
-    //   - role step            → holders of that role_key
-    //   - super-admin          → always allowed (implicit)
-    //   - override key holder   → allowed as an OVERRIDE (2026-07-16):
-    //     hr.recruitment.approve.override (hr_head / hr_admin / coo). Acting
-    //     on another approver's step requires a comment and preserves the
-    //     original routing in the chain (see stamping below).
-    // ---------------------------------------------------------------------
-    let isOverride = false;
-    {
-      const chainForCheck = candidate.approval_chain ?? [];
-      const stepForCheck = chainForCheck[candidate.current_step];
-      if (stepForCheck?.status === 'pending') {
-        const pinnedUserId = stepForCheck.approver_user_id ?? null;
-        let ownStep = pinnedUserId === approverId;
-
-        if (!ownStep && !pinnedUserId) {
-          const expectedRole = (stepForCheck.approver_role ?? '').toLowerCase();
-          const { data: roleRows } = await supabase
-            .from('user_roles')
-            .select('custom_roles!inner(role_key)')
-            .eq('user_id', approverId);
-          const roleKeys = (
-            (roleRows ?? []) as unknown as Array<{ custom_roles?: { role_key?: string } }>
-          )
-            .map((r) => r.custom_roles?.role_key?.toLowerCase())
-            .filter((k): k is string => !!k);
-          ownStep = !!expectedRole && roleKeys.includes(expectedRole);
-        }
-
-        let authorized = ownStep;
-        if (!authorized) {
-          // Override path: super-admin (implicit) OR holders of the
-          // hr.recruitment.approve.override key. Both RPCs resolve against
-          // auth.uid(), which equals approverId in the approve route.
-          const { data: isSuperAdmin } = await supabase.rpc('is_super_admin');
-          const { data: hasOverride } = await supabase.rpc('user_has_permission', {
-            permission_name: 'hr.recruitment.approve.override',
-          });
-          authorized = !!isSuperAdmin || !!hasOverride;
-          isOverride = authorized;
-        }
-
-        if (!authorized) {
-          throw new Error(
-            stepForCheck.approver_user_id
-              ? 'This step is assigned to a specific approver and can only be actioned by them.'
-              : `Only users with role '${stepForCheck.approver_role}' can action this step. ` +
-                'Adjust the chain at /hr/admin/recruitment-approval-flows if routing is wrong.'
-          );
-        }
-
-        // Override must carry a reason so the audit trail explains why someone
-        // acted on another approver's step.
-        if (isOverride && !(comment && comment.trim())) {
-          throw new Error(
-            "A comment is required when overriding another approver's step. " +
-            'Please explain why you are approving on their behalf.'
-          );
-        }
-      }
-    }
-
-    if (!['pending_approval', 'submitted'].includes(candidate.status)) {
-      throw new Error(`Cannot approve candidate in status '${candidate.status}'`);
-    }
-
-    const chain = [...(candidate.approval_chain ?? [])];
-    const step = chain[candidate.current_step];
-    if (!step) {
-      // BUG-003310 / BUG-003302 — Friendlier wording when the chain is already complete
-      // (covers stale React Query cache showing the candidate as pending after a previous
-      // approver finished the chain, OR a re-click on an already-fully-approved candidate).
-      if (candidate.status === 'approved' || candidate.current_step >= chain.length) {
-        throw new Error('This candidate has already been fully approved.');
-      }
-      throw new Error('Approval chain exhausted — no pending step found');
-    }
-
-    // Interview is OPTIONAL (2026-07-16): an approver may schedule/record an
-    // interview for their step, but it never blocks approval. `interview_required`
-    // now only drives the optional "Schedule Interview" affordance in the UI —
-    // it is not a hard gate. (Previously it blocked approval until a completed
-    // sitting existed; the user made interviews optional for all approvers.)
-
-    const nowIso = new Date().toISOString();
-    step.status = 'approved';
-    step.decided_at = nowIso;
-    step.decided_by = approverId;
-    step.comment = comment ?? null;
-    if (isOverride) {
-      // Record the override; DO NOT clobber approver_user_id — that would
-      // erase who the step was originally routed to. decided_by already
-      // records who really acted.
-      step.overridden = true;
-      step.overridden_by = approverId;
-      step.overridden_at = nowIso;
-      step.intended_approver_user_id = step.approver_user_id ?? null;
-      step.intended_approver_role = step.approver_role ?? null;
-    } else {
-      step.approver_user_id = approverId;
-    }
-
-    const nextStep = candidate.current_step + 1;
-    const isFinal = nextStep >= chain.length;
-
-    const update: HRRecruitmentCandidateUpdate & Record<string, unknown> = {
-      approval_chain: chain,
-      current_step: nextStep,
-    };
-    if (isFinal) {
-      update.status = 'approved';
-      update.final_approver_id = approverId;
-      update.final_decided_at = new Date().toISOString();
-    } else {
-      update.status = 'pending_approval';
-    }
-
-    const { data, error } = await supabase
-      .from('hr_recruitment_candidates')
-      .update(update)
-      .eq('id', id)
-      .select()
-      .single();
+    const { data, error } = await supabase.rpc('fn_decide_recruitment_candidate', {
+      p_candidate_id: id,
+      p_decision: 'approve',
+      p_comment: comment ?? null,
+    });
     if (error) throw error;
     return data as HRRecruitmentCandidate;
   }
 
+  /**
+   * Reject the candidate outright, stamping the current step with the reason.
+   *
+   * Same RPC, same reason as `approveCandidate`. Note the RPC also applies the
+   * step-approver gate to rejection, which the old implementation never did — it
+   * was bounded only by the `hr.recruitment.edit` RLS predicate the function now
+   * bypasses, so leaving rejection ungated would have opened a hole.
+   *
+   * @param _approverId — unused; see `approveCandidate`.
+   */
   static async rejectCandidate(
     supabase: SupabaseClient,
     id: string,
-    approverId: string,
+    _approverId: string,
     reason: string
   ): Promise<HRRecruitmentCandidate> {
-    const candidate = await this.getCandidate(supabase, id);
-    if (!candidate) throw new Error('Candidate not found');
-    if (!['pending_approval', 'submitted'].includes(candidate.status)) {
-      throw new Error(`Cannot reject candidate in status '${candidate.status}'`);
-    }
-
-    const chain = [...(candidate.approval_chain ?? [])];
-    const step = chain[candidate.current_step];
-    if (step) {
-      step.status = 'rejected';
-      step.decided_at = new Date().toISOString();
-      step.decided_by = approverId;
-      step.comment = reason;
-      step.approver_user_id = approverId;
-    }
-
-    const { data, error } = await supabase
-      .from('hr_recruitment_candidates')
-      .update({
-        status: 'rejected',
-        approval_chain: chain,
-        rejection_reason: reason,
-        final_approver_id: approverId,
-        final_decided_at: new Date().toISOString(),
-      })
-      .eq('id', id)
-      .select()
-      .single();
+    const { data, error } = await supabase.rpc('fn_decide_recruitment_candidate', {
+      p_candidate_id: id,
+      p_decision: 'reject',
+      p_comment: reason,
+    });
     if (error) throw error;
     return data as HRRecruitmentCandidate;
   }
@@ -771,7 +655,15 @@ export class RecruitmentService {
     return (data as unknown as HRJobApplication) ?? null;
   }
 
-  /** Screening decision: shortlist / reject / mark reviewed, with optional notes. */
+  /**
+   * Screening decision: shortlist / reject / mark reviewed, with optional notes.
+   *
+   * `reviewNotes` is deliberately tri-state. `undefined` means "the caller had
+   * no opinion about the note" and leaves the stored note alone — only an
+   * explicit `null` clears it. Writing `?? null` here used to blank the
+   * screening note on every shortlist/reviewed action (only the reject dialog
+   * collects one), silently destroying notes authored on the detail page.
+   */
   static async reviewJobApplication(
     supabase: SupabaseClient,
     id: string,
@@ -793,7 +685,7 @@ export class RecruitmentService {
       .from('hr_job_applications')
       .update({
         status,
-        review_notes: reviewNotes ?? null,
+        ...(reviewNotes === undefined ? {} : { review_notes: reviewNotes }),
         reviewed_by: reviewerId,
         reviewed_at: new Date().toISOString(),
       })
@@ -801,6 +693,41 @@ export class RecruitmentService {
       .select()
       .single();
     if (error) throw error;
+    return data as HRJobApplication;
+  }
+
+  /**
+   * Edit ONLY the screening note, from the application detail page.
+   *
+   * Separate from reviewJobApplication on purpose: annotating an applicant is
+   * not a screening decision, so this must not touch `status`, `reviewed_by` or
+   * `reviewed_at` (which would stamp a false review date and force a status
+   * change on a still-pending applicant). It also carries no promoted-row
+   * guard — a promoted applicant is exactly the one HR most wants to annotate,
+   * and no decision is being recorded.
+   *
+   * Writes are gated by the "HR can update application status" RLS policy
+   * (hr.recruitment.edit AND role_has_institution_access), so a caller without
+   * edit rights gets zero rows back rather than a silent success.
+   */
+  static async updateApplicationNotes(
+    supabase: SupabaseClient,
+    id: string,
+    reviewNotes: string | null
+  ): Promise<HRJobApplication> {
+    const { data, error } = await supabase
+      .from('hr_job_applications')
+      .update({ review_notes: reviewNotes })
+      .eq('id', id)
+      .select()
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) {
+      // RLS filtered the row out of the UPDATE, or the id doesn't exist.
+      throw new Error(
+        'Could not save the note — the application no longer exists, or you do not have permission to edit it.'
+      );
+    }
     return data as HRJobApplication;
   }
 

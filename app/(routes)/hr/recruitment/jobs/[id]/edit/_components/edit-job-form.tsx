@@ -34,7 +34,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { RichTextEditor } from '@/components/ui/rich-text-editor';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { useHrInstitutionsWithAccess } from '@/hooks/hr/use-hr-institutions';
+import { useRecruitmentInstitutions } from '@/hooks/hr/use-recruitment-institutions';
 import { useDepartments } from '@/hooks/organization/use-departments';
 import { useUpdateJob } from '@/hooks/hr/use-recruitment';
 import type {
@@ -93,7 +93,7 @@ export function EditJobForm({ job }: { job: HRRecruitmentJob }) {
   const updateJob = useUpdateJob();
 
   // ---- Reference data ----
-  const { institutions } = useHrInstitutionsWithAccess();
+  const { institutions } = useRecruitmentInstitutions();
   const { data: deptResp } = useDepartments({ isActive: true, limit: 1000 });
 
   const deptsByInstitution = useMemo(() => {
