@@ -29,7 +29,9 @@ async function authorise() {
   const { data: { user }, error } = await supabase.auth.getUser();
   if (error || !user) return { denied: unauthorizedResponse('Sign in to view workload settings') };
   const access = await resolveWorkloadSettingsAccess(supabase, user.id);
-  if (!access.allowed) return { denied: forbiddenResponse(access.reason) };
+  // `=== false` rather than `!`: strictNullChecks is off in tsconfig, and
+  // truthiness does not narrow a discriminated union without it.
+  if (access.allowed === false) return { denied: forbiddenResponse(access.reason) };
   return { supabase, user };
 }
 
@@ -60,7 +62,7 @@ export async function PUT(request: NextRequest) {
     if (!institutionId) return errorResponse('institution_id is required', 400, 'BAD_REQUEST');
 
     const parsed = validateWorkloadSettings(body);
-    if (!parsed.ok) return errorResponse(parsed.error, 400, 'BAD_REQUEST');
+    if (parsed.ok === false) return errorResponse(parsed.error, 400, 'BAD_REQUEST');
 
     const { data: institution } = await auth.supabase
       .from('institutions')

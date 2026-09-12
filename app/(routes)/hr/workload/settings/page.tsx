@@ -85,8 +85,11 @@ export default function WorkloadSettingsPage() {
   async function save(row: InstitutionWorkloadSettings) {
     const draft = drafts[row.institution_id];
     const parsed = validateWorkloadSettings(draft);
-    if (!parsed.ok) {
-      setRowErrors((prev) => ({ ...prev, [row.institution_id]: parsed.error }));
+    // `=== false`, not `!parsed.ok`: tsconfig has strictNullChecks off, and
+    // truthiness does not narrow a discriminated union without it.
+    if (parsed.ok === false) {
+      const message = parsed.error;
+      setRowErrors((prev) => ({ ...prev, [row.institution_id]: message }));
       return;
     }
     setRowErrors((prev) => {

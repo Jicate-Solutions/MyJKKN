@@ -229,7 +229,9 @@ export default function ThresholdsAdminPage() {
                           </TableCell>
                           <TableCell>
                             {error ? (
-                              <AlertTriangle className="h-4 w-4 text-red-500" title={error} />
+                              <span title={error}>
+                                <AlertTriangle className="h-4 w-4 text-red-500" />
+                              </span>
                             ) : dirty ? (
                               <CheckCircle2 className="h-4 w-4 text-green-500" />
                             ) : null}

@@ -51,7 +51,7 @@ describe('validateWorkloadSettings', () => {
   it('rejects red at or below amber (higher hours = worse, so red must be the higher band)', () => {
     const r = validateWorkloadSettings({ expected_weekly_hours: 16, amber_pct: 120, red_pct: 100 });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toMatch(/red/i);
+    if (r.ok === false) expect(r.error).toMatch(/red/i);
     expect(validateWorkloadSettings({ expected_weekly_hours: 16, amber_pct: 100, red_pct: 100 }).ok).toBe(false);
   });
   it('rejects non-numbers and missing fields', () => {
@@ -124,7 +124,7 @@ describe('resolveWorkloadSettingsAccess', () => {
     const sb = sessionFake({ profile: { role: 'administrator', is_super_admin: false }, roleKeys: ['hr_manager'] });
     const r = await resolveWorkloadSettingsAccess(sb as any, 'u1');
     expect(r.allowed).toBe(false);
-    if (!r.allowed) expect(r.reason).toMatch(/don't have access/i);
+    if (r.allowed === false) expect(r.reason).toMatch(/don't have access/i);
   });
 });
 
