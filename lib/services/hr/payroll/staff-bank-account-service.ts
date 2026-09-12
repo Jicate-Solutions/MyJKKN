@@ -18,6 +18,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { HrScopeError, assertInstitutionInHrScope, isOwnStaffRecord } from '@/lib/hr/scope-gate';
 import { getErrorMessage } from '@/lib/utils';
 
 /** One person on the roster, with their account if one is on file. */
@@ -109,6 +110,28 @@ export class StaffBankAccountService {
     supabase: SupabaseClient,
     staffUuid: string
   ): Promise<StaffBankAccountHistoryRow[]> {
+    // Institution scope is asked BEFORE the read, the same question the
+    // hr_scope_gate policy asks — and refused loudly. RLS on its own answers
+    // an out-of-scope person with [], which reads as "no account on file".
+    // A person's own record is exempt, as it is in the policy.
+    if (!(await isOwnStaffRecord(supabase, staffUuid))) {
+      const { data: person } = await (supabase as any)
+        .from('staff')
+        .select('institution_id')
+        .eq('id', staffUuid)
+        .maybeSingle();
+      // staff_select_scope_aware hides the row itself when it is out of scope,
+      // so "no row" IS the scope answer here; the RPC settles the visible case.
+      if (!person) {
+        throw new HrScopeError("You do not have access to this employee's bank account history.");
+      }
+      await assertInstitutionInHrScope(
+        supabase,
+        person.institution_id as string | null,
+        "this employee's bank account history"
+      );
+    }
+
     const { data, error } = await (supabase as any)
       .from('hr_staff_bank_accounts')
       .select(
