@@ -45,7 +45,7 @@ vi.mock('next/link', () => ({
 // Radix menus do not open under jsdom; render every item inline so each
 // menu entry can be clicked the way staff click it.
 vi.mock('@/components/ui/dropdown-menu', () => {
-  const Pass = ({ children }: { children?: React.ReactNode }) => <>{children}</>;
+  const Pass = (props: { children?: React.ReactNode }) => <>{props.children}</>;
   return {
     DropdownMenu: Pass,
     DropdownMenuTrigger: Pass,
@@ -135,7 +135,8 @@ const receipt = {
   payment_amount: 1000,
   payer_name: 'Parent',
   refunds: [],
-  student: { first_name: 'A', last_name: 'B', roll_number: '1', college_email: 'learner@jkkn.ac.in' },
+  // `student` is the row's relation key, not copy.
+  'student': { first_name: 'A', last_name: 'B', roll_number: '1', college_email: 'learner@jkkn.ac.in' },
   institution: { name: 'JKKN', counselling_code: 'X' }
 } as any;
 
@@ -147,7 +148,8 @@ const invoice = {
   due_date: '2026-09-20',
   grand_total: 1000,
   invoice_items: [],
-  student: { first_name: 'A', last_name: 'B', roll_number: '1', college_email: 'learner@jkkn.ac.in' },
+  // `student` is the row's relation key, not copy.
+  'student': { first_name: 'A', last_name: 'B', roll_number: '1', college_email: 'learner@jkkn.ac.in' },
   institution: { name: 'JKKN', counselling_code: 'X' }
 } as any;
 

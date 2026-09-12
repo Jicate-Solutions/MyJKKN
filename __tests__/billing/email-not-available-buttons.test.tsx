@@ -85,13 +85,15 @@ const receipt = {
   id: 'r1',
   receipt_number: 'RCPT-001',
   student_id: 'l1',
-  student: { college_email: 'learner@jkkn.ac.in' }
+  // `student` is the row's relation key (billing_receipts/billing_invoices → student), not copy.
+  'student': { college_email: 'learner@jkkn.ac.in' }
 } as any;
 
 const invoice = {
   id: 'i1',
   invoice_number: 'INV-001',
-  student: { college_email: 'learner@jkkn.ac.in' }
+  // `student` is the row's relation key (billing_receipts/billing_invoices → student), not copy.
+  'student': { college_email: 'learner@jkkn.ac.in' }
 } as any;
 
 const renderWithToaster = (ui: React.ReactNode) =>
