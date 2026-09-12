@@ -49,6 +49,32 @@
 -- Contact numbers below are the lead's own and are already visible on the lead
 -- record behind the same admission permissions, so nothing new is exposed.
 
+-- THE GATE MUST MATCH THE SCREEN (measured on production 2026-09-12)
+-- ------------------------------------------------------------------
+-- The page, the sidebar entry (lib/sidebarMenuLink.ts) and the module's tab bar
+-- all gate on admission.consultants.commissions.view. Gating this RPC on
+-- is_super_admin() OR is_admin() alone would be strictly narrower than that:
+--     23  users hold admission.consultants.commissions.view
+--      2    ...also pass is_admin()  (profiles.is_super_admin OR
+--           profiles.role IN ('admin','super_admin','administrator'))
+--     21    ...would get the menu entry, the page and then an error card
+-- The six role_keys holding it are admission, admission_staff, ceo, coo,
+-- executive_admin_officer, managing_director — none of them an admin role, and
+-- they are the people who own this queue. So the gate carries the page's own
+-- permission, exactly as fn_consultant_payout_readiness (20260909062000) does
+-- for the neighbouring screen on the same permission.
+--
+-- SCOPE: this function is not institution-scoped, matching
+-- fn_referral_attribution_page and fn_list_unlinked_consultant_referrals. That
+-- is safe only while every role holding the gating permission is
+-- institution_scope = 'all' — verified true for all six on 2026-09-12. Anyone
+-- widening this gate further must re-check that, or add
+-- role_has_institution_access() in the same change.
+--
+-- DEPLOY ORDER: apply this migration BEFORE the UI ships. Unlike the sibling
+-- screens, this RPC does not exist in production yet, so a UI-first deploy gives
+-- every viewer — admins included — a PostgREST 404 in the page's error card.
+
 CREATE OR REPLACE FUNCTION public.fn_referral_attribution_orphans()
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -58,9 +84,11 @@ SET search_path = public
 AS $$
 DECLARE v jsonb;
 BEGIN
-  -- SECURITY DEFINER bypasses RLS, so the gate is explicit. Matches the other
-  -- referral admin RPCs.
-  IF NOT (is_super_admin() OR is_admin()) THEN
+  -- SECURITY DEFINER bypasses RLS, so the gate is explicit. It must not be
+  -- NARROWER than the screen it serves, or the screen is dead for the people it
+  -- is shown to. See the gate note in the header.
+  IF NOT (is_super_admin() OR is_admin()
+          OR user_has_permission('admission.consultants.commissions.view')) THEN
     RAISE EXCEPTION 'Not authorised to view referral attribution orphans';
   END IF;
 

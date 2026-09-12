@@ -93,10 +93,48 @@ const REASON_ORDER: ReferralAttributionOrphanReason[] = [
   'no_admission_id',
 ];
 
+/**
+ * The RPC raises a bare Postgres exception when the caller fails its gate, and
+ * PostgREST returns a 404 when the function has not been applied yet. Neither
+ * string tells a reader what to do, so both are translated here — rule 27 asks
+ * for an explicit refusal that names WHO to ask, the way PermissionNotice does
+ * (components/auth/permission-guard.tsx).
+ */
+type LoadFailure = { title: string; detail: string; permissionKey?: string };
+
+export function classifyLoadError(message?: string | null): LoadFailure {
+  const raw = (message || '').toLowerCase();
+
+  if (raw.includes('not authorised to view referral attribution orphans')) {
+    return {
+      title: 'This page is not open to you',
+      detail:
+        'Nothing is broken. None of your roles include the permission below, so the list stays hidden. To get it, ask whoever manages roles for your institution to add that permission under Users, then Role Management. If you think you should already have it, tap the red bug button at the bottom right of this screen and report it.',
+      permissionKey: 'admission.consultants.commissions.view',
+    };
+  }
+
+  // PostgREST answers a missing function with 404 / PGRST202.
+  if (raw.includes('pgrst202') || raw.includes('could not find the function') || raw.includes('does not exist')) {
+    return {
+      title: 'This list is not switched on yet',
+      detail:
+        'The page has shipped but the database side of it has not been applied yet, so there is nothing to read. This is not a permission problem and nothing is lost. Tap the red bug button at the bottom right of this screen and report it.',
+    };
+  }
+
+  return {
+    title: 'Could not load attribution orphans',
+    detail:
+      message ||
+      'Something went wrong reading the list. Reload the page to try again, and if it keeps happening tap the red bug button at the bottom right of this screen and report it.',
+  };
+}
+
 export default function AttributionOrphansPage() {
   const [rows, setRows] = useState<ReferralAttributionOrphan[]>([]);
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<LoadFailure | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -108,7 +146,7 @@ export default function AttributionOrphansPage() {
         if (!cancelled) setRows(data);
       } catch (e: any) {
         if (!cancelled) {
-          setLoadError(e?.message || 'Could not load attribution orphans.');
+          setLoadError(classifyLoadError(e?.message));
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -158,8 +196,17 @@ export default function AttributionOrphansPage() {
             <Skeleton className="h-64 w-full" />
           ) : loadError ? (
             <Card>
-              <CardContent className="flex items-center gap-2 text-sm text-destructive py-6">
-                <AlertTriangle className="h-4 w-4 shrink-0" /> {loadError}
+              <CardContent className="flex items-start gap-3 py-6">
+                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-destructive" />
+                <div className="space-y-1.5 text-sm">
+                  <p className="font-medium text-foreground">{loadError.title}</p>
+                  <p className="text-muted-foreground">{loadError.detail}</p>
+                  {loadError.permissionKey ? (
+                    <code className="inline-block rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground">
+                      {loadError.permissionKey}
+                    </code>
+                  ) : null}
+                </div>
               </CardContent>
             </Card>
           ) : rows.length === 0 ? (
