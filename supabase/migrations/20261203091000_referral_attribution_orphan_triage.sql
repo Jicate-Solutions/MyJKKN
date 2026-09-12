@@ -62,7 +62,10 @@
 -- executive_admin_officer, managing_director — none of them an admin role, and
 -- they are the people who own this queue. So the gate carries the page's own
 -- permission, exactly as fn_consultant_payout_readiness (20260909062000) does
--- for the neighbouring screen on the same permission.
+-- for the neighbouring screen on the same permission. Re-measured against the
+-- live user_has_permission branches, that admits 19 of the 21; the other 2 are
+-- refused by its own is_active guard, both being deactivated accounts that
+-- cannot sign in at all.
 --
 -- SCOPE: this function is not institution-scoped, matching
 -- fn_referral_attribution_page and fn_list_unlinked_consultant_referrals. That
