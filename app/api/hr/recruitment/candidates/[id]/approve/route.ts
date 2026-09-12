@@ -6,6 +6,7 @@ import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
 import { RecruitmentService } from '@/lib/services/hr/recruitment-service';
+import { getErrorMessage } from '@/lib/utils';
 
 async function getClient() {
   const cookieStore = await cookies();
@@ -42,9 +43,15 @@ export async function POST(
     return NextResponse.json({ data: updated });
   } catch (err) {
     console.error('[hr/recruitment/candidates/:id/approve] error', err);
+    // The decision now runs through the SECURITY DEFINER RPC
+    // fn_decide_recruitment_candidate, so a refusal arrives as a PostgrestError —
+    // a plain object, not an `Error`. `err instanceof Error` was false for it, and
+    // every RLS/authorization failure reached the approver as the useless
+    // "Unknown error". getErrorMessage keeps the function's own guard text.
+    const code = (err as { code?: string })?.code;
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Unknown error' },
-      { status: 400 }
+      { error: getErrorMessage(err) },
+      { status: code === '42501' ? 403 : code === 'P0002' ? 404 : 400 }
     );
   }
 }

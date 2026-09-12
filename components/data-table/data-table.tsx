@@ -149,6 +149,13 @@ interface DataTableProps<TData extends ExportableData, TValue> {
   // ID field in TData for tracking selected items
   idField: keyof TData;
 
+  // Columns hidden on FIRST load, as { columnId: false }. Omit and every column
+  // shows, which is what every existing table expects — this only gives a wide
+  // table (the salary register carries 27) a readable opening state. After the
+  // first change the choice lives in the URL like any other table state, so a
+  // shared link still carries what the sender was looking at.
+  initialColumnVisibility?: Record<string, boolean>;
+
   // Custom page size options
   pageSizeOptions?: number[];
 
@@ -172,6 +179,7 @@ export function DataTable<TData extends ExportableData, TValue>({
   fetchAllItemsFn,
   exportConfig,
   idField = 'id' as keyof TData,
+  initialColumnVisibility,
   pageSizeOptions,
   renderToolbarContent,
   renderMobileRow,
@@ -207,7 +215,7 @@ export function DataTable<TData extends ExportableData, TValue>({
   );
   const [columnVisibility, setColumnVisibility] = useConditionalUrlState<
     Record<string, boolean>
-  >('columnVisibility', {});
+  >('columnVisibility', initialColumnVisibility ?? {});
   const [columnFilters, setColumnFilters] = useConditionalUrlState<
     Array<{ id: string; value: unknown }>
   >('columnFilters', []);

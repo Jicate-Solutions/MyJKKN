@@ -20,6 +20,11 @@ export const dynamic = 'force-dynamic';
 //   5. Respond:
 //        default        → { data: { png_base64, template_id, profile_id } }
 //        ?format=png    → raw PNG bytes (what the Windows print bridge downloads)
+//        &include=fields (json only) → adds `fields` + `back_configured` — the
+//                         per-field missing/wrong-data report (lib/id-cards/
+//                         field-report.ts) the browser preview dialogs use to
+//                         flag incomplete learner data in red BEFORE anything
+//                         is printed. Additive; the default envelope is unchanged.
 //
 // Data reads mirror the jobs route: session-bound client on the user path,
 // service-role client on the agent path (the agent has no Supabase session).
@@ -39,24 +44,33 @@ import {
   resolveValidUntilLabel,
   resolvePhotoDataUrl,
   resolveBackgroundDataUrl,
-  makeQrDataUrl
+  makeQrDataUrl,
+  type CardPersonData
 } from '@/lib/id-cards/render-data';
 import {
   buildCardElement,
   buildBackElement,
   parseFrontLayout,
   parseBackLayout,
+  frontCanvasSize,
+  backCanvasSize,
   CARD_WIDTH,
   CARD_HEIGHT
 } from '@/lib/id-cards/render-card';
 import { makeCode39SvgDataUrl } from '@/lib/id-cards/barcode';
+import { buildFieldReport } from '@/lib/id-cards/field-report';
 import type { ReactElement } from 'react';
 
 const paramsSchema = z.string().uuid();
 const querySchema = z.object({
   profile_id: z.string().uuid(),
   format: z.enum(['json', 'png']).optional().default('json'),
-  side: z.enum(['front', 'back']).optional().default('front')
+  side: z.enum(['front', 'back']).optional().default('front'),
+  include: z.enum(['fields']).optional(),
+  // upright=1: PREVIEW ONLY — a portrait template renders unrotated (638x1014)
+  // so people see it as designed. The printer bridge never sends this; its
+  // 1014x638 landscape output is unchanged.
+  upright: z.enum(['1', 'true']).optional()
 });
 
 type TemplateRow = {
@@ -87,7 +101,9 @@ export async function GET(
     const parsedQuery = querySchema.safeParse({
       profile_id: url.searchParams.get('profile_id'),
       format: url.searchParams.get('format') ?? undefined,
-      side: url.searchParams.get('side') ?? undefined
+      side: url.searchParams.get('side') ?? undefined,
+      include: url.searchParams.get('include') ?? undefined,
+      upright: url.searchParams.get('upright') ?? undefined
     });
     if (!parsedQuery.success) {
       return jsonError(
@@ -96,7 +112,8 @@ export async function GET(
         400
       );
     }
-    const { profile_id: profileId, format, side } = parsedQuery.data;
+    const { profile_id: profileId, format, side, include, upright: uprightRaw } = parsedQuery.data;
+    const buildOptions = { upright: uprightRaw !== undefined };
 
     // Agent path has no Supabase session — use service-role for reads.
     // User path uses the session-bound client opened in requireUser (RLS applies).
@@ -137,11 +154,15 @@ export async function GET(
       );
     }
 
-    // 2. Person data (learner or team member) + institution display name.
+    // 2. Person data (learner or team member) + institution details. The
+    // template's own institution block (front_layout_json.institution) is the
+    // authoritative source for header/contact/principal data.
+    const frontLayoutParsed = parseFrontLayout(templateRow.front_layout_json);
     const assembled = await assembleCardData(
       supabase,
       profileId,
-      templateRow.institution_id
+      templateRow.institution_id,
+      frontLayoutParsed?.institution ?? null
     );
     if (isAssembleFailure(assembled)) {
       return jsonError(assembled.message, assembled.code, assembled.status);
@@ -171,6 +192,13 @@ export async function GET(
     });
 
     let element: ReactElement;
+    let canvas = { width: CARD_WIDTH, height: CARD_HEIGHT };
+    // Set on the front path only — the field report needs to know whether the
+    // photo fallback chain / QR generator / signature fetch actually produced
+    // an image.
+    let photoResolved = false;
+    let qrResolved = false;
+    let signatureResolved = false;
     if (side === 'back') {
       // 3b. Back composite (DARK): Code 39 barcode of the learner's roll
       // number / team member's staff id (pure, no I/O) + optional back
@@ -183,40 +211,57 @@ export async function GET(
       const backBackgroundDataUrl = await resolveBackgroundDataUrl(
         backLayout.background_image
       );
-      element = buildBackElement({
-        person,
-        backgroundDataUrl: backBackgroundDataUrl,
-        barcodeDataUrl,
-        layout: backLayout,
-        mappings: parseFieldMappings(templateRow.field_mappings),
-        validUntilLabel
-      });
+      element = buildBackElement(
+        {
+          person,
+          backgroundDataUrl: backBackgroundDataUrl,
+          barcodeDataUrl,
+          layout: backLayout,
+          mappings: parseFieldMappings(templateRow.field_mappings),
+          validUntilLabel
+        },
+        buildOptions
+      );
+      canvas = backCanvasSize(backLayout, buildOptions);
     } else {
       // 3. Photo fallback chain + QR + card artwork — all fail-soft (never 500
       // the render). The background fetch is allowlisted to the id-card-assets
       // bucket inside resolveBackgroundDataUrl.
-      const layout = parseFrontLayout(templateRow.front_layout_json);
-      const [photoDataUrl, qrDataUrl, backgroundDataUrl] = await Promise.all([
-        resolvePhotoDataUrl(person.photoCandidates),
-        makeQrDataUrl(person.qrValue),
-        resolveBackgroundDataUrl(layout?.background_image)
-      ]);
+      const layout = frontLayoutParsed;
+      const [photoDataUrl, qrDataUrl, backgroundDataUrl, institutionLogoDataUrl, signatureDataUrl] =
+        await Promise.all([
+          resolvePhotoDataUrl(person.photoCandidates),
+          makeQrDataUrl(person.qrValue),
+          resolveBackgroundDataUrl(layout?.background_image),
+          // Same id-card-assets allowlist as the artwork (fail-soft → null).
+          resolveBackgroundDataUrl(person.institutionLogoUrl),
+          resolveBackgroundDataUrl(person.principalSignatureUrl)
+        ]);
+      photoResolved = photoDataUrl !== null;
+      qrResolved = qrDataUrl !== null;
+      signatureResolved = signatureDataUrl !== null;
 
       // 4. Composite. Empty front_layout_json (prod today) → default design.
-      element = buildCardElement({
-        person,
-        photoDataUrl,
-        qrDataUrl,
-        backgroundDataUrl,
-        layout,
-        mappings: parseFieldMappings(templateRow.field_mappings),
-        validUntilLabel
-      });
+      element = buildCardElement(
+        {
+          person,
+          photoDataUrl,
+          qrDataUrl,
+          backgroundDataUrl,
+          institutionLogoDataUrl,
+          signatureDataUrl,
+          layout,
+          mappings: parseFieldMappings(templateRow.field_mappings),
+          validUntilLabel
+        },
+        buildOptions
+      );
+      canvas = frontCanvasSize(layout, buildOptions);
     }
 
     const image = new ImageResponse(element, {
-      width: CARD_WIDTH,
-      height: CARD_HEIGHT
+      width: canvas.width,
+      height: canvas.height
     });
     const pngBuffer = await image.arrayBuffer();
 
@@ -233,10 +278,38 @@ export async function GET(
     }
 
     // 5b. Default JSON envelope (unchanged contract, stub flag dropped).
+    // `include=fields` adds the missing-data report for the preview dialogs.
+    const backConfigured =
+      templateRow.back_layout_json !== null && templateRow.back_layout_json !== undefined;
     return jsonOk({
       png_base64: Buffer.from(pngBuffer).toString('base64'),
       template_id: parsedId.data,
-      profile_id: profileId
+      profile_id: profileId,
+      ...(include === 'fields'
+        ? {
+            back_configured: backConfigured,
+            fields: buildFieldReport({
+              person,
+              validUntilLabel,
+              photoResolved,
+              qrResolved,
+              signatureResolved,
+              backConfigured
+            }),
+            // The output PNG is ALWAYS the 1014x638 landscape canvas the card
+            // printer expects; a portrait template is rotated into it. The
+            // browser preview / A4 sheet counter-rotate using these.
+            front_orientation: frontLayoutParsed?.orientation ?? 'landscape',
+            back_orientation: backConfigured
+              ? (parseBackLayout(templateRow.back_layout_json)?.orientation ?? 'landscape')
+              : null,
+            // Institution provenance so the preview can flag a template that
+            // belongs to a different college than the learner.
+            template_institution_id: templateRow.institution_id,
+            learner_institution_id: person.institutionId ?? null,
+            institution_name: person.institutionName
+          }
+        : {})
     });
   } catch (err) {
     console.error('[id-cards/templates/render] unexpected:', err);

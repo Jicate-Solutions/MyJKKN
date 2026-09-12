@@ -48,6 +48,8 @@ import {
 import type { EventStatus } from '@/types/events';
 import { EVENT_STATUS_TRANSITIONS } from '@/types/events';
 import { useMarathonAccess } from '@/hooks/events/marathon/use-marathon-access';
+import { EventTasksCard } from '@/components/events/shared/event-tasks-card';
+import { EventReviewCommentsCard } from '@/components/events/shared/event-review-comments-card';
 import { MarathonAccessDenied } from '../_components/marathon-access-denied';
 
 // ============================================================================
@@ -575,6 +577,16 @@ export default function MarathonDashboardPage() {
           </div>
         ) : null}
 
+        {/* ── Pending Tasks ─────────────────────────────────────────────
+            Outstanding work on this marathon — event-level rows plus every
+            committee's, in one list. Takes no permission props: it asks
+            fn_can_manage_event_level_tasks itself. That matters more here than
+            on the other consoles, because useMarathonAccess is NOT event-scoped
+            (it takes no eventId and answers from role alone), so it cannot say
+            who is in charge of THIS marathon — the SQL function reads
+            events.config->incharges and can. */}
+        <EventTasksCard eventId={eventId} />
+
         {/* ── Registration Statistics ──────────────────────────────── */}
         {data && <RegistrationStatistics data={data} />}
 
@@ -590,6 +602,11 @@ export default function MarathonDashboardPage() {
 
         {/* ── Quick Navigation ────────────────────────────────────────── */}
         <QuickNav eventId={eventId} />
+
+        {/* Review comments — the reviewing authority's remarks on this marathon
+            and the coordinator's replies. Gates itself; renders nothing for
+            anyone outside the review circle. */}
+        <EventReviewCommentsCard eventId={eventId} />
       </div>
     </ContentLayout>
   );

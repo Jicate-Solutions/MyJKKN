@@ -14,6 +14,7 @@ import {
   useCancelBooking,
 } from '@/hooks/campus-living/use-housekeeping-bookings';
 import { useBookableTypes } from '@/hooks/campus-living/use-housekeeping-types';
+import { useMyHostelSummary } from '@/hooks/campus-living/use-my-hostel';
 import {
   canLearnerCancel,
   typeQuota,
@@ -42,7 +43,12 @@ export default function MyHousekeepingPage() {
   const [selectedType, setSelectedType] = useState<CleaningTypeWithDetail | null>(null);
 
   const { data: allocation, isLoading: allocLoading } = useMyAllocation();
-  const { data: types = [], isLoading: typesLoading } = useBookableTypes(allocation?.room_id);
+  // Cleaning entitlement follows the BILLED category, not the seated room: a
+  // Premium resident may be seated in a Deluxe room and keeps Premium benefits.
+  const { data: summary } = useMyHostelSummary();
+  const { data: types = [], isLoading: typesLoading } = useBookableTypes(
+    summary?.hostelCategory?.id,
+  );
   const { data: bookings = [], isLoading: bookingsLoading } = useMyBookings(allocation?.room_id);
   const cancel = useCancelBooking();
 

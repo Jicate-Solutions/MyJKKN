@@ -145,6 +145,43 @@ export function useClearLeaveApprovalFlow() {
 }
 
 /**
+ * How many in-flight requests still route to the approvers this flow named
+ * before it was edited. A mutation rather than a query: it is asked once, at the
+ * moment of saving, about a flow id that only exists after the save returns.
+ */
+export function usePreviewLeaveChainDrift() {
+  const supabase = createClientSupabaseClient();
+  return useMutation({
+    mutationFn: (flowId: string) =>
+      LeaveApprovalFlowService.previewChainDrift(supabase, flowId),
+  });
+}
+
+/**
+ * Re-route this flow's in-flight requests onto the chain it names now.
+ *
+ * NOTHING IN THIS APP SELF-REFRESHES — staleTime is 5 minutes and there is no
+ * refetch on focus — so a mutation that rewrites rows another module reads has
+ * to invalidate that module's keys itself. These rows drive the whole Leave
+ * surface, not just the screen the admin is standing on, so all four families go.
+ */
+export function useResyncPendingLeaveChains() {
+  const supabase = createClientSupabaseClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (flowId: string) =>
+      LeaveApprovalFlowService.resyncPendingChains(supabase, flowId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['hr-leave-applications'] }); // queue, inbox, mine
+      qc.invalidateQueries({ queryKey: ['hr-leave-application'] }); // the detail sheet
+      qc.invalidateQueries({ queryKey: ['hr-leave-calendar'] });
+      // Covers this file's own 'approval-queue' and 'my-queue' entries.
+      qc.invalidateQueries({ queryKey: [KEY] });
+    },
+  });
+}
+
+/**
  * May THIS caller approve the request outright, ahead of the reviews below it?
  *
  * The final authority may act at any point (decision 2026-09-05), but whether
@@ -174,5 +211,37 @@ export function useCanFinalizeLeave(applicationId: string | undefined) {
       return data === true;
     },
     staleTime: 60_000,
+  });
+}
+
+/**
+ * Why may this caller NOT revoke this approved request? null = they may.
+ *
+ * A REASON, not a boolean, and asked of Postgres for the same reason
+ * useCanFinalizeLeave is: the answer turns on the FINAL step of a frozen chain
+ * that is usually routed to a role, and custom_roles is unreadable client-side.
+ * fn_hr_leave_revoke_block_reason returns the exact sentence trg_hla_revoke_gate
+ * raises, so the dialog cannot explain the refusal differently from the database.
+ *
+ * Asked PER ROW, on demand, never precomputed in hr_leave_approval_queue():
+ * running fn_leave_step_admits across ~976 approved rows is the shape that
+ * produced the 57014 statement timeouts on that RPC in Sep 2026.
+ *
+ * staleTime 0 — a month closed, or somebody else revoked it, between opening the
+ * queue and opening this dialog is precisely the case this call exists for.
+ */
+export function useLeaveRevokeBlockReason(applicationId: string | undefined) {
+  const supabase = createClientSupabaseClient();
+  return useQuery({
+    queryKey: [KEY, 'revoke-block-reason', applicationId ?? null],
+    enabled: Boolean(applicationId),
+    queryFn: async () => {
+      const { data, error } = await (supabase as any).rpc('fn_hr_leave_revoke_block_reason', {
+        p_application_id: applicationId,
+      });
+      if (error) throw error;
+      return (data as string | null) ?? null;
+    },
+    staleTime: 0,
   });
 }

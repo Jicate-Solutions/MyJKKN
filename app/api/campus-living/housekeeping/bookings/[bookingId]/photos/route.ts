@@ -17,9 +17,15 @@ const MAX_BYTES = 8 * 1024 * 1024;
  *
  * multipart/form-data: `file` (image), `phase` ('before' | 'after').
  *
+ * ONE file per request. The client uploads a multi-photo batch by looping, which
+ * keeps the request body small and makes the status transitions below race-free.
+ *
+ * A phase holds as MANY photos as were uploaded — nothing here is one-per-phase,
+ * and the phase is chosen by the uploader rather than inferred from the status.
+ *
  * Uploads to Drive, records the row, and advances the booking status. The
- * status update is guarded on the CURRENT status, so a repeated upload is
- * idempotent and an out-of-order one changes nothing:
+ * status update is guarded on the CURRENT status, so the 2nd..Nth photo of a
+ * phase lands without moving anything, and an out-of-order one changes nothing:
  *   before -> assigned    becomes in_progress
  *   after  -> in_progress becomes awaiting_feedback
  */
@@ -137,11 +143,21 @@ export async function POST(
     const requiredStatus = phase === 'before' ? 'assigned' : 'in_progress';
     const stamp = phase === 'before' ? 'started_at' : 'finished_at';
 
-    const { error: statusErr } = await supabase
+    // .select() so we know whether the guard actually MATCHED. Without it the
+    // notification below fires on every after-photo, and a 3-photo batch would
+    // tell the whole room to rate the same cleaning three times.
+    //
+    // UPDATE … RETURNING also applies the SELECT policy, which here needs
+    // campus_living.housekeeping.view rather than .execute — so an empty result
+    // could in principle mean "not visible" instead of "no row matched". It
+    // cannot in this route: the booking SELECT at the top already 404s anyone
+    // who can't see the row, so everyone reaching this line holds .view.
+    const { data: advanced, error: statusErr } = await supabase
       .from('hostel_cleaning_bookings')
       .update({ status: nextStatus, [stamp]: new Date().toISOString() })
       .eq('id', bookingId)
-      .eq('status', requiredStatus);
+      .eq('status', requiredStatus)
+      .select('id');
     if (statusErr) {
       const ref = logWithReference(LOG, 'Failed to advance the booking status', statusErr);
       return NextResponse.json(
@@ -154,11 +170,20 @@ export async function POST(
     // attendance hold lands tomorrow morning — a block nobody was warned about
     // is just a mystery. Deliberately not awaited into the response path:
     // notification delivery must never fail a completed cleaning.
-    if (nextStatus === 'awaiting_feedback') {
+    //
+    // Only on the photo that ACTUALLY moved the booking: `advanced` is empty for
+    // the 2nd..Nth after-photo, and the room must be told once, not per photo.
+    if (nextStatus === 'awaiting_feedback' && (advanced?.length ?? 0) > 0) {
       void HousekeepingBookingService.notifyFeedbackPending(bookingId);
     }
 
-    return NextResponse.json({ ok: true, phase, status: nextStatus });
+    const didAdvance = (advanced?.length ?? 0) > 0;
+    return NextResponse.json({
+      ok: true,
+      phase,
+      status: didAdvance ? nextStatus : (booking.status as string),
+      advanced: didAdvance,
+    });
   } catch (err) {
     const ref = logWithReference(LOG, 'Housekeeping photo upload failed', err);
     return NextResponse.json(
