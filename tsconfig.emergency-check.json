@@ -1,0 +1,34 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "incremental": false
+  },
+  "include": [],
+  "files": [
+    "next-env.d.ts",
+    "types/hr.ts",
+    "types/hr-dashboard.ts",
+    "lib/hr/leave-document-rule.ts",
+    "lib/hr/guide/content.ts",
+    "lib/services/hr/leave-service.ts",
+    "lib/services/hr/dashboard-service.ts",
+    "app/(routes)/hr/leave/approvals/page.tsx",
+    "app/(routes)/hr/leave/requests/page.tsx",
+    "app/(routes)/hr/leave/short-time-off/page.tsx",
+    "app/(routes)/hr/leave/compensatory-off/page.tsx",
+    "app/(routes)/hr/leave/[id]/page.tsx",
+    "app/(routes)/hr/leave/_components/apply-leave-drawer.tsx",
+    "app/(routes)/hr/leave/_components/apply-short-time-off-drawer.tsx",
+    "app/(routes)/hr/leave/_components/apply-comp-off-drawer.tsx",
+    "app/(routes)/hr/leave/_components/approval-queue-columns.tsx",
+    "app/(routes)/hr/leave/_components/approvals-data-table.tsx",
+    "app/(routes)/hr/leave/_components/approval-detail-sheet.tsx",
+    "app/(routes)/hr/leave/_components/leave-request-detail.tsx",
+    "app/(routes)/hr/leave/_components/leave-document-list.tsx",
+    "__tests__/hr/leave-document-rule.test.ts",
+    "__tests__/hr/leave-approval-confirmations.test.tsx",
+    "__tests__/hr/leave-revoke-confirmations.test.tsx",
+    "__tests__/hr/leave-revoked-applicant-view.test.tsx"
+  ]
+}
