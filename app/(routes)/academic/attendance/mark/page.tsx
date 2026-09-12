@@ -2724,8 +2724,9 @@ export default function AttendanceMarkPage() {
                             alt={student.student_name || 'Unknown Student'}
                           />
                           <AvatarFallback className='bg-gradient-to-br from-blue-500 to-purple-600 text-white font-semibold text-lg'>
-                            {student.first_name?.[0]?.toUpperCase()}
-                            {student.last_name?.[0]?.toUpperCase()}
+                            {/* Updated: 2026-09-12 (BUG-003176) - A learner with no name on file
+                                gets a visible '?' instead of an empty circle. */}
+                            {`${student.first_name?.[0] ?? ''}${student.last_name?.[0] ?? ''}`.toUpperCase() || '?'}
                           </AvatarFallback>
                         </Avatar>
                         {/* Status Indicator */}
