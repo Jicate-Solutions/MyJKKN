@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -13,7 +13,6 @@ import {
 } from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Calendar,
@@ -31,6 +30,15 @@ import type { FacultyCalendarFilters } from '@/types/faculty-calendar';
 import { FacultyCalendarFilters as FiltersComponent } from '../_components/faculty-calendar-filters';
 import { FacultyCalendar } from '../_components/faculty-calendar';
 import { useTabParam } from '@/hooks/use-tab-param';
+import { useAuth } from '@/hooks/use-auth';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
+import type { InsightsScope } from '@/lib/services/academic/faculty-calendar-insights-service';
+import { epochMsToIstDate } from '@/lib/academic/faculty-calendar/insights-rules';
+import type { InsightsSelection } from './_components/insights-scope-bar';
+import { AvailabilityTab, type LeavePermission } from './_components/availability-tab';
+import { WorkloadTab } from './_components/workload-tab';
+import { ConflictsTab } from './_components/conflicts-tab';
 
 const FACULTY_CALENDAR_ADMIN_TABS = [
   'calendar',
@@ -41,7 +49,58 @@ const FACULTY_CALENDAR_ADMIN_TABS = [
 
 function AdminFacultyCalendarPageInner() {
   const router = useRouter();
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, canAccess, isLoading: permissionsLoading } = usePermissions();
+  const { profile, isLoading: authLoading } = useAuth();
+
+  // Availability / Workload / Conflicts share one institution, department and
+  // date. Institutions are limited to the ones this viewer can access (schools
+  // included), the same list the Calendar View filters use.
+  const { institutions, loading: institutionsFetching } = useInstitutionsWithAccess({
+    entityType: 'all'
+  });
+  const institutionsLoading = institutionsFetching || authLoading || !profile;
+  const [insightsSelection, setInsightsSelection] = useState<InsightsSelection>(() => ({
+    institutionId: null,
+    departmentId: null,
+    date: epochMsToIstDate(Date.now())
+  }));
+  useEffect(() => {
+    if (!insightsSelection.institutionId && institutions.length === 1) {
+      setInsightsSelection((s) => ({ ...s, institutionId: institutions[0].id }));
+    }
+  }, [institutions, insightsSelection.institutionId]);
+  const insightsScope = useMemo<InsightsScope | null>(
+    () =>
+      insightsSelection.institutionId && institutions.length > 0
+        ? {
+            institutionId: insightsSelection.institutionId,
+            departmentId: insightsSelection.departmentId,
+            accessibleInstitutionIds: institutions.map((i) => i.id)
+          }
+        : null,
+    [insightsSelection.institutionId, insightsSelection.departmentId, institutions]
+  );
+  const selectedInstitution = institutions.find((i) => i.id === insightsSelection.institutionId);
+  const adapt = useAdaptiveLabels(selectedInstitution?.entity_type as any);
+  // Row-level security only returns colleagues' leave to viewers who hold one
+  // of these HR permissions (and then only for their HR organisations, which
+  // the Availability tab checks per institution). Say so rather than silently
+  // showing Senior Learners on leave as free.
+  const leavePermission: LeavePermission = permissionsLoading
+    ? 'loading'
+    : isSuperAdmin
+      ? 'all'
+      : canAccess('hr.leave', 'view') || canAccess('hr.leave', 'approve')
+        ? 'scoped'
+        : 'none';
+  const insightsTabProps = {
+    institutions,
+    institutionsLoading,
+    selection: insightsSelection,
+    onSelectionChange: setInsightsSelection,
+    scope: insightsScope,
+    adapt
+  };
 
   // State for filters
   const [filters, setFilters] = useState<FacultyCalendarFilters>({
@@ -286,11 +345,11 @@ function AdminFacultyCalendarPageInner() {
                 <CardHeader>
                   <CardTitle className='flex items-center gap-2'>
                     <Users className='h-5 w-5' />
-                    Faculty Availability Matrix
+                    Senior Learner Availability
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <AvailabilityMatrixPlaceholder />
+                  <AvailabilityTab {...insightsTabProps} leavePermission={leavePermission} />
                 </CardContent>
               </Card>
             </TabsContent>
@@ -300,11 +359,11 @@ function AdminFacultyCalendarPageInner() {
                 <CardHeader>
                   <CardTitle className='flex items-center gap-2'>
                     <BarChart3 className='h-5 w-5' />
-                    Faculty Workload Analysis
+                    Senior Learner Workload
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <WorkloadAnalysisPlaceholder />
+                  <WorkloadTab {...insightsTabProps} />
                 </CardContent>
               </Card>
             </TabsContent>
@@ -314,11 +373,11 @@ function AdminFacultyCalendarPageInner() {
                 <CardHeader>
                   <CardTitle className='flex items-center gap-2'>
                     <AlertTriangle className='h-5 w-5' />
-                    Scheduling Conflicts
+                    Scheduling Clashes
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <ConflictsPlaceholder />
+                  <ConflictsTab {...insightsTabProps} />
                 </CardContent>
               </Card>
             </TabsContent>
@@ -335,58 +394,5 @@ export default function AdminFacultyCalendarPage() {
     <Suspense fallback={null}>
       <AdminFacultyCalendarPageInner />
     </Suspense>
-  );
-}
-
-// Placeholder components for other tabs
-
-function AvailabilityMatrixPlaceholder() {
-  return (
-    <div className='flex items-center justify-center h-64 border-2 border-dashed border-gray-300 rounded-lg'>
-      <div className='text-center'>
-        <Users className='h-12 w-12 text-gray-400 mx-auto mb-4' />
-        <h3 className='text-lg font-semibold text-gray-900 mb-2'>
-          Availability Matrix
-        </h3>
-        <p className='text-gray-600 mb-4'>
-          Real-time faculty availability for scheduling
-        </p>
-        <Badge variant='secondary'>Coming Soon</Badge>
-      </div>
-    </div>
-  );
-}
-
-function WorkloadAnalysisPlaceholder() {
-  return (
-    <div className='flex items-center justify-center h-64 border-2 border-dashed border-gray-300 rounded-lg'>
-      <div className='text-center'>
-        <BarChart3 className='h-12 w-12 text-gray-400 mx-auto mb-4' />
-        <h3 className='text-lg font-semibold text-gray-900 mb-2'>
-          Workload Distribution
-        </h3>
-        <p className='text-gray-600 mb-4'>
-          Faculty workload analytics and utilization charts
-        </p>
-        <Badge variant='secondary'>Coming Soon</Badge>
-      </div>
-    </div>
-  );
-}
-
-function ConflictsPlaceholder() {
-  return (
-    <div className='flex items-center justify-center h-64 border-2 border-dashed border-gray-300 rounded-lg'>
-      <div className='text-center'>
-        <AlertTriangle className='h-12 w-12 text-gray-400 mx-auto mb-4' />
-        <h3 className='text-lg font-semibold text-gray-900 mb-2'>
-          Conflict Detection
-        </h3>
-        <p className='text-gray-600 mb-4'>
-          Automatic detection and resolution of scheduling conflicts
-        </p>
-        <Badge variant='secondary'>Coming Soon</Badge>
-      </div>
-    </div>
   );
 }

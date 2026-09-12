@@ -59,6 +59,48 @@ export function redactCredentials(message: string): string {
   );
 }
 
+/**
+ * The env vars a Meta token is normally read from, in fallback order. Named in
+ * the warning below; a caller that reads a different var passes its own label.
+ */
+const META_TOKEN_ENV_CHAIN =
+  'META_IG_SYSTEM_USER_TOKEN / MESSENGER_PAGE_ACCESS_TOKEN / META_PAGE_ACCESS_TOKEN';
+
+const warnedTokenSources = new Set<string>();
+
+/**
+ * Remove every whitespace character from a Meta access token.
+ *
+ * Why this exists: the production token was pasted into its Vercel env var
+ * with a line break in the MIDDLE of the value (ig-stories-poll/route.ts
+ * records ~129 characters surviving after it), so `Headers.append` rejects the
+ * Bearer header and every Graph call throws. `.trim()` cannot fix a mid-value
+ * break. Meta tokens never contain whitespace, so stripping all of it loses
+ * nothing.
+ *
+ * Warns once per token source per process when something was removed: the
+ * count only, never any token character. The durable fix is still re-adding
+ * the env var from an unwrapped copy.
+ */
+export function normalizeMetaToken(
+  raw?: string | null,
+  source = META_TOKEN_ENV_CHAIN
+): string | undefined {
+  if (!raw) return undefined;
+  const cleaned = raw.replace(/\s+/g, '');
+  const removed = raw.length - cleaned.length;
+  if (removed > 0 && !warnedTokenSources.has(source)) {
+    warnedTokenSources.add(source);
+    console.warn(
+      `[meta] Removed ${removed} whitespace character(s) from the Meta access token (${source}). ` +
+        'Meta tokens never contain whitespace, so the stored value was pasted with a line break. ' +
+        'The cleaned token is used for now; the durable fix is to re-add the env var from an unwrapped copy ' +
+        `(printf '%s' "$TOKEN" | vercel env add <NAME> production) and redeploy.`
+    );
+  }
+  return cleaned || undefined;
+}
+
 import {
   DEFAULT_GRAPH_API_BASE,
   DEFAULT_GRAPH_API_VERSION,
@@ -200,7 +242,13 @@ export async function graphRequest<T>(
   const method = options.method || 'GET';
   const timeoutMs = options.timeoutMs ?? 15000;
 
-  if (!options.accessToken) {
+  // Strip whitespace BEFORE the header is built: a token pasted with a line
+  // break makes Headers.append throw (see normalizeMetaToken).
+  const accessToken = normalizeMetaToken(
+    options.accessToken,
+    `${META_TOKEN_ENV_CHAIN}, or a per-account token stored in the database`
+  );
+  if (!accessToken) {
     throw new MetaGraphError({
       message: 'Meta Graph API call missing accessToken',
       status: 0,
@@ -215,7 +263,7 @@ export async function graphRequest<T>(
   });
 
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${options.accessToken}`,
+    Authorization: `Bearer ${accessToken}`,
     Accept: 'application/json',
   };
 
