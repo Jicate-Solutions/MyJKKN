@@ -40,6 +40,7 @@ import {
   type OptionKey,
   type StemTwin,
 } from '../_lib/drafts';
+import { AssetAttachPanel } from './asset-attach-panel';
 
 const NO_TOPIC = '__none__';
 const NO_ANSWER = '__unset__';
@@ -153,6 +154,15 @@ export function DraftCard({ draft, examId, examKey, topics, tags, userId, twins 
     [stem, stemTa, filledEn, correct, bloom, examKey],
   );
 
+  // Wave 3 Lane D, ruling #4: a picture with no description holds Approve.
+  // The panel reports its own blockers; the real wall is the assets API, which
+  // is the only writer and refuses to store a row without alt text.
+  const [pictureBlockers, setPictureBlockers] = useState<string[]>([]);
+  const allBlockers = useMemo(
+    () => [...blockers, ...pictureBlockers],
+    [blockers, pictureBlockers],
+  );
+
   function buildPatch(): DraftPatch {
     return {
       stem: stem.trim(),
@@ -179,7 +189,7 @@ export function DraftCard({ draft, examId, examKey, topics, tags, userId, twins 
   }
 
   async function onApprove() {
-    if (blockers.length) return;
+    if (allBlockers.length) return;
     try {
       await approve.mutateAsync({ id: draft.id, patch: buildPatch() });
       toast.success('Approved — it is now in the live bank');
@@ -476,6 +486,8 @@ export function DraftCard({ draft, examId, examKey, topics, tags, userId, twins 
             </div>
           </div>
 
+          <AssetAttachPanel itemId={draft.id} onBlockingChange={setPictureBlockers} />
+
           <div className="space-y-2 pt-2">
             <div className="flex items-center gap-2">
               <Button
@@ -495,7 +507,7 @@ export function DraftCard({ draft, examId, examKey, topics, tags, userId, twins 
               <Button
                 size="sm"
                 className="h-8 flex-1 bg-[#0b6d41] text-xs hover:bg-[#0a5c37]"
-                disabled={busy || blockers.length > 0}
+                disabled={busy || allBlockers.length > 0}
                 onClick={onApprove}
               >
                 {approve.isPending ? (
@@ -506,9 +518,9 @@ export function DraftCard({ draft, examId, examKey, topics, tags, userId, twins 
                 Approve
               </Button>
             </div>
-            {blockers.length > 0 && (
+            {allBlockers.length > 0 && (
               <p className="text-[11px] leading-snug text-muted-foreground">
-                To approve, add {blockers.join(', ')}.
+                To approve, add {allBlockers.join(', ')}.
               </p>
             )}
           </div>

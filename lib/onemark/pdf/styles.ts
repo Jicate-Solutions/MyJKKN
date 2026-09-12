@@ -116,6 +116,17 @@ body {
 .q .body { min-width: 0; }
 .q .lang + .lang { margin-top: 5pt; }
 .q .stem { text-align: left; }
+/* ---------- figures (Wave 3 Lane D) ----------
+   One picture, once, between the stems and the options, never wider than the
+   text column and never taller than a third of the page — a diagram that
+   pushed the options onto the next sheet would break the board layout. */
+.figures { margin: 5pt 0 4pt; text-align: center; break-inside: avoid; }
+.figure { margin: 0 auto; }
+.figure + .figure { margin-top: 5pt; }
+.figure img { display: block; margin: 0 auto; max-width: 100%; max-height: 78mm; height: auto; }
+.figure.missing {
+  border: 0.6pt dashed #000; padding: 4pt 6pt; font-size: 9.5pt; font-style: italic; text-align: left;
+}
 .opts { margin-top: 2pt; }
 .opts.inline_4 { display: grid; grid-template-columns: repeat(4, 1fr); column-gap: 8pt; }
 .opts.inline_2x2 { display: grid; grid-template-columns: repeat(2, 1fr); column-gap: 12pt; row-gap: 1pt; }
