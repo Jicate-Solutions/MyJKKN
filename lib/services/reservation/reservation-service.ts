@@ -6,12 +6,6 @@ import {
   logActivityForCurrentUser,
   ResourceManagementActivityTemplates,
 } from '@/lib/utils/activity-logger-client';
-import {
-  notifyBookingSubmitted,
-  notifyApproversPendingBooking,
-  notifyBookingApproved,
-  notifyBookingRejected,
-} from '@/lib/services/reservation/reservation-notification-service';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { TimeSlotGeneratorService } from '@/lib/services/resource-management/time-slot-generator-service';
 import { CUSTOM_RANGE_MIN_MINUTES } from '@/lib/services/resource-management/default-slots';
@@ -34,7 +28,74 @@ import type {
   SlotConflict
 } from '@/types/reservation';
 
+type ReservationNotifyEvent = 'submitted' | 'approved' | 'rejected' | 'cancelled';
+
+const NOTIFY_ROUTE = '/api/resource-management/reservations/notify';
+const NOTIFY_EMAIL_ROUTE = '/api/resource-management/reservations/notify-email';
+/** Events the email route knows how to send; it 400s on anything else. */
+const EMAIL_EVENTS: ReadonlySet<ReservationNotifyEvent> = new Set([
+  'submitted',
+  'approved',
+  'rejected'
+]);
+
 export class ReservationService {
+  /**
+   * Fire-and-forget: tell the server a reservation lifecycle event happened so
+   * it can create the in-app notifications (and emails) for the people
+   * involved.
+   *
+   * BUG-004009: the browser used to insert into `notifications` directly, but
+   * that table's INSERT policy admits only admins, so every booking by ordinary
+   * staff or a learner failed with 42501 — and `.catch(console.error)` hid it.
+   * The write now happens server-side under the service-role client. This
+   * helper never throws and never blocks the booking return path, but a
+   * failure is logged with the event and reservation id so it is visible.
+   */
+  private static dispatchNotification(
+    event: ReservationNotifyEvent,
+    reservationId: string,
+    reason?: string
+  ): void {
+    const post = (endpoint: string) => {
+      let outcome: Promise<Response>;
+      try {
+        outcome = fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ event, reservation_id: reservationId, reason })
+        });
+      } catch (err) {
+        outcome = Promise.reject(err);
+      }
+      void outcome
+        .then((res) => {
+          if (!res.ok) {
+            logger.warn(
+              'reservation/reservation-service',
+              `Reservation '${event}' notification was refused`,
+              { event, reservationId, endpoint, status: res.status }
+            );
+          }
+        })
+        .catch((err) => {
+          logger.warn(
+            'reservation/reservation-service',
+            `Reservation '${event}' notification could not be sent`,
+            {
+              event,
+              reservationId,
+              endpoint,
+              error: err instanceof Error ? err.message : String(err)
+            }
+          );
+        });
+    };
+
+    post(NOTIFY_ROUTE);
+    if (EMAIL_EVENTS.has(event)) post(NOTIFY_EMAIL_ROUTE);
+  }
+
   /**
    * Get all reservations with optional filters
    */
@@ -344,21 +405,12 @@ export class ReservationService {
     const resourceName = (reservation as any).resource?.name || '';
 
     // Fire-and-forget notifications — never block the booking return path.
-    if (requiresApproval) {
-      const requesterName = (reservation as any).user?.full_name || 'A user';
-      const approverIds: string[] = approversToSeed
-        .map((a) => a.user_id)
-        .filter(Boolean);
-      void notifyBookingSubmitted(reservation, resourceName).catch(console.error);
-      void notifyApproversPendingBooking(
-        approverIds,
-        reservation,
-        resourceName,
-        requesterName
-      ).catch(console.error);
-    } else {
-      void notifyBookingApproved(reservation, resourceName).catch(console.error);
-    }
+    // The server route reads the seeded approval chain itself, so the
+    // approver list does not need to travel with the request.
+    this.dispatchNotification(
+      requiresApproval ? 'submitted' : 'approved',
+      reservation.id
+    );
 
     const tpl = ResourceManagementActivityTemplates.reservationCreated(
       resourceName,
@@ -853,7 +905,7 @@ export class ReservationService {
     );
     const resourceName = (reservation as any).resource?.name || '';
 
-    void notifyBookingApproved(reservation, resourceName).catch(console.error);
+    this.dispatchNotification('approved', reservation.id);
 
     const tpl = ResourceManagementActivityTemplates.reservationApproved(resourceName);
     await logActivityForCurrentUser({
@@ -913,7 +965,7 @@ export class ReservationService {
     );
     const resourceName = (reservation as any).resource?.name || '';
 
-    void notifyBookingRejected(reservation, resourceName, dto.rejection_reason).catch(console.error);
+    this.dispatchNotification('rejected', reservation.id, dto.rejection_reason);
 
     const tpl = ResourceManagementActivityTemplates.reservationRejected(
       resourceName,
@@ -983,6 +1035,10 @@ export class ReservationService {
       'cancelReservation'
     );
     const resourceName = (reservation as any).resource?.name || '';
+
+    // BUG-004009: cancellation previously emitted no notification at all.
+    this.dispatchNotification('cancelled', reservation.id);
+
     const tpl = ResourceManagementActivityTemplates.reservationCancelled(resourceName);
     await logActivityForCurrentUser({
       actionType: tpl.actionType,

@@ -3,8 +3,9 @@ export const dynamic = 'force-dynamic';
 // POST /api/resource-management/reservations/notify-email
 // ---------------------------------------------------------------------------
 // Server-side email dispatcher for reservation lifecycle events.
-// Called fire-and-forget from the client-side reservation-notification-service
-// so that RESEND_API_KEY never touches the browser bundle.
+// Called fire-and-forget from the client-side ReservationService (see its
+// dispatchNotification helper) so that RESEND_API_KEY never touches the
+// browser bundle. In-app notifications go through the sibling /notify route.
 //
 // Flow:
 //   1. Validate caller is authenticated (server supabase cookie session).
