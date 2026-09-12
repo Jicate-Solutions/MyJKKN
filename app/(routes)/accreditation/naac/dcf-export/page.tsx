@@ -142,10 +142,10 @@ function useEvidenceCountsByMetric(institutionId: string | 'cluster') {
       }
       const { data, error } = await q;
       if (error) throw error;
-      return (data ?? []).reduce<Record<string, number>>((acc, row: any) => {
+      return (data ?? []).reduce((acc: Record<string, number>, row: any) => {
         acc[row.metric_code] = (acc[row.metric_code] ?? 0) + 1;
         return acc;
-      }, {});
+      }, {} as Record<string, number>);
     },
     staleTime: 2 * 60 * 1000,
   });
