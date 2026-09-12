@@ -3,7 +3,7 @@
 //
 // The roster card reads `student_name`, which AttendanceRosterService computes
 // from the fn_attendance_roster rows. This pins the contract the card relies on:
-// null/empty names collapse to 'Unknown Student', never to '' or 'null null',
+// null/empty names collapse to 'Unknown Learner', never to '' or 'null null',
 // and a learner with a real name keeps it untouched.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -45,27 +45,27 @@ describe('AttendanceRosterService.getStudentsForAttendance — learner with no n
     rpc.mockReset();
   });
 
-  it('falls back to "Unknown Student" when first and last name are both null', async () => {
+  it('falls back to "Unknown Learner" when first and last name are both null', async () => {
     rpc.mockResolvedValueOnce({
       data: [rosterRow({ id: 'learner-null', first_name: null, last_name: null })],
       error: null,
     });
 
-    const [student] = await AttendanceRosterService.getStudentsForAttendance(filters);
+    const [learner] = await AttendanceRosterService.getStudentsForAttendance(filters);
 
-    expect(student.id).toBe('learner-null');
-    expect(student.student_name).toBe('Unknown Student');
+    expect(learner.id).toBe('learner-null');
+    expect(learner.student_name).toBe('Unknown Learner');
   });
 
-  it('falls back to "Unknown Student" when first and last name are both empty strings', async () => {
+  it('falls back to "Unknown Learner" when first and last name are both empty strings', async () => {
     rpc.mockResolvedValueOnce({
       data: [rosterRow({ id: 'learner-empty', first_name: '', last_name: '   ' })],
       error: null,
     });
 
-    const [student] = await AttendanceRosterService.getStudentsForAttendance(filters);
+    const [learner] = await AttendanceRosterService.getStudentsForAttendance(filters);
 
-    expect(student.student_name).toBe('Unknown Student');
+    expect(learner.student_name).toBe('Unknown Learner');
   });
 
   it('keeps a real name intact and trims a missing half', async () => {
@@ -77,9 +77,9 @@ describe('AttendanceRosterService.getStudentsForAttendance — learner with no n
       error: null,
     });
 
-    const students = await AttendanceRosterService.getStudentsForAttendance(filters);
+    const learners = await AttendanceRosterService.getStudentsForAttendance(filters);
 
-    expect(students.map((s) => s.student_name)).toEqual(['Asha Kumar', 'Priya']);
+    expect(learners.map((s) => s.student_name)).toEqual(['Asha Kumar', 'Priya']);
   });
 
   it('queries fn_attendance_roster with the section scope (never learners_profiles directly)', async () => {

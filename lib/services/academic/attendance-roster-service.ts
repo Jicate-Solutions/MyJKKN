@@ -863,7 +863,7 @@ export class AttendanceRosterService {
         ...student,
         student_name:
           `${student.first_name || ''} ${student.last_name || ''}`.trim() ||
-          'Unknown Student'
+          'Unknown Learner'
       })) as AttendanceStudent[];
 
       return transformedData;
