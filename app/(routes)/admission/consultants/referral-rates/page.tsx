@@ -207,6 +207,7 @@ export default function ReferralRatesPage() {
                     <Stat label="Never enrolled" value={String(preview.blocked_not_enrolled ?? 0)} warn={(preview.blocked_not_enrolled ?? 0) > 0} />
                     <Stat label="Held for checking" value={String(preview.held_walkin ?? 0)} warn={(preview.held_walkin ?? 0) > 0} />
                     <Stat label="Held — not seen in session" value={String(preview.held_attendance ?? 0)} warn={(preview.held_attendance ?? 0) > 0} />
+                    <Stat label="Held — no register kept" value={String(preview.held_no_register ?? 0)} warn={(preview.held_no_register ?? 0) > 0} />
                     <Stat label="Payable now" value={String(preview.payable_now)} />
                     <Stat label="Blocked (no bank/PAN)" value={String(preview.blocked_no_bank)} warn={preview.blocked_no_bank > 0} />
                     <Stat label="Net total" value={rupees(preview.total_net)} />
@@ -237,13 +238,35 @@ export default function ReferralRatesPage() {
                         session attendance has never recorded them — worth {rupees(preview.held_attendance_gross ?? 0)}.
                       </p>
                       <p className="text-muted-foreground">
-                        Only referrals whose sessions ARE being marked can be held this way. A learner whose sessions
-                        nobody marks is never held — an empty register says nothing about the learner. Release
-                        each on the{' '}
+                        Only referrals whose sessions ARE being marked are counted here — the register exists and has
+                        never recorded them. Referrals whose sessions nobody marks are held separately, under
+                        &ldquo;no register kept&rdquo; below. Release each on the{' '}
                         <Link href="/admission/consultants/review-worklist" className="text-primary underline">
                           Review Worklist
                         </Link>
                         .
+                      </p>
+                    </div>
+                  )}
+
+                  {/* No register kept — the college's gap, not the learner's and not the
+                      agency's. Held since 2026-09-12 (rule 12). Say whose fault it is. */}
+                  {(preview.held_no_register ?? 0) > 0 && (
+                    <div className="rounded-md border border-amber-300 bg-amber-50/60 dark:bg-amber-950/20 p-3 text-sm space-y-1">
+                      <p className="font-medium">
+                        {preview.held_no_register} referral{preview.held_no_register === 1 ? '' : 's'}{' '}
+                        {preview.held_no_register === 1 ? 'is' : 'are'} held because nobody has marked attendance for
+                        that learner&apos;s section at all — worth {rupees(preview.held_no_register_gross ?? 0)}.
+                      </p>
+                      <p className="text-muted-foreground">
+                        This is not evidence the learner left, and it is not the agency&apos;s doing. Their section
+                        has no attendance register yet, or they have not been placed in a section. Marking the
+                        register releases them — the next run picks them up on the first session they are marked
+                        present. An admin can also release one at a time on the{' '}
+                        <Link href="/admission/consultants/review-worklist" className="text-primary underline">
+                          Review Worklist
+                        </Link>
+                        , the same clearance that releases a learner not seen in session.
                       </p>
                     </div>
                   )}
@@ -385,14 +408,15 @@ export default function ReferralRatesPage() {
               <DialogDescription>
                 This creates {preview?.eligible ?? preview?.candidates ?? 0} pending commission record(s) for{' '}
                 {year}–{String(year + 1).slice(2)}.
-                {((preview?.held_walkin ?? 0) + (preview?.held_attendance ?? 0) + (preview?.blocked_not_enrolled ?? 0)) > 0 && (
+                {((preview?.held_walkin ?? 0) + (preview?.held_attendance ?? 0) + (preview?.held_no_register ?? 0) + (preview?.blocked_not_enrolled ?? 0)) > 0 && (
                   <>
                     {' '}The other{' '}
-                    {(preview?.held_walkin ?? 0) + (preview?.held_attendance ?? 0) + (preview?.blocked_not_enrolled ?? 0)}{' '}
+                    {(preview?.held_walkin ?? 0) + (preview?.held_attendance ?? 0) + (preview?.held_no_register ?? 0) + (preview?.blocked_not_enrolled ?? 0)}{' '}
                     will <strong>not</strong> be created —{' '}
                     {preview?.blocked_not_enrolled ?? 0} never enrolled,{' '}
                     {preview?.held_walkin ?? 0} held for checking,{' '}
-                    {preview?.held_attendance ?? 0} never seen in session.
+                    {preview?.held_attendance ?? 0} never seen in session,{' '}
+                    {preview?.held_no_register ?? 0} in a section nobody marks.
                   </>
                 )}{' '}
                 They are <strong>not paid</strong> — they wait for the four-stage approval on the Commissions page.

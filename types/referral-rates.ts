@@ -33,7 +33,8 @@ export interface GenerateAgencyLine {
   agency: string;
   /** Eligible referrals only — held ones are counted separately. */
   referrals: number;
-  /** Credits this agency has that are held — walk-in or attendance. */
+  /** Credits this agency has that are held — walk-in, attendance, or no
+   *  register kept (rule 12, 2026-09-12). */
   held: number;
   /** Referrals for this agency whose learner never took the seat. */
   not_enrolled: number;
@@ -51,10 +52,19 @@ export interface GenerateCommissionsResult {
   blocked_not_enrolled: number;
   blocked_not_enrolled_gross: number;
   /** Enrolled, but a MARKED register has never recorded them present. Held, and
-   *  releasable on the Review Worklist. Learners whose section nobody marks are
-   *  never held — absence of a register is not absence of a learner. */
+   *  releasable on the Review Worklist. A LEARNER problem: the register exists
+   *  and has never seen them. Learners whose section nobody marks are counted
+   *  under held_no_register instead, and are now ALSO held. */
   held_attendance: number;
   held_attendance_gross: number;
+  /** Enrolled, but nobody marks this learner's section at all — or they have no
+   *  section yet. Held from 2026-09-12 (rule 12, Director): a missing register
+   *  is now a hold, reversing the earlier rule that let unmeasurable sections
+   *  through. A COLLEGE problem, not the learner's and not the consultant's.
+   *  Released through referral_attendance_clearances, the same path that
+   *  releases held_attendance — marking the register also clears it. */
+  held_no_register: number;
+  held_no_register_gross: number;
   /** Walk-in credits with no payout clearance. Counted, valued, never written. */
   held_walkin: number;
   /** What the held population would be worth at the current rate. */
