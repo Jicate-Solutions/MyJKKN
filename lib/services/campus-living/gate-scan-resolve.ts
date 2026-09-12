@@ -39,7 +39,14 @@ export type GateVerdict = 'approved' | 'returning' | 'blocked';
  * machine-readable half, so the screen can render a different panel for
  * "no pass tonight" than for "this person has left" without matching strings.
  */
-export type BlockedReason = 'no_approved_pass' | 'approved_window_closed' | 'has_left';
+export type BlockedReason =
+  | 'no_approved_pass'
+  | 'approved_window_closed'
+  | 'has_left'
+  /** The card belongs to a team member, or to somebody we could not classify. */
+  | 'not_a_learner'
+  /** A learner, but not one living in a hostel — no current allocation. */
+  | 'not_a_resident';
 
 /** The single write the one tap performs. `null` when blocked. */
 export type GateAction = 'out' | 'in' | null;
@@ -205,8 +212,8 @@ export function decideGateAction(passes: ScannedPass[], now: Date): GateDecision
       pass: null,
       action: null,
       blockedReason: 'approved_window_closed',
-      headline: 'NO APPROVED PASS',
-      detail: `The approved window closed at ${formatClock(expired.expected_return)}. A warden must issue a new pass.`,
+      headline: 'GATE PASS NOT APPROVED',
+      detail: `The approved window closed at ${formatClock(expired.expected_return)}. Contact the warden for a new pass. Do not allow.`,
       isLate: false,
       lateByMinutes: 0,
     };
@@ -217,8 +224,8 @@ export function decideGateAction(passes: ScannedPass[], now: Date): GateDecision
     pass: null,
     action: null,
     blockedReason: 'no_approved_pass',
-    headline: 'NO APPROVED PASS',
-    detail: 'No gate pass is open for this learner. Do not let them out.',
+    headline: 'GATE PASS NOT APPROVED',
+    detail: 'No warden has approved a pass for this learner. Contact the warden. Do not allow.',
     isLate: false,
     lateByMinutes: 0,
   };
@@ -267,7 +274,21 @@ export const LEAVER_LIFECYCLE_STATUSES: readonly string[] = [
  * status. (`lifecycle_status` and `is_active` are database identifiers.)
  */
 export type ScanSubject =
-  | { kind: 'learner'; lifecycleStatus: string | null }
+  | {
+      kind: 'learner';
+      lifecycleStatus: string | null;
+      /**
+       * Does this learner currently hold an active hostel allocation?
+       *
+       * OPTIONAL, and gate-only. `describeDeparture` ignores it entirely, so
+       * the mess door — which shares this type and calls that function with a
+       * two-field object — is unaffected. `undefined` or `null` means the
+       * allocation could not be established, which is NOT evidence of
+       * non-residency and is allowed through, exactly like an unreadable
+       * lifecycle status.
+       */
+      hasActiveAllocation?: boolean | null;
+    }
   | { kind: 'team_member'; isActive: boolean | null }
   | { kind: 'unclassified' };
 
@@ -329,6 +350,50 @@ export function decideScan(
       lateByMinutes: 0,
     };
   }
+
+  // ── This door is for hostel residents ────────────────────────────
+  //
+  // Director decision carried into the rebuild: the hostel gate scanner reads
+  // LEARNER cards only. A team member's card is a perfectly valid card at
+  // every other door in the estate and simply has no business here, so it is
+  // told that in those words rather than falling through to "no approved
+  // pass", which would read as a problem with their paperwork.
+  //
+  // `unclassified` lands here too. It cannot hold a gate pass — a pass is
+  // keyed to a learner's profile — so it was always going to be RED; naming
+  // the real reason is strictly better than a misleading one.
+  if (subject.kind !== 'learner') {
+    return {
+      verdict: 'blocked',
+      pass: null,
+      action: null,
+      blockedReason: 'not_a_learner',
+      headline: 'NOT A RESIDENT CARD',
+      detail:
+        'This gate records hostel residents only. This card does not belong to a learner — use the main campus entrance.',
+      isLate: false,
+      lateByMinutes: 0,
+    };
+  }
+
+  // A learner who does not live in a hostel has nothing to be let out OF.
+  // Only an explicit `false` counts: `undefined`/`null` means the allocation
+  // could not be read, and this scanner refuses what it can SHOW, never what
+  // it merely failed to confirm.
+  if (subject.hasActiveAllocation === false) {
+    return {
+      verdict: 'blocked',
+      pass: null,
+      action: null,
+      blockedReason: 'not_a_resident',
+      headline: 'NOT A HOSTEL RESIDENT',
+      detail:
+        'This learner has no current hostel allocation, so no gate pass applies. Contact the warden. Do not allow.',
+      isLate: false,
+      lateByMinutes: 0,
+    };
+  }
+
   return decideGateAction(passes, now);
 }
 

@@ -2612,6 +2612,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/campus-living/gate-passes/request",
+            "label": "Request",
+            "iconName": "Ticket",
+            "children": []
+          },
+          {
             "path": "/campus-living/gate-passes/scan",
             "label": "Scan",
             "iconName": "Ticket",

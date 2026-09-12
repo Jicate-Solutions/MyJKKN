@@ -386,7 +386,13 @@ export class LearnerHosteliteService {
         profileId
           ? supabase
               .from('hostel_gate_passes')
-              .select('id, pass_number, status, out_time, in_time, purpose, created_at')
+              // Columns only. This asked for `in_time` and `purpose`, and
+              // neither has ever existed on this table — the select failed
+              // with 42703 inside the Promise.all, so this whole bundle was
+              // broken, not just its gate-pass slice.
+              .select(
+                'id, pass_number, status, planned_out_at, out_time, actual_return, destination, created_at',
+              )
               .eq('learner_id', profileId)
               .order('created_at', { ascending: false })
               .limit(5)
