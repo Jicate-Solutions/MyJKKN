@@ -16,7 +16,19 @@
 -- Same class as the two defects in PR #3665 — a body that is valid SQL text and an
 -- invalid query.
 --
--- SCOPE. Six references, one table alias, nothing else. The body below was taken
+-- ⚠️ SCOPE WIDENED 2026-09-13 AFTER PEER REVIEW. The rename alone shipped a FALSE
+-- GREEN and a peer tab caught it. Renaming the columns removes the crash but the
+-- signal then computes RETIREMENTS ONLY and calls the result attrition: measured
+-- live, 0 of 78 hr_leave_types match resign/separation/notice, so
+-- v_resignation_count is structurally 0 at every institution, forever. With the
+-- rename alone, 7 of 10 institutions reported GREEN "attrition healthy" while blind
+-- to resignations entirely. A 42703 is visibly broken and gets fixed; a green light
+-- on an HR attrition signal is a wrong number a leader acts on with no error anywhere.
+-- The old guard could not save it either: `IF v_resignation_count = 0 AND NOT
+-- v_has_dob_data` needs BOTH, and DOB coverage is 733/733, so it was dead code.
+-- This migration therefore ALSO makes the function admit what it cannot see.
+--
+-- SCOPE. Six column references, plus an observability probe and an honest guard. The body below was taken
 -- VERBATIM from the live definition via pg_get_functiondef() on 2026-09-12 and edited
 -- surgically — signature, RETURNS hr_signal_input_result, SECURITY DEFINER,
 -- search_path, every threshold branch and every raw_data key are byte-identical to what
@@ -54,6 +66,7 @@ DECLARE
   v_at_risk           int;
   v_retirement_age    int;
   v_has_dob_data      boolean := false;
+  v_resig_observable  boolean := false;
   v_threshold_amber   numeric;
   v_threshold_red     numeric;
 BEGIN
@@ -79,6 +92,20 @@ BEGIN
     v_result.raw_data := jsonb_build_object('reason', 'No active staff found for this institution.');
     RETURN v_result;
   END IF;
+
+  -- 0. CAN we observe resignations at all? The count below matches leave TYPES by
+  --    name. If no such type exists the count is structurally 0, and "no resignations"
+  --    becomes indistinguishable from "cannot see resignations". Measured 2026-09-13:
+  --    0 of 78 hr_leave_types match, so this is FALSE today at every institution.
+  SELECT EXISTS (
+    SELECT 1 FROM public.hr_leave_types lt
+    WHERE lt.leave_type_name ILIKE '%resign%'
+       OR lt.leave_type_code ILIKE '%resign%'
+       OR lt.leave_type_name ILIKE '%separation%'
+       OR lt.leave_type_code ILIKE '%separation%'
+       OR lt.leave_type_name ILIKE '%notice period%'
+       OR lt.leave_type_code ILIKE '%notice%'
+  ) INTO v_resig_observable;
 
   -- 1. Count resignations in last 12 months
   --    Join hr_leave_applications → hr_leave_types to find resignation-related leave types
@@ -118,10 +145,23 @@ BEGIN
     AND EXTRACT(YEAR FROM age(CURRENT_DATE, s.date_of_birth)) >= (v_retirement_age - 1);
 
   -- Check if we have any useful data
-  IF v_resignation_count = 0 AND NOT v_has_dob_data THEN
+  IF NOT v_resig_observable OR NOT v_has_dob_data THEN
+    -- HALF-BLIND, SO SAY SO. Retirements alone are not attrition. Reporting 'green'
+    -- here told a leader "attrition healthy" while the resignation term was
+    -- structurally 0 -- a wrong number with no error anywhere to notice. The
+    -- retirement figures are still returned so the work is not lost, but the STATUS
+    -- refuses to assert a verdict it cannot support.
+    -- NOTE the operator: the previous guard was AND, and DOB coverage is 733/733, so
+    -- it could never fire.
     v_result.status := 'insufficient_data';
+    v_result.value  := v_retirement_count;
+    v_result.norm   := v_total_staff;
     v_result.raw_data := jsonb_build_object(
-      'reason', 'No DOB data on staff and no resignation-type leave applications found.',
+      'reason', CASE WHEN NOT v_resig_observable
+                     THEN 'Resignations are not observable: no hr_leave_types row matches resign/separation/notice. Retirement counts below are complete; the attrition verdict is not.'
+                     ELSE 'No DOB data on staff, so retirement risk cannot be computed.' END,
+      'resignation_observable', v_resig_observable,
+      'retirement_count', v_retirement_count,
       'total_staff', v_total_staff,
       'retirement_age', v_retirement_age
     );
