@@ -11,6 +11,7 @@
  */
 
 import { useEffect, useState, useMemo } from 'react';
+import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { AdminPermissionGuard } from '@/components/auth/admin-permission-guard';
 import { SYSTEM_ROLES } from '@/types/auth';
@@ -35,11 +36,14 @@ import type { SignalInputKey } from '@/types/hr-recruitment-need';
 
 const ADMIN_ROLES = [SYSTEM_ROLES.SUPER_ADMIN, SYSTEM_ROLES.ADMINISTRATOR];
 
+// 'workload' is deliberately absent. Its bands run the other way (more hours
+// than expected is worse, so red 120 > amber 100) and are set PER INSTITUTION
+// on /hr/workload/settings. Listing it here failed this page's amber > red and
+// 0-100 rules on the seeded values, which disabled Save for every input.
 const INPUT_KEYS: SignalInputKey[] = [
   'sanctioned_gap',
   'sfr',
   'specialization_gap',
-  'workload',
   'projected_intake',
   'attrition_pipeline',
   'peer_benchmark',
@@ -155,6 +159,8 @@ export default function ThresholdsAdminPage() {
             Set amber (warning) and red (critical) thresholds for each signal input.
             When an input&apos;s percentage-of-norm falls below these thresholds, it
             triggers the corresponding status. Amber must be higher than red.
+            Faculty Workload limits are set per institution on{' '}
+            <Link href="/hr/workload/settings" className="underline">Workload Settings</Link>.
           </p>
 
           {isLoading ? (
