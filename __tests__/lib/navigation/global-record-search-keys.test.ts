@@ -31,14 +31,15 @@ import { MENU_PERMISSIONS } from '@/lib/sidebarMenuLink';
 
 // The CURRENT definition of the function. 20261201090000 created it as
 // SECURITY DEFINER, which was a confidentiality defect (it bypassed RLS and
-// substituted a simpler check); 20261201100000 re-issues it as SECURITY
-// INVOKER. These assertions must track the LATEST definition — pinned to the
-// superseded file, this suite would have gone on certifying the vulnerable
-// version, green, forever.
+// substituted a simpler check); 20261201100000 re-issued it as SECURITY
+// INVOKER; 20261201140000 adds departments, programmes and institutions.
+// These assertions must track the LATEST definition — pinned to a superseded
+// file, this suite would have gone on certifying the vulnerable version,
+// green, forever. REPOINT THIS WHEN THE FUNCTION IS NEXT REPLACED.
 const MIGRATION = readFileSync(
   path.join(
     process.cwd(),
-    'supabase/migrations/20261201100000_global_record_search_security_invoker.sql'
+    'supabase/migrations/20261201140000_global_record_search_more_entities.sql'
   ),
   'utf8'
 );
@@ -134,12 +135,37 @@ describe('global record search — permission key agreement', () => {
     expect(MIGRATION_CODE).not.toMatch(/role_has_institution_access\s*\(/);
   });
 
-  it('excludes NULL-institution rows in every entity block', () => {
+  it('excludes NULL-institution rows in every entity block that can have one', () => {
     // Some table policies permit a NULL institution_id, and 3
     // learners_profiles rows have one. Search should not surface orphan rows
     // platform-wide, so each block carries its own IS NOT NULL guard.
+    //
+    // 'institution' is the one entity that cannot: an institution has no
+    // institution_id, it IS the institution. Its absence from this count is
+    // by necessity, not by omission — so the expectation names the exemption
+    // rather than hard-coding a number that would quietly absorb a real
+    // missing guard on some future entity.
+    const EXEMPT: RecordEntity[] = ['institution'];
     const guards = MIGRATION_CODE.match(/\.institution_id IS NOT NULL/g) ?? [];
-    expect(guards).toHaveLength(ENTITIES.length);
+    expect(guards).toHaveLength(ENTITIES.length - EXEMPT.length);
+  });
+
+  it('de-duplicates programmes', () => {
+    // public.programs carries duplicate rows (no unique constraint on
+    // program_name). Without this the palette shows one programme three times
+    // and pushes the other groups off the list.
+    expect(MIGRATION_CODE).toMatch(
+      /DISTINCT ON \(lower\(pr\.program_name\), pr\.institution_id\)/
+    );
+  });
+
+  it('does not search billing records', () => {
+    // Dropped deliberately: billing_invoices and billing_receipts carry no
+    // named RLS policy anywhere in supabase/migrations, and this function is
+    // SECURITY INVOKER — RLS is the only boundary. Adding them on an
+    // unverified assumption is precisely what leaked lead phone numbers on
+    // 2026-09-12. Re-add only after checking pg_class.relrowsecurity live.
+    expect(MIGRATION_CODE).not.toMatch(/billing_invoices|billing_receipts/);
   });
 });
 
@@ -155,12 +181,27 @@ describe('groupRecordHits', () => {
 
   it('groups by entity in the declared display order', () => {
     // Deliberately out of order on the way in.
+    const present: RecordEntity[] = ['course', 'learner', 'lead', 'staff'];
     const groups = groupRecordHits([
       hit('course', 'Anatomy'),
       hit('learner', 'Priya'),
       hit('lead', 'Kavin'),
       hit('staff', 'Ravi'),
     ]);
+    // Compared against the declared order RESTRICTED to the entities that
+    // actually have hits — groupRecordHits drops empty groups, so asserting
+    // the whole of RECORD_ENTITY_ORDER would only hold while every entity
+    // happened to be represented in this fixture. It stopped holding the day
+    // a fifth entity was added, which is a fact about the fixture, not a bug.
+    expect(groups.map((g) => g.entity)).toEqual(
+      RECORD_ENTITY_ORDER.filter((e) => present.includes(e))
+    );
+  });
+
+  it('orders every declared entity, including the ones added later', () => {
+    const groups = groupRecordHits(
+      RECORD_ENTITY_ORDER.map((e) => hit(e, `${e}-row`))
+    );
     expect(groups.map((g) => g.entity)).toEqual(RECORD_ENTITY_ORDER);
   });
 
@@ -191,6 +232,8 @@ describe('isRecordEntity', () => {
   it('rejects an entity this build cannot route', () => {
     // Guards the forward-compatibility case: a later migration adds an entity
     // before the frontend knows how to render it.
+    // 'invoice' is not merely unknown — it is deliberately excluded (see
+    // 'does not search billing records' above).
     expect(isRecordEntity('invoice')).toBe(false);
     expect(isRecordEntity(null)).toBe(false);
     expect(isRecordEntity(undefined)).toBe(false);
