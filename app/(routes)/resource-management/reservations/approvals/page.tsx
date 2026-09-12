@@ -2,6 +2,7 @@
 // app/(routes)/resource-management/reservations/approvals/page.tsx
 
 import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -30,6 +31,9 @@ import {
   useRejectReservation
 } from '@/hooks/reservation/use-reservation-operations';
 import { useAuth } from '@/hooks/use-auth';
+import { evaluateApprovalTurn } from '@/lib/services/reservation/approval-chain';
+import type { ApprovalRecordLike } from '@/lib/services/reservation/approval-chain';
+import { logger } from '@/lib/utils/enhanced-logger';
 import type { Reservation } from '@/types/reservation';
 import {
   CheckCircle2,
@@ -41,6 +45,60 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { format } from 'date-fns';
+
+/**
+ * Approval-chain rows for the reservations currently on screen.
+ *
+ * BUG-004008: the queue selects reservations by status='pending' alone, so
+ * without these rows the Actions column cannot tell whether it is this
+ * approver's turn. A level-2 approver was shown a live Approve button while
+ * level 1 had not acted, and the database refused the click.
+ */
+function useQueueApprovalRows(reservationIds: string[]) {
+  const idKey = [...reservationIds].sort().join(',');
+
+  return useQuery({
+    // Shares the 'reservation-approvals' key prefix, so the approve/reject
+    // mutations' existing invalidation refreshes this queue too.
+    queryKey: ['reservation-approvals', 'queue', idKey],
+    queryFn: async (): Promise<Map<string, ApprovalRecordLike[]>> => {
+      const byReservation = new Map<string, ApprovalRecordLike[]>();
+      if (reservationIds.length === 0) return byReservation;
+
+      const supabase = (
+        await import('@/lib/supabase/client')
+      ).createClientSupabaseClient();
+
+      const { data, error } = await (supabase as any)
+        .from('resource_approvals')
+        .select('reservation_id, approver_user_id, approval_level, status')
+        .in('reservation_id', reservationIds);
+
+      if (error) {
+        logger.error(
+          'resource-management/reservations',
+          'Error fetching approval chain for approvals queue',
+          error
+        );
+        return byReservation;
+      }
+
+      for (const row of (data || []) as (ApprovalRecordLike & {
+        reservation_id: string;
+      })[]) {
+        const list = byReservation.get(row.reservation_id) ?? [];
+        list.push(row);
+        byReservation.set(row.reservation_id, list);
+      }
+
+      return byReservation;
+    },
+    enabled: reservationIds.length > 0,
+    staleTime: 15 * 1000,
+    refetchInterval: 30 * 1000,
+    retry: 3
+  });
+}
 
 export default function ApprovalsPage() {
   const router = useRouter();
@@ -149,6 +207,19 @@ export default function ApprovalsPage() {
 
   const totalPages = Math.ceil(filteredData.length / pageSize);
 
+  // Whose turn is it? Load the approval chain for the rows on screen so the
+  // Actions column can disable out-of-turn approvals instead of letting the
+  // database refuse them (BUG-004008).
+  const visibleReservationIds = useMemo(
+    () => paginatedData.map((r) => r.id),
+    [paginatedData]
+  );
+  const { data: approvalRowsByReservation } =
+    useQueueApprovalRows(visibleReservationIds);
+  const isSuperAdmin =
+    (user as any)?.is_super_admin === true ||
+    (user as any)?.role === 'super_admin';
+
   // Reset to page 1 whenever filters change so the user never lands
   // on an empty page after narrowing the result set.
   useEffect(() => {
@@ -176,13 +247,23 @@ export default function ApprovalsPage() {
       if (!user?.id) return;
 
       for (const reservation of selectedRows) {
+        // Skip rows where a lower approval level has not acted yet — the
+        // database would refuse them and abort the rest of the batch.
+        const turn = evaluateApprovalTurn({
+          approvalConfig: reservation.resource?.approval_config,
+          approvals: approvalRowsByReservation?.get(reservation.id),
+          userId: user?.id,
+          isSuperAdmin
+        });
+        if (turn.state === 'waiting_for_level') continue;
+
         await approveReservation.mutateAsync({
           reservation_id: reservation.id
         });
       }
       refetch();
     },
-    [approveReservation, user, refetch]
+    [approveReservation, user, refetch, approvalRowsByReservation, isSuperAdmin]
   );
 
   // Check if reservation is overdue
@@ -312,6 +393,22 @@ export default function ApprovalsPage() {
         const myStatus = myApprovalStatuses?.get(reservation.id);
         const alreadyActed = myStatus === 'approved' || myStatus === 'rejected';
 
+        // Sequential chains: a higher-level approver must wait for the lower
+        // levels. Keep the row visible (hiding it would make the queue look
+        // empty) but disable the actions and name the level being waited on.
+        const turn = evaluateApprovalTurn({
+          approvalConfig: reservation.resource?.approval_config,
+          approvals: approvalRowsByReservation?.get(reservation.id),
+          userId: user?.id,
+          isSuperAdmin
+        });
+        const waitingForLevel =
+          turn.state === 'waiting_for_level' ? turn.waiting_for_level : null;
+        const waitingLabel =
+          waitingForLevel !== null
+            ? `Waiting for Level ${waitingForLevel} approval — you can act once the preceding approver has.`
+            : undefined;
+
         return (
           <div className='flex items-center justify-end gap-2'>
             <Button
@@ -347,6 +444,29 @@ export default function ApprovalsPage() {
                   <><XCircle className='h-3 w-3 mr-1' />You Rejected</>
                 )}
               </Badge>
+            ) : waitingForLevel !== null ? (
+              <span
+                className='flex items-center gap-2'
+                title={waitingLabel}
+              >
+                <Badge className='bg-amber-100 text-amber-800 border-amber-200 hover:bg-amber-100 text-xs'>
+                  <Clock className='h-3 w-3 mr-1' />
+                  Waiting for Level {waitingForLevel}
+                </Badge>
+                <Button size='sm' variant='default' className='gap-1' disabled>
+                  <CheckCircle2 className='h-3 w-3' />
+                  Approve
+                </Button>
+                <Button
+                  size='sm'
+                  variant='destructive'
+                  className='gap-1'
+                  disabled
+                >
+                  <XCircle className='h-3 w-3' />
+                  Reject
+                </Button>
+              </span>
             ) : (
               <>
                 <Button

@@ -52,21 +52,45 @@ export function useHostelAllocations(institutionId: string | undefined, filters?
 // Full allocation set (no page cap) for the admin allocations page — drives the
 // summary counts + the advanced client-side table/filters. ~100s of rows today.
 //
-// blockIds is the warden scope. A block grant is institution-independent: every
-// warden's profile sits in JKKN Main Office, which owns no block and no
+// Two different scopes reach this feed, because the institution branch matched
+// nothing for TWO different hostel roles. Both fixes are kept.
+//
+// (1) blockIds is the WARDEN scope. A block grant is institution-independent:
+// every warden's profile sits in JKKN Main Office, which owns no block and no
 // allocation, so the institution branch matched zero rows for them and the page
 // rendered empty (RLS was returning 861 rows the whole time — the front end
 // threw them away). When blockIds is non-empty it REPLACES the institution
 // scope; the same scope-race rules apply, so it is part of the key and the
 // fetch waits for it.
+//
+// (2) campus_living.settings.view is the COLLEGE-WIDE scope, and it catches the
+// role (1) cannot: a chief_warden holds no block grant at all, so blockIds is
+// empty for them and they fell straight back into the broken institution
+// branch. A chief_warden's profile.institution_id is an ADMINISTRATIVE OFFICE,
+// not a college, while every allocation row carries the learner's COLLEGE id,
+// so .eq('institution_id', <admin office>) matched nothing and the page showed
+// "0 Allocated / Showing 0 of 0" on a hostel full of residents.
+// campus_living.settings.view is this codebase's existing marker for a
+// college-wide hostel role: chief_warden and hostel_office hold it, a
+// block-scoped warden does not. Verified live in
+// 20260804092425_campus_living_chief_warden_academic_cascade_rls.sql ("plain
+// warden (no campus_living.settings.view): still 0"). Reusing it keeps this fix
+// free of any permission change. Row-level scoping is still enforced by RLS —
+// dropping the filter widens nothing on its own.
+//
+// PRECEDENCE: a wider scope is never narrowed by a lesser one — the rule this
+// file already states as "never branch on isSuperAdmin alone to decide scope".
+// So a college-wide holder who also happens to carry a block grant stays
+// college-wide rather than being pushed back down into a block filter.
 export function useAllAllocations(
   institutionId: string | undefined,
   filters?: AllocationFilters,
   blockIds?: string[],
 ) {
-  const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
-  const blockScoped = (blockIds?.length ?? 0) > 0;
-  const effectiveInstitutionId = isSuperAdmin || blockScoped ? undefined : institutionId;
+  const { isSuperAdmin, permissions, isLoading: permissionsLoading } = usePermissions();
+  const isCollegeWide = isSuperAdmin || permissions?.['campus_living.settings.view'] === true;
+  const blockScoped = !isCollegeWide && (blockIds?.length ?? 0) > 0;
+  const effectiveInstitutionId = isCollegeWide || blockScoped ? undefined : institutionId;
   const effectiveBlockIds = blockScoped ? [...(blockIds as string[])].sort() : undefined;
   return useQuery({
     queryKey: [
@@ -76,7 +100,7 @@ export function useAllAllocations(
     ] as const,
     queryFn: () =>
       HostelAllocationService.getAllAllocations(effectiveInstitutionId, filters, effectiveBlockIds),
-    enabled: !permissionsLoading && (isSuperAdmin || blockScoped || !!institutionId),
+    enabled: !permissionsLoading && (isCollegeWide || blockScoped || !!institutionId),
     staleTime: 30_000,
   });
 }

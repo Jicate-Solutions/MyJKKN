@@ -1,6 +1,18 @@
 // lib/services/organization/profile-service.ts
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { logger } from '@/lib/utils/enhanced-logger';
+
+/**
+ * Format a list of ids for a PostgREST `in.(...)` clause inside an `or()`
+ * expression. Values are double-quoted so commas/parens in a malformed id can
+ * never break out of the list.
+ */
+function quoteForPostgrestInList(values: string[]): string {
+  return values
+    .map((v) => `"${String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`)
+    .join(',');
+}
 
 export interface ProfileFilters {
   institution_id?: string;
@@ -168,14 +180,23 @@ export class ProfileService {
         query = query.in('id', userIdsWithRole);
       }
 
-      // Filter by multiple institutions
+      // Filter by multiple institutions.
+      //
+      // A NULL institution_id must NOT be read as "excluded": cross-institution
+      // and central staff legitimately have no institution, and SQL `IN` never
+      // matches NULL, so `.in('institution_id', ids)` silently dropped every one
+      // of them and a populated role rendered as "0 users found" (BUG-003915).
       if (filters.institution_ids && filters.institution_ids.length > 0) {
-        query = query.in('institution_id', filters.institution_ids);
+        query = query.or(
+          `institution_id.in.(${quoteForPostgrestInList(filters.institution_ids)}),institution_id.is.null`
+        );
       }
 
-      // Filter by single institution (overrides multiple)
+      // Filter by single institution (overrides multiple) - same NULL rule.
       if (filters.institution_id) {
-        query = query.eq('institution_id', filters.institution_id);
+        query = query.or(
+          `institution_id.eq.${filters.institution_id},institution_id.is.null`
+        );
       }
 
       // Filter by department
@@ -183,9 +204,14 @@ export class ProfileService {
         query = query.eq('department_id', filters.department_id);
       }
 
-      // Filter by active status
+      // Filter by active status. A NULL is_active means the flag was never set,
+      // not that the user is deactivated, so treat it as active.
       if (filters.is_active !== undefined) {
-        query = query.eq('is_active', filters.is_active);
+        if (filters.is_active) {
+          query = query.or('is_active.eq.true,is_active.is.null');
+        } else {
+          query = query.eq('is_active', false);
+        }
       }
 
       // Search by name or email
@@ -209,6 +235,44 @@ export class ProfileService {
       return data || [];
     } catch (error) {
       console.error('[profile-service] Error in getProfilesForApproverSelection:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Count how many users hold a role, across every institution.
+   *
+   * getProfilesForApproverSelection returns the list *after* institution and
+   * department filtering, so its length cannot tell "this role has no members
+   * at all" apart from "this role has members, but none in the institutions you
+   * selected". The approver picker needs both numbers to label itself honestly.
+   *
+   * @param roleKey - The custom role key (empty string counts as no role)
+   * @returns Number of users holding the role
+   */
+  static async getRoleMemberCount(roleKey: string): Promise<number> {
+    if (!roleKey) return 0;
+
+    try {
+      const { data, error } = await (this.supabase as any).rpc(
+        'get_user_ids_by_role_key',
+        { p_role_key: roleKey }
+      );
+
+      if (error) {
+        logger.error('profile-service', 'Error counting users by role', {
+          roleKey,
+          error
+        });
+        throw error;
+      }
+
+      return ((data as string[] | null) ?? []).length;
+    } catch (error) {
+      logger.error('profile-service', 'Error in getRoleMemberCount', {
+        roleKey,
+        error
+      });
       throw error;
     }
   }

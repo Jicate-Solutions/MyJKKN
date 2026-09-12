@@ -189,6 +189,12 @@ export function ResourceSelector({
                 <SelectItem value='available'>Available</SelectItem>
                 <SelectItem value='occupied'>Occupied</SelectItem>
                 <SelectItem value='maintenance'>Maintenance</SelectItem>
+                {/* BUG-003996: every stored status must be selectable here.
+                    A venue saved as out_of_order / retired / inactive could
+                    previously only be surfaced via "All Status". */}
+                <SelectItem value='out_of_order'>Out of Order</SelectItem>
+                <SelectItem value='retired'>Retired</SelectItem>
+                <SelectItem value='inactive'>Inactive</SelectItem>
               </SelectContent>
             </Select>
           </div>

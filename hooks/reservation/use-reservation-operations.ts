@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { getErrorMessage } from '@/lib/utils';
 import { ReservationService } from '@/lib/services/reservation/reservation-service';
+import { isSequentialApprovalBlockError } from '@/lib/services/reservation/approval-chain';
 import { useAuth } from '@/hooks/use-auth';
 import type {
   CreateReservationDto,
@@ -228,6 +229,12 @@ export function useReservationOperations() {
     },
     onError: (error: any) => {
       console.error('Error approving reservation:', error);
+      // BUG-004008: the sequential gate ("Approval at level 1 is still
+      // pending; you cannot approve at level 2 yet") is a "not your turn yet"
+      // state, not a failure. The approval dialog already renders it inline in
+      // amber, so a red "Approval Failed" toast reported the same thing twice.
+      // Every other error still raises the toast below.
+      if (isSequentialApprovalBlockError(error)) return;
       toast.error(
         `❌ Approval Failed\n${
           error.message || 'An unexpected error occurred'
