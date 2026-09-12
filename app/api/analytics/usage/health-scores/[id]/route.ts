@@ -8,6 +8,9 @@ import { HealthScoreService } from '@/lib/services/analytics/health-score-servic
  * GET /api/analytics/usage/health-scores/[id]
  * Returns a single institution's health score with history
  *
+ * A super admin may open any institution; a principal, HOD, admin or accounts
+ * user only their own. Any other institution is a 403 with a plain message.
+ *
  * Query params:
  * - days: Number of days of history (default: 30)
  */
@@ -46,6 +49,14 @@ export async function GET(
     }
 
     const { id } = await params;
+
+    // Refuse an institution outside the viewer's scope with a plain 403 before
+    // any health score row is read (the service checks again and filters).
+    const access = await HealthScoreService.checkAccess(user.id, id);
+    if (!access.allowed) {
+      return NextResponse.json({ error: access.reason }, { status: access.status });
+    }
+
     const searchParams = request.nextUrl.searchParams;
     const days = parseInt(searchParams.get('days') || '30', 10);
 
