@@ -154,12 +154,86 @@ export class TimetableService {
   /**
    * ONE ACTIVE TIMETABLE PER SECTION, PER ACADEMIC YEAR.
    *
-   * The rule is the seven-key scope, NOT the date range:
-   *   institution + academic_year + degree + program + department + semester + section
+   * The rule is the SECTION inside the academic year, NOT the date range and
+   * NOT the wider hierarchy:
+   *   academic_year + section   (+ is_active)
    *
    * Two or more timetables may share an academic year freely — that is the
    * normal case, one per section. What is refused is a SECOND timetable for a
    * section that already has one.
+   *
+   * WHY THE KEY IS ONLY THESE TWO COLUMNS
+   * It used to be seven (institution + academic_year + degree + program +
+   * department + semester + section). All six extras are FUNCTIONALLY
+   * DETERMINED BY THE SECTION: `sections` carries institution_id, degree_id,
+   * program_id, department_id AND semester_id, so a section_id match has
+   * already pinned every one of them. Re-asserting a determined column can only
+   * narrow a match section_id had already made — never widen it — so the extras
+   * were dead weight that could only ever produce a false negative if the two
+   * copies of the value drifted apart.
+   *
+   * SEMESTER IN PARTICULAR IS NOT LOST. A section row belongs to exactly one
+   * semester, so "Section A" is a DIFFERENT ROW in Semester III and in
+   * Semester IV. Both of that section's timetables therefore live in the same
+   * academic year quite happily — they have different section_ids. Verified on
+   * production 2026-09-07: across all 202 non-template timetables,
+   * sections.semester_id equals timetables.semester_id in 202 cases, with zero
+   * divergences and zero sections lacking a semester.
+   *
+   * Measured the same day: collapsing the key to (academic_year, section) flags
+   * exactly one pair — the long-standing "NEW CRRI ZENFORIANZ SECTION - A"
+   * duplicate described below, itself a same-semester duplicate. No legitimate
+   * row is newly blocked, and 0 of 190 section/year pairs have ever held
+   * timetables in two different semesters.
+   *
+   * SECTIONLESS (semester-level) TIMETABLES ARE A DIFFERENT RULE ENTIRELY.
+   * A row with section_id NULL has no section to be identified by, so it
+   * compares on the full hierarchy plus the semester — AND on the date range.
+   * Applying the section rule to a scope that has no section made the first
+   * semester-level timetable of an academic year the only one a department
+   * could ever create. Production 2026-09-10, JKKN Dental "4 Year": the
+   * year-long "4th Year 2026-2027 DRAVENCOREZ THEORY" (section_id NULL,
+   * 2026-01-05 to 2027-01-05) refused every later semester-level timetable in
+   * that year, with a message telling the operator to free a section they had
+   * never chosen. `timetable_type` defaults to 'semester' and the form
+   * recommends it, so this is the path most operators are on.
+   *
+   * OVERLAP IS THE RIGHT KEY FOR THESE ROWS. A learner's semester-level
+   * timetable is resolved by StudentTimetableService.selectBestTimetable, which
+   * gathers every candidate and returns the one whose range covers today.
+   * Disjoint ranges are therefore unambiguous — each is the answer on its own
+   * days. Overlapping ranges are not: one of the two is silently invisible to
+   * learners and to attendance, and that is the conflict worth refusing. A
+   * missing bound counts as unbounded, so the dateless hole stays shut.
+   *
+   * OVERLAPPING DATES ARE NOT ENOUGH — THE SECTION SETS MUST INTERSECT TOO.
+   * Added 2026-09-11. A semester-level timetable does NOT cover its whole
+   * semester; it covers the sections its slots name, and now says so in
+   * `timetables.section_ids`. Treating the date range as the entire key made the
+   * first timetable of a semester reserve every section in it.
+   *
+   * That is not an edge case. JKKN Dental's 4th Year BDS semester holds 24
+   * sections in three PARALLEL GROUPS — A..H, ADD 4A..ADD 4H, TROIZ A..TROIZ H —
+   * and each group needs its own timetable on the SAME academic year and the
+   * SAME dates. The live "4th Year 2026-2027 DRAVENCOREZ THEORY" names exactly
+   * the eight A..H ids on every slot: 8 of 24 sections, yet it refused the ADD
+   * and TROIZ timetables, which share not one section with it. The operator's
+   * only way through was eight hand-built section-level rows per group.
+   *
+   * WHY A DECLARED COLUMN AND NOT THE SLOT JSON. The scope was already derivable
+   * from the slots, and both StudentTimetableService and
+   * fn_timetable_scheduled_sections do derive it. But this check runs at CREATE
+   * time and slots are built AFTERWARDS, in the `[id]` editor. At the only
+   * moment the answer is needed there is nothing to read, so the scope has to be
+   * declared on the row rather than inferred from data that does not exist yet.
+   *
+   * AN UNDECLARED SCOPE FAILS CLOSED. A NULL or empty `section_ids` on either
+   * side is read as "covers the whole semester", which is exactly the old
+   * behaviour: the pair conflicts on dates alone. Failing open would let two
+   * genuinely overlapping timetables through and make one of them invisible —
+   * the precise outcome this rule exists to prevent. The 2026-09-11 backfill
+   * left zero non-template rows undeclared, so this path is a guard, not a
+   * routine case.
    *
    * WHY THIS NO LONGER REQUIRES THE DATES TO OVERLAP
    * The previous rule only fired when the new range overlapped an existing one,
@@ -195,6 +269,13 @@ export class TimetableService {
     department_id: string;
     semester_id: string; // UUID
     section_id?: string; // UUID
+    /**
+     * Declared section scope of the timetable being created or edited. Only
+     * consulted for the semester-level rule; the section rule keys on
+     * section_id alone and ignores this. Absent or empty means "whole
+     * semester", which reproduces the pre-2026-09-11 behaviour.
+     */
+    section_ids?: string[];
     start_date?: string;
     end_date?: string;
     /** The timetable being edited — it must never conflict with itself. */
@@ -203,6 +284,13 @@ export class TimetableService {
     exists: boolean;
     existingTimetable?: Timetable;
     message?: string;
+    /**
+     * Which rule fired. The two are not interchangeable and their remedies are
+     * opposite — a section conflict is cleared by freeing the section, a
+     * semester conflict by moving the dates — so callers must not title both
+     * "Section Already Has a Timetable".
+     */
+    conflictScope?: 'section' | 'semester';
   }> {
     try {
       // The names are EMBEDDED, not selected with '*'. The old code read
@@ -212,21 +300,37 @@ export class TimetableService {
       let query: any = this.supabase
         .from('timetables')
         .select(
-          'id, timetable_name, start_date, end_date, semesters(semester_name), sections(section_name)'
+          // section_ids is a plain uuid[], not a FK, so PostgREST cannot embed
+          // names for it. Only the ids are fetched here; the overlapping ones
+          // are resolved to names below, and only when a conflict actually
+          // fires, so the common no-conflict path costs one query as before.
+          'id, timetable_name, start_date, end_date, section_ids, semesters(semester_name), sections(section_name)'
         )
-        .eq('institution_id', data.institution_id)
         .eq('academic_year_id', data.academic_year_id)
-        .eq('degree_id', data.degree_id)
-        .eq('program_id', data.program_id)
-        .eq('department_id', data.department_id)
-        .eq('semester_id', data.semester_id)
-        .eq('is_active', true);
+        .eq('is_active', true)
+        // Templates share this table. One active template in production carries
+        // both an academic year and a section, and with the key narrowed to
+        // those two columns it would now refuse the section's real timetable —
+        // pointing the operator at a row that is not a timetable at all.
+        // `IS NOT TRUE`, not `= false`, so a NULL flag cannot slip one through.
+        .not('is_template', 'is', true);
 
-      // Handle section parameter correctly
       if (data.section_id) {
+        // The section IS the key. Nothing else is added — in particular not
+        // semester_id, or a section could hold one timetable per semester of
+        // the same year, and not the hierarchy, which the section row already
+        // determines.
         query = query.eq('section_id', data.section_id);
       } else {
-        query = query.is('section_id', null);
+        // Semester-level timetable: no section to key on, so fall back to the
+        // original scope comparison.
+        query = query
+          .is('section_id', null)
+          .eq('institution_id', data.institution_id)
+          .eq('degree_id', data.degree_id)
+          .eq('program_id', data.program_id)
+          .eq('department_id', data.department_id)
+          .eq('semester_id', data.semester_id);
       }
 
       // Excluded in the QUERY, not filtered out of the result. The caller used
@@ -243,6 +347,7 @@ export class TimetableService {
           start_date: string | null;
           end_date: string | null;
           timetable_name: string;
+          section_ids: string[] | null;
           semesters?: { semester_name: string } | { semester_name: string }[];
           sections?: { section_name: string } | { section_name: string }[];
         }> | null;
@@ -255,7 +360,67 @@ export class TimetableService {
         return { exists: false };
       }
 
-      const existing = existingTimetables[0];
+      const isSectionScoped = Boolean(data.section_id);
+
+      // Half-open on purpose: a missing bound is UNBOUNDED on that side, not
+      // "no constraint to check". A dateless timetable therefore overlaps
+      // everything, which is what keeps the old dateless bypass shut.
+      const overlaps = (
+        aStart?: string | null,
+        aEnd?: string | null,
+        bStart?: string | null,
+        bEnd?: string | null
+      ) => {
+        if (aEnd && bStart && aEnd < bStart) return false;
+        if (bEnd && aStart && bEnd < aStart) return false;
+        return true;
+      };
+
+      // The scope of the row being saved. Empty means undeclared, which is read
+      // as "the whole semester" — see AN UNDECLARED SCOPE FAILS CLOSED above.
+      const incomingScope = new Set(
+        (data.section_ids || []).filter(Boolean)
+      );
+
+      // Which sections the two rows have in common. An undeclared scope on
+      // EITHER side covers everything, so it intersects by definition; there is
+      // nothing to name in that case and the caller falls back to the date-only
+      // message.
+      const sharedSections = (t: { section_ids: string[] | null }): {
+        intersects: boolean;
+        shared: string[];
+      } => {
+        const theirs = (t.section_ids || []).filter(Boolean);
+        if (incomingScope.size === 0 || theirs.length === 0) {
+          return { intersects: true, shared: [] };
+        }
+        const shared = theirs.filter((id) => incomingScope.has(id));
+        return { intersects: shared.length > 0, shared };
+      };
+
+      // A section conflict is unconditional — the section is taken and no date
+      // range changes that. A semester-level conflict needs BOTH halves: the
+      // date ranges must overlap AND the section scopes must intersect. The row
+      // REPORTED must satisfy both, because pointing the operator at a spent
+      // range, or at a timetable for a group they never touched, sends them to
+      // the wrong row.
+      let overlappingSections: string[] = [];
+      const conflicting = isSectionScoped
+        ? existingTimetables
+        : existingTimetables.filter(
+            (t) =>
+              overlaps(data.start_date, data.end_date, t.start_date, t.end_date) &&
+              sharedSections(t).intersects
+          );
+
+      if (conflicting.length === 0) {
+        return { exists: false };
+      }
+
+      const existing = conflicting[0];
+      if (!isSectionScoped) {
+        overlappingSections = sharedSections(existing).shared;
+      }
 
       // PostgREST returns a many-to-one embed as an object, but returns an array
       // when it cannot prove the relationship is to-one. Normalise both.
@@ -266,21 +431,93 @@ export class TimetableService {
         one(existing.semesters)?.semester_name || 'this semester';
       const sectionName = one(existing.sections)?.section_name || null;
 
+      // Resolved only once a conflict has actually fired, and only for the ids
+      // the two rows share. section_ids is a plain uuid[] with no FK, so there
+      // is no embed to ride on and this has to be its own query.
+      let overlappingSectionNames: string[] = [];
+      if (overlappingSections.length > 0) {
+        const { data: sharedRows, error: sharedError } = (await this.supabase
+          .from('sections')
+          .select('section_name')
+          .in('id', overlappingSections)
+          .order('section_name')) as {
+          data: Array<{ section_name: string }> | null;
+          error: any;
+        };
+
+        if (sharedError) {
+          // A decoration must not erase what it decorates. The clash is real
+          // whether or not the names resolve, so log and fall through to the
+          // date-led wording rather than failing the check open.
+          logger.warn(
+            'academic/timetables',
+            'Could not resolve the overlapping section names - the conflict message will name dates only',
+            { error: sharedError }
+          );
+        } else {
+          overlappingSectionNames = (sharedRows || []).map((s) => s.section_name);
+        }
+      }
+
       const formatDate = (dateStr: string | null) =>
         dateStr ? new Date(dateStr).toLocaleDateString() : 'no date set';
+
+      const existingDates = `Existing: "${existing.timetable_name}" (${formatDate(
+        existing.start_date
+      )} to ${formatDate(existing.end_date)})`;
+
+      // The semester-level conflict now has TWO possible remedies, and the
+      // message must name the one that applies. When the shared sections are
+      // known, THEY are the clash and unticking them clears it — telling the
+      // operator to move the dates would make them shift a whole year's
+      // timetable to dodge one section. Only when the scope is undeclared on
+      // one side, so the pair collides on dates alone, does the old date-led
+      // wording still apply.
+      const sharedList =
+        overlappingSectionNames.length > 0
+          ? overlappingSectionNames.join(', ')
+          : null;
+
+      // The two rules get two messages. Telling a semester-level operator that
+      // "a section may hold only one" names a field their form never showed and
+      // a remedy that cannot work.
+      const message = isSectionScoped
+        ? // The SECTION leads, and the blocking row's semester follows in
+          // parentheses — under the section rule that semester may not be the
+          // one being created, and an operator who is not told which semester
+          // already holds the slot has no way to find the row they must edit.
+          `${
+            sectionName
+              ? `Section ${sectionName} (${semesterName})`
+              : semesterName
+          } already has an active timetable for this academic year.
+
+${existingDates}
+
+A section may hold only one active timetable per academic year. Edit that timetable, or deactivate it first if you are replacing it.`
+        : sharedList
+          ? `${sharedList} already ${
+              overlappingSectionNames.length === 1 ? 'is' : 'are'
+            } covered by another semester-level timetable over these dates.
+
+${existingDates}
+
+Two semester-level timetables may not cover the same section on the same dates — learners and attendance would only ever see one of them. Untick ${
+              overlappingSectionNames.length === 1
+                ? 'that section'
+                : 'those sections'
+            } here, give this timetable dates that do not overlap, or deactivate the existing one. Sections it does not cover are unaffected, so parallel groups in the same semester can each keep their own timetable.`
+          : `${semesterName} already has an active semester-level timetable covering these dates.
+
+${existingDates}
+
+That timetable does not declare which sections it covers, so it is treated as covering the whole semester. Open it and choose its sections, give this one a date range that does not overlap, or deactivate it first. Section-level timetables are not affected.`;
 
       return {
         exists: true,
         existingTimetable: existing as any,
-        message: `${semesterName}${
-          sectionName ? ` — Section ${sectionName}` : ''
-        } already has an active timetable for this academic year.
-
-Existing: "${existing.timetable_name}" (${formatDate(
-          existing.start_date
-        )} to ${formatDate(existing.end_date)})
-
-A section may hold only one active timetable per academic year. Edit that timetable, or deactivate it first if you are replacing it.`
+        conflictScope: isSectionScoped ? 'section' : 'semester',
+        message
       };
     } catch (error) {
       logger.error('academic/timetables', 'Error checking existing timetable', error);
@@ -301,13 +538,20 @@ A section may hold only one active timetable per academic year. Edit that timeta
         department_id: data.department_id,
         semester_id: data.semester_id!, // Use semester_id instead of semester text
         section_id: data.section_id || undefined, // Use section_id instead of section text
+        // The declared scope. For a semester-level row this is half the key:
+        // two such timetables clash only where their sections intersect.
+        section_ids: data.section_ids,
         start_date: data.start_date,
         end_date: data.end_date
       });
 
       if (existingCheck.exists) {
         toast.error(
-          `⚠️ Section Already Has a Timetable\n\n${existingCheck.message}`,
+          `${
+            existingCheck.conflictScope === 'semester'
+              ? '⚠️ Dates Clash With an Existing Timetable'
+              : '⚠️ Section Already Has a Timetable'
+          }\n\n${existingCheck.message}`,
           {
             duration: 8000,
             position: 'top-center',
@@ -322,7 +566,9 @@ A section may hold only one active timetable per academic year. Edit that timeta
         );
         throw new Error(
           existingCheck.message ||
-            'This section already has an active timetable for this academic year.'
+            (existingCheck.conflictScope === 'semester'
+              ? 'This semester already has an active semester-level timetable covering these dates.'
+              : 'This section already has an active timetable for this academic year.')
         );
       }
 
@@ -336,6 +582,7 @@ A section may hold only one active timetable per academic year. Edit that timeta
         department_id,
         semester_id,
         section_id,
+        section_ids,
         timetable_name,
         is_active,
         is_template,
@@ -367,6 +614,16 @@ A section may hold only one active timetable per academic year. Edit that timeta
         department_id,
         semester_id,
         section_id: section_id || null, // Explicitly null for semester-level
+        // The declared section scope. A section-level row derives it from its
+        // own section so the column is never a second, drifting source of
+        // truth; a semester-level row takes what the form chose. An empty
+        // array is normalised to NULL, which reads as "whole semester" and so
+        // fails CLOSED in checkExistingTimetable.
+        section_ids: section_id
+          ? [section_id]
+          : section_ids && section_ids.length > 0
+            ? section_ids
+            : null,
         timetable_name,
         timetable_type, // New field
         is_active: is_active ?? true,
@@ -487,10 +744,39 @@ A section may hold only one active timetable per academic year. Edit that timeta
         'class_incharge_id'
       ];
 
+      // Updated: 2026-09-11 - `section_ids` is deliberately NOT in safeFields,
+      // matching how section_id behaves: dropping a section that already has
+      // marked attendance orphans those rows.
+      //
+      // WIDENING IS NOT THE SAME AS CHANGING. A ninth section joining an
+      // existing group mid-year is routine, and adding one takes nothing away
+      // from anybody — no attendance row can belong to a section that was not
+      // in the old scope. So a new set that is a strict SUPERSET of the stored
+      // one is treated as safe, and only a narrowing stays locked. An
+      // undeclared old scope means "whole semester", so declaring one for the
+      // first time is a narrowing, not a widening, and is correctly refused.
+      let sectionScopeIsWideningOnly = false;
+      if (data.section_ids !== undefined) {
+        const { data: scopeRow, error: scopeError } = (await this.supabase
+          .from('timetables')
+          .select('section_ids')
+          .eq('id', id)
+          .single()) as { data: { section_ids: string[] | null } | null; error: any };
+
+        if (scopeError) throw scopeError;
+
+        const before = (scopeRow?.section_ids || []).filter(Boolean);
+        const after = new Set((data.section_ids || []).filter(Boolean));
+        sectionScopeIsWideningOnly =
+          before.length > 0 && before.every((s) => after.has(s));
+      }
+
       // Check if any unsafe fields are being modified
       const updateKeys = Object.keys(data);
       const hasUnsafeChanges = updateKeys.some(
-        (key) => !safeFields.includes(key)
+        (key) =>
+          !safeFields.includes(key) &&
+          !(key === 'section_ids' && sectionScopeIsWideningOnly)
       );
 
       // First check if this timetable has any attendance records
@@ -554,6 +840,13 @@ A section may hold only one active timetable per academic year. Edit that timeta
           data.section_id !== undefined
             ? data.section_id
             : currentTimetable.section_id || undefined,
+        // `||` would coerce a deliberate [] to the stored value; the edit must
+        // be able to say "this covers nothing declared" and have the guard read
+        // it as the whole semester, not silently keep the old scope.
+        section_ids:
+          data.section_ids !== undefined
+            ? data.section_ids
+            : currentTimetable.section_ids || undefined,
         start_date: data.start_date || currentTimetable.start_date,
         end_date: data.end_date || currentTimetable.end_date
       };
@@ -570,7 +863,11 @@ A section may hold only one active timetable per academic year. Edit that timeta
 
         if (existingCheck.exists) {
           toast.error(
-            `⚠️ Section Already Has a Timetable\n\n${existingCheck.message}`,
+            `${
+              existingCheck.conflictScope === 'semester'
+                ? '⚠️ Dates Clash With an Existing Timetable'
+                : '⚠️ Section Already Has a Timetable'
+            }\n\n${existingCheck.message}`,
             {
               duration: 8000,
               position: 'top-center',
@@ -585,7 +882,9 @@ A section may hold only one active timetable per academic year. Edit that timeta
           );
           throw new Error(
             existingCheck.message ||
-              'This section already has an active timetable for this academic year.'
+              (existingCheck.conflictScope === 'semester'
+                ? 'This semester already has an active semester-level timetable covering these dates.'
+                : 'This section already has an active timetable for this academic year.')
           );
         }
       } catch (conflictError) {
@@ -619,6 +918,9 @@ A section may hold only one active timetable per academic year. Edit that timeta
         'department_id',
         'semester_id',
         'section_id',
+        // Updated: 2026-09-11 - Declared section scope. Gated above: widening is
+        // free, narrowing locks once attendance exists.
+        'section_ids',
         'is_active',
         'is_template',
         'template_name',
@@ -1226,9 +1528,19 @@ A section may hold only one active timetable per academic year. Edit that timeta
             }
           }
 
+          // Updated: 2026-09-11 - Still the WHOLE semester, because the edit
+          // form needs the full list to offer a widening choice. Each entry now
+          // says whether it is inside the timetable's declared scope, so the
+          // header can report "8 of 24" instead of a flat 24 that overstates
+          // what this timetable actually covers. An undeclared scope means the
+          // whole semester, which is the pre-2026-09-11 reading.
+          const declaredScope = (timetable.section_ids || []) as string[];
+          const scopeIsDeclared = declaredScope.length > 0;
+
           timetable.available_sections = semesterSections.map((s: any) => ({
             ...s,
-            student_count: counts.get(s.id) || 0
+            student_count: counts.get(s.id) || 0,
+            in_scope: scopeIsDeclared ? declaredScope.includes(s.id) : true
           }));
         }
       }
@@ -2394,13 +2706,18 @@ A section may hold only one active timetable per academic year. Edit that timeta
         department_id: timetableData.department_id,
         semester_id: timetableData.semester_id!,
         section_id: timetableData.section_id || undefined,
+        section_ids: timetableData.section_ids,
         start_date: timetableData.start_date,
         end_date: timetableData.end_date
       });
 
       if (existingCheck.exists) {
         toast.error(
-          `⚠️ Section Already Has a Timetable\n\n${existingCheck.message}`,
+          `${
+            existingCheck.conflictScope === 'semester'
+              ? '⚠️ Dates Clash With an Existing Timetable'
+              : '⚠️ Section Already Has a Timetable'
+          }\n\n${existingCheck.message}`,
           {
             duration: 8000,
             position: 'top-center',
@@ -2415,13 +2732,25 @@ A section may hold only one active timetable per academic year. Edit that timeta
         );
         throw new Error(
           existingCheck.message ||
-            'This section already has an active timetable for this academic year.'
+            (existingCheck.conflictScope === 'semester'
+              ? 'This semester already has an active semester-level timetable covering these dates.'
+              : 'This section already has an active timetable for this academic year.')
         );
       }
 
       // Create new timetable based on template
       const newTimetableData = {
         ...timetableData,
+        // Normalised the same way as createTimetable, not left to the spread: a
+        // section-level row derives its scope from its own section, and an empty
+        // array becomes NULL so it reads as "whole semester" and fails CLOSED.
+        // The template's own scope is deliberately NOT copied — a template is a
+        // grid shape, and the sections belong to the instance being created.
+        section_ids: timetableData.section_id
+          ? [timetableData.section_id]
+          : timetableData.section_ids && timetableData.section_ids.length > 0
+            ? timetableData.section_ids
+            : null,
         // Copy template structure
         timetable_format: template.timetable_format,
         periods: template.periods, // Copy periods configuration

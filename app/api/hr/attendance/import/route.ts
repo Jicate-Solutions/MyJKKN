@@ -336,6 +336,12 @@ export async function POST(request: NextRequest) {
           grace_minutes: (t.grace_minutes as number) ?? 0,
           grace_deadline: null,
           matched_by: t.matched_by as ResolvedShiftTiming['matched_by'],
+          // NOT a placeholder, unlike the three above: evaluateDay branches on
+          // this. A work pattern can make a day "any N minutes", and dropping
+          // the mode here would judge it against windows it does not carry.
+          attendance_mode:
+            (t.attendance_mode as ResolvedShiftTiming['attendance_mode']) ?? 'span',
+          required_minutes: (t.required_minutes as number | null) ?? null,
         });
       }
     }

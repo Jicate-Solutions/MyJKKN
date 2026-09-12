@@ -295,7 +295,13 @@ export interface LeaveStepDecision {
    *  newly-added decision whose `by` is not the caller's own auth.uid(). */
   by: string;
   at: string;
-  decision: 'approved' | 'rejected';
+  /**
+   * 'revoked' is an approval being taken back. It is APPENDED beside the
+   * original 'approved' entry, never in place of it — see applyRevocation in
+   * lib/hr/leave/approval-chain.ts. A chain that forgets the approval ever
+   * happened cannot explain how the request reached 'rejected'.
+   */
+  decision: 'approved' | 'rejected' | 'revoked';
   comment: string | null;
 }
 
@@ -307,7 +313,7 @@ export interface LeaveApprovalStep {
    *  catch-all's "HR / Approving Authority". Written by the flow editor and
    *  buildApprovalChain; absent on the oldest chains. */
   approver_name?: string | null;
-  status: 'pending' | 'approved' | 'rejected' | 'skipped';
+  status: 'pending' | 'approved' | 'rejected' | 'skipped' | 'revoked';
   decided_at?: string | null;
   decided_by?: string | null;
   comment?: string | null;
@@ -337,6 +343,13 @@ export interface LeaveApprovalStep {
   skipped_by?: string | null;
   skipped_at?: string | null;
   skipped_reason?: string | null;
+  // ----- Revocation audit (2026-09-12) -------------------------------------
+  // Set on the FINAL step when an approval was taken back. status becomes
+  // 'revoked'; the original 'approved' decision stays in `decisions`.
+  /** profiles.id of whoever revoked the approval. */
+  revoked_by?: string | null;
+  revoked_at?: string | null;
+  revoke_reason?: string | null;
   /** When true, this step's approver must complete an interview before marking reviewed. */
   interview_required?: boolean;
   /** hr_recruitment_interviews.id linked to this step (re-pointed on reschedule). */
@@ -409,6 +422,11 @@ export interface HRLeaveApplication {
 
   reason: string;
   documents: LeaveDocument[];
+  /**
+   * HISTORICAL ONLY (2026-09-12). The Emergency leave feature was removed; the
+   * column and its 186 `true` rows are kept so the fact is not rewritten, but
+   * nothing writes it and no screen renders it.
+   */
   is_emergency: boolean;
 
   status: LeaveApplicationStatus;
@@ -417,6 +435,15 @@ export interface HRLeaveApplication {
   final_approver_id: string | null;
   final_decided_at: string | null;
   rejection_reason: string | null;
+  /**
+   * Set when an APPROVED request was taken back (2026-09-12). `status` reads
+   * 'rejected' either way, so this is the only thing that tells the applicant's
+   * screens which of the two happened — and they are very different facts to
+   * somebody who was told last week that the leave was granted.
+   */
+  revoked_at: string | null;
+  revoked_by: string | null;
+  revoke_reason: string | null;
 
   applied_by: string;
   superseded_by: string | null;
@@ -436,6 +463,21 @@ export interface LeaveChainNames {
   people: Record<string, string>;
   /** custom_roles.role_key → role_name. */
   roles: Record<string, string>;
+  /**
+   * custom_roles.role_key → the people who actually hold it for THIS request.
+   *
+   * A step routed to a role froze no name, so the chain could say "Principal"
+   * and never who that is — the applicant had no one to chase. `names` is
+   * capped server-side; `total` is the real count, so the UI can say "+11 more"
+   * without shipping fourteen names it will not draw.
+   *
+   * Scoped the way fn_leave_step_admits() scopes: holders staffed in this
+   * request's institution, PLUS holders of a role whose institution_scope is
+   * 'all'. That second clause is not a nicety — the only CAO in the group is
+   * staffed at College of Education and would otherwise be missing from every
+   * other institution's chain, which is precisely the person people chase.
+   */
+  roleHolders?: Record<string, { names: string[]; total: number }>;
 }
 
 /** What GET /api/hr/leave/applications/[id] returns: the row plus the names. */
@@ -462,7 +504,9 @@ export interface HRLeaveApplicationInsert {
   end_time?: string | null;
   reason: string;
   documents?: LeaveDocument[];
-  is_emergency?: boolean;
+  // is_emergency is deliberately absent (2026-09-12). The Emergency feature was
+  // removed; the column keeps its `false` default and nothing writes it, so a
+  // caller that still tries to set it fails to compile.
   approval_chain: LeaveApprovalStep[];
   applied_by: string;
   status?: LeaveApplicationStatus;
@@ -712,6 +756,10 @@ export interface HRLeaveApprovalQueueRow {
   staff_code: string | null;
   institution_id: string | null;
   institution_name: string | null;
+  /** The APPLICANT's department. Null for staff whose record has none — 318
+   *  of 733 active staff — which is also why a HOD never sees those rows. */
+  department_id: string | null;
+  department_name: string | null;
   hr_organization_id: string;
   hr_organization_name: string | null;
   leave_type_id: string;
@@ -728,6 +776,7 @@ export interface HRLeaveApprovalQueueRow {
   duration_minutes: number | null;
   total_days: number;
   reason: string;
+  /** HISTORICAL ONLY — see HRLeaveApplication.is_emergency. Rendered nowhere. */
   is_emergency: boolean;
   status: LeaveApplicationStatus;
   created_at: string;
@@ -791,4 +840,15 @@ export interface HRLeaveApprovalQueueRow {
    * promise an outcome the database will not produce.
    */
   step_is_final: boolean;
+  /**
+   * Set when an APPROVED request was taken back. The row's `status` is
+   * 'rejected' either way — this is the ONE fact that separates "approved, then
+   * revoked" from "refused on day one", which are different things to the person
+   * who had already planned around the approval.
+   */
+  revoked_at: string | null;
+  /** Resolved server-side, same reason as final_approver_name. */
+  revoked_by_name: string | null;
+  /** Why it was taken back. Mirrored into rejection_reason for the applicant. */
+  revoke_reason: string | null;
 }
