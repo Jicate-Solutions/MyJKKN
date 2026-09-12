@@ -562,7 +562,7 @@ describe('the fingerprint', () => {
   const base = { h: 'abc123abc123', d: '2026-09-12', t: 'fixed', m: 'billing', s: 'A thing', a: 'A Person' };
 
   it('covers every column the upsert can set — none is silently uncorrectable', async () => {
-    const changes: Record<string, Row> = {
+    const changes: Record<string, GitEntry> = {
       entry_date: { ...base, d: '2026-09-11' },
       kind: { ...base, t: 'new' },
       module_key: { ...base, m: 'platform' },

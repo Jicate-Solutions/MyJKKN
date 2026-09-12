@@ -219,7 +219,7 @@ function toInstantKey(value) {
  *  shape here fixes it for every caller instead of contorting the test.
  *
  * @param {{ h: string, d: string, at?: string | null, t?: string, m?: string,
- *           s?: string, a?: string, e?: string, p?: number, b?: boolean }} e
+ *           s?: string, a?: string, e?: string, p?: number, b?: number | boolean }} e
  * @param {number} ordinal
  */
 export function entryRow(e, ordinal) {
