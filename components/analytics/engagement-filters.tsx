@@ -38,6 +38,8 @@ interface EngagementFiltersProps {
     dateTo: string;
   }) => void;
   onExport?: () => void;
+  /** Shown instead of the Export button when export is not available on this screen yet. */
+  exportUnavailableReason?: string;
 }
 
 interface FilterOption {
@@ -54,7 +56,8 @@ const ALL_SECTIONS = 'all_sections';
 
 export function EngagementFilters({
   onFilterChange,
-  onExport
+  onExport,
+  exportUnavailableReason
 }: EngagementFiltersProps) {
   const [level, setLevel] = useState<OrganizationalLevel>('institution');
   const [selectedInstitution, setSelectedInstitution] = useState<string>(ALL_VALUE);
@@ -652,6 +655,16 @@ export function EngagementFilters({
               <Download className="h-4 w-4 mr-2" />
               Export Data
             </Button>
+          )}
+
+          {!onExport && exportUnavailableReason && (
+            <div className="flex flex-col items-start sm:items-end gap-1">
+              <Button variant="outline" disabled title={exportUnavailableReason}>
+                <Download className="h-4 w-4 mr-2" />
+                Export not available yet
+              </Button>
+              <p className="text-xs text-gray-500">{exportUnavailableReason}</p>
+            </div>
           )}
         </div>
       </CardContent>

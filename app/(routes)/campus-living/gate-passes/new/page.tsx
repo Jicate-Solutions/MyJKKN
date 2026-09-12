@@ -1,7 +1,30 @@
 'use client';
 
-import { useState } from 'react';
+/**
+ * /campus-living/gate-passes/new — a warden issues a pass at the desk.
+ *
+ * THIS IS THE STAFF LANE, and it is now gated as one. The learner's lane is
+ * /campus-living/gate-passes/request.
+ *
+ * Why the gate changed: this page produces a pass that is ALREADY APPROVED,
+ * with `approved_by` set to whoever submitted the form. It used to inherit
+ * `campus_living.gate_passes.view` from the parent path and was explicitly
+ * allow-listed for students in resident-route-guard.tsx, so a learner could
+ * walk in here and approve themselves. It now requires
+ * `campus_living.gate_passes.approve` — the same key the Approve button on a
+ * request needs, because it is the same decision.
+ *
+ * It is kept, rather than deleted in favour of the request queue, for the
+ * walk-in: a learner standing at the office with a parent on the phone and a
+ * bus to catch should not have to file a request and wait for it to appear on
+ * a queue the warden is already looking at them across.
+ */
+
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { ArrowLeft, DoorOpen, Info, Loader2, ShieldAlert } from 'lucide-react';
+
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import {
@@ -14,93 +37,123 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useIssueGatePass } from '@/hooks/campus-living/use-gate-passes';
 import { useLearnerHostelites } from '@/hooks/campus-living/use-learner-hostelites';
-import { ArrowLeft, Save, Loader2, DoorOpen } from 'lucide-react';
+import { useActiveHostelLeaveTypes } from '@/hooks/campus-living/use-hostel-leave-types';
 
 /**
- * navMeta — invoked from the parent listing page via the "Issue Gate Pass"
- * button (BUG-003897). Required by `scripts/assert-nav-coverage.mjs`.
+ * navMeta — invoked from the parent listing page via the "Issue directly"
+ * button. Required by scripts/assert-nav-coverage.mjs.
  */
 export const navMeta = {
   invokedFrom: '/campus-living/gate-passes',
 } as const;
 
-const passTypeOptions = [
-  { value: 'regular_out', label: 'Regular (day-out)' },
-  { value: 'overnight', label: 'Overnight' },
-  { value: 'emergency', label: 'Emergency' },
-  { value: 'visitor_accompanied', label: 'Visitor Accompanied' },
-];
-
 export default function IssueGatePassPage() {
   const router = useRouter();
   const { profile } = useAuth();
+  const { canAccess, isSuperAdmin } = usePermissions();
+  const canIssue = isSuperAdmin || canAccess('campus_living.gate_passes', 'approve');
+
   const issuePass = useIssueGatePass();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const institutionId = profile?.institution_id ?? '';
-  const { data: hostelites, isLoading: hostelitesLoading } =
-    useLearnerHostelites(institutionId);
+  const { data: hostelites, isLoading: hostelitesLoading } = useLearnerHostelites(institutionId);
+  const { hostelLeaveTypes, loading: typesLoading } = useActiveHostelLeaveTypes(institutionId);
 
-  const [formData, setFormData] = useState({
-    learner_id: '',
-    pass_type: 'regular_out' as
-      | 'regular_out'
-      | 'overnight'
-      | 'emergency'
-      | 'visitor_accompanied',
-    destination: '',
-    expected_return: '',
-  });
+  const [learnerId, setLearnerId] = useState('');
+  const [leaveTypeId, setLeaveTypeId] = useState('');
+  const [destination, setDestination] = useState('');
+  const [reason, setReason] = useState('');
+  const [outAt, setOutAt] = useState('');
+  const [returnDate, setReturnDate] = useState('');
+  const [returnTime, setReturnTime] = useState('');
+  const [transportMode, setTransportMode] = useState('');
+  const [accompanyingPerson, setAccompanyingPerson] = useState('');
 
-  const handleChange = (key: keyof typeof formData, value: string) => {
-    setFormData((prev) => ({ ...prev, [key]: value }));
-  };
+  const learners = useMemo(
+    () =>
+      ((hostelites as { data?: unknown[] } | undefined)?.data ?? []) as Array<{
+        id: string;
+        first_name: string | null;
+        last_name: string | null;
+        roll_number: string | null;
+      }>,
+    [hostelites],
+  );
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const expectedReturnIso = useMemo(() => {
+    if (!returnDate || !returnTime) return '';
+    const d = new Date(`${returnDate}T${returnTime}`);
+    return Number.isNaN(d.getTime()) ? '' : d.toISOString();
+  }, [returnDate, returnTime]);
+
+  const ready =
+    Boolean(learnerId) &&
+    Boolean(leaveTypeId) &&
+    destination.trim() !== '' &&
+    expectedReturnIso !== '';
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!profile?.institution_id) return;
-    if (!profile?.id) return;
-    if (!formData.learner_id) return;
-    // destination and expected_return are both NOT NULL on hostel_gate_passes.
-    if (!formData.destination.trim() || !formData.expected_return) return;
+    if (!profile?.institution_id || !profile?.id || !ready) return;
 
     setIsSubmitting(true);
     try {
-      // Every key below is a real column on hostel_gate_passes. This page
-      // previously posted `purpose`, `valid_from`, `valid_to` and `notes` —
-      // none of which exist on the table — and omitted the NOT NULL
-      // `expected_return` and `approved_by`, so the insert died on PGRST204
-      // and then 23502 and the table stayed permanently empty.
-      //
       // `out_time` is deliberately NOT set here: it is the moment the learner
-      // physically leaves, which the guard records at the gate via
-      // recordExit(). Issuing a pass is not the same event as walking out.
-      // pass_number, qr_code and status are generated by generateGatePass().
+      // physically leaves, which the gate records when they scan. Issuing a
+      // pass is not the same event as walking out.
       await issuePass.mutateAsync({
         institution_id: profile.institution_id,
-        learner_id: formData.learner_id,
-        pass_type: formData.pass_type,
-        destination: formData.destination.trim(),
-        expected_return: new Date(formData.expected_return).toISOString(),
+        learner_id: learnerId,
         approved_by: profile.id,
-      } as never);
+        leave_type_id: leaveTypeId,
+        destination,
+        reason,
+        planned_out_at: outAt ? new Date(outAt).toISOString() : null,
+        expected_return: expectedReturnIso,
+        transport_mode: transportMode,
+        accompanying_person: accompanyingPerson,
+      });
       router.push('/campus-living/gate-passes');
     } catch {
-      // toast handled by the hook's onError
+      // the mutation's onError toast reports it
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }
 
-  const learners = ((hostelites as { data?: unknown[] } | undefined)?.data ?? []) as Array<{
-    id: string;
-    first_name: string | null;
-    last_name: string | null;
-    roll_number: string | null;
-  }>;
+  if (!canIssue) {
+    return (
+      <ContentLayout title="Issue Gate Pass">
+        <Card className="mt-4">
+          <CardContent className="p-8 text-center">
+            <ShieldAlert className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
+            <p className="text-base font-medium">You cannot issue a gate pass directly</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Issuing a pass here approves it immediately, so it needs the &ldquo;Approve Gate
+              Pass&rdquo; permission.
+            </p>
+            <Button variant="outline" className="mt-4" asChild>
+              <Link href="/campus-living/gate-passes/request">Request a gate pass instead</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </ContentLayout>
+    );
+  }
 
   return (
     <ContentLayout title="Issue Gate Pass">
@@ -109,140 +162,179 @@ export default function IssueGatePassPage() {
           { label: 'Home', href: '/' },
           { label: 'Campus Living', href: '/campus-living' },
           { label: 'Gate Passes', href: '/campus-living/gate-passes' },
-          { label: 'New' },
+          { label: 'Issue' },
         ]}
       />
 
-      <div className="space-y-6 mt-4">
+      <div className="mt-4 space-y-6">
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="sm" onClick={() => router.back()}>
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back
+          <Button variant="ghost" size="icon" onClick={() => router.back()}>
+            <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
-            <h1 className="text-2xl font-bold py-1">Issue New Gate Pass</h1>
+            <h1 className="py-1 text-2xl font-bold">Issue a Gate Pass</h1>
             <p className="text-sm text-muted-foreground">
-              Record a hostel resident leaving the campus. The pass number
-              and QR code are generated automatically on submit.
+              For a resident standing in front of you. The pass is approved the moment you
+              submit it.
             </p>
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Resident */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Resident</CardTitle>
-              <CardDescription>
-                Pick the hostel resident this pass is for.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                <Label htmlFor="learner_id">Resident *</Label>
-                <select
-                  id="learner_id"
-                  required
-                  value={formData.learner_id}
-                  onChange={(e) => handleChange('learner_id', e.target.value)}
-                  disabled={hostelitesLoading}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-                >
-                  <option value="">
-                    {hostelitesLoading
-                      ? 'Loading residents…'
-                      : learners.length === 0
-                        ? 'No residents available — allocate residents first'
-                        : 'Select a resident'}
-                  </option>
-                  {learners.map((l) => {
-                    const name =
-                      `${l.first_name ?? ''} ${l.last_name ?? ''}`.trim() ||
-                      'Unnamed';
-                    return (
-                      <option key={l.id} value={l.id}>
-                        {name}
-                        {l.roll_number ? ` — ${l.roll_number}` : ''}
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-            </CardContent>
-          </Card>
+        <div className="flex gap-2 rounded-md border border-dashed bg-muted/40 p-3 text-sm text-muted-foreground">
+          <Info className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            This bypasses the approval queue and records you as the approver. If the learner
+            can file it themselves, send them to{' '}
+            <Link href="/campus-living/gate-passes/request" className="underline">
+              Request a Gate Pass
+            </Link>{' '}
+            instead.
+          </span>
+        </div>
 
-          {/* Pass details */}
+        <form onSubmit={handleSubmit} className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Pass Details</CardTitle>
-              <CardDescription>
-                Type, destination and when the learner is due back.
-              </CardDescription>
+              <CardTitle className="text-base">Resident and type</CardTitle>
+              <CardDescription>Who this pass is for, and why they are going.</CardDescription>
             </CardHeader>
-            <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="pass_type">Pass Type *</Label>
-                <select
-                  id="pass_type"
-                  required
-                  value={formData.pass_type}
-                  onChange={(e) => handleChange('pass_type', e.target.value)}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-                >
-                  {passTypeOptions.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
+                <Label htmlFor="learner">Resident *</Label>
+                <Select value={learnerId} onValueChange={setLearnerId} disabled={hostelitesLoading}>
+                  <SelectTrigger id="learner">
+                    <SelectValue
+                      placeholder={
+                        hostelitesLoading
+                          ? 'Loading residents…'
+                          : learners.length === 0
+                            ? 'No residents — allocate someone first'
+                            : 'Select a resident'
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {learners.map((l) => {
+                      const name =
+                        `${l.first_name ?? ''} ${l.last_name ?? ''}`.trim() || 'Unnamed';
+                      return (
+                        <SelectItem key={l.id} value={l.id}>
+                          {name}
+                          {l.roll_number ? ` — ${l.roll_number}` : ''}
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
               </div>
+
               <div className="space-y-2">
+                <Label htmlFor="leave_type">Gate pass type *</Label>
+                <Select value={leaveTypeId} onValueChange={setLeaveTypeId} disabled={typesLoading}>
+                  <SelectTrigger id="leave_type">
+                    <SelectValue
+                      placeholder={typesLoading ? 'Loading types…' : 'Select a type'}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {hostelLeaveTypes.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.leave_type_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2 md:col-span-2">
                 <Label htmlFor="destination">Destination *</Label>
                 <Input
                   id="destination"
                   required
-                  placeholder="e.g., Salem, parental home"
-                  value={formData.destination}
-                  onChange={(e) => handleChange('destination', e.target.value)}
+                  placeholder="e.g. Salem — parental home"
+                  value={destination}
+                  onChange={(e) => setDestination(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="reason">Reason</Label>
+                <Textarea
+                  id="reason"
+                  rows={2}
+                  placeholder="Why they are going. Shown on the pass."
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Times and travel</CardTitle>
+              <CardDescription>
+                The gate records the real out and in times when the learner scans their
+                MyJKKN QR.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div className="space-y-2 md:col-span-3">
+                <Label htmlFor="out_at">Planned out date &amp; time</Label>
+                <Input
+                  id="out_at"
+                  type="datetime-local"
+                  value={outAt}
+                  onChange={(e) => setOutAt(e.target.value)}
                 />
               </div>
               <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="expected_return">Expected Return *</Label>
+                <Label htmlFor="return_date">Date of return *</Label>
                 <Input
-                  id="expected_return"
-                  type="datetime-local"
+                  id="return_date"
+                  type="date"
                   required
-                  value={formData.expected_return}
-                  onChange={(e) =>
-                    handleChange('expected_return', e.target.value)
-                  }
+                  min={outAt ? outAt.slice(0, 10) : undefined}
+                  value={returnDate}
+                  onChange={(e) => setReturnDate(e.target.value)}
                 />
-                <p className="text-xs text-muted-foreground">
-                  When the learner is due back. The actual time they leave is
-                  recorded by security at the gate, not set here.
-                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="return_time">In time *</Label>
+                <Input
+                  id="return_time"
+                  type="time"
+                  required
+                  value={returnTime}
+                  onChange={(e) => setReturnTime(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="transport">Mode of transport</Label>
+                <Input
+                  id="transport"
+                  placeholder="e.g. College bus"
+                  value={transportMode}
+                  onChange={(e) => setTransportMode(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="accompanying">Person accompanying</Label>
+                <Input
+                  id="accompanying"
+                  placeholder="Leave blank if travelling alone"
+                  value={accompanyingPerson}
+                  onChange={(e) => setAccompanyingPerson(e.target.value)}
+                />
               </div>
             </CardContent>
           </Card>
 
           <div className="flex justify-end gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => router.back()}
-              disabled={isSubmitting}
-            >
+            <Button type="button" variant="ghost" onClick={() => router.back()} disabled={isSubmitting}>
               Cancel
             </Button>
-            <Button
-              type="submit"
-              disabled={
-                isSubmitting ||
-                !formData.learner_id ||
-                !formData.destination.trim() ||
-                !formData.expected_return
-              }
-            >
+            <Button type="submit" disabled={isSubmitting || !ready}>
               {isSubmitting ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -251,7 +343,7 @@ export default function IssueGatePassPage() {
               ) : (
                 <>
                   <DoorOpen className="mr-2 h-4 w-4" />
-                  Issue Gate Pass
+                  Issue gate pass
                 </>
               )}
             </Button>

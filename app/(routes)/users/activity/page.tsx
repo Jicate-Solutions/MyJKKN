@@ -1002,10 +1002,7 @@ function ActivityPageInner() {
               </div>
               <EngagementFilters
                 onFilterChange={(filters) => setEngagementFilters(filters)}
-                onExport={() => {
-                  // TODO: Implement export functionality
-                  console.log('Export engagement data');
-                }}
+                exportUnavailableReason="Export is not available for Engagement Analytics yet."
               />
             </div>
 
