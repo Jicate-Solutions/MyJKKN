@@ -23,16 +23,21 @@
 --   peer-type lookup raises 42703: column ipa.program_type does not exist.
 --   The intent of that block is to collect the programme types this institution is approved to
 --   run and filter peers on hr_peer_benchmarks.program_type. programs.program_type does exist,
---   so the type is now reached THROUGH programs via ipa.program_id. The
---   `p.program_type IS NOT NULL` guard is deliberate: most programs carry a NULL program_type,
---   and without it array_agg emits a NULL element that pollutes the program_types_searched
---   value reported in raw_data and inflates array_length.
+--   so the type is now reached THROUGH programs via ipa.program_id.
+--   The `p.program_type IS NOT NULL` guard is deliberate but DEFENSIVE, not load-bearing: the
+--   inner join `n.program_type = p.program_type` already drops every NULL-typed programme,
+--   because NULL = anything yields NULL and never true. It is kept so the intent survives if
+--   that join is ever relaxed to a LEFT JOIN. (An earlier draft of this comment claimed the
+--   guard prevents a NULL entering v_program_types — that was wrong; it is a no-op today.)
 --
 -- Apart from those two corrections, both bodies are reproduced verbatim from their current
 -- production definitions (pg_get_functiondef, 2026-09-12); the only other edits are comment
 -- wording ("students" -> "learners", per house terminology). Signature, return type, language,
 -- SECURITY DEFINER, search_path and every raw_data key ('students', 'student_count') are
--- unchanged — those keys are read by lib/services/hr/recruitment-need/signal-service.ts.
+-- unchanged. (Preserved out of caution, NOT because a caller reads them by name: the only
+-- consumer in the repo is app/(routes)/hr/intelligence/recruitment-need/[institutionId]/page.tsx,
+-- which JSON.stringify()s raw_data as an opaque debug dump. signal-service.ts maps input keys to
+-- function names and never touches raw_data.)
 --
 -- ci:allow-secdef-authenticated Pre-existing HR Intelligence signal-input readers, granted to
 -- authenticated since 20260525100000/20260526020000; this migration only corrects two runtime
