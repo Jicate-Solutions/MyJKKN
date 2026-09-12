@@ -51,7 +51,7 @@ export const HEALTH_SCORE_SCOPE_REASON =
 
 /** The plain message when the viewer has no institution to view at all. */
 export const NO_HEALTH_SCORE_SCOPE_REASON =
-  'You do not have access to institution health scores. They are shown to super admins, and to principals, HODs, admins and accounts staff for their own institution.';
+  'You do not have access to institution health scores. They are shown to super admins, and to principals, HODs, admins and accounts team members for their own institution.';
 
 /**
  * The gate's answer. One flat shape (not a union) because this repo compiles
