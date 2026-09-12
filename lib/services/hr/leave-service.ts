@@ -10,7 +10,9 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { leaveDocumentRequirement } from '@/lib/hr/leave-document-rule';
-import { applyDecision, buildChain, readApprovers } from '@/lib/hr/leave/approval-chain';
+import {
+  applyDecision, applyRevocation, buildChain, finalStepIndex, readApprovers,
+} from '@/lib/hr/leave/approval-chain';
 import type {
   HRLeaveApplication,
   HRLeaveApplicationInsert,
@@ -217,7 +219,7 @@ export class LeaveService {
       role_ladder: string[] | null;
       fallback_approver: LeaveApproverEntry | null;
     };
-    const candidates = (flows ?? []) as FlowRow[];
+    const candidates = (flows ?? []) as unknown as FlowRow[];
 
     // Most-specific wins: a flow naming this leave type beats the catch-all.
     // departmentId is accepted for signature stability and future
@@ -330,8 +332,15 @@ export class LeaveService {
       throw new Error(`Leave blocked by blackout: ${blocked.title} (${blocked.start_date} → ${blocked.end_date})`);
     }
 
-    // 3. Min advance notice (decision 20) — bypassed if is_emergency (decision 27)
-    if (!payload.is_emergency && leaveType.min_advance_notice_days > 0) {
+    // 3. Min advance notice (decision 20).
+    //
+    // The `!payload.is_emergency &&` guard that stood here was decision 27's
+    // bypass; the Emergency feature was removed 2026-09-12, so the rule now
+    // applies without exception. The two types that carried a notice were set
+    // to zero in the same change (20260912150000) precisely because every one
+    // of their requests had been filed through that bypass — enforcing the old
+    // figures would have made them unfileable rather than restoring a rule.
+    if (leaveType.min_advance_notice_days > 0) {
       const todayIso = new Date().toISOString().split('T')[0];
       const noticeDays = Math.floor(
         (new Date(payload.start_date).getTime() - new Date(todayIso).getTime()) / (1000 * 60 * 60 * 24)
@@ -342,8 +351,8 @@ export class LeaveService {
         // instruction. Say what happened and what to do instead.
         throw new Error(
           noticeDays < 0
-            ? `${leaveType.leave_type_name} cannot be applied for a past date — ${payload.start_date} was ${Math.abs(noticeDays)} day(s) ago. It needs ${leaveType.min_advance_notice_days} day(s) notice, or tick Emergency leave if this could not have been filed in time.`
-            : `${leaveType.leave_type_name} needs ${leaveType.min_advance_notice_days} day(s) advance notice; ${payload.start_date} is only ${noticeDays} day(s) away. Pick a later date, or tick Emergency leave.`
+            ? `${leaveType.leave_type_name} cannot be applied for a past date — ${payload.start_date} was ${Math.abs(noticeDays)} day(s) ago. It needs ${leaveType.min_advance_notice_days} day(s) notice.`
+            : `${leaveType.leave_type_name} needs ${leaveType.min_advance_notice_days} day(s) advance notice; ${payload.start_date} is only ${noticeDays} day(s) away. Pick a later date.`
         );
       }
     }
@@ -375,7 +384,6 @@ export class LeaveService {
         document_required_after_days: leaveType.document_required_after_days ?? null,
       },
       durationDays,
-      payload.is_emergency ?? false,
     );
     if (documentRule.required && (payload.documents?.length ?? 0) === 0) {
       throw new Error(
@@ -534,7 +542,8 @@ export class LeaveService {
       end_time: payload.end_time ?? null,
       reason: payload.reason,
       documents: payload.documents ?? [],
-      is_emergency: payload.is_emergency ?? false,
+      // is_emergency is not written any more: the column keeps its `false`
+      // default, and the 186 rows that carry `true` stay as they are.
       approval_chain,
       current_step: 0,
       applied_by: payload.applied_by,
@@ -571,7 +580,14 @@ export class LeaveService {
   private static async assertCanDecide(
     supabase: SupabaseClient,
     app: HRLeaveApplication,
-    approverId: string
+    approverId: string,
+    /**
+     * Which step the caller is acting on. Defaults to the current one; the
+     * final approver short-circuiting past pending reviews acts on the FINAL
+     * step, and checking them against the current step would refuse exactly the
+     * person the database is about to admit.
+     */
+    stepIndex: number = app.current_step
   ) {
     // Super admins are exempt from BOTH checks below, exactly as
     // hr_trig_leave_enforce_approver is: that trigger returns NEW on
@@ -604,7 +620,7 @@ export class LeaveService {
     // EVERY slot on it pins a person and none of them is the caller — one
     // unpinned (role) slot means the database is the one that can answer, and it
     // does so in trg_hla_approver_gate where user_roles is readable.
-    const step = app.approval_chain?.[app.current_step];
+    const step = app.approval_chain?.[stepIndex];
     if (step) {
       const entries = readApprovers(step);
       const allPinned = entries.length > 0 && entries.every((e) => e.approver_user_id !== null);
@@ -635,10 +651,39 @@ export class LeaveService {
     if (!['pending', 'escalated'].includes(app.status)) {
       throw new Error(`Cannot approve application in status ${app.status}`);
     }
-    await this.assertCanDecide(supabase, app, approverId);
-
     const chain = [...app.approval_chain];
-    const step = chain[app.current_step];
+
+    /**
+     * THE STEP THAT GRANTS THE APPROVAL — by configuration, not by position.
+     * Every earlier step reviews and forwards.
+     */
+    const finalIdx = finalStepIndex(chain);
+
+    /**
+     * May the final approver act now, while the request still sits with an
+     * earlier reviewer?
+     *
+     * ASKED OF POSTGRES, NEVER ANSWERED HERE. A step routed to a ROLE can only
+     * be matched by reading user_roles / custom_roles, which an ordinary member
+     * of staff cannot select — a browser-side answer comes back empty for
+     * exactly the people it is meant to admit. That silent false negative is
+     * the failure this module has already shipped twice (see the note in
+     * assertCanDecide). fn_hr_leave_can_finalize runs SECURITY DEFINER against
+     * the same fn_leave_step_admits the enforcing trigger uses.
+     */
+    let actingIdx = app.current_step;
+    if (app.current_step < finalIdx) {
+      const { data: canFinalize, error: finalizeError } = await supabase.rpc(
+        'fn_hr_leave_can_finalize',
+        { p_application_id: applicationId }
+      );
+      if (finalizeError) throw finalizeError;
+      if (canFinalize === true) actingIdx = finalIdx;
+    }
+
+    await this.assertCanDecide(supabase, app, approverId, actingIdx);
+
+    const step = chain[actingIdx];
     if (!step) throw new Error('Approval chain exhausted');
 
     const now = new Date().toISOString();
@@ -659,12 +704,44 @@ export class LeaveService {
     // step is a single pinned slot, which is the case that behaviour was for.
     const entries = readApprovers(step);
     const singlePinnedSlot = entries.length === 1 && entries[0].approver_user_id !== null;
-    chain[app.current_step] = singlePinnedSlot
+    chain[actingIdx] = singlePinnedSlot
       ? { ...decided, approver_user_id: approverId }
       : decided;
 
-    const nextStep = satisfied ? app.current_step + 1 : app.current_step;
-    const isFinal = satisfied && nextStep >= chain.length;
+    // The final approver went early: the reviews they jumped are recorded as
+    // SKIPPED, never as approved. Nobody should read this chain later and think
+    // the HOD signed something they never saw. The timeline already renders a
+    // 'skipped' state, so this needs no new UI.
+    if (satisfied && actingIdx > app.current_step) {
+      for (let i = app.current_step; i < actingIdx; i++) {
+        if (chain[i]?.status === 'pending') {
+          chain[i] = {
+            ...chain[i],
+            status: 'skipped',
+            skipped_by: approverId,
+            skipped_at: now,
+            skipped_reason: 'Approved directly by the final approver',
+          };
+        }
+      }
+    }
+
+    const nextStep = satisfied ? actingIdx + 1 : actingIdx;
+
+    /**
+     * ONLY the final step grants the approval. A satisfied REVIEW step advances
+     * current_step and leaves the application pending, which is the whole point
+     * of a review: the HOD's sign-off moves the request to the Principal, it
+     * does not grant the leave.
+     *
+     * This used to read `nextStep >= chain.length` — the array end. It agreed
+     * with the configuration only because the flow editor always marks the last
+     * step final; it would approve on a step whose own step_type says 'review'
+     * the moment a flow was written any other way. trg_hla_final_step_approves
+     * refuses that write outright, so this is now the client half of a rule the
+     * database owns.
+     */
+    const isFinal = satisfied && actingIdx === finalIdx;
 
     const update: Record<string, unknown> = {
       approval_chain: chain,
@@ -722,6 +799,82 @@ export class LeaveService {
         final_approver_id: approverId,
         final_decided_at: new Date().toISOString(),
         rejection_reason,
+      })
+      .eq('id', applicationId)
+      .select()
+      .single();
+    if (error) throw error;
+    return data as HRLeaveApplication;
+  }
+
+  /**
+   * Take an APPROVED decision back (2026-09-12).
+   *
+   * The request becomes 'rejected' — the status every downstream trigger already
+   * knows how to undo an approval into. Nothing here reverses the balance, the
+   * comp-off credit or the counselor duty log: hr_trig_update_leave_balance,
+   * hr_trig_comp_off_consume and fn_trg_hr_leave_applications_duty_log each have
+   * an approved -> rejected branch and have had one since before this feature.
+   * Re-implementing any of them client-side would be a second answer that can
+   * disagree with the enforced one.
+   *
+   * THE ATTENDANCE DAY IS NOT TOUCHED HERE. The stamp is reversed by the route
+   * handler through recomputeForRevokedLeave, because the day evaluator is
+   * TypeScript and the caller's client cannot write hr_attendance_records.
+   *
+   * WHY THE REFUSAL IS ASKED OF POSTGRES. Whether this caller may revoke depends
+   * on the FINAL step of the frozen chain, which can be routed to a role — and
+   * user_roles / custom_roles are not readable by an ordinary member of staff, so
+   * a browser-side answer comes back empty for exactly the people it is meant to
+   * admit. fn_hr_leave_revoke_block_reason runs SECURITY DEFINER and returns
+   * the sentence the enforcing trigger raises, so the message the approver sees
+   * here and the reason the database gives can never drift apart.
+   */
+  static async revokeApplication(
+    supabase: SupabaseClient,
+    applicationId: string,
+    revokerId: string,
+    reason: string
+  ) {
+    const trimmed = reason.trim();
+    if (!trimmed) throw new Error('A reason is required to revoke an approved request.');
+
+    const app = await this.getApplication(supabase, applicationId);
+    if (!app) throw new Error('Application not found');
+    if (app.status !== 'approved') {
+      throw new Error(`Only an approved request can be revoked. Status: ${app.status}`);
+    }
+
+    const { data: blockReason, error: blockError } = await supabase.rpc(
+      'fn_hr_leave_revoke_block_reason',
+      { p_application_id: applicationId }
+    );
+    if (blockError) throw blockError;
+    if (blockReason) throw new Error(blockReason as string);
+
+    const now = new Date().toISOString();
+    const chain = [...app.approval_chain];
+    const finalIdx = finalStepIndex(chain);
+    if (chain[finalIdx]) {
+      chain[finalIdx] = applyRevocation(chain[finalIdx], {
+        by: revokerId,
+        at: now,
+        comment: trimmed,
+      });
+    }
+
+    const { data, error } = await supabase
+      .from('hr_leave_applications')
+      .update({
+        status: 'rejected',
+        approval_chain: chain,
+        // The applicant reads rejection_reason; revoke_reason is the same text
+        // kept under its own name so a report can tell the two apart without
+        // parsing prose. revoked_at / revoked_by are stamped by trg_hla_revoke_gate.
+        rejection_reason: trimmed,
+        revoke_reason: trimmed,
+        final_approver_id: revokerId,
+        final_decided_at: now,
       })
       .eq('id', applicationId)
       .select()

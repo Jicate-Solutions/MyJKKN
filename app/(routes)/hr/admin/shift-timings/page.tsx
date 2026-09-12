@@ -30,7 +30,7 @@ import {
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PermissionGuard } from '@/components/auth/permission-guard';
-import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useHrInstitutionsWithAccess } from '@/hooks/hr/use-hr-institutions';
 import {
   useEmploymentCategories,
   useEndShiftTimingOverride,
@@ -54,7 +54,7 @@ export default function ShiftTimingsPage() {
   // entityType 'all' is deliberate. The default ('institution') returns only 9
   // of the 14 entities — it would silently hide JKKN Main Office (admin_office,
   // 114 staff, all non-teaching), both schools (99 staff) and the two companies.
-  const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess({
+  const { institutions, loading: institutionsLoading } = useHrInstitutionsWithAccess({
     entityType: 'all',
   });
 
@@ -261,8 +261,8 @@ export default function ShiftTimingsPage() {
                 <Alert>
                   <Info className="h-4 w-4" />
                   <AlertDescription>
-                    Staff assigned to a <strong>work pattern</strong> follow the pattern&apos;s
-                    week and hours instead of the weeks below.{' '}
+                    Team members assigned to a <strong>work pattern</strong> keep these hours and
+                    work only the pattern&apos;s days.{' '}
                     <Link href="/hr/admin/work-patterns" className="font-medium underline underline-offset-2">
                       Manage work patterns
                     </Link>

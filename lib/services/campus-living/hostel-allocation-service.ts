@@ -1,10 +1,12 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { CL_ROSTER_STATUSES } from './roster-statuses';
 import type {
   HostelAllocation,
   CreateHostelAllocationDTO,
   UpdateHostelAllocationDTO,
   AllocationFilters,
+  AllocationStatus,
   VacateReason,
   RoomBedOccupancy,
   AllocatableRoom,
@@ -69,14 +71,27 @@ export class HostelAllocationService {
   // one page (the old getAllocations(pageSize=50) under-counted). Soft cap of
   // 5000 rows guards a runaway query; revisit with true server-side pagination
   // if a single institution ever exceeds it.
-  static async getAllAllocations(institutionId: string | undefined, filters?: AllocationFilters) {
+  /**
+   * @param blockIds when non-empty, scopes the feed to these blocks INSTEAD of
+   *   an institution. A warden's block grant is institution-independent by
+   *   design — their profile institution (JKKN Main Office) owns no allocation
+   *   at all, so an institution filter returns zero rows for them. RLS still
+   *   gates every row; this only decides which scope the query asks for.
+   */
+  static async getAllAllocations(
+    institutionId: string | undefined,
+    filters?: AllocationFilters,
+    blockIds?: string[],
+  ) {
     try {
       const supabase = createClientSupabaseClient();
+      const blockScoped = (blockIds?.length ?? 0) > 0;
       let query = supabase
         .from('hostel_allocations')
         .select('*, learner:profiles!hostel_allocations_learner_id_fkey(id, full_name, email, academic:learners_profiles!profiles_learner_id_fkey(institution_id, program_id, semester_id, hostel_category_id, mess_category_id, lifecycle_status, gender, institution:institutions!fk_learners_profiles_institution(name), program:programs!fk_learners_profiles_program(program_name), semester:semesters!fk_learners_profiles_semester(semester_name), room_category:hostel_categories!learners_profiles_hostel_category_id_fkey(name), mess_category:mess_categories!learners_profiles_mess_category_id_fkey(name))), hostel_blocks(name, code, hostel_type), hostel_rooms(room_number, floor), hostel_beds(bed_number)');
 
-      if (institutionId) query = query.eq('institution_id', institutionId);
+      if (blockScoped) query = query.in('block_id', blockIds as string[]);
+      else if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.block_id) query = query.eq('block_id', filters.block_id);
       if (filters?.status) query = query.eq('status', filters.status);
       if (filters?.academic_year_id) query = query.eq('academic_year_id', filters.academic_year_id);
@@ -89,18 +104,41 @@ export class HostelAllocationService {
         logger.error('campus-living/allocations', 'Failed to fetch all allocations', error);
         throw error;
       }
-      // Campus Living shows ACTIVE learners only. Mirror v_learner_hostelites
-      // (lifecycle_status = 'active'), so an inactive learner who still holds a
-      // bed no longer appears here — this was the sole cause of the
-      // Residents-vs-Allocations count mismatch. Rows whose learner has no
-      // learners_profiles record (academic null) drop too, as they aren't an
-      // active learner either. Filtered in JS (not a PostgREST !inner embed)
+      // Mirror the Campus Living roster (v_learner_hostelites), so a learner
+      // outside it who still holds a bed does not appear here — this was the
+      // sole cause of the Residents-vs-Allocations count mismatch, and it is
+      // why this must track CL_ROSTER_STATUSES rather than a local 'active'
+      // literal: the roster widened to reserved+admitted on 2026-09-05, and a
+      // reserved learner given a bed early has to show on both screens or the
+      // same mismatch comes back. Filtered in JS (not a PostgREST !inner embed)
       // to avoid silently dropping rows on a null intermediate join.
-      const activeOnly = (data ?? []).filter(
-        (a: { learner?: { academic?: { lifecycle_status?: string } | null } | null }) =>
-          a?.learner?.academic?.lifecycle_status === 'active',
+      //
+      // A null `academic` means one of TWO different things, and this filter
+      // used to treat both as "not a learner" — which emptied the whole page
+      // for an entire role (found live 2026-09-07):
+      //
+      //   (a) the learner genuinely has no learners_profiles row, or
+      //   (b) RLS HID the row from this viewer.
+      //
+      // (b) is the common case for a chief_warden: learners_profiles_select_policy
+      // requires role_has_institution_access(institution_id) AND a learners.*
+      // key. The key is held, but a chief warden's own institution is an
+      // administrative office while every learner belongs to a college — so the
+      // embed came back null on EVERY row, every row failed this filter, and
+      // the page reported "0 Allocated / 0 Fee Pending" on 449 live allocations.
+      //
+      // So: drop a row only when the learner is POSITIVELY known to be off the
+      // roster. An unreadable learner record is a permission boundary, not a
+      // lifecycle state, and must not silently delete the allocation from the
+      // count — RLS is already the authority on which rows this viewer may see.
+      const rosterOnly = (data ?? []).filter(
+        (a: { learner?: { academic?: { lifecycle_status?: string } | null } | null }) => {
+          const s = a?.learner?.academic?.lifecycle_status;
+          if (s === undefined || s === null) return true;
+          return (CL_ROSTER_STATUSES as readonly string[]).includes(s);
+        },
       );
-      return activeOnly as (HostelAllocation & Record<string, unknown>)[];
+      return rosterOnly as (HostelAllocation & Record<string, unknown>)[];
     } catch (error) {
       logger.error('campus-living/allocations', 'Unexpected error in getAllAllocations', error);
       throw error;
@@ -205,7 +243,13 @@ export class HostelAllocationService {
         .select('*, learner:profiles!hostel_allocations_learner_id_fkey(id, full_name, email), hostel_blocks(name, code), hostel_rooms(room_number, room_type, floor), hostel_beds(bed_number, bed_type)')
         .eq('learner_id', learnerId);
 
-      if (statuses && statuses.length > 0) query = query.in('status', statuses);
+      // Cast at the boundary: the parameter is deliberately `string[]` because
+      // callers pass roster-status arrays assembled elsewhere, while PostgREST's
+      // generated signature wants the allocation_status union. An invalid value
+      // is rejected by the enum at the database, not silently matched.
+      if (statuses && statuses.length > 0) {
+        query = query.in('status', statuses as AllocationStatus[]);
+      }
       else if (activeOnly) query = query.eq('status', 'active');
       query = query.order('allocation_date', { ascending: false });
 

@@ -146,6 +146,16 @@ export function LearnerDetailDrawer({
     if (!next) onClose();
   }
 
+  // hostel_allocations.learner_id FKs profiles(id), and the login profile is
+  // only created at the admitted -> active activation step. A reserved learner
+  // who hasn't activated therefore has nothing to key an allocation on, and
+  // attempting one fails with an opaque 23503. Block the CTA and say why.
+  // `!== false` rather than a truthiness test: the column is optional on the
+  // type, and an older cached row without it must stay allocatable.
+  const canAllocate = data?.learner?.has_login_profile !== false;
+  const NO_PROFILE_REASON =
+    'Awaiting activation — this learner has no login profile yet, so a bed cannot be assigned.';
+
   function navigateToAllocations() {
     if (!data?.learner) return;
     if (data.currentAllocation) {
@@ -225,11 +235,21 @@ export function LearnerDetailDrawer({
                   Edit hostel details
                 </Button>
               )}
-              <Button variant='outline' size='sm' onClick={navigateToAllocations}>
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={navigateToAllocations}
+                disabled={!data.currentAllocation && !canAllocate}
+                title={!data.currentAllocation && !canAllocate ? NO_PROFILE_REASON : undefined}
+              >
                 <ArrowRight className='mr-2 h-4 w-4' />
                 {data.currentAllocation ? 'Open in Allocations' : 'Allocate to a block'}
               </Button>
             </div>
+
+            {!data.currentAllocation && !canAllocate && (
+              <p className='text-xs text-amber-700 dark:text-amber-500'>{NO_PROFILE_REASON}</p>
+            )}
 
             <Separator />
 
@@ -369,10 +389,14 @@ export function LearnerDetailDrawer({
               ) : (
                 <div className='col-span-2 rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground'>
                   <p className='mb-3'>No hostel allocation yet.</p>
-                  <Button size='sm' variant='secondary' onClick={navigateToAllocations}>
-                    Allocate to a block
-                    <ArrowRight className='ml-2 h-4 w-4' />
-                  </Button>
+                  {canAllocate ? (
+                    <Button size='sm' variant='secondary' onClick={navigateToAllocations}>
+                      Allocate to a block
+                      <ArrowRight className='ml-2 h-4 w-4' />
+                    </Button>
+                  ) : (
+                    <p className='text-xs text-amber-700 dark:text-amber-500'>{NO_PROFILE_REASON}</p>
+                  )}
                 </div>
               )}
             </Section>

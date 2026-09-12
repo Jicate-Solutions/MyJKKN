@@ -78,9 +78,76 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 /** Lane I's route already validated this shape at enqueue; re-checking here
  *  keeps the runner honest when a job arrives from anywhere else. */
+/** Build the ai_jobs payload for a drafting run.
+ *
+ *  The Max seat runner VALIDATES the job type's input_schema keys at the TOP
+ *  LEVEL and SUBSTITUTES exactly one slot, {{prompt}}, from `payload.prompt`.
+ *  It fills no other slot — measured 2026-09-06 across every working job type
+ *  on the lane, and the hard way twice on this one: a flat payload left the
+ *  template's {{payload}} slot empty and the model replied "I don't see the
+ *  actual input payload" (ai_jobs 1096542b); an _ctx-only payload was refused
+ *  before the model saw it, "missing required input(s)" (ai_jobs bbbf0cbc).
+ *
+ *  So the run's data is composed INTO the prompt text, and the same fields ride
+ *  along under `_ctx` for the collect pass (parsePayload reads them there).
+ *  Migration 20260918150000 makes the template and input_schema match this.
+ */
+/** The human-readable names for the ids in a drafting run.
+ *
+ *  WHY THIS EXISTS. Measured on production 2026-09-06 (ai_jobs e81294c6): with
+ *  ids alone the model refused to draft, and was right to —
+ *
+ *    "I have no way to resolve topic_id: 2fad3ea2-… to an actual TN HSC Physics
+ *     chapter … the rules require every item to stay strictly inside the correct
+ *     textbook unit's content, so I need to know which chapter this is."
+ *
+ *  A uuid names a row; it does not name a chapter. Sending only ids asks the
+ *  model either to refuse (what happened) or to guess, and a guess would put
+ *  plausible off-unit questions into a bank Senior Learners are told to trust.
+ *  The ids stay in the payload — the runner writes them onto the rows — and the
+ *  labels ride beside them so the model knows what it is drafting about. */
+export interface DraftJobLabels {
+  /** exam_definitions.display_name, e.g. "TN State Board — HSC Physics (Class 12)". */
+  exam_label: string;
+  /** cdc_exam_syllabus_topics.display_name, e.g. "Unit 1: Electrostatics".
+   *  Null when the request is chapter-agnostic (the English grammar tag sets). */
+  topic_label: string | null;
+  /** onemark_item_tags.label, in the same order as ctx.tag_keys. */
+  tag_labels: string[];
+}
+
+export function buildDraftPayload(
+  ctx: DraftJobPayload,
+  labels?: DraftJobLabels,
+): {
+  _ctx: DraftJobPayload;
+  prompt: string;
+} {
+  // `_ctx` stays EXACTLY the machine shape parsePayload reads — the collect
+  // pass keys on it, so labels must never leak into it. `prompt` is what the
+  // seat runner substitutes into the template's one slot, so that is where the
+  // readable names go.
+  const forModel = labels ? { ...ctx, ...labels } : ctx;
+  return { _ctx: ctx, prompt: JSON.stringify(forModel, null, 2) };
+}
+
 export function parsePayload(raw: unknown): DraftJobPayload | null {
   if (!raw || typeof raw !== 'object') return null;
-  const p = raw as Record<string, unknown>;
+  const outer = raw as Record<string, unknown>;
+  // The estate's Max-lane convention is payload._ctx: every working job type on
+  // the lane (accreditation.naac_narrative_draft, ai_pulse.domain_starter,
+  // learner.360_verdict, loops.charter_draft, improvement.rank_ideas,
+  // induction.session_effectiveness) sends {_ctx: {...}, prompt: '...'} and the
+  // seat runner substitutes _ctx into the template's {{payload}} slot. Lane I
+  // originally sent its fields at the TOP level; the runner then rendered an
+  // EMPTY payload slot and the model replied "I don't see the actual input
+  // payload" (measured: ai_jobs 1096542b, 2026-09-06 06:09Z). Read _ctx when it
+  // is there, fall back to the flat shape so any job queued before the route
+  // change still files.
+  const p =
+    outer._ctx && typeof outer._ctx === 'object' && !Array.isArray(outer._ctx)
+      ? (outer._ctx as Record<string, unknown>)
+      : outer;
   const examDefinitionId = p.exam_definition_id;
   const examKey = p.exam_key;
   const topicId = p.topic_id ?? null;

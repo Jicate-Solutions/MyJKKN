@@ -51,13 +51,32 @@ export function useHostelAllocations(institutionId: string | undefined, filters?
 
 // Full allocation set (no page cap) for the admin allocations page — drives the
 // summary counts + the advanced client-side table/filters. ~100s of rows today.
-export function useAllAllocations(institutionId: string | undefined, filters?: AllocationFilters) {
+//
+// blockIds is the warden scope. A block grant is institution-independent: every
+// warden's profile sits in JKKN Main Office, which owns no block and no
+// allocation, so the institution branch matched zero rows for them and the page
+// rendered empty (RLS was returning 861 rows the whole time — the front end
+// threw them away). When blockIds is non-empty it REPLACES the institution
+// scope; the same scope-race rules apply, so it is part of the key and the
+// fetch waits for it.
+export function useAllAllocations(
+  institutionId: string | undefined,
+  filters?: AllocationFilters,
+  blockIds?: string[],
+) {
   const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
-  const effectiveInstitutionId = isSuperAdmin ? undefined : institutionId;
+  const blockScoped = (blockIds?.length ?? 0) > 0;
+  const effectiveInstitutionId = isSuperAdmin || blockScoped ? undefined : institutionId;
+  const effectiveBlockIds = blockScoped ? [...(blockIds as string[])].sort() : undefined;
   return useQuery({
-    queryKey: ['hostel-allocations', 'all', { institutionId: effectiveInstitutionId, ...filters }] as const,
-    queryFn: () => HostelAllocationService.getAllAllocations(effectiveInstitutionId, filters),
-    enabled: !permissionsLoading && (isSuperAdmin || !!institutionId),
+    queryKey: [
+      'hostel-allocations',
+      'all',
+      { institutionId: effectiveInstitutionId, blockIds: effectiveBlockIds, ...filters },
+    ] as const,
+    queryFn: () =>
+      HostelAllocationService.getAllAllocations(effectiveInstitutionId, filters, effectiveBlockIds),
+    enabled: !permissionsLoading && (isSuperAdmin || blockScoped || !!institutionId),
     staleTime: 30_000,
   });
 }

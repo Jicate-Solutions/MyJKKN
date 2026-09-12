@@ -130,6 +130,11 @@ const config: ModuleNavConfig = {
       label: 'Attendance',
       icon: 'UserCheck',
       href: '/campus-living/attendance',
+      // NOTE: '/campus-living/analytics/attendance' is deliberately NOT listed
+      // here even though this group links to it. findActiveGroup picks the
+      // LONGEST matching matchPath, so adding it would beat the Analytics
+      // group's own '/campus-living/analytics' and replace the Analytics chip
+      // bar with this one — stranding anyone browsing Analytics.
       matchPaths: [
         '/campus-living/attendance',
         '/campus-living/leave',
@@ -160,6 +165,15 @@ const config: ModuleNavConfig = {
           icon: 'History',
           href: '/campus-living/attendance/history',
           matchPaths: ['/campus-living/attendance/history'],
+        },
+        {
+          // The analytics dashboard lives under /campus-living/analytics with
+          // its siblings, but people look for it here, in the module whose data
+          // it describes. Same href, listed in both groups.
+          label: 'Analytics',
+          icon: 'BarChart3',
+          href: '/campus-living/analytics/attendance',
+          matchPaths: ['/campus-living/analytics/attendance'],
         },
         {
           label: 'Leave',
@@ -206,7 +220,6 @@ const config: ModuleNavConfig = {
       matchPaths: [
         '/campus-living/mess',
         '/campus-living/laundry',
-        '/campus-living/housekeeping',
       ],
       children: [
         {
@@ -321,24 +334,31 @@ const config: ModuleNavConfig = {
           label: 'Housekeeping',
           icon: 'Brush',
           href: '/campus-living/housekeeping',
+          matchPaths: ['/campus-living/housekeeping'],
         },
         {
-          label: 'Housekeeping Tasks',
+          label: 'Cleaning Types',
           icon: 'Sparkles',
-          href: '/campus-living/housekeeping/tasks',
-          matchPaths: ['/campus-living/housekeeping/tasks'],
+          href: '/campus-living/housekeeping/types',
+          matchPaths: ['/campus-living/housekeeping/types'],
         },
         {
-          label: 'Housekeeping Schedules',
+          label: 'Cleaners',
+          icon: 'Users',
+          href: '/campus-living/housekeeping/cleaners',
+          matchPaths: ['/campus-living/housekeeping/cleaners'],
+        },
+        {
+          label: 'Cleaning Availability',
           icon: 'CalendarDays',
-          href: '/campus-living/housekeeping/schedules',
-          matchPaths: ['/campus-living/housekeeping/schedules'],
+          href: '/campus-living/housekeeping/availability',
+          matchPaths: ['/campus-living/housekeeping/availability'],
         },
         {
-          label: 'Housekeeping Bookings',
-          icon: 'CalendarCheck',
-          href: '/campus-living/housekeeping/bookings',
-          matchPaths: ['/campus-living/housekeeping/bookings'],
+          label: 'Attendance Holds',
+          icon: 'ShieldAlert',
+          href: '/campus-living/housekeeping/holds',
+          matchPaths: ['/campus-living/housekeeping/holds'],
         },
       ],
     },
@@ -351,6 +371,7 @@ const config: ModuleNavConfig = {
         '/campus-living/safety',
         '/campus-living/wellness',
         '/campus-living/health',
+        '/campus-living/housekeeping',
       ],
       children: [
         {
@@ -433,6 +454,42 @@ const config: ModuleNavConfig = {
           label: 'Health',
           icon: 'Stethoscope',
           href: '/campus-living/health',
+        },
+        // Housekeeping. The whole module shipped with no nav entry at all, so
+        // every page below was URL-only — Availability worst of all, since the
+        // hub did not link to it either and an unconfigured block answers every
+        // learner with "No cleaning is scheduled for that day".
+        // Order is the setup order: windows first (nothing is bookable without
+        // them), then who cleans, then what they clean.
+        {
+          label: 'Housekeeping',
+          icon: 'Brush',
+          href: '/campus-living/housekeeping',
+          matchPaths: ['/campus-living/housekeeping'],
+        },
+        {
+          label: 'Cleaning Availability',
+          icon: 'CalendarClock',
+          href: '/campus-living/housekeeping/availability',
+          matchPaths: ['/campus-living/housekeeping/availability'],
+        },
+        {
+          label: 'Cleaners',
+          icon: 'UserCog',
+          href: '/campus-living/housekeeping/cleaners',
+          matchPaths: ['/campus-living/housekeeping/cleaners'],
+        },
+        {
+          label: 'Cleaning Types',
+          icon: 'SprayCan',
+          href: '/campus-living/housekeeping/types',
+          matchPaths: ['/campus-living/housekeeping/types'],
+        },
+        {
+          label: 'Feedback Holds',
+          icon: 'ShieldAlert',
+          href: '/campus-living/housekeeping/holds',
+          matchPaths: ['/campus-living/housekeeping/holds'],
         },
       ],
     },
@@ -647,12 +704,6 @@ const config: ModuleNavConfig = {
           icon: 'Package',
           href: '/campus-living/settings/packages',
           matchPaths: ['/campus-living/settings/packages'],
-        },
-        {
-          label: 'Housekeeping Booking',
-          icon: 'Brush',
-          href: '/campus-living/settings/housekeeping',
-          matchPaths: ['/campus-living/settings/housekeeping'],
         },
         {
           label: 'Choose Your Menu',

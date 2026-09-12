@@ -219,6 +219,9 @@ async function fetchInstitutions(): Promise<InstitutionOption[]> {
   const supabase = createClientSupabaseClient();
   const { data, error } = await (supabase as any)
     .from('institutions')
+    // Every active institution, hr_organizations.included_in_hr or not.
+    // Recruitment is group-wide: that flag gates the HR module proper (leave,
+    // payroll, attendance) and no recruitment table carries its RLS gate.
     .select('id, name')
     .eq('is_active', true)
     .order('name', { ascending: true });

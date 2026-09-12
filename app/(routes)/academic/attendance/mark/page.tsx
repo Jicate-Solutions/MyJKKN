@@ -68,6 +68,9 @@ import { StudentLeaveIndicatorCompact } from './_components/student-leave-indica
 import { ProvisionalLearnerIndicatorCompact } from './_components/provisional-learner-indicator';
 import { isProvisionalAttendanceStatus } from '@/lib/constants/provisional-access';
 import type { ApprovedLeaveInfo } from '@/lib/services/academic/leave-onduty-attendance-check-service';
+// Updated: 2026-09-07 - Per-learner attendance history, opened from the roster.
+import { History } from 'lucide-react';
+import { LearnerAttendanceHistoryDialog } from './components/learner-attendance-history-dialog';
 
 export default function AttendanceMarkPage() {
   const router = useRouter();
@@ -95,6 +98,8 @@ export default function AttendanceMarkPage() {
 
   const [students, setStudents] = useState<any[]>([]);
   const [loadingStudents, setLoadingStudents] = useState(true);
+  // Updated: 2026-09-07 - The roster row the history dialog is open for.
+  const [historyLearner, setHistoryLearner] = useState<any | null>(null);
   const [savingAttendance, setSavingAttendance] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [attendanceData, setAttendanceData] = useState<
@@ -309,7 +314,15 @@ export default function AttendanceMarkPage() {
             if (!sectionError && sections) {
               sectionData = sections;
             } else {
+              // Added: BUG-003163 - A URL sectionId that doesn't resolve to a real
+              // `sections` row (stale/deleted section, or one from an unrelated
+              // search context) used to be kept verbatim in `resolvedSectionId`
+              // and sent straight to fn_attendance_roster as the roster scope,
+              // matching zero rows and rendering "No students found" with no
+              // indication of why. Resetting it lets the Priority 2 fallback
+              // (timetable.section_id) or the slot's own section_ids take over.
               logger.error('academic/attendance/mark', 'Failed to fetch section data for URL UUID', sectionError);
+              resolvedSectionId = null;
             }
           } else {
             // It's a name, resolve to UUID
@@ -2752,6 +2765,23 @@ export default function AttendanceMarkPage() {
                           {isProvisionalAttendanceStatus(
                             student.lifecycle_status
                           ) && <ProvisionalLearnerIndicatorCompact />}
+                          {/* Updated: 2026-09-07 - Open this learner's own
+                              attendance history. stopPropagation matters: the
+                              whole card toggles Present/Absent on click, so
+                              without it opening the history would also flip the
+                              learner's status for this period. */}
+                          <button
+                            type='button'
+                            aria-label="View this learner's attendance history"
+                            title='View attendance history'
+                            className='shrink-0 rounded p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/40 dark:hover:text-blue-300 transition-colors'
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setHistoryLearner(student);
+                            }}
+                          >
+                            <History className='h-3.5 w-3.5' />
+                          </button>
                         </div>
                         <p className='text-xs text-gray-600 dark:text-gray-400 mt-1 font-medium'>
                           Roll: {student.roll_number || 'N/A'}
@@ -2928,6 +2958,34 @@ export default function AttendanceMarkPage() {
           existingAttendance={existingAttendance}
           isEditMode={isEditMode}
           editDiff={editDiff}
+        />
+
+        {/* Updated: 2026-09-07 - Per-learner attendance history.
+            The section is taken from the learner's own roster row first: on a
+            multi-section slot the register the learner belongs to is theirs, not
+            the slot's first section. */}
+        <LearnerAttendanceHistoryDialog
+          open={!!historyLearner}
+          onOpenChange={(next) => {
+            if (!next) setHistoryLearner(null);
+          }}
+          learnerId={historyLearner?.id ?? null}
+          learnerName={
+            historyLearner
+              ? `${historyLearner.first_name || ''} ${historyLearner.last_name || ''}`.trim() ||
+                'This learner'
+              : ''
+          }
+          rollNumber={historyLearner?.roll_number ?? null}
+          sectionId={
+            historyLearner?.section_id ||
+            contextData?.section_id ||
+            sectionId ||
+            null
+          }
+          sectionName={
+            historyLearner?.section_name || contextData?.section_name || null
+          }
         />
       </div>
     </ContentLayout>

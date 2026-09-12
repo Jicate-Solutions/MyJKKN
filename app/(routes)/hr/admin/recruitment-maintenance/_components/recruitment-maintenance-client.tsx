@@ -102,10 +102,15 @@ export function RecruitmentMaintenanceClient() {
   const orgsQuery = useQuery({
     queryKey: ['recruitment-maintenance', 'orgs'],
     queryFn: async (): Promise<OrgRow[]> => {
-      const { data, error } = await supabase
-        .from('hr_organizations')
+      // Every org, included_in_hr or not — recruitment is group-wide, so a
+      // backfill must be able to reach candidates of an institution that sits
+      // outside the HR module proper.
+      const { data, error } = (await (supabase.from('hr_organizations') as any)
         .select('id, name')
-        .order('name', { ascending: true });
+        .order('name', { ascending: true })) as {
+        data: OrgRow[] | null;
+        error: { message: string } | null;
+      };
       if (error) throw error;
       return (data ?? []) as OrgRow[];
     },

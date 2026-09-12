@@ -40,40 +40,42 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { AlertCircle, Check, Loader2, RotateCw, ShieldAlert, UserCheck, Zap } from 'lucide-react';
+import { AlertCircle, Check, RotateCw, ShieldAlert, UserCheck, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/empty-state';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import {
-  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
-} from '@/components/ui/dialog';
-import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 
 import { TimeOffShell } from '../_components/time-off-shell';
 import { PeriodFilter, allTimePeriod } from '../_components/period-filter';
 import { CompOffClaimsQueue } from '../_components/comp-off-claims-queue';
 import { ApprovalDetailSheet } from '../_components/approval-detail-sheet';
+import { LeaveDocumentViewer } from '../_components/leave-document-viewer';
 import {
   ApprovalsDataTable, approvalFiltersActive, emptyApprovalFilters,
   type ApprovalFilterState, type ToolbarSelection,
 } from '../_components/approvals-data-table';
 import type { ApprovalColumnActions } from '../_components/approval-queue-columns';
-import { useDecideApplication } from '@/hooks/hr/use-leave';
+import {
+  ApproveRequestsDialog, RejectRequestsDialog, RevokeRequestDialog,
+  type ApprovalDecision,
+} from '../_components/approval-decision-dialogs';
+import {
+  describeApprovalSkipped, splitBulkApprove, splitBulkReject,
+} from '../_components/approval-bulk';
+import { useDecideApplication, useRevokeApplication } from '@/hooks/hr/use-leave';
 import { useCanApproveLeave } from '@/hooks/hr/use-hr-leave-types';
-import { useLeaveApprovalQueue } from '@/hooks/hr/use-leave-approval-flows';
+import {
+  useLeaveApprovalQueue, useLeaveRevokeBlockReason,
+} from '@/hooks/hr/use-leave-approval-flows';
 import { usePendingCompOffClaims } from '@/hooks/hr/use-comp-off';
 import { getErrorMessage } from '@/lib/utils';
+import { isReviewStep } from '../_components/format';
 import type { HRLeaveApprovalQueueRow } from '@/types/hr';
 
 export default function LeaveApprovalsPage() {
@@ -85,6 +87,7 @@ export default function LeaveApprovalsPage() {
   const { data: queue, error: queueError, isLoading, refetch, isFetching, dataUpdatedAt } =
     useLeaveApprovalQueue(canApprove === true);
   const decide = useDecideApplication();
+  const revoke = useRevokeApplication();
   const { data: claims } = usePendingCompOffClaims(canApprove === true);
 
   /**
@@ -113,15 +116,23 @@ export default function LeaveApprovalsPage() {
     };
   });
   const [detailRow, setDetailRow] = useState<HRLeaveApprovalQueueRow | null>(null);
-  /** What the approve confirmation is about. null = closed. */
-  const [approving, setApproving] = useState<
-    | { kind: 'single'; row: HRLeaveApprovalQueueRow }
-    | { kind: 'bulk'; rows: HRLeaveApprovalQueueRow[]; reset: () => void }
-    | null
-  >(null);
+  /**
+   * Whose supporting documents the viewer is showing. null = closed.
+   *
+   * One viewer for the whole table, opened with a row, rather than one mounted
+   * per cell: a 240-row queue would otherwise carry 240 Radix dialogs.
+   */
+  const [docsRow, setDocsRow] = useState<HRLeaveApprovalQueueRow | null>(null);
+  /** What the approve / reject confirmation is about. null = closed. */
+  const [approving, setApproving] = useState<ApprovalDecision | null>(null);
+  const [rejecting, setRejecting] = useState<ApprovalDecision | null>(null);
+  /** The approved request whose revocation is being confirmed. null = closed. */
+  const [revoking, setRevoking] = useState<HRLeaveApprovalQueueRow | null>(null);
+  const [revokeReason, setRevokeReason] = useState('');
   const [bulkBusy, setBulkBusy] = useState(false);
-  const [rejectRow, setRejectRow] = useState<HRLeaveApprovalQueueRow | null>(null);
   const [rejectReason, setRejectReason] = useState('');
+  /** A single decision's refusal, shown inside its still-open dialog. */
+  const [dialogError, setDialogError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const all = useMemo(() => queue ?? [], [queue]);
@@ -143,6 +154,18 @@ export default function LeaveApprovalsPage() {
     }
     return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1]));
   }, [all]);
+
+  // Narrowed by the institution filter so a group-wide approver is not offered
+  // another college's departments. Rows whose applicant has no department
+  // contribute no option and match only "All departments".
+  const departments = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of all) {
+      if (filters.institutionId !== 'any' && r.institution_id !== filters.institutionId) continue;
+      if (r.department_id) m.set(r.department_id, r.department_name ?? 'Unnamed department');
+    }
+    return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [all, filters.institutionId]);
 
   const leaveTypes = useMemo(() => {
     const m = new Map<string, string>();
@@ -168,67 +191,145 @@ export default function LeaveApprovalsPage() {
    * so the menu item opens a confirmation rather than firing.
    */
   const confirmApprove = useCallback((row: HRLeaveApprovalQueueRow) => {
+    setDialogError(null);
     setTimeout(() => setApproving({ kind: 'single', row }), 0);
   }, []);
 
-  const runApproval = async () => {
-    if (!approving) return;
-    setError(null);
+  /** Rejecting ends the request just as finally — it confirms too, with a reason. */
+  const confirmReject = useCallback((row: HRLeaveApprovalQueueRow) => {
+    setDialogError(null);
+    setRejectReason('');
+    setTimeout(() => setRejecting({ kind: 'single', row }), 0);
+  }, []);
 
-    if (approving.kind === 'single') {
-      try {
-        await decide.mutateAsync({ applicationId: approving.row.id, decision: 'approve' });
-        toast.success(`Approved — ${approving.row.staff_name ?? 'request'}`);
-        setApproving(null);
-      } catch (err) {
-        const msg = getErrorMessage(err);
-        setError(msg);
-        toast.error(msg);
-      }
-      return;
-    }
+  /**
+   * Revoking undoes a grant the applicant has already been told about. Deferred
+   * by a tick for the same Radix reason onView is — this is opened from inside a
+   * DropdownMenu, and stacking an overlay inside another's close handler is the
+   * documented cause of the stuck `pointer-events: none` body.
+   */
+  const confirmRevoke = useCallback((row: HRLeaveApprovalQueueRow) => {
+    setDialogError(null);
+    setRevokeReason('');
+    setTimeout(() => setRevoking(row), 0);
+  }, []);
 
-    // Sequential, not Promise.all: each approval takes a per-employee advisory
-    // lock and rewrites a balance, and the attendance recompute runs after it.
-    // Firing 40 at once would serialise on the lock anyway and lose which one
-    // failed.
+  /**
+   * Sequential, not Promise.all: each decision takes a per-employee advisory
+   * lock and rewrites a balance, and the attendance recompute runs after it.
+   * Firing 40 at once would serialise on the lock anyway and lose which one
+   * failed.
+   */
+  const decideBulk = async (
+    rows: HRLeaveApprovalQueueRow[],
+    decision: 'approve' | 'reject',
+    rejection_reason?: string
+  ) => {
     setBulkBusy(true);
     let ok = 0;
     const failures: string[] = [];
-    for (const row of approving.rows) {
+    for (const row of rows) {
       try {
-        await decide.mutateAsync({ applicationId: row.id, decision: 'approve' });
+        await decide.mutateAsync({ applicationId: row.id, decision, rejection_reason });
         ok += 1;
       } catch (err) {
         failures.push(`${row.staff_name ?? row.id}: ${getErrorMessage(err)}`);
       }
     }
     setBulkBusy(false);
-    approving.reset();
-    setApproving(null);
+    return { ok, failures };
+  };
 
-    if (ok > 0) toast.success(`Approved ${ok} request(s)`);
+  const reportBulk = (verb: string, ok: number, failures: string[]) => {
+    if (ok > 0) toast.success(`${verb} ${ok} request(s)`);
     if (failures.length > 0) {
-      toast.error(`${failures.length} could not be approved`);
+      toast.error(`${failures.length} could not be ${verb.toLowerCase()}`);
       setError(failures.slice(0, 5).join(' · '));
     }
   };
 
-  const onReject = async () => {
-    if (!rejectRow || !rejectReason.trim()) return;
+  const runApproval = async () => {
+    if (!approving) return;
     setError(null);
+    setDialogError(null);
+
+    if (approving.kind === 'single') {
+      try {
+        await decide.mutateAsync({ applicationId: approving.row.id, decision: 'approve' });
+        // A review step forwards the request; saying "Approved" there is the
+        // same lie the button used to tell.
+        toast.success(
+          isReviewStep(approving.row)
+            ? `Reviewed and forwarded — ${approving.row.staff_name ?? 'request'}`
+            : `Approved — ${approving.row.staff_name ?? 'request'}`
+        );
+        setApproving(null);
+      } catch (err) {
+        const msg = getErrorMessage(err);
+        setDialogError(msg);
+        toast.error(msg);
+      }
+      return;
+    }
+
+    const { rows, reset } = approving;
+    const { ok, failures } = await decideBulk(rows, 'approve');
+    reset();
+    setApproving(null);
+    reportBulk(rows.some(isReviewStep) ? 'Approved or forwarded' : 'Approved', ok, failures);
+  };
+
+  const runReject = async () => {
+    const rejection_reason = rejectReason.trim();
+    if (!rejecting || !rejection_reason) return;
+    setError(null);
+    setDialogError(null);
+
+    if (rejecting.kind === 'single') {
+      try {
+        await decide.mutateAsync({ applicationId: rejecting.row.id, decision: 'reject', rejection_reason });
+        toast.success(`Rejected — ${rejecting.row.staff_name ?? 'request'}`);
+        setRejecting(null);
+        setRejectReason('');
+      } catch (err) {
+        const msg = getErrorMessage(err);
+        setDialogError(msg);
+        toast.error(msg);
+      }
+      return;
+    }
+
+    const { rows, reset } = rejecting;
+    const { ok, failures } = await decideBulk(rows, 'reject', rejection_reason);
+    reset();
+    setRejecting(null);
+    setRejectReason('');
+    reportBulk('Rejected', ok, failures);
+  };
+
+  // Asked per row, on demand: the queue RPC deliberately carries no can_revoke.
+  const { data: revokeBlockReason, isFetching: checkingRevokeBlock } =
+    useLeaveRevokeBlockReason(revoking?.id);
+
+  const runRevoke = async () => {
+    const reason = revokeReason.trim();
+    if (!revoking || !reason) return;
+    setError(null);
+    setDialogError(null);
     try {
-      await decide.mutateAsync({
-        applicationId: rejectRow.id,
-        decision: 'reject',
-        rejection_reason: rejectReason,
-      });
-      toast.success(`Rejected — ${rejectRow.staff_name ?? 'request'}`);
-      setRejectRow(null);
-      setRejectReason('');
+      const { warning } = await revoke.mutateAsync({ applicationId: revoking.id, reason });
+      toast.success(`Approval revoked — ${revoking.staff_name ?? 'request'}`);
+      // The revoke stuck but a day could not be re-judged. NOT swallowed and not
+      // reported as a failure either: both would be lies about what happened.
+      if (warning) {
+        toast(warning, { duration: 8000, icon: '⚠️' });
+        setError(warning);
+      }
+      setRevoking(null);
+      setRevokeReason('');
     } catch (err) {
       const msg = getErrorMessage(err);
-      setError(msg);
+      setDialogError(msg);
       toast.error(msg);
     }
   };
@@ -241,14 +342,15 @@ export default function LeaveApprovalsPage() {
       // the stuck `pointer-events: none` body in
       // .claude/skills/radix-dialog-race-fix.
       onView: (row) => { setTimeout(() => setDetailRow(row), 0); },
+      // Opened from a plain cell button rather than from inside a menu, so
+      // there is no Radix teardown to wait for and no defer needed.
+      onViewDocuments: (row) => setDocsRow(row),
       onApprove: confirmApprove,
-      onReject: (row) => {
-        setRejectReason('');
-        setTimeout(() => setRejectRow(row), 0);
-      },
-      isPending: decide.isPending,
+      onReject: confirmReject,
+      onRevoke: confirmRevoke,
+      isPending: decide.isPending || revoke.isPending,
     }),
-    [confirmApprove, decide.isPending]
+    [confirmApprove, confirmReject, confirmRevoke, decide.isPending, revoke.isPending]
   );
 
   if (gateLoading) {
@@ -284,15 +386,22 @@ export default function LeaveApprovalsPage() {
     },
   ];
 
+  // Changing the institution clears the department: department options are
+  // derived per institution, so a carried-over id would filter the table to
+  // nothing while the control still displayed a department name.
   const set = <K extends keyof ApprovalFilterState>(k: K, v: ApprovalFilterState[K]) =>
-    setFilters((f) => ({ ...f, [k]: v }));
+    setFilters((f) => (
+      k === 'institutionId' ? { ...f, [k]: v, departmentId: 'any' } : { ...f, [k]: v }
+    ));
 
   /** Rendered into the DataTable toolbar, beside its own search box. */
   const toolbar = (sel: ToolbarSelection) => {
-    // Only rows the trigger would actually accept. Selecting your own request
+    // Only rows the database would actually accept. Selecting your own request
     // and pressing Approve should not produce a per-row policy denial.
-    const approvable = sel.selectedRows.filter((r) => r.can_decide);
-    const skipped = sel.totalSelectedCount - approvable.length;
+    const forApprove = splitBulkApprove(sel.selectedRows);
+    const forReject = splitBulkReject(sel.selectedRows);
+    const cannotApprove = describeApprovalSkipped(forApprove.skipped);
+    const busy = decide.isPending || bulkBusy;
 
     return (
     <div className="flex flex-wrap items-center gap-2">
@@ -301,17 +410,32 @@ export default function LeaveApprovalsPage() {
           <Button
             size="sm"
             className="h-8"
-            disabled={approvable.length === 0 || decide.isPending || bulkBusy}
-            onClick={() =>
-              setApproving({ kind: 'bulk', rows: approvable, reset: sel.resetSelection })
-            }
+            disabled={forApprove.eligible.length === 0 || busy}
+            onClick={() => {
+              setDialogError(null);
+              setApproving({ kind: 'bulk', rows: forApprove.eligible, reset: sel.resetSelection });
+            }}
           >
             <Check className="mr-2 h-4 w-4" />
-            Approve {approvable.length} selected
+            Approve {forApprove.eligible.length} selected
           </Button>
-          {skipped > 0 && (
-            <span className="text-xs text-amber-700">
-              {skipped} of the selected cannot be decided by you
+          <Button
+            size="sm"
+            variant="destructive"
+            className="h-8"
+            disabled={forReject.eligible.length === 0 || busy}
+            onClick={() => {
+              setDialogError(null);
+              setRejectReason('');
+              setRejecting({ kind: 'bulk', rows: forReject.eligible, reset: sel.resetSelection });
+            }}
+          >
+            <X className="mr-2 h-4 w-4" />
+            Reject {forReject.eligible.length} selected
+          </Button>
+          {cannotApprove && (
+            <span className="text-xs text-amber-700 dark:text-amber-400">
+              Can&apos;t approve: {cannotApprove}
             </span>
           )}
         </>
@@ -325,6 +449,20 @@ export default function LeaveApprovalsPage() {
           <SelectContent>
             <SelectItem value="any">All institutions</SelectItem>
             {institutions.map(([id, name]) => (
+              <SelectItem key={id} value={id}>{name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+
+      {departments.length > 1 && (
+        <Select value={filters.departmentId} onValueChange={(v) => set('departmentId', v)}>
+          <SelectTrigger className="h-8 w-full sm:w-[210px]" aria-label="Filter by department">
+            <SelectValue placeholder="All departments" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="any">All departments</SelectItem>
+            {departments.map(([id, name]) => (
               <SelectItem key={id} value={id}>{name}</SelectItem>
             ))}
           </SelectContent>
@@ -373,16 +511,6 @@ export default function LeaveApprovalsPage() {
       >
         <UserCheck className="mr-2 h-4 w-4" />
         Waiting on me ({mineCount})
-      </Button>
-
-      <Button
-        size="sm"
-        className="h-8"
-        variant={filters.emergencyOnly ? 'default' : 'outline'}
-        onClick={() => set('emergencyOnly', !filters.emergencyOnly)}
-      >
-        <Zap className="mr-2 h-4 w-4" />
-        Emergency
       </Button>
 
       <Button
@@ -474,51 +602,35 @@ export default function LeaveApprovalsPage() {
         </div>
       )}
 
-      <AlertDialog
-        open={Boolean(approving)}
-        onOpenChange={(v) => { if (!v && !bulkBusy && !decide.isPending) setApproving(null); }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {approving?.kind === 'bulk'
-                ? `Approve ${approving.rows.length} request(s)?`
-                : 'Approve this request?'}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {approving?.kind === 'single' ? (
-                <>
-                  <strong>{approving.row.staff_name ?? 'This staff member'}</strong>
-                  {approving.row.staff_code ? ` (${approving.row.staff_code})` : ''} —{' '}
-                  {approving.row.leave_type_name ?? 'request'},{' '}
-                  {approving.row.request_category === 'short_time_off'
-                    ? `${approving.row.start_date} ${(approving.row.start_time ?? '').slice(0, 5)}–${(approving.row.end_time ?? '').slice(0, 5)}`
-                    : `${approving.row.start_date} → ${approving.row.end_date}`}
-                  .
-                </>
-              ) : (
-                <>Every selected request will be approved, one after another.</>
-              )}
-              <span className="mt-2 block">
-                Approving records the decision, draws down the balance and re-judges the
-                day&rsquo;s attendance. It cannot be undone from this screen.
-              </span>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={bulkBusy || decide.isPending}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              // Keep the dialog mounted while the work runs; the default action
-              // closes it immediately and the bulk progress would vanish.
-              onClick={(e) => { e.preventDefault(); void runApproval(); }}
-              disabled={bulkBusy || decide.isPending}
-            >
-              {(bulkBusy || decide.isPending) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {approving?.kind === 'bulk' ? 'Approve all' : 'Approve'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ApproveRequestsDialog
+        decision={approving}
+        busy={bulkBusy || decide.isPending}
+        error={dialogError}
+        onCancel={() => setApproving(null)}
+        onConfirm={() => { void runApproval(); }}
+      />
+
+      <RejectRequestsDialog
+        decision={rejecting}
+        busy={bulkBusy || decide.isPending}
+        error={dialogError}
+        reason={rejectReason}
+        onReasonChange={setRejectReason}
+        onCancel={() => setRejecting(null)}
+        onConfirm={() => { void runReject(); }}
+      />
+
+      <RevokeRequestDialog
+        row={revoking}
+        busy={revoke.isPending}
+        blockReason={revokeBlockReason ?? null}
+        checkingBlock={checkingRevokeBlock}
+        error={dialogError}
+        reason={revokeReason}
+        onReasonChange={setRevokeReason}
+        onCancel={() => { setRevoking(null); setRevokeReason(''); }}
+        onConfirm={() => { void runRevoke(); }}
+      />
 
       <ApprovalDetailSheet
         row={detailRow}
@@ -526,40 +638,17 @@ export default function LeaveApprovalsPage() {
         handlers={actions}
       />
 
-      <Dialog open={!!rejectRow} onOpenChange={(v) => { if (!v) setRejectRow(null); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Reject request</DialogTitle>
-            <DialogDescription>
-              {rejectRow
-                ? `${rejectRow.staff_name ?? 'This staff member'} — ${rejectRow.leave_type_name ?? 'request'}. `
-                : ''}
-              A reason is required and is shown to the requester.
-            </DialogDescription>
-          </DialogHeader>
-          <div>
-            <Label htmlFor="rejectReason">Reason <span className="text-destructive">*</span></Label>
-            <Textarea
-              id="rejectReason"
-              className="mt-1"
-              rows={3}
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-              placeholder="Explain why this request is being rejected"
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRejectRow(null)}>Cancel</Button>
-            <Button
-              variant="destructive"
-              disabled={!rejectReason.trim() || decide.isPending}
-              onClick={onReject}
-            >
-              {decide.isPending ? 'Rejecting…' : 'Reject'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Opened from the Document column. View only — no download affordance. */}
+      <LeaveDocumentViewer
+        documents={docsRow?.documents}
+        open={Boolean(docsRow)}
+        onOpenChange={(open) => { if (!open) setDocsRow(null); }}
+        title={
+          docsRow
+            ? [docsRow.staff_name, docsRow.leave_type_name].filter(Boolean).join(' · ')
+            : undefined
+        }
+      />
     </TimeOffShell>
   );
 }

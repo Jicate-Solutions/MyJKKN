@@ -1,0 +1,62 @@
+name: What's New — sync the changelog
+
+# Writes the /whats-new entries into the database from git history.
+#
+# The page reads changelog_entries live, so this job is the ONLY thing that makes
+# newly shipped work appear there. Nothing is committed, no pull request is
+# opened, and no deploy is needed — that machinery all existed only while the
+# entries were a file in the repo, and it went away with the file.
+#
+# Two triggers: every morning, and on demand. The on-demand path is what the
+# super admin's "Check for new changes" button dispatches
+# (app/api/whats-new/refresh/route.ts) — that route names this file, so renaming
+# it means changing the WORKFLOW_FILE constant there too.
+
+on:
+  schedule:
+    # 03:17 UTC = 08:47 IST, after the overnight merges and before the day starts.
+    # Deliberately off the hour: every scheduled job in the world fires at :00.
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Two syncs at once would race on the same rows. Never cancel a run in flight:
+  # it holds an open transaction, and killing it mid-write is exactly what the
+  # script's guards exist to avoid.
+  group: whats-new-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Load-bearing. The script reads the WHOLE history; with the default
+          # shallow clone it would see a few commits, and its own staleness guard
+          # would (correctly) abort rather than delete six months of entries.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # The sync needs the `pg` driver, so unlike the old file-writing job this
+      # one does need an install.
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Sync git history into changelog_entries
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          CHANGELOG_REF: origin/main
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "::error::SUPABASE_DB_URL is not set — nothing was synced."
+            exit 1
+          fi
+          node scripts/sync-changelog-db.mjs

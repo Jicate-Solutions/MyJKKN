@@ -1,60 +1,64 @@
 'use client';
 
-// ============================================================================
-// ROOM CLEANING ENTRY — only for residents whose room category includes it
-// ============================================================================
-// Created: 2026-08-25
-//
-// My Hostel used to show every resident an unconditional "Book a 10-minute
-// housekeeping slot for your room" card. Slot booking is a Premium-room
-// feature, so for the 585 residents in a Classic or Deluxe category that card
-// was a promise the next page immediately refused.
-//
-// Self-gating follows PremiumInviteEntryCard next door: render nothing unless
-// the resident is actually entitled, so nobody is sent to a page that will
-// turn them away. The upgrade funnel is untouched — the "Room Cleaning" nav
-// chip still opens the page, and the page still shows the upsell card that
-// links to /campus-living/my-hostel/premium.
-//
-// Entitlement comes from useMyEntitlement() → fn_housekeeping_my_entitlement,
-// the same SECURITY DEFINER answer the booking page and fn_housekeeping_book_slot
-// use, on the same React Query key — so this card costs no extra request once
-// the resident opens Room Cleaning.
-// ============================================================================
-
 import Link from 'next/link';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { useMyEntitlement } from '@/hooks/campus-living/use-housekeeping-bookings';
-import { Brush, ChevronRight } from 'lucide-react';
+import { Brush, ChevronRight, Star } from 'lucide-react';
+import {
+  useMyAllocation,
+  useMyBookings,
+} from '@/hooks/campus-living/use-housekeeping-bookings';
+import { useBookableTypes } from '@/hooks/campus-living/use-housekeeping-types';
+import { useMyHostelSummary } from '@/hooks/campus-living/use-my-hostel';
 
+/**
+ * My Hostel entry card for room cleaning.
+ *
+ * Renders NOTHING unless the resident's category actually has a bookable
+ * cleaning type. This is the one idea worth keeping from the old module: never
+ * advertise a feature the next page would refuse. Eligibility is decided by the
+ * resident's BILLED category, the same axis fn_cl_housekeeping_book uses since
+ * 2026-11-28 — a Premium resident seated in a Deluxe room keeps Premium
+ * benefits, so the seated room is the wrong axis to ask.
+ */
 export function RoomCleaningEntryCard() {
-  const { data: entitlement } = useMyEntitlement();
+  const { data: allocation } = useMyAllocation();
+  const { data: summary } = useMyHostelSummary();
+  const { data: types = [], isLoading } = useBookableTypes(summary?.hostelCategory?.id);
+  const { data: bookings = [] } = useMyBookings(allocation?.room_id);
 
-  if (entitlement?.entitled !== true) return null;
+  if (isLoading || !allocation || types.length === 0) return null;
 
-  const remaining = Math.max(
-    0,
-    (entitlement.weeklyQuota ?? 0) - (entitlement.usedThisWeek ?? 0)
+  const awaiting = bookings.find((b) => b.status === 'awaiting_feedback');
+  const live = bookings.find((b) =>
+    ['booked', 'assigned', 'in_progress'].includes(b.status),
   );
 
   return (
     <Link href='/campus-living/my-hostel/housekeeping' className='block'>
-      <Card className='transition-colors hover:bg-muted/50'>
-        <CardContent className='flex items-center gap-3 p-4'>
-          <Brush className='h-5 w-5 shrink-0 text-primary' />
-          <div className='min-w-0 flex-1'>
-            <p className='font-medium'>Room Cleaning</p>
-            <p className='text-sm text-muted-foreground'>
-              Book a 10-minute housekeeping slot for your room.
-            </p>
+      <Card className='transition-colors hover:bg-accent'>
+        <CardContent className='flex items-center justify-between gap-3 p-4'>
+          <div className='flex items-center gap-3'>
+            <Brush className='h-5 w-5 text-muted-foreground' />
+            <div>
+              <p className='font-medium'>Room Cleaning</p>
+              <p className='text-sm text-muted-foreground'>
+                {awaiting
+                  ? 'Rate your last cleaning to release attendance'
+                  : live
+                    ? `${live.type_name} booked for ${live.booking_date}`
+                    : `${types.length} cleaning ${types.length === 1 ? 'type' : 'types'} available to book`}
+              </p>
+            </div>
           </div>
-          <Badge variant='outline' className='shrink-0'>
-            {remaining === 0
-              ? 'None left this week'
-              : `${remaining} left this week`}
-          </Badge>
-          <ChevronRight className='h-4 w-4 shrink-0 text-muted-foreground' />
+          <div className='flex items-center gap-2'>
+            {awaiting && (
+              <Badge variant='destructive'>
+                <Star className='mr-1 h-3 w-3' /> Rating due
+              </Badge>
+            )}
+            <ChevronRight className='h-4 w-4 text-muted-foreground' />
+          </div>
         </CardContent>
       </Card>
     </Link>

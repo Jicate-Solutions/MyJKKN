@@ -12,9 +12,10 @@ import { DataTable } from '@/components/data-table/data-table';
 import { profileColumns } from './columns';
 import type { LearnerProfile } from '@/types/learner-profile';
 import { Button } from '@/components/ui/button';
-import { TrashIcon, ArrowRight, ArrowUpDown, DownloadIcon, Printer } from 'lucide-react';
+import { TrashIcon, ArrowRight, ArrowUpDown, DownloadIcon, Eye, Printer } from 'lucide-react';
 import Link from 'next/link';
 import { BulkPrintDialog, type BulkPrintLearner } from '@/components/id-cards/bulk-print-dialog';
+import { IdCardPreviewDialog } from '@/components/id-cards/id-card-preview-dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -67,6 +68,16 @@ interface ProfilesTableServerProps {
  * Receives pre-fetched data from server component but maintains
  * client-side selection and bulk operations for UX.
  */
+
+/** Selected table rows → the shape both ID-card dialogs consume. */
+function toBulkPrintLearners(rows: LearnerProfile[]): BulkPrintLearner[] {
+  return rows.map((row) => ({
+    learnerId: row.id,
+    name: `${row.first_name} ${row.last_name ?? ''}`.trim(),
+    rollNumber: row.roll_number ?? null
+  }));
+}
+
 export function ProfilesTableServer({
   initialData,
   metadata,
@@ -91,6 +102,9 @@ export function ProfilesTableServer({
   // Phase 2 — bulk ID-card printing for selected learners
   const [showBulkPrintDialog, setShowBulkPrintDialog] = useState(false);
   const [learnersToPrint, setLearnersToPrint] = useState<BulkPrintLearner[]>([]);
+  // Bulk ID Card Print — A4 preview (front + back, missing data in red) first,
+  // "Print All" only once every card has rendered.
+  const [showBulkPreviewDialog, setShowBulkPreviewDialog] = useState(false);
 
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -331,14 +345,21 @@ export function ProfilesTableServer({
                 size="sm"
                 className="h-8"
                 onClick={() => {
-                  const rows = props.selectedRows as LearnerProfile[];
-                  setLearnersToPrint(
-                    rows.map((row) => ({
-                      learnerId: row.id,
-                      name: `${row.first_name} ${row.last_name ?? ''}`.trim(),
-                      rollNumber: row.roll_number ?? null
-                    }))
-                  );
+                  setLearnersToPrint(toBulkPrintLearners(props.selectedRows as LearnerProfile[]));
+                  setShowBulkPreviewDialog(true);
+                }}
+              >
+                <Eye className="mr-2 h-4 w-4" />
+                Bulk ID Card Print ({props.selectedRows.length})
+              </Button>
+            )}
+            {canPrintIdCards && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8"
+                onClick={() => {
+                  setLearnersToPrint(toBulkPrintLearners(props.selectedRows as LearnerProfile[]));
                   setShowBulkPrintDialog(true);
                 }}
               >
@@ -395,6 +416,13 @@ export function ProfilesTableServer({
         statusFilter={exportStatusFilter}
       />
 
+      {/* Bulk ID Card Print — A4 preview + browser print */}
+      <IdCardPreviewDialog
+        open={showBulkPreviewDialog}
+        onOpenChange={setShowBulkPreviewDialog}
+        learners={learnersToPrint}
+        title="Bulk ID Card Print"
+      />
       {/* Bulk ID-card Print Dialog (Phase 2) */}
       <BulkPrintDialog
         open={showBulkPrintDialog}

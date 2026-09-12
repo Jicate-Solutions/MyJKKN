@@ -41,6 +41,7 @@ import {
   Boxes,
   ShoppingCart,
   CalendarClock,
+  Video,
   UserSearch,
   Flame,
   FolderTree,
@@ -202,6 +203,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/foundation/onemark/review': 'foundation.items.manage',
   '/foundation/onemark/practice': 'foundation.practice.take',
 
+  // Cohorts — the top-level section for the shared cohort spine. Its first
+  // screen appoints coordinators for every programme on that spine. Mapped to
+  // its own key so it does not inherit a permission from an ancestor route; the
+  // page itself is super-administrator-only whatever this key says.
+  '/cohorts': 'cohort.coordinators.manage',
+  '/cohorts/coordinators': 'cohort.coordinators.manage',
+
   // Improvement Board (MBA teaching-enterprise)
   '/improvement-board': 'improvement.ideas.view',
   '/improvement-board/dashboard': 'improvement.ideas.view',
@@ -215,6 +223,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // ideas.view at all. The submenu filter in GetRoleBasedPages carries that
   // union; keep the two in step.
   '/improvement-board/gemba': 'improvement.ideas.view',
+  // Placement observations — the same cohort records these, so the same key and
+  // the same submenu-filter union below. Keep all three in step.
+  '/improvement-board/placements': 'improvement.ideas.view',
   '/ceo-rounds': 'ceo_rounds.log',
   // MBA Analyst dashboard — an associate's own assigned-department analytics.
   '/improvement-board/analytics': 'improvement.ideas.view',
@@ -568,6 +579,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/hr/admin/leave-balances': 'hr.leave.balance.manage',
   '/hr/admin/academic-years': 'hr.academic_years.manage',
   '/hr/admin/sanctioned-posts': 'hr.sanctioned_posts.view',
+  // The page itself is super-admin only (it switches whole institutions out of
+  // the HR module). Mapped to hr.dashboard.view like its siblings so the nav
+  // reachability gate resolves it; the server RPCs are the real boundary.
+  '/hr/admin/institutions': 'hr.dashboard.view',
 
   // Staff Counseling (Phase 1 — placeholder gate; module pages land in Phase 2)
   // Spec: specs/counselor-taxonomy-spec.md. Role seed:
@@ -1178,6 +1193,16 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/startup-studio/school-of-influence/admin/attendance': 'cohort.manage',
   // Same reasoning for the batch roster — it is the only screen somebody can be
   // taken off a batch from, so it must not be reachable by typing the URL.
+  //
+  // ⚠️ THIS KEY IS NOT THE WHOLE GATE for this one route. The screen also carries
+  // the batch stage control, and its database authority (fn_cohort_can_set_status,
+  // migration 20261115043000) admits FOUR keys, not one: 'cohort.manage',
+  // 'cohort.edit', 'cohort.school_of_influence.manage' and
+  // 'cohort.school_of_influence.edit' — because the table's two UPDATE policies
+  // between them do. lib/navigation/permission-filter.ts therefore carries a
+  // NAMED rule for this path (SOI_MEMBERS_KEYS) admitting all four, so the guard
+  // is not narrower than the write it fronts. Change one and change the other;
+  // the single-key gate here silently locked out users the database admitted.
   '/startup-studio/school-of-influence/admin/members': 'cohort.manage',
   // 2026-08-13 (BUG-005799 / BUG-005800): the other three admin screens were
   // never declared, so each one inherited '/startup-studio' ->
@@ -1311,8 +1336,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/campus-living/laundry/settings': 'campus_living.laundry.view',
   '/campus-living/maintenance/contracts': 'campus_living.maintenance.view',
   '/campus-living/housekeeping': 'campus_living.housekeeping.view',
-  '/campus-living/housekeeping/schedules': 'campus_living.housekeeping.view',
-  '/campus-living/housekeeping/tasks': 'campus_living.housekeeping.view',
+  '/campus-living/housekeeping/types': 'campus_living.housekeeping.types_manage',
+  '/campus-living/housekeeping/cleaners': 'campus_living.housekeeping.cleaners_manage',
+  '/campus-living/housekeeping/availability': 'campus_living.housekeeping.availability_manage',
+  '/campus-living/housekeeping/holds': 'campus_living.housekeeping.view',
   '/campus-living/health': 'campus_living.health.view',
   '/campus-living/dashboard': 'campus_living.dashboard.view',
   '/campus-living/activity': 'campus_living.activity.view',
@@ -1652,6 +1679,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // something every meetings user should see by default.
   '/meetings/series': 'meetings.series.view',
   '/meetings/series/rules': 'meetings.series.view',
+
+  // Online Meetings — dynamic team meetings with the AI Pulse engagement layer
+  // and external-guest support. Separate module from /meetings above; see the
+  // sidebar entry for why. The guest surface is /join/[token], which is public
+  // and allow-listed in proxy.ts, so it is deliberately NOT listed here.
+  '/online-meetings': 'online_meetings.view',
+  '/online-meetings/new': 'onlineMeeting:create',
 
   // CDC — module landing hub
   '/cdc': 'cdc.view',
@@ -1994,6 +2028,10 @@ export function GetPages(pathname: string): MenuGroup[] {
             // Gemba visits — records that somebody went and looked, which is the
             // only thing that makes a department playbook official (improvement.ideas.view).
             { href: '/improvement-board/gemba', label: 'Gemba Visits', active: pathname === '/improvement-board/gemba' },
+            // Placement observations — the same act pointed outside the institution:
+            // what a learner saw inside a partner hospital, school or pharmacy. Named
+            // only where that partner has signed (improvement.ideas.view).
+            { href: '/improvement-board/placements', label: 'Placement Visits', active: pathname === '/improvement-board/placements' },
             // MBA Analyst — an associate's own department analytics (improvement.ideas.view).
             { href: '/improvement-board/analytics', label: 'My Analytics', active: pathname === '/improvement-board/analytics' },
             // MBA case studies — associates write them (improvement.ideas.view),
@@ -2926,6 +2964,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/admin/leave-balances', label: 'Leave Balances', active: pathname.startsWith('/hr/admin/leave-balances') },
             { href: '/hr/admin/academic-years', label: 'HR Academic Years', active: pathname.startsWith('/hr/admin/academic-years') },
             { href: '/hr/admin/sanctioned-posts', label: 'Sanctioned Posts', active: pathname.startsWith('/hr/admin/sanctioned-posts') },
+            { href: '/hr/admin/institutions', label: 'Institutions in HR', active: pathname.startsWith('/hr/admin/institutions') },
           ]
         }
       ]
@@ -3027,6 +3066,15 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'My Marks',
           active: pathname.startsWith('/learners/my-marks'),
           icon: GraduationCap,
+          submenus: []
+        },
+        {
+          // No MENU_PERMISSIONS entry, same as My Marks above: the page gates
+          // on profiles.role === 'student' itself and explains when it refuses.
+          href: '/learners/my-syllabus',
+          label: 'My Learning Pathway',
+          active: pathname.startsWith('/learners/my-syllabus'),
+          icon: BookOpen,
           submenus: []
         },
         {
@@ -3456,6 +3504,25 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/meetings/webhooks', label: 'Webhooks', active: pathname.startsWith('/meetings/webhooks') },
             { href: '/meetings/embed', label: 'Embed & Theming', active: pathname.startsWith('/meetings/embed') },
           ]
+        },
+        {
+          // Online Meetings — a DIFFERENT thing from the booking module above,
+          // deliberately given its own top-level menu rather than a submenu
+          // under it. /meetings is Calendly-shaped: one host, one attendee per
+          // booking (meeting_bookings has singular attendee_name/attendee_email
+          // columns). This is a team meeting with N participants, external
+          // guests, live polls and an engagement report. Same subject, different
+          // data model — burying it inside the other would guarantee somebody
+          // eventually wires one to the other's tables.
+          href: '/online-meetings',
+          label: 'Online Meetings',
+          active:
+            pathname === '/online-meetings' || pathname.startsWith('/online-meetings/'),
+          icon: Video,
+          submenus: [
+            { href: '/online-meetings', label: 'All Meetings', active: pathname === '/online-meetings' },
+            { href: '/online-meetings/new', label: 'Schedule a Team Meeting', active: pathname.startsWith('/online-meetings/new') },
+          ]
         }
       ]
     },
@@ -3694,6 +3761,21 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/work-pulse/all', label: 'All Submissions', active: pathname.startsWith('/work-pulse/all') },
             { href: '/work-pulse/impact', label: 'Impact', active: pathname.startsWith('/work-pulse/impact') },
           ]
+        }
+      ]
+    },
+    {
+      // Cohorts — every programme on the shared cohort spine (School of
+      // Influence, Solve for 100, MBA Associates, Foundations, CDC Training,
+      // Trainer Development). Coordinators is its first screen.
+      groupLabel: 'Cohorts',
+      menus: [
+        {
+          href: '/cohorts/coordinators',
+          label: 'Coordinators',
+          active: pathname.startsWith('/cohorts/coordinators'),
+          icon: UserCog,
+          submenus: []
         }
       ]
     },
@@ -4337,7 +4419,14 @@ export function GetRoleBasedPages(
             // Executive Administrative Officers hold no improvement.ideas.view at
             // all. Without this the link is hidden from the very officers the
             // RPC's officer lane exists for.
-            if (submenu.href === '/improvement-board/gemba') {
+            // Placement visits share gemba's population exactly — the same
+            // teaching-enterprise cohorts record them, and the same officers
+            // oversee them — so they share the union rather than a second copy
+            // of the same three-way test that could drift out of step.
+            if (
+              submenu.href === '/improvement-board/gemba' ||
+              submenu.href === '/improvement-board/placements'
+            ) {
               return (
                 userRole.permissions['improvement.ideas.view'] === true ||
                 userRole.permissions['improvement.area_role.assign'] === true ||

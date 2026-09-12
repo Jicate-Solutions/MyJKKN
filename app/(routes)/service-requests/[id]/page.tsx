@@ -31,7 +31,8 @@ import {
 import { RequestDetailView } from '../_components/request-detail-view';
 import { RequestStatusBadge } from '../_components/request-status-badge';
 import { PriorityBadge } from '../_components/priority-badge';
-import { Edit, Send, XCircle, PackageCheck, Archive } from 'lucide-react';
+import { Edit, Send, XCircle, PackageCheck, Archive, Award } from 'lucide-react';
+import { CertificateDownloadDialog } from '@/components/service-requests/certificate-download-dialog';
 import { format } from 'date-fns';
 import type { ProcessApprovalDto, ServiceRequestApprovalStep } from '@/types/service-request';
 
@@ -53,6 +54,7 @@ export default function ServiceRequestDetailPage({
   const addComment = useAddComment();
 
   const [commentText, setCommentText] = useState('');
+  const [certificateOpen, setCertificateOpen] = useState(false);
 
   const currentApprovalStep: ServiceRequestApprovalStep | null = useMemo(() => {
     if (!request?.service_type?.approval_steps) return null;
@@ -93,6 +95,22 @@ export default function ServiceRequestDetailPage({
   const isReturned = request?.status === 'returned';
   const isApproved = request?.status === 'approved';
   const isFulfilled = request?.status === 'fulfilled';
+  const isClosed = request?.status === 'closed';
+  // Certificates are issued once the request is approved (or already
+  // fulfilled/closed) and the service type has at least one template enabled.
+  // Anyone who recorded an approval on this request (e.g. the final approver)
+  // may issue the certificate, alongside office staff and super admins.
+  const isRequestApprover =
+    (request?.approvals?.some((a) => a.approver_id === profile?.id && a.action === 'approved') ??
+      false) ||
+    (request?.service_type?.approval_steps?.some((st) =>
+      (st.approver_user_ids ?? []).includes(profile?.id ?? '')
+    ) ??
+      false);
+  const canIssueCertificate =
+    (isApproved || isFulfilled || isClosed) &&
+    (request?.service_type?.certificate_template_keys?.length ?? 0) > 0 &&
+    (isSuperAdmin || can('service_requests.manage') || isRequestApprover);
   const isCancellable = ['draft', 'returned', 'submitted'].includes(request?.status || '');
 
   const handleProcessApproval = (data: ProcessApprovalDto) => {
@@ -233,6 +251,18 @@ export default function ServiceRequestDetailPage({
                 )}
 
                 {/* Admin / staff actions */}
+                {canIssueCertificate && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCertificateOpen(true)}
+                    className="gap-2"
+                  >
+                    <Award className="h-4 w-4" />
+                    Download Certificate
+                  </Button>
+                )}
+
                 {(isSuperAdmin || can('service_requests.manage')) && (
                   <>
                     {isApproved && (
@@ -264,6 +294,14 @@ export default function ServiceRequestDetailPage({
             </div>
           </CardContent>
         </Card>
+
+        {canIssueCertificate && (
+          <CertificateDownloadDialog
+            request={request}
+            open={certificateOpen}
+            onOpenChange={setCertificateOpen}
+          />
+        )}
 
         {/* ── Main Detail View ─────────────────────── */}
         <RequestDetailView

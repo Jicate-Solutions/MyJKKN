@@ -23,8 +23,12 @@ import {
   AttendancePeriodService,
   type AttendancePeriodConsoleRow,
   type AttendancePeriodSummary,
+  type RegularizationReason,
+  type StaffAttendanceDay,
 } from '@/lib/services/hr/attendance/attendance-period-service';
 import { invalidateAttendanceViews } from '@/hooks/hr/use-attendance-records';
+import { SalaryRegisterService } from '@/lib/services/hr/payroll/salary-register-service';
+import type { SalaryClosePreview } from '@/types/hr-payroll';
 
 export const ATTENDANCE_PERIOD_KEYS = {
   all: ['hr', 'attendance-periods'] as const,
@@ -32,7 +36,95 @@ export const ATTENDANCE_PERIOD_KEYS = {
     ['hr', 'attendance-periods', 'console', year, month] as const,
   summaries: (periodId: string) =>
     ['hr', 'attendance-periods', 'summaries', periodId] as const,
+  preview: (hrOrgId: string, year: number, month: number) =>
+    ['hr', 'attendance-periods', 'close-preview', hrOrgId, year, month] as const,
+  staffDays: (staffId: string, year: number, month: number) =>
+    ['hr', 'attendance-periods', 'staff-days', staffId, year, month] as const,
 };
+
+/** The regularization reason catalog. Rarely changes, so it is cached hard. */
+export function useRegularizationReasons() {
+  const supabase = useMemo(() => createClientSupabaseClient(), []);
+  return useQuery<RegularizationReason[]>({
+    queryKey: ['hr', 'regularization-reasons'],
+    queryFn: () => AttendancePeriodService.listRegularizationReasons(supabase),
+    staleTime: 30 * 60 * 1000,
+  });
+}
+
+/** One staff member's days, fetched only when their row is expanded. */
+export function useStaffAttendanceDays(
+  staffId: string | null,
+  year: number,
+  month: number,
+) {
+  const supabase = useMemo(() => createClientSupabaseClient(), []);
+
+  return useQuery<StaffAttendanceDay[]>({
+    queryKey: ATTENDANCE_PERIOD_KEYS.staffDays(staffId ?? '', year, month),
+    queryFn: () =>
+      AttendancePeriodService.listStaffDays(supabase, staffId as string, year, month),
+    enabled: !!staffId,
+    staleTime: 0,
+  });
+}
+
+/**
+ * Correct one day from the close preview.
+ *
+ * Invalidates the day list AND the close preview: changing a day moves that
+ * person's paid days, which moves their net pay, which changes the preview's
+ * fingerprint — and a changed fingerprint is what drops the operator's
+ * verification and makes them look again. That chain only works if the preview
+ * is actually refetched.
+ */
+export function useRegularizeDay() {
+  const qc = useQueryClient();
+  const supabase = useMemo(() => createClientSupabaseClient(), []);
+
+  return useMutation({
+    mutationFn: (input: {
+      staffId: string; date: string; statusCode: string; reasonCodeId: string;
+    }) => AttendancePeriodService.regularizeDay(supabase, input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['hr', 'attendance-periods'] });
+      invalidateAttendanceViews(qc);
+    },
+  });
+}
+
+/**
+ * What the salary register will say if this month is closed now.
+ *
+ * `enabled` is caller-controlled so the projection only runs when the operator
+ * opens the preview — it walks every attendance record and every approved
+ * request for the institution-month, which is not work to do for all fourteen
+ * rows of a console nobody has asked about yet.
+ *
+ * staleTime 0: the figures are the reason the close is allowed to proceed, so
+ * they are re-fetched every time the panel opens rather than served from a
+ * cache that predates this morning's biometric import.
+ */
+export function useCloseSalaryPreview(
+  hrOrganizationId: string | null,
+  year: number,
+  month: number,
+  enabled: boolean,
+) {
+  const supabase = useMemo(() => createClientSupabaseClient(), []);
+
+  return useQuery<SalaryClosePreview>({
+    queryKey: ATTENDANCE_PERIOD_KEYS.preview(hrOrganizationId ?? '', year, month),
+    queryFn: () =>
+      SalaryRegisterService.previewForClose(supabase, {
+        hrOrganizationId: hrOrganizationId as string,
+        year,
+        month,
+      }),
+    enabled: enabled && !!hrOrganizationId,
+    staleTime: 0,
+  });
+}
 
 /** Every institution's state for one month. */
 export function useAttendancePeriodConsole(year: number, month: number) {

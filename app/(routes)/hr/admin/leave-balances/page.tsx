@@ -12,6 +12,7 @@ import { PermissionGuard } from '@/components/auth/permission-guard';
 import { AcademicYearBar } from './_components/academic-year-bar';
 import { LeaveBalanceAnalytics } from './_components/leave-balance-analytics';
 import { GenerateBalancesForm } from './_components/generate-balances-form';
+import { ClResetCard } from './_components/cl-reset-card';
 import { StaffBalancesTab } from './_components/staff-balances-tab';
 
 /**
@@ -55,7 +56,10 @@ export default function LeaveBalancesPage() {
             <LeaveBalanceAnalytics year={year} />
           </TabsContent>
 
-          <TabsContent value="generate" className="mt-4">
+          <TabsContent value="generate" className="mt-4 space-y-4">
+            {/* Renders itself away for anyone who is not a super admin, which
+                is the same gate fn_hr_cl_reset_2026_27 applies server-side. */}
+            <ClResetCard />
             <GenerateBalancesForm year={year} />
           </TabsContent>
 

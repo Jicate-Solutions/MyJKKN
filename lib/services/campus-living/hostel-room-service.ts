@@ -22,8 +22,16 @@ export type RoomDerivedStatus = 'available' | 'partially_occupied' | 'full' | 'u
 
 export interface RoomOccupancySnapshot {
   active_residents: number;
+  /** Free beds INCLUDING temporary extra beds — what can actually be allocated. */
   beds_available: number;
   derived_status: RoomDerivedStatus;
+  /**
+   * Free beds counting the SANCTIONED capacity only. Use this wherever the
+   * number feeds money or a "your room has empty beds" claim: the fee formulas
+   * price a room as per_bed × capacity, so an extra bed must not read as a
+   * vacancy the residents are paying for.
+   */
+  beds_available_sanctioned: number;
 }
 
 export type HostelRoomWithOccupancy = HostelRoom & RoomOccupancySnapshot;
@@ -55,6 +63,7 @@ const EMPTY_OCCUPANCY: RoomOccupancySnapshot = {
   active_residents: 0,
   beds_available: 0,
   derived_status: 'unknown',
+  beds_available_sanctioned: 0,
 };
 
 // Guard against non-UUID ids reaching a uuid-typed .eq() filter (Postgres
@@ -77,7 +86,7 @@ async function fetchOccupancyMap(
   if (roomIds.length === 0) return map;
   const { data, error } = await supabase
     .from('v_hostel_room_occupancy')
-    .select('room_id, active_residents, beds_available, derived_status')
+    .select('room_id, active_residents, beds_available, derived_status, beds_available_sanctioned')
     .in('room_id', roomIds);
   if (error) {
     logger.warn('campus-living/rooms', 'fetchOccupancyMap soft-failed; defaulting to unknown', error);
@@ -89,6 +98,7 @@ async function fetchOccupancyMap(
       active_residents: Number(row.active_residents ?? 0),
       beds_available: Number(row.beds_available ?? 0),
       derived_status: (row.derived_status as RoomDerivedStatus) ?? 'unknown',
+      beds_available_sanctioned: Number(row.beds_available_sanctioned ?? 0),
     });
   }
   return map;

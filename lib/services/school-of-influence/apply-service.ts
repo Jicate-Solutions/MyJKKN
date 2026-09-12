@@ -979,7 +979,7 @@ export async function submitSoiApplication(
   // D5 — the applicant is waitlisted when the batch they will land in is full
   // and the programme's answer to a full batch is to hold them. With
   // staff_assign there is no chosen batch, so the question is whether every batch
-  // that is STILL OPEN is full.
+  // that is STILL OPEN is full — and whether the programme keeps a list at all.
   //
   // Only open batches are counted. `acceptingNow` is intakeOpen && !isFull, so
   // asking every(!acceptingNow) would read a closed window as a full one and
@@ -988,10 +988,18 @@ export async function submitSoiApplication(
   // promise a seat that was never the obstacle. buildSoiApplyContext has already
   // refused the all-windows-shut case above, so openBatches is non-empty here;
   // the length check keeps this honest if that guard is ever moved.
+  //
+  // soi.batch_full_behaviour is named on BOTH branches on purpose. The
+  // staff_assign branch used to rely on the earlier no_open_batch guard having
+  // already refused when nothing keeps a list — true today, but it left the one
+  // decision the setting governs reading as though the setting were not
+  // consulted. Anybody reordering those guards would have silently turned the
+  // waiting list on for a programme that had switched it off.
   const openBatches = context.batches.filter((b) => b.intakeOpen);
+  const anyBatchWaitlists = context.batches.some((b) => b.fullBehaviour === 'waitlist');
   const isWaitlisted = requestedBatch
     ? requestedBatch.isFull && requestedBatch.fullBehaviour === 'waitlist'
-    : openBatches.length > 0 && openBatches.every((b) => b.isFull);
+    : openBatches.length > 0 && openBatches.every((b) => b.isFull) && anyBatchWaitlists;
 
   // Required questions are validated with the SAME helper the tournament path
   // uses, so "required" means one thing across the platform.
@@ -1091,7 +1099,10 @@ export async function submitSoiApplication(
       status: isWaitlisted ? 'waitlisted' : 'pending',
       requestedBatchId: requestedBatch?.id ?? null,
       message: isWaitlisted
-        ? 'Your application is on the waiting list. A coordinator will contact you when a place opens up.'
+        ? 'Every batch is full right now, so you are on the waiting list rather than ' +
+          'turned away. Your application stays open: when a place frees up a ' +
+          'coordinator offers it from this list, and you will be told either way. ' +
+          'You do not need to apply again.'
         : 'Your application has been received. A coordinator will review it and let you know the outcome.',
     },
   };

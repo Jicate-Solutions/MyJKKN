@@ -19,6 +19,7 @@
 // page number.
 
 import { useCallback, useMemo, type ReactNode } from 'react';
+import { FileText } from 'lucide-react';
 
 import { DataTable, type DataFetchParams } from '@/components/data-table/data-table';
 import type { PeriodRange } from './period-filter';
@@ -34,6 +35,8 @@ import type { HRLeaveApprovalQueueRow } from '@/types/hr';
 export interface ApprovalFilterState {
   /** 'any' or an institutions.id. */
   institutionId: string;
+  /** 'any' or a departments.id. Null-department rows match only 'any'. */
+  departmentId: string;
   /** 'any' or an hr_leave_types.id. */
   leaveTypeId: string;
   /** 'open' = pending + escalated (the default work queue); 'any' = everything
@@ -49,26 +52,25 @@ export interface ApprovalFilterState {
     | 'cancelled';
   /** Only rows whose CURRENT step routes to me. */
   mineOnly: boolean;
-  emergencyOnly: boolean;
   period: PeriodRange;
 }
 
 export const emptyApprovalFilters = (period: PeriodRange): ApprovalFilterState => ({
   institutionId: 'any',
+  departmentId: 'any',
   leaveTypeId: 'any',
   status: 'open',
   mineOnly: false,
-  emergencyOnly: false,
   period,
 });
 
 export function approvalFiltersActive(f: ApprovalFilterState): boolean {
   return (
     f.institutionId !== 'any' ||
+    f.departmentId !== 'any' ||
     f.leaveTypeId !== 'any' ||
     f.status !== 'open' ||
     f.mineOnly ||
-    f.emergencyOnly ||
     f.period.preset !== 'all'
   );
 }
@@ -81,6 +83,7 @@ function haystack(r: HRLeaveApprovalQueueRow): string {
     r.leave_type_name,
     r.leave_type_code,
     r.institution_name,
+    r.department_name,
     r.reason,
   ]
     .filter(Boolean)
@@ -100,6 +103,7 @@ export function matchesApprovalFilters(
     return false;
   }
   if (f.institutionId !== 'any' && r.institution_id !== f.institutionId) return false;
+  if (f.departmentId !== 'any' && r.department_id !== f.departmentId) return false;
   if (f.leaveTypeId !== 'any' && r.leave_type_id !== f.leaveTypeId) return false;
   if (f.status === 'open') {
     if (r.status !== 'pending' && r.status !== 'escalated') return false;
@@ -107,7 +111,6 @@ export function matchesApprovalFilters(
     return false;
   }
   if (f.mineOnly && !r.waiting_on_me) return false;
-  if (f.emergencyOnly && !r.is_emergency) return false;
 
   const q = search.trim().toLowerCase();
   if (q && !haystack(r).includes(q)) return false;
@@ -213,6 +216,22 @@ export function ApprovalsDataTable({
             ? `${r.start_date} · ${(r.start_time ?? '').slice(0, 5)}–${(r.end_time ?? '').slice(0, 5)}`
             : `${r.start_date} → ${r.end_date}`}
         </p>
+        {/* The card is the ONLY view under 768px, so the document has to be
+            reachable from it — the table's Document column is not rendered
+            here. Same three states, and above the reason for the same reason
+            the column sits before it. */}
+        {(r.documents?.length ?? 0) > 0 ? (
+          <button
+            type="button"
+            onClick={() => actions.onViewDocuments(r)}
+            className="inline-flex items-center gap-1 text-xs text-primary underline-offset-4 hover:underline"
+          >
+            <FileText className="h-3.5 w-3.5" />
+            {r.documents.length > 1
+              ? `View ${r.documents.length} documents`
+              : 'View document'}
+          </button>
+        ) : null}
         {r.reason && <p className="text-xs text-muted-foreground">{r.reason}</p>}
         <div className="flex justify-end">
           {/* Same menu as the table, so a decision goes through one code path

@@ -87,6 +87,17 @@ import {
 } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAllInstitutions } from '@/hooks/accreditation/use-cluster-councils';
+import { useVisibleInstitutions } from '@/hooks/accreditation/use-visible-institutions';
+import {
+  AGGREGATE_SCOPE,
+  NO_VISIBLE_SCOPE,
+} from '@/app/(routes)/accreditation/_lib/visible-institutions';
+import { useInstitutionBodyScope } from '@/hooks/accreditation/use-institution-bodies';
+import {
+  filterMetricsToScope,
+  scopeSentence,
+  UNPROVISIONED_SCOPE,
+} from '@/app/(routes)/accreditation/_lib/institution-body-scope';
 // SpanInstitution is DEFINED in cluster-scope. use-cluster-councils imports it
 // for its own signatures but never re-exports it, so importing it from there is
 // TS2305 — a module cannot re-export a name just by importing it.
@@ -136,6 +147,16 @@ const VIEW_PERMISSION = 'accreditation.metrics.view';
 // can never collide with a real academic-year label.
 const WHOLE_CYCLE = '__whole_cycle__';
 
+/**
+ * The sentinel for the pooled, every-college view.
+ *
+ * A distinct value rather than `null` because `null` in `chosenInstitution`
+ * already means "the reader has not chosen", which resolves to their own
+ * college. Without this, a college reader could never deliberately widen to the
+ * group view — every attempt would snap straight back to their own campus.
+ */
+const ALL_COLLEGES = '__all__';
+
 const MANAGE_METRICS = '/accreditation/manage/metrics';
 
 export default function IqacDashboardPage() {
@@ -161,10 +182,70 @@ export default function IqacDashboardPage() {
   // `null` is the "whole NAAC cycle" option — every year at once. Each body's
   // own page keeps using ITS window regardless of what is chosen here.
   const [chosenWindow, setChosenWindow] = useState<string | null>(null);
-  const evidenceRows = useMemo(() => mappings ?? [], [mappings]);
+
+  // ---------------------------------------------------------------------------
+  // Which college is being read. Added 2026-09-08.
+  //
+  // Until now this page had ONE pooled view: a metric counted as covered if ANY
+  // college had filed evidence for it. That reported 21 of 69 NAAC metrics
+  // covered when no single college had more than 13 — Nursing's true figure is
+  // 8. NAAC accredits each college separately, so the pooled number is not a
+  // rougher version of the right one; it is a number no assessor ever asks for.
+  //
+  // Director rule, 2026-09-08: a reader ATTACHED to a college opens on that
+  // college. A reader attached to none — the Director, the CEO, the IQAC
+  // officer at the main office — opens on the pooled view and may filter.
+  // ---------------------------------------------------------------------------
+  // The rows, the default and the aggregate row all come from the scope module
+  // (_lib/visible-institutions.ts), which already encodes the Director's rule:
+  // a reader who can see exactly ONE college defaults to it and is offered NO
+  // cluster row (there is nothing to aggregate); a reader who can see them all
+  // defaults to the pooled row and may filter to any one of them.
+  const {
+    options: scopeOptions,
+    defaultSelection,
+    visible: visibleColleges,
+    state: scopeState,
+    isLoading: visibleLoading,
+  } = useVisibleInstitutions();
+  const [picked, setPicked] = useState<string | null>(null);
+  const selectedScope =
+    picked && scopeOptions.some((o) => o.value === picked) ? picked : defaultSelection;
+
+  // AGGREGATE_SCOPE and NO_VISIBLE_SCOPE are sentinels, not uuids. Only a real
+  // college id narrows anything; the other two leave the pooled read in place,
+  // which is what those readers already see today.
+  const activeInstitutionId =
+    selectedScope === AGGREGATE_SCOPE || selectedScope === NO_VISIBLE_SCOPE
+      ? null
+      : selectedScope;
+  const activeInstitutionName =
+    visibleColleges.find((c) => c.id === activeInstitutionId)?.name ?? null;
+
+  const { scope: institutionScope } = useInstitutionBodyScope(activeInstitutionId);
+  // The pooled view is not scoped to any one college's bodies: it is every body,
+  // by definition. `unprovisioned` is also the correct fail-open for a college
+  // whose mapping cannot be read — see institution-body-scope.ts.
+  const activeScope = activeInstitutionId ? institutionScope : UNPROVISIONED_SCOPE;
+
+  const allEvidenceRows = useMemo(() => mappings ?? [], [mappings]);
+  // Rows carrying no institution_id belong to no college, so they appear in the
+  // pooled view only. Counting them into a college's total would recreate the
+  // borrowed-evidence bug in a smaller form.
+  const evidenceRows = useMemo(
+    () =>
+      activeInstitutionId
+        ? allEvidenceRows.filter((r) => r.institution_id === activeInstitutionId)
+        : allEvidenceRows,
+    [allEvidenceRows, activeInstitutionId],
+  );
+  // Deliberately computed from ALL rows, not the filtered set: the list of
+  // academic years on offer must not shrink because a college happens to have
+  // filed nothing in one of them. Picking a college narrows the numbers, never
+  // the choices.
   const { windows, defaultWindow } = useMemo(
-    () => reportingWindows(periodLabelsIn(evidenceRows), new Date()),
-    [evidenceRows],
+    () => reportingWindows(periodLabelsIn(allEvidenceRows), new Date()),
+    [allEvidenceRows],
   );
   const activeWindow =
     chosenWindow === WHOLE_CYCLE ? undefined : (chosenWindow ?? defaultWindow);
@@ -178,7 +259,13 @@ export default function IqacDashboardPage() {
     [evidenceRows, activeWindow],
   );
 
-  const rows = useMemo(() => metrics ?? [], [metrics]);
+  // A college sees the bodies that inspect IT. Nursing sees INC, NAAC, NIRF and
+  // QS; it never sees DCI. The mapping is `institution_accreditation_bodies`,
+  // applied to production 2026-08-06 and already used by five other pages.
+  const rows = useMemo(
+    () => filterMetricsToScope(metrics ?? [], activeScope),
+    [metrics, activeScope],
+  );
   const grouping = useMemo(() => groupFramework(rows), [rows]);
   const coverage = useMemo(
     () => summariseCoverage(rows, evidenceCounts),
@@ -260,6 +347,38 @@ export default function IqacDashboardPage() {
               body's own tab keeps reading its own reporting period, because a
               body's window is set by the body and is not ours to change.
             */}
+            {/*
+              Which college. A reader attached to one opens on it; a reader
+              attached to none opens pooled and may filter. The pooled option is
+              LABELLED as pooled — before 2026-09-08 the page was pooled and
+              nothing on screen said so, which is how a cluster figure was read
+              as a college's own.
+            */}
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <span className="text-sm text-muted-foreground">College</span>
+              <Select
+                value={selectedScope}
+                onValueChange={(v) => setPicked(v)}
+                disabled={visibleLoading || scopeState === 'none-visible'}
+              >
+                <SelectTrigger className="h-8 w-[280px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {scopeOptions.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <span className="text-xs text-muted-foreground">
+                {activeInstitutionId
+                  ? scopeSentence(activeScope, activeInstitutionName)
+                  : 'Pooled across every college \u2014 a metric counts as covered if any one college has filed evidence, so this is higher than any single college\u2019s own figure.'}
+              </span>
+            </div>
+
             <div className="mb-4 flex flex-wrap items-center gap-2">
               <span className="text-sm text-muted-foreground">Reporting window</span>
               <Select

@@ -22,22 +22,30 @@
 // at the 150px default is arbitrary, not designed.
 
 import type { ColumnDef } from '@tanstack/react-table';
+import { FileText } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import { ApprovalRowActions, type ApprovalRowActionHandlers } from './approval-row-actions';
 import { StatusBadge } from './request-table';
-import { formatBiometricGap, formatDays, formatHours } from './format';
+import { formatBiometricGap, formatDays, formatHours, stageLabel } from './format';
 import { LEAVE_DURATION_LABELS } from '@/types/hr';
 import type { HRLeaveApprovalQueueRow } from '@/types/hr';
 
 export type { ApprovalRowActionHandlers };
 
 /** What every row's menu needs. Shared by the table and the mobile card. */
-export type ApprovalColumnActions = ApprovalRowActionHandlers;
+export type ApprovalColumnActions = ApprovalRowActionHandlers & {
+  /**
+   * Open the document viewer for this row. Owned by the page, not by the cell,
+   * for the same reason onView is: one dialog instance for the whole table
+   * rather than one mounted per rendered row.
+   */
+  onViewDocuments: (row: HRLeaveApprovalQueueRow) => void;
+};
 
-const fmtDate = (d: string | null) =>
+export const fmtDate = (d: string | null) =>
   d ? new Date(`${d}T00:00:00`).toLocaleDateString('en-GB') : '—';
 
 /** 'HH:MM:SS' -> 'HH:MM'. The column is `time without time zone`. */
@@ -134,6 +142,22 @@ const institutionColumn: ColumnDef<HRLeaveApprovalQueueRow> = {
   minSize: 140,
 };
 
+/**
+ * The applicant's department. A HOD only ever sees their own, so this reads as
+ * confirmation there; it earns its place for a Principal, whose list is now the
+ * whole institution. Null for staff whose record carries no department — the
+ * same rows a HOD is deliberately not shown.
+ */
+const departmentColumn: ColumnDef<HRLeaveApprovalQueueRow> = {
+  accessorKey: 'department_name',
+  header: ({ column }) => <DataTableColumnHeader column={column} title="Department" />,
+  cell: ({ row }) => (
+    <span className="text-muted-foreground">{row.original.department_name ?? '—'}</span>
+  ),
+  size: 200,
+  minSize: 140,
+};
+
 /** Who decided it, resolved by the RPC — profiles is unreadable client-side. */
 const decidedByColumn: ColumnDef<HRLeaveApprovalQueueRow> = {
   accessorKey: 'final_approver_name',
@@ -141,12 +165,17 @@ const decidedByColumn: ColumnDef<HRLeaveApprovalQueueRow> = {
   cell: ({ row }) => {
     const r = row.original;
     if (!r.final_approver_id) return <span className="text-muted-foreground">—</span>;
+    // On a revoked row final_approver_id is the REVOKER — the service rewrites it
+    // with the decision. Saying so stops "Decided by" reading as "approved by".
     return (
       <div className="min-w-0">
-        <span className="block truncate">{r.final_approver_name ?? 'Unknown'}</span>
-        {r.final_decided_at && (
+        <span className="block truncate">
+          {(r.revoked_at ? r.revoked_by_name : null) ?? r.final_approver_name ?? 'Unknown'}
+        </span>
+        {(r.revoked_at ?? r.final_decided_at) && (
           <span className="block truncate text-xs text-muted-foreground">
-            {new Date(r.final_decided_at).toLocaleDateString('en-GB')}
+            {r.revoked_at ? 'Revoked ' : ''}
+            {new Date((r.revoked_at ?? r.final_decided_at) as string).toLocaleDateString('en-GB')}
           </span>
         )}
       </div>
@@ -161,10 +190,18 @@ const statusColumn: ColumnDef<HRLeaveApprovalQueueRow> = {
   header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
   cell: ({ row }) => (
     <div className="flex flex-wrap items-center gap-1">
-      <StatusBadge status={row.original.status} />
-      {row.original.is_emergency && (
-        <Badge variant="outline" className="border-red-300 text-red-700">Emergency</Badge>
-      )}
+      <StatusBadge status={row.original.status} revoked={row.original.revoked_at !== null} />
+      {/* WHERE IN THE CHAIN, not just pending-or-not. A multi-step request
+          reads as "pending" for its whole life; without this an approver cannot
+          tell a request nobody has touched from one the HOD has already
+          reviewed and passed up. Hidden on single-step chains, where "Step 1 of
+          1" is noise. */}
+      {(row.original.status === 'pending' || row.original.status === 'escalated') &&
+        stageLabel(row.original) && (
+          <Badge variant="outline" className="font-normal text-muted-foreground">
+            {stageLabel(row.original)}
+          </Badge>
+        )}
       {/* Moved out of the actions cell — see the note at the top of this file. */}
       {row.original.is_own && (
         <Badge variant="outline" className="border-amber-300 text-amber-800">Yours</Badge>
@@ -192,6 +229,71 @@ const statusColumn: ColumnDef<HRLeaveApprovalQueueRow> = {
   minSize: 130,
 };
 
+/**
+ * The supporting document, one click from the queue.
+ *
+ * WHY IT IS A COLUMN AND NOT A LINE IN THE DETAIL SHEET. The evidence was
+ * reachable only by opening a row: 102 of the 816 open requests carry a
+ * certificate and nothing on the table said which, so "does this sick leave
+ * have a medical certificate" cost one sheet-open and one REST round trip per
+ * row. The queue RPC now returns documents, so the answer is on the row.
+ *
+ * THREE STATES, and the empty one is not always the same fact:
+ *   - has documents  -> icon, with the count when there is more than one;
+ *   - none, emergency -> amber clock. An emergency was allowed to be filed
+ *     WITHOUT the document precisely because it was urgent, and the document is
+ *     owed within 48 hours. That is a request to chase, not a request with
+ *     nothing to see;
+ *   - none, ordinary  -> an em dash. Most leave types never wanted one.
+ *
+ * Not sortable: the table's in-memory sorter reads the raw field, and sorting
+ * rows by a JSON array stringifies it. The count is the whole signal and the
+ * eye finds it faster than a sort would.
+ */
+const documentColumn = (a: ApprovalColumnActions): ColumnDef<HRLeaveApprovalQueueRow> => ({
+  id: 'documents',
+  // Names the toggle in the column-visibility menu, which otherwise falls back
+  // to the raw id. Deliberately NOT added to exportConfig.columnMapping — that
+  // record drives the spreadsheet, and a documents column there would write a
+  // JSON array into a cell.
+  meta: { label: 'Document' },
+  header: ({ column }) => <DataTableColumnHeader column={column} title="Document" />,
+  cell: ({ row }) => {
+    const r = row.original;
+    const count = r.documents?.length ?? 0;
+
+    // No "Awaiting" state any more: the Emergency deferral that produced it was
+    // removed 2026-09-12, and a type that requires a document now blocks submit
+    // until one is attached, so an empty cell simply means none was needed.
+    if (count === 0) {
+      return <span className="text-muted-foreground">—</span>;
+    }
+
+    return (
+      // stopPropagation for the same reason the staff cell does it: the row owns
+      // selection, and a click here must not tick the bulk-approve checkbox.
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); a.onViewDocuments(r); }}
+        title={
+          count > 1
+            ? `View ${count} supporting documents`
+            : `View ${r.documents[0]?.name || 'the supporting document'}`
+        }
+        className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-primary hover:bg-muted"
+      >
+        <FileText className="h-4 w-4" />
+        <span className="text-xs underline-offset-4 hover:underline">
+          {count > 1 ? `View (${count})` : 'View'}
+        </span>
+      </button>
+    );
+  },
+  size: 120,
+  minSize: 100,
+  enableSorting: false,
+});
+
 /** One 32px trigger. Fixed and unshrinkable so it can never clip again. */
 const actionsColumn = (a: ApprovalColumnActions): ColumnDef<HRLeaveApprovalQueueRow> => ({
   id: 'actions',
@@ -215,6 +317,7 @@ export function getLeaveApprovalColumns(
     selectColumn,
     staffColumn(a),
     institutionColumn,
+    departmentColumn,
     {
       accessorKey: 'leave_type_name',
       header: ({ column }) => <DataTableColumnHeader column={column} title="Leave" />,
@@ -257,6 +360,11 @@ export function getLeaveApprovalColumns(
       size: 130,
       minSize: 110,
     },
+    // Before the reason, not after it: the certificate is the evidence FOR the
+    // reason and an approver reads the two together, so the icon sits on the
+    // reading path rather than on the far side of a 240px column that is
+    // usually truncated.
+    documentColumn(a),
     {
       accessorKey: 'reason',
       header: ({ column }) => <DataTableColumnHeader column={column} title="Reason" />,
@@ -279,6 +387,7 @@ export function getShortTimeOffColumns(
     selectColumn,
     staffColumn(a),
     institutionColumn,
+    departmentColumn,
     {
       accessorKey: 'leave_type_name',
       header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,
@@ -318,6 +427,11 @@ export function getShortTimeOffColumns(
       size: 110,
       minSize: 90,
     },
+    // Before the reason, not after it: the certificate is the evidence FOR the
+    // reason and an approver reads the two together, so the icon sits on the
+    // reading path rather than on the far side of a 240px column that is
+    // usually truncated.
+    documentColumn(a),
     {
       accessorKey: 'reason',
       header: ({ column }) => <DataTableColumnHeader column={column} title="Reason" />,

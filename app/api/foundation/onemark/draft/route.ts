@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { OneMarkExamKeys } from '@/types/onemark';
+import { buildDraftPayload } from '@/lib/services/onemark/draft-contract';
 
 // OneMark — ask the AI lane to DRAFT one-mark MCQs (decision 3: AI drafts, one
 // subject Senior Learner checks every one).
@@ -159,7 +160,7 @@ export async function POST(request: NextRequest) {
     // 3. The exam must be one of the two OneMark subject rows.
     const { data: exam } = await (supabase as any)
       .from('exam_definitions')
-      .select('id, config_key')
+      .select('id, config_key, display_name')
       .eq('id', examDefinitionId)
       .maybeSingle();
     const oneMarkKeys: string[] = Object.values(OneMarkExamKeys);
@@ -175,9 +176,12 @@ export async function POST(request: NextRequest) {
     const uniqueTags: string[] = Array.from(new Set(tagKeys as string[]));
     const { data: tagRows } = await (supabase as any)
       .from('onemark_item_tags')
-      .select('key, subject_exam_definition_id')
+      .select('key, subject_exam_definition_id, label')
       .in('key', uniqueTags)
       .eq('is_active', true);
+    const tagLabelByKey = new Map<string, string>(
+      (tagRows ?? []).map((t: any) => [t.key as string, (t.label as string) ?? (t.key as string)]),
+    );
     const validTags = new Set(
       (tagRows ?? [])
         .filter(
@@ -195,11 +199,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    let topicLabel: string | null = null;
     // 5. A topic, when given, must be on this exam's unit list.
     if (topicId) {
       const { data: mapRow } = await (supabase as any)
         .from('exam_topic_map')
-        .select('topic_id')
+        .select('topic_id, topic:cdc_exam_syllabus_topics(display_name)')
         .eq('exam_definition_id', examDefinitionId)
         .eq('topic_id', topicId)
         .maybeSingle();
@@ -209,6 +214,12 @@ export async function POST(request: NextRequest) {
           { status: 400 },
         );
       }
+      // The same row that proves membership also carries the unit's name, so
+      // the label costs no extra round trip. PostgREST returns an embedded
+      // to-one either as an object or as a one-element array.
+      const embedded = (mapRow as any).topic;
+      const topicRow = Array.isArray(embedded) ? embedded[0] : embedded;
+      topicLabel = topicRow?.display_name ?? null;
     }
 
     // 6. Queue it. fn_ai_enqueue resolves the lane from the job type row;
@@ -219,14 +230,31 @@ export async function POST(request: NextRequest) {
         { status: 503 },
       );
     }
-    const payload = {
-      exam_definition_id: examDefinitionId,
-      exam_key: exam.config_key,
-      topic_id: topicId,
-      tag_keys: uniqueTags,
-      count,
-      bloom_level: bloomLevel,
-    };
+    // The Max seat runner validates input_schema keys at the TOP LEVEL and
+    // substitutes exactly one slot, {{prompt}}, from payload.prompt. Sending
+    // the fields flat left that slot empty (the model replied "I don't see the
+    // actual input payload", ai_jobs 1096542b); sending them only under _ctx
+    // was refused outright ("missing required input(s)", ai_jobs bbbf0cbc).
+    // buildDraftPayload composes the run's data into the prompt text and keeps
+    // the fields under _ctx for the collect pass. Migration 20260918150000
+    // aligns the job type's template and input_schema with this.
+    const payload = buildDraftPayload(
+      {
+        exam_definition_id: examDefinitionId,
+        exam_key: exam.config_key,
+        topic_id: topicId,
+        tag_keys: uniqueTags,
+        count,
+        bloom_level: bloomLevel,
+      },
+      {
+        // Names, not ids. A uuid tells the model nothing about which chapter it
+        // is drafting for; with ids alone it refuses rather than guess.
+        exam_label: exam.display_name ?? exam.config_key,
+        topic_label: topicLabel,
+        tag_labels: uniqueTags.map((k) => tagLabelByKey.get(k) ?? k),
+      },
+    );
     const { data: enq, error: enqError } = await (supabase as any).rpc('fn_ai_enqueue', {
       p_job_type: JOB_TYPE,
       p_payload: payload,

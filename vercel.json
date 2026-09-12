@@ -260,6 +260,18 @@
     {
       "schedule": "14 * * * *",
       "path": "/api/cron/cron-failure-alerts?secret=${CRON_SECRET}"
+    },
+    {
+      "path": "/api/cron/accreditation-owner-invitations?secret=${CRON_SECRET}",
+      "schedule": "42 1 * * *"
+    },
+    {
+      "path": "/api/cron/accreditation-ownership-notify?secret=${CRON_SECRET}",
+      "schedule": "18 */6 * * *"
+    },
+    {
+      "path": "/api/cron/hr/decision-emails?secret=${CRON_SECRET}",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
