@@ -45,6 +45,15 @@
  * corrected badge unwritable — invisible, permanent, and only findable by
  * someone comparing the page against git by hand.
  *
+ * ONE-OFF REWRITE, 2026-09-12. `entry_at` joined that fingerprint when the
+ * changelog started keeping the TIME a change landed and not just the day. Every
+ * stored row holds NULL for it, so the first run after this ships writes all
+ * 4,933 of them once and then goes quiet again — the same shape as the ordinal
+ * renumbering before it. A handful of rows also change entry_date by a day: the
+ * generator now reads git in Asia/Kolkata rather than in each committer's own
+ * offset, which moves 38 of 7,305 commits (0.52%), all of them UTC-stamped
+ * GitHub merges that genuinely happened after IST midnight.
+ *
  * The skip changes what is WRITTEN, never what is COMPARED. The prune below is
  * still handed git's full sha list, not the short list of changed rows: prune it
  * against the changed rows and the first quiet day deletes the entire changelog.
@@ -121,7 +130,7 @@ const FIRST_SEED_FLOOR = 1000;
  *  same table. It must match the column's DEFAULT in the migration. */
 const APP_KEY = 'myjkkn';
 
-/** Rows per INSERT. 9 columns × 500 = 4,500 parameters, well inside Postgres's
+/** Rows per INSERT. 10 columns × 500 = 5,000 parameters, well inside Postgres's
  *  65,535 limit, and ten round trips for the whole history instead of 4,746. */
 const BATCH = 500;
 
@@ -149,7 +158,8 @@ function fail(message, detail) {
  *  compared is a column that can never be CORRECTED, because the row carrying
  *  the stale value would always look unchanged. */
 export const ENTRY_COLUMNS = [
-  'sha', 'entry_date', 'kind', 'module_key', 'subject', 'author', 'pr_number', 'breaking', 'ordinal',
+  'sha', 'entry_date', 'entry_at', 'kind', 'module_key', 'subject', 'author',
+  'pr_number', 'breaking', 'ordinal',
 ];
 
 /** The module columns the upsert sets, same reasoning. `key` is the conflict target. */
@@ -176,12 +186,51 @@ function toDateKey(value) {
   return String(value).slice(0, 10);
 }
 
+/**
+ * A `timestamptz` as one canonical instant, from either side of the wire.
+ *
+ * The same class of problem as toDateKey and a sharper version of it. Git hands
+ * us `2026-09-12T19:40:00+05:30`; Postgres stores the INSTANT and hands it back
+ * with the offset it feels like using — node-postgres parses it into a JS Date,
+ * and `entry_at::text` would render it in the session's timezone as
+ * `2026-09-12 14:10:00+00`. All three are the same moment and none of them is
+ * the same STRING, so comparing them as text marks every row changed on every
+ * run — silently restoring the full 4,933-row rewrite the fingerprint exists to
+ * remove, while every test still passes.
+ *
+ * Reduced to UTC ISO, they agree. An unparseable value falls back to its own
+ * text rather than to null: null would read as "no timestamp", which is a
+ * meaningful state here (a row written before the column existed) and must not
+ * be counterfeited by a parse failure.
+ */
+function toInstantKey(value) {
+  if (value == null) return null;
+  const at = value instanceof Date ? value : new Date(String(value));
+  return Number.isNaN(at.getTime()) ? String(value) : at.toISOString();
+}
+
 /** One entry as the row the database would hold. `ordinal` breaks ties between
- *  entries that share a date — see assignOrdinals and the INSERT for why. */
+ *  entries that share a date — see assignOrdinals and the INSERT for why.
+ *
+ *  The @param is load-bearing, not decoration. This is a .mjs with no .d.ts, so
+ *  TypeScript infers the parameter's shape from the first call site it sees — and
+ *  one test calls `entryRow({ ...LATE, at: undefined })`, which narrowed `e` to
+ *  `{ at: string }` and made every `e.h` / `e.d` below a TS2339. Declaring the
+ *  shape here fixes it for every caller instead of contorting the test.
+ *
+ * @param {{ h: string, d: string, at?: string | null, t?: string, m?: string,
+ *           s?: string, a?: string, e?: string, p?: number, b?: number | boolean }} e
+ * @param {number} ordinal
+ */
 export function entryRow(e, ordinal) {
   return {
     sha: e.h,
     entry_date: toDateKey(e.d),
+    // Absent until collectChangelog has been re-run against a git that
+    // understands `iso-strict-local`, and absent for every row already in the
+    // table. null is the honest value, not a placeholder — the page renders the
+    // date alone when there is no time, which is what it did before this.
+    entry_at: e.at ?? null,
     kind: e.t,
     module_key: e.m,
     subject: e.s,
@@ -200,6 +249,7 @@ export function fingerprint(row, columns) {
     const v = row[c];
     if (v == null) return null;
     if (c === 'entry_date') return toDateKey(v);
+    if (c === 'entry_at') return toInstantKey(v);
     if (typeof v === 'boolean') return v;
     if (Array.isArray(v)) return v.map(String);
     if (typeof v === 'number') return v;
@@ -414,7 +464,13 @@ export async function writeChangelog({ client, entries, modules, ref }) {
     // subject changes, and the upsert cannot un-hide it (its SET list omits
     // `hidden`), so there is no reason to exclude it from the comparison.
     const storedEntries = await client.query(
-      `SELECT sha, entry_date::text AS entry_date, kind, module_key, subject, author,
+      // entry_at is NOT cast to text, unlike entry_date beside it. A `date` has
+      // to be read as text because the driver parses it at LOCAL midnight; a
+      // `timestamptz` has no such ambiguity — it is an instant, the driver
+      // parses it correctly, and toInstantKey reduces both sides to UTC ISO.
+      // `entry_at::text` would instead render in the session's timezone, which
+      // is a setting, not a fact.
+      `SELECT sha, entry_date::text AS entry_date, entry_at, kind, module_key, subject, author,
               pr_number, breaking, ordinal
          FROM public.changelog_entries
         WHERE app_key = $1`,
@@ -459,20 +515,25 @@ export async function writeChangelog({ client, entries, modules, ref }) {
       const slice = changed.slice(i, i + BATCH);
       const values = [];
       const rows = slice.map((e, n) => {
-        const b = n * 9;
+        // TEN columns per row since entry_at joined them, not nine. This stride
+        // is the one number that must move with the column list: leave it at 9
+        // and every row after the first reads its neighbour's parameters —
+        // valid SQL, no error, entirely wrong data.
+        const b = n * 10;
         // e.ordinal was assigned by assignOrdinals over the WHOLE read, not by
         // position in this batch or in the changed list — it is the only thing
         // that preserves git's order for the dozen-odd changes sharing a date.
-        values.push(e.sha, e.entry_date, e.kind, e.module_key, e.subject, e.author,
+        values.push(e.sha, e.entry_date, e.entry_at, e.kind, e.module_key, e.subject, e.author,
           e.pr_number, e.breaking, e.ordinal);
-        return `($${b + 1}, $${b + 2}::date, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7}::int, $${b + 8}::boolean, $${b + 9}::int)`;
+        return `($${b + 1}, $${b + 2}::date, $${b + 3}::timestamptz, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7}, $${b + 8}::int, $${b + 9}::boolean, $${b + 10}::int)`;
       });
       await client.query(
         `INSERT INTO public.changelog_entries
-           (sha, entry_date, kind, module_key, subject, author, pr_number, breaking, ordinal)
+           (sha, entry_date, entry_at, kind, module_key, subject, author, pr_number, breaking, ordinal)
          VALUES ${rows.join(', ')}
          ON CONFLICT (app_key, sha) DO UPDATE
            SET entry_date = EXCLUDED.entry_date,
+               entry_at   = EXCLUDED.entry_at,
                kind       = EXCLUDED.kind,
                module_key = EXCLUDED.module_key,
                subject    = EXCLUDED.subject,

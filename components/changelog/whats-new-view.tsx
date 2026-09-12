@@ -40,6 +40,8 @@ import { cn } from '@/lib/utils';
 import { useChangelog } from '@/lib/changelog/use-changelog';
 import { usePermissions } from '@/hooks/use-permissions';
 import { KIND_LABEL, type ChangeKind, type ChangelogEntry } from '@/lib/changelog/types';
+import { CATEGORY_BLURB, groupByCategory, type ChangeCategory } from '@/lib/changelog/categories';
+import { formatEntryTime } from '@/lib/changelog/entry-time';
 
 const PAGE = 60;
 
@@ -235,6 +237,20 @@ export function WhatsNewView() {
     );
   }, [entries, query, kind, moduleSlug]);
 
+  /**
+   * One section per day, and within a day one group per Keep a Changelog
+   * category, in that document's order (Director, 2026-09-12, citing
+   * keepachangelog.com/en/1.1.0: a changelog is "for humans, not machines").
+   *
+   * Grouping happens AFTER the `shown` slice, deliberately. Grouping first and
+   * slicing afterwards would make "Show more" reveal entries in the middle of
+   * groups already on screen rather than at the end of the list, which reads as
+   * the page reshuffling itself.
+   *
+   * The order entries arrive in is git's own, newest first; groupByCategory
+   * preserves it inside each group, so only the grouping is new — nothing is
+   * re-sorted.
+   */
   const days = useMemo(() => {
     const out: { day: string; items: ChangelogEntry[] }[] = [];
     for (const e of filtered.slice(0, shown)) {
@@ -242,7 +258,10 @@ export function WhatsNewView() {
       if (last && last.day === e.d) last.items.push(e);
       else out.push({ day: e.d, items: [e] });
     }
-    return out;
+    return out.map(({ day, items }) => ({
+      day,
+      groups: groupByCategory(items, (e) => e.t),
+    }));
   }, [filtered, shown]);
 
   // Contributors, counted across what THIS reader can see — so the credits
@@ -471,7 +490,7 @@ export function WhatsNewView() {
         </Card>
       ) : (
         <div className="space-y-8">
-          {days.map(({ day, items }) => (
+          {days.map(({ day, groups }) => (
             <section key={day}>
               {/*
                 top-14, not top-0: the app's Navbar is `sticky top-0 z-30` over
@@ -484,68 +503,98 @@ export function WhatsNewView() {
               <h2 className="sticky top-14 z-10 -mx-1 bg-background/95 px-1 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
                 {formatDay(day)}
               </h2>
-              <ul className="mt-1 space-y-2">
-                {items.map((e) => {
-                  const style = KIND_STYLE[e.t];
-                  const Icon = style.icon;
-                  const mod = meta.modules[e.m];
-                  return (
-                    <li
-                      key={e.h}
-                      className="rounded-lg border bg-card p-3 transition-colors hover:bg-muted/40 sm:p-4"
-                    >
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span
-                          className={cn(
-                            'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ring-inset',
-                            style.chip
-                          )}
+              {groups.map(({ category, label, items }) => (
+                <div key={category} className="mt-3 first:mt-1">
+                  {/*
+                    NOT sticky. Only one thing on this page may pin itself under
+                    the navbar; a second sticky heading would stack on top of the
+                    date and eat the first row of every group on a phone.
+                  */}
+                  <h3 className="flex flex-wrap items-baseline gap-x-2 px-1 text-sm font-semibold text-foreground">
+                    {label}
+                    <span className="text-xs font-normal text-muted-foreground">
+                      {CATEGORY_BLURB[category as ChangeCategory]}
+                    </span>
+                  </h3>
+                  <ul className="mt-1 space-y-2">
+                    {items.map((e) => {
+                      const style = KIND_STYLE[e.t];
+                      const Icon = style.icon;
+                      const mod = meta.modules[e.m];
+                      // Read in Asia/Kolkata, the same clock `e.d` was written in,
+                      // so the time on the row and the date above it are two
+                      // readings of one instant and cannot name different days.
+                      const time = formatEntryTime(e.at);
+                      return (
+                        <li
+                          key={e.h}
+                          className="rounded-lg border bg-card p-3 transition-colors hover:bg-muted/40 sm:p-4"
                         >
-                          <Icon className="h-3 w-3" aria-hidden="true" />
-                          {KIND_LABEL[e.t]}
-                        </span>
-                        {mod && (
-                          <span className="min-w-0 break-words text-xs font-medium text-muted-foreground">
-                            {mod.label}
-                          </span>
-                        )}
-                        {e.b === 1 && (
-                          <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold uppercase text-rose-700 dark:bg-rose-950 dark:text-rose-300">
-                            Breaking
-                          </span>
-                        )}
-                      </div>
-                      {/* Measured at 375px: today's longest token (57 chars,
-                          a route glob) wraps on its own — slashes and commas
-                          are break opportunities. A snake_case identifier is
-                          not: a 49-char `fn_…` name overflowed the card by
-                          17px, and main's overflow-x-clip would have cut it
-                          off silently. Real subjects carry such names up to
-                          36 chars today, so this is a near miss, not a
-                          hypothetical. */}
-                      <p className="mt-1.5 break-words text-sm leading-relaxed text-foreground">
-                        {e.s}
-                      </p>
-                      <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                        <span className="inline-flex min-w-0 items-center gap-1.5">
-                          <span
-                            className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-muted text-[8px] font-bold text-foreground/70"
-                            aria-hidden="true"
-                          >
-                            {initials(e.a)}
-                          </span>
-                          <span className="break-words font-medium text-foreground/80">{e.a}</span>
-                        </span>
-                        {e.p && (
-                          <span className="font-mono">
-                            <span className="sr-only">pull request </span>#{e.p}
-                          </span>
-                        )}
-                      </p>
-                    </li>
-                  );
-                })}
-              </ul>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span
+                              className={cn(
+                                'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ring-inset',
+                                style.chip
+                              )}
+                            >
+                              <Icon className="h-3 w-3" aria-hidden="true" />
+                              {KIND_LABEL[e.t]}
+                            </span>
+                            {mod && (
+                              <span className="min-w-0 break-words text-xs font-medium text-muted-foreground">
+                                {mod.label}
+                              </span>
+                            )}
+                            {e.b === 1 && (
+                              <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold uppercase text-rose-700 dark:bg-rose-950 dark:text-rose-300">
+                                Breaking
+                              </span>
+                            )}
+                          </div>
+                          {/* Measured at 375px: today's longest token (57 chars,
+                              a route glob) wraps on its own — slashes and commas
+                              are break opportunities. A snake_case identifier is
+                              not: a 49-char `fn_…` name overflowed the card by
+                              17px, and main's overflow-x-clip would have cut it
+                              off silently. Real subjects carry such names up to
+                              36 chars today, so this is a near miss, not a
+                              hypothetical. */}
+                          <p className="mt-1.5 break-words text-sm leading-relaxed text-foreground">
+                            {e.s}
+                          </p>
+                          <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                            {/* The time of day, under the header that names the
+                                day. Absent on every row the sync has not re-read
+                                since the timestamp column was added, in which case
+                                the date header alone stands — which is exactly what
+                                this page showed before. */}
+                            {time && (
+                              <time dateTime={e.at} className="shrink-0 tabular-nums">
+                                <span className="sr-only">shipped at </span>
+                                {time}
+                              </time>
+                            )}
+                            <span className="inline-flex min-w-0 items-center gap-1.5">
+                              <span
+                                className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-muted text-[8px] font-bold text-foreground/70"
+                                aria-hidden="true"
+                              >
+                                {initials(e.a)}
+                              </span>
+                              <span className="break-words font-medium text-foreground/80">{e.a}</span>
+                            </span>
+                            {e.p && (
+                              <span className="font-mono">
+                                <span className="sr-only">pull request </span>#{e.p}
+                              </span>
+                            )}
+                          </p>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ))}
             </section>
           ))}
         </div>
