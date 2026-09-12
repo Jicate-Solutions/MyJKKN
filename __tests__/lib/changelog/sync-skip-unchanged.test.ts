@@ -107,19 +107,19 @@ class FakeDb {
     }
 
     if (text.includes('FROM public.changelog_entries') && text.includes('WHERE app_key = $1')) {
+      // Projected FROM ENTRY_COLUMNS rather than from a hand-written list.
+      // A hardcoded projection here drifts silently the moment a column joins
+      // the upsert: the stored side of every fingerprint would read `undefined`
+      // for the new column while the incoming side reads a value, so the script
+      // would decide all 4,933 rows had changed on every run — and this suite,
+      // whose whole subject is that it must not, would stay green because its
+      // own fixtures never set the column either.
+      //
+      // entry_date is returned as a STRING because the real query casts it
+      // (`entry_date::text`); entry_at is not cast there and is not cast here.
       const rows = this.entries
         .filter((e) => e.app_key === params[0])
-        .map((e) => ({
-          sha: e.sha,
-          entry_date: e.entry_date, // ::text — a string, never a Date
-          kind: e.kind,
-          module_key: e.module_key,
-          subject: e.subject,
-          author: e.author,
-          pr_number: e.pr_number,
-          breaking: e.breaking,
-          ordinal: e.ordinal,
-        }));
+        .map((e) => Object.fromEntries(ENTRY_COLUMNS.map((c) => [c, e[c] ?? null])));
       return { rows, rowCount: rows.length };
     }
 
@@ -264,6 +264,108 @@ describe('a second sync over identical git history', () => {
     // this would have been all 1,199.
     expect(second.updated).toBe(10);
     expect(second.unchanged).toBe(SEED - 10);
+  });
+});
+
+describe('the timestamp the entries now carry', () => {
+  /**
+   * `entry_at` joined the upsert on 2026-09-12 so the page can say WHEN a change
+   * happened, not just on which day. It had to join the FINGERPRINT in the same
+   * breath, and this block is why: the fingerprint decides what is worth
+   * writing, so a column that is written but not compared is a column that can
+   * never be CORRECTED — the row carrying a stale time would look unchanged
+   * forever, and nobody would find it except by comparing the page against git
+   * by hand.
+   */
+  const timed = (count = SEED) =>
+    gitEntries(count).map((e) => ({ ...e, at: `${e.d}T19:40:00+05:30` }));
+
+  it('is written to the row, and survives a round trip through the table', async () => {
+    const db = new FakeDb();
+    const entries = timed();
+    await run(db, entries);
+
+    const stored = db.entries.find((e) => e.sha === entries[0].h)!;
+    expect(stored.entry_at).toBe(entries[0].at);
+    // Still the same DAY as entry_date — the two are one instant read twice.
+    expect(String(stored.entry_at).slice(0, 10)).toBe(stored.entry_date);
+  });
+
+  it('a second run over the same history still writes nothing', async () => {
+    // The half that would break loudly if the fingerprint compared the raw
+    // strings from either side of the wire rather than one canonical instant.
+    const db = new FakeDb();
+    const entries = timed();
+    await run(db, entries);
+
+    db.reset();
+    const second = await run(db, entries);
+    expect(second).toMatchObject({ unchanged: SEED, inserted: 0, updated: 0 });
+    expect(db.contentWrites()).toEqual([]);
+  });
+
+  it('a row whose TIME moved is detected as changed, though nothing else did', async () => {
+    // The requirement in one test. Same sha, same subject, same author, same
+    // date — only the clock differs, which before this column would have been
+    // literally invisible to the page and to the fingerprint alike.
+    const db = new FakeDb();
+    const entries = timed();
+    await run(db, entries);
+
+    db.reset();
+    const corrected = entries.map((e, i) =>
+      i === 3 ? { ...e, at: `${e.d}T06:05:00+05:30` } : e
+    );
+    const second = await run(db, corrected);
+
+    expect(second).toMatchObject({ unchanged: SEED - 1, inserted: 0, updated: 1, pruned: 0 });
+    expect(db.contentWrites()).toEqual([{ kind: 'entry-upsert', rows: 1 }]);
+    expect(db.entries.find((e) => e.sha === entries[3].h)!.entry_at).toBe(
+      `${entries[3].d}T06:05:00+05:30`
+    );
+  });
+
+  it('the same instant written a different way is NOT a change', async () => {
+    // Postgres keeps an instant, not an offset: a value stored as +05:30 comes
+    // back as +00:00. If the fingerprint compared text, every row would look
+    // changed on every run — restoring the full rewrite this whole mechanism
+    // exists to remove, silently, on a green suite.
+    const db = new FakeDb();
+    const entries = timed();
+    await run(db, entries);
+
+    // Rewrite what the table holds into UTC, exactly as a real read would.
+    for (const row of db.entries) {
+      row.entry_at = new Date(String(row.entry_at)).toISOString();
+    }
+
+    db.reset();
+    const second = await run(db, entries);
+    expect(second).toMatchObject({ unchanged: SEED, inserted: 0, updated: 0 });
+    expect(db.contentWrites()).toEqual([]);
+  });
+
+  it('the first run after the column exists fills every row that had no time', async () => {
+    // The stated one-off: 4,933 stored rows hold NULL, so the next sync rewrites
+    // all of them once and then goes quiet. Asserted rather than assumed,
+    // because "it will settle down after one run" is the kind of claim that is
+    // only ever checked when it turns out to be false.
+    const db = new FakeDb();
+    const before = gitEntries(); // no `at` — the world as it is today
+    const first = await run(db, before);
+    expect(first).toMatchObject({ inserted: SEED });
+    expect(db.entries.every((e) => e.entry_at == null)).toBe(true);
+
+    db.reset();
+    const second = await run(db, timed());
+    expect(second).toMatchObject({ unchanged: 0, inserted: 0, updated: SEED });
+    expect(db.entries.every((e) => typeof e.entry_at === 'string')).toBe(true);
+
+    // …and then quiet.
+    db.reset();
+    const third = await run(db, timed());
+    expect(third).toMatchObject({ unchanged: SEED, updated: 0 });
+    expect(db.contentWrites()).toEqual([]);
   });
 });
 
