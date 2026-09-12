@@ -380,7 +380,7 @@ export default function NormsAdminPage() {
                     id="threshold_amber_pct"
                     type="number"
                     min="0"
-                    max="100"
+                    max="200"
                     value={form.threshold_amber_pct}
                     onChange={(e) => setForm({ ...form, threshold_amber_pct: Number(e.target.value) })}
                   />
@@ -391,7 +391,7 @@ export default function NormsAdminPage() {
                     id="threshold_red_pct"
                     type="number"
                     min="0"
-                    max="100"
+                    max="200"
                     value={form.threshold_red_pct}
                     onChange={(e) => setForm({ ...form, threshold_red_pct: Number(e.target.value) })}
                   />
