@@ -9878,3 +9878,38 @@ CREATE INDEX IF NOT EXISTS hr_decision_emails_employee_idx
 CREATE INDEX IF NOT EXISTS hr_decision_emails_due_idx
   ON public.hr_decision_emails (next_attempt_at)
   WHERE status = 'pending';
+
+
+-- =====================================================================================
+-- Mirrored from supabase/migrations/20260912100000_hr_leave_revoke_approved_decision.sql  (2026-09-12)
+-- Revoking an APPROVED leave / short-time-off / comp-off-claim decision.
+-- A revocation stores status='rejected'; revoked_at is what tells the two apart.
+-- =====================================================================================
+-- -------------------------------------------------------------------------------------
+-- 1. Audit columns
+--
+-- The status stays 'rejected' — inside the existing CHECK, understood by every trigger,
+-- report and filter already written. `revoked_at IS NOT NULL` is the ONE fact that
+-- separates "approved, then taken back" from "refused on day one", which are materially
+-- different things to the applicant and must not render identically.
+-- -------------------------------------------------------------------------------------
+ALTER TABLE public.hr_leave_applications
+  ADD COLUMN IF NOT EXISTS revoked_at    timestamptz,
+  ADD COLUMN IF NOT EXISTS revoked_by    uuid REFERENCES public.profiles(id),
+  ADD COLUMN IF NOT EXISTS revoke_reason text;
+
+ALTER TABLE public.hr_comp_off_credits
+  ADD COLUMN IF NOT EXISTS revoked_at    timestamptz,
+  ADD COLUMN IF NOT EXISTS revoked_by    uuid REFERENCES public.profiles(id),
+  ADD COLUMN IF NOT EXISTS revoke_reason text;
+
+COMMENT ON COLUMN public.hr_leave_applications.revoked_at IS
+  'Set when an APPROVED request was taken back. status is ''rejected''; this is what tells a revocation apart from an ordinary rejection.';
+COMMENT ON COLUMN public.hr_comp_off_credits.revoked_at IS
+  'Set when an APPROVED credit claim was taken back. status is ''rejected''.';
+
+ALTER TABLE public.hr_decision_emails
+  DROP CONSTRAINT IF EXISTS hr_decision_emails_decision_check;
+ALTER TABLE public.hr_decision_emails
+  ADD CONSTRAINT hr_decision_emails_decision_check
+  CHECK (decision = ANY (ARRAY['approved'::text, 'rejected'::text, 'revoked'::text]));

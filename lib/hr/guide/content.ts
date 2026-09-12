@@ -130,8 +130,8 @@ export const GUIDES: GuideBook = {
                 'Duration can be a full day, first half (AM), second half (PM), or hourly. Hourly asks for a start and end time.',
             },
             {
-              action: 'Write a **reason**, tick **Emergency** only if it truly is, then **Submit Application**.',
-              tip: 'Emergency leave skips the advance-notice rule but requires you to upload documents within 48 hours.',
+              action: 'Write a **reason**, attach any required document, then **Submit Application**.',
+              tip: 'Some leave types will not submit without a supporting document. The drawer says so above the upload box, and the rule is the same one the server applies.',
             },
           ],
         },
@@ -230,9 +230,9 @@ export const GUIDES: GuideBook = {
               link: { label: 'Take me there', href: '/hr/leave/approve' },
             },
             {
-              action: 'Read each request — note the **Emergency** and **Escalated** badges.',
+              action: 'Read each request — note the **Escalated** badge.',
               detail:
-                'Emergency means advance-notice was bypassed; Escalated means it has been waiting past its window and needs attention sooner.',
+                'Escalated means it has been waiting past its window and needs attention sooner.',
               tip: 'This build may ask for an HR Organization ID to load the inbox. Ask your HR admin if you do not have it.',
             },
             {
@@ -571,7 +571,6 @@ export const GUIDES: GuideBook = {
     ['Leave entitlement', 'The number of leave days you are given for the year, set by policy. It is pro-rated from your date of joining (fiscal year runs April 1 to March 31).'],
     ['Carried forward', 'Unused leave from last year that policy lets you add to this year\'s balance.'],
     ['Duration type', 'How long a single leave is: a full day, first half (morning), second half (afternoon), or hourly.'],
-    ['Emergency leave', 'Leave that skips the advance-notice rule because it could not be planned. Documents are required within 48 hours.'],
     ['Approval chain', 'The ordered list of approvers a request must pass through. Each step is reviewed in turn — the next approver is only notified once the current one approves.'],
     ['Escalated', 'A request that has waited past its window and is pushed up for faster attention.'],
     ['Leave encashment', 'Asking to be paid for unused leave days, usually at year-end. The amount is the days encashed times a per-diem rate.'],
