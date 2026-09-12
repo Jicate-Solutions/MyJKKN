@@ -108,6 +108,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SearchableSelect } from '@/components/ui/searchable-select';
+import { fetchOwnerCandidates } from '@/lib/services/accreditation/owner-candidates';
 import {
   Select,
   SelectContent,
@@ -190,18 +191,13 @@ import {
 import { useInstitutionBodyScope } from '@/hooks/accreditation/use-institution-bodies';
 
 /**
- * The pool a coordinator picks from. Mirrors the narrative owner desk
- * (faculty / hod / principal) and adds accreditation_officer — the role
- * literally named for this job.
+ * The pool a coordinator picks from — principal / hod / faculty plus
+ * accreditation_officer, the role literally named for this job — read through
+ * fn_accreditation_owner_candidates so it unions profiles.role with user_roles
+ * instead of trusting the legacy scalar alone. See
+ * lib/services/accreditation/owner-candidates.ts for why the union cannot
+ * happen in the browser.
  */
-const OWNER_CANDIDATE_ROLES = [
-  'principal',
-  'hod',
-  'faculty',
-  'accreditation_officer',
-];
-
-const CANDIDATE_LIMIT = 500;
 const UNASSIGNED_VALUE = '__unassigned__';
 /** Non-empty by necessity: an empty-string Radix item value crashes the
  * dropdown on first open, which no build or type check would catch. */
@@ -433,14 +429,7 @@ function useCandidateOwners() {
     queryKey: ['profiles', 'metric-owner-candidates'],
     queryFn: async (): Promise<CandidateProfile[]> => {
       const sb = createClientSupabaseClient() as any;
-      const { data, error } = await sb
-        .from('profiles')
-        .select('id, full_name, email')
-        .in('role', OWNER_CANDIDATE_ROLES)
-        .order('full_name', { ascending: true })
-        .limit(CANDIDATE_LIMIT);
-      if (error) throw error;
-      return (data ?? []) as CandidateProfile[];
+      return fetchOwnerCandidates(sb);
     },
     staleTime: 10 * 60 * 1000,
   });
