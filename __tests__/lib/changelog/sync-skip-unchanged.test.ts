@@ -24,7 +24,16 @@ import {
  *  `Record<string, any>`, which typed nothing and let a fixture drift from the
  *  shape entryRow() actually requires — the gate caught it as a TS2345 the
  *  moment that parameter was given a real contract. */
-type Row = {
+/** A row as the DATABASE holds it: the fake db stores entries, modules and the
+ *  sync singleton in the same shape, and each has different columns. Loose on
+ *  purpose — this models Postgres, which does not care. Kept distinct from
+ *  GitEntry so the strict shape below cannot be widened back by accident. */
+type Row = Record<string, any>;
+
+/** A changelog entry as collectChangelog emits it — the input entryRow() takes.
+ *  This was `Record<string, any>`, which typed nothing and let a fixture drift
+ *  from the shape entryRow() requires. */
+type GitEntry = {
   h: string;
   d: string;
   at?: string | null;
@@ -48,7 +57,7 @@ const NEWEST_DAY = Date.UTC(2026, 8, 12);
 const dayFor = (i: number) =>
   new Date(NEWEST_DAY - Math.floor(i / 10) * 86_400_000).toISOString().slice(0, 10);
 
-function gitEntries(count = SEED): Row[] {
+function gitEntries(count = SEED): GitEntry[] {
   return Array.from({ length: count }, (_, i) => ({
     h: `sha${String(i).padStart(9, '0')}`,
     d: dayFor(i),
@@ -221,7 +230,7 @@ class FakeDb {
   }
 }
 
-const run = (db: FakeDb, entries: Row[], modules = gitModules()) =>
+const run = (db: FakeDb, entries: GitEntry[], modules = gitModules()) =>
   writeChangelog({ client: db as any, entries, modules, ref: 'jicate/main' });
 
 describe('a second sync over identical git history', () => {
