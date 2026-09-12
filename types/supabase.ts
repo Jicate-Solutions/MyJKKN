@@ -150056,7 +150056,7 @@ export type Database = {
           custom_attributes: Json | null
           department_id: string | null
           depreciation_rate: number | null
-          description: string
+          description: string | null
           disposal_date: string | null
           floor_number: string | null
           id: string
@@ -150077,7 +150077,7 @@ export type Database = {
           room_number: string | null
           serial_number: string | null
           status: Database["public"]["Enums"]["resource_status"]
-          subcategory_id: string
+          subcategory_id: string | null
           tags: string[] | null
           updated_at: string | null
           updated_by: string | null
@@ -150113,7 +150113,7 @@ export type Database = {
           custom_attributes?: Json | null
           department_id?: string | null
           depreciation_rate?: number | null
-          description: string
+          description?: string | null
           disposal_date?: string | null
           floor_number?: string | null
           id?: string
@@ -150134,7 +150134,7 @@ export type Database = {
           room_number?: string | null
           serial_number?: string | null
           status?: Database["public"]["Enums"]["resource_status"]
-          subcategory_id: string
+          subcategory_id?: string | null
           tags?: string[] | null
           updated_at?: string | null
           updated_by?: string | null
@@ -150170,7 +150170,7 @@ export type Database = {
           custom_attributes?: Json | null
           department_id?: string | null
           depreciation_rate?: number | null
-          description?: string
+          description?: string | null
           disposal_date?: string | null
           floor_number?: string | null
           id?: string
@@ -150191,7 +150191,7 @@ export type Database = {
           room_number?: string | null
           serial_number?: string | null
           status?: Database["public"]["Enums"]["resource_status"]
-          subcategory_id?: string
+          subcategory_id?: string | null
           tags?: string[] | null
           updated_at?: string | null
           updated_by?: string | null
