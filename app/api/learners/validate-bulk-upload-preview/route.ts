@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(
           {
             success: false,
-            error: 'Your profile has no institution assigned. Please contact administrator.'
+            error: 'Your account is not linked to an institution yet. Please ask your administrator to link it.'
           },
           { status: 403 }
         );
