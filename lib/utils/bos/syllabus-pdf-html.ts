@@ -10,6 +10,7 @@ import { isPharmacyModel, modelUniversityHeader } from '@/lib/services/bos/acade
 import { generatePharmacyFormat } from '@/lib/utils/bos/pharmacy-syllabus-html';
 import { generateV35SyllabusHtml } from '@/lib/utils/bos/course-syllabus-html';
 import { pdfFontFaceCss } from '@/lib/utils/bos/pdf-fonts';
+import { buildSyllabusPrintHtml, type PrintInstitution } from '@/lib/utils/bos/syllabus-print-html';
 
 export type SyllabusPdfFormat = 'official' | 'meeting_summary' | 'obe' | 'v35';
 
@@ -34,24 +35,41 @@ export function supportedFormats(s: BosCourseSyllabus): SyllabusPdfFormat[] {
 }
 
 export interface BuildSyllabusHtmlOptions extends SyllabusPdfOptions {
-  /** Shown in the v35 branded header. */
+  /** Shown in the v35 branded header (falls back to institution?.name). */
   institutionName?: string;
+  /** Letterhead for the print layout. */
+  institution?: PrintInstitution;
+  regulationCode?: string | null;
+  boardName?: string | null;
   /**
-   * Inject the embedded @font-face stack so headless Chromium renders the
-   * same glyphs (Tamil, serif) as the minutes / call-letter PDFs. Off for the
-   * browser-download HTML path to keep that output byte-identical.
+   * Print mode (the PDF routes). `official` switches to the A4 print layout in
+   * syllabus-print-html.ts (letterhead, boxed header, CO-PO matrix, no empty
+   * sections); pharmacy models keep their own layout; other formats get the
+   * embedded @font-face stack injected so Chromium renders the same glyphs
+   * (Tamil, serif) as the minutes / call-letter PDFs. Off for the
+   * browser-download HTML path, which stays byte-identical.
    */
   forPrint?: boolean;
 }
 
-/** Single entry point: pick the generator for `format`, optionally add print fonts. */
+/** Single entry point: pick the generator for `format`, optionally switch to the print layout. */
 export function buildSyllabusHtml(
   doc: BosCourseSyllabus,
   format: SyllabusPdfFormat,
   options: BuildSyllabusHtmlOptions,
 ): string {
+  if (options.forPrint && format === 'official' && !isPharmacyModel(doc.academic_model)) {
+    return buildSyllabusPrintHtml(doc, {
+      institution: options.institution ?? (options.institutionName ? { name: options.institutionName } : undefined),
+      regulationCode: options.regulationCode,
+      boardName: options.boardName,
+      includeMappings: options.includeMappings,
+      includeReferences: options.includeReferences,
+      includePedagogy: options.includePedagogy,
+    });
+  }
   const html = format === 'v35'
-    ? generateV35SyllabusHtml(doc, { institutionName: options.institutionName })
+    ? generateV35SyllabusHtml(doc, { institutionName: options.institutionName ?? options.institution?.name })
     : generatePdfHtml(doc, format, options);
   if (!options.forPrint) return html;
   const fonts = `<style>${pdfFontFaceCss()}</style>`;
