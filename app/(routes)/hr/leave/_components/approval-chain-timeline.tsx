@@ -35,7 +35,7 @@
  * nobody holds says so instead of looking like a normal step.
  */
 
-import { Check, Clock, Minus, UserRound, Users, X } from 'lucide-react';
+import { Check, Clock, Minus, RotateCcw, UserRound, Users, X } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -44,7 +44,7 @@ import type { HRLeaveApplicationDetail, LeaveApprovalStep } from '@/types/hr';
 const fmtStamp = (s: string | null | undefined) =>
   s ? new Date(s).toLocaleString('en-IN') : '—';
 
-type StepState = 'approved' | 'rejected' | 'current' | 'queued' | 'skipped' | 'not_reached';
+type StepState = 'approved' | 'rejected' | 'revoked' | 'current' | 'queued' | 'skipped' | 'not_reached';
 
 const STATE: Record<StepState, { label: string; badge: 'success' | 'destructive' | 'default' | 'outline' | 'secondary'; dot: string }> = {
   approved:    { label: 'Approved',     badge: 'success',     dot: 'bg-emerald-500' },
@@ -52,6 +52,9 @@ const STATE: Record<StepState, { label: string; badge: 'success' | 'destructive'
   current:     { label: 'Waiting here', badge: 'default',     dot: 'bg-amber-500' },
   queued:      { label: 'Queued',       badge: 'outline',     dot: 'bg-muted-foreground/30' },
   skipped:     { label: 'Skipped',      badge: 'secondary',   dot: 'bg-muted-foreground/30' },
+  // An approval TAKEN BACK. Amber, not red: the step did grant the request once,
+  // and the original decision is still listed below it.
+  revoked:     { label: 'Revoked',      badge: 'secondary',   dot: 'bg-amber-500' },
   not_reached: { label: 'Not reached',  badge: 'outline',     dot: 'bg-muted-foreground/30' },
 };
 
@@ -59,6 +62,7 @@ function stateOf(step: LeaveApprovalStep, idx: number, app: HRLeaveApplicationDe
   if (step.status === 'approved') return 'approved';
   if (step.status === 'rejected') return 'rejected';
   if (step.status === 'skipped') return 'skipped';
+  if (step.status === 'revoked') return 'revoked';
   const open = app.status === 'pending' || app.status === 'escalated';
   if (idx === app.current_step) {
     if (app.status === 'rejected') return 'rejected';
@@ -182,14 +186,25 @@ export function ApprovalChainTimeline({ app }: { app: HRLeaveApplicationDetail }
                 {decisions.map((d, i) => (
                   <li key={i} className="text-xs">
                     <span className="inline-flex items-center gap-1">
+                      {/* A 'revoked' entry read as "approved" here, because the
+                          else-branch caught everything that was not a rejection:
+                          the chain showed the same approver approving twice, the
+                          second time on the day the leave was taken away. */}
                       {d.decision === 'rejected' ? (
                         <X className="h-3 w-3 text-red-600" />
+                      ) : d.decision === 'revoked' ? (
+                        <RotateCcw className="h-3 w-3 text-amber-600" />
                       ) : (
                         <Check className="h-3 w-3 text-emerald-600" />
                       )}
                       <span className="font-medium">{person(d.by)}</span>
                       <span className="text-muted-foreground">
-                        {d.decision === 'rejected' ? 'rejected' : 'approved'} · {fmtStamp(d.at)}
+                        {d.decision === 'rejected'
+                          ? 'rejected'
+                          : d.decision === 'revoked'
+                            ? 'revoked the approval'
+                            : 'approved'}{' '}
+                        · {fmtStamp(d.at)}
                       </span>
                     </span>
                     {d.comment && (
@@ -203,6 +218,17 @@ export function ApprovalChainTimeline({ app }: { app: HRLeaveApplicationDetail }
             {state === 'current' && decisions.length === 0 && (
               <p className="mt-1 inline-flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400">
                 <Minus className="h-3 w-3" /> No decision yet
+              </p>
+            )}
+
+            {/* The approval was taken back. The 'approved' decision above stays
+                in the list on purpose — a chain that forgets the grant cannot
+                explain how the request reached 'rejected'. */}
+            {state === 'revoked' && step.revoke_reason && (
+              <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                {step.revoke_reason}
+                {step.revoked_by ? ` · ${person(step.revoked_by)}` : ''}
+                {step.revoked_at ? ` · ${fmtStamp(step.revoked_at)}` : ''}
               </p>
             )}
 
