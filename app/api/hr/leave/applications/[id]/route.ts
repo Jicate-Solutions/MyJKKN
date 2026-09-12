@@ -126,6 +126,10 @@ async function resolveChainNames(
   const keys = new Set<string>();
   for (const s of chain ?? []) {
     if (s.decided_by) uids.add(s.decided_by);
+    // Whoever took an approval back. Usually the same person as the step's
+    // 'revoked' decision below, but resolved explicitly so a chain written by
+    // any other path still names them instead of printing a raw uuid.
+    if (s.revoked_by) uids.add(s.revoked_by);
     if (s.approver_user_id) uids.add(s.approver_user_id);
     // 'pinned_user' is the flow editor's sentinel for "a named person", not a role.
     if (s.approver_role && s.approver_role !== 'pinned_user') keys.add(s.approver_role);

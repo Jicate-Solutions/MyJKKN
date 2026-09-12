@@ -79441,6 +79441,9 @@ export type Database = {
           id: string
           notes: string | null
           rejection_reason: string | null
+          revoke_reason: string | null
+          revoked_at: string | null
+          revoked_by: string | null
           source: string
           status: string
           updated_at: string
@@ -79464,6 +79467,9 @@ export type Database = {
           id?: string
           notes?: string | null
           rejection_reason?: string | null
+          revoke_reason?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
           source?: string
           status?: string
           updated_at?: string
@@ -79487,6 +79493,9 @@ export type Database = {
           id?: string
           notes?: string | null
           rejection_reason?: string | null
+          revoke_reason?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
           source?: string
           status?: string
           updated_at?: string
@@ -81200,6 +81209,9 @@ export type Database = {
           leave_type_id: string
           reason: string
           rejection_reason: string | null
+          revoke_reason: string | null
+          revoked_at: string | null
+          revoked_by: string | null
           start_date: string
           start_time: string | null
           status: string
@@ -81228,6 +81240,9 @@ export type Database = {
           leave_type_id: string
           reason: string
           rejection_reason?: string | null
+          revoke_reason?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
           start_date: string
           start_time?: string | null
           status?: string
@@ -81256,6 +81271,9 @@ export type Database = {
           leave_type_id?: string
           reason?: string
           rejection_reason?: string | null
+          revoke_reason?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
           start_date?: string
           start_time?: string | null
           status?: string
@@ -198813,9 +198831,25 @@ export type Database = {
         Args: { p_employee_id: string; p_flow_id: string }
         Returns: Json
       }
+      fn_hr_comp_off_can_revoke: {
+        Args: { p_credit_id: string }
+        Returns: boolean
+      }
+      fn_hr_comp_off_revoke_block_reason: {
+        Args: { p_credit_id: string }
+        Returns: string
+      }
       fn_hr_leave_can_finalize: {
         Args: { p_application_id: string }
         Returns: boolean
+      }
+      fn_hr_leave_can_revoke: {
+        Args: { p_application_id: string }
+        Returns: boolean
+      }
+      fn_hr_leave_revoke_block_reason: {
+        Args: { p_application_id: string }
+        Returns: string
       }
       fn_hr_leave_chain_step: {
         Args: {
@@ -207823,6 +207857,9 @@ export type Database = {
           reason: string
           rejection_reason: string
           request_category: string
+          revoke_reason: string
+          revoked_at: string
+          revoked_by_name: string
           staff_code: string
           staff_name: string
           start_date: string
