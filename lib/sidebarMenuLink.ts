@@ -1051,6 +1051,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/consultants/commissions': 'admission.consultants.commissions.view',
   '/admission/consultants/referral-rates': 'admission.consultants.commissions.view',
   '/admission/consultants/unlinked-referrals': 'admission.consultants.commissions.view',
+  // Added 2026-09-12 — the mirror image of Unlinked Referrals: credits that name
+  // an agency but no learner. Read-only; same commission read permission as the
+  // rest of the module, matching its RPC.
+  '/admission/consultants/attribution-orphans': 'admission.consultants.commissions.view',
   '/admission/consultants/import': 'admission.consultants.commissions.view',
   '/admission/consultants/payouts': 'admission.consultants.commissions.view',
   // Added 2026-08-17 — which agencies cannot be paid at all, ordered by the
@@ -2557,6 +2561,15 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admission/consultants/unlinked-referrals',
               label: 'Unlinked Referrals',
               active: pathname === '/admission/consultants/unlinked-referrals'
+            },
+            {
+              // Added 2026-09-12 — sits next to Unlinked Referrals because it is
+              // the same cleanup from the other end: there the learner is known
+              // and the agency is not, here the agency is known and the learner
+              // is not.
+              href: '/admission/consultants/attribution-orphans',
+              label: 'Attribution Orphans',
+              active: pathname === '/admission/consultants/attribution-orphans'
             },
             {
               href: '/admission/consultants/import',
