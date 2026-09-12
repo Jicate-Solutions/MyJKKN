@@ -465,7 +465,7 @@ export async function POST(request: NextRequest) {
       examDefinitionId = body.examDefinitionId!;
       const { data: pool } = await admin
         .from('fp_assessments')
-        .select('id, title')
+        .select('id, title, config')
         .eq('exam_definition_id', examDefinitionId)
         .eq('kind', 'practice')
         .is('cohort_id', null)
@@ -587,6 +587,20 @@ export async function POST(request: NextRequest) {
         const fresh = shuffle(usable.filter((it: any) => !seen.has(it.id)));
         const repeats = shuffle(usable.filter((it: any) => seen.has(it.id)));
         questions = [...fresh, ...repeats].slice(0, questionCount).map(projectItemForLearner);
+      }
+
+      // #3421 switched `shuffle_options` on for the two standing practice
+      // pools, but only the assigned-paper branch above ever read it — and
+      // the pool row was selected without its `config`, so the flag could
+      // not be seen at all. Practice, timed and vault review therefore served
+      // options in stored order, and every AI-drafted item stores the correct
+      // option first: tapping the first option scored full marks. Apply the
+      // same one-order-per-question shuffle here, by key, so both languages
+      // move together and the bank answer key still matches.
+      const poolConfig = ((pool as any)?.config ?? {}) as { shuffle_options?: boolean };
+      if (poolConfig.shuffle_options === true) {
+        questions = questions.map(shuffleOptionsTogether);
+        optionsShuffled = true;
       }
     }
 
