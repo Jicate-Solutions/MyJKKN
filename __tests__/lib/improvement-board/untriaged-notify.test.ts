@@ -177,7 +177,7 @@ describe('delivery changed; the escalation policy did not', () => {
 
   it('still announces an idea once per stall — never twice for the same stall', () => {
     // SUPERSEDED INVARIANT, deliberately. This read `ON CONFLICT (idea_id)` and
-    // was titled "once, ever". 20261202090000 makes the ledger per (idea, stage),
+    // was titled "once, ever". 20261202145500 makes the ledger per (idea, stage),
     // because an idea now has TWO ways to stall — nobody OPENED it (logged) and
     // nobody DECIDED it (under_review) — and a ledger keyed on idea_id alone
     // silently blanked the second chase for any idea already announced for the
