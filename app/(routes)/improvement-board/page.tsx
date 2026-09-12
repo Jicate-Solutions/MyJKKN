@@ -61,21 +61,38 @@ export default async function ImprovementBoardPage() {
   const institutionId = profile.institution_id || '';
   let departments: { id: string; name: string }[] = [];
   if (institutionId) {
-    const { data: departmentRows } = await supabase
+    const { data: departmentRows, error: departmentError } = await supabase
       .from('departments')
-      .select('id, department_name, display_name')
+      .select('id, department_name')
       .eq('is_active', true)
       .eq('institution_id', institutionId)
-      .order('department_order', { ascending: true, nullsFirst: false })
+      .order('department_order', { ascending: true })
       .order('department_name', { ascending: true });
 
+    // Never swallow this read. An empty list renders as "Not specific" only —
+    // byte-identical to the bug this page is fixing, with no type error and no
+    // runtime error. That silence is exactly how the picker shipped dead and
+    // stayed dead for 55 ideas, so a failed read has to say so somewhere.
+    if (departmentError) {
+      console.error(
+        '[improvement-board] department fetch failed; the target picker will be empty',
+        departmentError
+      );
+    }
+
+    // The label is `department_name`, NOT `display_name`. Verified against
+    // production 2026-09-12: in the one institution that has ever used this
+    // board, CSE and CSE-PG carry the SAME display_name ("Computer Science and
+    // Engineering") but distinct department_names ("…" and "… (PG)"). Preferring
+    // display_name renders two byte-identical options the filer cannot tell
+    // apart; department_name is unique across all 8 active departments there and
+    // is also the string anyone reading the stored id back will see.
     departments = ((departmentRows || []) as {
       id: string;
       department_name: string | null;
-      display_name: string | null;
     }[]).map((d) => ({
       id: d.id,
-      name: d.display_name || d.department_name || 'Unnamed department'
+      name: d.department_name || 'Unnamed department'
     }));
   }
 

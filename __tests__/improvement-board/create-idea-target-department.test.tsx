@@ -175,6 +175,39 @@ describe('CreateIdeaDialog — target department picker', () => {
     });
   });
 
+  // The production shape that decided the label column: JKKN College of
+  // Engineering and Technology carries CSE and CSE-PG with the SAME
+  // display_name ("Computer Science and Engineering") and DISTINCT
+  // department_names ("…" / "… (PG)"). page.tsx therefore labels options with
+  // department_name.
+  //
+  // HONEST SCOPE: this asserts the DIALOG keeps two near-identical labels
+  // distinguishable once they reach it. It does NOT re-guard page.tsx's choice
+  // of column — that mapping lives in a server component this suite does not
+  // render, and the comment there carries the reason. Read the two together.
+  it('keeps near-identical departments distinguishable', () => {
+    const COLLIDING = [
+      { id: 'dept-cse', name: 'Computer Science and Engineering' },
+      { id: 'dept-cse-pg', name: 'Computer Science and Engineering (PG)' },
+    ];
+    renderDialog(COLLIDING);
+
+    // Scope to the department picker by data-value, the way the first test
+    // does — the mocked Select flattens every picker into one DOM.
+    const labels = screen
+      .getAllByRole('option')
+      .filter((el) =>
+        COLLIDING.some((d) => d.id === el.getAttribute('data-value'))
+      )
+      .map((el) => el.textContent?.trim())
+      .filter((t): t is string => !!t);
+
+    expect(labels).toHaveLength(2);
+    expect(new Set(labels).size).toBe(2);
+    expect(labels).toContain('Computer Science and Engineering');
+    expect(labels).toContain('Computer Science and Engineering (PG)');
+  });
+
   it('still submits with "Not specific" — the field stays optional', async () => {
     renderDialog();
 
