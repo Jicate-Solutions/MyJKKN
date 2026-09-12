@@ -20,7 +20,22 @@ import {
   ENTRY_COLUMNS,
 } from '@/scripts/sync-changelog-db.mjs';
 
-type Row = Record<string, any>;
+/** A changelog entry as collectChangelog emits it. This was
+ *  `Record<string, any>`, which typed nothing and let a fixture drift from the
+ *  shape entryRow() actually requires — the gate caught it as a TS2345 the
+ *  moment that parameter was given a real contract. */
+type Row = {
+  h: string;
+  d: string;
+  at?: string | null;
+  t?: string;
+  m?: string;
+  s?: string;
+  a?: string;
+  e?: string;
+  p?: number;
+  b?: number | boolean;
+};
 
 /** Above FIRST_SEED_FLOOR (1000), so the guards let a run through. */
 const SEED = 1200;
