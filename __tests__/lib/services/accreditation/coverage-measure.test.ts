@@ -214,3 +214,37 @@ describe('coverageBasisNote', () => {
     expect(note).toContain('placeholder');
   });
 });
+
+// ----------------------------------------------------------------------------
+// Table-driven: the four shapes a reader of the percentage has to be able to
+// trust, each run through the same tally → measure path the dashboards use,
+// with the retired rows/metrics formula alongside so the divergence is visible
+// in the table rather than in prose.
+// ----------------------------------------------------------------------------
+describe('coverage table — 0 of N, N of N, many rows on one metric, a metric with no rows', () => {
+  const byBody = (r: EvidenceRef) => r.body_code;
+
+  it.each([
+    // label                                              size distinct rows answered new old
+    ['0 of N — catalogue seeded, no evidence at all',       69,  0,     0,    0,       0,  0],
+    ['N of N — every metric answered exactly once',          9,  9,     9,    9,     100, 100],
+    ['N of N — every metric answered a hundred times over',  9,  9,   900,    9,     100, 100],
+    ['many rows on ONE metric — 1,000 rows on 1 of 17',     17,  1,  1000,    1,       6, 100],
+    ['a metric with no rows — 4 of 5 answered, fifth empty', 5,  4,     4,    4,      80,  80],
+    ['thin body, many rows on one of two — 4 rows on 1 of 2', 2, 1,     4,    1,      50, 100],
+  ])('%s', (_label, size, distinct, rows, answered, newPct, oldPct) => {
+    const catalogue = catalogueOf({ NAAC: size });
+    const evidence = evidenceFor('NAAC', 'dent', distinct, rows);
+    const tally = tallyEvidence(evidence, catalogue, byBody);
+    const measure = measureCoverage(size, tally.NAAC?.metricsWithEvidence ?? 0);
+
+    expect(tally.NAAC?.evidenceRows ?? 0).toBe(rows);
+    expect(measure.metricsWithEvidence).toBe(answered);
+    expect(measure.coveragePct).toBe(newPct);
+
+    // The retired formula: rows over metrics, clamped. Pinned so the table
+    // shows exactly which shapes it got wrong (every "many rows" case).
+    const retired = size === 0 ? 0 : Math.min(100, Math.round((rows / size) * 100));
+    expect(retired).toBe(oldPct);
+  });
+});
