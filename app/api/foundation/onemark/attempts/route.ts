@@ -13,7 +13,10 @@ import {
   closeSitting,
   deadlineFor,
   liveBlankItemIds,
+  liveReviewOpen,
+  liveReviewOpensAt,
   parentalConsentBlocks,
+  persistServedSet,
   projectItemForLearner,
   readPolicyInt,
   resolveCaller,
@@ -34,9 +37,16 @@ import type { OneMarkAttemptMode } from '@/types/onemark';
 //
 // POST /api/foundation/onemark/attempts
 //   body { mode: 'practice'|'timed'|'live'|'vault_review',
-//          examDefinitionId?: uuid,   // practice / timed / vault_review
-//          assessmentId?: uuid }      // live
+//          examDefinitionId?: uuid,     // practice / timed / vault_review
+//          assessmentId?: uuid,         // live
+//          fromAssessmentId?: uuid }    // practice replay of a closed paper
 //   -> { attemptId, sessionId, mode, questions[], deadlineAt, ... }
+//
+// RESUMING (ruling 7): an interrupted live sitting resumes on the SAME
+// fp_attempts row and the SAME clock — the deadline is computed from
+// started_at and the paper's window, never from when the browser came back.
+// A dropped connection costs the learner the time it was dropped for, which
+// is the same thing it would cost in a hall.
 //
 // The fp_attempts row is opened HERE, with the service-role client, after the
 // caller's own fp_students row has been resolved through RLS. fp_attempts'
@@ -57,6 +67,42 @@ interface StartBody {
   mode?: string;
   examDefinitionId?: string;
   assessmentId?: string;
+  /** Ruling 13 — sit the questions of a live paper again as PRACTICE. Only
+   *  valid with mode 'practice', only for a paper this learner has already
+   *  submitted, and only once that paper's review has opened. */
+  fromAssessmentId?: string;
+}
+
+/** Drop the questions enough different people have reported as broken.
+ *
+ *  `foundation.item_flag.suppress_threshold` distinct open reporters and an
+ *  item stops being served — the same rule and the same policy key the
+ *  Foundation practice draw applies. Shared by EVERY draw that hands questions
+ *  to a learner, including ruling 13's replay: a question the cohort reported
+ *  as broken must not come back just because it was on a paper.
+ *
+ *  Returns the usable subset, in the order it came. */
+async function withoutFlaggedItems(admin: any, items: any[]): Promise<any[]> {
+  if (!items.length) return items;
+  const threshold = await readPolicyInt(
+    admin,
+    'foundation.item_flag.suppress_threshold',
+    DEFAULT_FLAG_THRESHOLD,
+  );
+  const { data: openFlags } = await admin
+    .from('fp_item_flags')
+    .select('item_id, flagged_by')
+    .eq('status', 'open')
+    .in(
+      'item_id',
+      items.map((it: any) => it.id),
+    );
+  const reportersByItem = new Map<string, Set<string>>();
+  for (const f of openFlags ?? []) {
+    if (!reportersByItem.has(f.item_id)) reportersByItem.set(f.item_id, new Set());
+    reportersByItem.get(f.item_id)!.add(f.flagged_by);
+  }
+  return items.filter((it: any) => (reportersByItem.get(it.id)?.size ?? 0) < threshold);
 }
 
 function isMode(v: unknown): v is OneMarkAttemptMode {
@@ -191,6 +237,12 @@ export async function GET() {
         questionCount: count ?? 0,
         status,
         attemptId: attempt?.id ?? null,
+        // Ruling 2 — when the item-level review of this paper opens, or null
+        // when it is open already. Ruling 13 — a closed sitting is never
+        // reopened, so once the review is open the same questions are offered
+        // again as PRACTICE instead.
+        reviewOpensAt: liveReviewOpensAt(cfg),
+        practiceAvailable: attempt?.status === 'submitted' && liveReviewOpen(cfg),
       });
     }
 
@@ -282,12 +334,25 @@ export async function POST(request: NextRequest) {
       );
     }
     const mode = body.mode;
+    // Ruling 13 — a replay of a closed paper is a PRACTICE sitting on the same
+    // questions, never a second go at the paper. It carries fromAssessmentId
+    // instead of examDefinitionId; the subject is taken from the paper.
+    const replayOf =
+      mode === 'practice' && typeof body.fromAssessmentId === 'string' && UUID_RE.test(body.fromAssessmentId)
+        ? body.fromAssessmentId
+        : null;
     if (mode === 'live') {
       if (!body.assessmentId || !UUID_RE.test(body.assessmentId)) {
         return NextResponse.json({ error: 'assessmentId must be a uuid' }, { status: 400 });
       }
-    } else if (!body.examDefinitionId || !UUID_RE.test(body.examDefinitionId)) {
+    } else if (!replayOf && (!body.examDefinitionId || !UUID_RE.test(body.examDefinitionId))) {
       return NextResponse.json({ error: 'examDefinitionId must be a uuid' }, { status: 400 });
+    }
+    if (body.fromAssessmentId !== undefined && !replayOf) {
+      return NextResponse.json(
+        { error: 'fromAssessmentId is only valid with mode practice, and must be a uuid' },
+        { status: 400 },
+      );
     }
 
     const caller = await resolveCaller();
@@ -375,6 +440,13 @@ export async function POST(request: NextRequest) {
             error: 'You have already submitted this paper. It can be sat once.',
             alreadySubmitted: true,
             attemptId: submitted.id,
+            // Ruling 13 — never reopened; the same questions come back as a
+            // fresh PRACTICE sitting once the paper's review has opened.
+            practiceOffer: {
+              fromAssessmentId: paper.id,
+              available: liveReviewOpen(cfg),
+              opensAt: liveReviewOpensAt(cfg),
+            },
           },
           { status: 409 },
         );
@@ -413,6 +485,14 @@ export async function POST(request: NextRequest) {
               alreadySubmitted: true,
               autoClosed: true,
               attemptId: interrupted.id,
+              // Ruling 13 — an auto-closed sitting is NEVER reopened. What is
+              // offered instead is the same questions as practice, once the
+              // paper itself has closed.
+              practiceOffer: {
+                fromAssessmentId: paper.id,
+                available: liveReviewOpen(cfg),
+                opensAt: liveReviewOpensAt(cfg),
+              },
             },
             { status: 409 },
           );
@@ -462,10 +542,62 @@ export async function POST(request: NextRequest) {
       assessmentConfig = cfg;
     } else {
       // ---- Practice / timed / vault review: the subject's standing pool -----
-      examDefinitionId = body.examDefinitionId!;
+      // A replay (ruling 13) is a practice sitting drawn from a closed live
+      // paper's fixed list, so its subject comes from the paper, not the body.
+      let replayPaper: any = null;
+      if (replayOf) {
+        const { data: paper } = await admin
+          .from('fp_assessments')
+          .select('id, title, exam_definition_id, cohort_id, kind, is_active, config')
+          .eq('id', replayOf)
+          .maybeSingle();
+        // `is_active` is checked HERE, the way the live path checks it before
+        // opening a sitting. It was selected and ignored, so a paper an
+        // operator had deliberately deactivated was still replayable.
+        if (!paper || paper.kind !== 'mock' || !paper.cohort_id || !paper.is_active) {
+          return NextResponse.json({ error: 'That paper could not be found.' }, { status: 404 });
+        }
+        // Only a learner who actually SAT it, and only once the paper's own
+        // review has opened — otherwise a replay with the explanation after
+        // every answer would hand the answer key to a group still sitting it
+        // (ruling 2 again, from the other side).
+        // .limit(1), never .maybeSingle(): two submitted live rows for one
+        // learner on one paper are possible (an auto-close sweep racing a
+        // manual finalize), and PostgREST answers a .maybeSingle() over two
+        // rows with an ERROR — which would leave `mine` null and tell a
+        // learner who definitely sat the paper that they had not.
+        const { data: mineRows } = await admin
+          .from('fp_attempts')
+          .select('id, status')
+          .eq('student_id', learner.id)
+          .eq('assessment_id', paper.id)
+          .eq('mode', 'live')
+          .eq('status', 'submitted')
+          .limit(1);
+        const mine = Array.isArray(mineRows) ? mineRows[0] ?? null : mineRows ?? null;
+        if (!mine) {
+          return NextResponse.json(
+            { error: 'You can practise these questions once you have sat the paper.' },
+            { status: 403 },
+          );
+        }
+        if (!liveReviewOpen(paper.config)) {
+          return NextResponse.json(
+            {
+              error: 'These questions open for practice when the paper closes.',
+              reviewOpensAt: liveReviewOpensAt(paper.config),
+            },
+            { status: 403 },
+          );
+        }
+        replayPaper = paper;
+        examDefinitionId = paper.exam_definition_id;
+      } else {
+        examDefinitionId = body.examDefinitionId!;
+      }
       const { data: pool } = await admin
         .from('fp_assessments')
-        .select('id, title')
+        .select('id, title, config')
         .eq('exam_definition_id', examDefinitionId)
         .eq('kind', 'practice')
         .is('cohort_id', null)
@@ -480,7 +612,38 @@ export async function POST(request: NextRequest) {
       assessmentId = pool.id;
       assessmentTitle = pool.title;
 
-      if (mode === 'vault_review') {
+      if (replayPaper) {
+        // The same questions the paper asked, in the same order, drawn as a
+        // practice sitting — the sitting itself is never reopened.
+        const { data: paperItems, error: paperItemsError } = await admin
+          .from('fp_assessment_items')
+          .select(`position, item:fp_items!inner(${LEARNER_ITEM_COLUMNS})`)
+          .eq('assessment_id', replayPaper.id)
+          .order('position', { ascending: true });
+        if (paperItemsError) {
+          return NextResponse.json({ error: paperItemsError.message }, { status: 400 });
+        }
+        const replayRows = (paperItems ?? [])
+          .map((r: any) => r.item)
+          .filter((it: any) => it && it.is_active);
+        // A replay is an ORDINARY practice sitting, so it obeys the ordinary
+        // practice rule: a question enough learners have reported as broken is
+        // not served. Without this, the one draw in OneMark that skipped the
+        // suppression was the one drawn from a paper.
+        const replayUsable = await withoutFlaggedItems(admin, replayRows);
+        questions = replayUsable.map(projectItemForLearner);
+        if (questions.length === 0) {
+          return NextResponse.json(
+            {
+              error: replayRows.length
+                ? 'This paper’s questions are all waiting to be checked. Please try again later.'
+                : 'None of this paper’s questions are still in the bank.',
+            },
+            { status: 404 },
+          );
+        }
+        assessmentTitle = replayPaper.title;
+      } else if (mode === 'vault_review') {
         // The draw is the RPC's — ordering, eligibility and the 60% single-
         // chapter cap all live server-side in fn_onemark_vault_draw. Called
         // through the SESSION client so its own fn_fp_can_view_student check
@@ -547,26 +710,9 @@ export async function POST(request: NextRequest) {
         }
 
         // Drop questions enough different people have reported — the same
-        // rule and the same policy key the Foundation practice draw applies.
-        const threshold = await readPolicyInt(
-          admin,
-          'foundation.item_flag.suppress_threshold',
-          DEFAULT_FLAG_THRESHOLD,
-        );
-        const itemIds = items.map((it: any) => it.id);
-        const { data: openFlags } = await admin
-          .from('fp_item_flags')
-          .select('item_id, flagged_by')
-          .eq('status', 'open')
-          .in('item_id', itemIds);
-        const reportersByItem = new Map<string, Set<string>>();
-        for (const f of openFlags ?? []) {
-          if (!reportersByItem.has(f.item_id)) reportersByItem.set(f.item_id, new Set());
-          reportersByItem.get(f.item_id)!.add(f.flagged_by);
-        }
-        const usable = items.filter(
-          (it: any) => (reportersByItem.get(it.id)?.size ?? 0) < threshold,
-        );
+        // rule, the same policy key and now literally the same code the
+        // replay draw above applies.
+        const usable = await withoutFlaggedItems(admin, items);
         if (usable.length === 0) {
           return NextResponse.json(
             { error: 'Every question in this subject is waiting to be checked. Please try again later.' },
@@ -587,6 +733,20 @@ export async function POST(request: NextRequest) {
         const fresh = shuffle(usable.filter((it: any) => !seen.has(it.id)));
         const repeats = shuffle(usable.filter((it: any) => seen.has(it.id)));
         questions = [...fresh, ...repeats].slice(0, questionCount).map(projectItemForLearner);
+      }
+
+      // #3421 switched `shuffle_options` on for the two standing practice
+      // pools, but only the assigned-paper branch above ever read it — and
+      // the pool row was selected without its `config`, so the flag could
+      // not be seen at all. Practice, timed and vault review therefore served
+      // options in stored order, and every AI-drafted item stores the correct
+      // option first: tapping the first option scored full marks. Apply the
+      // same one-order-per-question shuffle here, by key, so both languages
+      // move together and the bank answer key still matches.
+      const poolConfig = ((pool as any)?.config ?? {}) as { shuffle_options?: boolean };
+      if (poolConfig.shuffle_options === true) {
+        questions = questions.map(shuffleOptionsTogether);
+        optionsShuffled = true;
       }
     }
 
@@ -636,10 +796,26 @@ export async function POST(request: NextRequest) {
       questions.map((q) => q.id),
     );
 
+    // …and store it on the row as well (S3 item 1), so the RPCs enforce the
+    // same wall the token does. NULL is right for a live paper — its set is
+    // the paper. Before S3's migration is applied the column is absent and
+    // this is a no-op; the token still guards. Both ship for one release.
+    const servedStored =
+      mode === 'live'
+        ? 'skipped_live'
+        : await persistServedSet(admin, attempt.id, questions.map((q) => q.id));
+
     return NextResponse.json({
       attemptId: attempt.id,
       sessionId: attempt.session_id,
       servedToken,
+      // 'written' once S3 is applied, 'column_missing' until then,
+      // 'skipped_live' for a paper whose set is fp_assessment_items, and
+      // 'nothing_to_write' when the draw was empty — which is not a failed
+      // write. Reported so the switchover can be watched live, not assumed.
+      servedSetStored: servedStored,
+      /** Ruling 13 — a replay of a closed paper, sat as practice. */
+      replayOfAssessmentId: replayOf,
       mode,
       examDefinitionId,
       assessmentId,

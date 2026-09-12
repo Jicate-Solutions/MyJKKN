@@ -91,23 +91,12 @@ export default function ReceiptTemplatesPage() {
             <div className='text-center py-12'>
               <Settings className='mx-auto h-12 w-12 text-muted-foreground' />
               <h3 className='mt-4 text-lg font-semibold'>
-                Templates Coming Soon
+                Receipt templates are not available yet
               </h3>
               <p className='mt-2 text-muted-foreground max-w-md mx-auto'>
-                Receipt template management functionality will be available in a
-                future update. This will allow you to customize receipt formats,
-                branding, and layout options.
+                You cannot change how receipts look (layout, branding, print or
+                email settings) from this page yet.
               </p>
-              <div className='mt-6 space-y-2 text-sm text-muted-foreground'>
-                <p>Planned features:</p>
-                <ul className='list-disc list-inside space-y-1'>
-                  <li>Custom receipt layouts</li>
-                  <li>Institution branding</li>
-                  <li>Multiple template formats</li>
-                  <li>Print settings configuration</li>
-                  <li>Email template customization</li>
-                </ul>
-              </div>
             </div>
           </CardContent>
         </Card>

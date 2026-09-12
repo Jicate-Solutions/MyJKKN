@@ -66,6 +66,14 @@
       "schedule": "9,39 * * * *"
     },
     {
+      "path": "/api/cron/onemark-live-autoclose?secret=${CRON_SECRET}",
+      "schedule": "4,14,24,34,44,54 * * * *"
+    },
+    {
+      "path": "/api/cron/external-auditor-access-expiry?secret=${CRON_SECRET}",
+      "schedule": "23 * * * *"
+    },
+    {
       "path": "/api/cron/meeting-trigger-reconcile?secret=${CRON_SECRET}",
       "schedule": "23 * * * *"
     },
@@ -128,6 +136,10 @@
     {
       "path": "/api/cron/campus-living/upgrade-hold-expiry?secret=${CRON_SECRET}",
       "schedule": "45 * * * *"
+    },
+    {
+      "path": "/api/cron/campus-living/gate-pass-overdue?secret=${CRON_SECRET}",
+      "schedule": "35 * * * *"
     },
     {
       "path": "/api/cron/grievance-sla-breach-check?secret=${CRON_SECRET}",

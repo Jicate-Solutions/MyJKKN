@@ -239,15 +239,25 @@ export const ACCREDITATION_BODIES: BodyMeta[] = [
 ];
 
 /**
- * One row per body for the landing scoreboard: counts of seeded metrics,
- * evidence tags present, and a coarse "coverage" signal. Coverage is just
- * evidence_rows / max_score_sum normalised to % for the placeholder — real
- * weighted formula (per docs/one-jkkn-one-data §8) lands in the per-body
- * dashboards as each body's full catalog + evidence is seeded.
+ * One row per body for the landing scoreboard.
+ *
+ * `coverage_pct` is metrics_with_evidence / metrics_seeded — the share of the
+ * body's active catalogue that carries any evidence at all. It is NOT
+ * evidence_rows / metrics_seeded, which is what it was until 2026-09-07: that
+ * divided a count of rows by a count of metrics, overshot 100% by orders of
+ * magnitude on every body with real evidence, and was clamped back to a full
+ * green bar. See lib/services/accreditation/coverage-measure.ts.
+ *
+ * Still not a weighted score. Weighted coverage per body rubric lands in the
+ * per-body dashboards; NAAC already has marks (naac-marks.ts).
  */
 export interface BodyScoreboard {
   body_code: AccreditationBodyCode;
+  /** Active metrics in this platform's catalogue for the body. Denominator. */
   metrics_seeded: number;
+  /** Distinct catalogue metrics carrying at least one evidence row. Numerator. */
+  metrics_with_evidence: number;
+  /** Raw evidence mappings on file. Material filed, not framework answered. */
   evidence_rows: number;
   coverage_pct: number; // 0-100
 }
@@ -256,6 +266,10 @@ export interface BodyScoreboard {
  * Coverage matrix row for /accreditation/coverage. One row per (body, institution)
  * combination that has any activity. Institutions with zero metrics for that
  * body are omitted (e.g., DCI row only contains JKKN Dental College).
+ *
+ * Same measure as BodyScoreboard, scoped to one college: the denominator stays
+ * the body's whole active catalogue, so a college is measured against what the
+ * body asks and not against what that college has already tagged.
  */
 export interface CoverageMatrixRow {
   body_code: AccreditationBodyCode;
@@ -264,6 +278,7 @@ export interface CoverageMatrixRow {
   iqac_code: string | null;
   evidence_rows: number;
   metrics_seeded: number;
+  metrics_with_evidence: number;
   coverage_pct: number;
 }
 

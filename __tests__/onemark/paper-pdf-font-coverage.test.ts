@@ -38,6 +38,7 @@ import {
   katexFontText,
   katexLeafRuns,
   paperGlyphGaps,
+  renderTex,
   segmentItemText,
   uncoveredGlyphs,
 } from '@/lib/onemark/pdf/notation';
@@ -178,7 +179,9 @@ describe('embedded font coverage', () => {
             if (seg.kind === 'text') {
               for (const c of seg.value) if (!IGNORABLE.test(c) && !bodyCovered(c.codePointAt(0)!)) truth.add(c);
             } else if (seg.kind === 'tex') {
-              const html = itemTextToHtml(`$${seg.value}$`);
+              // KaTeX's own HTML, BEFORE the "[?]" substitution itemTextToHtml
+              // now applies: the truth is where each glyph would land.
+              const html = renderTex(seg.value);
               if (html.startsWith('<span class="tex-error">')) {
                 for (const c of seg.value) if (!IGNORABLE.test(c) && !bodyCovered(c.codePointAt(0)!)) truth.add(c);
                 continue;

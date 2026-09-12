@@ -36,6 +36,45 @@ const REF = process.env.CHANGELOG_REF || 'jicate/main';
 const US = '\x1f'; // field separator
 const RS = '\x1e'; // record separator
 
+/**
+ * The clock every changelog date and time is read in.
+ *
+ * NOT the machine's. `git log --date=short` renders each commit in the
+ * COMMITTER'S own offset, and 293 of this repository's 7,305 commits carry `Z`
+ * rather than `+05:30` — they are GitHub's own merge commits, which GitHub
+ * records in UTC. Under the old day-only format that was invisible. It stops
+ * being invisible the moment a time is displayed: a merge GitHub stamped
+ * 2026-09-10T20:30:00Z is 2:00 am on the 11th in IST, so the row would show a
+ * time from a day the header above it does not name.
+ *
+ * Pinning the whole read to Asia/Kolkata makes the date and the time two
+ * readings of ONE clock, so they cannot disagree by construction. It is also the
+ * timezone every other boundary on this page is already drawn in — istDate() and
+ * recentFrom() in app/api/whats-new/route.ts, after a bug that printed
+ * "Updated 5 September" above an entry dated 6 September.
+ *
+ * Measured cost: 38 of 7,305 commits (0.52%) move to the following day, and
+ * every one of them is a UTC-stamped merge that genuinely happened after IST
+ * midnight. Those rows are corrected on the first sync after this ships.
+ *
+ * Set explicitly rather than inherited: GitHub Actions runs in UTC, so relying
+ * on the ambient TZ would give CI and a developer's Mac different answers.
+ */
+const CHANGELOG_TZ = 'Asia/Kolkata';
+
+/**
+ * `iso-strict-local` = the committer date rendered in CHANGELOG_TZ, with that
+ * zone's offset attached: `2026-09-12T19:40:00+05:30`. The first ten characters
+ * are exactly what `--date=short` used to return for an IST committer, so `d`
+ * keeps its meaning and its `date` column; the rest is the time we used to throw
+ * away (Director, 2026-09-12: "can we also add time to the whatsnew so that we
+ * know when the change happened").
+ */
+const GIT_DATE_FORMAT = '--date=iso-strict-local';
+
+/** Environment for every git read here — see CHANGELOG_TZ. */
+const GIT_ENV = { ...process.env, TZ: CHANGELOG_TZ };
+
 // Types that describe a change a human would care about. Everything else
 // (ci, chore, docs, test, refactor, wip, style) is scaffolding, not news.
 const USER_FACING = { feat: 'new', fix: 'fixed', perf: 'faster', security: 'security' };
@@ -206,7 +245,7 @@ const PR_RE = /\s*\(#(\d+)\)\s*$/;
  * what a human decided about it.
  *
  * Returns { ref, gitFailed, entries, modules, contributors, skipped, recovered }
- * where an entry is the compact { h, d, t, m, s, a, p?, b? }.
+ * where an entry is the compact { h, d, at?, t, m, s, a, p?, b? }.
  */
 export function collectChangelog({ ref = REF } = {}) {
   // A build or CI host may hand us a SHALLOW clone (Vercel clones with limited
@@ -219,17 +258,22 @@ export function collectChangelog({ ref = REF } = {}) {
   let gitFailed = false;
   try {
     raw = execSync(
-      `git log ${ref} --format=${RS}%H${US}%an${US}%ae${US}%cd${US}%s${US} --date=short --name-only`,
-      { maxBuffer: 512 * 1024 * 1024, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+      `git log ${ref} --format=${RS}%H${US}%an${US}%ae${US}%cd${US}%s${US} ${GIT_DATE_FORMAT} --name-only`,
+      { maxBuffer: 512 * 1024 * 1024, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], env: GIT_ENV }
     );
   } catch {
     // Not a git checkout, or the ref is absent (a shallow CI clone has neither
     // `jicate/main` nor full history).
     gitFailed = true;
     try {
+      // The SECOND call site, and it must carry the same date format and the
+      // same TZ as the one above. It only runs when `ref` is unreachable — a
+      // shallow CI clone, a machine without the remote — so a half-applied
+      // change here is invisible on every machine where the first path works
+      // and only appears on the one where it does not.
       raw = execSync(
-        `git log HEAD --format=${RS}%H${US}%an${US}%ae${US}%cd${US}%s${US} --date=short --name-only`,
-        { maxBuffer: 512 * 1024 * 1024, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+        `git log HEAD --format=${RS}%H${US}%an${US}%ae${US}%cd${US}%s${US} ${GIT_DATE_FORMAT} --name-only`,
+        { maxBuffer: 512 * 1024 * 1024, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], env: GIT_ENV }
       );
     } catch {
       raw = '';
@@ -246,7 +290,19 @@ export function collectChangelog({ ref = REF } = {}) {
     const line = rec.replace(/^\n/, '');
     if (!line.trim()) continue;
     const parts = line.split(US);
-    const [sha, name, email, date] = parts;
+    const [sha, name, email, committedAt] = parts;
+    // `committedAt` is `2026-09-12T19:40:00+05:30`. The first ten characters are
+    // the day, which is what `--date=short` used to hand back and what the
+    // `date` column, the date headers, the 90-day split and both indexes are
+    // built on — so `d` is unchanged in meaning and in type.
+    //
+    // The slice is written to survive a git that does not know
+    // `iso-strict-local` and falls back to a bare `YYYY-MM-DD`: `d` is still
+    // right, and `at` is simply absent rather than malformed. An absent `at` is
+    // a state the whole chain already has to handle — every row in the table is
+    // in it until the first sync after this ships.
+    const date = (committedAt ?? '').slice(0, 10);
+    const at = (committedAt ?? '').includes('T') ? committedAt : null;
     const subject = parts[4];
     // Everything after the last separator is the --name-only file list.
     const files = (parts[5] ?? '').split('\n').map((f) => f.trim()).filter(Boolean);
@@ -307,6 +363,9 @@ export function collectChangelog({ ref = REF } = {}) {
     // reason; a fixed column cannot, so it starts wide.
     h: sha.slice(0, 12),
       d: date,
+      // The instant the change landed, in IST, offset attached. `d` is its first
+      // ten characters, so the two can never name different days.
+      ...(at ? { at } : {}),
       t: USER_FACING[type],
       m: mod.key,
       s: text.charAt(0).toUpperCase() + text.slice(1),

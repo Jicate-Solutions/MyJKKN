@@ -186,16 +186,16 @@ export function LaunchDebugFilters({
 
       {/* User ID Search (for advanced debugging) */}
       <div className="space-y-2">
-        <Label htmlFor="userId">User ID (for debugging)</Label>
+        <Label htmlFor="userId">User ID</Label>
         <Input
           id="userId"
           type="text"
-          placeholder="Enter user UUID..."
+          placeholder="Paste the user's ID"
           value={userId}
           onChange={(e) => updateFilter('userId', e.target.value)}
         />
         <p className="text-xs text-muted-foreground">
-          Enter a specific user UUID to view their launches
+          Show launches for one user only
         </p>
       </div>
 

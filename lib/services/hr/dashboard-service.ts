@@ -486,15 +486,6 @@ export class HRDashboardService {
     if (hrOrgId) overdue = overdue.eq('hr_organization_id', hrOrgId);
     const overdueCount = await safeCount(() => overdue);
 
-    let emergency = supabase
-      .from('hr_leave_applications')
-      .select('id', { count: 'exact', head: true })
-      .eq('is_emergency', true)
-      .gte('start_date', fy.start)
-      .lte('start_date', fy.end);
-    if (hrOrgId) emergency = emergency.eq('hr_organization_id', hrOrgId);
-    const emergencyCount = await safeCount(() => emergency);
-
     return [
       {
         name: 'overdue_approvals',
@@ -503,13 +494,6 @@ export class HRDashboardService {
         overdue: overdueCount,
         drill_url: `/hr/leave/approve?status=pending&created_before=${overdueCutoff}`,
         icon: 'Clock',
-      },
-      {
-        name: 'emergency_leave_fy',
-        label: 'Emergency Leave (FY)',
-        value: emergencyCount,
-        drill_url: `/hr/leave/approve?is_emergency=true&fy=${fy.label}`,
-        icon: 'Flame',
       },
     ];
   }

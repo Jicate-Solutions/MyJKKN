@@ -157,7 +157,7 @@ export const GUIDES: GuideBook = {
         'Find a student’s bill in the Schedule',
         'Record the payment by creating a receipt',
         'Apply a scholarship where it is due',
-        'Generate or send the invoice',
+        'Generate the invoice and download it to share',
         'Process refunds when needed',
       ],
       sections: [

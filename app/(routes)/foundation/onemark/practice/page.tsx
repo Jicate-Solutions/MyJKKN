@@ -33,8 +33,19 @@ import {
   type StartSittingInput,
 } from '@/lib/services/onemark/vault-service';
 import { OneMarkRunner } from './_components/onemark-runner';
+import { ProgressCard } from './_components/progress-card';
 import { SittingReviewView } from './_components/sitting-review';
 import { VaultPanel } from './_components/vault-panel';
+
+/** Fields Lane L added to the attempts API that the shared client types do not
+ *  carry yet (vault-service.ts belongs to another lane this wave). */
+type LivePaperExtras = {
+  /** Ruling 2 — when this paper's item-level review opens; null = open now. */
+  reviewOpensAt?: string | null;
+  /** Ruling 13 — the same questions may be sat again as practice. */
+  practiceAvailable?: boolean;
+};
+type StartWithReplay = StartSittingInput & { fromAssessmentId?: string };
 
 const LIVE_STATUS_LABEL: Record<OneMarkLivePaper['status'], string> = {
   open: 'Open now',
@@ -68,12 +79,19 @@ export default function OneMarkPracticePage() {
   const [lastStart, setLastStart] = useState<StartSittingInput | null>(null);
   const [review, setReview] = useState<SittingReview | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
+  // Ruling 13 — what is offered in place of reopening a closed sitting.
+  const [replayOffer, setReplayOffer] = useState<{
+    fromAssessmentId: string;
+    available: boolean;
+    opensAt: string | null;
+  } | null>(null);
   // A calm, non-error message — e.g. the vault had nothing due after all.
   const [notice, setNotice] = useState<string | null>(null);
 
-  async function open(input: StartSittingInput, examName: string) {
+  async function open(input: StartWithReplay, examName: string) {
     setStartError(null);
     setNotice(null);
+    setReplayOffer(null);
     try {
       const s = await start.mutateAsync(input);
       setLastStart(input);
@@ -81,6 +99,15 @@ export default function OneMarkPracticePage() {
       setReview(null);
       setSitting(s);
     } catch (err) {
+      if (err instanceof OneMarkApiError && err.body?.practiceOffer?.fromAssessmentId) {
+        // Ruling 13 — the sitting is never reopened; these questions come back
+        // as practice instead, once the paper itself has closed.
+        setReplayOffer({
+          fromAssessmentId: String(err.body.practiceOffer.fromAssessmentId),
+          available: err.body.practiceOffer.available === true,
+          opensAt: err.body.practiceOffer.opensAt ?? null,
+        });
+      }
       if (err instanceof OneMarkApiError && err.body?.alreadySubmitted && err.body?.attemptId) {
         // Decision 19: blocked on retry, result shown.
         try {
@@ -110,6 +137,7 @@ export default function OneMarkPracticePage() {
     setReview(null);
     setStartError(null);
     setNotice(null);
+    setReplayOffer(null);
     void home.refetch();
   }
 
@@ -144,12 +172,26 @@ export default function OneMarkPracticePage() {
   if (review) {
     const canRepeat =
       lastStart && lastStart.mode !== 'live' && !review.alreadySubmitted ? lastStart : null;
+    // Ruling 13 — after a closed live sitting the button is "practise these
+    // again", never "sit it again": a new PRACTICE sitting on the same
+    // questions, and only once the paper has closed.
+    const replay: StartWithReplay | null =
+      !canRepeat && replayOffer?.available
+        ? { mode: 'practice', fromAssessmentId: replayOffer.fromAssessmentId }
+        : null;
     return (
       <ContentLayout>
         <SittingReviewView
           examName={sittingExamName}
           review={review}
-          onAgain={canRepeat ? () => void open(canRepeat, sittingExamName) : undefined}
+          againLabel={replay ? 'Practise these questions again' : undefined}
+          onAgain={
+            canRepeat
+              ? () => void open(canRepeat, sittingExamName)
+              : replay
+                ? () => void open(replay, sittingExamName)
+                : undefined
+          }
           onExit={backToSubjects}
         />
       </ContentLayout>
@@ -218,6 +260,10 @@ export default function OneMarkPracticePage() {
 
         {data?.learner && (
           <div className="space-y-8">
+            {/* ---- My progress (Lane A's learner report) ---------------------
+                Renders nothing until that API is on main. */}
+            <ProgressCard learnerId={data.learner.id} />
+
             {/* ---- Subjects: practice + timed ------------------------------- */}
             <section>
               <h2 className="mb-3 text-lg font-semibold text-foreground">Subjects</h2>
@@ -288,6 +334,7 @@ export default function OneMarkPracticePage() {
                 {data.live.map((p) => {
                   const canSit = p.status === 'open' || p.status === 'in_progress';
                   const examName = p.examName ?? p.title;
+                  const extras = p as OneMarkLivePaper & LivePaperExtras;
                   return (
                     <li key={p.assessmentId} className="rounded-2xl bg-card p-5">
                       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -303,25 +350,58 @@ export default function OneMarkPracticePage() {
                             {p.status === 'upcoming' ? ` ${formatWhen(p.opensAt)}` : ''}
                             {p.status === 'open' && p.closesAt ? ` · closes ${formatWhen(p.closesAt)}` : ''}
                           </p>
+                          {p.status === 'submitted' && extras.reviewOpensAt && (
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Your score is ready now. The question-by-question review opens when the
+                              paper closes, {formatWhen(extras.reviewOpensAt)} — everyone is still
+                              sitting it.
+                            </p>
+                          )}
                         </div>
                         {p.status === 'submitted' && p.attemptId ? (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={start.isPending}
-                            onClick={async () => {
-                              try {
-                                const r = await OneMarkVaultService.finalize(p.attemptId as string, []);
-                                setSittingExamName(examName);
-                                setLastStart(null);
-                                setReview(r);
-                              } catch (err) {
-                                setStartError(err instanceof Error ? err.message : 'The result could not be loaded.');
-                              }
-                            }}
-                          >
-                            See result
-                          </Button>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={start.isPending}
+                              onClick={async () => {
+                                try {
+                                  const r = await OneMarkVaultService.finalize(p.attemptId as string, []);
+                                  setSittingExamName(examName);
+                                  setLastStart(null);
+                                  setReplayOffer(
+                                    extras.practiceAvailable
+                                      ? {
+                                          fromAssessmentId: p.assessmentId,
+                                          available: true,
+                                          opensAt: null,
+                                        }
+                                      : null,
+                                  );
+                                  setReview(r);
+                                } catch (err) {
+                                  setStartError(err instanceof Error ? err.message : 'The result could not be loaded.');
+                                }
+                              }}
+                            >
+                              See result
+                            </Button>
+                            {extras.practiceAvailable && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                disabled={start.isPending}
+                                onClick={() =>
+                                  void open(
+                                    { mode: 'practice', fromAssessmentId: p.assessmentId },
+                                    examName,
+                                  )
+                                }
+                              >
+                                Practise these again
+                              </Button>
+                            )}
+                          </div>
                         ) : (
                           <Button
                             size="sm"

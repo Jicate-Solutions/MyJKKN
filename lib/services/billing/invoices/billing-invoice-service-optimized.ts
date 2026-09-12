@@ -1,6 +1,7 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { trackUsage } from '@/lib/utils/track-usage';
 import { logActivityForCurrentUser, BillingActivityTemplates } from '@/lib/utils/activity-logger-client';
+import { INVOICE_EMAIL_NOT_AVAILABLE } from '@/lib/services/billing/email-not-available';
 import type {
   BillingInvoice,
   CreateInvoiceDto,
@@ -525,10 +526,9 @@ export class BillingInvoiceServiceOptimized {
   }
 
   // Additional utility methods
-  static async sendInvoice(id: string, email: string): Promise<void> {
-    // Implementation for sending invoice via email
-    console.log(`Sending invoice ${id} to ${email}`);
-    // TODO: Implement email sending logic
+  // Emailing is NOT built: this used to log and resolve as if it had sent.
+  static async sendInvoice(_id: string, _email: string): Promise<void> {
+    throw new Error(INVOICE_EMAIL_NOT_AVAILABLE);
   }
 
   static async downloadInvoicePDF(id: string): Promise<void> {

@@ -156,6 +156,111 @@ export function ApproveRequestsDialog({
   );
 }
 
+/**
+ * Take an approved decision back (2026-09-12).
+ *
+ * Single request only — never a bulk selection. A revoke reverses a balance, may
+ * release a comp-off credit and re-judges every covered day's attendance; one
+ * mis-click should not do that to forty people at once.
+ *
+ * `blockReason` comes from fn_hr_leave_revoke_block_reason, the SAME sentence
+ * trg_hla_revoke_gate raises. It is shown and the button is disabled, rather than
+ * the item being hidden in the menu: "that month is closed" and "you are not the
+ * final approver" are different problems with different fixes, and a greyed
+ * control with no explanation reads as neither.
+ */
+export function RevokeRequestDialog({
+  row,
+  busy,
+  blockReason,
+  checkingBlock,
+  error,
+  reason,
+  onReasonChange,
+  onCancel,
+  onConfirm,
+}: {
+  row: HRLeaveApprovalQueueRow | null;
+  busy: boolean;
+  /** null = revocable. Non-null = the database's refusal, verbatim. */
+  blockReason: string | null;
+  checkingBlock: boolean;
+  error: string | null;
+  reason: string;
+  onReasonChange: (v: string) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const blocked = Boolean(blockReason);
+
+  return (
+    <Dialog open={Boolean(row)} onOpenChange={(v) => { if (!v && !busy) onCancel(); }}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Revoke this approval?</DialogTitle>
+          <DialogDescription>
+            The request goes back to <strong>rejected</strong>. A reason is required and is
+            shown to the applicant, who has already been told their leave was approved.
+          </DialogDescription>
+        </DialogHeader>
+
+        {row && <RequestSummary row={row} />}
+
+        {checkingBlock && (
+          <p className="text-xs text-muted-foreground">Checking whether this can still be revoked…</p>
+        )}
+
+        {blockReason && (
+          <p className="rounded-md border border-amber-600/40 bg-amber-600/10 p-3 text-sm text-amber-800 dark:text-amber-400">
+            {blockReason}
+          </p>
+        )}
+
+        {!blocked && !checkingBlock && (
+          <ul className="list-disc space-y-1 rounded-md border bg-muted/40 p-3 pl-7 text-sm text-muted-foreground">
+            <li>The leave balance this request drew down is handed back.</li>
+            <li>Any compensatory off credit it spent returns to the applicant.</li>
+            <li>
+              Each covered day is re-judged from the biometric record, so it stops reading
+              LEAVE.
+            </li>
+            <li>The applicant is emailed and notified that the approval was revoked.</li>
+          </ul>
+        )}
+
+        <div>
+          <Label htmlFor="revokeReason">
+            Reason <span className="text-destructive">*</span>
+          </Label>
+          <Textarea
+            id="revokeReason"
+            className="mt-1"
+            rows={3}
+            value={reason}
+            disabled={blocked}
+            onChange={(e) => onReasonChange(e.target.value)}
+            placeholder="Why is this approval being taken back?"
+          />
+        </div>
+
+        {error && <p className="text-sm text-destructive">{error}</p>}
+
+        <DialogFooter>
+          <Button variant="outline" disabled={busy} onClick={onCancel}>Cancel</Button>
+          <Button
+            variant="destructive"
+            disabled={!reason.trim() || busy || blocked || checkingBlock}
+            onClick={onConfirm}
+          >
+            {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Revoke approval
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function RejectRequestsDialog({
   decision,
   busy,

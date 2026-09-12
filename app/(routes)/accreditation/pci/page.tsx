@@ -364,8 +364,14 @@ export default function PCIDashboardPage() {
               (primary) or <code>name ILIKE &apos;%pharmacy%&apos;</code> (fallback).
             </p>
             <p>
-              <strong>Coverage formula (placeholder):</strong> evidence_rows /
-              metrics_seeded. The real PCI 2020 weighted rubric (deficiency
+              {/* Was "evidence_rows / metrics_seeded" — rows over metrics, clamped
+                  to 100%. Fixed 2026-09-07; see coverage-measure.ts. PCI's
+                  catalogue is 2 placeholder metrics, which the ratio now says
+                  out loud instead of hiding behind a percentage. */}
+              <strong>Coverage:</strong> distinct metrics carrying evidence ÷
+              active metrics in this platform&apos;s PCI catalogue, which today
+              holds 2 placeholder entries and not the full PCI schedule.
+              The real PCI 2020 weighted rubric (deficiency
               count + intake reduction rules) lands in a follow-up PR once the
               full PCI catalog is seeded against docs/one-jkkn-one-data.md §8.
             </p>

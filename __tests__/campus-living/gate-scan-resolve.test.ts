@@ -64,7 +64,12 @@ describe('decideGateAction — RED, a hard block with no override', () => {
   it('no passes at all is BLOCKED', () => {
     const d = decideGateAction([], NOW);
     expect(d.verdict).toBe('blocked');
-    expect(d.headline).toBe('NO APPROVED PASS');
+    // The wording the guard reads, asked for in the rebuild: it names the
+    // warden, because "no approved pass" left them with nowhere to send the
+    // learner standing in front of them.
+    expect(d.headline).toBe('GATE PASS NOT APPROVED');
+    expect(d.detail).toMatch(/warden/i);
+    expect(d.detail).toMatch(/do not allow/i);
   });
 
   it('a blocked verdict exposes NO action — the screen has nothing to tap', () => {
@@ -314,23 +319,28 @@ describe('decideScan — who must NOT be refused', () => {
     }
   });
 
-  it('an unclassified person passes through to the ordinary pass decision', () => {
-    // Administrative and service accounts, and anyone whose record the
-    // scanning guard's own RLS scope cannot read.
-    expect(decideScan({ kind: 'unclassified' }, [pass()], NOW).verdict).toBe('approved');
-    expect(decideScan({ kind: 'unclassified' }, [], NOW).blockedReason).toBe('no_approved_pass');
+  it('a learner whose allocation could not be read is not called a non-resident', () => {
+    // The rebuild refuses a learner with NO active allocation. `undefined` and
+    // `null` mean the allocation read failed, which is not evidence of
+    // anything — this scanner refuses what it can SHOW, never what it merely
+    // could not confirm.
+    for (const hasActiveAllocation of [undefined, null] as const) {
+      const d = decideScan(
+        { kind: 'learner', lifecycleStatus: 'active', hasActiveAllocation },
+        [pass()],
+        NOW,
+      );
+      expect(d.verdict).toBe('approved');
+    }
   });
 
-  it('a team member whose active flag could not be read is not blocked', () => {
-    expect(decideScan({ kind: 'team_member', isActive: null }, [pass()], NOW).verdict).toBe(
-      'approved'
+  it('an allocated learner is unaffected', () => {
+    const d = decideScan(
+      { kind: 'learner', lifecycleStatus: 'active', hasActiveAllocation: true },
+      [pass()],
+      NOW,
     );
-  });
-
-  it('an active team member is unaffected', () => {
-    expect(decideScan({ kind: 'team_member', isActive: true }, [pass()], NOW).verdict).toBe(
-      'approved'
-    );
+    expect(d.verdict).toBe('approved');
   });
 
   it('a leaver with no pass reads as a leaver, not as "no approved pass"', () => {
@@ -338,7 +348,85 @@ describe('decideScan — who must NOT be refused', () => {
     // for a pass that must never be issued.
     const d = decideScan({ kind: 'learner', lifecycleStatus: 'alumni' }, [], NOW);
     expect(d.blockedReason).toBe('has_left');
-    expect(d.headline).not.toBe('NO APPROVED PASS');
+    expect(d.headline).not.toBe('GATE PASS NOT APPROVED');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// This gate is for hostel residents
+// ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Rebuild decision: the hostel gate scanner reads LEARNER cards only, and only
+ * learners who actually live in a hostel.
+ *
+ * This narrowed `decideScan` — before the rebuild a team member's card fell
+ * through to the ordinary pass decision and read "no approved pass", which is
+ * a true statement about their paperwork and a misleading one about why they
+ * were stopped. Each refusal below now names the real reason, and each is
+ * still a RED with `action: null` — no new override path was created.
+ */
+describe('decideScan — the door is for residents', () => {
+  it('a team member is turned away as not-a-learner, whatever their status', () => {
+    for (const isActive of [true, false, null] as const) {
+      const d = decideScan({ kind: 'team_member', isActive }, [pass()], NOW);
+      expect(d.verdict).toBe('blocked');
+      expect(d.action).toBeNull();
+      // An INACTIVE team member is a leaver first — that rule outranks this
+      // one, and says something sharper.
+      expect(d.blockedReason).toBe(isActive === false ? 'has_left' : 'not_a_learner');
+    }
+  });
+
+  it('an unclassified card is turned away as not-a-learner', () => {
+    // It could never hold a gate pass — a pass is keyed to a learner profile —
+    // so it was always going to be RED. Naming the real reason is strictly
+    // better than "no approved pass".
+    const d = decideScan({ kind: 'unclassified' }, [pass()], NOW);
+    expect(d.verdict).toBe('blocked');
+    expect(d.blockedReason).toBe('not_a_learner');
+    expect(d.action).toBeNull();
+  });
+
+  it('a learner with no hostel allocation is refused, even holding a pass', () => {
+    const d = decideScan(
+      { kind: 'learner', lifecycleStatus: 'active', hasActiveAllocation: false },
+      [pass()],
+      NOW,
+    );
+    expect(d.verdict).toBe('blocked');
+    expect(d.blockedReason).toBe('not_a_resident');
+    expect(d.action).toBeNull();
+  });
+
+  it('having left outranks not being a resident', () => {
+    // A graduated learner has no allocation either. The guard must be told the
+    // card is dead, not that the learner moved out.
+    const d = decideScan(
+      { kind: 'learner', lifecycleStatus: 'graduated', hasActiveAllocation: false },
+      [pass()],
+      NOW,
+    );
+    expect(d.blockedReason).toBe('has_left');
+  });
+
+  it('no refusal ever offers an action — the hard block has no override', () => {
+    const refusals = [
+      decideScan({ kind: 'team_member', isActive: true }, [pass()], NOW),
+      decideScan({ kind: 'unclassified' }, [pass()], NOW),
+      decideScan(
+        { kind: 'learner', lifecycleStatus: 'active', hasActiveAllocation: false },
+        [pass()],
+        NOW,
+      ),
+      decideScan({ kind: 'learner', lifecycleStatus: 'alumni' }, [pass()], NOW),
+      decideScan(STILL_HERE, [], NOW),
+    ];
+    for (const d of refusals) {
+      expect(d.verdict).toBe('blocked');
+      expect(d.action).toBeNull();
+      expect(d.pass).toBeNull();
+    }
   });
 });
 

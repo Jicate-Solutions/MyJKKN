@@ -34,21 +34,71 @@ ledger_class() {
     | cut -c1-90
 }
 
-# ledger_record <outcome> <message> [class]
-# outcome: froze | round | resolved
+# ledger_record <outcome> <message> [class] [chosen] [writes-json]
+# ledger_record <outcome> <message> [class] [extra-json]            (the desk's shape — slice A)
+# outcome: froze | round | backfill | resolved
+#
+# 2026-09-10 (HUMAN-IN-THE-LOOP.md §D, "propose after 2 identical decisions"): a
+# 'resolved' record may now carry WHAT the Director chose. The desk
+# (v5-w12-desk.sh) writes one every time it applies his answer to a freeze
+# question. Two slices extended this function with different signatures
+# (verifier NEW-1: the desk's call through the other shape wrote a line with no
+# writes key and nothing was ever learned, silently). Both are accepted here:
+#   ledger_record resolved "<title>" "<freeze class>" "<option label>" '<writes json array>'
+#   ledger_record resolved "<title>" "<freeze class>" '{"chosen":"<option label>","writes":[…]}'
+# → {"at":…,"outcome":"resolved","class":…,"message":…,"chosen":"Lift the stop","writes":[{"op":"unfreeze"}]}
+# A 4th argument that parses as a JSON OBJECT is the desk's extra-json, merged
+# into the record (its keys never override the four base keys); anything else is
+# the chosen label. A label cannot be mistaken for it: labels are plain words.
+# The extra fields are written only when given, so every older caller (guards,
+# three-arg resolved, froze, round) produces the same line it always did.
+# 'writes' is stored as parsed JSON when the string parses, verbatim otherwise —
+# a malformed answer is still evidence of a decision, just not of a shape.
 ledger_record() {
-  local outcome="$1" msg="$2" cls="${3:-}"
+  local outcome="$1" msg="$2" cls="${3:-}" chosen="${4:-}" writes="${5:-}"
   [ -n "$cls" ] || cls=$(ledger_class "$msg")
-  OUT="$outcome" MSG="$msg" CLS="$cls" python3 - "$LEDGER" <<'PY' 2>/dev/null || true
+  OUT="$outcome" MSG="$msg" CLS="$cls" CHOSEN="$chosen" WRITES="$writes" python3 - "$LEDGER" <<'PY' 2>/dev/null || true
 import json, os, sys, datetime
-rec = {
+rec = {}
+chosen = os.environ.get("CHOSEN", "")
+if chosen.lstrip().startswith("{"):
+    try:
+        extra = json.loads(chosen)
+        if isinstance(extra, dict): rec = dict(extra); chosen = ""
+    except Exception:
+        pass
+rec.update({
     "at": datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S"),
     "outcome": os.environ["OUT"],
     "class": os.environ["CLS"],
     "message": os.environ["MSG"][:400],
-}
+})
+if chosen:
+    rec["chosen"] = chosen[:120]
+if os.environ.get("WRITES"):
+    try: rec["writes"] = json.loads(os.environ["WRITES"])
+    except Exception: rec["writes"] = os.environ["WRITES"][:400]
 with open(sys.argv[1], "a") as fh:
     fh.write(json.dumps(rec) + "\n")
+PY
+}
+
+# ledger_resolutions <class> → the 'resolved' records for that class, newest
+# first, one JSON line each. This is what policy-learning.sh reads to notice the
+# Director answering the same question the same way twice.
+ledger_resolutions() {
+  [ -s "$LEDGER" ] || return 0
+  CLS="$1" python3 - "$LEDGER" <<'PY' 2>/dev/null || true
+import json, os, sys
+cls = os.environ["CLS"]
+out = []
+for line in open(sys.argv[1]):
+    try: r = json.loads(line)
+    except Exception: continue
+    if r.get("outcome") == "resolved" and r.get("class") == cls:
+        out.append(r)
+for r in reversed(out):
+    print(json.dumps(r))
 PY
 }
 
@@ -85,6 +135,8 @@ ledger_remedy() {
       echo "CANCELED with no errorCode = Vercel's ignoreCommand skipped a build with nothing deployable (every merged file under supabase/ docs/ specs/ .claude/ .github/ or *.md). NOT a failed deploy — production is still on the right code and the migration was applied in 3b. Check the merged files, then --unfreeze (fixed 2026-09-05: the deploy stage now detects this before firing the hook)";;
     *"verdict unavailable"*|*"unverified"*)
       echo "the Vercel CLI token (auth.json) expires; only the CLI refreshes it. vtok() now runs 'vercel whoami' when expiresAt is near — if you still see this, run it by hand and verify the build with 'vercel ls my-jkkn --scope jicate-solutions' before re-firing (2026-09-06 01:53: build was fine, poll was blind)";;
+    *"2BP01"*|*"other objects depend on it"*)
+      echo "a column drop hit a dependent VIEW. The repo is not the schema: ask the live DB which objects depend on it -- SELECT DISTINCT v.relname FROM pg_depend d JOIN pg_rewrite r ON r.oid=d.objid JOIN pg_class v ON v.oid=r.ev_class JOIN pg_attribute a ON a.attrelid=d.refobjid AND a.attnum=d.refobjsubid WHERE d.refobjid='<table>'::regclass AND a.attname='<column>'; -- then drop and re-create EVERY dependent view in the same file, restoring its reloptions (security_invoker) and its grants, because DROP VIEW destroys both. Never DROP ... CASCADE: the hint deletes views silently. (2026-09-08: 20260906213000 handled bug_reports_with_details but missed bug_reports_ready_for_repro; the wave froze 10 h and blocked 4 ready PRs. Fixed in #3389, which captures each view with pg_get_viewdef at run time instead of hardcoding it.)";;
     *"destructive statement"*)
       echo "the apply stage refuses DROP TABLE/COLUMN/SCHEMA, TRUNCATE, DELETE FROM by hard rule — often a retention DELETE inside a function the same file creates (20260910030000_cron_run_log, 2026-09-06). Review the file; if safe: echo <version> >> \$STATE/allow-destructive, then --unfreeze; the wave applies it (dry-run → commit → verify) and logs the allow";;
     *"base is not main"*|*"stacked"*)

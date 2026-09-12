@@ -69723,8 +69723,12 @@ export type Database = {
       }
       hostel_gate_passes: {
         Row: {
+          accompanying_person: string | null
           actual_return: string | null
+          approved_at: string | null
           approved_by: string | null
+          attachment_url: string | null
+          block_id: string | null
           cancellation_reason: string | null
           cancelled_by: string | null
           created_at: string | null
@@ -69736,20 +69740,31 @@ export type Database = {
           institution_id: string
           learner_id: string
           leave_request_id: string | null
+          leave_type_id: string | null
           out_time: string | null
+          parent_confirmed_at: string | null
+          parent_confirmed_by: string | null
+          parent_confirmed_number: string | null
           parent_notified: boolean | null
           pass_number: string | null
-          pass_type: Database["public"]["Enums"]["gate_pass_type_enum"]
+          pass_type: Database["public"]["Enums"]["gate_pass_type_enum"] | null
+          planned_out_at: string | null
           qr_code: string | null
           reason: string | null
+          rejected_at: string | null
           rejected_by: string | null
           rejection_reason: string | null
           status: Database["public"]["Enums"]["gate_pass_status_enum"]
+          transport_mode: string | null
           updated_at: string | null
         }
         Insert: {
+          accompanying_person?: string | null
           actual_return?: string | null
+          approved_at?: string | null
           approved_by?: string | null
+          attachment_url?: string | null
+          block_id?: string | null
           cancellation_reason?: string | null
           cancelled_by?: string | null
           created_at?: string | null
@@ -69761,20 +69776,31 @@ export type Database = {
           institution_id: string
           learner_id: string
           leave_request_id?: string | null
+          leave_type_id?: string | null
           out_time?: string | null
+          parent_confirmed_at?: string | null
+          parent_confirmed_by?: string | null
+          parent_confirmed_number?: string | null
           parent_notified?: boolean | null
           pass_number?: string | null
-          pass_type: Database["public"]["Enums"]["gate_pass_type_enum"]
+          pass_type?: Database["public"]["Enums"]["gate_pass_type_enum"] | null
+          planned_out_at?: string | null
           qr_code?: string | null
           reason?: string | null
+          rejected_at?: string | null
           rejected_by?: string | null
           rejection_reason?: string | null
           status?: Database["public"]["Enums"]["gate_pass_status_enum"]
+          transport_mode?: string | null
           updated_at?: string | null
         }
         Update: {
+          accompanying_person?: string | null
           actual_return?: string | null
+          approved_at?: string | null
           approved_by?: string | null
+          attachment_url?: string | null
+          block_id?: string | null
           cancellation_reason?: string | null
           cancelled_by?: string | null
           created_at?: string | null
@@ -69786,18 +69812,46 @@ export type Database = {
           institution_id?: string
           learner_id?: string
           leave_request_id?: string | null
+          leave_type_id?: string | null
           out_time?: string | null
+          parent_confirmed_at?: string | null
+          parent_confirmed_by?: string | null
+          parent_confirmed_number?: string | null
           parent_notified?: boolean | null
           pass_number?: string | null
-          pass_type?: Database["public"]["Enums"]["gate_pass_type_enum"]
+          pass_type?: Database["public"]["Enums"]["gate_pass_type_enum"] | null
+          planned_out_at?: string | null
           qr_code?: string | null
           reason?: string | null
+          rejected_at?: string | null
           rejected_by?: string | null
           rejection_reason?: string | null
           status?: Database["public"]["Enums"]["gate_pass_status_enum"]
+          transport_mode?: string | null
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "hostel_gate_passes_leave_type_id_fkey"
+            columns: ["leave_type_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_leave_types"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_gate_passes_block_id_fkey"
+            columns: ["block_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_blocks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_gate_passes_parent_confirmed_by_fkey"
+            columns: ["parent_confirmed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "hostel_gate_passes_approved_by_fkey"
             columns: ["approved_by"]
@@ -79441,6 +79495,9 @@ export type Database = {
           id: string
           notes: string | null
           rejection_reason: string | null
+          revoke_reason: string | null
+          revoked_at: string | null
+          revoked_by: string | null
           source: string
           status: string
           updated_at: string
@@ -79464,6 +79521,9 @@ export type Database = {
           id?: string
           notes?: string | null
           rejection_reason?: string | null
+          revoke_reason?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
           source?: string
           status?: string
           updated_at?: string
@@ -79487,6 +79547,9 @@ export type Database = {
           id?: string
           notes?: string | null
           rejection_reason?: string | null
+          revoke_reason?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
           source?: string
           status?: string
           updated_at?: string
@@ -81200,6 +81263,9 @@ export type Database = {
           leave_type_id: string
           reason: string
           rejection_reason: string | null
+          revoke_reason: string | null
+          revoked_at: string | null
+          revoked_by: string | null
           start_date: string
           start_time: string | null
           status: string
@@ -81228,6 +81294,9 @@ export type Database = {
           leave_type_id: string
           reason: string
           rejection_reason?: string | null
+          revoke_reason?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
           start_date: string
           start_time?: string | null
           status?: string
@@ -81256,6 +81325,9 @@ export type Database = {
           leave_type_id?: string
           reason?: string
           rejection_reason?: string | null
+          revoke_reason?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
           start_date?: string
           start_time?: string | null
           status?: string
@@ -198813,9 +198885,25 @@ export type Database = {
         Args: { p_employee_id: string; p_flow_id: string }
         Returns: Json
       }
+      fn_hr_comp_off_can_revoke: {
+        Args: { p_credit_id: string }
+        Returns: boolean
+      }
+      fn_hr_comp_off_revoke_block_reason: {
+        Args: { p_credit_id: string }
+        Returns: string
+      }
       fn_hr_leave_can_finalize: {
         Args: { p_application_id: string }
         Returns: boolean
+      }
+      fn_hr_leave_can_revoke: {
+        Args: { p_application_id: string }
+        Returns: boolean
+      }
+      fn_hr_leave_revoke_block_reason: {
+        Args: { p_application_id: string }
+        Returns: string
       }
       fn_hr_leave_chain_step: {
         Args: {
@@ -207823,6 +207911,9 @@ export type Database = {
           reason: string
           rejection_reason: string
           request_category: string
+          revoke_reason: string
+          revoked_at: string
+          revoked_by_name: string
           staff_code: string
           staff_name: string
           start_date: string

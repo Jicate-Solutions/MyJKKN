@@ -40,6 +40,7 @@ import {
   getPostInsights,
   getPageProfile,
 } from '@/lib/facebook/api-client';
+import { normalizeMetaToken } from '@/lib/meta/graph-api-client';
 import type {
   FbInsightSeries,
   FbPage,
@@ -208,10 +209,10 @@ async function discoverAndSeedFbPages(
   errors: Array<{ fb_page_id?: string; name?: string; error: string }>;
 }> {
   const errors: Array<{ fb_page_id?: string; name?: string; error: string }> = [];
-  const token =
-    process.env.MESSENGER_PAGE_ACCESS_TOKEN ||
-    process.env.META_PAGE_ACCESS_TOKEN ||
-    '';
+  const token = normalizeMetaToken(
+    process.env.MESSENGER_PAGE_ACCESS_TOKEN || process.env.META_PAGE_ACCESS_TOKEN,
+    'MESSENGER_PAGE_ACCESS_TOKEN / META_PAGE_ACCESS_TOKEN'
+  );
   if (!token) {
     return {
       discovered: 0,

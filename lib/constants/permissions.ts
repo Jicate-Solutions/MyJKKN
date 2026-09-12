@@ -947,6 +947,13 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.leave.view', label: 'View Leave Applications' },
       { key: 'hr.leave.apply', label: 'Apply for Leave' },
       { key: 'hr.leave.approve', label: 'Approve Leave Applications' },
+      // Taking an APPROVED decision back. Deliberately separate from
+      // hr.leave.approve: the final approver of a request may revoke it on chain
+      // membership alone (fn_hr_leave_revoke_block_reason), and this key is the
+      // second, independent lane that lets HR act on a request they are not on
+      // the chain of. Granted in 20260912100000 to hr_head, managing_director,
+      // principal, cao, vice_principal, hod.
+      { key: 'hr.leave.revoke', label: 'Revoke an Approved Leave Decision' },
       { key: 'hr.leave.cancel', label: 'Cancel Own Leave Pre-Approval' },
       { key: 'hr.leave.withdraw', label: 'Withdraw Own Leave Post-Approval' },
       { key: 'hr.leave.balance.view', label: 'View Leave Balances' },
@@ -3618,6 +3625,31 @@ export const PERMISSION_CATEGORIES = [
       { key: 'network.audit.view', label: 'View the Wi-Fi Audit Trail' },
       { key: 'network.settings.manage', label: 'Manage Wi-Fi Settings (sign-in methods, speed tiers, block reasons)' },
       { key: 'network.panic.manage', label: 'Emergency Open Wi-Fi (panic switch)' }
+    ]
+  },
+  {
+    // Added 2026-09-12 — the What's New weekly highlights strip
+    // (migration 20261203120000_changelog_highlights.sql). ONE key, because
+    // there is one thing to decide: may this person write and approve the
+    // plain-English write-ups that appear above the changelog.
+    //
+    // READING What's New is deliberately NOT here. It is open to everyone
+    // signed in (Director, 2026-09-05) and is mapped to the universal
+    // `view_profile` sentinel in lib/sidebarMenuLink.ts; what a reader SEES is
+    // scoped by module through fn_changelog_visible_modules(), not by a key of
+    // its own. Approved highlights inherit exactly that scope.
+    //
+    // No role carries this key today, so in practice the queue resolves to
+    // super admins (user_has_permission() bypasses for them) until someone
+    // grants it here. That is the point of cataloguing it: granting it becomes
+    // a Role Management decision rather than a code change.
+    name: "What's New",
+    key: 'whats_new',
+    permissions: [
+      {
+        key: 'whats_new.highlights.manage',
+        label: "Write and approve the weekly highlights shown on What's New"
+      }
     ]
   }
 ];
