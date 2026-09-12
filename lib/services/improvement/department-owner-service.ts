@@ -42,6 +42,34 @@
  * PR; it is recorded here so the next person does not rediscover it the hard
  * way.
  *
+ * WHAT AN UNOWNED DEPARTMENT COSTS (added 2026-09-12)
+ * ----------------------------------------------------------------------------
+ * `fn_improvement_untriaged_notify` walks every idea still in Logged, resolves
+ * the current holders of its department, and — when that resolves to NOBODY —
+ * executes a bare CONTINUE. On purpose: it writes no ledger row, so the idea
+ * stays eligible for the day an owner is finally named. The side effect is that
+ * an idea on an unowned department is skipped on every run, is recorded nowhere,
+ * and is counted by nothing. Production on 2026-09-12: 33 ideas in Logged, 22
+ * notices ever sent, 5 of 14 active departments owned. The ideas behind the
+ * other nine departments had been invisible since the day they were written.
+ *
+ * This service therefore carries the count alongside the owner, so the screen
+ * can say what the gap costs instead of only that it exists.
+ *
+ * READ ASYMMETRY, DELIBERATELY HANDLED AS UNKNOWN
+ * ----------------------------------------------------------------------------
+ * `improvement_ideas_select` admits admins, the idea's own author,
+ * `improvement.board.manage`, and the open-visibility cohort branches. It does
+ * NOT name `improvement.area_role.assign`. An officer who holds only the assign
+ * permission therefore reads ZERO idea rows — and an RLS refusal comes back as
+ * an empty set with NO error, indistinguishable from a genuinely quiet board.
+ *
+ * Widening that policy is a database change and out of scope for a screen-only
+ * fix, so the honest handling is: never claim zero. A count is rendered only
+ * when it is a positive number. A failed read is carried as `null` (unknown)
+ * and a zero-row read simply produces no badge. Nobody is ever shown a
+ * reassuring "0 ideas waiting" that the data does not support.
+ *
  * The `improvement_*` tables are live in prod but absent from the generated
  * `types/supabase.ts`, so calls cast through `(supabase as any)` — the same
  * pattern the sibling improvement services use. Row shapes are typed here.
@@ -79,6 +107,16 @@ export interface DepartmentOwnerRow {
   ownerEmail: string | null;
   /** Date the current owner took the role. */
   ownerSince: string | null;
+  /**
+   * How many ideas are sitting in Logged on this department right now.
+   *
+   * `null` means UNKNOWN, not zero. The read below can come back empty for two
+   * completely different reasons — there genuinely are no logged ideas, or the
+   * caller's RLS refused the rows and Postgres returned an empty set with no
+   * error. The screen therefore renders this number only when it is a positive
+   * count, and says nothing at all otherwise. It never prints a reassuring "0".
+   */
+  waitingIdeaCount: number | null;
 }
 
 interface AreaRow {
@@ -130,6 +168,12 @@ export class DepartmentOwnerService {
    *     a department that HAS one. The route resolves names server-side, so
    *     both tiers see the same truth. Only departments that actually have a
    *     row are looked up, so this costs nothing while the board is empty.
+   *
+   *  3. How many ideas are waiting in Logged per department — ONE read for the
+   *     whole board, tallied here, never one query per department. A failure
+   *     leaves every count `null` (unknown) and the owner list still renders:
+   *     knowing who owns what is the page's job, and the waiting counts are an
+   *     addition to it, not a precondition for it.
    */
   static async listDepartmentsWithOwners(): Promise<DepartmentOwnerRow[]> {
     const supabase = this.getSupabase();
@@ -188,6 +232,8 @@ export class DepartmentOwnerService {
     );
     const ownerByArea = new Map(resolved);
 
+    const waitingByArea = await this.countWaitingIdeasByArea();
+
     return areas.map((area) => {
       const owner = ownerByArea.get(area.id) ?? null;
       return {
@@ -198,9 +244,59 @@ export class DepartmentOwnerService {
         ownerStaffId: owner?.staff_id ?? null,
         ownerName: owner?.holder_name ?? null,
         ownerEmail: owner?.holder_email ?? null,
-        ownerSince: owner?.start_date ?? null
+        ownerSince: owner?.start_date ?? null,
+        waitingIdeaCount:
+          waitingByArea === null ? null : (waitingByArea.get(area.id) ?? 0)
       };
     });
+  }
+
+  /**
+   * How many ideas are sitting in Logged, per department.
+   *
+   * ONE read for the entire board — every logged idea's `area_id`, tallied in
+   * memory — rather than a count query per department. Fourteen departments
+   * against thirty-odd ideas makes the single read cheaper and, more usefully,
+   * atomic: fourteen separate reads could each land on a different instant and
+   * produce a header total that does not equal the sum of the rows.
+   *
+   * Returns `null` when the read FAILED, which the caller carries through as an
+   * unknown count so nothing on screen asserts a number that was never read.
+   * Ideas with no department are skipped, matching the notifier exactly: its
+   * JOIN to `improvement_areas` drops them, because an idea with no department
+   * has no owner to tell.
+   *
+   * Deliberately does not throw. A department having an owner is the page's
+   * subject; what that gap costs is additional information. If the addition
+   * cannot be read, the page still does its job.
+   */
+  private static async countWaitingIdeasByArea(): Promise<Map<
+    string,
+    number
+  > | null> {
+    const supabase = this.getSupabase();
+
+    const { data, error } = (await (supabase as any)
+      .from('improvement_ideas')
+      .select('area_id')
+      .eq('status', 'logged')
+      .not('area_id', 'is', null)) as {
+      data: Array<{ area_id: string | null }> | null;
+      error: unknown;
+    };
+
+    if (error) {
+      logger.error(MODULE, 'Error counting ideas waiting per department', error);
+      return null;
+    }
+
+    const counts = new Map<string, number>();
+    for (const row of data ?? []) {
+      const areaId = row.area_id;
+      if (!areaId) continue;
+      counts.set(areaId, (counts.get(areaId) ?? 0) + 1);
+    }
+    return counts;
   }
 
   /**

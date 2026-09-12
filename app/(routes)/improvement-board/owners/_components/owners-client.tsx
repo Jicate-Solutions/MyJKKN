@@ -25,6 +25,22 @@
  * moment an officer saves, the assignment exists in `hr_additional_roles` for
  * everyone, and two dormant behaviours start firing off it — the gemba
  * "self-recorded" marker, and a department seeing findings raised about itself.
+ *
+ * WHY EACH UNOWNED ROW STATES A COST (2026-09-12)
+ * ----------------------------------------------------------------------------
+ * The page already showed which departments have nobody. That made the gap
+ * visible but made it look free. The nightly untriaged sweep skips an idea whose
+ * department has no owner and — by design — records nothing, so those ideas are
+ * counted nowhere at all. On production on 2026-09-12, 33 ideas sat in Logged
+ * and only 5 of 14 active departments had an owner. A row that says "6 ideas
+ * waiting — nobody is being told" turns "we have not got round to it" into a
+ * number of real people who wrote something and heard nothing.
+ *
+ * The count is only ever rendered when it is a positive number. Zero and
+ * unknown both render nothing, because the read behind it comes back empty both
+ * when a department is genuinely quiet and when the reader's RLS refused the
+ * rows — see the service's header. Silence is honest; a "0 ideas waiting" badge
+ * would not be.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -50,7 +66,8 @@ import {
   UserX,
   Eye,
   AlertCircle,
-  RefreshCw
+  RefreshCw,
+  TriangleAlert
 } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
@@ -194,6 +211,24 @@ function DepartmentOwners({ canAssign }: { canAssign: boolean }) {
     [rows]
   );
 
+  /**
+   * Ideas waiting on departments that have NOBODY — the number the nightly
+   * sweep skips and no other screen counts. Owned departments are excluded on
+   * purpose: their ideas are already being announced to someone. Unknown counts
+   * contribute nothing rather than being read as zero.
+   */
+  const waitingOnUnowned = useMemo(
+    () =>
+      rows.reduce(
+        (total, row) =>
+          !row.ownerName && typeof row.waitingIdeaCount === 'number'
+            ? total + row.waitingIdeaCount
+            : total,
+        0
+      ),
+    [rows]
+  );
+
   /* --- actions ----------------------------------------------------------- */
 
   const saveOwner = async (row: DepartmentOwnerRow) => {
@@ -309,6 +344,8 @@ function DepartmentOwners({ canAssign }: { canAssign: boolean }) {
           </div>
           <Badge variant={ownedCount === rows.length ? 'default' : 'secondary'}>
             {rows.length - ownedCount} still unowned
+            {waitingOnUnowned > 0 &&
+              ` · ${waitingOnUnowned} ${waitingOnUnowned === 1 ? 'idea' : 'ideas'} waiting`}
           </Badge>
         </CardContent>
       </Card>
@@ -372,9 +409,27 @@ function DepartmentOwners({ canAssign }: { canAssign: boolean }) {
                             )}
                           </span>
                         ) : (
-                          <span className="text-muted-foreground flex items-center gap-1.5 text-sm">
-                            <UserX className="h-3.5 w-3.5 shrink-0" />
-                            No owner yet
+                          <span className="flex flex-col gap-1.5">
+                            <span className="text-muted-foreground flex items-center gap-1.5 text-sm">
+                              <UserX className="h-3.5 w-3.5 shrink-0" />
+                              No owner yet
+                            </span>
+                            {/* Only ever a positive number. Zero and unknown */}
+                            {/* both render nothing — see the file header.    */}
+                            {typeof row.waitingIdeaCount === 'number' &&
+                              row.waitingIdeaCount > 0 && (
+                                <Badge
+                                  variant="outline"
+                                  className="w-fit gap-1.5 border-amber-300 bg-amber-50 font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                                >
+                                  <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
+                                  {row.waitingIdeaCount}{' '}
+                                  {row.waitingIdeaCount === 1
+                                    ? 'idea'
+                                    : 'ideas'}{' '}
+                                  waiting — nobody is being told
+                                </Badge>
+                              )}
                           </span>
                         )}
                       </TableCell>
