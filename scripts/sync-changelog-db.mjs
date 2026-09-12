@@ -210,7 +210,18 @@ function toInstantKey(value) {
 }
 
 /** One entry as the row the database would hold. `ordinal` breaks ties between
- *  entries that share a date — see assignOrdinals and the INSERT for why. */
+ *  entries that share a date — see assignOrdinals and the INSERT for why.
+ *
+ *  The @param is load-bearing, not decoration. This is a .mjs with no .d.ts, so
+ *  TypeScript infers the parameter's shape from the first call site it sees — and
+ *  one test calls `entryRow({ ...LATE, at: undefined })`, which narrowed `e` to
+ *  `{ at: string }` and made every `e.h` / `e.d` below a TS2339. Declaring the
+ *  shape here fixes it for every caller instead of contorting the test.
+ *
+ * @param {{ h: string, d: string, at?: string | null, t?: string, m?: string,
+ *           s?: string, a?: string, e?: string, p?: number, b?: boolean }} e
+ * @param {number} ordinal
+ */
 export function entryRow(e, ordinal) {
   return {
     sha: e.h,
