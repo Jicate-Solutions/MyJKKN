@@ -103,6 +103,18 @@ export default function PaymentSuccessPage() {
   const provider = searchParams.get('provider');
   const razorpayOrderId = searchParams.get('razorpay_order_id');
   const razorpayPaymentId = searchParams.get('razorpay_payment_id');
+  // The verdict the callback already reached before it redirected here. It only
+  // sets verified_status='success' AFTER verifying Razorpay's HMAC signature and
+  // running the dual inquiry (GET /orders + GET /payments) server-side.
+  //
+  // The Razorpay branch never sends `hdfc_status`, so reading only that param
+  // left this page with no way to recognise a successful Razorpay payment: it
+  // fell through to its 'pending' initial state and rendered the "Payment
+  // Initiated" heading on a payment that was already captured, receipted and
+  // credited. These two params are the optimistic path; `verifiedStatus` from
+  // the database below stays authoritative and can still downgrade it.
+  const callbackConfirmedSuccess =
+    searchParams.get('verified') === 'true' && searchParams.get('verified_status') === 'success';
   const [isLoading, setIsLoading] = useState(true);
   const [paymentStatus, setPaymentStatus] = useState<'success' | 'pending' | 'failed'>('pending');
   const [showContent, setShowContent] = useState(false);
@@ -142,8 +154,11 @@ export default function PaymentSuccessPage() {
   }, [verifiedStatus, isVerifying, transactionId, router]);
 
   useEffect(() => {
-    // Check payment status based on HDFC response (initial check from URL params)
-    if (hdfcStatus === 'CHARGED' || hdfcStatus === 'SUCCESS' || hdfcStatus === 'COMPLETED') {
+    // Check payment status based on the callback's verdict (initial check from
+    // URL params). Razorpay arrives as verified/verified_status, HDFC as hdfc_status.
+    if (callbackConfirmedSuccess) {
+      setPaymentStatus('success');
+    } else if (hdfcStatus === 'CHARGED' || hdfcStatus === 'SUCCESS' || hdfcStatus === 'COMPLETED') {
       setPaymentStatus('success');
     } else if (hdfcStatus === 'FAILED' || hdfcStatus === 'DECLINED') {
       // Redirect non-success payments to failed page
@@ -163,15 +178,21 @@ export default function PaymentSuccessPage() {
     const timer2 = setTimeout(() => {
       setShowContent(true);
 
-      if (hdfcStatus === 'CHARGED' || hdfcStatus === 'SUCCESS' || hdfcStatus === 'COMPLETED') {
+      if (
+        callbackConfirmedSuccess ||
+        hdfcStatus === 'CHARGED' ||
+        hdfcStatus === 'SUCCESS' ||
+        hdfcStatus === 'COMPLETED'
+      ) {
         toast.success('Payment Successful!', {
-         
           duration: 5000,
-         
         });
       } else {
-        toast.error('Payment Initiated!', {
-          icon: <CheckCircle2 className="h-4 w-4" />,
+        // Genuinely still awaiting confirmation. NOT toast.error — a payment
+        // awaiting a webhook is not a failure, and this fired on every verified
+        // Razorpay success while the heading said the same thing.
+        toast('Payment Initiated', {
+          icon: <Loader2 className="h-4 w-4 animate-spin" />,
           duration: 5000,
         });
       }
@@ -181,7 +202,7 @@ export default function PaymentSuccessPage() {
       clearTimeout(timer1);
       clearTimeout(timer2);
     };
-  }, [hdfcStatus, receiptId]);
+  }, [hdfcStatus, receiptId, callbackConfirmedSuccess]);
 
   if (!transactionId) {
     return (
@@ -415,7 +436,7 @@ export default function PaymentSuccessPage() {
                         <>
                           <li className="flex items-start gap-2">
                             <ArrowRight className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                            <span>HDFC will send a payment confirmation webhook</span>
+                            <span>{gatewayLabel} will send a payment confirmation webhook</span>
                           </li>
                           <li className="flex items-start gap-2">
                             <ArrowRight className="h-4 w-4 mt-0.5 flex-shrink-0" />

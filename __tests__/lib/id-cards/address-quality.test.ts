@@ -359,11 +359,16 @@ describe('drift guard against the renderer', () => {
     expect(block).toContain(".join(', ')");
   });
 
-  it('still cuts the address at the two widths this module warns on', () => {
+  it('still sizes the address tail-first on both back paths (responsive text, 2026-09-05)', () => {
+    // The renderer no longer applies a fixed character cut: both address paths
+    // run through fitText with preserveTail, which wraps/shrinks first and
+    // elides the MIDDLE only at the readability floor. The two thresholds this
+    // module warns on are therefore data-quality heuristics, not renderer caps.
     const source = read('lib/id-cards/render-card.tsx');
     // The default back's ADDRESS row goes through backInfoRow.
-    expect(source).toContain(`truncateForCard(value, ${PRINTABLE_ADDRESS_DEFAULT_BACK_MAX})`);
+    expect(source).toContain('preserveTail: options?.preserveTail');
     // A template-designed back places it as a free overlay element.
-    expect(source).toContain(`truncateForCard(value, ${PRINTABLE_ADDRESS_CUSTOM_BACK_MAX})`);
+    expect(source).toContain('preserveTail: isAddress');
+    expect(PRINTABLE_ADDRESS_DEFAULT_BACK_MAX).toBeLessThan(PRINTABLE_ADDRESS_CUSTOM_BACK_MAX);
   });
 });

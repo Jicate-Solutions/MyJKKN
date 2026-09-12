@@ -8,7 +8,6 @@
  */
 
 import { useMemo, useState } from 'react';
-import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { CalendarRange, Plus } from 'lucide-react';
 
@@ -27,6 +26,7 @@ import { PeriodFilter, allTimePeriod, type PeriodRange } from '../_components/pe
 import { RequestTable, RequestRow, StatusBadge } from '../_components/request-table';
 import { formatDays, stageLabel } from '../_components/format';
 import { ApplyLeaveDrawer } from '../_components/apply-leave-drawer';
+import { LeaveRequestDetailSheet } from '../_components/leave-request-detail-sheet';
 import { useMyApplications } from '@/hooks/hr/use-leave';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
 import { LEAVE_DURATION_LABELS } from '@/types/hr';
@@ -55,6 +55,8 @@ export default function LeaveRequestsPage() {
    * The ledger answers the follow-up -- "which month did that day come from".
    */
   const [ledgerFor, setLedgerFor] = useState<string | null>(null);
+  /** Which request has its detail sheet open. Null = closed. */
+  const [detailFor, setDetailFor] = useState<{ id: string; name: string | null } | null>(null);
   const withdraw = useWithdrawApplication();
 
   const { data, isLoading, refetch, isFetching } = useMyApplications(
@@ -206,20 +208,26 @@ export default function LeaveRequestsPage() {
             emptyMessage="No leave requests yet. Use Apply to submit one."
           >
             {rows.map((a) => (
-              <RequestRow key={a.id} status={a.status}>
-                {/* THE ONLY LINK TO /hr/leave/[id] IN THE APP. That page renders
-                    the full approval timeline — every step, who sits on it, who
-                    has decided and when — and nothing has pointed at it since
-                    the approvals queue moved to a sheet in August, so staff had
-                    no way to see where their request had reached. */}
+              <RequestRow key={a.id} status={a.status} revoked={a.revoked_at !== null}>
+                {/* Opens the detail SHEET rather than navigating to
+                    /hr/leave/[id]. The page still exists and renders the same
+                    body, so a bookmarked request URL keeps working — but
+                    reading six fields should not cost the trip out, the trip
+                    back and the period filter that got you to this row. */}
                 <TableCell className="pl-4 font-medium">
-                  <Link
-                    href={`/hr/leave/${a.id}`}
-                    className="underline-offset-4 hover:underline"
+                  <button
+                    type="button"
+                    className="text-left underline-offset-4 hover:underline"
                     title="View approval progress"
+                    onClick={() =>
+                      setDetailFor({
+                        id: a.id,
+                        name: a.hr_leave_types?.leave_type_name ?? null,
+                      })
+                    }
                   >
                     {a.hr_leave_types?.leave_type_name ?? '—'}
-                  </Link>
+                  </button>
                 </TableCell>
                 <TableCell>{fmtDate(a.start_date)}</TableCell>
                 <TableCell>{fmtDate(a.end_date)}</TableCell>
@@ -227,7 +235,7 @@ export default function LeaveRequestsPage() {
                 <TableCell className="text-muted-foreground">
                   {LEAVE_DURATION_LABELS[a.duration_type] ?? a.duration_type}
                 </TableCell>
-                <TableCell><StatusBadge status={a.status} /></TableCell>
+                <TableCell><StatusBadge status={a.status} revoked={a.revoked_at !== null} /></TableCell>
                 {/* "Pending" says nothing for six days while a request moves up
                     a three-step chain. This says which step it is on; the leave
                     name links to the full timeline. */}
@@ -256,6 +264,12 @@ export default function LeaveRequestsPage() {
       )}
 
       <ApplyLeaveDrawer open={applyOpen} onOpenChange={setApplyOpen} />
+
+      <LeaveRequestDetailSheet
+        applicationId={detailFor?.id ?? null}
+        leaveTypeName={detailFor?.name}
+        onOpenChange={(open) => !open && setDetailFor(null)}
+      />
     </TimeOffShell>
   );
 }

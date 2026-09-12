@@ -10498,3 +10498,483 @@ WITH CHECK (((learner_id = ( SELECT auth.uid() AS uid)) AND (EXISTS ( SELECT 1
    FROM (hostel_cleaning_bookings b
      JOIN hostel_allocations a ON ((a.room_id = b.room_id)))
   WHERE ((b.id = hostel_cleaning_feedback.booking_id) AND (b.status = 'awaiting_feedback'::text) AND (a.learner_id = ( SELECT auth.uid() AS uid)) AND ((a.status)::text = ANY (fn_cl_roster_statuses())))))));
+
+-- 2026-09-09 — hostel_cleaning_booking_reschedules
+-- (migration 20260909160010_housekeeping_reschedule_schema.sql). SELECT is the
+-- only policy: rows are written by fn_cl_housekeeping_reschedule alone. The
+-- predicate delegates to the bookings policy rather than restating it, so
+-- admin (.view + institution access), super admin and "I live in that room"
+-- all resolve through ONE wall and cannot drift apart.
+CREATE POLICY hk_reschedules_select ON public.hostel_cleaning_booking_reschedules FOR SELECT
+USING ((EXISTS ( SELECT 1
+   FROM hostel_cleaning_bookings b
+  WHERE (b.id = hostel_cleaning_booking_reschedules.booking_id))));
+
+-- 2026-09-07 — sh_department_status_reviews scoped by institution
+-- (migration 20261119000000_status_reviews_scoped_by_institution.sql; FILE
+-- ONLY, not applied — the operator applies it). The policies shipped in
+-- 20261019000000 checked a permission key alone, with no institution
+-- predicate, and the joined sh_solution_departments is USING (true), so any
+-- holder of solutions.societal.view read proposed status changes for all 14
+-- colleges. It cost nothing to leave open while the table had no reader; the
+-- Director's 2026-09-07 grant of that key to hod (118 assignments) and
+-- principal (13) is what made it urgent. The table has no institution_id of
+-- its own, so the scope comes through the department row, whose
+-- institution_id is NOT NULL — which matters, because
+-- role_has_institution_access(NULL) returns TRUE by design.
+-- ⚠️ These two policies govern DIRECT PostgREST access only. The path the
+-- product uses, apply_department_status_review(), is SECURITY DEFINER and
+-- bypasses RLS, so neither policy is consulted on it — its institution check
+-- lives inside the function (migration 20261120000000). These are defence in
+-- depth for the direct GET/PATCH, not the control.
+CREATE POLICY "sh_department_status_reviews_select"
+  ON public.sh_department_status_reviews
+  FOR SELECT
+  USING (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR (
+      public.user_has_permission('solutions.societal.view')
+      AND EXISTS (
+        SELECT 1
+        FROM public.sh_solution_departments d
+        WHERE d.id = sh_department_status_reviews.solution_department_id
+          AND public.role_has_institution_access(d.institution_id)
+      )
+    )
+  )
+
+CREATE POLICY "sh_department_status_reviews_update"
+  ON public.sh_department_status_reviews
+  FOR UPDATE
+  USING (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR (
+      public.user_has_permission('solutions.societal.approve')
+      AND EXISTS (
+        SELECT 1
+        FROM public.sh_solution_departments d
+        WHERE d.id = sh_department_status_reviews.solution_department_id
+          AND public.role_has_institution_access(d.institution_id)
+      )
+    )
+  );
+-- ============================================================================
+-- Events · event_number_counters · event_target_classes · the two catalogues
+-- Updated: 2026-09-07 — see supabase/migrations/20261118093000_events_institutional_number_and_target_classes.sql
+-- No role name is hardcoded anywhere below.
+-- ============================================================================
+
+DROP POLICY IF EXISTS event_number_counters_select ON public.event_number_counters;
+CREATE POLICY event_number_counters_select ON public.event_number_counters
+  FOR SELECT TO authenticated
+  USING (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR (public.user_has_permission('events.view')
+        AND public.role_has_institution_access(institution_id))
+  );
+
+DROP POLICY IF EXISTS event_target_classes_select ON public.event_target_classes;
+CREATE POLICY event_target_classes_select ON public.event_target_classes
+  FOR SELECT TO authenticated
+  USING (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR (public.user_has_permission('events.view')
+        AND public.role_has_institution_access(institution_id))
+  );
+
+DROP POLICY IF EXISTS event_target_classes_insert ON public.event_target_classes;
+CREATE POLICY event_target_classes_insert ON public.event_target_classes
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR (public.user_has_permission('events.target_classes.manage')
+        AND public.role_has_institution_access(institution_id))
+  );
+
+DROP POLICY IF EXISTS event_target_classes_update ON public.event_target_classes;
+CREATE POLICY event_target_classes_update ON public.event_target_classes
+  FOR UPDATE TO authenticated
+  USING (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR (public.user_has_permission('events.target_classes.manage')
+        AND public.role_has_institution_access(institution_id))
+  );
+
+DROP POLICY IF EXISTS event_target_classes_delete ON public.event_target_classes;
+CREATE POLICY event_target_classes_delete ON public.event_target_classes
+  FOR DELETE TO authenticated
+  USING (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR (public.user_has_permission('events.target_classes.manage')
+        AND public.role_has_institution_access(institution_id))
+  );
+
+-- The two catalogues. institution_id IS NULL means "every college", so it is
+-- readable by anyone who can see events at all — a catalogue nobody can read is
+-- a dropdown that is always empty.
+DROP POLICY IF EXISTS event_academic_types_select ON public.event_academic_types;
+CREATE POLICY event_academic_types_select ON public.event_academic_types
+  FOR SELECT TO authenticated
+  USING (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR (public.user_has_permission('events.view')
+        AND (institution_id IS NULL OR public.role_has_institution_access(institution_id)))
+  );
+
+DROP POLICY IF EXISTS event_academic_types_write ON public.event_academic_types;
+CREATE POLICY event_academic_types_write ON public.event_academic_types
+  FOR ALL TO authenticated
+  USING (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR (public.user_has_permission('events.catalogues.manage')
+        AND (institution_id IS NULL OR public.role_has_institution_access(institution_id)))
+  )
+
+-- ============================================================================
+-- 2026-11-20 — sh_community_engagements: a submitter can see their own row
+-- Migration: 20261120143000_societal_submitter_can_see_own_engagement.sql
+-- Status at time of writing: NOT APPLIED — FILE ONLY.
+-- ============================================================================
+--
+-- `INSERT ... RETURNING` filters the returned row through the SELECT policy, so
+-- a submit-only faculty member passed the INSERT WITH CHECK, failed SELECT on
+-- the row being returned, and the whole statement errored 42501 and rolled
+-- back. A read policy narrower than its write policy is a WRITE bug.
+--
+-- The fourth branch is per-user by construction (`recorded_by = auth.uid()`) and
+-- shows a submitter their own entries only. It is deliberately NOT bounded to
+-- `approval_status = 'pending'` the way the UPDATE branch is: `review_note`
+-- exists to tell a submitter why their entry was rejected, and a pending-only
+-- read would deliver it to nobody. Its key test mirrors the INSERT policy
+-- (`submit OR record`), because it exists to make that INSERT's RETURNING work.
+--
+-- The INSERT / UPDATE / DELETE policies on this table are unchanged by that
+-- migration and are not restated here; they live in
+-- 20261013000000_societal_capture_and_activity_clock.sql and
+-- 20261019000000_societal_approval_and_status_review.sql.
+
+CREATE POLICY "sh_community_engagements_select" ON public.sh_community_engagements
+    FOR SELECT USING (
+        public.is_super_admin()
+        OR public.is_admin()
+        OR (
+            public.user_has_permission('solutions.societal.view')
+            AND public.role_has_institution_access(institution_id)
+        )
+        OR (
+            recorded_by = auth.uid()
+            AND (
+                public.user_has_permission('solutions.societal.submit')
+                OR public.user_has_permission('solutions.societal.record')
+            )
+        )
+    )
+
+  WITH CHECK (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR (public.user_has_permission('events.catalogues.manage')
+        AND (institution_id IS NULL OR public.role_has_institution_access(institution_id)))
+  );
+
+DROP POLICY IF EXISTS event_impact_categories_select ON public.event_impact_categories;
+CREATE POLICY event_impact_categories_select ON public.event_impact_categories
+  FOR SELECT TO authenticated
+  USING (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR (public.user_has_permission('events.view')
+        AND (institution_id IS NULL OR public.role_has_institution_access(institution_id)))
+  );
+
+DROP POLICY IF EXISTS event_impact_categories_write ON public.event_impact_categories;
+CREATE POLICY event_impact_categories_write ON public.event_impact_categories
+  FOR ALL TO authenticated
+  USING (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR (public.user_has_permission('events.catalogues.manage')
+        AND (institution_id IS NULL OR public.role_has_institution_access(institution_id)))
+  )
+  WITH CHECK (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR (public.user_has_permission('events.catalogues.manage')
+        AND (institution_id IS NULL OR public.role_has_institution_access(institution_id)))
+  );
+
+
+
+-- ============================================================================
+-- Campus Living — allocation, bed and learner policies scope on institution OR
+-- block. Mirrored from migrations 20260909160000 and 20260909170000.
+-- The two hostel_allocations SELECT policies also collapse into one: multiple
+-- permissive policies are ORed but ALL of them evaluate per candidate row.
+-- ============================================================================
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 2. hostel_allocations policies — institution OR block, everywhere.
+--    The two SELECT policies also collapse into one: multiple permissive
+--    policies are ORed but ALL of them are evaluated per candidate row.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+DROP POLICY IF EXISTS hostel_allocations_warden_review_select ON public.hostel_allocations;
+DROP POLICY IF EXISTS hostel_allocations_select_permission ON public.hostel_allocations;
+
+CREATE POLICY hostel_allocations_select_permission ON public.hostel_allocations
+FOR SELECT
+USING (
+  (SELECT is_super_admin())
+  OR (SELECT is_admin())
+  OR (
+    (SELECT user_has_permission('campus_living.allocations.view'))
+    AND (role_has_institution_access(institution_id) OR role_has_block_access(block_id))
+  )
+  -- Kept from the old hostel_allocations_warden_review_select: an approver may
+  -- read the rows they are being asked to approve even without allocations.view.
+  OR (
+    (SELECT user_has_permission('campus_living.allocations.approve'))
+    AND role_has_block_access(block_id)
+  )
+  OR (
+    (SELECT user_has_permission('campus_living.allocations.view_own'))
+    AND learner_id = (SELECT auth.uid())
+  )
+);
+
+DROP POLICY IF EXISTS hostel_allocations_insert_permission ON public.hostel_allocations;
+CREATE POLICY hostel_allocations_insert_permission ON public.hostel_allocations
+FOR INSERT
+WITH CHECK (
+  (SELECT is_super_admin())
+  OR (SELECT is_admin())
+  OR (
+    (SELECT user_has_permission('campus_living.allocations.create'))
+    AND (role_has_institution_access(institution_id) OR role_has_block_access(block_id))
+  )
+);
+
+DROP POLICY IF EXISTS hostel_allocations_update_permission ON public.hostel_allocations;
+CREATE POLICY hostel_allocations_update_permission ON public.hostel_allocations
+FOR UPDATE
+USING (
+  (SELECT is_super_admin())
+  OR (SELECT is_admin())
+  OR (
+    (SELECT user_has_permission('campus_living.allocations.edit'))
+    AND (role_has_institution_access(institution_id) OR role_has_block_access(block_id))
+  )
+)
+WITH CHECK (
+  (SELECT is_super_admin())
+  OR (SELECT is_admin())
+  OR (
+    (SELECT user_has_permission('campus_living.allocations.edit'))
+    AND (role_has_institution_access(institution_id) OR role_has_block_access(block_id))
+  )
+);
+
+DROP POLICY IF EXISTS hostel_allocations_delete_permission ON public.hostel_allocations;
+CREATE POLICY hostel_allocations_delete_permission ON public.hostel_allocations
+FOR DELETE
+USING (
+  (SELECT is_super_admin())
+  OR (SELECT is_admin())
+  OR (
+    (SELECT user_has_permission('campus_living.allocations.delete'))
+    AND (role_has_institution_access(institution_id) OR role_has_block_access(block_id))
+  )
+);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 3. hostel_beds SELECT — the transfer dialog's bed picker reads this table
+--    directly (useBedsByRoom), and it returned 0 rows for a warden, so "Change
+--    room / bed" would have stayed unusable even with the RPC gate widened.
+--    hostel_beds has no block_id, hence the room-id array.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+DROP POLICY IF EXISTS hostel_beds_select_permission ON public.hostel_beds;
+CREATE POLICY hostel_beds_select_permission ON public.hostel_beds
+FOR SELECT
+USING (
+  (SELECT is_super_admin())
+  OR (SELECT is_admin())
+  OR (
+    (SELECT user_has_permission('campus_living.beds.view'))
+    AND (
+      role_has_institution_access(institution_id)
+      -- Array-contains against a scalar subquery: one InitPlan for the whole
+      -- query, not one function call per bed. (`= ANY ((SELECT f()))` would be
+      -- read as ANY-of-a-SUBQUERY and compare uuid to uuid[] — 42883.)
+      OR (SELECT public.fn_cl_my_block_room_ids()) @> ARRAY[room_id]
+    )
+  )
+);
+
+-- existing branch is carried over verbatim; only the last one is new.
+DROP POLICY IF EXISTS learners_profiles_select_policy ON public.learners_profiles;
+
+CREATE POLICY learners_profiles_select_policy ON public.learners_profiles
+FOR SELECT
+USING (
+  (SELECT is_super_admin())
+  OR (
+    institution_id = ANY (
+      (SELECT array_agg(i.id) FROM institutions i WHERE role_has_institution_access(i.id))::uuid[]
+    )
+    AND (
+      (SELECT user_has_permission('learners.admissions.view'))
+      OR (SELECT user_has_permission('learners.profiles.view'))
+      OR (SELECT user_has_permission('learners.view'))
+    )
+  )
+  OR student_email = (SELECT profiles.email FROM profiles WHERE profiles.id = (SELECT auth.uid()))
+  OR college_email = (SELECT profiles.email FROM profiles WHERE profiles.id = (SELECT auth.uid()))
+  -- NEW: the learner behind an allocation in a block the caller holds. Scalar
+  -- subquery so the id set is one InitPlan for the whole query rather than a
+  -- lookup per candidate row.
+  OR (
+    (SELECT user_has_permission('campus_living.allocations.view'))
+    AND (SELECT public.fn_cl_my_block_learner_ids()) @> ARRAY[learners_profiles.id]
+  )
+);
+
+
+-- ---------------------------------------------------------------------------
+-- hr_leave_approver_scopes -- mirrored from
+-- supabase/migrations/20260908170000_leave_approval_org_scope.sql
+-- ---------------------------------------------------------------------------
+-- Read is open to every authenticated user because this is the config that
+-- every leave gate consults, per row, from inside SECURITY DEFINER functions.
+-- Write follows the screen that owns it (/hr/admin/leave-types), so no new
+-- permission key -- and therefore no role-grant migration -- was needed.
+-- One permissive policy per verb: multiple permissive policies are ORed and
+-- all of them are evaluated per row.
+
+DROP POLICY IF EXISTS hlas_select ON public.hr_leave_approver_scopes;
+CREATE POLICY hlas_select ON public.hr_leave_approver_scopes
+  FOR SELECT TO authenticated
+  USING (true);
+
+DROP POLICY IF EXISTS hlas_write ON public.hr_leave_approver_scopes;
+CREATE POLICY hlas_write ON public.hr_leave_approver_scopes
+  FOR ALL TO authenticated
+  USING (
+    public.is_super_admin()
+    OR public.user_has_permission('hr.leave.types.manage')
+  )
+  WITH CHECK (
+    public.is_super_admin()
+    OR public.user_has_permission('hr.leave.types.manage')
+  );
+
+
+-- ===== 20261128000000_hostel_category_room_sources =====
+
+-- Read is open to every signed-in user: this is configuration that each
+-- resident's own room picker has to resolve, exactly like hostel_categories
+-- (whose SELECT policy is likewise `true`). Writes are gated on a PERMISSION
+-- KEY, never on a hardcoded role name — hostel_categories' own write policies
+-- still test profiles.role and should be migrated the same way one day.
+DROP POLICY IF EXISTS hcrs_select ON public.hostel_category_room_sources;
+CREATE POLICY hcrs_select ON public.hostel_category_room_sources
+  FOR SELECT TO authenticated USING (true);
+
+DROP POLICY IF EXISTS hcrs_insert ON public.hostel_category_room_sources;
+CREATE POLICY hcrs_insert ON public.hostel_category_room_sources
+  FOR INSERT TO authenticated
+  WITH CHECK (public.user_has_permission('campus_living.settings.edit'));
+
+DROP POLICY IF EXISTS hcrs_update ON public.hostel_category_room_sources;
+CREATE POLICY hcrs_update ON public.hostel_category_room_sources
+  FOR UPDATE TO authenticated
+  USING (public.user_has_permission('campus_living.settings.edit'))
+  WITH CHECK (public.user_has_permission('campus_living.settings.edit'));
+
+DROP POLICY IF EXISTS hcrs_delete ON public.hostel_category_room_sources;
+CREATE POLICY hcrs_delete ON public.hostel_category_room_sources
+  FOR DELETE TO authenticated
+  USING (public.user_has_permission('campus_living.settings.edit'));
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hostel_category_room_sources TO authenticated;
+GRANT ALL ON public.hostel_category_room_sources TO service_role;
+
+-- hr_decision_emails (20260911200000): whoever can see the request can see what
+-- happened to its email; nobody writes through the API (trigger + service role).
+DROP POLICY IF EXISTS hde_select ON public.hr_decision_emails;
+CREATE POLICY hde_select ON public.hr_decision_emails
+  FOR SELECT TO authenticated
+  USING (
+    (leave_application_id IS NOT NULL AND EXISTS (
+      SELECT 1 FROM public.hr_leave_applications a
+      WHERE a.id = hr_decision_emails.leave_application_id))
+    OR
+    (comp_off_credit_id IS NOT NULL AND EXISTS (
+      SELECT 1 FROM public.hr_comp_off_credits c
+      WHERE c.id = hr_decision_emails.comp_off_credit_id))
+  );
+
+REVOKE ALL ON public.hr_decision_emails FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.hr_decision_emails TO authenticated;
+GRANT ALL ON public.hr_decision_emails TO service_role;
+
+
+-- =====================================================================================
+-- Mirrored from supabase/migrations/20260912100000_hr_leave_revoke_approved_decision.sql  (2026-09-12)
+-- Revoking an APPROVED leave / short-time-off / comp-off-claim decision.
+-- A revocation stores status='rejected'; revoked_at is what tells the two apart.
+-- =====================================================================================
+-- -------------------------------------------------------------------------------------
+-- 6. RLS
+--
+-- Without this the trigger above never runs for the person it is written for. For an
+-- APPROVED row hla_update admits only super admins, the applicant, and hr.leave.approve
+-- holders: fn_is_designated_leave_approver tests approval_chain -> current_step, and
+-- current_step has advanced PAST the final step the moment the request was granted. A
+-- Principal who granted the leave is therefore refused by the policy itself, before any
+-- trigger has an opinion.
+-- -------------------------------------------------------------------------------------
+DROP POLICY IF EXISTS hla_update ON public.hr_leave_applications;
+CREATE POLICY hla_update ON public.hr_leave_applications
+  FOR UPDATE
+  USING (
+    (SELECT public.is_super_admin())
+    OR (employee_id IN (SELECT unnest(public.fn_my_staff_ids())))
+    OR ((SELECT public.user_has_permission('hr.leave.approve'))
+        AND hr_organization_id IN (SELECT unnest(public.fn_my_hr_organization_ids())))
+    OR public.fn_is_designated_leave_approver(id)
+    OR public.fn_hr_leave_can_revoke(id)
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR ((status)::text <> ALL (ARRAY['approved'::text, 'rejected'::text]))
+    OR ((SELECT public.user_has_permission('hr.leave.approve'))
+        AND hr_organization_id IN (SELECT unnest(public.fn_my_hr_organization_ids())))
+    OR public.fn_is_designated_leave_approver(id)
+    OR public.fn_hr_leave_can_revoke(id)
+  );
+
+DROP POLICY IF EXISTS hcoc_update ON public.hr_comp_off_credits;
+CREATE POLICY hcoc_update ON public.hr_comp_off_credits
+  FOR UPDATE
+  USING (
+    (SELECT public.is_super_admin())
+    OR (((SELECT public.user_has_permission('hr.leave.approve'))
+         OR (SELECT public.user_has_permission('hr.leave.revoke')))
+        AND hr_organization_id IN (SELECT unnest(public.fn_my_hr_organization_ids())))
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (((SELECT public.user_has_permission('hr.leave.approve'))
+         OR (SELECT public.user_has_permission('hr.leave.revoke')))
+        AND hr_organization_id IN (SELECT unnest(public.fn_my_hr_organization_ids()))
+        AND NOT (employee_id IN (SELECT unnest(public.fn_my_staff_ids()))))
+  );

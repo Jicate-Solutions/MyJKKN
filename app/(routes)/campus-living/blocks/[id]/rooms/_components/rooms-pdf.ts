@@ -101,6 +101,7 @@ export async function exportRoomsPdf(
     formatTierAccess(r.tier_access),
     `${r.active_residents}/${r.capacity}`,
     r.actual_capacity != null ? String(r.actual_capacity) : '—',
+    r.extra_bed_count > 0 ? `+${r.extra_bed_count}` : '—',
     statusLabel(r.derived_status),
     r.has_attached_bathroom ? 'Yes' : 'No',
     r.renovated || '—',
@@ -111,7 +112,7 @@ export async function exportRoomsPdf(
     startY: y,
     head: [[
       'Room No.', 'Floor', 'Type', 'AC', 'Category', 'Purpose', 'Tier',
-      'Occ.', 'Actual', 'Status', 'Bath', 'Renovated', 'Painting',
+      'Occ.', 'Actual', 'Extra', 'Status', 'Bath', 'Renovated', 'Painting',
     ]],
     body,
     theme: 'striped',
@@ -121,7 +122,8 @@ export async function exportRoomsPdf(
     columnStyles: {
       7: { halign: 'center' },  // Occupancy
       8: { halign: 'center' },  // Actual capacity
-      10: { halign: 'center' }, // Bathroom
+      9: { halign: 'center' },  // Extra (temporary) beds
+      11: { halign: 'center' }, // Bathroom
     },
     margin: { left: margin, right: margin },
   });

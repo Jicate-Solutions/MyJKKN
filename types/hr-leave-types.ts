@@ -354,6 +354,28 @@ export interface LeaveApproverCandidate {
   can_approve: boolean;
 }
 
+/**
+ * From fn_hr_leave_pending_chain_drift() and fn_hr_leave_resync_pending_chains().
+ *
+ * A chain is frozen at apply time, so editing a flow leaves in-flight requests
+ * routing to whoever the OLD flow named. These two report, and then close, that
+ * gap: `eligible` is what the preview would move, `resynced` what it did move.
+ *
+ * The two skip buckets are NOT interchangeable. `skipped_decided` clears itself
+ * once those requests finish under their original chain; `skipped_locked` needs
+ * the attendance period unlocked before any re-sync can touch them at all.
+ */
+export interface LeaveChainResyncResult {
+  /** Preview only — how many requests the re-sync would move. */
+  eligible?: number;
+  /** Re-sync only — how many it actually moved. */
+  resynced?: number;
+  /** Part-approved; rebuilding would erase a recorded decision. */
+  skipped_decided: number;
+  /** Dates sit in a locked hr_attendance_period, which refuses every update. */
+  skipped_locked: number;
+}
+
 export const LEAVE_APPROVER_MODE_LABELS: Record<LeaveApproverMode, string> = {
   role: 'Anyone holding a role',
   user: 'One named person',

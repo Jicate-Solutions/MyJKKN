@@ -11,6 +11,7 @@ import Link from 'next/link';
 import { useParadigmShiftDepartment } from '@/hooks/solutions/use-paradigm-shift';
 import { TierBadge } from '../../_components/tier-badge';
 import { MetricCard } from '../../_components/metric-card';
+import { CommunityEngagementsPanel } from './community-engagements-panel';
 import { formatCurrency } from '@/lib/services/solutions';
 import type { DepartmentDetail as DeptDetailType } from '@/lib/services/solutions/paradigm-shift-service';
 
@@ -173,6 +174,18 @@ export function DepartmentDetailView() {
         <h2 className="text-lg font-semibold mb-3">Metrics (Current Fiscal Year)</h2>
         <MetricCard metrics={dept.metrics} average={dept.institutional_average} />
       </div>
+
+      {/*
+        The community engagement register. Approving an entry here is the only
+        event in the platform that writes sh_solution_departments.last_activity_at,
+        so this panel is what keeps a department that closes un-invoiced problems
+        out of dormancy.
+      */}
+      <CommunityEngagementsPanel
+        departmentId={dept.department_id}
+        institutionId={dept.institution_id}
+        departmentName={dept.department_name}
+      />
 
       {/* Two-column layout */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">

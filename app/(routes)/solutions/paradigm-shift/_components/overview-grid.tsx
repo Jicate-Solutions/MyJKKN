@@ -18,7 +18,11 @@ import { useParadigmShiftOverview } from '@/hooks/solutions/use-paradigm-shift';
 import { DepartmentCard } from './department-card';
 import { TierBadge, getTierColor } from './tier-badge';
 import { formatCurrency } from '@/lib/services/solutions';
-import { SOCIETAL_METRICS_UNAVAILABLE_REASON, type ReadinessTier } from '@/lib/services/solutions/paradigm-shift-service';
+import {
+  SOCIETAL_AVAILABILITY_REASONS,
+  type ReadinessTier,
+  type SocietalAvailability,
+} from '@/lib/services/solutions/paradigm-shift-service';
 import { CLUSTER_LABELS, type SolutionsCluster } from '@/lib/services/solutions/clusters';
 
 function getCurrentFYLabel(): string {
@@ -27,31 +31,56 @@ function getCurrentFYLabel(): string {
   return `FY ${year}-${String(year + 1).slice(-2)}`;
 }
 
+/** The short words on the card itself when there is no number to show. */
+const SOCIETAL_ABSENCE_LABELS: Record<Exclude<SocietalAvailability, 'measured'>, string> = {
+  source_unavailable: 'Not tracked yet',
+  not_visible: 'Hidden from your role',
+  unconfirmed: 'Could not be checked',
+};
+
 /**
- * A societal figure. `null` means the platform cannot measure it yet — render that
- * plainly rather than a zero, which would read as a real measurement of nil impact.
+ * A societal figure, or an honest account of why there isn't one.
+ *
+ * DESIGN SYSTEM (design-system/MASTER.md §6 and the review checklist). This card
+ * used to carry `border-emerald-200 bg-emerald-50/50`, `text-emerald-600/700` and
+ * `text-emerald-900` with no dark pairing at all — a near-white surface and
+ * near-black text in dark mode, and on white `emerald-600` measures 3.30:1 against
+ * the 4.5:1 minimum. The surface is now the semantic `Card` default (which is
+ * theme-aware) and the one accent left is the sanctioned theme-paired status pair
+ * `text-green-700 dark:text-emerald-400`.
  */
 function SocietalCard({
   icon: Icon,
   label,
   value,
+  availability,
 }: {
   icon: LucideIcon;
   label: string;
   value: number | null | undefined;
+  availability: SocietalAvailability;
 }) {
-  const measured = typeof value === 'number';
+  // `availability` is the authority, not the value: a `0` that arrived while the
+  // register was invisible is not a measurement, and must never print as one.
+  const measured = availability === 'measured' && typeof value === 'number';
   return (
-    <Card className={measured ? 'border-emerald-200 bg-emerald-50/50' : 'border-dashed'}>
+    <Card className={measured ? undefined : 'border-dashed'}>
       <CardContent className="p-4">
         <div className="flex items-center gap-2 mb-1">
-          <Icon className={`h-4 w-4 ${measured ? 'text-emerald-600' : 'text-muted-foreground'}`} />
-          <span className={`text-xs ${measured ? 'text-emerald-700' : 'text-muted-foreground'}`}>{label}</span>
+          <Icon
+            className={`h-4 w-4 ${measured ? 'text-green-700 dark:text-emerald-400' : 'text-muted-foreground'}`}
+          />
+          <span className={`text-xs ${measured ? 'text-foreground' : 'text-muted-foreground'}`}>
+            {label}
+          </span>
         </div>
         {measured ? (
-          <p className="text-2xl font-bold text-emerald-900">{value.toLocaleString('en-IN')}</p>
+          <p className="text-2xl font-bold text-foreground">{value.toLocaleString('en-IN')}</p>
         ) : (
-          <p className="text-sm font-medium text-muted-foreground">Not tracked yet</p>
+          <p className="text-sm font-medium text-muted-foreground">
+            {SOCIETAL_ABSENCE_LABELS[availability as Exclude<SocietalAvailability, 'measured'>] ??
+              'Not tracked yet'}
+          </p>
         )}
       </CardContent>
     </Card>
@@ -87,11 +116,11 @@ export function OverviewGrid() {
   }
   const institutions = institutionsRef.current;
 
-  // Societal figures are `null` while the platform has no way to capture them.
-  const hasSocietalData =
-    typeof data?.summary.total_beneficiaries === 'number' ||
-    typeof data?.summary.total_pro_bono === 'number' ||
-    typeof data?.summary.total_community_engagements === 'number';
+  // The service now says WHY a societal figure is missing, so the page stops
+  // inferring it from the shape of the value. Before the first load lands there
+  // is nothing to characterise, so treat it as unconfirmed rather than measured.
+  const societalAvailability: SocietalAvailability =
+    data?.summary.societal_availability ?? 'unconfirmed';
 
   // Sort departments by selected criterion (highest first)
   const sortedDepts = data?.departments
@@ -183,14 +212,40 @@ export function OverviewGrid() {
               ))
             ) : (
               <>
-                <SocietalCard icon={Users} label="Beneficiaries" value={data?.summary.total_beneficiaries} />
-                <SocietalCard icon={HandHeart} label="Pro-Bono Solutions" value={data?.summary.total_pro_bono} />
-                <SocietalCard icon={Globe} label="Community Engagements" value={data?.summary.total_community_engagements} />
+                <SocietalCard
+                  icon={Users}
+                  label="Beneficiaries"
+                  value={data?.summary.total_beneficiaries}
+                  availability={societalAvailability}
+                />
+                {/*
+                  Pro-bono carries its OWN verdict, computed by the service rather
+                  than inferred here from the shape of the value. It comes from
+                  sh_solutions, behind a different policy from the engagement
+                  register, so the register being invisible must not relabel a
+                  number this reader can see as "hidden from your role" — and a `0`
+                  it reports is a real measurement (0 pro-bono of 2 solutions),
+                  not an absence.
+                */}
+                <SocietalCard
+                  icon={HandHeart}
+                  label="Pro-Bono Solutions"
+                  value={data?.summary.total_pro_bono}
+                  availability={data?.summary.pro_bono_availability ?? 'unconfirmed'}
+                />
+                <SocietalCard
+                  icon={Globe}
+                  label="Community Engagements"
+                  value={data?.summary.total_community_engagements}
+                  availability={societalAvailability}
+                />
               </>
             )}
           </div>
-          {!isLoading && data && !hasSocietalData && (
-            <p className="text-xs text-muted-foreground mt-2">{SOCIETAL_METRICS_UNAVAILABLE_REASON}</p>
+          {!isLoading && data && societalAvailability !== 'measured' && (
+            <p className="text-xs text-muted-foreground mt-2">
+              {SOCIETAL_AVAILABILITY_REASONS[societalAvailability]}
+            </p>
           )}
         </div>
       </div>

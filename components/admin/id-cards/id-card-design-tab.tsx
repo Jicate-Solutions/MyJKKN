@@ -31,41 +31,22 @@ import { Switch } from '@/components/ui/switch';
 import {
   backgroundImageUrlOf,
   currentProfileId,
-  fetchTemplatesWithLayout,
+  sampleLearnerProfileId,
   setTemplateActive,
   setTemplateBackground,
   uploadCardBackground,
   type TemplateDesignRow
 } from '@/lib/services/id-cards/template-design-client';
-import { pickPreferredAdminTemplateId } from '@/lib/services/id-cards/template-picker';
+import { useTemplateSelection } from '@/components/admin/id-cards/template-selection';
 
 export function IdCardDesignTab() {
-  const [templates, setTemplates] = useState<TemplateDesignRow[] | null>(null);
-  const [selectedId, setSelectedId] = useState<string>('');
+  // Shared with every other tab (one list, one selected template).
+  const { templates, selectedId, selected, reload } = useTemplateSelection();
   const [busy, setBusy] = useState<
     'upload' | 'remove' | 'preview' | 'activate' | null
   >(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-
-  const reload = useCallback(async () => {
-    try {
-      const rows = await fetchTemplatesWithLayout();
-      setTemplates(rows);
-      // Admin keeps every template, dark ones included — you cannot design a
-      // template you are not allowed to open. Only the DEFAULT prefers an
-      // active one, so a test template no longer opens the tab by sort order.
-      setSelectedId((prev) => pickPreferredAdminTemplateId(rows, prev));
-    } catch (err) {
-      console.error('[id-cards/design] template load failed:', err);
-      setTemplates([]);
-      toast.error('Could not load templates');
-    }
-  }, []);
-
-  useEffect(() => {
-    reload();
-  }, [reload]);
 
   // Revoke stale blob URLs so previews don't leak memory.
   useEffect(() => {
@@ -74,8 +55,9 @@ export function IdCardDesignTab() {
     };
   }, [previewUrl]);
 
-  const selected = templates?.find((t) => t.id === selectedId) ?? null;
   const artworkUrl = selected ? backgroundImageUrlOf(selected) : null;
+  const orientation = (selected?.front_layout_json as Record<string, unknown> | null | undefined)?.orientation;
+  const isPortraitTemplate = orientation === 'portrait' || orientation === 'portrait-flipped';
 
   const onUploadClick = () => fileInputRef.current?.click();
 
@@ -137,8 +119,41 @@ export function IdCardDesignTab() {
     try {
       const profileId = await currentProfileId();
       if (!profileId) throw new Error('No signed-in session found');
+      await renderPreview(profileId);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Preview failed');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /** Preview with a real learner of the template's institution — shows the
+   *  learner-only zones (roll no, study period) an admin account never has. */
+  const onPreviewLearner = async () => {
+    if (!selected) return;
+    setBusy('preview');
+    try {
+      const profileId = await sampleLearnerProfileId(selected.institution_id);
+      if (!profileId) {
+        throw new Error(
+          selected.institution_id
+            ? 'No learner with an account found for this template’s institution'
+            : 'Assign the template to an institution first (Institution tab)'
+        );
+      }
+      await renderPreview(profileId);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Preview failed');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const renderPreview = async (profileId: string) => {
+    if (!selected) return;
+    {
       const res = await fetch(
-        `/api/id-cards/templates/${selected.id}/render?profile_id=${profileId}&format=png`
+        `/api/id-cards/templates/${selected.id}/render?profile_id=${profileId}&format=png&upright=1`
       );
       if (!res.ok) throw new Error(`Preview failed (HTTP ${res.status})`);
       const blob = await res.blob();
@@ -146,10 +161,6 @@ export function IdCardDesignTab() {
         if (prev) URL.revokeObjectURL(prev);
         return URL.createObjectURL(blob);
       });
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Preview failed');
-    } finally {
-      setBusy(null);
     }
   };
 
@@ -174,27 +185,9 @@ export function IdCardDesignTab() {
     <div className="space-y-5">
       {/* Template picker */}
       <div className="flex flex-wrap items-center gap-3">
-        <span className="text-sm text-muted-foreground">Template:</span>
-        <Select value={selectedId} onValueChange={setSelectedId}>
-          <SelectTrigger className="w-72">
-            <SelectValue placeholder="Choose a template" />
-          </SelectTrigger>
-          <SelectContent>
-            {templates.map((t) => (
-              <SelectItem key={t.id} value={t.id}>
-                {(t.name ?? 'Untitled template') + (t.active ? '' : ' (inactive)')}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
         {selected && (
           <Badge variant={artworkUrl ? 'secondary' : 'outline'}>
             {artworkUrl ? 'Custom artwork' : 'Standard design'}
-          </Badge>
-        )}
-        {selected && !selected.active && (
-          <Badge variant="destructive">
-            Not switched on — will not be offered for printing
           </Badge>
         )}
       </div>
@@ -270,13 +263,21 @@ export function IdCardDesignTab() {
           )}
           Preview with my data
         </Button>
+        <Button variant="secondary" onClick={onPreviewLearner} disabled={busy !== null || !selected}>
+          {busy === 'preview' ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Eye className="mr-2 h-4 w-4" />
+          )}
+          Preview with a learner
+        </Button>
       </div>
 
       {/* Live preview */}
       {previewUrl && (
         <div className="space-y-2">
           <div className="text-sm text-muted-foreground">
-            Preview (rendered exactly as the printer receives it):
+            Preview (upright, exactly as designed — the printer receives the same card turned to its landscape canvas):
           </div>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -294,8 +295,12 @@ export function IdCardDesignTab() {
         </div>
         <ul className="list-disc space-y-1 pl-5">
           <li>
-            Export exactly <strong>1014 × 638 pixels</strong> (credit-card
-            landscape at print quality). PNG, JPEG or WebP, up to 6 MB.
+            Export at the card&apos;s own size —{' '}
+            <strong>{isPortraitTemplate ? '638 × 1014' : '1014 × 638'} pixels</strong> (or any
+            exact multiple). The artwork is used edge to edge exactly as uploaded: nothing is
+            cropped and no frame is added, so draw the border in the artwork itself. An export
+            with a different aspect ratio is fitted inside the card with white margins rather
+            than cut. PNG, JPEG or WebP, up to 6 MB.
           </li>
           <li>
             Keep these zones clear — data prints on top of the artwork:

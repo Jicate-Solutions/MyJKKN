@@ -39,7 +39,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger,
 } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Pencil, Trash2, MapPin, User, Users, Target, LinkIcon, X, Star, CalendarDays, Settings2, Share2, ClipboardList } from 'lucide-react';
+import { Plus, Pencil, Trash2, MapPin, User, Users, Target, LinkIcon, X, Star, CalendarDays, CalendarClock, Settings2, Share2, ClipboardList } from 'lucide-react';
 
 interface Batch { id: string; label: string; }
 const COMBINED = '__combined__';
@@ -117,6 +117,10 @@ export function SessionsSection({
   // needs no resource person, and Senior Peer Mentors staff it — so ticking this
   // hides the speaker picker here and opens the session to mentors server-side.
   const [isRegistration, setIsRegistration] = useState(false);
+  // `kind` is now an explicit, visible choice rather than something the RPC
+  // preserved behind the form's back (20261118000000). Mutually exclusive with
+  // the registration desk — a session is one thing or the other.
+  const [isCheckin, setIsCheckin] = useState(false);
   const [speakers, setSpeakers] = useState<DirectoryUser[]>([]);
   // Guard: never write the speaker set until existing links have loaded, so a
   // save before/without a successful load can't silently wipe them.
@@ -200,7 +204,7 @@ export function SessionsSection({
   const resetForm = () => {
     setDay('1'); setBatchId(COMBINED); setStart(''); setEnd('');
     setTitle(''); setSpeaker(''); setVenueResourceId(''); setVenueInitialName('');
-    setOutcome(''); setLinks([]); setSpeakers([]); setIsRegistration(false);
+    setOutcome(''); setLinks([]); setSpeakers([]); setIsRegistration(false); setIsCheckin(false);
     setSpeakersLoaded(false);
     lastCreatedIdRef.current = null;
     setEditing(null);
@@ -218,6 +222,7 @@ export function SessionsSection({
     setStart(isoToLocal(s.start_at)); setEnd(isoToLocal(s.end_at));
     setTitle(s.title); setSpeaker(s.speaker_text ?? '');
     setIsRegistration(s.kind === 'registration');
+    setIsCheckin(s.kind === 'mentor_checkin');
     setVenueResourceId(s.venue_resource_id ?? '');
     setVenueInitialName(s.venue_text ?? '');
     setOutcome(s.outcome_text ?? ''); setLinks(s.resource_links ?? []);
@@ -234,10 +239,22 @@ export function SessionsSection({
     if (!start || !end) { toast.error('Start and end time are required.'); return; }
     if (new Date(end) <= new Date(start)) { toast.error('End must be after start.'); return; }
 
-    // Tiered double-booking guard (availability spine, Limb 2): a meeting OR
-    // event-speaking clash BLOCKS (a person can't be in two of those at once);
-    // a teaching/class clash is advisory (shown as a warning in the picker, not
-    // blocked). A super-admin may force past a hard block.
+    // Tiered double-booking guard (availability spine, Limb 2). Three levels,
+    // matching SessionSpeakerPicker's banners:
+    //
+    //   MEETING  -> blocks. Nobody is in a meeting and on a stage at once.
+    //               A super-admin may still force past it.
+    //   EVENT    -> warns, then continues on confirmation. Already speaking at
+    //               an overlapping session is exactly what a COMBINED programme
+    //               looks like: 2-3 colleges run their inductions side by side
+    //               and deliberately share one chief guest. Refusing it forced
+    //               coordinators to either drop the guest or ask an admin, so
+    //               the guard now informs the decision instead of making it.
+    //   TEACHING -> advisory only, never reaches here.
+    //
+    // The confirm is window.confirm, not an AlertDialog: this runs inside an
+    // open Dialog, where a Radix alert opened from a handler can trap pointer
+    // events (see the radix-dialog-race-fix notes).
     if (speakers.length && start && end) {
       try {
         const rows = await PersonAvailabilityService.getPeopleConflicts(
@@ -249,16 +266,32 @@ export function SessionsSection({
           // excluded too.
           editing?.id ?? lastCreatedIdRef.current,
         );
-        const hard = rows.filter((r) => r.source === 'meeting' || r.source === 'event');
-        if (hard.length) {
-          const nameById = new Map(speakers.map((s) => [s.id, s.full_name || s.email || 'Someone']));
-          const who = [...new Set(hard.map((h) => (h.profile_id ? nameById.get(h.profile_id) : null) ?? 'Someone'))].join(', ');
+        const nameById = new Map(speakers.map((s) => [s.id, s.full_name || s.email || 'Someone']));
+        const namesOf = (list: typeof rows) =>
+          [...new Set(list.map((h) => (h.profile_id ? nameById.get(h.profile_id) : null) ?? 'Someone'))].join(', ');
+
+        const meetings = rows.filter((r) => r.source === 'meeting');
+        if (meetings.length) {
+          const who = namesOf(meetings);
           if (profile?.is_super_admin) {
-            if (!window.confirm(`${who} already has a meeting or another event at this time. Force the assignment anyway? (admin override)`)) return;
+            if (!window.confirm(`${who} already has a meeting at this time. Force the assignment anyway? (admin override)`)) return;
           } else {
-            toast.error(`Can't assign — ${who} already has a meeting or event at this time. Pick another time, or remove them.`);
+            toast.error(`Can't assign — ${who} already has a meeting at this time. Pick another time, or remove them.`);
             return;
           }
+        }
+
+        // Where they are already speaking, named in the prompt — a coordinator
+        // can only judge "combined programme or genuine mistake?" if they can
+        // see WHICH session it clashes with.
+        const speaking = rows.filter((r) => r.source === 'event');
+        if (speaking.length) {
+          const who = namesOf(speaking);
+          const where = [...new Set(speaking.map((r) => r.label))].join('; ');
+          if (!window.confirm(
+            `${who} is already speaking elsewhere at this time:\n\n${where}\n\n` +
+            'That is expected for a combined programme run across colleges. Assign them here too?',
+          )) return;
         }
       } catch {
         /* availability check failed — don't block the save on a transient hiccup */
@@ -282,11 +315,13 @@ export function SessionsSection({
         // STRICT: send only the chosen room id — the RPC derives venue_text from
         // the registry name (or clears it when no room is chosen). No free text.
         venueResourceId: venueResourceId || null,
-        // Always explicit from this form (it owns the checkbox), so unticking
-        // clears the kind rather than leaving a stale 'registration' — except on
-        // a mentor check-in, where omitting the key leaves the stored kind alone.
-        // (The RPC enforces this too; sending nothing keeps the intent obvious.)
-        kind: editing?.kind === 'mentor_checkin' ? undefined : isRegistration ? 'registration' : '',
+        // Always explicit — this form owns both checkboxes, so what it sends is
+        // what the user can see. Unticking clears the kind instead of leaving a
+        // stale value, and a check-in rewritten into a talk stops being a
+        // check-in (20261118000000; before that the RPC preserved the tag
+        // behind the form's back, which is how a real Arts session ended up
+        // counted as a monthly check-in).
+        kind: isCheckin ? 'mentor_checkin' : isRegistration ? 'registration' : '',
         outcomeText: outcome.trim() || null,
         resourceLinks: links.filter((l) => l.url.trim()),
       });
@@ -438,18 +473,19 @@ export function SessionsSection({
                     </p>
                   )}
                 </div>
-                {/* Registration desk: no speaker, mentor-staffed. Sits directly
-                    above the picker it replaces so the swap is self-explaining.
-                    Hidden for a monthly mentor check-in — that kind is owned by
-                    the training flow and is not convertible (the RPC refuses it
-                    either way; this just avoids offering a no-op control). */}
-                <div className={`rounded-md border p-3 ${editing?.kind === 'mentor_checkin' ? 'hidden' : ''}`}>
+                {/* What KIND of session this is. Both boxes are visible and
+                    mutually exclusive, so `kind` is something the coordinator
+                    chooses and can see — not a value the RPC keeps behind the
+                    form's back. Before 20261118000000 the check-in tag was
+                    write-once, so rewriting a generated "Monthly Check-in —…"
+                    row into a real talk left it counted as a check-in. */}
+                <div className="rounded-md border p-3 space-y-3">
                   <label className="flex items-start gap-2 cursor-pointer">
                     <input
                       type="checkbox"
                       className="mt-0.5 h-4 w-4 accent-primary"
                       checked={isRegistration}
-                      onChange={(e) => setIsRegistration(e.target.checked)}
+                      onChange={(e) => { setIsRegistration(e.target.checked); if (e.target.checked) setIsCheckin(false); }}
                       disabled={saving}
                     />
                     <span className="text-sm">
@@ -460,6 +496,26 @@ export function SessionsSection({
                         No resource person needed. Senior Peer Mentors of this induction can take
                         this session&apos;s attendance for the whole cohort, without waiting for their
                         training to be recorded.
+                      </span>
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 accent-primary"
+                      checked={isCheckin}
+                      onChange={(e) => { setIsCheckin(e.target.checked); if (e.target.checked) setIsRegistration(false); }}
+                      disabled={saving}
+                    />
+                    <span className="text-sm">
+                      <span className="font-medium flex items-center gap-1.5">
+                        <CalendarClock className="h-3.5 w-3.5" /> Monthly mentor check-in
+                      </span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">
+                        Not part of the induction week. These are normally created in bulk by
+                        <span className="font-medium"> Schedule monthly check-ins</span> on the mentors
+                        page — tick this only to correct one. Untick it to turn a check-in back into an
+                        ordinary induction session.
                       </span>
                     </span>
                   </label>

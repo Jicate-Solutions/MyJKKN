@@ -39,3 +39,26 @@ export type IdCardPrintJob = {
   picked_up_at: string | null;
   result: { success: boolean; error_message: string | null } | null;
 };
+
+/**
+ * One row of the preview-time missing-data report returned by
+ * GET /api/id-cards/templates/:id/render?include=fields. `value` is null when
+ * the card would print that field blank — the preview dialogs paint it red.
+ */
+export type CardFieldReport = {
+  key: string;
+  label: string;
+  side: 'front' | 'back';
+  value: string | null;
+  /**
+   * Set when the value is PRESENT but would print wrong — today the permanent
+   * address, classified by lib/id-cards/address-quality.ts (two PIN codes, a
+   * phone number in the street, filler text, cut off on every layout …).
+   * A plain-English label list; null/absent when the value is fine.
+   */
+  problem?: string | null;
+  /** Worst severity behind `problem` (mirrors AddressIssueSeverity). */
+  problem_severity?: 'critical' | 'high' | 'medium' | null;
+  /** What a person should do about `problem`. */
+  problem_fix?: string | null;
+};

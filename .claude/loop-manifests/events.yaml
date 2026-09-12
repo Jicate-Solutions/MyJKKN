@@ -230,13 +230,71 @@ not_claimed:
 
 # ── Adjacent, already in the tree, dead ─────────────────────────────────────
 
+corrections_2026_09_07:
+  # Three claims made earlier THE SAME DAY were wrong. Kept here rather than
+  # quietly deleted, because a manifest that hides its own retractions cannot be
+  # trusted on the claims it keeps.
+  - id: C1-naac-cron-does-run
+    wrong_claim: "the event-feedback-naac-evidence cron has never run (absent from vercel.json)"
+    truth: |
+      It runs DAILY and is healthy. It is dispatched by the AI Routines
+      scheduler (ai_routine_schedules), not by vercel.json — a second dispatcher
+      I did not know to check. Verified 2026-09-07: enabled=true, last_fired_at
+      2026-09-06 23:50Z, last_status "HTTP 200 · count 6, snapshots 6,
+      k_threshold 5, mapped_7_3_f 6", and event_feedback_naac_evidence holds 6
+      rows feeding NAAC criterion 7.3.f.
+    lesson: |
+      "Not in vercel.json" does not mean "never runs". This platform has TWO
+      dispatchers. Check ai_routine_schedules before calling any cron dead —
+      and deleting this one would have destroyed live accreditation evidence.
+    consequence: |
+      The claim is baked into merged commit 9397b5b44b (PR #3344) and was
+      published in artifacts/events-loop-blockers-2026-09-07.html. The artifact
+      carries a visible correction; the commit message cannot be rewritten.
+  - id: C2-proposal-screen-not-broken
+    wrong_claim: "the proposal status page may show the wrong step (DB says approved, screen said Submitted)"
+    truth: |
+      The page is correct — it renders "Approved · Current" live. The premise
+      was false: event_proposals.updated_at is a DEAD COLUMN — default now() at
+      insert, ZERO triggers on the table, and no code path writes it. A control
+      row approved 4h19m after insert also shows updated_at == created_at. The
+      proposal was in fact approved at 2026-09-07 12:50Z with the note
+      "23rd is fine"; the screenshot predates that.
+    lesson: |
+      Do not infer "never changed" from updated_at without first proving
+      something maintains it. decided_at is the trustworthy timestamp here.
+    residual_real_finding: |
+      timeline.tsx fetches once in useEffect with no realtime subscription, no
+      polling and no refetch-on-focus, and is ssr:false so the approver's
+      router.refresh() cannot reach it. A status tab left open across a decision
+      shows the stale step indefinitely. That is a real (separate) defect.
+  - id: C3-incharge-appointment-was-a-noop
+    wrong_claim: "appointing the event's creator as in-charge makes check-in operable"
+    truth: |
+      It granted him nothing on that screen. The event console's canEdit is
+      canEditEvent(event, {userId,...}) — "Whoever created the event edits it",
+      comparing profile.id to events.created_by. The person appointed IS
+      events.created_by (952564bd…), so he already held the Check-in tab.
+    the_real_finding: |
+      Check-in has been performed EXACTLY ONCE in the platform's history: 148
+      rows, all stamped 11-12 April 2026, all on the marathon. Never since, on
+      any event, by anyone. event_type='lecture' has 17 events and 226
+      registrations and ZERO check-ins ever. This is not an access problem and
+      no permission change addresses it — which means blocker B3's real fix is
+      a human habit, not code, and the loop's first turnout reading is at risk
+      of being a false zero for a reason nothing in this manifest prevents.
+
 notes:
-  - app/api/cron/event-feedback-naac-evidence/route.ts exists on jicate/main and
-    is NOT registered in vercel.json (grep count 0, verified 2026-09-07) — it
-    has never run. fn_event_feedback_refresh_naac_evidence() exists in prod.
-    Whoever wires the events loop should decide whether this cron is revived or
-    deleted; leaving it is a third dead object in the same module.
-  - events.config->'incharges' is [] on the seminar, so fn_is_event_incharge()
+  - |
+    app/api/cron/event-feedback-naac-evidence/route.ts is NOT in vercel.json —
+    but see corrections_2026_09_07 / C1. It RUNS DAILY via ai_routine_schedules
+    and is healthy. It is NOT a dead object. Leave it alone; deleting it would
+    destroy live NAAC 7.3.f evidence.
+  - |
+    SUPERSEDED by corrections_2026_09_07 / C3 — the in-charge appointment made
+    that day was a no-op for check-in, because the appointee is events.created_by
+    and the console's canEdit already admits the creator. Original note follows.
+  - events.config->'incharges' was [] on the seminar, so fn_is_event_incharge()
     grants nobody. Only super admin / admin / events.view holders with
     institution access can edit its feedback form — the event's own creator
     (prithiviraja.ak@jkkn.ac.in) may not be able to.
