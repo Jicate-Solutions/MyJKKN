@@ -121,3 +121,22 @@ INSERT INTO hr_recruitment_scorecards VALUES
  ('55000000-0000-0000-0000-00000000000a','c0000000-0000-0000-0000-00000000000a',null),
  ('55000000-0000-0000-0000-00000000000b','c0000000-0000-0000-0000-00000000000b',
   'eeeeeeee-0000-0000-0000-000000000001') ON CONFLICT DO NOTHING;
+
+-- ---------------------------------------------------------------------------
+-- Make the harness able to OBSERVE the property sections 5-6 actually claim.
+--
+-- Without this, hr_recruitment_candidates carries no RLS in the stub, so a
+-- SECURITY DEFINER helper and a plain invoker-rights subquery behave
+-- identically and the interview/scorecard assertions would pass for the wrong
+-- reason. Production DOES put RLS on that table, and its SELECT policy demands
+-- hr.recruitment.view on top of institution access — which is the whole reason
+-- section 4 is SECURITY DEFINER.
+--
+-- Visible unless a test explicitly hides it, so the assertions written before
+-- this policy existed are unaffected.
+-- ---------------------------------------------------------------------------
+ALTER TABLE public.hr_recruitment_candidates ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS p_sel ON public.hr_recruitment_candidates;
+CREATE POLICY p_sel ON public.hr_recruitment_candidates FOR SELECT
+  USING (coalesce(nullif(current_setting('test.hide_candidates', true),''),'false') <> 'true');
+GRANT SELECT ON public.hr_recruitment_candidates TO app_user;

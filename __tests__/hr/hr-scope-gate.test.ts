@@ -118,7 +118,7 @@ describe('assertHrOrganizationInScope', () => {
 });
 
 describe('isOwnStaffRecord', () => {
-  it('recognises the caller’s own staff row', async () => {
+  it('recognises the caller’s own team member row', async () => {
     const supabase = readerClient({ fn_my_staff_ids: { data: [STAFF_ME] } });
     expect(await isOwnStaffRecord(supabase, STAFF_ME)).toBe(true);
     expect(await isOwnStaffRecord(supabase, SOMEONE_ELSE)).toBe(false);

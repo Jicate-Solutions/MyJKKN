@@ -118,3 +118,28 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS  anon cannot execute the scope helper';
 END $$;
+
+-- The point of section 4 being SECURITY DEFINER, asserted rather than asserted-about.
+-- The reader can no longer see ANY candidate row — as a holder of
+-- hr.recruitment.scorecards.view but not hr.recruitment.view cannot in production.
+-- A definer helper still resolves the institution link; an invoker-rights
+-- subquery would be suppressed with it and confine the reader to 0.
+SET test.super='false'; SET test.allinst='false'; SET test.uid='';
+SET test.insts='11111111-0000-0000-0000-000000000001';
+SET test.orgs='aaaaaaaa-0000-0000-0000-000000000001';
+SET test.hide_candidates='true';
+DO $$
+DECLARE vis int; i int; s int;
+BEGIN
+  SELECT count(*) INTO vis FROM hr_recruitment_candidates;
+  IF vis <> 0 THEN
+    RAISE EXCEPTION 'precondition failed: reader still sees % candidate rows, so this proves nothing', vis;
+  END IF;
+  SELECT count(*) INTO i FROM hr_recruitment_interviews;
+  SELECT count(*) INTO s FROM hr_recruitment_scorecards;
+  IF (i,s) IS DISTINCT FROM (1,1) THEN
+    RAISE EXCEPTION 'definer helper is RLS-coupled: with candidates hidden the reader saw %/1 interviews, %/1 scorecards', i,s;
+  END IF;
+  RAISE NOTICE 'PASS  scope survives the candidate table being invisible (definer, not invoker) (1,1)';
+END $$;
+SET test.hide_candidates='false';
