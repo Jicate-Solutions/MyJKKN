@@ -49,6 +49,8 @@ interface EngagementFiltersProps {
   onExport?: () => void;
   /** Disables the Export Data button (e.g. while rows are loading or there are none). */
   exportDisabled?: boolean;
+  /** Shown instead of the Export button when export is not available on this screen yet. */
+  exportUnavailableReason?: string;
 }
 
 interface FilterOption {
@@ -66,7 +68,8 @@ const ALL_SECTIONS = 'all_sections';
 export function EngagementFilters({
   onFilterChange,
   onExport,
-  exportDisabled = false
+  exportDisabled = false,
+  exportUnavailableReason
 }: EngagementFiltersProps) {
   // The viewer's own institution / department(s) / sections. Every picker below
   // is limited to it and "All ..." is only offered when the viewer may open the
@@ -743,6 +746,16 @@ export function EngagementFilters({
               <Download className="h-4 w-4 mr-2" />
               Export Data
             </Button>
+          )}
+
+          {!onExport && exportUnavailableReason && (
+            <div className="flex flex-col items-start sm:items-end gap-1">
+              <Button variant="outline" disabled title={exportUnavailableReason}>
+                <Download className="h-4 w-4 mr-2" />
+                Export not available yet
+              </Button>
+              <p className="text-xs text-gray-500">{exportUnavailableReason}</p>
+            </div>
           )}
         </div>
       </CardContent>
