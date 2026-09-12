@@ -93,21 +93,29 @@ export function BookingCard({
         {/* Evidence */}
         {booking.status !== 'cancelled' && (
           <div className='flex flex-wrap items-center gap-2 text-sm'>
+            {/* Counts, not just ticks — a phase holds as many photos as were
+                uploaded. */}
             <span className='flex items-center gap-1'>
-              {booking.has_before_photo ? (
+              {booking.before_photo_count > 0 ? (
                 <CheckCircle2 className='h-4 w-4 text-emerald-600' />
               ) : (
                 <ImageIcon className='h-4 w-4 text-muted-foreground' />
               )}
               Before
+              {booking.before_photo_count > 0 && (
+                <span className='text-muted-foreground'>({booking.before_photo_count})</span>
+              )}
             </span>
             <span className='flex items-center gap-1'>
-              {booking.has_after_photo ? (
+              {booking.after_photo_count > 0 ? (
                 <CheckCircle2 className='h-4 w-4 text-emerald-600' />
               ) : (
                 <ImageIcon className='h-4 w-4 text-muted-foreground' />
               )}
               After
+              {booking.after_photo_count > 0 && (
+                <span className='text-muted-foreground'>({booking.after_photo_count})</span>
+              )}
             </span>
 
             {canExecute && (

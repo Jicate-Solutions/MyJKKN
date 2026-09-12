@@ -14,7 +14,13 @@ export type DecisionEmailKind = 'leave' | 'short_time_off' | 'comp_off';
 
 export interface DecisionEmailDetails {
   kind: DecisionEmailKind;
-  decision: 'approved' | 'rejected';
+  /**
+   * 'revoked' is an APPROVAL TAKEN BACK, not a refusal (2026-09-12). The reader
+   * was already told this request was granted and has planned around it, so the
+   * mail has to name that — "Rejected: Casual Leave" for something they were
+   * told was approved last week reads as a system error.
+   */
+  decision: 'approved' | 'rejected' | 'revoked';
   staffName: string;
   /** Leave type name ("Casual Leave"); ignored for comp-off. */
   typeName?: string | null;
@@ -39,6 +45,8 @@ export interface DecisionEmailDetails {
   rejectionReason?: string | null;
   /** Absolute link into MyJKKN; no button when null. */
   link?: string | null;
+  /** Who took the approval back. Only read when decision is 'revoked'. */
+  revokedBy?: string | null;
 }
 
 export interface BuiltEmail {
@@ -165,7 +173,8 @@ function describe(d: DecisionEmailDetails): { what: string; when: string; rows: 
 
 export function buildDecisionEmail(d: DecisionEmailDetails): BuiltEmail {
   const approved = d.decision === 'approved';
-  const verb = approved ? 'approved' : 'rejected';
+  const revoked = d.decision === 'revoked';
+  const verb = approved ? 'approved' : revoked ? 'approved and has now been revoked' : 'rejected';
   const { what, when, rows, approvedNote } = describe(d);
 
   const subjectWhat =
@@ -174,11 +183,15 @@ export function buildDecisionEmail(d: DecisionEmailDetails): BuiltEmail {
       : `${d.typeName?.trim() || (d.kind === 'short_time_off' ? 'Short time off' : 'Leave')}${
           when ? `${d.kind === 'short_time_off' ? ' on' : ','} ${when}` : ''
         }`;
-  const subject = `${approved ? 'Approved' : 'Rejected'}: ${subjectWhat}`;
+  const subject = `${approved ? 'Approved' : revoked ? 'Approval revoked' : 'Rejected'}: ${subjectWhat}`;
 
   const allRows: Row[] = [
     ...rows,
-    ...(d.decidedBy ? [{ label: 'Decided by', value: d.decidedBy }] : []),
+    ...(revoked && d.revokedBy
+      ? [{ label: 'Revoked by', value: d.revokedBy }]
+      : d.decidedBy
+        ? [{ label: 'Decided by', value: d.decidedBy }]
+        : []),
     ...(!approved ? [{ label: 'Reason', value: d.rejectionReason?.trim() || 'No reason given' }] : []),
   ];
 
@@ -187,10 +200,16 @@ export function buildDecisionEmail(d: DecisionEmailDetails): BuiltEmail {
   } has been ${verb}.`;
   const after = approved
     ? approvedNote
-    : 'If you have questions about this decision, please speak to your approver or the HR office.';
+    : revoked
+      ? 'This request no longer counts as approved: the leave balance has been returned and the day is recorded as it was before. Please speak to your approver or the HR office before taking the time off.'
+      : 'If you have questions about this decision, please speak to your approver or the HR office.';
 
   const esc = escapeHtml;
-  const banner = approved ? '#16a34a' : '#dc2626';
+  // Approved wears the JKKN brand green (#0b6d41) rather than a generic
+  // green — it is the same primary used across MyJKKN, and white on it
+  // clears WCAG AA (6.4:1) where the old #16a34a did not (3.1:1).
+  // Revoked / rejected stay semantic amber and red.
+  const banner = approved ? '#0b6d41' : revoked ? '#d97706' : '#dc2626';
   const rowsHtml = allRows
     .map(
       (r) => `

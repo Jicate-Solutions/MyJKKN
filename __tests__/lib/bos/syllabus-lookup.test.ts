@@ -6,7 +6,7 @@ import {
   syllabusPdfFilename,
   toSyllabusApiMeta,
 } from '@/lib/services/bos/syllabus-lookup';
-import { supportedFormats } from '@/lib/utils/bos/syllabus-pdf-html';
+import { supportedFormats, buildSyllabusHtml } from '@/lib/utils/bos/syllabus-pdf-html';
 import type { BosCourseSyllabus } from '@/types/bos';
 
 const COURSE_ID = '11111111-2222-4333-8444-555555555555';
@@ -82,6 +82,48 @@ describe('supportedFormats', () => {
   it('pharmacy models only render official', () => {
     expect(supportedFormats({ ...base, academic_model: 'pci_pharm' })).toEqual(['official']);
     expect(supportedFormats({ ...base, academic_model: 'mgr_pharmd' })).toEqual(['official']);
+  });
+});
+
+describe('buildSyllabusHtml (print layout)', () => {
+  const doc: BosCourseSyllabus = {
+    ...base,
+    course_objectives: { objectives: [{ number: 1, description: 'Understand orbits' }] },
+    course_learning_outcomes: { clos: [{ clo_number: 1, description: 'Identify orbits', k_values: [] }] },
+    course_content: { units: [{ unit_id: 'I', unit_title: 'ORBITS', hours: '9', chapters: [{ chapter_number: 1, title: '', sections: '', subtopics: [{ number: 1, title: "Kepler's Laws" }] }] }] },
+    textbooks: { primary: [{ title: 'Satellite Communication, 2017', author: 'Dennis Roddy', publication_year: 2017 }], references: [] },
+    web_resources: { resources: [] },
+    pedagogy: { methods: [] },
+    po_mappings: { mappings: [{ co_id: 'CO1', pos: { PO1: 'H', PO3: 'L' } }] },
+  };
+  const opts = { includeMappings: true, includeReferences: true, includePedagogy: true, forPrint: true as const };
+
+  it('prints letterhead, regulation, unit hours and the CO-PO matrix; omits empty sections and never prints "undefined"', () => {
+    const html = buildSyllabusHtml(doc, 'official', { ...opts, institution: { name: 'JKKN College of Engineering and Technology', city: 'Namakkal' }, regulationCode: 'R-2021' });
+    expect(html).toContain('JKKN College of Engineering and Technology');
+    expect(html).toContain('Regulation R-2021');
+    expect(html).toContain('9 periods');
+    expect(html).toContain("Kepler&#39;s Laws".replace('&#39;', "'"));
+    expect(html).toContain('<th>PO1</th>');
+    expect(html).toContain('H &ndash; High');
+    expect(html).not.toContain('undefined');
+    expect(html).not.toContain('Web Resources');
+    expect(html).not.toContain('Pedagogy');
+    expect(html).not.toContain('Chapter 1:');
+    // year already inside the title is not repeated
+    expect(html).toContain('Satellite Communication, 2017, Dennis Roddy</li>');
+  });
+
+  it('honours include_* flags', () => {
+    const html = buildSyllabusHtml(doc, 'official', { ...opts, includeMappings: false, includeReferences: false });
+    expect(html).not.toContain('PO / PSO Mapping');
+    expect(html).not.toContain('Text Books');
+  });
+
+  it('keeps the legacy HTML for the non-print path', () => {
+    const html = buildSyllabusHtml(doc, 'official', { ...opts, forPrint: false });
+    expect(html).toMatch(/<title>[A-Za-z]+: 24UCADSE12<\/title>/);
+    expect(html).not.toContain('letterhead');
   });
 });
 

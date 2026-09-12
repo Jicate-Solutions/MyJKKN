@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HRLeaveApprovalQueueRow } from '@/types/hr';
 
 const mutateAsync = vi.fn();
+const revokeAsync = vi.fn();
 const table = vi.hoisted(() => ({ selectAll: false, reset: vi.fn() }));
 
 const base = {
@@ -30,6 +31,7 @@ const base = {
   final_approver_id: null, final_approver_name: null, final_decided_at: null, rejection_reason: null,
   is_own: false, can_decide: true, waiting_on_me: true, biometric_gap_from: null, documents: [],
   current_step: 0, chain_length: 1, step_is_final: true,
+  revoked_at: null, revoked_by_name: null, revoke_reason: null,
 };
 const anita = {
   ...base, id: 'app-anita', employee_id: 'emp-1', staff_name: 'Anita K', staff_code: 'CET010',
@@ -55,9 +57,12 @@ vi.mock('@/hooks/hr/use-leave-approval-flows', () => ({
   useLeaveApprovalQueue: () => ({
     data: [anita, ravi, self], error: null, isLoading: false, refetch: vi.fn(), isFetching: false, dataUpdatedAt: 1,
   }),
+  // Asked per row when the revoke dialog opens; no row here is approved.
+  useLeaveRevokeBlockReason: () => ({ data: null, isFetching: false }),
 }));
 vi.mock('@/hooks/hr/use-leave', () => ({
   useDecideApplication: () => ({ mutateAsync, isPending: false }),
+  useRevokeApplication: () => ({ mutateAsync: revokeAsync, isPending: false }),
 }));
 vi.mock('@/hooks/hr/use-comp-off', () => ({ usePendingCompOffClaims: () => ({ data: [] }) }));
 vi.mock('@/app/(routes)/hr/leave/_components/time-off-shell', () => ({
