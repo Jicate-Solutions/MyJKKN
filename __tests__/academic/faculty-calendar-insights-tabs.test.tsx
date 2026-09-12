@@ -179,14 +179,17 @@ describe('Availability tab', () => {
 
 describe('Workload tab', () => {
   const week = { start: MON, end: '2026-09-20' };
+  const own = { expectedHours: 16, amberPct: 100, redPct: 120 };
+  const none = { expectedHours: null, amberPct: null, redPct: null };
 
-  it('compares hours with the expected hours and marks the overloaded Senior Learner', () => {
+  it("compares hours with the institution's own expected hours and marks the overloaded Senior Learner", () => {
     h.workload = ok({
       week,
-      norm: { expectedHours: 16, amberPct: 100, redPct: 120 },
+      norms: { 'inst-1': own },
+      normsFailed: false,
       rows: [
-        { person: person('s1', 'Arun M'), hours: 22, band: 'red', percentOfExpected: 137.5 },
-        { person: person('s2', 'Priya K'), hours: 12, band: 'green', percentOfExpected: 75 }
+        { person: person('s1', 'Arun M'), hours: 22, norm: own, band: 'red', percentOfExpected: 137.5 },
+        { person: person('s2', 'Priya K'), hours: 12, norm: own, band: 'green', percentOfExpected: 75 }
       ]
     });
     render(<WorkloadTab {...baseProps} />);
@@ -197,19 +200,51 @@ describe('Workload tab', () => {
     expect(within(rows[1]).getByText('Overloaded')).toBeInTheDocument();
     expect(within(rows[1]).getByText('138%')).toBeInTheDocument();
     expect(within(rows[2]).getByText('Within expected')).toBeInTheDocument();
+    expect(screen.queryByText(/not set for this institution/)).not.toBeInTheDocument();
   });
 
-  it('shows plain hours and says the expected hours are not set', () => {
+  it('shows plain hours, no colours, and says the expected hours are not set for this institution', () => {
     h.workload = ok({
       week,
-      norm: { expectedHours: null, amberPct: null, redPct: null },
-      rows: [{ person: person('s1', 'Arun M'), hours: 22, band: 'not-set', percentOfExpected: null }]
+      norms: { 'inst-1': none },
+      normsFailed: false,
+      rows: [{ person: person('s1', 'Arun M'), hours: 22, norm: none, band: 'not-set', percentOfExpected: null }]
     });
     render(<WorkloadTab {...baseProps} />);
-    expect(screen.getByText(/Expected weekly hours are not set/)).toBeInTheDocument();
+    expect(screen.getByText(/Expected weekly hours are not set for this institution/)).toBeInTheDocument();
     expect(screen.getByText('22 h')).toBeInTheDocument();
+    expect(screen.queryByText(/a week/)).not.toBeInTheDocument();
     expect(screen.queryByText('Of expected')).not.toBeInTheDocument();
+    expect(screen.queryByText('Status')).not.toBeInTheDocument();
     expect(screen.queryByText('Overloaded')).not.toBeInTheDocument();
+    expect(screen.queryByText(/overloaded,/)).not.toBeInTheDocument();
+    expect(document.querySelector('.bg-red-500, .bg-amber-500, .bg-green-500')).toBeNull();
+  });
+
+  it('says the amber and red limits are missing when only those are unset', () => {
+    const noLimits = { expectedHours: 16, amberPct: null, redPct: null };
+    h.workload = ok({
+      week,
+      norms: { 'inst-1': noLimits },
+      normsFailed: false,
+      rows: [{ person: person('s1', 'Arun M'), hours: 22, norm: noLimits, band: 'not-set', percentOfExpected: null }]
+    });
+    render(<WorkloadTab {...baseProps} />);
+    expect(screen.getByText(/amber and red workload limits are not set/)).toBeInTheDocument();
+    expect(screen.queryByText('Overloaded')).not.toBeInTheDocument();
+  });
+
+  it('says the expected hours could not be read when the policy read fails', () => {
+    h.workload = ok({
+      week,
+      norms: { 'inst-1': none },
+      normsFailed: true,
+      rows: [{ person: person('s1', 'Arun M'), hours: 22, norm: none, band: 'not-set', percentOfExpected: null }]
+    });
+    render(<WorkloadTab {...baseProps} />);
+    expect(screen.getByText(/could not be read/)).toBeInTheDocument();
+    expect(screen.queryByText(/not set for this institution/)).not.toBeInTheDocument();
+    expect(screen.getByText('22 h')).toBeInTheDocument();
   });
 });
 

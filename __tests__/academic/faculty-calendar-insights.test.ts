@@ -4,8 +4,9 @@
  * Each describe block maps to one of the Director's decisions (2026-09-11):
  *   1. Availability: busy = a class, a meeting, an event duty, or APPROVED leave
  *      covering that day and period.
- *   2. Workload: weekly class hours vs expected hours, green / amber / red, with
- *      both numbers from platform_policies (no hard-coded norm).
+ *   2. Workload: weekly class hours vs the institution's OWN expected hours,
+ *      green / amber / red, from platform_policies (no hard-coded norm, no
+ *      fallback number; a college without its own setting gets plain hours).
  *   3. Conflicts: class-with-class and class-with-meeting/event clashes.
  * Plus: nothing outside the viewer's institution.
  */
@@ -86,6 +87,7 @@ import {
   leaveScopeCoversInstitution,
   parsePolicyNumber,
   resolveAvailability,
+  resolveInstitutionNorms,
   slotOccursOn,
   weekContaining,
   weeklyClassHours,
@@ -400,12 +402,81 @@ describe('Rule 2: Workload', () => {
     const rows = buildWorkloadRows(
       [person('s1'), person('s2')],
       [entry('s2', 'class', MON, '09:00', '13:00'), entry('s1', 'class', MON, '09:00', '10:00')],
-      norm
+      { [INST]: norm }
     );
     expect(rows.map((r) => [r.person.staffId, r.hours])).toEqual([
       ['s2', 4],
       ['s1', 1]
     ]);
+  });
+
+  it("colours each Senior Learner by their own institution's numbers", () => {
+    const rows = buildWorkloadRows(
+      [person('s1'), { ...person('s2'), institutionId: OTHER_INST }, { ...person('s3'), institutionId: null }],
+      [
+        entry('s1', 'class', MON, '09:00', '13:00'),
+        entry('s2', 'class', MON, '09:00', '13:00'),
+        entry('s3', 'class', MON, '09:00', '13:00')
+      ],
+      { [INST]: norm, [OTHER_INST]: { expectedHours: 2, amberPct: 100, redPct: 120 } }
+    );
+    const byId = Object.fromEntries(rows.map((r) => [r.person.staffId, r]));
+    expect(byId.s1.band).toBe('green');
+    expect(byId.s2.band).toBe('red');
+    expect(byId.s2.norm.expectedHours).toBe(2);
+    // No institution, or one with no numbers of its own: plain hours.
+    expect(byId.s3).toMatchObject({ band: 'not-set', percentOfExpected: null, hours: 4 });
+  });
+
+  describe('each institution has its own expected hours (Director, 2026-09-12)', () => {
+    const KEYS = { expectedHours: 'k.hours', amberPct: 'k.amber', redPct: 'k.red' };
+    const row = (policy_key: string, scope_type: string, scope_id: string | null, value: unknown, is_active = true) => ({
+      policy_key,
+      scope_type,
+      scope_id,
+      value,
+      is_active
+    });
+    const globalRows = [row('k.hours', 'global', null, 16), row('k.amber', 'global', null, 100), row('k.red', 'global', null, 120)];
+
+    it("takes the institution's own row for the hours and never the platform-wide number", () => {
+      const norms = resolveInstitutionNorms([...globalRows, row('k.hours', 'institution', INST, '18')], [INST, OTHER_INST], KEYS);
+      expect(norms[INST]).toEqual({ expectedHours: 18, amberPct: 100, redPct: 120 });
+      // The other institution has no row of its own: no hours, so no colour.
+      expect(norms[OTHER_INST].expectedHours).toBeNull();
+      expect(classifyWorkload(30, norms[OTHER_INST]).band).toBe('not-set');
+    });
+
+    it('gives every institution empty numbers when there are no rows at all', () => {
+      expect(resolveInstitutionNorms([], [INST], KEYS)).toEqual({
+        [INST]: { expectedHours: null, amberPct: null, redPct: null }
+      });
+    });
+
+    it("lets an institution's own amber / red limits override the platform-wide ones", () => {
+      const norms = resolveInstitutionNorms(
+        [...globalRows, row('k.hours', 'institution', INST, 18), row('k.red', 'institution', INST, 130)],
+        [INST],
+        KEYS
+      );
+      expect(norms[INST]).toEqual({ expectedHours: 18, amberPct: 100, redPct: 130 });
+    });
+
+    it('ignores inactive rows and rows scoped to a role, a user or another institution', () => {
+      const norms = resolveInstitutionNorms(
+        [
+          row('k.hours', 'institution', INST, 18, false),
+          row('k.hours', 'role', 'role-1', 10),
+          row('k.hours', 'user', 'user-1', 10),
+          row('k.hours', 'institution', OTHER_INST, 12),
+          row('k.amber', 'global', null, 100, false)
+        ],
+        [INST],
+        KEYS
+      );
+      expect(norms[INST]).toEqual({ expectedHours: null, amberPct: null, redPct: null });
+      expect(norms[OTHER_INST]).toBeUndefined();
+    });
   });
 });
 
@@ -578,30 +649,80 @@ describe('Nothing outside the viewer’s institution', () => {
     expect(clashes[0].type).toBe('class-class');
   });
 
-  it('reads expected hours and thresholds from platform policies for the chosen institution', async () => {
-    const asked: Array<{ key: string; scope: string }> = [];
-    const values: Record<string, number> = {
-      [WORKLOAD_POLICY_KEYS.expectedHours]: 16,
-      [WORKLOAD_POLICY_KEYS.amberPct]: 100,
-      [WORKLOAD_POLICY_KEYS.redPct]: 120
+  it("reads each institution's own expected hours from platform policies, active rows only", async () => {
+    h.tables.platform_policies = {
+      data: [
+        { policy_key: WORKLOAD_POLICY_KEYS.expectedHours, scope_type: 'global', scope_id: null, value: 16, is_active: true },
+        { policy_key: WORKLOAD_POLICY_KEYS.amberPct, scope_type: 'global', scope_id: null, value: 100, is_active: true },
+        { policy_key: WORKLOAD_POLICY_KEYS.redPct, scope_type: 'global', scope_id: null, value: 120, is_active: true },
+        { policy_key: WORKLOAD_POLICY_KEYS.expectedHours, scope_type: 'institution', scope_id: INST, value: '18', is_active: true }
+      ],
+      error: null
     };
-    h.rpc.fn_get_policy = ({ p_key, p_scope_id }) => {
-      asked.push({ key: p_key, scope: p_scope_id });
-      return { data: values[p_key] ?? null, error: null };
-    };
-    expect(await FacultyCalendarInsightsService.getWorkloadNorm(INST)).toEqual({
-      expectedHours: 16,
-      amberPct: 100,
-      redPct: 120
-    });
-    expect(asked.every((a) => a.scope === INST)).toBe(true);
+    const { norms, failed } = await FacultyCalendarInsightsService.getWorkloadNorms([INST, OTHER_INST]);
+    expect(failed).toBe(false);
+    expect(norms[INST]).toEqual({ expectedHours: 18, amberPct: 100, redPct: 120 });
+    // The platform-wide 16 is not this college's own setting.
+    expect(norms[OTHER_INST]).toEqual({ expectedHours: null, amberPct: 100, redPct: 120 });
+    expect(h.fromCalls).toEqual(['platform_policies']);
+    const filters = h.filterCalls.map(([, m, args]) => [m, ...args]);
+    expect(filters).toContainEqual(['in', 'policy_key', Object.values(WORKLOAD_POLICY_KEYS)]);
+    expect(filters).toContainEqual(['in', 'scope_type', ['institution', 'global']]);
+    expect(filters).toContainEqual(['eq', 'is_active', true]);
+    expect(h.rpc.fn_get_policy).toBeUndefined();
+  });
 
-    h.rpc.fn_get_policy = () => ({ data: null, error: null });
-    expect(await FacultyCalendarInsightsService.getWorkloadNorm(INST)).toEqual({
-      expectedHours: null,
-      amberPct: null,
-      redPct: null
+  it('reports a failed policy read instead of calling the hours "not set"', async () => {
+    h.tables.platform_policies = { data: null as any, error: { message: 'denied' } };
+    const { norms, failed } = await FacultyCalendarInsightsService.getWorkloadNorms([INST]);
+    expect(failed).toBe(true);
+    expect(norms[INST]).toEqual({ expectedHours: null, amberPct: null, redPct: null });
+    expect(await FacultyCalendarInsightsService.getWorkloadNorms([])).toEqual({ norms: {}, failed: false });
+  });
+
+  it("bands the workload by the chosen institution's own expected hours", async () => {
+    h.tables.staff = {
+      data: [{ id: 's1', first_name: 'Asha', last_name: 'R', profile_id: 'prof-1', institution_id: INST, category: { is_teaching: true } }],
+      error: null
+    };
+    h.timetableSlots = [
+      {
+        id: 'a',
+        day_of_week: 'MONDAY',
+        period_id: 'a',
+        period_name: 'P1',
+        start_time: '09:00:00',
+        end_time: '13:00:00',
+        staff_members: [{ id: 's1', first_name: '', last_name: '' }],
+        timetable: { id: 'tt-a', timetable_name: 'TT', timetable_format: 'regular', institution_name: 'Mine', department_name: 'CSE' },
+        is_break_slot: false
+      }
+    ];
+    const scope = { institutionId: INST, accessibleInstitutionIds: [INST] };
+    const policies = (hoursRow: any[]) => ({
+      data: [
+        { policy_key: WORKLOAD_POLICY_KEYS.expectedHours, scope_type: 'global', scope_id: null, value: 16, is_active: true },
+        { policy_key: WORKLOAD_POLICY_KEYS.amberPct, scope_type: 'global', scope_id: null, value: 100, is_active: true },
+        { policy_key: WORKLOAD_POLICY_KEYS.redPct, scope_type: 'global', scope_id: null, value: 120, is_active: true },
+        ...hoursRow
+      ],
+      error: null
     });
+
+    // Its own row says 2 hours a week: 4 hours of class is red.
+    h.tables.platform_policies = policies([
+      { policy_key: WORKLOAD_POLICY_KEYS.expectedHours, scope_type: 'institution', scope_id: INST, value: 2, is_active: true }
+    ]);
+    let result = await FacultyCalendarInsightsService.getWorkload(scope, MON);
+    expect(result.normsFailed).toBe(false);
+    expect(result.norms[INST].expectedHours).toBe(2);
+    expect(result.rows.map((r) => [r.person.staffId, r.hours, r.band])).toEqual([['s1', 4, 'red']]);
+
+    // No row of its own: plain hours, even though the platform-wide 16 exists.
+    h.tables.platform_policies = policies([]);
+    result = await FacultyCalendarInsightsService.getWorkload(scope, MON);
+    expect(result.norms[INST].expectedHours).toBeNull();
+    expect(result.rows.map((r) => [r.person.staffId, r.hours, r.band])).toEqual([['s1', 4, 'not-set']]);
   });
 
   it('asks the leave table only for approved, not-superseded leave and keeps its rows', async () => {

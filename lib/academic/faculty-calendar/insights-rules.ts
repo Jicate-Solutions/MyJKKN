@@ -504,6 +504,68 @@ export function parsePolicyNumber(value: unknown): number | null {
   return null;
 }
 
+export const EMPTY_NORM: WorkloadNorm = { expectedHours: null, amberPct: null, redPct: null };
+
+/**
+ * What stops a comparison: no expected hours, or no valid amber / red limits.
+ * null means the institution's numbers are complete.
+ */
+export function workloadNormGap(norm: WorkloadNorm): 'expected-hours' | 'limits' | null {
+  if (norm.expectedHours === null || norm.expectedHours <= 0) return 'expected-hours';
+  if (norm.amberPct === null || norm.redPct === null || norm.amberPct > norm.redPct) return 'limits';
+  return null;
+}
+
+/** A platform_policies row as read for the workload numbers. */
+export interface WorkloadPolicyRow {
+  policy_key: string;
+  scope_type: string;
+  scope_id: string | null;
+  value: unknown;
+  is_active?: boolean | null;
+}
+
+/**
+ * Each institution's OWN expected weekly hours, with its amber / red limits
+ * (Director, 2026-09-12: "each institution differs", no fallback number).
+ *
+ * Expected hours count only from an active row with scope_type 'institution'
+ * for that institution. The platform-wide 'global' row is a shared default,
+ * not a college's own setting, so it is ignored for the hours: a college with
+ * no row of its own gets plain hours and no colour, nothing guessed. Role,
+ * user and cohort rows depend on who is looking, not on the college, and are
+ * ignored too.
+ *
+ * The amber / red limits are percentages, not hours: an institution row wins,
+ * otherwise the platform-wide HR limits (the ones fn_compute_input_workload
+ * already uses) apply.
+ */
+export function resolveInstitutionNorms(
+  rows: WorkloadPolicyRow[],
+  institutionIds: string[],
+  keys: { expectedHours: string; amberPct: string; redPct: string }
+): Record<string, WorkloadNorm> {
+  const active = rows.filter((r) => r.is_active !== false);
+  const globalPct = (key: string) => {
+    const row = active.find((r) => r.policy_key === key && r.scope_type === 'global');
+    return row ? parsePolicyNumber(row.value) : null;
+  };
+  const shared = { amberPct: globalPct(keys.amberPct), redPct: globalPct(keys.redPct) };
+
+  const byInstitution = new Map<string, WorkloadNorm>();
+  for (const id of institutionIds) if (id) byInstitution.set(id, { ...EMPTY_NORM, ...shared });
+  for (const r of active) {
+    if (r.scope_type !== 'institution' || !r.scope_id) continue;
+    const norm = byInstitution.get(r.scope_id);
+    if (!norm) continue;
+    const n = parsePolicyNumber(r.value);
+    if (r.policy_key === keys.expectedHours) norm.expectedHours = n;
+    else if (r.policy_key === keys.amberPct) norm.amberPct = n;
+    else if (r.policy_key === keys.redPct) norm.redPct = n;
+  }
+  return Object.fromEntries(byInstitution);
+}
+
 /**
  * Same banding as the HR workload signal (fn_compute_input_workload):
  * percent of expected ≤ amber → green; ≤ red → amber; above red → red.
@@ -513,19 +575,12 @@ export function classifyWorkload(
   hours: number,
   norm: WorkloadNorm
 ): { band: WorkloadBand; percentOfExpected: number | null } {
-  const { expectedHours, amberPct, redPct } = norm;
-  if (
-    expectedHours === null ||
-    expectedHours <= 0 ||
-    amberPct === null ||
-    redPct === null ||
-    amberPct > redPct
-  ) {
+  if (workloadNormGap(norm) !== null) {
     return { band: 'not-set', percentOfExpected: null };
   }
-  const pct = (hours / expectedHours) * 100;
-  if (pct <= amberPct) return { band: 'green', percentOfExpected: pct };
-  if (pct <= redPct) return { band: 'amber', percentOfExpected: pct };
+  const pct = (hours / norm.expectedHours!) * 100;
+  if (pct <= norm.amberPct!) return { band: 'green', percentOfExpected: pct };
+  if (pct <= norm.redPct!) return { band: 'amber', percentOfExpected: pct };
   return { band: 'red', percentOfExpected: pct };
 }
 
@@ -542,20 +597,28 @@ export function weeklyClassHours(entries: TimedEntry[]): Map<string, number> {
 export interface WorkloadRow {
   person: SeniorLearnerRef;
   hours: number;
+  /** the numbers of this Senior Learner's own institution */
+  norm: WorkloadNorm;
   band: WorkloadBand;
   percentOfExpected: number | null;
 }
 
+/**
+ * Each Senior Learner is coloured by their own institution's numbers; a
+ * Senior Learner whose institution has none gets plain hours.
+ */
 export function buildWorkloadRows(
   people: SeniorLearnerRef[],
   classEntries: TimedEntry[],
-  norm: WorkloadNorm
+  normsByInstitution: Record<string, WorkloadNorm>
 ): WorkloadRow[] {
   const hours = weeklyClassHours(classEntries);
+  const norms = new Map(Object.entries(normsByInstitution));
   return people
     .map((person) => {
       const h = Math.round((hours.get(person.staffId) ?? 0) * 100) / 100;
-      return { person, hours: h, ...classifyWorkload(h, norm) };
+      const norm = (person.institutionId && norms.get(person.institutionId)) || EMPTY_NORM;
+      return { person, hours: h, norm, ...classifyWorkload(h, norm) };
     })
     .sort((a, b) => b.hours - a.hours || a.person.name.localeCompare(b.person.name));
 }

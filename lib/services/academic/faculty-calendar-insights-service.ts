@@ -16,11 +16,16 @@
  *   duties           reports classes; for Availability those count too
  *   Approved leave   hr_leave_applications, status 'approved', not superseded;
  *                    half days use HR's fn_shift_window for the clock times
- *   Expected hours   platform_policies via fn_get_policy:
- *   and thresholds   hr_recruitment.workload_norm_hours,
- *                    hr_recruitment.threshold_amber_workload,
- *                    hr_recruitment.threshold_red_workload
- *                    (the policies the HR workload signal already uses)
+ *   Expected hours   platform_policies row hr_recruitment.workload_norm_hours
+ *                    scoped to the Senior Learner's OWN institution
+ *                    (scope_type 'institution'). The platform-wide default row
+ *                    does not count as a college's own setting; a college
+ *                    without its own row gets plain hours and no colour
+ *                    (Director, 2026-09-12: no fallback number).
+ *   Amber/red limits hr_recruitment.threshold_amber_workload and
+ *                    hr_recruitment.threshold_red_workload: the institution's
+ *                    own row, else the platform-wide row the HR workload
+ *                    signal already uses.
  *
  * The rules themselves live in lib/academic/faculty-calendar/insights-rules.ts.
  */
@@ -42,8 +47,8 @@ import {
   keepOnlyInstitution,
   leaveScopeCoversInstitution,
   addDays,
-  parsePolicyNumber,
   resolveAvailability,
+  resolveInstitutionNorms,
   weekContaining,
   type AvailabilityRow,
   type Clash,
@@ -337,26 +342,34 @@ export class FacultyCalendarInsightsService {
     );
   }
 
-  /** Expected weekly hours and colour thresholds, most specific policy first. */
-  static async getWorkloadNorm(institutionId: string): Promise<WorkloadNorm> {
-    const supabase = getSupabase();
-    const read = async (key: string) => {
-      const { data, error } = await supabase.rpc('fn_get_policy', {
-        p_key: key,
-        p_scope_id: institutionId
-      });
-      if (error) {
-        logger.warn('academic/timetables', `Policy ${key} could not be read`, { message: error.message });
-        return null;
-      }
-      return parsePolicyNumber(data);
-    };
-    const [expectedHours, amberPct, redPct] = await Promise.all([
-      read(WORKLOAD_POLICY_KEYS.expectedHours),
-      read(WORKLOAD_POLICY_KEYS.amberPct),
-      read(WORKLOAD_POLICY_KEYS.redPct)
-    ]);
-    return { expectedHours, amberPct, redPct };
+  /**
+   * Each institution's own expected weekly hours and amber / red limits.
+   *
+   * Reads the platform_policies rows directly (any signed-in user may read that
+   * table): the institution-scoped rows for the given institutions, plus the
+   * platform-wide rows, which only ever supply the amber / red limits. It does
+   * NOT use fn_get_policy: that resolver falls back to the platform-wide
+   * default for the hours too, and to rows set for the viewer's own role or
+   * account, so it cannot tell whether a college has set its own number.
+   * `failed` means the read itself errored, which the tab reports as such
+   * instead of saying the college has not set anything.
+   */
+  static async getWorkloadNorms(
+    institutionIds: string[]
+  ): Promise<{ norms: Record<string, WorkloadNorm>; failed: boolean }> {
+    const ids = Array.from(new Set(institutionIds.filter(Boolean)));
+    if (ids.length === 0) return { norms: {}, failed: false };
+    const { data, error } = await getSupabase()
+      .from('platform_policies')
+      .select('policy_key, scope_type, scope_id, value, is_active')
+      .in('policy_key', Object.values(WORKLOAD_POLICY_KEYS))
+      .in('scope_type', ['institution', 'global'])
+      .eq('is_active', true);
+    if (error) {
+      logger.warn('academic/timetables', 'Workload policies could not be read', { message: error.message });
+      return { norms: resolveInstitutionNorms([], ids, WORKLOAD_POLICY_KEYS), failed: true };
+    }
+    return { norms: resolveInstitutionNorms(data ?? [], ids, WORKLOAD_POLICY_KEYS), failed: false };
   }
 
   // -------------------------------------------------------------------------
@@ -418,19 +431,30 @@ export class FacultyCalendarInsightsService {
   static async getWorkload(
     scope: InsightsScope,
     anyDateInWeek: string
-  ): Promise<{ rows: WorkloadRow[]; norm: WorkloadNorm; week: { start: string; end: string } }> {
+  ): Promise<{
+    rows: WorkloadRow[];
+    /** each listed institution's own numbers, keyed by institution id */
+    norms: Record<string, WorkloadNorm>;
+    normsFailed: boolean;
+    week: { start: string; end: string };
+  }> {
     assertScope(scope);
     const week = weekContaining(anyDateInWeek);
-    const [staff, classEntries, norm] = await Promise.all([
+    const [staff, classEntries] = await Promise.all([
       this.getStaff(scope),
-      this.getClassEntries(scope.institutionId, week.start, week.end),
-      this.getWorkloadNorm(scope.institutionId)
+      this.getClassEntries(scope.institutionId, week.start, week.end)
     ]);
     const people = this.pickSeniorLearners(staff, classEntries);
     const ids = new Set(people.map((p) => p.staffId));
+    // Every Senior Learner is compared with their own institution's numbers.
+    const { norms, failed } = await this.getWorkloadNorms([
+      scope.institutionId,
+      ...people.map((p) => p.institutionId).filter((id): id is string => !!id)
+    ]);
     return {
-      rows: buildWorkloadRows(people, classEntries.filter((e) => ids.has(e.personId)), norm),
-      norm,
+      rows: buildWorkloadRows(people, classEntries.filter((e) => ids.has(e.personId)), norms),
+      norms,
+      normsFailed: failed,
       week
     };
   }

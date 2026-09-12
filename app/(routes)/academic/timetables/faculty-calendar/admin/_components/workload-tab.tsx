@@ -11,7 +11,12 @@ import {
 } from '@/components/ui/table';
 import { useSeniorLearnerWorkload } from '@/hooks/academic/use-senior-learner-insights';
 import type { InsightsScope } from '@/lib/services/academic/faculty-calendar-insights-service';
-import type { WorkloadBand } from '@/lib/academic/faculty-calendar/insights-rules';
+import {
+  EMPTY_NORM,
+  workloadNormGap,
+  type WorkloadBand,
+  type WorkloadNorm
+} from '@/lib/academic/faculty-calendar/insights-rules';
 import {
   InsightsEmpty,
   InsightsError,
@@ -71,15 +76,18 @@ export function WorkloadTab({
   const workload = useSeniorLearnerWorkload(scope, selection.date);
   const data = workload.data;
   const rows = data?.rows ?? [];
-  const norm = data?.norm;
+  // The listed Senior Learners all belong to the chosen institution, so its own
+  // numbers are the ones shown (Director, 2026-09-12: each institution differs).
+  const norm: WorkloadNorm = data?.norms?.[selection.institutionId ?? ''] ?? EMPTY_NORM;
+  const gap = workloadNormGap(norm);
   const hasComparison = rows.some((r) => r.band !== 'not-set');
 
-  // One scale for every bar, wide enough to show the red line.
+  // One scale for every bar, wide enough to show each coloured row's red line.
   const maxHours = Math.max(0, ...rows.map((r) => r.hours));
-  const redLine =
-    norm?.expectedHours && norm.redPct !== null ? (norm.expectedHours * norm.redPct) / 100 : 0;
-  const scale = Math.max(maxHours, redLine, 1) * 1.1;
-  const expectedAt = hasComparison && norm?.expectedHours ? (norm.expectedHours / scale) * 100 : null;
+  const redLines = rows
+    .filter((r) => r.band !== 'not-set')
+    .map((r) => (r.norm.expectedHours! * r.norm.redPct!) / 100);
+  const scale = Math.max(maxHours, ...redLines, 1) * 1.1;
 
   const counts = {
     red: rows.filter((r) => r.band === 'red').length,
@@ -113,7 +121,12 @@ export function WorkloadTab({
             Week of {formatDay(data.week.start)} to {formatDay(data.week.end, 'EEE d MMM yyyy')}
           </p>
 
-          {hasComparison && norm ? (
+          {data.normsFailed ? (
+            <InsightsNotice tone='warning'>
+              The expected weekly hours could not be read, so class hours are shown without green,
+              amber or red.
+            </InsightsNotice>
+          ) : gap === null ? (
             <div className='flex flex-wrap items-center gap-x-4 gap-y-1 text-sm'>
               <span>
                 Expected: <span className='font-semibold'>{hrs(norm.expectedHours!)} a week</span>
@@ -124,8 +137,9 @@ export function WorkloadTab({
             </div>
           ) : (
             <InsightsNotice tone='warning'>
-              Expected weekly hours are not set, so class hours are shown without colours. Once HR
-              sets the expected weekly hours, overloaded Senior Learners will be marked here.
+              {gap === 'expected-hours'
+                ? 'Expected weekly hours are not set for this institution, so class hours are shown without green, amber or red.'
+                : 'The amber and red workload limits are not set or not valid, so class hours are shown without green, amber or red.'}
             </InsightsNotice>
           )}
 
@@ -157,6 +171,8 @@ export function WorkloadTab({
                   <TableBody>
                     {rows.map((row) => {
                       const band = BAND[row.band];
+                      const expectedAt =
+                        row.band !== 'not-set' ? (row.norm.expectedHours! / scale) * 100 : null;
                       return (
                         <TableRow key={row.person.staffId}>
                           <TableCell className='font-medium'>{row.person.name}</TableCell>
@@ -205,7 +221,7 @@ export function WorkloadTab({
                   </TableBody>
                 </Table>
               </div>
-              {expectedAt !== null && (
+              {hasComparison && (
                 <p className='text-xs text-muted-foreground'>
                   The dark line on each bar marks the expected weekly hours.
                 </p>
