@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-hot-toast';
 import { OnboardingService, type OnboardingFilters } from '@/lib/services/billing/onboarding/onboarding-service';
+import { logger } from '@/lib/utils/enhanced-logger';
 import { studentBillKeys } from '@/hooks/billing/use-student-bills';
 import { learnerProfileKeys } from '@/hooks/use-learner-profiles';
 
@@ -96,12 +97,29 @@ export function useBulkGenerateBills() {
         parts.push(`${result.generated} learner(s) — ${result.totalBillsCreated} bill(s) created`);
       }
       if (result.skipped > 0) {
-        parts.push(`${result.skipped} skipped (already had bills)`);
+        // Deliberately not "already had bills": the service returns 0 both for a
+        // learner that was already billed and for one with nothing billable, and
+        // the two are indistinguishable from here. Claiming the former sent
+        // accounts staff looking for bills that were never created.
+        parts.push(`${result.skipped} skipped (no new bills created)`);
       }
       if (result.failed > 0) {
         parts.push(`${result.failed} failed`);
       }
-      const msg = parts.length > 0 ? parts.join(' · ') : 'No learners processed';
+      let msg = parts.length > 0 ? parts.join(' · ') : 'No learners processed';
+
+      // Surface why things failed. These were previously collected and dropped,
+      // so the operator saw "3 failed" with no reason and no way to act on it.
+      if (result.errors.length > 0) {
+        const reasons = Array.from(new Set(result.errors.map((e) => e.error)));
+        msg += ` — ${reasons.slice(0, 2).join('; ')}`;
+        if (reasons.length > 2) msg += `; +${reasons.length - 2} more`;
+        logger.error(
+          'billing/onboarding',
+          `Bulk bill generation: ${result.failed} learner(s) failed`,
+          result.errors
+        );
+      }
 
       if (result.failed > 0 && result.generated === 0) {
         toast.error(msg, { duration: 6000 });
