@@ -44,6 +44,8 @@ interface ImprovementBoardClientProps {
   userName: string;
   institutionId: string;
   initialAreas: ImprovementArea[];
+  /** Active departments of the viewer's institution, for the target picker. */
+  initialDepartments: { id: string; name: string }[];
   initialIdeas: ImprovementIdeaEnriched[];
 }
 
@@ -79,6 +81,7 @@ function byPriority(
 export function ImprovementBoardClient({
   userId,
   initialAreas,
+  initialDepartments,
   initialIdeas
 }: ImprovementBoardClientProps) {
   const { can } = usePermissions();
@@ -87,6 +90,9 @@ export function ImprovementBoardClient({
 
   const [ideas, setIdeas] = useState<ImprovementIdeaEnriched[]>(initialIdeas);
   const [areas] = useState<ImprovementArea[]>(initialAreas);
+  const [departments] = useState<{ id: string; name: string }[]>(
+    initialDepartments
+  );
   const [areaFilter, setAreaFilter] = useState<string>('all');
   const [createOpen, setCreateOpen] = useState(false);
   const [detailIdea, setDetailIdea] = useState<ImprovementIdeaEnriched | null>(null);
@@ -308,6 +314,7 @@ export function ImprovementBoardClient({
         open={createOpen}
         onOpenChange={setCreateOpen}
         areas={areas}
+        departments={departments}
         onCreated={refresh}
       />
 

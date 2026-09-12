@@ -38,7 +38,15 @@ interface CreateIdeaDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   areas: ImprovementArea[];
-  departments?: { id: string; name: string }[];
+  /**
+   * Active departments of the viewer's institution. REQUIRED on purpose: this
+   * prop was optional with an `= []` default, which let the board ship without
+   * passing it — the picker rendered "Not specific" and nothing else, and 55
+   * consecutive ideas were filed with a null target department, with no type
+   * error, no runtime error and no log line. Keeping it required means a caller
+   * that forgets it fails to compile.
+   */
+  departments: { id: string; name: string }[];
   onCreated: () => void;
 }
 
@@ -46,7 +54,7 @@ export function CreateIdeaDialog({
   open,
   onOpenChange,
   areas,
-  departments = [],
+  departments,
   onCreated
 }: CreateIdeaDialogProps) {
   const [title, setTitle] = useState('');

@@ -22,7 +22,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -78,7 +77,6 @@ export function ApplyLeaveDrawer({
   const [endDate, setEndDate] = useState('');
   const [durationType, setDurationType] = useState<LeaveDurationType>('full');
   const [reason, setReason] = useState('');
-  const [isEmergency, setIsEmergency] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Picked but NOT uploaded — see LeaveDocumentUpload for why the upload
   // waits for Submit.
@@ -181,9 +179,12 @@ export function ApplyLeaveDrawer({
    *
    * It was server-only, so the whole form could be filled in and the rule only
    * surfaced as a 400 on Submit — which is how "You gave -38" reached a user.
-   * Mirrors LeaveService.applyLeave exactly, including the is_emergency bypass:
-   * a difference between the two would either block a request the server would
-   * take, or promise one it will refuse.
+   * Mirrors LeaveService.applyLeave exactly: a difference between the two would
+   * either block a request the server would take, or promise one it will refuse.
+   *
+   * There is no longer an exception to it — the Emergency checkbox that bypassed
+   * it was removed 2026-09-12, and the two types that carried a notice were set
+   * to zero in the same change.
    */
   const noticeDays = useMemo(() => {
     if (!startDate) return null;
@@ -195,7 +196,7 @@ export function ApplyLeaveDrawer({
 
   const requiredNotice = selected?.min_advance_notice_days ?? 0;
   const shortNotice =
-    !isEmergency && requiredNotice > 0 && noticeDays !== null && noticeDays < requiredNotice;
+    requiredNotice > 0 && noticeDays !== null && noticeDays < requiredNotice;
 
   const overContinuous =
     selected?.max_continuous_days != null && requestedDays > selected.max_continuous_days;
@@ -252,12 +253,11 @@ export function ApplyLeaveDrawer({
         }
       : null,
     requestedDays,
-    isEmergency,
   );
 
   const reset = () => {
     setLeaveTypeId(''); setStartDate(''); setEndDate('');
-    setDurationType('full'); setReason(''); setIsEmergency(false); setError(null);
+    setDurationType('full'); setReason(''); setError(null);
     setDocumentFiles([]); setUploadError(null); setUploading(false);
     uploadedRef.current = new WeakMap();
   };
@@ -334,7 +334,6 @@ export function ApplyLeaveDrawer({
         start_time: null,
         end_time: null,
         reason,
-        is_emergency: isEmergency,
         documents,
         applied_by: '', // server fills from the authenticated user
         department_id: null,
@@ -647,8 +646,7 @@ export function ApplyLeaveDrawer({
                         notice; {startDate} is only {noticeDays} day(s) away.
                       </>
                     )}{' '}
-                    Tick <strong>Emergency leave</strong> below if it could not have been
-                    filed in time.
+                    Pick a later start date.
                   </AlertDescription>
                 </Alert>
               )}
@@ -701,17 +699,6 @@ export function ApplyLeaveDrawer({
                   error={uploadError}
                 />
               )}
-
-              <div className="flex items-start gap-2">
-                <Checkbox id="emergency" checked={isEmergency}
-                  onCheckedChange={(v) => setIsEmergency(v === true)} />
-                <Label htmlFor="emergency" className="cursor-pointer text-sm font-normal leading-snug">
-                  Emergency leave
-                  <span className="block text-xs text-muted-foreground">
-                    Bypasses advance notice; supporting documents required within 48h.
-                  </span>
-                </Label>
-              </div>
 
               {error && (
                 <Alert variant="destructive">

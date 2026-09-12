@@ -49,6 +49,7 @@ import type { EventStatus } from '@/types/events';
 import { EVENT_STATUS_TRANSITIONS } from '@/types/events';
 import { useMarathonAccess } from '@/hooks/events/marathon/use-marathon-access';
 import { EventTasksCard } from '@/components/events/shared/event-tasks-card';
+import { EventReviewCommentsCard } from '@/components/events/shared/event-review-comments-card';
 import { MarathonAccessDenied } from '../_components/marathon-access-denied';
 
 // ============================================================================
@@ -601,6 +602,11 @@ export default function MarathonDashboardPage() {
 
         {/* ── Quick Navigation ────────────────────────────────────────── */}
         <QuickNav eventId={eventId} />
+
+        {/* Review comments — the reviewing authority's remarks on this marathon
+            and the coordinator's replies. Gates itself; renders nothing for
+            anyone outside the review circle. */}
+        <EventReviewCommentsCard eventId={eventId} />
       </div>
     </ContentLayout>
   );

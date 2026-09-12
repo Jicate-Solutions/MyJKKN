@@ -77,6 +77,13 @@ beforeAll(() => {
   git('config', 'user.email', 'gate-test@example.invalid');
   git('config', 'user.name', 'gate test');
   git('config', 'commit.gpgsign', 'false');
+  // Every `git commit` ends by launching `git maintenance run --auto --detach`,
+  // which returns before the maintenance process does. Left on, the sandbox
+  // still has a live git process in its .git when afterAll deletes it, and the
+  // delete fails with ENOTEMPTY on a busy runner — 3 unrelated PRs went red on
+  // exactly that between 2026-09-05 and 09-11 with every test passing. A
+  // throwaway repo never needs maintenance, so it gets none.
+  git('config', 'maintenance.auto', 'false');
 
   mkdirSync(dirname(join(sandbox, DICT)), { recursive: true });
   copyFileSync(join(REPO_ROOT, DICT), join(sandbox, DICT));
