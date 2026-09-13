@@ -68,7 +68,7 @@
 -- Production happened to be safe because 20261123080000 was already applied
 -- there, which is exactly why a rehearsal against production could not catch
 -- it: the rehearsal tested today's database, not the file's own contract.
--- Renumbered to 20261123081000, and §2 now asserts every mapped code RESOLVES
+-- Renumbered to 20261123081000, and §2a now asserts every mapped code RESOLVES
 -- rather than asking whether the catalogue is merely non-empty.
 --
 -- NOT PUBLISHED TO ANON. public.marathon_events is an anon-readable view over
@@ -82,127 +82,159 @@ ALTER TABLE public.events
   ADD COLUMN IF NOT EXISTS academic_type_id uuid,
   ADD COLUMN IF NOT EXISTS academic_type_source text;
 
--- The FK is created separately and verified by catalog. Inlining it on
--- ADD COLUMN IF NOT EXISTS silently skips the constraint — and ON DELETE
--- RESTRICT with it — whenever the column already exists from a partial run,
--- which is the one case where you most need it.
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-     WHERE conname = 'events_academic_type_id_fkey'
-       AND conrelid = 'public.events'::regclass
-       AND contype  = 'f'
-  ) THEN
-    ALTER TABLE public.events
-      ADD CONSTRAINT events_academic_type_id_fkey
-      FOREIGN KEY (academic_type_id)
-      REFERENCES public.event_academic_types (id) ON DELETE RESTRICT;
-  END IF;
-END $$;
-
 COMMENT ON COLUMN public.events.academic_type_id IS
   'What kind of academic activity this event was, from public.event_academic_types. Distinct from events.event_type, which is the operational kind that routes the event to its console.';
 
 COMMENT ON COLUMN public.events.academic_type_source IS
-  'Who decided academic_type_id. ''machine_inferred'' = read across from event_type by a migration and never reviewed; ''human_confirmed'' = a person chose it. Never leave this blank while academic_type_id is set.';
+  'Who decided academic_type_id. ''machine_inferred'' = read across from event_type by a migration and never reviewed; ''human_confirmed'' = a person chose it. A row cleared by a human is indistinguishable from one never set — see the note on the back-fill guard.';
 
+-- Every constraint is created AND validated from the catalog, never from an
+-- IF NOT EXISTS branch alone: a partial prior run that created a constraint but
+-- died before VALIDATE would otherwise leave it NOT VALID forever, which is the
+-- very re-run hazard this block exists to close.
 DO $$
+DECLARE r record;
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-     WHERE conname = 'events_academic_type_source_valid'
-       AND conrelid = 'public.events'::regclass
-  ) THEN
-    ALTER TABLE public.events
-      ADD CONSTRAINT events_academic_type_source_valid
-      CHECK (academic_type_source IN ('machine_inferred', 'human_confirmed'))
-      NOT VALID;
-    ALTER TABLE public.events VALIDATE CONSTRAINT events_academic_type_source_valid;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                  WHERE conname='events_academic_type_source_valid'
+                    AND conrelid='public.events'::regclass) THEN
+    ALTER TABLE public.events ADD CONSTRAINT events_academic_type_source_valid
+      CHECK (academic_type_source IN ('machine_inferred','human_confirmed')) NOT VALID;
   END IF;
 
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-     WHERE conname = 'events_academic_type_needs_source'
-       AND conrelid = 'public.events'::regclass
-  ) THEN
-    ALTER TABLE public.events
-      ADD CONSTRAINT events_academic_type_needs_source
-      CHECK ((academic_type_id IS NULL) = (academic_type_source IS NULL))
-      NOT VALID;
-    ALTER TABLE public.events VALIDATE CONSTRAINT events_academic_type_needs_source;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                  WHERE conname='events_academic_type_needs_source'
+                    AND conrelid='public.events'::regclass) THEN
+    ALTER TABLE public.events ADD CONSTRAINT events_academic_type_needs_source
+      CHECK ((academic_type_id IS NULL) = (academic_type_source IS NULL)) NOT VALID;
   END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                  WHERE conname='events_academic_type_id_fkey'
+                    AND conrelid='public.events'::regclass AND contype='f') THEN
+    ALTER TABLE public.events ADD CONSTRAINT events_academic_type_id_fkey
+      FOREIGN KEY (academic_type_id)
+      REFERENCES public.event_academic_types (id) ON DELETE RESTRICT;
+  END IF;
+
+  -- validate anything still NOT VALID, whoever created it
+  FOR r IN SELECT conname FROM pg_constraint
+            WHERE conrelid='public.events'::regclass
+              AND convalidated = false
+              AND conname IN ('events_academic_type_source_valid',
+                              'events_academic_type_needs_source',
+                              'events_academic_type_id_fkey')
+  LOOP
+    EXECUTE format('ALTER TABLE public.events VALIDATE CONSTRAINT %I', r.conname);
+  END LOOP;
 END $$;
 
 CREATE INDEX IF NOT EXISTS idx_events_academic_type_id
-  ON public.events (academic_type_id)
-  WHERE academic_type_id IS NOT NULL;
+  ON public.events (academic_type_id) WHERE academic_type_id IS NOT NULL;
 
--- ── 2. Refuse unless EVERY mapped code resolves ─────────────────────────────
--- "Is the catalogue non-empty?" is the wrong question and cannot detect the
--- failure it exists to prevent: a catalogue holding 20 of the 23 types — the
--- exact state an out-of-order replay produces — passes it and under-tags four
--- events in silence. Name the nine codes this file maps to and require all of
--- them, compared the way the catalogue's own unique index defines identity.
+-- ── 2. The mapping, defined ONCE ────────────────────────────────────────────
+-- It used to live in three hand-maintained copies (the guard's array, the
+-- UPDATE's CASE, the report's IN-lists). Adding a tenth kind to one of them
+-- left the others wrong, reproducing the silent-partial-tag failure this file
+-- was renumbered to prevent. A table is the single definition; §2b, §3 and §4
+-- all read it. Dropped at the end of the migration.
+-- NOT `ON COMMIT DROP`: under a per-statement applier this file has no
+-- transaction of its own, so the table would be dropped the instant it was
+-- created and §2a would fail on a missing relation — the same
+-- cross-statement-state trap the GUC handshake fell into. A temp table
+-- lives for the SESSION, which survives autocommit, and is dropped
+-- explicitly at the end of this file.
+DROP TABLE IF EXISTS _event_kind_mapping;
+CREATE TEMP TABLE _event_kind_mapping (operational_kind text PRIMARY KEY, catalogue_code text NOT NULL);
+INSERT INTO _event_kind_mapping VALUES
+  ('lecture',             'guest_lecture'),
+  ('induction',           'orientation'),
+  ('cultural',            'cultural'),
+  ('sports_tournament',   'sports'),
+  ('sports',              'sports'),
+  ('marathon',            'sports'),
+  ('convocation',         'convocation'),
+  ('alumni',              'alumni_meet'),
+  ('school_of_influence', 'school_of_influence');
+
+-- ── 2a. Refuse unless EVERY mapped code resolves ────────────────────────────
+-- Nine operational kinds collapse onto SEVEN distinct catalogue codes (sports
+-- is the target of three). "Is the catalogue non-empty?" was the wrong question
+-- and could not detect the failure it existed to prevent: a catalogue holding
+-- 20 of 23 types passed it and under-tagged four events in silence.
+--
+-- THIS IS THE FILE'S ONE GUARANTEE, and §4 therefore does not re-prove it.
+-- Once every code resolves, the UPDATE below cannot leave a mapped kind blank.
 DO $$
 DECLARE v_missing text;
 BEGIN
-  SELECT string_agg(c, ', ' ORDER BY c) INTO v_missing
-    FROM unnest(ARRAY[
-           'guest_lecture','orientation','cultural','sports',
-           'convocation','alumni_meet','school_of_influence'
-         ]) AS c
-   WHERE NOT EXISTS (
-     SELECT 1 FROM public.event_academic_types t
-      WHERE t.institution_id IS NULL
-        AND lower(t.code) = c);
-
+  SELECT string_agg(DISTINCT m.catalogue_code, ', ' ORDER BY m.catalogue_code) INTO v_missing
+    FROM _event_kind_mapping m
+   WHERE NOT EXISTS (SELECT 1 FROM public.event_academic_types t
+                      WHERE t.institution_id IS NULL AND lower(t.code) = m.catalogue_code);
   IF v_missing IS NOT NULL THEN
     RAISE EXCEPTION
-      'These academic types are missing from the cluster-wide catalogue: %. This file maps events onto them, so running now would tag some events and silently leave others blank — indistinguishable from success. Apply 20261121090000 and 20261123080000 first.',
+      'These academic types are missing from the cluster-wide catalogue: %. This file maps events onto them, so running now would tag some events and leave others blank — indistinguishable from success. Apply 20261121090000 and 20261123080000 first.',
       v_missing;
   END IF;
 END $$;
 
--- ── 2b. A type belonging to another college can never be attached ──────────
--- The FK alone carries no tenant predicate. event_academic_types allows a
--- per-college row (institution_id NOT NULL) — the unique index is scoped
--- exactly so a college can add its own — so without this, a writer at College A
--- can point an event at College B's private type, and any join rendering the
--- type name leaks another college's catalogue label through public.events.
--- Not exploitable today (all 23 rows are cluster-wide), which is the whole
--- reason to close it now rather than after the first per-college type exists.
+-- ── 2b. A type belonging to another college can never be attached ───────────
+-- The FK carries no tenant predicate. event_academic_types allows a per-college
+-- row (its unique index is scoped exactly so a college can add its own), so
+-- without this a writer at College A can point an event at College B's private
+-- type and any join rendering the type name leaks another college's catalogue
+-- label through public.events. Not exploitable today — all 23 rows are
+-- cluster-wide — which is the reason to close it BEFORE the first per-college
+-- type exists rather than after.
 --
--- SECURITY DEFINER on purpose: the guard must read the catalogue's true owner,
--- not the subset the caller's RLS lets them see. A caller who cannot see the
--- row would otherwise read NULL and sail through the check.
+-- Placed before the back-fill on purpose, so it validates this file's own
+-- writes and so no data assertion can ever stand between the new columns and
+-- their protection.
+--
+-- SECURITY DEFINER: the guard must read the catalogue's true owner, not the
+-- subset the caller's RLS exposes. A caller who cannot see the row would
+-- otherwise read NULL and sail through.
 CREATE OR REPLACE FUNCTION public.fn_events_academic_type_tenant_guard()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $fn$
-DECLARE v_owner uuid; v_found boolean;
+DECLARE v_owner uuid; v_found boolean := false;
 BEGIN
   IF NEW.academic_type_id IS NULL THEN
     RETURN NEW;
   END IF;
 
   SELECT t.institution_id, true INTO v_owner, v_found
-    FROM public.event_academic_types t
-   WHERE t.id = NEW.academic_type_id;
+    FROM public.event_academic_types t WHERE t.id = NEW.academic_type_id;
 
-  IF NOT COALESCE(v_found, false) THEN
+  IF NOT v_found THEN
     RAISE EXCEPTION 'Academic type % does not exist.', NEW.academic_type_id
       USING ERRCODE = '23503';
   END IF;
 
-  -- NULL owner = cluster-wide, available to every college.
-  IF v_owner IS NOT NULL AND v_owner IS DISTINCT FROM NEW.institution_id THEN
+  -- NULL owner = cluster-wide, available to every college. Checked first so a
+  -- cluster-wide type is never refused for an event with no institution.
+  IF v_owner IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  -- An event that belongs to nobody gets its own message: saying a per-college
+  -- type "belongs to another college" would be misleading for a row that
+  -- belongs to none. Same discipline as the role_has_institution_access(NULL)
+  -- guards elsewhere in this repo.
+  IF NEW.institution_id IS NULL THEN
+    RAISE EXCEPTION
+      'This event has no institution, so a college-specific academic type cannot be attached to it. Set events.institution_id first, or use a cluster-wide type.'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF v_owner <> NEW.institution_id THEN
     RAISE EXCEPTION
       'Academic type % belongs to another college and cannot be attached to this event.',
-      NEW.academic_type_id
-      USING ERRCODE = '42501';
+      NEW.academic_type_id USING ERRCODE = '42501';
   END IF;
 
   RETURN NEW;
@@ -210,7 +242,7 @@ END
 $fn$;
 
 -- Granted to nobody: PostgreSQL checks EXECUTE on a trigger function at
--- CREATE TRIGGER time and never when the trigger fires, so no role needs it.
+-- CREATE TRIGGER time and never when the trigger fires.
 REVOKE EXECUTE ON FUNCTION public.fn_events_academic_type_tenant_guard() FROM anon, authenticated, PUBLIC;
 
 DROP TRIGGER IF EXISTS trg_events_academic_type_tenant_guard ON public.events;
@@ -218,115 +250,71 @@ CREATE TRIGGER trg_events_academic_type_tenant_guard
   BEFORE INSERT OR UPDATE OF academic_type_id, institution_id ON public.events
   FOR EACH ROW EXECUTE FUNCTION public.fn_events_academic_type_tenant_guard();
 
--- ── 3. Read the operational kind across, and say that a machine did it ──────
--- Compared with lower() on BOTH sides, because the catalogue's uniqueness is
--- `scope + lower(code)` — that index, not the literal spelling, is what defines
--- code identity. The seed was transcribed "in the PDF's own wording", so a type
--- landing as 'Sports' would match zero rows here and leave those events blank
--- with no error. Same exposure for any non-lowercase events.event_type.
+-- ── 3. Back-fill, and report. ONE block, because splitting them was a bug ───
+-- An earlier revision put the skip in §3 and the assertion in §4 and passed a
+-- flag between them through a transaction-local GUC. Under a per-statement
+-- applier that setting is gone by the time §4 reads it; current_setting(...,
+-- true) returns NULL, `NULL = 'true'` is NULL, `IF NOT v_ran` is neither true
+-- nor false, the early RETURN is skipped — and the curated table aborts on the
+-- very path the skip existed to protect. Cross-block state was the whole
+-- defect; one block cannot disagree with itself.
 --
--- A HUMAN'S DELIBERATE BLANK IS NOT AN EMPTY SLOT. The pairing CHECK forces
--- both columns to NULL together, so someone clearing a wrong guess leaves a row
--- that looks exactly like one never filled. On a re-apply this UPDATE would
--- re-impose the same wrong guess over their decision. Guarded: if any human has
--- confirmed anything on this table, the table has been curated and this
--- one-shot back-fill stays out of it.
+-- §4 REPORTS, IT DOES NOT RE-ASSERT. §2a already guarantees every catalogue
+-- code resolves, and given that, this UPDATE cannot leave a mapped kind blank.
+-- An earlier revision re-proved it by scanning the whole live events table,
+-- which (a) duplicated §2a's guarantee and (b) aborted the migration whenever a
+-- concurrent insert landed mid-run — production is live and growing, so that
+-- benign race was a real abort. What this block writes is what it speaks about.
+--
+-- WHAT THE CURATED GUARD DOES NOT PROTECT, stated plainly rather than implied:
+-- the pairing CHECK forces a human clearing a wrong guess to NULL BOTH columns,
+-- which leaves no marker at all. So a table whose ONLY human action was a
+-- deliberate clear looks uncurated here and this back-fill will re-impose the
+-- guess that was deleted. Detecting that needs a third source value
+-- ('human_cleared') and a relaxed pairing CHECK — a schema decision, not
+-- something to smuggle in under a back-fill. It is a known gap, not an
+-- oversight.
 DO $$
-DECLARE v_curated boolean;
+DECLARE
+  v_curated  boolean;
+  v_written  integer;
+  v_unmapped text;
 BEGIN
-  SELECT EXISTS (SELECT 1 FROM public.events
-                  WHERE academic_type_source = 'human_confirmed')
+  SELECT EXISTS (SELECT 1 FROM public.events WHERE academic_type_source = 'human_confirmed')
     INTO v_curated;
 
   IF v_curated THEN
-    RAISE NOTICE 'Skipping back-fill: a human has already confirmed at least one academic type, so this table is curated and a replay must not overwrite it.';
-    PERFORM set_config('myjkkn.events_backmap_ran', 'false', true);
+    RAISE NOTICE 'Skipping back-fill: a human has confirmed at least one academic type, so this table is curated and a replay must not overwrite it.';
     RETURN;
   END IF;
 
-  PERFORM set_config('myjkkn.events_backmap_ran', 'true', true);
+  WITH written AS (
+    UPDATE public.events e
+       SET academic_type_id     = t.id,
+           academic_type_source = 'machine_inferred'
+      FROM _event_kind_mapping m
+      JOIN public.event_academic_types t
+        ON t.institution_id IS NULL AND lower(t.code) = m.catalogue_code
+     WHERE e.academic_type_id IS NULL
+       AND lower(e.event_type) = m.operational_kind
+    RETURNING e.id
+  )
+  SELECT count(*) INTO v_written FROM written;
 
-UPDATE public.events e
-   SET academic_type_id     = t.id,
-       academic_type_source = 'machine_inferred'
-  FROM public.event_academic_types t
- WHERE t.institution_id IS NULL
-   AND e.academic_type_id IS NULL
-   AND lower(t.code) = CASE lower(e.event_type)
-                  WHEN 'lecture'           THEN 'guest_lecture'
-                  WHEN 'induction'         THEN 'orientation'
-                  WHEN 'cultural'          THEN 'cultural'
-                  WHEN 'sports_tournament' THEN 'sports'
-                  WHEN 'sports'            THEN 'sports'
-                  WHEN 'marathon'          THEN 'sports'
-                  WHEN 'convocation'        THEN 'convocation'
-                  WHEN 'alumni'             THEN 'alumni_meet'
-                  WHEN 'school_of_influence' THEN 'school_of_influence'
-                  ELSE NULL
-                END;
-END $$;
+  -- coalesce, because lower(NULL) IN (...) is NULL and an untyped event would
+  -- otherwise escape the one report whose job is surfacing gaps.
+  SELECT string_agg(DISTINCT coalesce(e.event_type, '(no event_type)'), ', ') INTO v_unmapped
+    FROM public.events e
+   WHERE e.academic_type_id IS NULL
+     AND NOT EXISTS (SELECT 1 FROM _event_kind_mapping m
+                      WHERE m.operational_kind = lower(e.event_type));
 
--- ── 4. Report, and assert only what this file actually promised ────────────
--- TWO ways an earlier draft of this block was wrong, both found in review:
---
---   (a) It contradicted §3. §3 deliberately skips a curated table; §4 then
---       raised on any untagged row. One human-cleared event and the migration
---       could never replay again — the skip and the assertion disagreed about
---       what "blank" means.
---
---   (b) "No event is untagged" is not this file's promise and would brick on a
---       tenth operational kind. events.event_type is not frozen; a kind this
---       CASE does not name is a gap to REPORT, not a failure to abort on. What
---       this file actually promises is narrower and checkable: every event whose
---       kind IS mapped came out tagged. That is the claim, so that is the
---       assertion.
-DO $$
-DECLARE
-  v_total      integer;
-  v_tagged     integer;
-  v_mapped_blank integer;
-  v_unmapped   text;
-  v_ran        boolean;
-BEGIN
-  v_ran := current_setting('myjkkn.events_backmap_ran', true) = 'true';
-
-  IF NOT v_ran THEN
-    RAISE NOTICE 'Back-fill was skipped (table already curated by a human); making no completeness assertion over rows this run did not write.';
-    RETURN;
-  END IF;
-
-  SELECT count(*),
-         count(*) FILTER (WHERE academic_type_id IS NOT NULL)
-    INTO v_total, v_tagged
-    FROM public.events;
-
-  -- the assertion: a MAPPED kind that came out blank means a code did not resolve
-  SELECT count(*) INTO v_mapped_blank
-    FROM public.events
-   WHERE academic_type_id IS NULL
-     AND lower(event_type) IN ('lecture','induction','cultural','sports_tournament',
-                               'sports','marathon','convocation','alumni','school_of_influence');
-
-  -- informational: kinds this file does not name yet
-  SELECT string_agg(DISTINCT event_type, ', ') INTO v_unmapped
-    FROM public.events
-   WHERE academic_type_id IS NULL
-     AND lower(event_type) NOT IN ('lecture','induction','cultural','sports_tournament',
-                                   'sports','marathon','convocation','alumni','school_of_influence');
-
-  IF v_mapped_blank > 0 THEN
-    RAISE EXCEPTION
-      '% event(s) carry an operational kind this migration maps, yet came out with no academic type. A mapped code did not resolve, so the tagging is partial and indistinguishable from success. Nothing has been committed.',
-      v_mapped_blank;
-  END IF;
+  RAISE NOTICE 'Academic types back-mapped: % event(s) tagged, every one stamped machine_inferred.', v_written;
 
   IF v_unmapped IS NOT NULL THEN
-    RAISE NOTICE
-      'Left untagged because no mapping exists for their operational kind (not an error — add them to the CASE and to the §2 guard when a type is agreed): %',
-      v_unmapped;
+    RAISE NOTICE 'Left untagged — no mapping exists for their operational kind (not an error; add the kind to _event_kind_mapping when a type is agreed): %', v_unmapped;
   END IF;
-
-  RAISE NOTICE 'Academic types back-mapped: % of % events tagged, every one stamped machine_inferred.',
-    v_tagged, v_total;
 END $$;
 
+-- ── 4. Put the scaffolding away ─────────────────────────────────────────────
+DROP TABLE IF EXISTS _event_kind_mapping;
