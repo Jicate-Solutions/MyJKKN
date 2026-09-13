@@ -81,11 +81,17 @@ name: Production Build
 # simpler but would make the check never report at all on a skipped PR, and a
 # required check that never reports blocks the PR forever.
 #
-# ── MEASURED ON ITS FIRST FOUR RUNS: THE BUILD DOES NOT FIT ON A STANDARD ───────
-#                           GITHUB RUNNER
+# ── MEASURED ON ITS FIRST FOUR RUNS: THE BUILD DID NOT FIT ON A STANDARD ────────
+#                    GITHUB RUNNER, AND WHY IT NOW DOES
 #
-# ⚠️ READ THIS BEFORE DEBUGGING A RED MARK FROM THIS GATE. As of this workflow's
-# introduction it fails on EVERY PR, including its own, and NOT because of the PR.
+# ⚠️ READ THIS BEFORE DEBUGGING A RED MARK FROM THIS GATE.
+#
+# HISTORY, kept because it is the evidence for the fix: on its first four runs
+# this workflow failed on EVERY PR, including its own, and NOT because of the
+# PR. The cause was diagnosed from the memory trace below and fixed by giving CI
+# its own build entry point with a lower V8 heap cap — see "THE FIX" further
+# down. If this gate is red for you, it is now much more likely to be your PR
+# than the runner; the last section explains how to tell the two apart.
 #
 # Every claim below is quoted from the four job logs, which are the only
 # evidence that survives: see "the Report step never runs" at the end.
@@ -137,30 +143,58 @@ name: Production Build
 # that happens to be running when a host sitting at ~130 MB available is finally
 # torn down — the last straw, not the cause.
 #
-# The 12 GB ceiling is real and still worth knowing:
-# `npm run build` hard-codes `cross-env NODE_OPTIONS="--max-old-space-size=12288
-# --max-semi-space-size=128"`. cross-env sets those explicitly, so they OVERRIDE
-# anything this workflow exports — the ceiling cannot be lowered from here. But
-# it is a ceiling, not the measured cause, and next.config.ts already caps
-# Turbopack itself at 4 GB (`turbopackMemoryLimit`) without keeping total usage
-# anywhere near that.
+# ── THE FIX: A LOWER HEAP CAP, NOT A BIGGER MACHINE ─────────────────────────
 #
-# This is a real finding about the build, not a defect in this gate — the gate
-# ran the production build and reported, reproducibly, what happened. Resolving
-# it needs a decision that is NOT this workflow's to make, because every option
-# changes something outside CI:
+# That same revision recommended a larger runner. That was wrong, and this repo
+# had already written down why. Commit 53e85d8390 (2026-04-30),
+# "fix(build): lower NODE_OPTIONS heap cap from 12 GB to 7 GB to fit Vercel's
+# 8 GB container", says it plainly:
 #
-#   (a) a larger runner (8-core/32 GB) — org setting, costs money. The only
-#       option the trace directly supports, since the compile alone needs more
-#       than this box has;
-#   (b) lower `--max-old-space-size` in package.json — changes what Vercel runs;
-#   (c) cap the worker count via `experimental.cpus` in next.config.ts — same,
-#       AND unlikely to be sufficient on its own: available memory is already
-#       ~130 MB before the workers start. (Inference from the trace, not a
-#       measured result — nobody has run the build with fewer workers.)
+#   "V8 doesn't trigger GC aggressively until heap nears the 12 GB cap, so
+#    total memory crosses the 8 GB physical limit and the Linux OOM-killer
+#    fires SIGKILL before V8 itself starts cleaning up. Counter-intuitive fix:
+#    lower the cap, not raise it. A smaller cap means V8 GCs sooner, keeping
+#    total memory under physical RAM."
 #
-# Until one is chosen, this gate is advisory and its red mark means "the build
-# still does not fit", not "this PR is broken".
+# That is exactly the shape of the trace above: memory climbing steadily to the
+# top of the box and pinning there, rather than sawtoothing as a collecting heap
+# would. `--max-old-space-size=12288` on a 15 GiB runner is not a requirement —
+# it is permission for V8 to fill the machine before it tidies up.
+#
+# So CI does NOT need a bigger box and does NOT need package.json changed. It
+# needs its own entry point:
+#
+#   `build`    — what Vercel runs. Cap 12288. UNTOUCHED by this workflow, and a
+#                parity guard keeps it that way.
+#   `build:ci` — what this job runs. The same steps in the same order, cap 8192.
+#
+# cross-env sets NODE_OPTIONS explicitly and so overrides anything a workflow
+# exports; a second script is the only way to build at a different cap. The
+# duplication is guarded by scripts/ci/check-build-ci-parity.mjs, which fails if
+# a step is ever added to one and not the other, or if the CI cap stops being
+# the lower of the two.
+#
+# ── WHAT THE CI BUILD IS AND IS NOT ─────────────────────────────────────────
+#
+# It is NOT byte-identical to Vercel's build. It runs the same steps, the same
+# Turbopack, the same codegen and the same four `check:*` gates, with a smaller
+# V8 heap ceiling.
+#
+#   CAUGHT: compile failures, a `'use server'` file with a synchronous export,
+#   bad import boundaries, a module that throws at import time during page-data
+#   collection, a failing generateStaticParams, and the gen:routes /
+#   check:reachability / check:sidebar / check:audit-coverage gates. That set
+#   includes the exact class that started this workflow (PR #3239).
+#
+#   NOT CAUGHT: a regression that builds at 12288 but not at 8192 — extra
+#   headroom in production that CI no longer has. That direction is the safe
+#   one (CI is the stricter environment, so it fails first), but the reverse is
+#   a genuine blind spot: something that needs MORE than 8 GB will go red here
+#   while Vercel would have shipped it. If that happens, raise `build:ci`'s cap
+#   toward 12288 — do not lower `build`'s.
+#
+#   ALSO NOT CAUGHT: type errors. next.config.ts sets ignoreBuildErrors, so
+#   TypeCheck (PR-scoped) remains the only gate for those, in either build.
 #
 # ── TELLING THE TWO FAILURE KINDS APART ─────────────────────────────────────
 #
@@ -323,10 +357,15 @@ jobs:
         run: |
           echo "vCPU: $(nproc)"
           free -h
-          echo "npm run build sets --max-old-space-size=12288 (12 GB) via cross-env."
+          echo "This job runs 'npm run build:ci' (heap cap 8192). Vercel runs 'npm run build' (12288)."
           echo "If this job dies with a bare non-zero exit or 'Killed', compare that to MemTotal above."
 
-      - name: Build (the same command Vercel runs)
+      # `build:ci`, NOT `build`. Same steps in the same order — the parity guard
+      # in the self-test job enforces that — differing only in the V8 heap cap:
+      # 8192 here against production's 12288. See the header for why a LOWER cap
+      # is what makes the build fit. `build` itself is untouched, so the command
+      # Vercel runs is byte-identical to what it was before this workflow existed.
+      - name: Build (same steps as Vercel, lower heap cap)
         if: steps.relevant.outputs.count != '0'
         env:
           # ── PLACEHOLDERS, NOT SECRETS ────────────────────────────────────────
@@ -372,7 +411,7 @@ jobs:
           sampler=$!
           # Do not let the sampler's death mask the build's exit code.
           set +e
-          npm run build
+          npm run build:ci
           build_exit=$?
           set -e
           kill "$sampler" 2>/dev/null || true
@@ -386,13 +425,14 @@ jobs:
             if [ "${{ job.status }}" = "success" ]; then
               echo "## Production Build passed"
               echo ""
-              echo "\`npm run build\` completed — the same command Vercel runs on deploy."
+              echo "\`npm run build:ci\` completed — the same steps Vercel runs on deploy, at a"
+              echo "lower V8 heap cap (8 GB here, 12 GB on Vercel)."
             else
               echo "## Production Build FAILED"
               echo ""
-              echo "\`npm run build\` did not complete. **This is the command Vercel runs**, so"
-              echo "merging this PR is likely to block deploys for the whole repository, not just"
-              echo "for the module this PR touches."
+              echo "\`npm run build:ci\` did not complete. It runs **the same steps Vercel runs**,"
+              echo "so merging this PR is likely to block deploys for the whole repository, not"
+              echo "just for the module this PR touches."
               echo ""
               echo "Reproduce locally with the same placeholder env:"
               echo ""
@@ -400,8 +440,15 @@ jobs:
               echo 'NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co \'
               echo 'NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder-anon-key-build-only \'
               echo 'SUPABASE_SERVICE_ROLE_KEY=placeholder-service-role-key-build-only \'
-              echo 'npm run build'
+              echo 'npm run build:ci'
               echo '```'
+              echo ""
+              echo "One failure mode is specific to CI: \`build:ci\` caps V8 at 8 GB where Vercel"
+              echo "allows 12 GB, so a change that genuinely needs more than 8 GB fails here and"
+              echo "would have shipped there. The memory trace in the log tells you which — an"
+              echo "out-of-memory death has no named error, just the runner's own shutdown"
+              echo "message, with the last samples reading avail < 300MB. If that is what you"
+              echo "see, raise \`build:ci\`'s cap; never lower \`build\`'s."
               echo ""
               echo "Note that \`npm run build\` also re-runs \`check:sidebar\`, \`check:reachability\`"
               echo "and \`check:audit-coverage\`. If **nav-reachability-gate** or"
@@ -439,3 +486,10 @@ jobs:
 
       - name: Test the relevance filter
         run: bash scripts/ci/build-relevance.test.sh
+
+      # The build job runs `build:ci`, a deliberate duplicate of `build` with a
+      # lower heap cap. Duplicates drift; this fails the moment they do, rather
+      # than letting the gate keep reporting green while compiling something
+      # that is no longer what Vercel compiles.
+      - name: build:ci still matches build
+        run: node scripts/ci/check-build-ci-parity.mjs
