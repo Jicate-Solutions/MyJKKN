@@ -3070,6 +3070,20 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          // Event feedback the attendee owes — the general-events equivalent of
+          // /learners/my-induction. Its absence IS why 54 of 55 events collected
+          // nothing: /events/[id]/feedback/respond had no entry point at all, so
+          // the only way in was somebody pasting the link. Auto student-visible
+          // via isStudentPortalRoute (/learners/my-), ungated by design — the
+          // page self-scopes through fn_my_pending_event_feedback, so anyone with
+          // nothing to answer sees an empty state rather than a refusal.
+          href: '/learners/my-event-feedback',
+          label: 'Event Feedback',
+          active: pathname.startsWith('/learners/my-event-feedback'),
+          icon: MessageSquare,
+          submenus: []
+        },
+        {
           href: '/learners/my-profile',
           label: 'My Profile',
           active: pathname === '/learners/my-profile',

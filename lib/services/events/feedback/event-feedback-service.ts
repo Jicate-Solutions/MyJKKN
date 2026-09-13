@@ -24,6 +24,7 @@ import type {
   FeedbackQuestionType,
   FormFieldCondition,
   FormFieldOption,
+  PendingEventFeedback,
 } from '@/types/event-feedback';
 import {
   CHOICE_QUESTION_TYPES,
@@ -550,6 +551,30 @@ export class EventFeedbackService {
       .maybeSingle();
     if (error) throw error;
     return (data as EventFeedbackResponse | null) ?? null;
+  }
+
+  /**
+   * Every event the signed-in person is being asked about right now, across all
+   * events — the backing read for /learners/my-event-feedback.
+   *
+   * This is the half of the feature that decides whether any of it is used.
+   * /events/<id>/feedback/respond has existed and worked for weeks with no
+   * navigation entry and no list, so it is reachable only by someone pasting the
+   * link — which is why 54 of 55 events hold no feedback at all.
+   *
+   * One RPC rather than a PostgREST select for two reasons. The forms table's
+   * SELECT policy admits forms the caller MANAGES as well as ones they may
+   * answer, so a plain listing would hand a coordinator their own event back as
+   * something to rate; and the policy evaluates three SECURITY DEFINER functions
+   * per row, which is a poor way to scan every form in the institution. The RPC
+   * filters on the cheap predicates first and answers the ONE question this
+   * page asks: what may I answer and have not.
+   */
+  static async myPendingFeedback(): Promise<PendingEventFeedback[]> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await (supabase as any).rpc('fn_my_pending_event_feedback');
+    if (error) throw error;
+    return (data as PendingEventFeedback[] | null) ?? [];
   }
 
   /**

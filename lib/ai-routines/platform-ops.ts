@@ -648,5 +648,21 @@ export const PLATFORM_OPS_ROUTINES: AIRoutine[] = [
     "sideEffects": "Deletes storage objects that pass the reference + grace checks. No notifications.",
     "safeToManualTrigger": true,
     "notes": "Director decision 2026-07-21 ('delete the images too'). Auth: Bearer or ?secret=. IST math: 03:41 UTC = 09:11 IST → slot 09:00 (minute_of_day 551)."
+  },
+  {
+    "id": "events-standard-feedback-forms",
+    "name": "Events — open the standard feedback form on every ended event",
+    "category": "platform-ops",
+    "type": "cron",
+    "schedule": "Daily · 06:45 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/events-standard-feedback-forms",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Rules-based SQL sweep via fn_events_open_standard_feedback(); the route resolves no model.",
+    "whatItDoes": "Opens one standard short feedback form on every event that has ended and does not already have one, so an event no longer depends on a coordinator remembering to build a form by hand. Every form carries the SAME four questions with the same stable answer keys (overall rating, usefulness, organisation, what to change), which is what makes one event's score comparable with another's. Director's ruling 2026-09-13: 'every event, asked after it ends' — before this, one event in 55 had ever collected any feedback.",
+    "configKnobs": "Lookback 7 days (an event that ended longer ago is left alone — no history is reopened), answer window 14 days, at most 200 events a run; all three are function defaults, editable by calling the fn with arguments. The four questions are deliberately NOT a config row: a question set an operator can reword is a question set that stops being comparable across events, the same reasoning as the k=5 floor in event-feedback-naac-evidence. Day/time editable at /admin/ai-routines.",
+    "sideEffects": "DB writes only: one event_feedback_forms row plus its section and four questions per qualifying event. Never a second form on an event that already has one, never touches induction events (they run their own three feedback channels), never backfills beyond the lookback window. SENDS NOTHING — no notification, email or push; attendees find the form themselves at /learners/my-event-feedback.",
+    "safeToManualTrigger": true,
+    "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'events-standard-feedback-forms' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer ONLY, constant-time — no ?secret= query param). Safe to manual-trigger: idempotent by construction (the NOT EXISTS on event_feedback_forms makes a same-day re-run a no-op). 'Ended' is the LATER of events.end_date and events.event_date+end_time in IST, because those two columns can disagree (see scripts/ci/check-event-time-consistency.mjs) and a form must never open while people are still in the room. Migration 20261206143000."
   }
 ];
