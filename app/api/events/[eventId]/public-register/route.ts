@@ -33,6 +33,7 @@ import {
   MODULE,
   WaitlistReadError,
   attachRegistration,
+  findGuestOfferByCode,
   claimOffer,
   closeOpenRowsFor,
   countTaken,
@@ -93,6 +94,8 @@ interface PublicEventRegisterBody {
   participant_email?: string | null;
   participant_phone?: string | null;
   custom_fields?: Record<string, unknown> | null;
+  /** The one-time code a guest was read over the phone. */
+  claim_code?: string | null;
 }
 
 export async function POST(
@@ -340,20 +343,57 @@ export async function POST(
     // has, so it must stay reachable.
     let claimedWaitlistId: string | null = null;
     if (ev.max_registrations) {
-      const offer = await findOutstandingOffer(
-        svc as any,
-        eventId,
-        {
-          profileId: selfProfileId,
-          learnerId: selfLearnerId,
-          email: contact.email,
-          phone: contact.phone,
-          name: dto.participant_name.trim(),
-        },
-        formRow.id
-      );
+      const who = {
+        profileId: selfProfileId,
+        learnerId: selfLearnerId,
+        email: contact.email,
+        phone: contact.phone,
+        name: dto.participant_name.trim(),
+      };
+
+      // TWO DOORS, and they are not the same door.
+      //
+      // A SIGNED-IN person's offer is bound to their account, so their identity
+      // is the credential and the Director's ruling explicitly leaves that path
+      // alone. A GUEST has no account — that is why the organiser telephones
+      // them — so from 13 Sep their credential is a one-time code read to them
+      // on that call. Name and contact details are no longer sufficient on
+      // their own, because the organiser's own screen shows both.
+      let offer = selfProfileId ? await findOutstandingOffer(svc as any, eventId, who, formRow.id) : null;
+
+      if (!offer) {
+        const guest = await findGuestOfferByCode(
+          svc as any,
+          eventId,
+          dto.claim_code ?? null,
+          who,
+          formRow.id
+        );
+        if (guest.outcome === 'code_required') {
+          return NextResponse.json(
+            {
+              error:
+                'A place is being held for you. To take it up, enter the code the organiser read to you on the phone. If you do not have it, ask them to read it again — they can issue a new one.',
+              claim_code_required: true,
+            },
+            { status: 422 }
+          );
+        }
+        if (guest.outcome === 'no_match') {
+          return NextResponse.json(
+            {
+              error:
+                'That code does not match a place being held on this event. Check each character with the organiser — codes contain no letter O or I, and no zero or one — or ask them to issue a new one.',
+              claim_code_invalid: true,
+            },
+            { status: 422 }
+          );
+        }
+        if (guest.outcome === 'match') offer = guest.offer;
+      }
+
       if (offer) {
-        const claim = await claimOffer(svc as any, offer.id);
+        const claim = await claimOffer(svc as any, offer.id, dto.claim_code ?? null);
         if (claim === 'error') {
           // The write failed. Saying "refresh in a moment" to a permanent
           // permission or write failure leaves somebody refreshing at an offer
@@ -387,20 +427,7 @@ export async function POST(
             { status: 409 }
           );
         }
-      } else if (
-        await findClaimInFlight(
-          svc as any,
-          eventId,
-          {
-            profileId: selfProfileId,
-            learnerId: selfLearnerId,
-            email: contact.email,
-            phone: contact.phone,
-            name: dto.participant_name.trim(),
-          },
-          formRow.id
-        )
-      ) {
+      } else if (await findClaimInFlight(svc as any, eventId, who, formRow.id)) {
         // No 'offered' row, but this person has one mid-claim: the CAS committed
         // and its registration has not. Without this probe the 409 guard above
         // cannot see them, `taken` reads one low, and a second registration —
