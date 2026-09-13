@@ -115,7 +115,15 @@ export async function GET(request: NextRequest) {
         inst?.name ??
         undefined;
       const { bos_taxonomy_levels: _omit, institutions: _omit2, ...rest } = row;
-      return { ...(rest as BosTaxonomySummary), level_count, institution_name };
+      // The `*` select is untyped, so `rest` is Record<string, unknown> and the
+      // compiler cannot see the bos_taxonomy columns in it. `rest as
+      // BosTaxonomySummary` is therefore TS2352 — the two types do not overlap
+      // — and the cast has to go through `unknown`. That error is pre-existing
+      // on main; it only becomes visible once a PR touches this file, because
+      // TypeCheck (PR-scoped) compiles exactly the PR's files and
+      // next.config.ts sets typescript.ignoreBuildErrors: true, so nothing else
+      // was looking. Fixed here rather than left to fail the gate.
+      return { ...rest, level_count, institution_name } as unknown as BosTaxonomySummary;
     });
 
     return NextResponse.json({
