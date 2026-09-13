@@ -1,7 +1,13 @@
 name: Production Build
 
-# Runs the REAL production build (`npm run build` — the same command Vercel runs)
-# on every pull request against main.
+# Runs the REAL production build on every pull request against main — `npm run
+# build:ci`, which performs the same steps as the `npm run build` Vercel runs,
+# at a lower V8 heap cap. `build` itself is never modified by this workflow, so
+# what Vercel runs is byte-identical to what it ran before this file existed.
+#
+# ⚠️ This gate is RED on every PR today and the cause is NOT your PR. See
+# "MEASURED" below before debugging. The lower cap was an attempt at the fix;
+# it has not worked yet, and that section says what was measured instead.
 #
 # ── WHY THIS EXISTS ─────────────────────────────────────────────────────────────
 #
@@ -81,20 +87,17 @@ name: Production Build
 # simpler but would make the check never report at all on a skipped PR, and a
 # required check that never reports blocks the PR forever.
 #
-# ── MEASURED ON ITS FIRST FOUR RUNS: THE BUILD DID NOT FIT ON A STANDARD ────────
-#                    GITHUB RUNNER, AND WHY IT NOW DOES
+# ── MEASURED: THE BUILD DOES NOT FIT ON A STANDARD GITHUB RUNNER, AND ──────────
+#                        LOWERING THE HEAP CAP DID NOT FIX IT
 #
-# ⚠️ READ THIS BEFORE DEBUGGING A RED MARK FROM THIS GATE.
+# ⚠️ READ THIS BEFORE DEBUGGING A RED MARK FROM THIS GATE. As of this writing it
+# still fails on EVERY PR, including its own, and NOT because of the PR. Two
+# hypotheses have been tested and written up below; neither has fixed it yet.
+# Until it goes green once, treat a red mark here as "the build still does not
+# fit" unless the log shows a NAMED error — the last section is how to tell.
 #
-# HISTORY, kept because it is the evidence for the fix: on its first four runs
-# this workflow failed on EVERY PR, including its own, and NOT because of the
-# PR. The cause was diagnosed from the memory trace below and fixed by giving CI
-# its own build entry point with a lower V8 heap cap — see "THE FIX" further
-# down. If this gate is red for you, it is now much more likely to be your PR
-# than the runner; the last section explains how to tell the two apart.
-#
-# Every claim below is quoted from the four job logs, which are the only
-# evidence that survives: see "the Report step never runs" at the end.
+# Every claim below is quoted from job logs, which are the only evidence that
+# survives: see "the Report step never runs" at the end.
 #
 #   job 103691131931  9088d80c4d attempt 1
 #   job 103691886647  9088d80c4d attempt 2   (byte-identical re-run)
@@ -143,12 +146,12 @@ name: Production Build
 # that happens to be running when a host sitting at ~130 MB available is finally
 # torn down — the last straw, not the cause.
 #
-# ── THE FIX: A LOWER HEAP CAP, NOT A BIGGER MACHINE ─────────────────────────
+# ── THE HEAP CAP: TRIED, AND SO FAR NOT THE ANSWER EITHER ───────────────────
 #
-# That same revision recommended a larger runner. That was wrong, and this repo
-# had already written down why. Commit 53e85d8390 (2026-04-30),
-# "fix(build): lower NODE_OPTIONS heap cap from 12 GB to 7 GB to fit Vercel's
-# 8 GB container", says it plainly:
+# That same revision recommended a larger runner. Before spending money on that,
+# the cheaper hypothesis was tested, because this repo had already written it
+# down. Commit 53e85d8390 (2026-04-30), "fix(build): lower NODE_OPTIONS heap cap
+# from 12 GB to 7 GB to fit Vercel's 8 GB container":
 #
 #   "V8 doesn't trigger GC aggressively until heap nears the 12 GB cap, so
 #    total memory crosses the 8 GB physical limit and the Linux OOM-killer
@@ -156,23 +159,43 @@ name: Production Build
 #    lower the cap, not raise it. A smaller cap means V8 GCs sooner, keeping
 #    total memory under physical RAM."
 #
-# That is exactly the shape of the trace above: memory climbing steadily to the
-# top of the box and pinning there, rather than sawtoothing as a collecting heap
-# would. `--max-old-space-size=12288` on a 15 GiB runner is not a requirement —
-# it is permission for V8 to fill the machine before it tidies up.
+# Good hypothesis, and it fits the shape of the trace. MEASURED, it did almost
+# nothing. Job 103713148466 ran the identical build at cap 8192 instead of
+# 12288, and the two curves are the same within noise:
 #
-# So CI does NOT need a bigger box and does NOT need package.json changed. It
-# needs its own entry point:
+#              +2:00 avail   +2:45 avail   at death
+#   cap 12288    1170 MB       442 MB       129 MB
+#   cap  8192    1007 MB       593 MB       104 MB
+#
+# If the V8 old-space heap were what fills this box, halving its ceiling would
+# have bent that curve. It did not, and there is a good reason: 53e85d8390 was
+# measured against `next build --webpack`, a JavaScript bundler whose memory
+# IS the V8 heap. Commit 042012f086 (#846) later switched this repo to
+# `next build --turbopack`. Turbopack is Rust; its allocations live outside the
+# V8 heap, where --max-old-space-size has no authority. That is also why
+# next.config.ts carries a SEPARATE `turbopackMemoryLimit` knob — currently
+# 4 GB, and evidently not holding either.
+#
+# So the cap is not (yet) the answer. What this workflow does have is its own
+# entry point, which is what makes any of this testable without touching what
+# Vercel runs:
 #
 #   `build`    — what Vercel runs. Cap 12288. UNTOUCHED by this workflow, and a
 #                parity guard keeps it that way.
-#   `build:ci` — what this job runs. The same steps in the same order, cap 8192.
+#   `build:ci` — what this job runs. The same steps in the same order, at
+#                whatever cap is under test (currently 6144).
 #
 # cross-env sets NODE_OPTIONS explicitly and so overrides anything a workflow
 # exports; a second script is the only way to build at a different cap. The
 # duplication is guarded by scripts/ci/check-build-ci-parity.mjs, which fails if
 # a step is ever added to one and not the other, or if the CI cap stops being
 # the lower of the two.
+#
+# NEXT DIAGNOSTIC, already wired in: the memory trace now names the three
+# largest processes by RSS at every sample. System-wide totals cannot tell
+# "one compiler holding 12 GB" from "three workers holding 4 GB each", and
+# those have different fixes. The next red run answers that question in its
+# own log.
 #
 # ── WHAT THE CI BUILD IS AND IS NOT ─────────────────────────────────────────
 #
@@ -186,12 +209,12 @@ name: Production Build
 #   check:reachability / check:sidebar / check:audit-coverage gates. That set
 #   includes the exact class that started this workflow (PR #3239).
 #
-#   NOT CAUGHT: a regression that builds at 12288 but not at 8192 — extra
+#   NOT CAUGHT: a regression that builds at 12288 but not at the CI cap — extra
 #   headroom in production that CI no longer has. That direction is the safe
 #   one (CI is the stricter environment, so it fails first), but the reverse is
-#   a genuine blind spot: something that needs MORE than 8 GB will go red here
-#   while Vercel would have shipped it. If that happens, raise `build:ci`'s cap
-#   toward 12288 — do not lower `build`'s.
+#   a genuine blind spot: something that genuinely needs more than the CI cap
+#   goes red here while Vercel would have shipped it. If that happens, raise
+#   `build:ci`'s cap toward 12288 — do not lower `build`'s.
 #
 #   ALSO NOT CAUGHT: type errors. next.config.ts sets ignoreBuildErrors, so
 #   TypeCheck (PR-scoped) remains the only gate for those, in either build.
@@ -357,12 +380,12 @@ jobs:
         run: |
           echo "vCPU: $(nproc)"
           free -h
-          echo "This job runs 'npm run build:ci' (heap cap 8192). Vercel runs 'npm run build' (12288)."
+          echo "This job runs 'npm run build:ci' (heap cap 6144). Vercel runs 'npm run build' (12288)."
           echo "If this job dies with a bare non-zero exit or 'Killed', compare that to MemTotal above."
 
       # `build:ci`, NOT `build`. Same steps in the same order — the parity guard
       # in the self-test job enforces that — differing only in the V8 heap cap:
-      # 8192 here against production's 12288. See the header for why a LOWER cap
+      # 6144 here against production's 12288. See the header for why a LOWER cap
       # is what makes the build fit. `build` itself is untouched, so the command
       # Vercel runs is byte-identical to what it was before this workflow existed.
       - name: Build (same steps as Vercel, lower heap cap)
@@ -403,9 +426,16 @@ jobs:
           # "Collecting page data using 3 workers ..." with a bare
           # "##[error]The operation was canceled." and no diagnostic of any kind.
           # ~20 lines per build, inside a collapsed group.
+          # Each sample also names the three largest processes by RSS. Added
+          # after the cap step-down from 12288 to 8192 moved the curve by almost
+          # nothing (avail at +2:00 went 1170MB -> 1007MB; death 129MB -> 104MB),
+          # which says the V8 old-space heap is not what is filling this box.
+          # System-wide totals cannot distinguish "one compiler holding 12 GB"
+          # from "three workers holding 4 GB each", and those two have different
+          # fixes. Per-process RSS can.
           echo "::group::Memory trace (15s samples)"
           ( while true; do
-              echo "[mem] $(date -u +%H:%M:%S) $(free -m | awk '/^Mem:/{printf "used=%sMB avail=%sMB", $3, $7}')"
+              echo "[mem] $(date -u +%H:%M:%S) $(free -m | awk '/^Mem:/{printf "used=%sMB avail=%sMB", $3, $7}') top3(pid:rss) $(ps -eo pid,rss,comm --sort=-rss --no-headers 2>/dev/null | head -3 | awk '{printf "%s:%dM/%s ", $1, $2/1024, $3}')"
               sleep 15
             done ) &
           sampler=$!
@@ -450,7 +480,7 @@ jobs:
               echo "message, with the last samples reading avail < 300MB. If that is what you"
               echo "see, raise \`build:ci\`'s cap; never lower \`build\`'s."
               echo ""
-              echo "Note that \`npm run build\` also re-runs \`check:sidebar\`, \`check:reachability\`"
+              echo "Note that \`npm run build:ci\` also re-runs \`check:sidebar\`, \`check:reachability\`"
               echo "and \`check:audit-coverage\`. If **nav-reachability-gate** or"
               echo "**module-config-audits** is also red on this PR, fix that first — this job is"
               echo "most likely reporting the same underlying failure, before it ever reached"
