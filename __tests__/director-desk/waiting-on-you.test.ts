@@ -76,9 +76,14 @@ describe('sourceWords — the six queues have plain names', () => {
     });
   });
 
-  it('never names the queue for a status the product has never used', () => {
-    // 'offer_issued' has zero rows in production and no control in app/
-    // performs that transition, so no word a person reads may promise it.
+  it('never names the queue for one of the two statuses it holds', () => {
+    // Was: "never names the queue for a status the product has never used" —
+    // 'offer_issued' had zero rows and no control in app/ performed the
+    // transition. As of 2026-09-12 an "Issue Offer" control exists on both
+    // recruitment surfaces and migration 20261202090000 widened the RPC's offer
+    // branch to status IN ('package_fixed','offer_issued'). The assertion holds
+    // for a NEW reason: the queue now spans TWO statuses, and a heading or verb
+    // naming the offer would mis-describe the rows that already have one.
     // The source STRING stays 'offer' — that is the applied RPC contract.
     const words = sourceWords('offer');
     expect(words.label).not.toMatch(/offer/i);

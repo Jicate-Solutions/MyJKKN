@@ -366,7 +366,7 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
         { '✓': 'All dropdown values are case-insensitive (Male = male = MALE)' },
         { '✓': 'Required fields marked with * must be filled' },
         { '✓': 'Delete the example row before uploading your actual data' },
-        { '✓': 'Copy-paste the example row to create more student entries' },
+        { '✓': 'Copy the example row to add more learners' },
         { '✓': 'Institution, Department, Program names must match exactly as in database' },
         { '✓': 'Validation errors will show clearly - fix and re-upload' },
         { '✓': 'Download fresh template if you make too many errors' },

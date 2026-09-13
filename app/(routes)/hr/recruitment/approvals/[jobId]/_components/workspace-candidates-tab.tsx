@@ -40,6 +40,7 @@ import {
   useInterviews,
   usePurgeRejectedApplicant,
   useJobApprovalFlow,
+  useUpdateCandidateStatus,
 } from '@/hooks/hr/use-recruitment';
 import { Input } from '@/components/ui/input';
 import { useCompleteInterview, useMarkNoShow } from '@/hooks/hr/use-recruitment-interviews';
@@ -60,6 +61,7 @@ import {
   type HRRecruitmentCandidate,
   type HRRecruitmentInterview,
 } from '@/types/hr-recruitment';
+import { mayIssueOffer } from '@/lib/hr/recruitment-issue-offer';
 import {
   CHIP_ORDER,
   STAGE_META,
@@ -662,6 +664,37 @@ function RowActions({
     onboardingStarted && onboardingDone === (onboardingSteps?.length ?? 0);
   const canOnboard = isPostApproval && checklistComplete;
 
+  // ---- Issue offer (2026-09-12) ----
+  // package_fixed → offer_issued has been in the service's forward-transition
+  // map since the module shipped and NO screen ever called it. My Desk's "Hires
+  // to bring on board" queue links most of these rows to THIS page, so the
+  // control has to exist here as well as on the candidate detail page or the
+  // desk still dead-ends.
+  //
+  // The predicate is the SHARED rule, not a second copy: review round 1 found
+  // the same wrong status ('approved', which means no agreed salary) in both
+  // copies of the duplicated version. See ISSUE_OFFER_STATUSES.
+  const updateCandidateStatus = useUpdateCandidateStatus();
+  const [issueOfferOpen, setIssueOfferOpen] = useState(false);
+  const canIssueOffer =
+    !!candidate &&
+    mayIssueOffer(candidate.status, {
+      isSuperAdmin,
+      canEditRecruitment: permissions['hr.recruitment.edit'] === true,
+    });
+
+  const handleIssueOffer = async () => {
+    if (!candidate) return;
+    try {
+      await updateCandidateStatus.mutateAsync({ id: candidate.id, status: 'offer_issued' });
+      toast.success(`Offer issued to ${row.name}`);
+      setIssueOfferOpen(false);
+      queryClient.invalidateQueries({ queryKey: ['hr-recruitment-job-candidates'] });
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  };
+
   const handleStartOnboarding = () => {
     if (!candidate) return;
     startOnboarding.mutate(candidate.id, {
@@ -891,6 +924,19 @@ function RowActions({
             Reject
           </Button>
         </>
+      )}
+
+      {/* Salary agreed → record that the offer went out */}
+      {canIssueOffer && (
+        <Button
+          size="sm"
+          className="w-full justify-start gap-1.5"
+          disabled={updateCandidateStatus.isPending}
+          onClick={() => setIssueOfferOpen(true)}
+        >
+          <Mail className="h-3.5 w-3.5" />
+          {updateCandidateStatus.isPending ? 'Issuing…' : 'Issue Offer'}
+        </Button>
       )}
 
       {/* Finally approved → onboarding checklist → staff */}
@@ -1125,6 +1171,30 @@ function RowActions({
           candidate={candidate}
           isReschedule={interviewLive}
         />
+      )}
+
+      {/* Issue offer — confirm, naming the person and the role */}
+      {candidate && (
+        <Dialog open={issueOfferOpen} onOpenChange={setIssueOfferOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Issue Offer</DialogTitle>
+              <DialogDescription>
+                Records that the offer has been issued. The hire stays on HR&apos;s desk
+                until they join.
+              </DialogDescription>
+            </DialogHeader>
+            <p className="text-sm">
+              <span className="font-medium">{row.name}</span> — {candidate.role_title}
+            </p>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIssueOfferOpen(false)}>Cancel</Button>
+              <Button onClick={handleIssueOffer} disabled={updateCandidateStatus.isPending}>
+                {updateCandidateStatus.isPending ? 'Issuing…' : 'Confirm Issue Offer'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
 
       {/* Onboarding checklist */}

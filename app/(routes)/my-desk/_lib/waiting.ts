@@ -5,7 +5,8 @@
 // The section on /my-desk lists everything the database has COMPUTED to be
 // waiting on the signed-in person: hires to sign off, refunds to approve,
 // leave to approve, meeting triggers to decide, grievances to assign, hires to
-// bring on board (salary agreed, onboarding not started). The
+// bring on board (salary agreed, or the offer issued and the person not yet
+// joined — widened from salary-agreed-only by migration 20261202090000). The
 // computing happens in one RPC, fn_my_desk_waiting(); nothing here re-derives a
 // queue. This file only decides what a person reads off the result.
 //
@@ -88,21 +89,32 @@ const SOURCE_WORDS: Record<WaitingSource, SourceWords> = {
   leave: { label: 'Leave to approve', verb: 'Approve', queue: 'leave' },
   meeting_trigger: { label: 'Triggers to decide', verb: 'Decide', queue: 'triggers' },
   grievance: { label: 'Grievances to assign', verb: 'Assign', queue: 'grievances' },
-  // A hire whose salary is agreed and whom nobody has started onboarding.
+  // A hire who is not on board yet: salary agreed, or the offer out and the
+  // joining date not reached.
   //
   // NOT "Offers to issue", which is how the Director named it and how the
-  // source string still reads. Status 'offer_issued' has never been used once
-  // in production (the table has only ever held pending_approval, approved,
-  // package_fixed and joined) and no control anywhere in app/ performs that
-  // transition, so a heading naming it would send its reader hunting a button
-  // that does not exist. The act the product DOES support at this status is
-  // onboarding: the job workspace gates "Start Onboarding" on exactly it.
-  // His decision — these belong on HR's desk, not his — is unchanged; only
-  // the words moved to the act that can actually be done.
+  // source string still reads — but the reason has CHANGED, so read this before
+  // re-wording it. The original reason was that status 'offer_issued' had never
+  // been used and no control in app/ performed the transition, so a heading
+  // naming it would send its reader hunting a button that did not exist. As of
+  // 2026-09-12 the button exists (Director decision the same day): both the
+  // candidate detail page and the job workspace's candidates tab carry "Issue
+  // Offer", and migration 20261202090000 widened the RPC's offer branch to
+  // status IN ('package_fixed','offer_issued') so that pressing it does not
+  // delete the hire from this desk.
+  //
+  // The heading stays as it is for a NEW reason: the queue now holds rows at
+  // two statuses and only one of them is waiting to be issued an offer, so a
+  // heading naming that one act would mis-describe the other. "Hires to bring
+  // on board" is true of both. The row's own `detail`, computed by the RPC,
+  // says which status it is in.
   //
   // The verb is read out only in the row's aria-label (the visible control is
-  // always "Open"). `queue` must stay distinct from recruitment's 'hires', or
-  // the all-clear sentence would name the same queue twice.
+  // always "Open"). It stays "Start onboarding" because onboarding is available
+  // at BOTH statuses — workspace-candidates-tab's isPostApproval spans them —
+  // whereas "Issue offer" would be wrong for a row that already has one.
+  // `queue` must stay distinct from recruitment's 'hires', or the all-clear
+  // sentence would name the same queue twice.
   offer: { label: 'Hires to bring on board', verb: 'Start onboarding', queue: 'onboarding' },
 };
 

@@ -42,6 +42,7 @@ import {
   type CandidateStatus,
   type HRRecruitmentCandidatePackage,
 } from '@/types/hr-recruitment';
+import { mayIssueOffer } from '@/lib/hr/recruitment-issue-offer';
 import { toast } from 'sonner';
 
 // Status colour map (matches my/page.tsx)
@@ -330,6 +331,23 @@ export default function CandidateDetailPage() {
     }
   };
 
+  // Issue offer (2026-09-12). The transition package_fixed → offer_issued has
+  // been in the service's ALLOWED map since the module shipped and no screen
+  // ever called it, so candidates whose salary was agreed had nowhere to go.
+  // Confirmed in a dialog, never window.confirm — a native dialog is invisible
+  // to browser automation and cannot be styled or read by a screen reader here.
+  const [issueOfferOpen, setIssueOfferOpen] = useState(false);
+
+  const onIssueOffer = async () => {
+    try {
+      await updateStatus.mutateAsync({ id, status: 'offer_issued' });
+      toast.success('Offer issued');
+      setIssueOfferOpen(false);
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  };
+
   if (isLoading) {
     return (
       <ContentLayout title="Loading…">
@@ -358,6 +376,19 @@ export default function CandidateDetailPage() {
   const approvalChain = candidate.approval_chain ?? [];
   const canWithdraw = ['submitted', 'pending_approval'].includes(candidate.status);
   const canMarkJoined = ['offer_issued', 'approved'].includes(candidate.status);
+  // 'package_fixed' was in NEITHER of the two lines above, which is why this page
+  // rendered no action at all for a hire whose salary was already agreed.
+  //
+  // The predicate is shared with the job workspace's candidates tab rather than
+  // duplicated: review round 1 found the same wrong status ('approved') in both
+  // copies. It admits 'package_fixed' ONLY — see ISSUE_OFFER_STATUSES for why
+  // 'approved' is excluded (no agreed salary, and the resulting state is
+  // unrecoverable). Permission is checked client-side for the affordance only;
+  // the route re-checks it and answers a named 403.
+  const canIssueOffer = mayIssueOffer(candidate.status, {
+    isSuperAdmin,
+    canEditRecruitment: permissions['hr.recruitment.edit'] === true,
+  });
 
   // Current-step approval action context.
   const currentStep = approvalChain[candidate.current_step];
@@ -570,8 +601,18 @@ export default function CandidateDetailPage() {
           </Card>
 
           {/* Primary actions */}
-          {(canWithdraw || canMarkJoined) && (
+          {(canWithdraw || canMarkJoined || canIssueOffer) && (
             <div className="flex flex-col gap-2">
+              {canIssueOffer && (
+                <Button
+                  className="w-full"
+                  onClick={() => setIssueOfferOpen(true)}
+                  disabled={updateStatus.isPending}
+                >
+                  <Mail className="h-4 w-4 mr-1" />
+                  Issue Offer
+                </Button>
+              )}
               {canMarkJoined && (
                 <Button className="w-full" onClick={onMarkJoined} disabled={updateStatus.isPending}>
                   <ArrowRight className="h-4 w-4 mr-1" />
@@ -1161,6 +1202,32 @@ export default function CandidateDetailPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Issue offer dialog — names the person and the role before acting */}
+      <Dialog open={issueOfferOpen} onOpenChange={setIssueOfferOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Issue Offer</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <p>
+              Record that the offer has been issued to{' '}
+              <span className="font-medium">{candidate.name}</span> for{' '}
+              <span className="font-medium">{candidate.role_title}</span>.
+            </p>
+            <p className="text-muted-foreground">
+              The candidacy moves to “{CANDIDATE_STATUS_LABELS['offer_issued']}” and stays on
+              HR&apos;s desk until they join. Onboarding remains available either way.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIssueOfferOpen(false)}>Cancel</Button>
+            <Button onClick={onIssueOffer} disabled={updateStatus.isPending}>
+              {updateStatus.isPending ? 'Issuing…' : 'Confirm Issue Offer'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

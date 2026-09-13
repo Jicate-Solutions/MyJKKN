@@ -108,6 +108,16 @@ export interface HRRecruitmentCandidate {
   expected_joining_date: string | null;
   actual_joining_date: string | null;
 
+  // When the offer went out, and who sent it (2026-09-12, migration
+  // 20261202090000). Nullable with no backfill: every row that reached
+  // 'offer_issued' before the Issue Offer control existed has no such moment to
+  // record. fn_my_desk_waiting's offer branch reads
+  // COALESCE(offer_issued_at, submitted_at) as waiting_since, so an issued
+  // offer's age on the desk restarts from the day it was issued instead of
+  // continuing to climb from submission.
+  offer_issued_at: string | null;
+  offer_issued_by: string | null;
+
   submitted_by: string;
   submitted_at: string;
   created_at: string;
@@ -148,6 +158,8 @@ export type HRRecruitmentCandidateUpdate = Partial<
     | 'rejection_reason'
     | 'expected_joining_date'
     | 'actual_joining_date'
+    | 'offer_issued_at'
+    | 'offer_issued_by'
     | 'approval_chain'
     | 'current_step'
     | 'final_approver_id'

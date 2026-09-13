@@ -103,27 +103,27 @@ export class VoiceBroadcastService {
   }
 
   static async createCampaign(data: CreateBroadcastInput): Promise<BroadcastCampaign> {
-    throw new Error('Voice broadcast service not yet implemented');
+    throw new Error('Voice broadcasts are not available yet.');
   }
 
   static async updateCampaign(id: string, data: UpdateBroadcastInput): Promise<BroadcastCampaign> {
-    throw new Error('Voice broadcast service not yet implemented');
+    throw new Error('Voice broadcasts are not available yet.');
   }
 
   static async deleteCampaign(id: string): Promise<void> {
-    throw new Error('Voice broadcast service not yet implemented');
+    throw new Error('Voice broadcasts are not available yet.');
   }
 
   static async startCampaign(id: string): Promise<BroadcastCampaign> {
-    throw new Error('Voice broadcast service not yet implemented');
+    throw new Error('Voice broadcasts are not available yet.');
   }
 
   static async pauseCampaign(id: string): Promise<BroadcastCampaign> {
-    throw new Error('Voice broadcast service not yet implemented');
+    throw new Error('Voice broadcasts are not available yet.');
   }
 
   static async cancelCampaign(id: string): Promise<BroadcastCampaign> {
-    throw new Error('Voice broadcast service not yet implemented');
+    throw new Error('Voice broadcasts are not available yet.');
   }
 
   static async getCampaignLogs(filters: BroadcastLogFilters): Promise<BroadcastLogsResult> {

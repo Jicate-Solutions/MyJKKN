@@ -73,6 +73,7 @@ import {
   PhoneCall,
   Target,
   Megaphone,
+  PenLine,
   Workflow,
   MessagesSquare,
   Radio,
@@ -305,6 +306,15 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // with no mapping is silently super-admin-only. The page scopes its own
   // CONTENT by role.
   '/whats-new': 'view_profile',
+  // The weekly highlights queue — where a person writes up and approves the few
+  // changes that get a plain-English write-up above the plain list. Gated on its
+  // own key rather than left unmapped: an unmapped route is silently
+  // super-admin-only in the sidebar (the default-deny above), which is the exact
+  // bug that once hid /whats-new itself, and it would also make the gate
+  // invisible to Role Management. No role holds this key today, so it resolves
+  // to super admins until one is granted it — the difference is that granting it
+  // is now a Role Management decision instead of a code change.
+  '/whats-new/highlights': 'whats_new.highlights.manage',
 
   // Bug Reports (Student Self-Service)
   '/my-bug-reports': 'learners.bug_reports.view',
@@ -1999,6 +2009,24 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: "What's New",
           active: pathname === '/whats-new',
           icon: Megaphone,
+          submenus: []
+        },
+        {
+          // Write highlights — the approval screen behind the weekly strip on
+          // What's New. Gated on whats_new.highlights.manage, so it is invisible
+          // to everyone except a super admin until Role Management grants that
+          // key; the page and the API refuse the same key server-side.
+          //
+          // A SIBLING ROW, NOT A SUBMENU OF WHAT'S NEW, and that is load-bearing:
+          // the filter above short-circuits on `menu.submenus.length > 0` and
+          // then shows a parent ONLY when one of its submenus is permitted. Hang
+          // this under What's New and What's New itself — open to everyone signed
+          // in by the Director's decision of 2026-09-05 — would disappear for
+          // every reader who cannot write highlights, which is all of them.
+          href: '/whats-new/highlights',
+          label: 'Write highlights',
+          active: pathname === '/whats-new/highlights',
+          icon: PenLine,
           submenus: []
         },
         {

@@ -249,7 +249,7 @@ export function CourseGradesTable({ grades }: CourseGradesTableProps) {
 
   const handleExport = () => {
     // TODO: Implement Excel export
-    alert('Export functionality coming soon!');
+    alert('Export is not available on this page yet.');
   };
 
   if (grades.length === 0) {

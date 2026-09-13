@@ -248,8 +248,8 @@ export default function LoginPage() {
     if (reason) {
       const reasonMessages: Record<string, string> = {
         student_redirect: FEATURE_FLAGS.ENABLE_STUDENT_PORTAL
-          ? 'Student portal access is currently restricted. Please ensure your account status is active.'
-          : 'Student accounts should use the separate MyJKKN Learners application. This portal is for administrators and staff only.',
+          ? 'Your learner account cannot use this portal right now. Please contact your institution to check your account status.'
+          : 'Learners sign in through the separate MyJKKN Learners app. This site is for administrators and team members only.',
         // Student lifecycle status reasons
         student_enquiry_only:
           'Your enquiry is being processed. You will receive login access once approved.',
@@ -280,7 +280,7 @@ export default function LoginPage() {
       const reasonTitles: Record<string, string> = {
         student_redirect: FEATURE_FLAGS.ENABLE_STUDENT_PORTAL
           ? 'Account Status Issue'
-          : 'Access Restricted - Student Portal',
+          : 'Access Restricted - Learner Portal',
         student_enquiry_only: 'Account Pending',
         student_pending_approval: 'Account Pending Approval',
         student_not_enrolled: 'Enrollment Incomplete',

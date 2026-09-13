@@ -38,6 +38,7 @@ import {
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { useChangelog } from '@/lib/changelog/use-changelog';
+import { HighlightsStrip } from '@/components/changelog/highlights-strip';
 import { usePermissions } from '@/hooks/use-permissions';
 import { KIND_LABEL, type ChangeKind, type ChangelogEntry } from '@/lib/changelog/types';
 import { CATEGORY_BLURB, groupByCategory, type ChangeCategory } from '@/lib/changelog/categories';
@@ -387,6 +388,23 @@ export function WhatsNewView() {
           )}
         </CardContent>
       </Card>
+
+      {/*
+        This week's highlights, above the plain list and above the filters.
+
+        Above the LIST because the list answers "what changed" and this answers
+        "what it means for me and what I can now do" — the two questions the
+        Director asked for on 2026-09-12. Above the FILTERS because the filters
+        below govern the plain list only; a strip sitting under them would read
+        as filtered when it is not.
+
+        It renders NOTHING at all when no highlight has been approved for this
+        week, while it is loading, and if its fetch fails — no heading, no empty
+        box. So the page below is exactly the page that ships today until
+        somebody approves a write-up. Passing meta.modules rather than letting
+        it fetch its own labels keeps one module dictionary on the page.
+      */}
+      <HighlightsStrip modules={meta.modules} />
 
       {/* Filters */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
