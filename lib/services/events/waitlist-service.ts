@@ -509,10 +509,22 @@ async function findLiveRegistration(
  * ONE PERSON, ONE PLACE. Somebody who refreshes and resubmits used to get a
  * second row with a fresh queue_seq — enough repeats and one person occupies
  * the whole head of the queue. An existing open row is now returned as-is
- * (`already: true`), and three partial UNIQUE indexes in the migration are the
- * backstop for two submissions racing: a 23505 is re-read rather than surfaced.
+ * (`already: true`).
  *
- * Never throws.
+ * THE BACKSTOP COVERS ACCOUNTS ONLY, and that is worth saying plainly. The
+ * migration carries ONE partial unique index, on (event_id, profile_id): a
+ * signed-in person cannot hold two open rows even if two submissions race, and
+ * the 23505 that proves it is re-read rather than surfaced. A GUEST has no such
+ * index — deliberately, because a contact-detail index would collide siblings
+ * sharing a parent's phone number — so for guests the check above is a read
+ * followed by an unserialised insert, and two genuinely simultaneous guest
+ * submissions can both land. The cost is one duplicate queue row, which is the
+ * behaviour this door already had; the alternative cost was handing one child
+ * their sibling's place.
+ *
+ * Throws WaitlistReadError if it cannot tell whether this person is already
+ * registered — answering "no" to that question on a failed read is how somebody
+ * ends up holding two seats.
  */
 export async function joinWaitlist(
   service: SupabaseClient,
