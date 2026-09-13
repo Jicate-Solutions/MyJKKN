@@ -74,6 +74,15 @@
 -- widening this gate further must re-check that, or add
 -- role_has_institution_access() in the same change.
 --
+-- KNOWN CEILING: NO LIMIT, NO PAGING (recorded, not settled)
+-- ---------------------------------------------------------
+-- This returns every orphan in one jsonb array. That is correct at today's 168
+-- rows and wrong eventually: consultant_lead_attributions takes intake writes
+-- daily and nothing in this change ever removes a row, so the set only grows.
+-- A LIMIT was deliberately NOT added, because a screen that silently drops an
+-- orphan is the exact defect this one exists to prevent — the honest fix when
+-- the list outgrows one page is keyset paging with a visible total, not a cap.
+
 -- DEPLOY ORDER: apply this migration BEFORE the UI ships. Unlike the sibling
 -- screens, this RPC does not exist in production yet, so a UI-first deploy gives
 -- every viewer — admins included — a PostgREST 404 in the page's error card.
