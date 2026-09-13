@@ -319,8 +319,15 @@ function recentFrom(): string {
 // cursor: the sort key is unchanged, and entry_at is NULL on every row written
 // before that date, so ordering on it would shuffle the whole page for the
 // window between this deploy and the next sync.
+//
+// `href` joined on 2026-09-13 — the screen the change happened on, so a reader
+// can open it instead of going to look for it (Director: "unless if there is
+// some link to be clickable which takes him directly to the page"). Display
+// data only: it is not part of the sort, the cursor or any filter, and it is
+// NOT an access signal — the module boundary above already decided which rows
+// this caller receives.
 const ENTRY_COLUMNS =
-  'sha,entry_date,entry_at,kind,module_key,subject,author,pr_number,breaking,ordinal,app_key';
+  'sha,entry_date,entry_at,kind,module_key,subject,author,href,pr_number,breaking,ordinal,app_key';
 
 interface EntryRow extends SortKey {
   sha: string;
@@ -331,6 +338,8 @@ interface EntryRow extends SortKey {
   module_key: string;
   subject: string;
   author: string;
+  /** In-app path to the screen this change happened on, or null. */
+  href: string | null;
   pr_number: number | null;
   breaking: boolean;
   ordinal: number;
@@ -350,6 +359,10 @@ function toEntry(r: EntryRow): ChangelogEntry {
     // reason as `p` and `b` below: ChangelogEntry.at is optional and the page
     // tests for its presence.
     ...(r.entry_at ? { at: r.entry_at } : {}),
+    // Absent rather than null when the commit has no single screen — the same
+    // rule as `at` above. Three quarters of entries are in this state and the
+    // page falls back to the module's href for them.
+    ...(r.href ? { l: r.href } : {}),
     // Both stay ABSENT rather than null when they do not apply: the page tests
     // `e.p &&` / `e.b === 1`, and the data contract asserts on `'p' in e`.
     ...(r.pr_number ? { p: r.pr_number } : {}),

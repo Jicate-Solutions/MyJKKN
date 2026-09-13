@@ -32,6 +32,24 @@ export interface ChangelogEntry {
   s: string;
   /** who shipped it */
   a: string;
+  /**
+   * The screen this change happened on — an in-app path such as
+   * `/hr/admin/recruitment-need/norms`, derived by
+   * scripts/generate-changelog.mjs from the static app/(routes) page files the
+   * commit touched (lib/changelog/entry-link.mjs has the rules).
+   *
+   * OPTIONAL, and absent for roughly three quarters of entries: a commit that
+   * touched only a migration, a service or a shared component has no single
+   * screen, a dynamic route ([id]) has no URL without a real id, and a page that
+   * has since been deleted is deliberately refused rather than linked to a 404.
+   * A reader must fall back to the module's own href in all of those cases, and
+   * render no link at all when the module has none either.
+   *
+   * NOT a permission signal. Which entries a reader receives is already decided
+   * server-side by fn_changelog_visible_modules(); this only says where the
+   * change was, and the target page states its own access.
+   */
+  l?: string;
   /** pull request number, when the change went through one */
   p?: number;
   /** breaking change (a `!` in the commit type) */

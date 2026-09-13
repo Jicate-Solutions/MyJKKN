@@ -539,6 +539,48 @@ export function WhatsNewView() {
                       const style = KIND_STYLE[e.t];
                       const Icon = style.icon;
                       const mod = meta.modules[e.m];
+                      /*
+                        WHERE THIS CHANGE HAPPENED — the whole point of the row
+                        being clickable at all.
+
+                        Until this existed the page rendered exactly ONE link,
+                        the module's href above the timeline, and only once the
+                        reader had already filtered to that module. Scrolling
+                        the list, nothing was clickable: a row said "colleges
+                        genuinely over the limit will now correctly show as red
+                        or amber" and left the reader to go and find it
+                        (Director, 2026-09-13).
+
+                        Three states, in order, and the third is a real one:
+                          • `e.l` — the screen the commit actually changed,
+                            derived from its page files. ~26% of entries.
+                          • the module's own href — honest for a change that
+                            touched a migration, a service or a shared
+                            component, which is ~70% of them.
+                          • nothing. `platform` and `cohort-programmes` have no
+                            href, so those ~4% render no link rather than a dead
+                            `#`. An anchor that goes nowhere is worse than plain
+                            text: it takes focus, it takes a tap, and it teaches
+                            the reader that the links on this page do not work.
+
+                        The two are worded differently on purpose — "Open this
+                        page" means we know the exact screen, "Open Billing"
+                        means we know the area. A reader can tell which promise
+                        is being made before spending a tap on it.
+
+                        NO PERMISSION CHECK HERE, deliberately. The entries this
+                        reader received were already narrowed server-side by
+                        fn_changelog_visible_modules(), so every row on screen
+                        belongs to a module they can reach. A deep path inside
+                        that module may still carry its own finer permission —
+                        that is fine and is the target page's job to state, not
+                        a second access system's.
+                      */
+                      const link = e.l
+                        ? { href: e.l, label: 'Open this page' }
+                        : mod?.href
+                          ? { href: mod.href, label: `Open ${mod.label}` }
+                          : null;
                       // Read in Asia/Kolkata, the same clock `e.d` was written in,
                       // so the time on the row and the date above it are two
                       // readings of one instant and cannot name different days.
@@ -605,6 +647,30 @@ export function WhatsNewView() {
                               <span className="font-mono">
                                 <span className="sr-only">pull request </span>#{e.p}
                               </span>
+                            )}
+                            {link && (
+                              /*
+                                Last in the metadata trail and styled like it —
+                                this is a list people scan, and sixty buttons
+                                would be sixty things competing with the words
+                                that say what changed. It wraps to its own line
+                                on a phone, which is where the tap target wants
+                                to be anyway.
+
+                                The sr-only subject is not decoration: sixty
+                                links all named "Open this page" are
+                                indistinguishable in a screen reader's link
+                                list. Naming each one after its own change makes
+                                the list navigable.
+                              */
+                              <Link
+                                href={link.href}
+                                className="inline-flex shrink-0 items-center gap-1 rounded-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              >
+                                {link.label}
+                                <ArrowRight className="h-3 w-3" aria-hidden="true" />
+                                <span className="sr-only">: {e.s}</span>
+                              </Link>
                             )}
                           </p>
                         </li>
