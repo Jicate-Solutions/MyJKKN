@@ -80,6 +80,9 @@ interface HighlightRow {
   action: string | null;
   status: 'draft' | 'approved' | 'skipped';
   selection_reason: string | null;
+  /** 'ai' — written by the Max-lane writer and published unreviewed. 'human' —
+   *  typed by a person. The strip captions the original developer line with it. */
+  source: 'human' | 'ai';
 }
 
 function toEntry(r: EntryRow): ChangelogEntry {
@@ -129,7 +132,7 @@ async function readHighlights(supabase: Db, shas: string[]): Promise<HighlightRo
   for (let i = 0; i < shas.length; i += IN_CHUNK) {
     const { data, error } = await supabase
       .from('changelog_highlights')
-      .select('app_key,sha,headline,affects,action,status,selection_reason')
+      .select('app_key,sha,headline,affects,action,status,selection_reason,source')
       .in('sha', shas.slice(i, i + IN_CHUNK));
     if (error) throw new Error(error.message);
     out.push(...((data as HighlightRow[] | null) ?? []));
@@ -202,6 +205,18 @@ export async function GET(request: Request) {
             headline: h.headline,
             affects: h.affects,
             action: h.action,
+            // THE MITIGATION, and the reason these two fields are on the strip
+            // payload at all. Most highlights are now written by a model and
+            // published with nobody reading them first (Director ruling
+            // 2026-09-13). The page's purpose is teaching people what they can
+            // do, so a confident wrong claim here is worse than a terse
+            // accurate one — and the only thing standing between the two is the
+            // reader being able to see what actually shipped. The strip renders
+            // `subject` beneath every highlight in smaller type. Removing it
+            // from this payload silently removes that check.
+            subject: e.subject,
+            author: e.author,
+            source: h.source,
           };
         })
         .filter((x): x is NonNullable<typeof x> => x !== null);
@@ -252,6 +267,9 @@ export async function GET(request: Request) {
           action: h.action,
           status: h.status,
           selection_reason: h.selection_reason,
+          // So the queue can show which rows a model wrote — those are the ones
+          // worth a person's attention, since nothing else has read them.
+          source: h.source,
         })),
         candidates: candidates.map((c) => ({
           sha: c.entry.h,
@@ -367,6 +385,13 @@ export async function PUT(request: Request) {
         action,
         status,
         selection_reason: text(body?.selection_reason),
+        // A person writing through this route OWNS the row from now on, even if
+        // a model wrote it first. This is not bookkeeping: the review-stamp
+        // CHECK (20261203180000) requires an 'ai' row to carry NO reviewer and a
+        // 'human' row to carry one, so approving a machine-written row without
+        // flipping this would be rejected by the database. Setting it here is
+        // also the honest record — from this write on, a person has read it.
+        source: 'human',
         // The review stamp CHECK requires both together, and requires BOTH to be
         // absent while it is still a draft — so a row sent back to draft loses
         // its stamp rather than keeping a stale one.
