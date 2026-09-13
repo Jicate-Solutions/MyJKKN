@@ -50,6 +50,7 @@ export function EventRegisterForm({
   signedInName,
   signedInEmail,
   full = false,
+  claimOnly = false,
   sections,
 }: {
   eventId: string;
@@ -68,6 +69,11 @@ export function EventRegisterForm({
    * so the banner says both and the route decides.
    */
   full?: boolean;
+  /**
+   * The event has stopped queueing new people but still owes somebody an
+   * offered place, so this form is open ONLY so that person can take it up.
+   */
+  claimOnly?: boolean;
   sections: SectionWithFields[];
 }) {
   const [name, setName] = useState(signedInName ?? '');
@@ -77,6 +83,8 @@ export function EventRegisterForm({
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** They already have a registration for this form — paid or not. */
+  const [existing, setExisting] = useState<{ paid: boolean; warning: string | null } | null>(null);
   const [done, setDone] = useState(false);
   /**
    * The event was full and this person went onto the waiting list instead
@@ -149,6 +157,18 @@ export function EventRegisterForm({
         });
         return;
       }
+      // 200 + already_registered: this person already has a registration for
+      // this form. The route says whether its payment landed; branching only on
+      // 202 and razorpay_order_id fell through to "You're registered!" — the one
+      // sentence the route's own comment says an unpaid registrant must not be
+      // shown, with no way back to the payment.
+      if (body.already_registered) {
+        setExisting({
+          paid: !body.paid_required,
+          warning: typeof body.warning === 'string' ? body.warning : null,
+        });
+        return;
+      }
       if (body.razorpay_order_id && body.razorpay_key_id) {
         setRzp({
           orderId: body.razorpay_order_id,
@@ -179,6 +199,25 @@ export function EventRegisterForm({
         callbackPath={`/api/events/${eventId}/payment/callback`}
         cancelPath={`/p/event/${eventId}/register`}
       />
+    );
+  }
+
+  if (existing) {
+    return (
+      <div className="rounded-xl border bg-card p-6 text-center shadow-sm">
+        {existing.paid ? (
+          <CheckCircle2 className="mx-auto mb-2 h-10 w-10 text-emerald-600" />
+        ) : (
+          <ListOrdered className="mx-auto mb-2 h-10 w-10 text-amber-600" />
+        )}
+        <h2 className="text-lg font-semibold">
+          {existing.paid ? "You're already registered" : 'Your registration needs its payment confirmed'}
+        </h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {existing.warning ??
+            'You already have a registration for this form, so nothing new was created.'}
+        </p>
+      </div>
     );
   }
 
@@ -223,11 +262,9 @@ export function EventRegisterForm({
             This event is full
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Send this form to join the waiting list — nothing is charged for a place
-            in the queue. If a place frees up it is offered to whoever is at the
-            front. And if a place has already been offered to you, this is where you
-            take it up: send the form with the same phone number or email the offer
-            was made to.
+            {claimOnly
+              ? 'This event is no longer taking new names for the waiting list. It is open only so that somebody who has already been offered a place can take it up — send the form with the same phone number and email address the offer was made to.'
+              : 'Send this form to join the waiting list — nothing is charged for a place in the queue. If a place frees up it is offered to whoever is at the front. And if a place has already been offered to you, this is where you take it up: send the form with the same phone number and email address the offer was made to.'}
           </p>
         </div>
       )}

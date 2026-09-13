@@ -19,7 +19,11 @@ import { createClient as createAnonOrService } from '@supabase/supabase-js';
 import { createClient as createSessionClient } from '@/lib/supabase/server';
 import { Ban, CalendarClock, CalendarDays, MapPin, Ticket } from 'lucide-react';
 import { effectiveFee, formRegistrationState, isFormOpen } from '@/types/tournament';
-import { countTaken, isWaitlistAvailable } from '@/lib/services/events/waitlist-service';
+import {
+  countTaken,
+  hasOutstandingOffer,
+  isWaitlistAvailable,
+} from '@/lib/services/events/waitlist-service';
 import { EventRegisterForm } from './_components/event-register-form';
 import {
   PUBLIC_CANCELLATION_CONTACT_EMAIL,
@@ -328,6 +332,8 @@ export default async function PublicEventRegisterPage({
   // the migration is unapplied. In that window this page shows exactly what it
   // showed before.
   let full = false;
+  /** The event no longer queues, but it still owes somebody a place. */
+  let claimOnly = false;
   if (ev.max_registrations && ev.cap_behavior !== 'allow_overflow') {
     // countTaken THROWS rather than reporting a failed count as zero, because
     // reading a full event as empty would open the form past its capacity. Here
@@ -346,10 +352,23 @@ export default async function PublicEventRegisterPage({
     }
     if (taken >= ev.max_registrations) {
       const queues = ev.cap_behavior === 'waitlist' && (await isWaitlistAvailable(svc as never));
-      if (!queues) {
+      // AN OUTSTANDING OFFER KEEPS THE DOOR OPEN whatever the switch now says.
+      //
+      // The route's claim path is deliberately NOT gated on cap_behavior,
+      // because an offer already made holds a seat and the claim is the only
+      // exit that row has. This page is the route's only caller, so leaving the
+      // page gated re-shut the door on exactly the person the route was opened
+      // for: an organiser flipping a full event to strict_cap stranded every
+      // outstanding offer. The page cannot know whether THIS visitor holds one
+      // — a guest has no session to ask about — so it asks the cheaper
+      // question, "does this event owe anybody a place at all", and lets the
+      // route decide who.
+      const owesAnOffer = !queues && (await hasOutstandingOffer(svc as never, id));
+      if (!queues && !owesAnOffer) {
         return <Empty title="Registration full" msg="This event has reached its maximum number of registrations." />;
       }
       full = true;
+      claimOnly = owesAnOffer;
     }
   }
 
@@ -436,6 +455,7 @@ export default async function PublicEventRegisterPage({
         signedInName={signedInName}
         signedInEmail={signedInEmail}
         full={full}
+        claimOnly={claimOnly}
         sections={sections as never}
       />
 
