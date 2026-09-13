@@ -723,18 +723,22 @@ ORDER BY i.name, p.program_name, clp.current_semester;
 --     public.events EXCEPT the three institutional-numbering columns and the
 --     three cancellation columns.
 --
--- THE CANCELLATION COLUMNS ARE EXCLUDED BY NAME (2026-09-13). `cancellation_reason`
--- is free text typed by an organiser at the worst moment of an event's life, and the
--- Director ruled on 13 Sep that it is INTERNAL: /p/event/[id]/register prints a
--- standard notice instead, and the words are shown only on the /events/[id] console.
--- `cancelled_at` / `cancelled_by` name a moment and a person for the same event.
--- This branch selects whatever `public.events` happens to carry AT APPLY TIME, so the
--- moment 20261204113700 is applied and then any environment is rebuilt from setup — a
--- new staging project, a DR restore, or anyone who drops and recreates this view — the
--- three columns would be appended and GRANTed to `anon` below, publishing to the
--- anonymous internet the exact text the ruling took off the public page. Excluding
--- them here costs the marathon site nothing: it has never read them, and no marathon
--- flow writes a reason.
+-- THE CANCELLATION COLUMNS ARE EXCLUDED BY NAME (2026-09-13) — DEFENCE IN DEPTH, and
+-- the rebuild half of the migration's repair path.
+--
+-- The Director's second ruling that day was "keep the reason out of the public table
+-- entirely", so `cancellation_reason` / `cancelled_at` / `cancelled_by` are NOT columns
+-- on `public.events` at all any more: they are `public.event_cancellations`, which anon
+-- holds no grant on (migration 20261204113700). This branch therefore cannot pick them
+-- up on a correct database, and the exclusion below is belt and braces against someone
+-- putting them back.
+--
+-- It is not dead code. A database that applied the EARLIER, column-based draft of that
+-- migration still carries them, and the migration's section 0 refuses to drop them
+-- while a view like this one still publishes them — it names the view and stops rather
+-- than CASCADEing. The operator drops this view and re-runs; THIS file then rebuilds it
+-- from the exclusion list, without the three columns. Excluding them costs the marathon
+-- site nothing: it has never read them, and no marathon flow writes a reason.
 --
 -- NOTE, out of scope for the exclusion above and NOT fixed here: this view carries no
 -- `security_invoker`. Counted from the catalog rather than asserted: exactly three

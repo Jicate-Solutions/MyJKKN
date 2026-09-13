@@ -2,17 +2,25 @@
 //
 // Cover for the general-event CANCEL path: the transition map, the two display
 // helpers that decide what the hub says, the hub's status filter, the service
-// guard, and — the one that matters most — the promise that the public
-// registration page still works against a production schema that does NOT have
-// the cancellation columns yet.
+// guard, and — the ones that matter most — the two promises below.
 //
-// ─── THE DEPLOY-ORDER RULE THIS FILE ENFORCES ────────────────────────────────
+// ─── 1. THE REASON IS NOT ON THE ANON-READABLE TABLE ─────────────────────────
 //
-// Code ships before migrations in this repo. Verified read-only against
-// production 2026-09-13: `events.cancellation_reason` / `cancelled_at` /
-// `cancelled_by` DO NOT EXIST (42703), and no event is in `cancelled` (55 rows:
-// 27 live, 23 draft, 5 archived). PostgREST fails an entire select when one
-// named column is missing, so naming them in the public page's select would
+// `events_public_read` has no TO clause and `is_public` defaults to true, so
+// `public.events` is readable with the public anon key. The reason is KEPT when
+// a cancelled event is reinstated — so a column there would publish the
+// organiser's verbatim text the moment the event went live again, with no page
+// printing it and nothing to notice. Director's ruling, 13 Sep 2026: "keep the
+// reason out of the public table entirely." It lives in
+// `public.event_cancellations`, which anon holds no grant on and no policy
+// names. The `migration 20261204113700` block below fails if it moves back.
+//
+// ─── 2. THE PUBLIC PAGE READS NO CANCELLATION DATA AT ALL ────────────────────
+//
+// Verified read-only against production 2026-09-13: no event is in `cancelled`
+// (55 rows: 27 live, 23 draft, 5 archived) and the migration is unapplied.
+// PostgREST fails an entire select when one named column is missing, so naming
+// a column that does not exist on `events` — and these never will — would
 // return no row for EVERY event and take public registration down for all 55.
 // `PUBLIC_EVENT_COLUMNS must not name the cancellation columns` below is the
 // guard; it fails the moment someone adds them back.
@@ -60,6 +68,22 @@ vi.mock('@/lib/services/events/core/event-base-service', () => {
     },
   };
 });
+
+// GeneralEventService now holds a browser client of its own: the cancellation
+// reason is a row in `public.event_cancellations`, not a column on `events`, so
+// it writes one table through EventBaseService and the other directly.
+const cancellationUpsert = vi.fn();
+const cancellationMaybeSingle = vi.fn();
+vi.mock('@/lib/supabase/client', () => ({
+  createClientSupabaseClient: () => ({
+    from: () => ({
+      upsert: (...args: unknown[]) => cancellationUpsert(...args),
+      select: () => ({
+        eq: () => ({ maybeSingle: () => cancellationMaybeSingle() }),
+      }),
+    }),
+  }),
+}));
 
 import { GeneralEventService } from '@/lib/services/events/core/general-event-service';
 import { MarathonEventService } from '@/lib/services/events/marathon/marathon-event-service';
@@ -155,7 +179,7 @@ describe('Events Hub status filter — the list must agree with the badge', () =
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('public registration page — survives a schema without the migration', () => {
+describe('public registration page — names no column that does not exist', () => {
   it('PUBLIC_EVENT_COLUMNS must not name the cancellation columns', () => {
     // One missing column fails the WHOLE PostgREST select (42703) and the page
     // then treats every event as "not found". These columns are not on
@@ -262,6 +286,8 @@ describe('GeneralEventService.cancel', () => {
   beforeEach(() => {
     getEvent.mockReset();
     updateEvent.mockReset();
+    cancellationUpsert.mockReset();
+    cancellationUpsert.mockResolvedValue({ error: null });
   });
 
   it('refuses a blank reason before touching the database', async () => {
@@ -292,21 +318,61 @@ describe('GeneralEventService.cancel', () => {
     expect(updateEvent).not.toHaveBeenCalled();
   });
 
-  it('writes status and the trimmed reason, and never sends cancelled_at/by', async () => {
+  it('sends the reason to event_cancellations and NEVER to the events table', async () => {
     getEvent.mockResolvedValue(eventWith({ status: 'live' }));
     updateEvent.mockResolvedValue(eventWith({ status: 'cancelled' }));
 
     await GeneralEventService.cancel('e1', '  Venue flooded  ');
 
-    expect(updateEvent).toHaveBeenCalledWith('e1', {
-      status: 'cancelled',
-      cancellation_reason: 'Venue flooded',
-    });
-    // The stamps belong to the trigger, from auth.uid() — a client must not be
-    // able to name somebody else as the canceller.
+    // events gets the status and nothing else. A cancellation_reason here would
+    // put the organiser's words back on the anon-readable table — the exact
+    // thing the Director's ruling of 13 Sep took them off.
+    expect(updateEvent).toHaveBeenCalledWith('e1', { status: 'cancelled' });
     const [, payload] = updateEvent.mock.calls[0] as [string, Record<string, unknown>];
+    expect(payload).not.toHaveProperty('cancellation_reason');
     expect(payload).not.toHaveProperty('cancelled_at');
     expect(payload).not.toHaveProperty('cancelled_by');
+
+    // The reason goes to its own table, trimmed.
+    const [row] = cancellationUpsert.mock.calls[0] as [Record<string, unknown>];
+    expect(row).toEqual({ event_id: 'e1', reason: 'Venue flooded' });
+    // The stamps belong to the trigger, from auth.uid() — a client must not be
+    // able to name somebody else as the canceller.
+    expect(row).not.toHaveProperty('cancelled_at');
+    expect(row).not.toHaveProperty('cancelled_by');
+  });
+
+  it('records the reason BEFORE flipping the status, so a half-failure is the safe one', async () => {
+    // Order is the whole guarantee. If the status flip came first and the record
+    // failed, the event would be cancelled — bookings already released by
+    // tr_event_cancelled_cascade_release — with no record of why. The reverse
+    // leaves an unread row on a still-live event, which the next attempt
+    // overwrites.
+    const order: string[] = [];
+    getEvent.mockResolvedValue(eventWith({ status: 'live' }));
+    cancellationUpsert.mockImplementation(() => {
+      order.push('reason');
+      return Promise.resolve({ error: null });
+    });
+    updateEvent.mockImplementation(() => {
+      order.push('status');
+      return Promise.resolve(eventWith({ status: 'cancelled' }));
+    });
+
+    await GeneralEventService.cancel('e1', 'Venue flooded');
+
+    expect(order).toEqual(['reason', 'status']);
+  });
+
+  it('does not cancel the event at all when the reason cannot be recorded', async () => {
+    getEvent.mockResolvedValue(eventWith({ status: 'live' }));
+    cancellationUpsert.mockResolvedValue({ error: { message: 'permission denied' } });
+
+    await expect(GeneralEventService.cancel('e1', 'Venue flooded')).rejects.toThrow(
+      /still active/i
+    );
+    // The event is untouched: no status flip, so no cascade, so no released rooms.
+    expect(updateEvent).not.toHaveBeenCalled();
   });
 });
 
@@ -344,7 +410,7 @@ describe('the other writer the database rule has to live with: marathon', () => 
 // must not raise, and the dialog must not go quiet about the cascade. Both are
 // the kind of thing a later tidy-up removes by accident.
 
-describe('migration 20261204113700 — the trigger must stay compatible with every writer', () => {
+describe('migration 20261204113700 — the reason lives off the anon-readable table', () => {
   const sql = readFileSync(
     join(
       process.cwd(),
@@ -359,59 +425,109 @@ describe('migration 20261204113700 — the trigger must stay compatible with eve
     .map((line) => line.replace(/^\s*--.*$/, ''))
     .join('\n');
 
-  it('does not RAISE, so flows that cancel without a reason keep working', () => {
-    // `events` is shared by general events, marathons, tournaments and
-    // inductions. A table-wide requirement here becomes a runtime 23514 for
-    // every other cancel path the moment this file is applied. The requirement
-    // belongs to GeneralEventService.cancel() and the dialog.
-    expect(code).not.toMatch(/RAISE\s+EXCEPTION/i);
-    expect(code).not.toContain('23514');
+  /** The stamp function's body alone — the file's own guard blocks RAISE freely. */
+  const triggerBody = code.slice(
+    code.indexOf('CREATE OR REPLACE FUNCTION public.fn_event_cancellation_stamp()'),
+    code.indexOf('REVOKE EXECUTE ON FUNCTION public.fn_event_cancellation_stamp()')
+  );
+
+  it('puts the reason on its OWN table, never back on the anon-readable events', () => {
+    // The ruling itself, in the one file that decides it. events_public_read has
+    // no TO clause and is_public defaults to true, and the reason survives a
+    // reinstatement — so a column on `events` publishes it to the anon key the
+    // moment a cancelled event goes live again.
+    expect(code).toMatch(/CREATE TABLE IF NOT EXISTS public\.event_cancellations/);
+    expect(code).not.toMatch(/ALTER TABLE public\.events\s+ADD COLUMN/i);
   });
 
-  it('still stamps who and when, and normalises the reason', () => {
-    expect(sql).toMatch(/NEW\.cancelled_at\s*:=\s*now\(\)/);
-    expect(sql).toMatch(/NEW\.cancelled_by\s*:=\s*auth\.uid\(\)/);
-    expect(sql).toMatch(/nullif\s*\(\s*btrim/i);
+  it('leaves anon no grant at all, and names authenticated in the revoke', () => {
+    // Naming `authenticated` is the point: Supabase's ALTER DEFAULT PRIVILEGES
+    // gives it its OWN direct grant on every new table, separate from PUBLIC, so
+    // `FROM anon, PUBLIC` alone would leave DELETE sitting on the role every
+    // signed-in browser uses.
+    expect(code).toMatch(
+      /REVOKE ALL ON public\.event_cancellations FROM anon, PUBLIC, authenticated/i
+    );
+    expect(code).toMatch(
+      /GRANT SELECT, INSERT, UPDATE ON public\.event_cancellations TO authenticated/i
+    );
+    // No DELETE for anyone: a cancellation record is not erasable from a console.
+    expect(code).not.toMatch(/GRANT[^;]*DELETE[^;]*event_cancellations/i);
+    // And never the keyword that freezes the fleet-wide ship gate.
+    expect(code).not.toMatch(/REVOKE\s+TRUNCATE/i);
   });
 
-  it('only fires on the transition into cancelled, never on an already-cancelled row', () => {
-    expect(sql).toMatch(/OLD\.status\s+IS\s+DISTINCT\s+FROM\s+'cancelled'/i);
+  it('asserts its own end state with has_table_privilege rather than trusting the grants', () => {
+    for (const verb of ['SELECT', 'INSERT', 'UPDATE', 'DELETE']) {
+      expect(code).toContain(`has_table_privilege('anon', 'public.event_cancellations', '${verb}')`);
+    }
+    expect(code).toContain(
+      "has_table_privilege('authenticated', 'public.event_cancellations', 'DELETE')"
+    );
+  });
+
+  it('turns RLS on and gives anon no policy', () => {
+    expect(code).toMatch(/ALTER TABLE public\.event_cancellations ENABLE ROW LEVEL SECURITY/i);
+    // Every policy is TO authenticated. An anon policy here would undo the table.
+    const policies = code.match(/CREATE POLICY[^;]+;/g) ?? [];
+    expect(policies.length).toBeGreaterThan(0);
+    for (const policy of policies) {
+      expect(policy).toMatch(/TO authenticated/);
+      expect(policy).not.toMatch(/TO anon/);
+    }
+  });
+
+  it('the stamp trigger does not RAISE, so a cancellation without a reason still records', () => {
+    // Scoped to the trigger body: the file's own repair and assertion blocks
+    // RAISE on purpose, and asserting over the whole file would forbid that.
+    expect(triggerBody).not.toMatch(/RAISE\s+EXCEPTION/i);
+    expect(triggerBody).not.toContain('23514');
+  });
+
+  it('still stamps who and when from the server, and normalises the reason', () => {
+    expect(triggerBody).toMatch(/NEW\.cancelled_at\s*:=\s*now\(\)/);
+    expect(triggerBody).toMatch(/NEW\.cancelled_by\s*:=\s*auth\.uid\(\)/);
+    expect(triggerBody).toMatch(/nullif\s*\(\s*btrim/i);
   });
 
   it('locks the SECURITY DEFINER function away from anon', () => {
-    expect(sql).toMatch(
-      /REVOKE\s+EXECUTE\s+ON\s+FUNCTION\s+public\.fn_events_stamp_cancellation\(\)\s+FROM\s+anon,\s*PUBLIC/i
+    expect(code).toMatch(
+      /REVOKE\s+EXECUTE\s+ON\s+FUNCTION\s+public\.fn_event_cancellation_stamp\(\)\s+FROM\s+anon,\s*PUBLIC/i
     );
-    expect(sql).toMatch(
-      /GRANT\s+EXECUTE\s+ON\s+FUNCTION\s+public\.fn_events_stamp_cancellation\(\)\s+TO\s+authenticated/i
+    expect(code).toMatch(
+      /GRANT\s+EXECUTE\s+ON\s+FUNCTION\s+public\.fn_event_cancellation_stamp\(\)\s+TO\s+authenticated/i
     );
   });
 
-  it('adds the columns without a NOT NULL that existing rows could not satisfy', () => {
-    expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS cancellation_reason\s+TEXT/i);
-    expect(sql).not.toMatch(/cancellation_reason\s+TEXT\s+NOT NULL/i);
+  it('removes the old column-based shape instead of leaving it beside the new one', () => {
+    // A database that applied the earlier draft keeps the anon exposure unless
+    // this file takes it away. The drop is guarded on dependent views and is
+    // never CASCADEd — one of them serves an external site.
+    expect(code).toMatch(/DROP TRIGGER\s+IF EXISTS trg_events_stamp_cancellation ON public\.events/i);
+    expect(code).toMatch(/DROP FUNCTION IF EXISTS public\.fn_events_stamp_cancellation\(\)/i);
+    expect(code).toMatch(/DROP COLUMN IF EXISTS cancellation_reason/i);
+    expect(code).toMatch(/FROM pg_depend/i);
+    expect(code).not.toMatch(/DROP\s+(VIEW|COLUMN)[^;]*CASCADE/i);
   });
 
-  it('does not describe the reason as public in the catalog comment a DBA will read', () => {
-    // A COMMENT ON COLUMN outlives every TSX comment in this repo: it is the
-    // authoritative description the next builder or DBA opens. This file is not
-    // applied yet, so editing it in place changes both the repo AND what
-    // eventually lands in the catalog.
-    const start = sql.indexOf('COMMENT ON COLUMN public.events.cancellation_reason');
+  it('the catalog comment a DBA reads says where the reason lives and why', () => {
+    // A COMMENT ON TABLE outlives every TSX comment in this repo: it is the
+    // authoritative description the next builder or DBA opens, and it is what
+    // stops someone "tidying" this back onto events. The file is not applied
+    // anywhere, so editing it in place changes both the repo AND the catalog.
+    const start = code.indexOf('COMMENT ON TABLE public.event_cancellations IS');
     expect(start).toBeGreaterThan(-1);
-    const comment = sql.slice(start);
-    // Terminate on the STATEMENT end (`';`), not on the first semicolon: the
-    // comment text itself contains one ("…does not read this column; the words
-    // are shown…"), which would cut the body a third of the way in and make
-    // every assertion below pass without inspecting the rest.
+    const comment = code.slice(start);
+    // Terminate on the STATEMENT end (`';`), not the first semicolon: the text
+    // itself contains semicolons, which would cut the body short and make every
+    // assertion below pass without inspecting the rest.
     const end = comment.indexOf("';");
     expect(end).toBeGreaterThan(-1);
     const body = comment.slice(0, end);
-    expect(body).toContain('Do not');          // the last sentence is inside the slice
-    expect(body.length).toBeGreaterThan(400);  // …and the slice is the whole comment
+    expect(body.length).toBeGreaterThan(400);
+    expect(body).toMatch(/anon-readable/);
+    expect(body).toMatch(/REINSTATED/i);
     expect(body).not.toMatch(/PUBLIC — printed on/);
-    expect(body).not.toMatch(/anyone holding the registration link/);
-    expect(body).toMatch(/INTERNAL, NOT PUBLIC/);
   });
 });
 

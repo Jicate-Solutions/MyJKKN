@@ -64,6 +64,7 @@ import { NaacCriteriaChips } from '@/components/events/shared/naac-criteria-fiel
 import { EventLogistics } from '@/components/events/shared/event-logistics';
 import {
   useCancelGeneralEvent,
+  useEventCancellation,
   useGeneralEvent,
   useUpdateGeneralEvent,
   useUpdateGeneralEventStatus,
@@ -396,6 +397,14 @@ export default function GeneralEventDetailPage() {
   const id = String(params?.id ?? '');
 
   const { data: event, isLoading, isError } = useGeneralEvent(id);
+  // The organiser's words live in their own table now (migration 20261204113700):
+  // `events` is anon-readable, so a column there would publish them to the public
+  // key the moment a cancelled event was reinstated. Fetched ONLY for a cancelled
+  // event — every other event has no row to fetch.
+  const { data: cancellation, isLoading: cancellationLoading } = useEventCancellation(
+    id,
+    event?.status === 'cancelled',
+  );
   const { institutions } = useInstitutionsWithAccess();
   const { profile } = useAuth();
   const { isSuperAdmin } = usePermissions();
@@ -583,10 +592,19 @@ export default function GeneralEventDetailPage() {
             <div className="min-w-0 space-y-1">
               <p className="text-sm font-semibold text-red-600 dark:text-red-400">
                 This event is cancelled
-                {formatDate(event.cancelled_at) ? ` · ${formatDate(event.cancelled_at)}` : ''}
+                {formatDate(cancellation?.cancelled_at ?? null)
+                  ? ` · ${formatDate(cancellation?.cancelled_at ?? null)}`
+                  : ''}
               </p>
+              {/* Three states, not two. "Still loading" must not render as "no
+                  reason was recorded" — that sentence is a claim about what the
+                  organiser did, and showing it for a second while the query is
+                  in flight tells every reader something untrue about a
+                  colleague. */}
               <p className="break-words text-sm">
-                {event.cancellation_reason || 'No reason was recorded for this cancellation.'}
+                {cancellationLoading
+                  ? 'Loading the reason…'
+                  : cancellation?.reason || 'No reason was recorded for this cancellation.'}
               </p>
               <p className="text-xs text-muted-foreground">
                 Registration is closed. This reason is kept for colleagues at your

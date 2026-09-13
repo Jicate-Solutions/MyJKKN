@@ -3,40 +3,45 @@
 //
 // ─── WHY THIS FILE EXISTS ────────────────────────────────────────────────────
 //
-// Two separate rules live here, and they pull in the same direction.
+// Two rulings live here, and they pull in the same direction.
 //
-// 1. DEPLOY ORDER. Code ships before migrations in this repo. A deploy can land
-//    minutes or days before an operator applies
-//    `20261204113700_events_cancellation_reason_and_stamp.sql`. PostgREST fails
-//    an ENTIRE select when one named column is missing —
-//    `{"code":"42703","message":"column events.cancellation_reason does not
-//    exist"}`, HTTP 400, no rows — so naming `cancellation_reason` /
-//    `cancelled_at` in this page's select would, on today's production schema,
-//    return no row for EVERY event and turn the public registration page into
-//    "Registration not available" for all 55 of them.
+// 1. "SHORT PUBLIC LINE, FULL REASON KEPT INSIDE" (Director, 13 Sep). The
+//    organiser's typed reason is written at the worst moment of an event's
+//    life, with no review step, and it used to be published verbatim to anyone
+//    holding the link. The public now gets a plain, standard sentence and
+//    somewhere to ask.
 //
-// 2. THE DIRECTOR'S RULING, 13 Sep: "Short public line, full reason kept
-//    inside." The organiser's typed reason is written at the worst moment of an
-//    event's life, with no review step, and it used to be published verbatim to
-//    anyone holding the link. It is now internal to the event team. The public
-//    gets a plain, standard sentence and somewhere to ask.
+// 2. "KEEP THE REASON OUT OF THE PUBLIC TABLE ENTIRELY" (Director, 13 Sep).
+//    Not printing it was not enough. `events_public_read` has no TO clause and
+//    `is_public` defaults to true, so `events` is anon-readable — and the reason
+//    is KEPT when an event is reinstated. A column on `events` would therefore
+//    have published the text to the public anon key the moment a cancelled
+//    event went live again, with no page printing it and nothing to notice. So
+//    the reason is not a column on `events` at all: it is a row in
+//    `public.event_cancellations`, which `anon` holds no grant on and no policy
+//    names. See migration 20261204113700.
 //
-// Rule 2 makes rule 1 free: this page no longer reads the cancellation columns
-// AT ALL — not in the main select, and not in a second best-effort query
-// either. There is nothing left on this path that a missing column can break.
+// WHAT THAT MEANS FOR THIS FILE. `cancellation_reason`, `cancelled_at` and
+// `cancelled_by` are not columns on `events` — not now, and not after the
+// migration is applied. Naming one in this page's select would be a permanent
+// 42703 (`{"code":"42703","message":"column events.cancellation_reason does not
+// exist"}`, HTTP 400, no rows), which fails the ENTIRE select and would turn
+// public registration into "Registration not available" for every event. This
+// page reads no cancellation data at all, from any table.
 //
-// Nothing is lost by the organiser: `cancellation_reason` is still written
-// exactly as typed, and the event console still shows it in full to colleagues
-// at the institution who can open the event.
+// Nothing is lost by the organiser: the reason is still stored exactly as
+// typed, and the /events/[id] console still shows it in full to colleagues at
+// the institution who can open the event.
 
 /**
  * Columns the registration page needs to decide whether it can take a
  * registration.
  *
  * DO NOT ADD `cancellation_reason`, `cancelled_at` or `cancelled_by` HERE.
- * They are not on production yet, and one missing column fails the whole
- * select (42703), which would break public registration for every event. They
- * are also no longer public information — see the ruling above.
+ * They are not columns on `events` and are never going to be — they live in
+ * `public.event_cancellations`, deliberately out of reach of the public key.
+ * Naming one here is a permanent 42703, and one missing column fails the whole
+ * select, which would break public registration for every event.
  * `__tests__/events/events-cancellation.test.ts` fails if they are added back.
  *
  * ONE STRING LITERAL, NOT A CONCATENATION. supabase-js infers the row type from
