@@ -28,9 +28,9 @@ import {
 } from '@/types/events';
 import type { Event } from '@/types/events';
 import {
+  PUBLIC_CANCELLATION_CONTACT_EMAIL,
+  PUBLIC_CANCELLATION_NOTICE,
   PUBLIC_EVENT_COLUMNS,
-  fetchCancellationDetails,
-  formatCancelledOn,
 } from '@/app/p/event/[id]/register/_lib/cancellation';
 import {
   isEventOpen,
@@ -183,73 +183,65 @@ describe('public registration page — survives a schema without the migration',
     }
   });
 
-  /** A supabase-shaped stub whose maybeSingle() resolves to whatever is given. */
-  const clientReturning = (result: { data: unknown; error: unknown }) => ({
-    from: () => ({
-      select: () => ({
-        eq: () => ({ maybeSingle: async () => result }),
-      }),
-    }),
+  it('reads no cancellation column anywhere on the public path', () => {
+    // Stronger than the select guard above, and the reason it is affordable:
+    // since the public page stopped printing the organiser's text there is no
+    // second best-effort query either, so no missing column can reach this
+    // route at all. If a `.select('cancellation_reason')` ever reappears here,
+    // this fails before it reaches a production schema that lacks it.
+    const lib = readFileSync(
+      join(process.cwd(), 'app/p/event/[id]/register/_lib/cancellation.ts'),
+      'utf8'
+    );
+    const page = readFileSync(
+      join(process.cwd(), 'app/p/event/[id]/register/page.tsx'),
+      'utf8'
+    );
+    const code = (src: string) =>
+      src
+        .split('\n')
+        .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
+        .join('\n');
+
+    for (const col of ['cancellation_reason', 'cancelled_at', 'cancelled_by']) {
+      expect(code(lib)).not.toContain(col);
+      expect(code(page)).not.toContain(col);
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('the public cancellation line — standard, not the organiser\'s free text', () => {
+  // Director's ruling, 13 Sep: "Short public line, full reason kept inside."
+  // The reason is typed at the worst moment of an event's life with no review
+  // step between the textarea and everyone holding the link.
+  const page = readFileSync(
+    join(process.cwd(), 'app/p/event/[id]/register/page.tsx'),
+    'utf8'
+  );
+
+  it('still names the event as cancelled — the fact is not what was withheld', () => {
+    expect(PUBLIC_CANCELLATION_NOTICE.headline).toMatch(/cancelled/i);
+    expect(page).toContain('PUBLIC_CANCELLATION_NOTICE.headline');
   });
 
-  it('returns nulls when the columns do not exist yet (42703)', async () => {
-    const client = clientReturning({
-      data: null,
-      error: { code: '42703', message: 'column events.cancellation_reason does not exist' },
-    });
-
-    await expect(
-      fetchCancellationDetails(client as never, 'e1')
-    ).resolves.toEqual({ reason: null, cancelledAt: null });
+  it('says registrations are closed and that an existing entry survives', () => {
+    expect(PUBLIC_CANCELLATION_NOTICE.body).toMatch(/no further registrations/i);
+    expect(PUBLIC_CANCELLATION_NOTICE.alreadyRegistered).toMatch(/has not been removed/i);
   });
 
-  it('returns nulls rather than throwing when the query blows up entirely', async () => {
-    const client = {
-      from: () => ({
-        select: () => ({
-          eq: () => ({
-            maybeSingle: async () => {
-              throw new Error('network down');
-            },
-          }),
-        }),
-      }),
-    };
-
-    await expect(
-      fetchCancellationDetails(client as never, 'e1')
-    ).resolves.toEqual({ reason: null, cancelledAt: null });
+  it('gives somewhere to ask, since the reason is no longer printed', () => {
+    expect(PUBLIC_CANCELLATION_CONTACT_EMAIL).toMatch(/^[^@\s]+@[^@\s]+\.[^@\s]+$/);
+    expect(page).toContain('PUBLIC_CANCELLATION_CONTACT_EMAIL');
+    expect(page).toContain('mailto:');
   });
 
-  it('returns the trimmed reason and the date once the migration is applied', async () => {
-    const client = clientReturning({
-      data: {
-        cancellation_reason: '  The chief guest is unavailable.  ',
-        cancelled_at: '2026-09-13T04:30:00.000Z',
-      },
-      error: null,
-    });
-
-    await expect(fetchCancellationDetails(client as never, 'e1')).resolves.toEqual({
-      reason: 'The chief guest is unavailable.',
-      cancelledAt: '2026-09-13T04:30:00.000Z',
-    });
-  });
-
-  it('treats a whitespace-only reason as no reason', async () => {
-    const client = clientReturning({
-      data: { cancellation_reason: '   ', cancelled_at: null },
-      error: null,
-    });
-
-    const { reason } = await fetchCancellationDetails(client as never, 'e1');
-    expect(reason).toBeNull();
-  });
-
-  it('formatCancelledOn hides a missing or unparseable date instead of printing junk', () => {
-    expect(formatCancelledOn(null)).toBeNull();
-    expect(formatCancelledOn('not-a-date')).toBeNull();
-    expect(formatCancelledOn('2026-09-13T04:30:00.000Z')).toContain('2026');
+  it('renders no organiser-supplied text in the cancelled branch', () => {
+    // The regression this guards: `{reason}` back in the markup. Every string
+    // the cancelled branch renders must come from the frozen notice constant.
+    expect(page).not.toMatch(/whitespace-pre-line/);
+    expect(page).not.toMatch(/The organiser has not recorded a reason/);
   });
 });
 
@@ -397,6 +389,44 @@ describe('the cancel dialog must keep telling the organiser what cancelling rele
     // nothing is deleted" — was true of registrations and false of everything
     // else the write sets off.
     expect(page).not.toMatch(/nothing is deleted/i);
+  });
+
+  it('no longer promises the organiser that their reason will be published', () => {
+    // It was true when PR #3700 shipped and is false now. An organiser who
+    // believes they are writing to the public writes a different sentence from
+    // one writing to their colleagues, so this is not cosmetic.
+    // The exact old promise: "will say the event is cancelled and show your
+    // reason". The phrase survives only inside its own negation, asserted next.
+    expect(page).not.toMatch(/cancelled and show your reason/i);
+    expect(page).toMatch(/does <strong>not<\/strong> show your reason/i);
+    expect(page).not.toMatch(/Required, and shown publicly/i);
+  });
+
+  it('tells the organiser plainly that the reason is internal', () => {
+    expect(page).toMatch(/not<\/strong> shown on the public event page/i);
+    expect(page).toMatch(/Recorded for your team members/i);
+  });
+});
+
+describe('the reinstate path must carry the same warning the cancel path does', () => {
+  const page = readFileSync(join(process.cwd(), 'app/(routes)/events/[id]/page.tsx'), 'utf8');
+
+  it('is a confirm dialog, not a bare button with a tooltip', () => {
+    // A `title` tooltip does not exist on a phone and is attached to the very
+    // button it is warning about. Reinstating is allowed; doing it unwarned is
+    // what changed.
+    expect(page).toContain('function ReinstateEventDialog');
+    expect(page).toContain('<ReinstateEventDialog');
+  });
+
+  it('says the released rooms and the un-assigned people do not come back', () => {
+    expect(page).toMatch(/The bookings and the people do NOT come back/);
+    expect(page).toMatch(/whoever was next in line for each one has already been given/i);
+    expect(page).toMatch(/They are not re-invited/i);
+  });
+
+  it('offers a way out of the dialog that changes nothing', () => {
+    expect(page).toMatch(/Leave it cancelled/);
   });
 });
 

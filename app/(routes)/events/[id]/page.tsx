@@ -151,10 +151,15 @@ function Fact({
 /**
  * Call the event off, in the organiser's own words.
  *
- * The reason is REQUIRED and it is PUBLIC: /p/event/[id]/register prints it to
- * whoever follows the registration link. That is the whole point of the state —
- * moving the event back to Draft already hid it, and told the people registered
- * nothing.
+ * The reason is REQUIRED and it is INTERNAL. Director's ruling, 13 Sep: "Short
+ * public line, full reason kept inside." /p/event/[id]/register shows a
+ * standard cancellation line and an address to write to; it does not print this
+ * text. The reason is stored exactly as typed and shown in full to team members
+ * in the banner further down this page.
+ *
+ * The dialog has to SAY that, because it used to promise the opposite — and an
+ * organiser who believes they are writing to the public writes a different
+ * sentence from one writing to their own colleagues.
  *
  * Its own dialog rather than an entry in the status menu, because a free-text
  * reason needs somewhere to be typed. The hub's row menu deliberately does not
@@ -188,9 +193,10 @@ function CancelEventDialog({ event }: { event: Event }) {
         <DialogHeader>
           <DialogTitle>Cancel {event.name}?</DialogTitle>
           <DialogDescription>
-            The event page will say the event is cancelled and show your reason, and no
-            further registrations are accepted. Everyone who already registered stays on
-            the list.
+            The public event page will say the event is cancelled and give an address to
+            write to. It does <strong>not</strong> show your reason. No further
+            registrations are accepted, and everyone who already registered stays on the
+            list.
           </DialogDescription>
         </DialogHeader>
 
@@ -230,7 +236,9 @@ function CancelEventDialog({ event }: { event: Event }) {
             placeholder="e.g. The chief guest is unavailable and no replacement date is fixed yet."
           />
           <p className="text-xs text-muted-foreground">
-            Required, and shown publicly — write it for the people who registered.
+            Required. Recorded for your team members and shown on this page — it is{' '}
+            <strong>not</strong> shown on the public event page. Write it for your
+            colleagues and for the record.
           </p>
         </div>
 
@@ -259,6 +267,97 @@ function CancelEventDialog({ event }: { event: Event }) {
           >
             {cancelEvent.isPending && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
             Cancel this event
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Put a cancelled event back on — with the one thing the tooltip could never
+ * make anybody read.
+ *
+ * Reinstating IS allowed (Director's second ruling, 13 Sep). What it is not is
+ * an undo. `tr_event_cancelled_cascade_release` (migration 20260417000004)
+ * fired when the event was cancelled: every linked `resource_reservations` row
+ * was cancelled and the next team on each resource's waitlist was promoted, and
+ * every invited/accepted `event_human_roles` row was un-assigned. Nothing in
+ * this button walks that back, and the rooms may already belong to someone
+ * else.
+ *
+ * The cancel dialog has carried this warning since the state existed; the
+ * reinstate path carried it only as a `title` tooltip — invisible on a phone,
+ * invisible to anyone who clicks without hovering, and attached to the very
+ * button it was warning about. Same warning, same shape, on the way back.
+ */
+function ReinstateEventDialog({
+  event,
+  target,
+  disabled,
+  pending,
+  onConfirm,
+}: {
+  event: Event;
+  target: EventStatus;
+  disabled: boolean;
+  pending: boolean;
+  onConfirm: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline" className="h-8 text-xs" disabled={disabled}>
+          {pending && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+          Reinstate event
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Put {event.name} back on?</DialogTitle>
+          <DialogDescription>
+            The event becomes visible and open again, and the cancellation notice on the
+            public page comes down. Registrations that were already taken are still there.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-1.5 rounded-md border border-amber-300/60 bg-amber-50 p-3 text-xs dark:border-amber-900/60 dark:bg-amber-950/30">
+          <p className="flex items-center gap-1.5 font-semibold text-amber-900 dark:text-amber-300">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            The bookings and the people do NOT come back
+          </p>
+          <ul className="list-disc space-y-0.5 pl-5 text-amber-900/90 dark:text-amber-200/90">
+            <li>
+              Every room, venue and item this event had reserved was released when it was
+              cancelled, and whoever was next in line for each one has already been given
+              it. Reinstating does not take any of that back.
+            </li>
+            <li>
+              Everyone invited to or confirmed for a role on this event was un-assigned.
+              They are not re-invited.
+            </li>
+          </ul>
+          <p className="pt-0.5 text-amber-900/90 dark:text-amber-200/90">
+            <strong>Book the rooms and invite the people again</strong> after reinstating —
+            and check the rooms are still free before you announce the event a second time.
+          </p>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)} disabled={pending}>
+            Leave it cancelled
+          </Button>
+          <Button
+            disabled={pending}
+            onClick={() => {
+              onConfirm();
+              setOpen(false);
+            }}
+          >
+            {pending && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
+            {target === 'draft' ? 'Reinstate as Draft' : 'Reinstate the event'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -308,25 +407,37 @@ function GeneralEventStatusControl({
         )}
       </Badge>
       {/* Read-only viewers keep the status badge and lose the levers. */}
-      {canEdit && (
-      <Button
-        size="sm"
-        variant="outline"
-        className="h-8 text-xs"
-        disabled={updateStatus.isPending}
-        onClick={() => updateStatus.mutate({ id: event.id, status: target })}
-        title={
-          active
-            ? 'Move back to Draft — hides the event and closes registration'
-            : cancelled
-              ? 'Reinstate this event — it becomes visible and open again, and the cancellation notice comes down. It does NOT restore the rooms or the role assignments that cancelling released.'
-              : 'Make this event Active so it is visible and open'
-        }
-      >
-        {updateStatus.isPending && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
-        {active ? 'Move to Draft' : cancelled ? 'Reinstate event' : 'Make Active'}
-      </Button>
-      )}
+      {/* Reinstating goes through a confirm step: it is the one move on this
+          control whose consequences are already spent elsewhere — the rooms and
+          the role assignments released on cancel are gone, and a tooltip cannot
+          say so on a phone. Draft <-> Active stays one click; both directions of
+          that are reversible by clicking again. */}
+      {canEdit &&
+        (cancelled ? (
+          <ReinstateEventDialog
+            event={event}
+            target={target}
+            disabled={updateStatus.isPending}
+            pending={updateStatus.isPending}
+            onConfirm={() => updateStatus.mutate({ id: event.id, status: target })}
+          />
+        ) : (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 text-xs"
+            disabled={updateStatus.isPending}
+            onClick={() => updateStatus.mutate({ id: event.id, status: target })}
+            title={
+              active
+                ? 'Move back to Draft — hides the event and closes registration'
+                : 'Make this event Active so it is visible and open'
+            }
+          >
+            {updateStatus.isPending && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+            {active ? 'Move to Draft' : 'Make Active'}
+          </Button>
+        ))}
       {canEdit && canCancel && <CancelEventDialog event={event} />}
     </div>
   );
@@ -360,7 +471,7 @@ function PublicVisibilityToggle({
             ? active
               ? 'Anyone with the link can see this event.'
               : event.status === 'cancelled'
-                ? 'Marked public. Anyone following the registration link is told the event is cancelled, and why.'
+                ? 'Marked public. Anyone following the registration link is told the event is cancelled, and given an address to write to.'
                 : 'Marked public, but still hidden while the event is a Draft.'
             : 'Only signed-in users at your institution can see this event.'}
         </p>
@@ -559,7 +670,12 @@ export default function GeneralEventDetailPage() {
 
         {/* A cancelled event says so, at the top, with the reason it was given.
             House rule: a refusal is explicit and names what happened — the
-            organiser must not have to infer it from a missing "Active" badge. */}
+            organiser must not have to infer it from a missing "Active" badge.
+
+            THIS is where the organiser's words live now, and the only place
+            they are shown. The public page prints a standard line instead
+            (Director's ruling, 13 Sep). Team members lose nothing; the public gains a
+            sentence somebody wrote calmly. */}
         {event.status === 'cancelled' && (
           <div className="flex gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-4">
             <Ban className="mt-0.5 h-5 w-5 shrink-0 text-red-600 dark:text-red-400" />
@@ -572,10 +688,12 @@ export default function GeneralEventDetailPage() {
                 {event.cancellation_reason || 'No reason was recorded for this cancellation.'}
               </p>
               <p className="text-xs text-muted-foreground">
-                Registration is closed and the public page shows this reason. Everyone who
-                registered is still on the list. The rooms and items this event had
-                reserved were released when it was cancelled, and everyone assigned a role
-                was un-assigned — reinstating the event does not bring those back.
+                Registration is closed. This reason is kept for team members and is <strong>not
+                shown on the public page</strong> — the public page says the event is
+                cancelled and gives an address to write to. Everyone who registered is
+                still on the list. The rooms and items this event had reserved were
+                released when it was cancelled, and everyone assigned a role was
+                un-assigned — reinstating the event does not bring those back.
               </p>
             </div>
           </div>
