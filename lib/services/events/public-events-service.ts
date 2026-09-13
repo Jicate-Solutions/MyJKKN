@@ -333,8 +333,13 @@ function formatWhen(startDay: string | null, endDay: string | null, row: EventRo
  * Which event ids can actually take a registration right now.
  *
  * `general` — an `event_registration_forms` row that isFormOpen() this moment.
- *             That is the same decision the registration page makes with the
- *             same helper, so the button and the page cannot disagree.
+ *             The same decision the registration page makes, with the same
+ *             helper — so the two agree AT RENDER TIME. This page is cached for
+ *             five minutes (see its `revalidate`), so a form that closes inside
+ *             that window can still show a Register button until the page is
+ *             regenerated; the registration page reads live and is the
+ *             authority. Five minutes of over-offering is the cost of not
+ *             querying on every anonymous hit.
  * `tournament` — at least one active `tournament_divisions` row, which is what
  *             /p/tournament/[id]/register requires before it renders anything.
  *
@@ -536,6 +541,8 @@ export class PublicEventsService {
     // Today in India — the calendar every date on this page is compared against,
     // and the pivot the LIVE read below is built on.
     const today = todayInIndia();
+    /** Midnight in India on that day, as an instant PostgREST can compare. */
+    const todayIST = `${today}T00:00:00+05:30`;
 
     // THREE BOUNDED READS, because no single one of them can keep the promise.
     //
@@ -569,7 +576,16 @@ export class PublicEventsService {
       [live, dated, undated] = await Promise.all([
         settle<ReadResult>(
           publicRows()
-            .or(`end_date.gte.${today},start_date.gte.${today},event_date.gte.${today}`)
+            // The boundary is an INSTANT, not a bare date. start_date and
+            // end_date are timestamptz, and PostgREST casts a bare '2026-09-13'
+            // against them in the database's zone (UTC) — so the comparison
+            // would happen at 05:30 IST and a row ending between midnight and
+            // 05:30 IST today, which dayOf() calls "not past", would be missing
+            // from the very read that exists to protect it. event_date is a bare
+            // DATE and takes the day as written.
+            .or(
+              `end_date.gte.${todayIST},start_date.gte.${todayIST},event_date.gte.${today}`,
+            )
             .order('start_date', { ascending: true, nullsFirst: false })
             .limit(PAGE_LIMIT),
         ),

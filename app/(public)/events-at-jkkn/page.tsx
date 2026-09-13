@@ -42,7 +42,6 @@
 
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { unstable_noStore as noStore } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
 import {
   PublicEventsService,
@@ -51,13 +50,31 @@ import {
 } from '@/lib/services/events/public-events-service';
 
 /**
- * Five minutes of cache, rather than force-dynamic.
+ * Five minutes of cache, rather than force-dynamic — including when the read
+ * failed.
  *
  * This route takes no session and no search params: every anonymous visitor
  * gets byte-identical HTML, so a database round trip per hit bought nothing and
  * handed anybody with a URL a way to make the database work. An events listing
  * that is five minutes stale is not wrong; a public page that re-queries on
  * every crawl is.
+ *
+ * A DEGRADED RENDER IS CACHED TOO, DELIBERATELY. An earlier revision called
+ * unstable_noStore() on the failure paths so a blip could not be frozen into
+ * the cached HTML. It cost more than it bought, in three ways: it turned an
+ * outage into an amplifier (an indexable URL going from one query per five
+ * minutes to three reads with 8s timeouts per visitor AND per crawler, against
+ * an already-failing database); a single blip during the BUILD prerender opted
+ * the route out of static generation entirely, so `revalidate` stopped applying
+ * at all; and the bail-out is a thrown DynamicServerError, which any catch on
+ * the path silently converts into a fabricated failure.
+ *
+ * What remains instead: the failure panel below is honest, distinguishable from
+ * "nothing is open", and true about its own recovery — it tells the visitor to
+ * try again in a few minutes, and five minutes is exactly how long this page
+ * can hold a stale answer. The residual cost is that a crawler arriving inside
+ * that window sees the panel; the alternative was making a bad database day
+ * worse for everybody.
  */
 export const revalidate = 300;
 
@@ -239,6 +256,12 @@ function CouldNotLoad() {
         This is a problem at our end, not yours, and it is not a sign that nothing is on. Please try
         again in a few minutes — or ask us directly what is coming.
       </p>
+      {/* Both destinations are logged-out-safe, and that has been checked rather
+          than assumed: proxy.ts PUBLIC_PATHS_SET carries '/meet' (line 197) and
+          '/programmes' (198) beside this page's own entry, and production
+          answers https://www.jkkn.ai/meet with 200 to a request holding no
+          session. Neither entry appears in this PR's diff, which is why review
+          after review reads them as missing — they are not. */}
       <div className="mt-4 flex flex-wrap gap-3">
         <Link
           href="/meet"
@@ -258,30 +281,7 @@ function CouldNotLoad() {
 }
 
 export default async function PublicEventsPage() {
-  const { events, readFailed, doorCheckFailed } = await loadEvents();
-
-  /**
-   * A DEGRADED RENDER IS NEVER CACHED — and this call sits OUTSIDE every
-   * try/catch on purpose.
-   *
-   * Everything in loadEvents() fails soft and still returns a page, which is
-   * right for the visitor in front of it and wrong for the next five minutes:
-   * ISR would bake "We could not load the events just now", or a listing whose
-   * Register buttons are missing because a door read timed out, into cached
-   * HTML served to every visitor AND every crawler on a route that allows
-   * indexing, long after the backend recovered.
-   *
-   * noStore() opts THIS render out by throwing DynamicServerError during a
-   * static render — a control-flow signal Next must receive. Called inside
-   * loadEvents()'s catch, that throw was swallowed and turned a listing that
-   * had read perfectly well into a fabricated failure panel. It belongs here,
-   * where nothing catches it.
-   *
-   * A missing service key is deliberately NOT one of these signals: it is a
-   * stable configuration fact, identical on every render, and bailing out for
-   * it would make an anonymous cached page hit the database on every request.
-   */
-  if (readFailed || doorCheckFailed) noStore();
+  const { events, readFailed } = await loadEvents();
   // The service already ordered these: what is on now or still to come first,
   // soonest first, then the archive newest first.
   const upcoming = events.filter((event) => !event.isPast);

@@ -276,7 +276,12 @@ describe('PublicEventsService.listPublic — the public gate', () => {
     //   dated   — every dated row, newest first
     //   undated — the event_date-only rows production carries
     expect(calls.or.length).toBe(1);
-    expect(calls.or[0]).toMatch(/^end_date\.gte\.\d{4}-\d{2}-\d{2},start_date\.gte\./);
+    // The timestamptz boundary is an INSTANT carrying India's offset, not a
+    // bare date: PostgREST would cast a bare one in the database's zone and
+    // compare at 05:30 IST, excluding rows this page calls "not past".
+    expect(calls.or[0]).toMatch(
+      /^end_date\.gte\.\d{4}-\d{2}-\d{2}T00:00:00\+05:30,start_date\.gte\.\d{4}-\d{2}-\d{2}T00:00:00\+05:30,event_date\.gte\.\d{4}-\d{2}-\d{2}$/,
+    );
     expect(calls.not).toContainEqual(['start_date', 'is', null]);
     expect(calls.is).toContainEqual(['start_date', null]);
   });
