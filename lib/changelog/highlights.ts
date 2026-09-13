@@ -52,6 +52,27 @@ export interface HighlightCandidate {
 export const WEEKLY_CAP = 10;
 
 /**
+ * The oldest change that will EVER be written up. A fixed date, on purpose.
+ *
+ * Director ruling 1 (2026-09-13): write up the last month — roughly 800 of the
+ * 4,957 entries — and then stop. The older ~4,100 keep their plain list, their
+ * grouping and their links; they are simply never rewritten. He rejected both
+ * "only from now on" and "work backwards through everything".
+ *
+ * WHY A LITERAL DATE AND NOT `today - 30 days`. A rolling window looks like the
+ * same rule and is not. Re-run this in March and a rolling thirty days has
+ * walked forward, leaving the entries between here and there permanently
+ * unwritten — but a rolling window computed from an entry's own age would, on
+ * a backfill or a re-sync that moves entry_date, creep BACKWARDS through the
+ * ~4,100 the Director deliberately excluded and start writing them up at two
+ * runs an hour. The ruling is about a fixed body of work, so the code states a
+ * fixed boundary. Moving it is a Director decision and shows up as a diff.
+ *
+ * 2026-08-13 is one month before the interview (2026-09-13).
+ */
+export const WRITEUP_BACKLOG_FLOOR = '2026-08-13';
+
+/**
  * Kinds worth a write-up, and what each is worth.
  *
  * 'faster' is absent on purpose. A performance change is real work and stays in

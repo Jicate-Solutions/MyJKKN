@@ -46,6 +46,29 @@
 // is never asked about it again. Publishing nothing is the correct outcome for
 // most commits; a run that files more skips than highlights is working.
 //
+// ── THE OPERATING RULES (Director interview, 2026-09-13 evening)
+// specs/whats-new/highlight-writer-rulings-2026-09-13.md. Five of the eight
+// rulings live in this route:
+//
+//   1 BACKLOG CUT-OFF. Only changes on or after WRITEUP_BACKLOG_FLOOR are ever
+//     written up — a fixed DATE in lib/changelog/highlights.ts, not a rolling
+//     window, so a re-run months from now cannot creep back through the ~4,100
+//     older entries the Director excluded. The per-run cap in selectHighlights
+//     is what drains the ~800 in the window gradually instead of in one spike;
+//     it stays.
+//   5 NEVER REWRITE A HIDDEN ONE. See the COLLECT pass — a row that already
+//     exists is never overwritten.
+//   6 AUTO-HIDE WHEN A CHANGE IS UNDONE. See the RETRACT pass.
+//   7 REPORT IT. Not here: app/api/whats-new/highlights/report/route.ts.
+//   8 ALERT AFTER REPEATED FAILURES. See the withCronRun wrapper at the bottom.
+//
+// WHY 5, 7 AND 8 ARE NOT OPTIONAL EXTRAS. This route runs TWICE AN HOUR and
+// publishes UNREVIEWED — both explicit rulings. A fault therefore repeats 48
+// times a day onto a page nobody is paid to check. The spec records that the
+// cadence is safe *because* those three exist, and that dropping any of them
+// reopens the cadence decision. Removing one of them here is a Director
+// decision, not a refactor.
+//
 // Auth: CRON_SECRET via `Authorization: Bearer <secret>` OR `?secret=`.
 // Created: 2026-09-13.
 
@@ -60,13 +83,15 @@ import {
   collectJobsLane,
   type JobsLaneEnqueueResult,
 } from '@/lib/services/platform/ai-jobs-lane';
-import { selectHighlights, weekStart } from '@/lib/changelog/highlights';
+import { selectHighlights, WRITEUP_BACKLOG_FLOOR } from '@/lib/changelog/highlights';
 import {
   buildHighlightPrompt,
   highlightDedupeKey,
   isRefusal,
   parseHighlightResult,
 } from '@/lib/changelog/highlight-prompt';
+import { findRetractions } from '@/lib/changelog/revert-detect';
+import { withCronRun } from '@/lib/cron/run-log';
 import type { ChangelogEntry, ChangelogModule } from '@/lib/changelog/types';
 
 const JOB_TYPE = 'whats_new.highlight_draft';
@@ -84,9 +109,28 @@ const JOB_TYPE = 'whats_new.highlight_draft';
  */
 const CAP = 20;
 
-/** PostgREST truncates at db-max-rows SILENTLY. A week held 222 entries on
- *  2026-09-12; this has the same four-times headroom the sibling route documents. */
-const WEEK_ROWS = 1000;
+/**
+ * Rows per page when reading the backlog window.
+ *
+ * This used to be a single `.range(0, 999)` over ONE WEEK — 222 entries on
+ * 2026-09-12, so four times the headroom it needed. Ruling 1 widens the window
+ * from a week to a month (~800 entries, and more on a busy month), which puts
+ * that single read close enough to PostgREST's db-max-rows that it would start
+ * truncating — SILENTLY, dropping the OLDEST entries first because the order is
+ * newest-first, which is exactly the half of the backlog this ruling exists to
+ * reach. So the read pages instead.
+ */
+const PAGE_ROWS = 1000;
+
+/** Stop after this many pages. ~800 entries a month means one page today; five
+ *  is room for a year's worth of unusually busy months and a hard stop on a
+ *  filter that has gone wrong, rather than an unbounded loop in a cron. */
+const MAX_PAGES = 5;
+
+/** `.in()` travels in the URL. ~800 shas in one filter builds a query string
+ *  long enough to be rejected, so every `.in()` over the window is chunked —
+ *  same size as the sibling read route uses for the same reason. */
+const IN_CHUNK = 200;
 
 type Admin = ReturnType<typeof createServiceRoleClient>;
 
@@ -98,6 +142,15 @@ type DraftContext = {
   /** carried only so a log line can name the change a human recognises */
   subject: string;
 };
+
+/** A highlight row as the SUBMIT and RETRACT passes need it. */
+interface ExistingHighlight {
+  sha: string;
+  app_key: string;
+  status: 'draft' | 'approved' | 'skipped';
+  source: 'human' | 'ai';
+  selection_reason: string | null;
+}
 
 interface EntryRow {
   sha: string;
@@ -124,12 +177,7 @@ function toEntry(r: EntryRow): ChangelogEntry {
   };
 }
 
-/** Today in IST, as YYYY-MM-DD — the timezone entry dates were recorded in. */
-function istToday(): string {
-  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-}
-
-export async function GET(request: NextRequest) {
+async function handler(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
     return NextResponse.json({ ok: false, error: 'CRON_SECRET not configured' }, { status: 500 });
@@ -156,16 +204,94 @@ export async function GET(request: NextRequest) {
   let enqueued = 0;
   let inFlight = 0;
   let candidatesTotal = 0;
+  /** Ruling 5: answers discarded because a person had already decided the row. */
+  let supersededByPerson = 0;
   const drafted: Array<Record<string, unknown>> = [];
+  /** Ruling 6: write-ups taken down this run because the change was reverted. */
+  const retracted: Array<Record<string, unknown>> = [];
   let alert: string | null = null;
+
+  /**
+   * RULING 8 — is this run's alert a FAULT, or just something worth saying?
+   *
+   * The alert field already existed and was returned in a 200 body that nobody
+   * reads. The ruling is to extend that path rather than build a second
+   * alerting system, and the platform already HAS the second half: every cron
+   * wrapped in withCronRun writes to cron_run_log, and
+   * app/api/cron/cron-failure-alerts (hourly at :14, min_streak 3, configurable
+   * in platform_policies) turns a streak of failed runs into a bell
+   * notification to every super admin. That is the whole of ruling 8 — provided
+   * a faulty run actually ANSWERS >= 400, because statusIsOk() is the only
+   * signal cron_run_log has.
+   *
+   * So a fault answers 500. What is NOT a fault, and must keep answering 200,
+   * is an operator's manual `?sha=` call that named a change that is not there:
+   * a typo at a terminal must not manufacture a failure streak that pages
+   * people at two in the morning.
+   *
+   * The remaining blind spot, stated rather than papered over: a run that
+   * succeeds at everything it attempts while the MAX SEAT quietly returns
+   * nothing is a 200, and this will not catch it. `published` staying at 0 run
+   * after run is the signal for that, and it is visible in the body.
+   */
+  let alertIsFault = false;
+  function raiseAlert(message: string, fault: boolean) {
+    alert = message;
+    if (fault) alertIsFault = true;
+  }
 
   // ── COLLECT: drain done jobs and file what came back. ──────────────────────
   try {
     const items = await collectJobsLane(admin, [JOB_TYPE], CAP);
+
+    // RULING 5 — A HIDDEN WRITE-UP IS NEVER REWRITTEN, AND THIS IS WHERE THAT
+    // COULD HAVE BEEN BROKEN.
+    //
+    // The file below is an UPSERT on (app_key, sha) with status 'approved'. A
+    // job enqueued at :13 comes home at :43. If a super admin hides the
+    // write-up at :20 — sets it to 'skipped', which is the existing mechanism
+    // and the one the ruling says to extend — that upsert would resurrect it as
+    // 'approved' twenty-three minutes later, and again on the next delivery.
+    // The person's decision would be silently undone by a job that was already
+    // in flight when they made it, and nothing in the response would say so.
+    //
+    // So: any sha that ALREADY has a row is left exactly as it is. A row exists
+    // only because a person wrote it, a person hid it, or a previous collect
+    // already filed this answer — and in all three cases the right move is to
+    // keep what is there. Selection never offers a decided entry again
+    // (`alreadyDecided` below), so this closes the one window that was left.
+    const deliveredShas = [
+      ...new Set(
+        items
+          .map((i) => (i.context as unknown as DraftContext)?.sha)
+          .filter((s): s is string => typeof s === 'string' && s.length > 0)
+      ),
+    ];
+    let alreadyFiled = new Set<string>();
+    if (deliveredShas.length > 0) {
+      const { data: prior, error: priorErr } = await admin
+        .from('changelog_highlights')
+        .select('sha')
+        .in('sha', deliveredShas);
+      // A FAILED read must not become "file everything". Throwing here sends the
+      // run down the catch below, which alerts and files nothing — the safe
+      // direction, because the failure it is guarding against is overwriting a
+      // person's takedown.
+      if (priorErr) throw new Error(`prior highlights read: ${priorErr.message}`);
+      alreadyFiled = new Set(((prior as { sha: string }[] | null) ?? []).map((p) => p.sha));
+    }
+
     for (const item of items) {
       const ctx = item.context as unknown as DraftContext;
       if (!ctx?.sha) {
         unparsed++;
+        continue;
+      }
+      // Ruling 5, enforced. The job is still marked delivered by the claim
+      // above, so it does not come back — the answer is simply discarded in
+      // favour of whatever a person decided.
+      if (alreadyFiled.has(ctx.sha)) {
+        supersededByPerson++;
         continue;
       }
       const block = item.message?.content?.find((b) => b.type === 'text');
@@ -231,12 +357,26 @@ export async function GET(request: NextRequest) {
       );
     }
   } catch (e) {
-    alert = 'collect phase threw — results may still be waiting';
+    raiseAlert('collect phase threw — results may still be waiting', true);
     console.error('[cron/whats-new-highlight-drafts] collect failed:', e);
   }
 
   // ── SUBMIT: enqueue one job per candidate with no highlight row yet. ───────
-  const from = weekStart(istToday());
+  //
+  // RULING 1 — THE WINDOW IS THE BACKLOG CUT-OFF, NOT THIS WEEK.
+  //
+  // This read used to start at weekStart(today), which meant the writer could
+  // only ever see the current week — the ~800-entry backlog the Director asked
+  // for was unreachable by construction, and every Monday the previous week's
+  // unwritten changes fell out of view for good. The window is now the fixed
+  // floor: on or after WRITEUP_BACKLOG_FLOOR, up to today, and never one day
+  // older however many times this runs. The ~4,100 entries below the floor keep
+  // their plain list, grouping and links, and are never written up.
+  //
+  // The per-run cap inside selectHighlights is what turns ~800 entries into a
+  // gradual drain rather than one spike, and it is load-bearing now that the
+  // window is a month wide. Do not remove it.
+  const from = WRITEUP_BACKLOG_FLOOR;
   try {
     let rows: EntryRow[] = [];
 
@@ -249,20 +389,31 @@ export async function GET(request: NextRequest) {
         .limit(1);
       if (error) throw new Error(error.message);
       rows = (data as EntryRow[] | null) ?? [];
-      if (rows.length === 0) alert = `no visible changelog entry for sha ${onlySha}`;
+      // NOT a fault: this only happens on a hand-typed `?sha=` call. See
+      // raiseAlert's header — an operator's typo must not page anyone.
+      if (rows.length === 0) raiseAlert(`no visible changelog entry for sha ${onlySha}`, false);
     } else {
-      const { data, error } = await admin
-        .from('changelog_entries')
-        .select('sha,app_key,entry_date,kind,module_key,subject,author,pr_number,breaking')
-        .eq('hidden', false)
-        .gte('entry_date', from)
-        .order('entry_date', { ascending: false })
-        .order('ordinal', { ascending: true })
-        .order('app_key', { ascending: true })
-        .order('sha', { ascending: false })
-        .range(0, WEEK_ROWS - 1);
-      if (error) throw new Error(error.message);
-      rows = (data as EntryRow[] | null) ?? [];
+      // Paged. A single .range() over a month-wide window would truncate at
+      // db-max-rows SILENTLY and, because the order is newest-first, would drop
+      // the OLDEST entries — the half of the backlog ruling 1 exists to reach.
+      // The total order is the one app/api/whats-new/route.ts serves, so
+      // selection keeps seeing entries in the order it documents.
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const { data, error } = await admin
+          .from('changelog_entries')
+          .select('sha,app_key,entry_date,kind,module_key,subject,author,pr_number,breaking')
+          .eq('hidden', false)
+          .gte('entry_date', from)
+          .order('entry_date', { ascending: false })
+          .order('ordinal', { ascending: true })
+          .order('app_key', { ascending: true })
+          .order('sha', { ascending: false })
+          .range(page * PAGE_ROWS, page * PAGE_ROWS + PAGE_ROWS - 1);
+        if (error) throw new Error(error.message);
+        const batch = (data as EntryRow[] | null) ?? [];
+        rows.push(...batch);
+        if (batch.length < PAGE_ROWS) break;
+      }
     }
 
     if (rows.length > 0) {
@@ -292,14 +443,22 @@ export async function GET(request: NextRequest) {
       // Every sha that already HAS a highlight row, in any status. An approved
       // one is written; a skipped one was refused; a draft is a human's work in
       // progress the writer must not overwrite.
-      const { data: existing, error: exErr } = await admin
-        .from('changelog_highlights')
-        .select('sha')
-        .in('sha', rows.map((r) => r.sha));
-      if (exErr) throw new Error(exErr.message);
-      const written = new Set(
-        ((existing as { sha: string }[] | null) ?? []).map((h) => h.sha)
-      );
+      //
+      // CHUNKED, and that is ruling 1's doing rather than tidiness: `.in()`
+      // travels in the URL, and a week's 222 shas fitted where a month's ~800
+      // would build a query string long enough to be rejected — which would
+      // throw, alert, and enqueue nothing, every run. Same chunk size as the
+      // sibling read route.
+      const existing: ExistingHighlight[] = [];
+      for (let i = 0; i < rows.length; i += IN_CHUNK) {
+        const { data, error: exErr } = await admin
+          .from('changelog_highlights')
+          .select('sha,app_key,status,source,selection_reason')
+          .in('sha', rows.slice(i, i + IN_CHUNK).map((r) => r.sha));
+        if (exErr) throw new Error(exErr.message);
+        existing.push(...((data as ExistingHighlight[] | null) ?? []));
+      }
+      const written = new Set(existing.map((h) => h.sha));
 
       const candidates = onlySha
         ? // The proof hook bypasses scoring on purpose: it must be able to write
@@ -353,21 +512,93 @@ export async function GET(request: NextRequest) {
           `[cron/whats-new-highlight-drafts] enqueue failed for ${row.sha} (${fail.reason}): ${fail.error ?? ''}`
         );
         if (fail.reason === 'unknown_type') {
-          alert =
+          raiseAlert(
             'job type whats_new.highlight_draft is not registered or is disabled — ' +
-            'migration 20261203180000 has not been applied';
+              'migration 20261203180000 has not been applied',
+            true
+          );
         } else if (fail.reason === 'no_seat') {
-          alert = 'no seat owner configured for the max lane — nothing can be drafted';
+          // The alert path ruling 8 names by line number. It now reaches a
+          // person instead of a JSON field: a run carrying a fault answers 500,
+          // cron_run_log records the failure, and cron-failure-alerts bells
+          // every super admin once the streak reaches three.
+          raiseAlert('no seat owner configured for the max lane — nothing can be drafted', true);
+        }
+      }
+
+      // ── RETRACT: ruling 6 — a write-up for a change that was undone comes
+      //    down on its own. ─────────────────────────────────────────
+      //
+      // "Nobody should be told to go try something that no longer exists."
+      // A reverted feature leaves a card on the page saying where to click and
+      // what the reader can now do, and that is worse than no card: they go
+      // looking, find nothing, and stop trusting the page.
+      //
+      // WHAT IS DETECTED, AND WHAT IS NOT. `git revert` writes a subject of
+      // exactly `Revert "<original subject>"`, and that is the only shape this
+      // can see — changelog_entries stores the SUBJECT and no body, so the
+      // reliable `This reverts commit <sha>` body line is out of reach without
+      // widening the sync, which another lane owns. A hand-written undo ("fix:
+      // put the old behaviour back"), a reworded squash title, and a feature
+      // removed by a later redesign are all invisible here. The Director was
+      // shown this shape of gap and accepted it. The full list is in
+      // lib/changelog/revert-detect.ts, which also carries the parity rule that
+      // stops a RE-LAND (`Revert "Revert "X""`) being read as an undo.
+      //
+      // Only 'approved' rows are retracted — a draft renders nowhere and a
+      // skipped one is already down, so touching either would be noise in the
+      // audit trail for no change on the page.
+      const approvedByKey = new Map(
+        existing.filter((h) => h.status === 'approved').map((h) => [h.sha, h])
+      );
+      const writtenEntries = rows.filter((r) => approvedByKey.has(r.sha));
+      if (writtenEntries.length > 0) {
+        for (const hit of findRetractions(rows, writtenEntries)) {
+          const prior = approvedByKey.get(hit.sha);
+          if (!prior) continue;
+          // The audit line KEEPS the old reason rather than replacing it. A row
+          // that came down silently is indistinguishable from one a person
+          // skipped, and this is the only record of why the page changed.
+          const reason =
+            `Taken down automatically: this change was reverted by ${hit.reverted_by}. ` +
+            `Previously: ${prior.selection_reason ?? '(no reason recorded)'}`;
+          const { error: retErr } = await (admin as any)
+            .from('changelog_highlights')
+            .update({ status: 'skipped', selection_reason: reason.slice(0, 2000) })
+            .eq('app_key', hit.app_key)
+            .eq('sha', hit.sha);
+          if (retErr) {
+            // Not a fault worth paging over: the card stays up one more run and
+            // the next run tries again. Logged so a repeat is findable.
+            console.warn(
+              `[cron/whats-new-highlight-drafts] retract failed for ${hit.sha}: ${retErr.message}`
+            );
+            continue;
+          }
+          // 'skipped' is also what ruling 5 keys on, so a retracted write-up is
+          // never re-offered to the writer either — the two rulings meet here
+          // rather than needing a second mechanism.
+          retracted.push({
+            sha: hit.sha,
+            reverted_by: hit.reverted_by,
+            reverted_by_subject: hit.reverted_by_subject,
+            was_written_by: prior.source,
+          });
         }
       }
     }
   } catch (e) {
-    alert = 'submit phase threw — no changes were enqueued this run';
+    raiseAlert('submit phase threw — no changes were enqueued this run', true);
     console.error('[cron/whats-new-highlight-drafts] submit failed:', e);
   }
 
-  return NextResponse.json({
-    ok: true,
+  const body = {
+    ok: !alertIsFault,
+    // The backlog floor this run worked from (ruling 1). Named `from` rather
+    // than `week_from` now that the window is the cut-off date and not a week;
+    // `week_from` is kept alongside it for one release so a dashboard or a
+    // saved query reading the old key does not silently start seeing undefined.
+    from,
     week_from: from,
     only_sha: onlySha,
     // What this run FILED (the previous run's jobs coming home).
@@ -375,6 +606,10 @@ export async function GET(request: NextRequest) {
     skipped_no_effect: skippedNoEffect,
     unparsed,
     file_failed: fileFailed,
+    // Ruling 5: answers thrown away because a person had already decided the
+    // row — most often because they hid the write-up while the job was in
+    // flight. A number that climbs here is the safeguard working, not a fault.
+    superseded_by_person: supersededByPerson,
     // What this run SENT (lands on the next run).
     candidates_total: candidatesTotal,
     enqueued,
@@ -383,7 +618,38 @@ export async function GET(request: NextRequest) {
     // The actual text filed this run — so a person reading the cron's output
     // can see what went on the page without opening the database.
     drafted,
+    // Ruling 6: write-ups taken down this run because their change was reverted.
+    retracted,
     alert,
+    // `error` is the key withCronRun's peekError() reads off a failed response,
+    // so a faulty run's reason lands in cron_run_log.error and then in the bell
+    // notification cron-failure-alerts sends. Without it the alert would say a
+    // job is failing and not say why.
+    ...(alertIsFault ? { error: alert } : {}),
     elapsed_ms: Date.now() - started,
-  });
+  };
+
+  // RULING 8, the whole of it: a faulty run ANSWERS >= 400.
+  //
+  // statusIsOk() in lib/cron/run-log.ts is the only signal cron_run_log has, so
+  // a fault that answered 200 — which is what this route did before — is a run
+  // that reads healthy while nothing is being written. That is the exact shape
+  // of the failure the Director was shown as precedent: three Instagram
+  // pipeline jobs failed from June to September while the dashboards read
+  // healthy. From here: three consecutive faulty runs (one and a half hours at
+  // `13,43 * * * *`) put this job in fn_cron_failure_streaks, and
+  // cron-failure-alerts — already scheduled hourly at :14, already fanning out
+  // to every super admin — bells them once per streak. No second alerting
+  // system, no new schedule, no new table.
+  //
+  // The page degrades gracefully throughout: changes keep appearing in the
+  // plain list, just without write-ups.
+  return NextResponse.json(body, { status: alertIsFault ? 500 : 200 });
 }
+
+// Ruling 8's other half. The wrapper opens a cron_run_log row before the work
+// and closes it with the response's status, so a run that never comes back at
+// all (timeout, OOM, a hard 502) is visible as an open row rather than as
+// silence. It checks CRON_SECRET itself and logs nothing when that fails, so a
+// stranger curling this public path cannot manufacture a failure streak.
+export const GET = withCronRun('whats-new-highlight-drafts', handler);
