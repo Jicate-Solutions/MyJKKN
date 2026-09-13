@@ -24,9 +24,12 @@ Commit `388a6d4dc8` (2026-08-24 23:21 IST, *"fix(security): stop shipping the te
 super-admin password in the public bundle"*) correctly removed the hardcoded fallback:
 
 ```diff
--const PASSWORD = process.env.PERSONA_PASSWORD || CONFIG.password || 'Test@1234';
+-const PASSWORD = process.env.PERSONA_PASSWORD || CONFIG.password || 'Test@****';
 +const PASSWORD = process.env.PERSONA_PASSWORD || CONFIG.password;
 ```
+
+(The literal is redacted throughout this document. What matters is that a hardcoded
+fallback existed and was removed, not the value it held.)
 
 `personas.json` carries no `"password"` key, so with the variable unset `PASSWORD`
 is `undefined`. `signInWithPassword({ email, password: undefined })` sends no
@@ -52,7 +55,7 @@ Nothing changed between those dates. **Which checkout ran it** changed.
 
 `388a6d4dc8` is on `jicate/main`. The local long-lived working branch
 (`feat/campus-living-fee-compute-engine`, ~720 commits diverged) does **not** contain
-it and still carries the `|| 'Test@1234'` fallback on line 56. So the harness
+it and still carries the `|| 'Test@****'` fallback on line 56. So the harness
 succeeds from the local checkout and fails from every worktree cut from production —
 which is exactly where agents run it. The `localhost:3107` vs `https://www.jkkn.ai`
 difference in the two runs is a coincidence, not the cause; the sign-in never reaches
@@ -130,10 +133,13 @@ value — the code needs no further change.
 
 - `scripts/persona-harness/two-sided-probe.local.mjs` has the identical unvalidated
   `PERSONA_PASSWORD` and will produce the same misleading error.
-- `scripts/persona-harness/person-history-mobile-probe.local.mjs:27` **still contains
-  the `Test@1234` literal** — missed by the 08-24 sweep, which listed only `.md`
+- `scripts/persona-harness/person-history-mobile-probe.local.mjs:27` **carried the same
+  hardcoded password literal (`Test@****`)** — missed by the 08-24 sweep, which listed only `.md`
   files as remaining. It is a local probe script, not shipped in any bundle, but it
-  is a credential in the repo and should go the same way as the others.
+  was a credential in the repo and had to go the same way as the others.
+  **Resolved since:** PR #3236 (`97e41b13fc`, *"fix(security): the mobile probe re-added
+  the test password a sweep had removed"*) removed it. The line now reads
+  `process.env.PERSONA_PASSWORD || CONFIG.password`, with no fallback.
 
 ## Verification
 

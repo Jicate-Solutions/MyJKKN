@@ -17,7 +17,23 @@
  * archive failure taught that lesson the other way round — see the archiveError
  * note in lib/changelog/use-changelog.ts.)
  *
- * Everything here was approved by a person. Nothing is generated at read time.
+ * WHO WROTE THESE, AND WHY THE ORIGINAL LINE IS ALWAYS SHOWN. Most of these are
+ * now written by a model on the Max lane and published with nobody reading them
+ * first — the Director reversed the "a person approves each one" rule on
+ * 2026-09-13, because the approval queue meant ongoing work and so nothing was
+ * ever written at all (changelog_highlights held 0 rows).
+ *
+ * That makes the small grey line under each card the load-bearing part of this
+ * component, not a detail. It is the developer's own commit subject, verbatim —
+ * what ACTUALLY shipped. A reader who finds a headline surprising can check it
+ * against the real change in the same glance, without leaving the page or
+ * trusting us. This page exists to teach people what they can now do, and
+ * unreviewed text about ten applications reaches every reader here; a confident
+ * wrong claim with no way to check it is worse than no highlight at all.
+ *
+ * Deleting that line to tidy the card removes the only check there is.
+ *
+ * Nothing is generated at read time.
  */
 
 import { useEffect, useState } from 'react';
@@ -36,6 +52,12 @@ interface StripItem {
   headline: string | null;
   affects: string | null;
   action: string | null;
+  /** The developer's own commit subject — what actually shipped. See the header:
+   *  this is the check on an unreviewed headline, and it always renders. */
+  subject?: string;
+  author?: string;
+  /** 'ai' when nobody read it before it was published. */
+  source?: 'human' | 'ai';
 }
 
 const KIND_STYLE: Record<HighlightKind, { icon: typeof Sparkles; chip: string; label: string }> = {
@@ -138,6 +160,21 @@ export function HighlightsStrip({ modules }: HighlightsStripProps) {
                   <dd className="inline break-words text-foreground/90">{h.action}</dd>
                 </div>
               </dl>
+
+              {/* The original developer line. Smaller, quieter, and never
+                  hidden — see the component header for why this is the part
+                  that must not be removed. Rendered only when the payload
+                  carries it, so an older cached response degrades to the card
+                  as it looked before rather than to an empty rule. */}
+              {h.subject && (
+                <p className="mt-3 border-t pt-2 text-[11px] leading-relaxed text-muted-foreground/80">
+                  <span className="font-medium">
+                    {h.source === 'ai' ? 'Written automatically from: ' : 'Original note: '}
+                  </span>
+                  <span className="break-words font-mono">{h.subject}</span>
+                  {h.author && <span className="break-words"> — {h.author}</span>}
+                </p>
+              )}
             </li>
           );
         })}
