@@ -164,82 +164,7 @@ BEGIN
   END IF;
 END $$;
 
--- ── 3. Read the operational kind across, and say that a machine did it ──────
--- Compared with lower() on BOTH sides, because the catalogue's uniqueness is
--- `scope + lower(code)` — that index, not the literal spelling, is what defines
--- code identity. The seed was transcribed "in the PDF's own wording", so a type
--- landing as 'Sports' would match zero rows here and leave those events blank
--- with no error. Same exposure for any non-lowercase events.event_type.
---
--- A HUMAN'S DELIBERATE BLANK IS NOT AN EMPTY SLOT. The pairing CHECK forces
--- both columns to NULL together, so someone clearing a wrong guess leaves a row
--- that looks exactly like one never filled. On a re-apply this UPDATE would
--- re-impose the same wrong guess over their decision. Guarded: if any human has
--- confirmed anything on this table, the table has been curated and this
--- one-shot back-fill stays out of it.
-DO $$
-DECLARE v_curated boolean;
-BEGIN
-  SELECT EXISTS (SELECT 1 FROM public.events
-                  WHERE academic_type_source = 'human_confirmed')
-    INTO v_curated;
-
-  IF v_curated THEN
-    RAISE NOTICE 'Skipping back-fill: a human has already confirmed at least one academic type, so this table is curated and a replay must not overwrite it.';
-    RETURN;
-  END IF;
-
-UPDATE public.events e
-   SET academic_type_id     = t.id,
-       academic_type_source = 'machine_inferred'
-  FROM public.event_academic_types t
- WHERE t.institution_id IS NULL
-   AND e.academic_type_id IS NULL
-   AND lower(t.code) = CASE lower(e.event_type)
-                  WHEN 'lecture'           THEN 'guest_lecture'
-                  WHEN 'induction'         THEN 'orientation'
-                  WHEN 'cultural'          THEN 'cultural'
-                  WHEN 'sports_tournament' THEN 'sports'
-                  WHEN 'sports'            THEN 'sports'
-                  WHEN 'marathon'          THEN 'sports'
-                  WHEN 'convocation'        THEN 'convocation'
-                  WHEN 'alumni'             THEN 'alumni_meet'
-                  WHEN 'school_of_influence' THEN 'school_of_influence'
-                  ELSE NULL
-                END;
-END $$;
-
--- ── 4. Report what happened, and fail if the stamp ever went missing ────────
-DO $$
-DECLARE
-  v_total    integer;
-  v_tagged   integer;
-  v_untagged integer;
-BEGIN
-  SELECT count(*),
-         count(*) FILTER (WHERE academic_type_id IS NOT NULL),
-         count(*) FILTER (WHERE academic_type_id IS NULL)
-    INTO v_total, v_tagged, v_untagged
-    FROM public.events;
-
-  -- The unstamped check that used to live here was UNREACHABLE: the pairing
-  -- CHECK and the source-value CHECK together make "typed but unstamped"
-  -- unrepresentable, so the only EXCEPTION in this block could never fire while
-  -- the one failure that CAN happen — events left blank by a partial catalogue —
-  -- was a NOTICE. That is precisely the "blank with no error to notice" outcome
-  -- this file's header promises to prevent, passing green.
-  IF v_untagged > 0 THEN
-    RAISE EXCEPTION
-      '% of % events were left without an academic type. All nine operational kinds map to a catalogue entry, so a blank here means a code did not resolve and the tagging is partial. Nothing has been committed.',
-      v_untagged, v_total;
-  END IF;
-
-  RAISE NOTICE
-    'Academic types back-mapped: % of % events tagged, every one stamped machine_inferred.',
-    v_tagged, v_total;
-END $$;
-
--- ── 5. A type belonging to another college can never be attached ────────────
+-- ── 2b. A type belonging to another college can never be attached ──────────
 -- The FK alone carries no tenant predicate. event_academic_types allows a
 -- per-college row (institution_id NOT NULL) — the unique index is scoped
 -- exactly so a college can add its own — so without this, a writer at College A
@@ -292,3 +217,116 @@ DROP TRIGGER IF EXISTS trg_events_academic_type_tenant_guard ON public.events;
 CREATE TRIGGER trg_events_academic_type_tenant_guard
   BEFORE INSERT OR UPDATE OF academic_type_id, institution_id ON public.events
   FOR EACH ROW EXECUTE FUNCTION public.fn_events_academic_type_tenant_guard();
+
+-- ── 3. Read the operational kind across, and say that a machine did it ──────
+-- Compared with lower() on BOTH sides, because the catalogue's uniqueness is
+-- `scope + lower(code)` — that index, not the literal spelling, is what defines
+-- code identity. The seed was transcribed "in the PDF's own wording", so a type
+-- landing as 'Sports' would match zero rows here and leave those events blank
+-- with no error. Same exposure for any non-lowercase events.event_type.
+--
+-- A HUMAN'S DELIBERATE BLANK IS NOT AN EMPTY SLOT. The pairing CHECK forces
+-- both columns to NULL together, so someone clearing a wrong guess leaves a row
+-- that looks exactly like one never filled. On a re-apply this UPDATE would
+-- re-impose the same wrong guess over their decision. Guarded: if any human has
+-- confirmed anything on this table, the table has been curated and this
+-- one-shot back-fill stays out of it.
+DO $$
+DECLARE v_curated boolean;
+BEGIN
+  SELECT EXISTS (SELECT 1 FROM public.events
+                  WHERE academic_type_source = 'human_confirmed')
+    INTO v_curated;
+
+  IF v_curated THEN
+    RAISE NOTICE 'Skipping back-fill: a human has already confirmed at least one academic type, so this table is curated and a replay must not overwrite it.';
+    PERFORM set_config('myjkkn.events_backmap_ran', 'false', true);
+    RETURN;
+  END IF;
+
+  PERFORM set_config('myjkkn.events_backmap_ran', 'true', true);
+
+UPDATE public.events e
+   SET academic_type_id     = t.id,
+       academic_type_source = 'machine_inferred'
+  FROM public.event_academic_types t
+ WHERE t.institution_id IS NULL
+   AND e.academic_type_id IS NULL
+   AND lower(t.code) = CASE lower(e.event_type)
+                  WHEN 'lecture'           THEN 'guest_lecture'
+                  WHEN 'induction'         THEN 'orientation'
+                  WHEN 'cultural'          THEN 'cultural'
+                  WHEN 'sports_tournament' THEN 'sports'
+                  WHEN 'sports'            THEN 'sports'
+                  WHEN 'marathon'          THEN 'sports'
+                  WHEN 'convocation'        THEN 'convocation'
+                  WHEN 'alumni'             THEN 'alumni_meet'
+                  WHEN 'school_of_influence' THEN 'school_of_influence'
+                  ELSE NULL
+                END;
+END $$;
+
+-- ── 4. Report, and assert only what this file actually promised ────────────
+-- TWO ways an earlier draft of this block was wrong, both found in review:
+--
+--   (a) It contradicted §3. §3 deliberately skips a curated table; §4 then
+--       raised on any untagged row. One human-cleared event and the migration
+--       could never replay again — the skip and the assertion disagreed about
+--       what "blank" means.
+--
+--   (b) "No event is untagged" is not this file's promise and would brick on a
+--       tenth operational kind. events.event_type is not frozen; a kind this
+--       CASE does not name is a gap to REPORT, not a failure to abort on. What
+--       this file actually promises is narrower and checkable: every event whose
+--       kind IS mapped came out tagged. That is the claim, so that is the
+--       assertion.
+DO $$
+DECLARE
+  v_total      integer;
+  v_tagged     integer;
+  v_mapped_blank integer;
+  v_unmapped   text;
+  v_ran        boolean;
+BEGIN
+  v_ran := current_setting('myjkkn.events_backmap_ran', true) = 'true';
+
+  IF NOT v_ran THEN
+    RAISE NOTICE 'Back-fill was skipped (table already curated by a human); making no completeness assertion over rows this run did not write.';
+    RETURN;
+  END IF;
+
+  SELECT count(*),
+         count(*) FILTER (WHERE academic_type_id IS NOT NULL)
+    INTO v_total, v_tagged
+    FROM public.events;
+
+  -- the assertion: a MAPPED kind that came out blank means a code did not resolve
+  SELECT count(*) INTO v_mapped_blank
+    FROM public.events
+   WHERE academic_type_id IS NULL
+     AND lower(event_type) IN ('lecture','induction','cultural','sports_tournament',
+                               'sports','marathon','convocation','alumni','school_of_influence');
+
+  -- informational: kinds this file does not name yet
+  SELECT string_agg(DISTINCT event_type, ', ') INTO v_unmapped
+    FROM public.events
+   WHERE academic_type_id IS NULL
+     AND lower(event_type) NOT IN ('lecture','induction','cultural','sports_tournament',
+                                   'sports','marathon','convocation','alumni','school_of_influence');
+
+  IF v_mapped_blank > 0 THEN
+    RAISE EXCEPTION
+      '% event(s) carry an operational kind this migration maps, yet came out with no academic type. A mapped code did not resolve, so the tagging is partial and indistinguishable from success. Nothing has been committed.',
+      v_mapped_blank;
+  END IF;
+
+  IF v_unmapped IS NOT NULL THEN
+    RAISE NOTICE
+      'Left untagged because no mapping exists for their operational kind (not an error — add them to the CASE and to the §2 guard when a type is agreed): %',
+      v_unmapped;
+  END IF;
+
+  RAISE NOTICE 'Academic types back-mapped: % of % events tagged, every one stamped machine_inferred.',
+    v_tagged, v_total;
+END $$;
+
