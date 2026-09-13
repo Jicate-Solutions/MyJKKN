@@ -14,11 +14,15 @@
 --      named leads across the last N briefings) yet moves leads forward at or
 --      above their own baseline is FLAGGED 'briefing changed nothing' — the
 --      loop's safety gauge, stored as a column, surfaced by the read fn.
---      Director 2026-09-13: this flag is visible ONLY on /admin/loops
---      (super-admin) — NOT sent to admission team members or the counselor, no
---      notification of any kind. So the results table's SELECT policy is
---      is_super_admin() alone and the read fn's gate is service_role or
---      super admin — narrower than the consultants sibling on purpose;
+--      Director 2026-09-13: this flag is for the super admin ONLY (the
+--      /admin/loops audience) — NOT sent to admission team members or the
+--      counselor, no notification of any kind. So the results table's SELECT
+--      policy is is_super_admin() alone and the read fn's gate is service_role
+--      or super admin — narrower than the consultants sibling on purpose.
+--      NOTE: no /admin/loops panel reads counselor_briefing_effects yet (the
+--      consultants sibling is in the same state); until a follow-up UI PR wires
+--      one, the flag is reachable only by a super admin reading the table or
+--      calling fn_counselor_briefing_effect_by_college;
 --   5. INDEPENDENT of the weekly intake-readiness alarm (#3008) but MAY feed
 --      it: fn_counselor_briefing_effect_by_college(institution_id) is the one
 --      read fn a future alarm edge can call. The alarm itself is untouched.
@@ -100,7 +104,7 @@ CREATE TABLE IF NOT EXISTS public.counselor_briefing_effects (
   named_leads_n               integer NOT NULL DEFAULT 0,  -- distinct leads those briefings named
   named_leads_current_year_n  integer NOT NULL DEFAULT 0,  -- of those, leads on the institution's CURRENT admission year (the alarm's predicate)
   named_leads_actioned_n      integer NOT NULL DEFAULT 0,  -- named leads THIS counselor acted on within action_window_days of the naming briefing
-  named_action_rate           numeric,                 -- % (2 dp); NULL when named_leads_n = 0
+  named_action_rate           numeric,                 -- % (2 dp) = named_leads_actioned_n / named_leads_n — per-COUNSELOR numerator over the INSTITUTION's named leads (the briefing is one per-institution row); NULL when named_leads_n = 0
   named_forward_n             integer NOT NULL DEFAULT 0,  -- of the actioned named leads, those with a forward stage move within action_window_days after the first action
   named_forward_rate          numeric,                 -- % (2 dp); NULL below min_n_k
   baseline_acted_n            integer NOT NULL DEFAULT 0,  -- distinct leads the counselor acted on in the trailing 8 weeks before week_start
@@ -123,9 +127,11 @@ CREATE TABLE IF NOT EXISTS public.counselor_briefing_effects (
 );
 
 COMMENT ON TABLE public.counselor_briefing_effects IS
-  'Admission-counselor loop MEASUREMENT spine (Wave 2, Director answers 2026-09-06). One row per (counselor, ISO week): rate of action on briefing-NAMED leads, forward-move rate on those leads vs the counselor''s OWN trailing-8-week forward-move rate (same estimator both sides), the delta in percentage points, and the counter-metric flag briefing_changed_nothing. READ-ONLY telemetry — nothing consumes these rows to route leads, rate counselors or pay anything.';
+  'Admission-counselor loop MEASUREMENT spine (Wave 2, Director answers 2026-09-06). One row per (counselor, ISO week): rate of action on briefing-NAMED leads, forward-move rate on those leads vs the counselor''s OWN trailing-8-week forward-move rate (same estimator both sides; NOT the same population — named leads are the generator''s top-3 hot leads, the baseline is every lead touched, so forward_delta carries hot-lead selection and is not a causal lift), the delta in percentage points, and the counter-metric flag briefing_changed_nothing. READ-ONLY telemetry — nothing consumes these rows to route leads, rate counselors or pay anything.';
 COMMENT ON COLUMN public.counselor_briefing_effects.briefing_changed_nothing IS
-  'COUNTER-METRIC (Director answer 4): true when the counselor took no action on any named lead across the last ignore_briefings_n named briefings AND still moved leads forward at or above their own 8-week baseline this week. The briefing cost money and changed nothing. Director 2026-09-13: visible ONLY on /admin/loops (super-admin) — never sent to admission team members or the counselor, no notification of any kind.';
+  'COUNTER-METRIC (Director answer 4): true when the counselor took no action on any named lead across the last ignore_briefings_n named briefings AND still moved leads forward at or above their own 8-week baseline this week. The briefing cost money and changed nothing. Director 2026-09-13: super-admin ONLY (the /admin/loops audience; no /admin/loops panel reads this table yet — follow-up UI PR) — never sent to admission team members or the counselor, no notification of any kind.';
+COMMENT ON COLUMN public.counselor_briefing_effects.named_action_rate IS
+  'named_leads_actioned_n / named_leads_n as a % (2 dp). NUMERATOR is this counselor''s own actions; DENOMINATOR is every lead the INSTITUTION''s briefings named that week (the briefing is one per-institution row read by every counselor of that institution — useTodaysBriefing(institutionId) has no user filter). Several counselors share one list, so ~100/N% is the practical ceiling for N active counselors — a low value is NOT "ignored most of the briefing". NULL when nothing was named.';
 COMMENT ON COLUMN public.counselor_briefing_effects.named_leads_current_year_n IS
   'Bridge to the intake-readiness alarm (#3008): named leads whose admission_year_id is the institution''s admission_years.is_current row — the alarm''s own population predicate. This loop does NOT filter by it.';
 
@@ -139,9 +145,10 @@ CREATE INDEX IF NOT EXISTS idx_cbe_counselor_week
 -- SELECT policy, REVOKE anon/authenticated/PUBLIC, GRANT SELECT authenticated
 -- so the policy is what gates). The PREDICATE is deliberately narrower than
 -- the sibling's (is_super_admin() OR is_admin() OR admission.leads.view):
--- Director 2026-09-13 — the counter-metric flag is visible ONLY on
--- /admin/loops (super-admin), never to admission team members or the counselor.
--- /admin/loops itself gates on profiles.is_super_admin server-side.
+-- Director 2026-09-13 — the counter-metric flag is for the super admin only
+-- (the /admin/loops audience; /admin/loops gates on profiles.is_super_admin
+-- server-side, though no panel there reads this table yet — follow-up UI PR),
+-- never for admission team members or the counselor.
 -- service_role (the cron / server) bypasses RLS as always.
 
 ALTER TABLE public.counselor_briefing_effects ENABLE ROW LEVEL SECURITY;
@@ -268,6 +275,18 @@ GRANT  EXECUTE ON FUNCTION public.fn_counselor_briefing_is_forward(text, text) T
 -- SAME estimator — distinct leads the counselor acted on, anchored at the
 -- FIRST qualifying action, a forward stage move within action_window_days
 -- after that anchor, rate = round(forward/acted*100, 2), NULL below k.
+-- KNOWN CONFOUND (not a bug in the estimator): the two sides of forward_delta
+-- are different POPULATIONS. The named side is only the leads the briefing
+-- named — the generator's top-3 is_hot_lead by score
+-- (lib/services/admission/briefing-delivery-service.ts) — while the baseline
+-- (Director answer 2, literal) is EVERY lead the counselor touched in the
+-- trailing 8 weeks. Hot leads convert better than average leads whether or
+-- not the briefing was read, so forward_delta carries hot-lead SELECTION as
+-- well as any briefing effect; a counselor working their own hot list can
+-- post the same positive delta as one acting on the briefing. Read it as
+-- 'named-lead forward rate vs own all-lead baseline', not as a causal lift.
+-- Changing the baseline population (e.g. hot leads only) changes Director
+-- answer 2 and is the Director's call, not taken here.
 -- p_counselor_id scopes a run to one counselor (used by the regress sim);
 -- p_action_window_days / p_ignore_briefings_n / p_min_n override the policy
 -- rows (sim only — production callers omit them).
@@ -316,6 +335,16 @@ DECLARE
   v_ws    date;
   v_we    date;
   v_bs    date;
+  -- briefing_date is an IST calendar date (the service computes p_as_of in
+  -- IST too), so every day/week boundary below is an IST midnight — never a
+  -- bare date::timestamptz, which resolves at the server TimeZone (UTC on
+  -- Supabase) and would shift 00:00-05:30 IST actions into the previous day.
+  v_ws_ts   timestamptz;
+  v_we_ts   timestamptz;
+  v_bs_ts   timestamptz;
+  v_lo_ts   timestamptz;   -- v_ws - 60 days: how far back named briefings / actions / moves are read
+  v_hi_ts   timestamptz;   -- v_we + action window: last action that can still be briefing-driven
+  v_hi2_ts  timestamptz;   -- v_we + 2 windows: last forward move that can still follow such an action
 BEGIN
   IF p_weeks_back IS NULL OR p_weeks_back < 0 THEN
     RAISE EXCEPTION 'p_weeks_back must be >= 0';
@@ -347,17 +376,28 @@ BEGIN
     v_ws := (date_trunc('week', COALESCE(p_as_of, CURRENT_DATE)::timestamp))::date - (v_w * 7);
     v_we := v_ws + 7;
     v_bs := v_ws - 56;   -- Director answer 2: own trailing 8 weeks
+    v_ws_ts  := v_ws::timestamp AT TIME ZONE 'Asia/Kolkata';
+    v_we_ts  := v_we::timestamp AT TIME ZONE 'Asia/Kolkata';
+    v_bs_ts  := v_bs::timestamp AT TIME ZONE 'Asia/Kolkata';
+    v_lo_ts  := (v_ws - 60)::timestamp AT TIME ZONE 'Asia/Kolkata';
+    v_hi_ts  := (v_we + v_win)::timestamp AT TIME ZONE 'Asia/Kolkata';
+    v_hi2_ts := (v_we + (2 * v_win))::timestamp AT TIME ZONE 'Asia/Kolkata';
 
     RETURN QUERY
     WITH cs AS (
       -- Counselors in scope: must carry a user_id (actions are matched on it).
       -- A scoped run (sim) ignores is_active so a sentinel row is measured.
-      SELECT c.id AS cid, c.user_id AS uid, c.institution_id AS iid
+      -- ONE row per user_id: admission_counselors has no UNIQUE on user_id, and
+      -- two counselor rows for the same person would each be credited the same
+      -- actions (double-counting every aggregate). Active, then oldest, wins.
+      SELECT DISTINCT ON (c.user_id)
+             c.id AS cid, c.user_id AS uid, c.institution_id AS iid
       FROM public.admission_counselors c
       WHERE c.user_id IS NOT NULL
         AND c.institution_id IS NOT NULL
         AND (p_counselor_id IS NULL OR c.id = p_counselor_id)
         AND (p_counselor_id IS NOT NULL OR COALESCE(c.is_active, true))
+      ORDER BY c.user_id, COALESCE(c.is_active, true) DESC, c.created_at ASC NULLS LAST, c.id ASC
     ),
     named AS (
       -- Director answer 1: the leads a briefing NAMED — read back from the
@@ -380,24 +420,24 @@ BEGIN
       SELECT a.created_by AS uid, a.lead_id, a.created_at AS acted_at
       FROM public.admission_lead_activities a
       WHERE a.created_by IS NOT NULL
-        AND a.created_at >= (v_ws - 60)::timestamptz
-        AND a.created_at <  (v_we + v_win)::timestamptz
+        AND a.created_at >= v_lo_ts
+        AND a.created_at <  v_hi_ts
         AND a.created_by IN (SELECT cs.uid FROM cs)
       UNION ALL
       SELECT l.counselor_id, l.lead_id, COALESCE(l.started_at, l.created_at)
       FROM public.admission_call_logs l
       WHERE l.counselor_id IS NOT NULL
         AND l.lead_id IS NOT NULL
-        AND COALESCE(l.started_at, l.created_at) >= (v_ws - 60)::timestamptz
-        AND COALESCE(l.started_at, l.created_at) <  (v_we + v_win)::timestamptz
+        AND COALESCE(l.started_at, l.created_at) >= v_lo_ts
+        AND COALESCE(l.started_at, l.created_at) <  v_hi_ts
         AND l.counselor_id IN (SELECT cs.uid FROM cs)
     ),
     fwd AS (
       -- Director answer 3: any forward stage move, from the canonical history.
       SELECT h.lead_id, h.created_at AS moved_at
       FROM public.admission_lead_stage_history h
-      WHERE h.created_at >= (v_ws - 60)::timestamptz
-        AND h.created_at <  (v_we + (2 * v_win))::timestamptz
+      WHERE h.created_at >= v_lo_ts
+        AND h.created_at <  v_hi2_ts
         AND public.fn_counselor_briefing_is_forward(h.from_stage::text, h.to_stage::text)
     ),
     wk_named AS (
@@ -428,8 +468,8 @@ BEGIN
       FROM cs
       JOIN wk_named wn ON wn.iid = cs.iid
       JOIN acts a ON a.uid = cs.uid AND a.lead_id = wn.lead_id
-       AND a.acted_at >= wn.bdate::timestamptz
-       AND a.acted_at <  (wn.bdate + v_win)::timestamptz
+       AND a.acted_at >= (wn.bdate::timestamp AT TIME ZONE 'Asia/Kolkata')
+       AND a.acted_at <  ((wn.bdate + v_win)::timestamp AT TIME ZONE 'Asia/Kolkata')
       GROUP BY cs.cid, wn.lead_id
     ),
     na_ct AS (
@@ -444,7 +484,7 @@ BEGIN
       -- Baseline: every distinct lead the counselor acted on in the trailing 8 weeks (named or not).
       SELECT cs.cid, a.lead_id, min(a.acted_at) AS first_at
       FROM cs JOIN acts a ON a.uid = cs.uid
-      WHERE a.acted_at >= v_bs::timestamptz AND a.acted_at < v_ws::timestamptz
+      WHERE a.acted_at >= v_bs_ts AND a.acted_at < v_ws_ts
       GROUP BY cs.cid, a.lead_id
     ),
     base_ct AS (
@@ -459,7 +499,7 @@ BEGIN
       -- Counter-metric numerator: ALL leads the counselor acted on this week.
       SELECT cs.cid, a.lead_id, min(a.acted_at) AS first_at
       FROM cs JOIN acts a ON a.uid = cs.uid
-      WHERE a.acted_at >= v_ws::timestamptz AND a.acted_at < v_we::timestamptz
+      WHERE a.acted_at >= v_ws_ts AND a.acted_at < v_we_ts
       GROUP BY cs.cid, a.lead_id
     ),
     wk_all_ct AS (
@@ -473,7 +513,14 @@ BEGIN
     lastn AS (
       -- The last v_n NAMED briefings (distinct dates) per institution before week end.
       SELECT d.iid, d.bdate, row_number() OVER (PARTITION BY d.iid ORDER BY d.bdate DESC) AS rn
-      FROM (SELECT DISTINCT n.iid, n.bdate FROM named n WHERE n.bdate < v_we) d
+      FROM (SELECT DISTINCT n.iid, n.bdate FROM named n
+            WHERE n.bdate < v_we
+              -- Only briefings whose action window has CLOSED by the measurement
+              -- date: an in-flight week must never count a briefing the counselor
+              -- still has days to act on as 'ignored'. Final stored values are
+              -- unchanged — a week's last re-measure runs at ws+14..ws+20, after
+              -- its last briefing's window closes at ws+13.
+              AND n.bdate + v_win <= COALESCE(p_as_of, CURRENT_DATE)) d
     ),
     ignored AS (
       SELECT cs.cid,
@@ -481,8 +528,8 @@ BEGIN
              count(*) FILTER (WHERE NOT EXISTS (
                SELECT 1 FROM named n
                JOIN acts a ON a.uid = cs.uid AND a.lead_id = n.lead_id
-                AND a.acted_at >= n.bdate::timestamptz
-                AND a.acted_at <  (n.bdate + v_win)::timestamptz
+                AND a.acted_at >= (n.bdate::timestamp AT TIME ZONE 'Asia/Kolkata')
+                AND a.acted_at <  ((n.bdate + v_win)::timestamp AT TIME ZONE 'Asia/Kolkata')
                WHERE n.iid = ln.iid AND n.bdate = ln.bdate))::int AS ignored_n
       FROM cs JOIN lastn ln ON ln.iid = cs.iid AND ln.rn <= v_n
       GROUP BY cs.cid
@@ -639,10 +686,14 @@ BEGIN
   END IF;
 
   IF NOT (
-    COALESCE(current_setting('request.jwt.claim.role', true), '') = 'service_role'
+    -- The role claim lives in the request.jwt.claims JSON GUC (PostgREST v9+;
+    -- the per-claim request.jwt.claim.role GUC is gone and Supabase never sets
+    -- it). Same idiom as fn_max_lane_claim_pending (20260703083900). NULLIF
+    -- guards a reset-to-empty GUC before the jsonb cast.
+    COALESCE(NULLIF(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role', '') = 'service_role'
     OR is_super_admin()
   ) THEN
-    RAISE EXCEPTION 'You do not have access to the counselor briefing effect — it is a super-admin view on /admin/loops; contact the Director'
+    RAISE EXCEPTION 'You do not have access to the counselor briefing effect — it is super-admin-only; contact the Director'
       USING ERRCODE = 'insufficient_privilege';
   END IF;
 
@@ -666,7 +717,7 @@ END;
 $function$;
 
 COMMENT ON FUNCTION public.fn_counselor_briefing_effect_by_college(uuid) IS
-  'Counselor-briefing loop READ fn (Director answer 5): the latest measured week per counselor for one college, including the counter-metric flag. The single hook the weekly intake-readiness alarm MAY feed from; the alarm is untouched. Authorization re-asserted inside: service_role or super admin ONLY (Director 2026-09-13 — the flag is never shown to admission team members or the counselor).';
+  'Counselor-briefing loop READ fn (Director answer 5): the latest measured week per counselor for one college, including the counter-metric flag. The single hook the weekly intake-readiness alarm MAY feed from; the alarm is untouched. Authorization re-asserted inside: service_role (read from the request.jwt.claims GUC) or super admin ONLY (Director 2026-09-13 — the flag is never shown to admission team members or the counselor).';
 
 REVOKE EXECUTE ON FUNCTION public.fn_counselor_briefing_effect_by_college(uuid) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_counselor_briefing_effect_by_college(uuid) TO authenticated, service_role;
@@ -850,18 +901,24 @@ BEGIN
             (v_ws + 3)::timestamptz + interval '11 hours');
 
     -- Assert through the REAL measure fn, scoped per sentinel, sim overrides:
-    -- window 7, N 5, k 2, only the anchor week (p_weeks_back = 0).
+    -- window 7, N 5, k 2. Measured AS OF ws+13 with p_weeks_back = 1 — the
+    -- anchor week is then a fully-closed previous week (every named briefing's
+    -- 7-day window has elapsed, so the counter-metric's closed-window gate
+    -- sees all 5), exactly as production re-measures a finished week.
     SELECT r.forward_delta, r.named_action_rate, r.briefing_changed_nothing
       INTO v_a_delta, v_a_arate, v_a_flag
-    FROM public.fn_counselor_briefing_measure(v_as_of, 0, v_cons_a, 7, 5, 2) r;
+    FROM public.fn_counselor_briefing_measure(v_ws + 13, 1, v_cons_a, 7, 5, 2) r
+    WHERE r.week_start = v_ws;
 
     SELECT r.forward_delta, r.named_forward_rate, r.briefing_changed_nothing
       INTO v_b_delta, v_b_frate, v_b_flag
-    FROM public.fn_counselor_briefing_measure(v_as_of, 0, v_cons_b, 7, 5, 2) r;
+    FROM public.fn_counselor_briefing_measure(v_ws + 13, 1, v_cons_b, 7, 5, 2) r
+    WHERE r.week_start = v_ws;
 
     SELECT r.briefing_changed_nothing, r.week_forward_all_rate, r.ignored_briefings_n
       INTO v_c_flag, v_c_wrate, v_c_ign
-    FROM public.fn_counselor_briefing_measure(v_as_of, 0, v_cons_c, 7, 5, 2) r;
+    FROM public.fn_counselor_briefing_measure(v_ws + 13, 1, v_cons_c, 7, 5, 2) r
+    WHERE r.week_start = v_ws;
 
     -- Roll the seeds back. Everything above un-happens; captures survive.
     RAISE EXCEPTION 'LOOPS_REGRESS_ROLLBACK';

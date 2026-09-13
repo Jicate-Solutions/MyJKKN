@@ -13,9 +13,10 @@
 //   4. COUNTER-METRIC: a counselor who ignored the last N named briefings yet
 //      moves leads forward at/above their own baseline is flagged
 //      briefing_changed_nothing — the loop's safety gauge. Director
-//      2026-09-13: visible ONLY on /admin/loops (super-admin RLS + a
-//      super-admin/service_role gate on the read fn) — never sent to
-//      admission team members or the counselor, no notification of any kind;
+//      2026-09-13: super-admin ONLY (super-admin RLS + a super-admin /
+//      service_role gate on the read fn; no /admin/loops panel reads the
+//      table yet — a follow-up UI PR) — never sent to admission team members
+//      or the counselor, no notification of any kind;
 //   5. independent of the weekly intake-readiness alarm; the ONE hook the
 //      alarm may feed from is fn_counselor_briefing_effect_by_college.
 //
@@ -63,7 +64,13 @@ export interface CounselorBriefingEffectRow {
   named_leads_n: number;
   named_leads_current_year_n: number;
   named_leads_actioned_n: number;
-  /** % of the week's named leads this counselor acted on; NULL when none were named. */
+  /**
+   * % of the week's named leads this counselor acted on; NULL when none were
+   * named. The denominator is INSTITUTION-wide (the briefing is one
+   * per-institution row every counselor reads), the numerator is this
+   * counselor's own — with N active counselors sharing one list, ~100/N% is
+   * the practical ceiling, so a low value is not "ignored most of the briefing".
+   */
   named_action_rate: number | null;
   named_forward_n: number;
   /** % of actioned named leads that moved forward; NULL below the de-noise floor. */
@@ -72,7 +79,12 @@ export interface CounselorBriefingEffectRow {
   baseline_forward_n: number;
   /** The counselor's OWN trailing-8-week forward-move rate; NULL below the floor. */
   baseline_forward_rate: number | null;
-  /** Percentage points (named − baseline); NULL when either side is NULL. */
+  /**
+   * Percentage points (named − baseline); NULL when either side is NULL.
+   * Same estimator both sides, NOT the same population: named leads are the
+   * generator's top-3 hot leads, the baseline is every lead touched — so this
+   * carries hot-lead selection and is not a causal lift.
+   */
   forward_delta: number | null;
   week_acted_all_n: number;
   week_forward_all_n: number;
@@ -90,7 +102,7 @@ export interface CounselorBriefingRunResult {
   measured: number;
   /** Rows whose forward_delta is a number (both sides cleared the floor). */
   with_delta: number;
-  /** Counter-metric hits — a count only; the rows themselves are super-admin-only (/admin/loops). */
+  /** Counter-metric hits — a count only; the rows themselves are super-admin-only (no page reads them yet). */
   flagged_changed_nothing: number;
 }
 
