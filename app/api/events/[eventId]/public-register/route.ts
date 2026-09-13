@@ -29,6 +29,12 @@ import {
   isFormOpen,
   type FormWindowLike,
 } from '@/types/tournament';
+import {
+  countTaken,
+  deliverPendingOffers,
+  joinWaitlist,
+  queuedMessage,
+} from '@/lib/services/events/waitlist-service';
 
 /**
  * Event fees resolve the host institution's 'tuition' account, the same slot
@@ -104,7 +110,7 @@ export async function POST(
     const { data: ev } = await (svc as any)
       .from('events')
       .select(
-        'id, event_type, status, registration_open_date, registration_close_date, institution_id, max_registrations'
+        'id, event_type, status, registration_open_date, registration_close_date, institution_id, max_registrations, cap_behavior'
       )
       .eq('id', eventId)
       .maybeSingle();
@@ -206,19 +212,11 @@ export async function POST(
       return NextResponse.json({ error: customFieldsError }, { status: 422 });
     }
 
-    // ---- capacity ----
-    if (ev.max_registrations) {
-      const { count } = await (svc as any)
-        .from('events_registrations')
-        .select('id', { count: 'exact', head: true })
-        .eq('event_id', eventId)
-        .neq('status', 'cancelled');
-      if ((count ?? 0) >= ev.max_registrations) {
-        return NextResponse.json({ error: 'This event is full.' }, { status: 422 });
-      }
-    }
-
     // ---- identity: link a signed-in JKKN user, else treat as a guest ----
+    // Resolved BEFORE the capacity check (it used to come after) because a
+    // person who ends up on the waiting list has to be stored WITH their
+    // identity — that is the only thing that decides whether the offer can be
+    // announced in-app later or has to be a phone call.
     const auth = await createClient();
     const {
       data: { user },
@@ -234,6 +232,67 @@ export async function POST(
       selfLearnerId = profile?.learner_id ?? null;
       selfInstitutionId = profile?.institution_id ?? null;
     }
+
+    // ---- capacity ----
+    // What a full event does is decided by events.cap_behavior, a column that
+    // has existed since 20260416000001 with a 'waitlist' default and that NO
+    // code has ever read — so every one of the 55 events said "queue them" and
+    // every one of them refused instead. This is that column finally being
+    // honoured; there is no second switch.
+    //
+    //   waitlist       → join the queue and be told the position (202)
+    //   strict_cap     → refused, exactly as today (422)
+    //   allow_overflow → capacity is advisory; registration proceeds
+    //
+    // `taken` counts non-cancelled registrations PLUS waiting-list offers that
+    // are still outstanding, because an offer holds its place. Before the
+    // migration is applied the second term is zero, so this is the same number
+    // the route counted before this feature existed.
+    if (ev.max_registrations && ev.cap_behavior !== 'allow_overflow') {
+      const taken = await countTaken(svc as any, eventId);
+      if (taken >= ev.max_registrations) {
+        if (ev.cap_behavior !== 'waitlist') {
+          return NextResponse.json({ error: 'This event is full.' }, { status: 422 });
+        }
+
+        const queued = await joinWaitlist(svc as any, {
+          eventId,
+          formId: formRow.id,
+          participantName: dto.participant_name.trim(),
+          participantEmail: dto.participant_email?.trim() || null,
+          participantPhone: dto.participant_phone?.trim() || null,
+          profileId: user?.id ?? null,
+          learnerId: selfLearnerId,
+          institutionId: selfInstitutionId,
+          customFields: dto.custom_fields ?? null,
+        });
+
+        // The waiting list is not there yet (the migration is applied at merge,
+        // after this code deploys). Behave exactly as the event did before.
+        if (!queued.id) {
+          return NextResponse.json({ error: 'This event is full.' }, { status: 422 });
+        }
+
+        // NO MONEY IS TAKEN TO JOIN A QUEUE. A place is not held yet, and a
+        // paid form's fee is charged through the ordinary registration flow if
+        // and when the offer is taken up.
+        return NextResponse.json(
+          {
+            waitlisted: true,
+            waitlist_id: queued.id,
+            position: queued.position,
+            message: queuedMessage(queued.position),
+          },
+          { status: 202 }
+        );
+      }
+    }
+
+    // A place may have freed since the last time anybody looked at this event.
+    // The database has already offered it to whoever was next; this is where
+    // that offer gets announced. Best effort, and never allowed to affect the
+    // registration that triggered it.
+    void deliverPendingOffers(svc as any, eventId).catch(() => undefined);
 
     // ---- fee ----
     // Read from the DB, never from the request: a client-supplied amount is a

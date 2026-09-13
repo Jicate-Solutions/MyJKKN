@@ -11,7 +11,7 @@
 // name prefilled and their profile linked server-side; a guest types theirs.
 
 import { useMemo, useState } from 'react';
-import { CheckCircle2, Loader2 } from 'lucide-react';
+import { CheckCircle2, ListOrdered, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -69,6 +69,15 @@ export function EventRegisterForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  /**
+   * The event was full and this person went onto the waiting list instead
+   * (HTTP 202 from public-register). It MUST be its own state: 202 is an `ok`
+   * response, so without this branch a queued person would be shown
+   * "You're registered!" — the one sentence that is not true.
+   */
+  const [queued, setQueued] = useState<{ position: number | null; message: string } | null>(
+    null
+  );
   const [rzp, setRzp] = useState<RzpState | null>(null);
 
   const isPaid = fee > 0;
@@ -119,6 +128,18 @@ export function EventRegisterForm({
       if (!res.ok && res.status !== 207) {
         throw new Error(body.error || `Registration failed (${res.status})`);
       }
+      // 202 = the event is full and this person is now on the waiting list.
+      // No place is held and no fee is taken; both happen only if a place frees
+      // up and the offer is taken up.
+      if (res.status === 202 && body.waitlisted) {
+        setQueued({
+          position: typeof body.position === 'number' ? body.position : null,
+          message:
+            body.message ||
+            'This event is full, so you have been added to the waiting list.',
+        });
+        return;
+      }
       if (body.razorpay_order_id && body.razorpay_key_id) {
         setRzp({
           orderId: body.razorpay_order_id,
@@ -149,6 +170,22 @@ export function EventRegisterForm({
         callbackPath={`/api/events/${eventId}/payment/callback`}
         cancelPath={`/p/event/${eventId}/register`}
       />
+    );
+  }
+
+  if (queued) {
+    return (
+      <div className="rounded-xl border bg-card p-6 text-center shadow-sm">
+        <ListOrdered className="mx-auto mb-2 h-10 w-10 text-amber-600" />
+        <h2 className="text-lg font-semibold">
+          {queued.position ? `You're number ${queued.position} on the waiting list` : "You're on the waiting list"}
+        </h2>
+        <p className="mt-1 text-sm text-muted-foreground">{queued.message}</p>
+        <p className="mt-3 text-xs text-muted-foreground">
+          Nothing has been charged. If a place frees up it is offered to whoever is
+          at the front of the queue, and you are told.
+        </p>
+      </div>
     );
   }
 
