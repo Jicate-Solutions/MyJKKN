@@ -72,6 +72,65 @@ CREATE INDEX IF NOT EXISTS idx_event_registrant_messages_resend_of
   WHERE resend_of IS NOT NULL;
 
 -- ---------------------------------------------------------------------------
+-- THE GUARD IS A CONSTRAINT, NOT A CHECK-THEN-INSERT
+-- ---------------------------------------------------------------------------
+-- The API refuses a first send whose words already went out, by reading the
+-- event's recent messages and then inserting. That is a time-of-check /
+-- time-of-use gap: two POSTs carrying the same subject and body under DIFFERENT
+-- client_tokens — one organiser with two tabs, two organisers, or a compose
+-- racing a resend — both read before either writes, both see no duplicate, and
+-- both deliver. UNIQUE (event_id, client_token) from 20261205083000 does not
+-- close it: the tokens differ precisely because the content binding was lost,
+-- which is the case this whole feature exists for.
+--
+-- A duplicate blast produced by a race is exactly the outcome the PR promises
+-- can no longer happen by accident, so the promise has to be kept where
+-- concurrency is actually decided. This index makes the second writer fail with
+-- 23505 instead of sending; the route turns that into the same 409 the
+-- pre-check returns, and nothing has been delivered at that point because the
+-- ledger row is claimed BEFORE the fanout.
+--
+-- WHERE resend_of IS NULL is the whole design in one clause: a DELIBERATE
+-- repeat is exempt and may be sent as often as it is confirmed. Only a send
+-- claiming to be new is held to being new.
+--
+-- The hash is length-prefixed rather than a plain concatenation so the encoding
+-- is injective — subject 'ab' + body 'c' cannot collide with subject 'a' + body
+-- 'bc' — mirroring composeKey() in lib/services/events/organiser-message-compose.ts,
+-- which is the definition of "the same message" the browser and the API already
+-- share. Every expression here is IMMUTABLE, which an index requires.
+--
+-- btrim NAMES ITS CHARACTERS, and that is not decoration: one-argument btrim()
+-- strips SPACES ONLY, while the JavaScript .trim() that composeKey uses strips
+-- tabs and newlines too. Left at the default, a re-typed message whose body
+-- ended in a stray newline hashed differently from the one already stored and
+-- went out as a brand new announcement — verified against a throwaway Postgres,
+-- where exactly that insert was accepted before this character set was given.
+-- The API trims before writing, so this is the belt to that braces; a guard
+-- that only holds while the one writer behaves is not a constraint.
+--
+-- ⚠️ APPLY-TIME FAILURE IS INTENTIONAL AND MEANS SOMETHING: if the table
+-- already holds two first-send rows with identical subject and body on one
+-- event, this CREATE fails. That is a duplicate blast that already happened and
+-- an operator has to look at it; it must not be indexed away by weakening the
+-- constraint. (Checked read-only against production 2026-09-13: the table does
+-- not exist there yet — 20261205083000 is itself unapplied — so there are no
+-- rows to conflict.)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_event_registrant_messages_first_send_content
+  ON public.event_registrant_messages (
+    event_id,
+    md5(
+      length(btrim(subject, E' \t\n\r\f\v'))::text || ':' ||
+      btrim(subject, E' \t\n\r\f\v') ||
+      btrim(body, E' \t\n\r\f\v')
+    )
+  )
+  WHERE resend_of IS NULL;
+
+COMMENT ON INDEX public.uq_event_registrant_messages_first_send_content IS
+  'Two messages claiming to be NEW cannot carry the same subject and body on one event. Closes the time-of-check/time-of-use gap between the API''s duplicate read and its insert, which UNIQUE (event_id, client_token) cannot close because a racing re-type carries a different token. Partial on resend_of IS NULL so a confirmed "Send again" is never blocked.';
+
+-- ---------------------------------------------------------------------------
 -- Privileges are NOT re-stated, and that is the point
 -- ---------------------------------------------------------------------------
 -- ADD COLUMN inherits the table's existing ACL; it does not re-run Supabase's
@@ -92,6 +151,21 @@ BEGIN
       AND column_name  = 'resend_of'
   ) THEN
     RAISE EXCEPTION 'event_registrant_messages.resend_of was not added';
+  END IF;
+
+  -- The duplicate guard is only real if the index is really there. Asserted
+  -- rather than assumed, because a CREATE ... IF NOT EXISTS that matched an
+  -- older index of the same name would leave the promise unbacked.
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_index i
+    JOIN pg_class c ON c.oid = i.indexrelid
+    WHERE c.relname = 'uq_event_registrant_messages_first_send_content'
+      AND i.indisunique
+      AND i.indpred IS NOT NULL
+  ) THEN
+    RAISE EXCEPTION
+      'uq_event_registrant_messages_first_send_content is missing or is not a partial UNIQUE index';
   END IF;
 
   FOREACH v_priv IN ARRAY ARRAY['INSERT', 'UPDATE', 'DELETE'] LOOP

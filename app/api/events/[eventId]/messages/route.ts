@@ -39,13 +39,35 @@ import {
 } from '@/lib/supabase/server';
 import {
   MODULE,
+  ContentDuplicateError,
+  ResendNotRecordableError,
   findContentDuplicate,
   getAudience,
   listSentMessages,
   sendRegistrantMessage,
   validateMessageInput,
+  type ContentMatchRow,
 } from '@/lib/services/events/organiser-message-service';
+import { deliveryState } from '@/lib/services/events/organiser-message-compose';
 import { logger } from '@/lib/utils/enhanced-logger';
+
+/**
+ * The refusal shown when a compose repeats words already on this event.
+ *
+ * Branched on what the ledger can actually SUPPORT, not on the fact that a row
+ * exists. A matched row sitting at notification_id NULL / delivered_count 0 was
+ * never confirmed — the fanout may have thrown, or may have fully succeeded
+ * with only the write-back failing afterwards — and telling its author it "has
+ * already been sent" is precisely the falsehood organiser-message-compose.ts
+ * documents as the thing that pushes an organiser into a duplicate blast. The
+ * board was changed in this same PR to stop saying it; so does the API.
+ */
+function alreadySentMessage(duplicate: ContentMatchRow): string {
+  if (deliveryState(duplicate) === 'unconfirmed') {
+    return 'An earlier message with these exact words is already on this event, but it was never confirmed as delivered — we cannot tell you whether registrants received it. Nothing was sent just now. Check with a registrant, or use "Send again" on that message: it will tell you how many people receive it, and some of them may have it twice.';
+  }
+  return 'This message has already been sent to this event\'s registrants. Nothing was sent again. If you meant to send it a second time, use "Send again" on it in the list below — it will tell you how many people receive it, and some of them will have it twice.';
+}
 
 const NO_ACCESS =
   'You do not have access to message this event\'s registrants. Only the event\'s creator, its in-charge, or an administrator can. Ask an event coordinator to add you as in-charge.';
@@ -221,14 +243,22 @@ export async function POST(
     // A request that DOES carry `resend_of` skips this entirely: repeating is
     // what it is for, and it has already passed a confirmation stating the
     // recipient count and warning that some people may receive it twice.
+    //
+    // This read is the FIRST of two guards, and on its own it is a
+    // time-of-check/time-of-use gap: it reads, then sendRegistrantMessage
+    // inserts, so two concurrent composes carrying different tokens can both
+    // pass here. UNIQUE (event_id, client_token) does not close that — the
+    // tokens differ. The partial UNIQUE index in 20261205141500 does, and the
+    // ContentDuplicateError branch in the catch below turns its 23505 into this
+    // same 409. This read exists so the ordinary case gets a sentence rather
+    // than a constraint violation.
     if (!parsed.value.resendOf) {
       const duplicate = await findContentDuplicate(auth.service, eventId, parsed.value);
       if (duplicate) {
         return NextResponse.json(
           {
             success: false,
-            error:
-              'This message has already been sent to this event\'s registrants. Nothing was sent again. If you meant to send it a second time, use "Send again" on it in the list below — it will tell you how many people receive it, and some of them will have it twice.',
+            error: alreadySentMessage(duplicate),
             code: 'ALREADY_SENT',
             duplicate_of: duplicate.id,
           },
@@ -288,6 +318,48 @@ export async function POST(
       message: result.message,
     });
   } catch (error) {
+    // The database's duplicate guard refused the insert: a concurrent compose
+    // of the same words won the race. Answer it exactly as the pre-check above
+    // would have — and say so plainly, because NOTHING was delivered here (the
+    // ledger row is claimed before the fanout runs), which the generic 500 copy
+    // below would get wrong in the most dangerous direction.
+    if (error instanceof ContentDuplicateError) {
+      logger.warn(MODULE, 'duplicate first send refused by the database guard', {
+        event_id: eventId,
+        duplicate_of: error.duplicate?.id ?? null,
+      });
+      return NextResponse.json(
+        {
+          success: false,
+          error: error.duplicate
+            ? alreadySentMessage(error.duplicate)
+            : 'A message with these exact words was recorded on this event a moment ago, so nothing was sent just now. Reload the page: it will be in the list below, and "Send again" on it will repeat it deliberately.',
+          code: 'ALREADY_SENT',
+          duplicate_of: error.duplicate?.id ?? null,
+        },
+        { status: 409 }
+      );
+    }
+
+    // A deliberate resend on a database that has no column to record it on.
+    // Refused rather than sent, because a repeat filed as a first send is the
+    // unlabelled duplicate this feature exists to abolish — and, again, nothing
+    // was delivered.
+    if (error instanceof ResendNotRecordableError) {
+      logger.error(MODULE, 'resend refused: migration 20261205141500 is not applied', {
+        event_id: eventId,
+      });
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            'Sending a message again is not available on this site yet — a pending database update has not been applied. Nothing was sent. Ask an administrator to apply it.',
+          code: 'RESEND_UNAVAILABLE',
+        },
+        { status: 503 }
+      );
+    }
+
     logger.error(MODULE, 'POST failed', error);
     return NextResponse.json(
       {

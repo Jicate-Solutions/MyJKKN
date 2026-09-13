@@ -59,6 +59,11 @@ const match = (over: Partial<ContentMatchRow> = {}): ContentMatchRow => ({
   body: BODY,
   client_token: TOKEN_A,
   sent_at: '2026-09-13T10:00:00.000Z',
+  // Carried so the refusal can say what became of the match instead of
+  // asserting a delivery. Delivered by default; the unconfirmed case is the
+  // one the route's copy has to branch on.
+  notification_id: 'notif-1',
+  delivered_count: 2,
   ...over,
 });
 
@@ -171,6 +176,8 @@ interface Op {
   payload: any;
   filters: Record<string, any>;
   range: [number, number] | null;
+  /** The column list asked for — the deploy-order tests turn on it. */
+  columns: string;
 }
 
 /** A Supabase query builder just real enough for this service's calls. */
@@ -178,13 +185,20 @@ function makeClient(handle: (op: Op) => { data: any; error: any }) {
   const ops: Op[] = [];
   const client: any = {
     from(table: string) {
-      const state: Op = { table, op: 'select', payload: null, filters: {}, range: null };
+      const state: Op = {
+        table,
+        op: 'select',
+        payload: null,
+        filters: {},
+        range: null,
+        columns: '',
+      };
       const settle = () => {
         ops.push(state);
         return Promise.resolve(handle(state));
       };
       const builder: any = {
-        select: () => builder,
+        select: (c?: string) => ((state.columns = c ?? ''), builder),
         insert: (p: any) => ((state.op = 'insert'), (state.payload = p), builder),
         update: (p: any) => ((state.op = 'update'), (state.payload = p), builder),
         eq: (c: string, v: any) => ((state.filters[c] = v), builder),
@@ -347,6 +361,260 @@ describe('sendRegistrantMessage — a failed write-back is not a failed send', (
     const result = await send(client, TOKEN_A);
 
     expect(ops.find((o) => o.op === 'update')?.payload.delivered_count).toBe(2);
+    expect(result.message.delivered_count).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5. Deploying BEFORE the migration applies
+// ---------------------------------------------------------------------------
+// Code ships ahead of migrations in this repo, and PostgREST refuses the WHOLE
+// query when one named column is absent. So on the day this deploys `resend_of`
+// does not exist — and naming it unconditionally would take the entire Messages
+// panel down for a feature that otherwise still works.
+//
+// The module remembers "missing" for a minute, so each of these tests loads a
+// FRESH copy of it rather than inheriting the previous test's verdict.
+
+/** A fresh module instance, so the resend-column probe starts un-decided. */
+async function freshService() {
+  vi.resetModules();
+  return import('@/lib/services/events/organiser-message-service');
+}
+
+/** What PostgREST answers for a SELECT naming a column that is not there. */
+const undefinedColumn = {
+  data: null,
+  error: {
+    code: '42703',
+    message: 'column event_registrant_messages.resend_of does not exist',
+    details: null,
+  },
+};
+
+/** What PostgREST answers for an INSERT naming one — a different code entirely. */
+const schemaCacheMiss = {
+  data: null,
+  error: {
+    code: 'PGRST204',
+    message:
+      "Could not find the 'resend_of' column of 'event_registrant_messages' in the schema cache",
+    details: null,
+  },
+};
+
+describe('before 20261205141500 is applied — the panel must not go dark', () => {
+  it('reads the sent log without resend_of, instead of failing the whole query', async () => {
+    const svc = await freshService();
+    const { client, ops } = makeClient((op) => {
+      if (op.table === 'profiles') return ok([]);
+      if (op.columns.includes('resend_of')) return undefinedColumn;
+      return ok([ledgerRow({ resend_of: undefined })]);
+    });
+
+    const rows = await svc.listSentMessages(client, EVENT, 20);
+
+    // It tried the column, was told it is not there, and read again without it.
+    const reads = ops.filter((o) => o.table === 'event_registrant_messages');
+    expect(reads).toHaveLength(2);
+    expect(reads[0].columns).toContain('resend_of');
+    expect(reads[1].columns).not.toContain('resend_of');
+    // The panel still renders, and a row read without the column says null
+    // rather than undefined — "not a repeat", which is what it means.
+    expect(rows).toHaveLength(1);
+    expect(rows[0].resend_of).toBeNull();
+  });
+
+  it('SENDS a first message, without naming a column the database does not have', async () => {
+    const svc = await freshService();
+    const { client, ops } = makeClient((op) => {
+      if (op.table === 'events_registrations') return ok(op.range?.[0] === 0 ? REGISTRATIONS : []);
+      if (op.table === 'profiles') return ok([]);
+      if (op.op === 'insert') {
+        if ('resend_of' in (op.payload ?? {})) return schemaCacheMiss;
+        return ok(ledgerRow({ resend_of: undefined }));
+      }
+      if (op.op === 'update') return ok(ledgerRow({ ...op.payload }));
+      return ok(null);
+    });
+
+    const result = await svc.sendRegistrantMessage(client, {
+      eventId: EVENT,
+      eventName: 'Induction 2026',
+      actorId: 'actor-1',
+      input: { subject: SUBJECT, body: BODY, clientToken: TOKEN_A, resendOf: null },
+    });
+
+    expect(fanout).toHaveBeenCalledTimes(1);
+    expect(result.message.delivered_count).toBe(2);
+    const inserts = ops.filter((o) => o.op === 'insert');
+    expect(inserts).toHaveLength(2);
+    expect('resend_of' in inserts[1].payload).toBe(false);
+  });
+
+  it('REFUSES a deliberate resend rather than filing it as a first send', async () => {
+    // The alternative is the worst outcome this feature has: a second blast to
+    // real learners, recorded as though it were the first.
+    const svc = await freshService();
+    const { client } = makeClient((op) => {
+      if (op.table === 'events_registrations') return ok(op.range?.[0] === 0 ? REGISTRATIONS : []);
+      if (op.table === 'profiles') return ok([]);
+      if (op.op === 'insert') return schemaCacheMiss;
+      return ok(null);
+    });
+
+    await expect(
+      svc.sendRegistrantMessage(client, {
+        eventId: EVENT,
+        eventName: 'Induction 2026',
+        actorId: 'actor-1',
+        input: { subject: SUBJECT, body: BODY, clientToken: TOKEN_B, resendOf: 'msg-1' },
+      })
+    ).rejects.toBeInstanceOf(svc.ResendNotRecordableError);
+
+    expect(fanout).not.toHaveBeenCalled();
+  });
+
+  it('does not swallow a DIFFERENT missing column as if it were resend_of', async () => {
+    // The fallback is allowed to hide exactly one absence. Anything else is a
+    // real fault and has to surface.
+    const svc = await freshService();
+    const { client, ops } = makeClient(() => ({
+      data: null,
+      error: {
+        code: '42703',
+        message: 'column event_registrant_messages.delivered_count does not exist',
+        details: null,
+      },
+    }));
+
+    await expect(svc.listSentMessages(client, EVENT, 20)).rejects.toMatchObject({ code: '42703' });
+    expect(ops).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6. The race the read-then-insert guard cannot win
+// ---------------------------------------------------------------------------
+// findContentDuplicate reads and then the route inserts. Two composes of the
+// same words under DIFFERENT tokens — two tabs, two organisers, a compose
+// racing a resend — both pass the read. UNIQUE (event_id, client_token) does
+// not constrain content, so only the database's own content index stops the
+// second one, and it has to stop it BEFORE anything is delivered.
+
+const contentUnique = {
+  data: null,
+  error: {
+    code: '23505',
+    message:
+      'duplicate key value violates unique constraint "uq_event_registrant_messages_first_send_content"',
+    details: 'Key (event_id, md5)=(event-1, abc) already exists.',
+  },
+};
+
+describe('sendRegistrantMessage — the database closes the duplicate race', () => {
+  it('DELIVERS NOTHING when a concurrent send got the same words in first', async () => {
+    const svc = await freshService();
+    const winner = {
+      id: 'msg-winner',
+      subject: SUBJECT,
+      body: BODY,
+      client_token: TOKEN_A,
+      sent_at: '2026-09-13T10:00:00.000Z',
+      notification_id: 'notif-1',
+      delivered_count: 2,
+    };
+    const { client } = makeClient((op) => {
+      if (op.table === 'events_registrations') return ok(op.range?.[0] === 0 ? REGISTRATIONS : []);
+      if (op.table === 'profiles') return ok([]);
+      if (op.op === 'insert') return contentUnique;
+      return ok([winner]);
+    });
+
+    const failure = await svc
+      .sendRegistrantMessage(client, {
+        eventId: EVENT,
+        eventName: 'Induction 2026',
+        actorId: 'actor-1',
+        input: { subject: SUBJECT, body: BODY, clientToken: TOKEN_B, resendOf: null },
+      })
+      .then(
+        () => null,
+        (e: any) => e
+      );
+
+    expect(failure).toBeInstanceOf(svc.ContentDuplicateError);
+    // It names the row that won, so the refusal can point at it.
+    expect(failure.duplicate?.id).toBe('msg-winner');
+    // The whole point: the loser sent nothing to anybody.
+    expect(fanout).not.toHaveBeenCalled();
+  });
+
+  it('still treats a repeat of the SAME token as a double click, not a race', async () => {
+    // The two constraints answer with the same SQLSTATE. Telling them apart by
+    // name is what keeps a double click collapsing onto its first row instead
+    // of being reported to the organiser as somebody else's duplicate.
+    const svc = await freshService();
+    const tokenUnique = {
+      data: null,
+      error: {
+        code: '23505',
+        message:
+          'duplicate key value violates unique constraint "event_registrant_messages_event_id_client_token_key"',
+        details: null,
+      },
+    };
+    const { client } = makeClient((op) => {
+      if (op.table === 'events_registrations') return ok(op.range?.[0] === 0 ? REGISTRATIONS : []);
+      if (op.table === 'profiles') return ok([]);
+      if (op.op === 'insert') return tokenUnique;
+      if (op.filters.client_token === TOKEN_A) {
+        return ok(ledgerRow({ delivered_count: 2, notification_id: 'notif-1' }));
+      }
+      return ok(null);
+    });
+
+    const result = await svc.sendRegistrantMessage(client, {
+      eventId: EVENT,
+      eventName: 'Induction 2026',
+      actorId: 'actor-1',
+      input: { subject: SUBJECT, body: BODY, clientToken: TOKEN_A, resendOf: null },
+    });
+
+    expect(result.deduplicated).toBe(true);
+    expect(fanout).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7. A write-back that records nothing is a failure even when nobody errored
+// ---------------------------------------------------------------------------
+
+describe('the ledger write-back is abandoned LOUDLY, on every path', () => {
+  it('retries and gives up when the update matches no row and reports no error', async () => {
+    // PostgREST answers an UPDATE that matched nothing with data null AND error
+    // null. Read as success, that path stopped after one attempt, logged
+    // nothing, and still returned the counts as though the row had been
+    // written — the one abandonment nobody would ever find.
+    const svc = await freshService();
+    const { client, ops } = makeClient((op) => {
+      if (op.table === 'events_registrations') return ok(op.range?.[0] === 0 ? REGISTRATIONS : []);
+      if (op.table === 'profiles') return ok([]);
+      if (op.op === 'insert') return ok(ledgerRow());
+      if (op.op === 'update') return ok(null);
+      return ok(null);
+    });
+
+    const result = await svc.sendRegistrantMessage(client, {
+      eventId: EVENT,
+      eventName: 'Induction 2026',
+      actorId: 'actor-1',
+      input: { subject: SUBJECT, body: BODY, clientToken: TOKEN_A, resendOf: null },
+    });
+
+    // Twice, exactly as the PR claims — not once, and not forever.
+    expect(ops.filter((o) => o.op === 'update')).toHaveLength(2);
+    // And the answer still tells the organiser the truth about the fanout.
     expect(result.message.delivered_count).toBe(2);
   });
 });

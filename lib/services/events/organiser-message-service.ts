@@ -115,9 +115,133 @@ export interface SentMessageRow {
   resend_of: string | null;
 }
 
-/** Every column the ledger reads back, in one place so the three reads agree. */
-const SENT_COLUMNS =
-  'id, subject, body, audience_total, recipient_count, unreachable_count, delivered_count, notification_id, sent_by, sent_at, resend_of';
+/**
+ * Every column the ledger reads back, in one place so the three reads agree.
+ *
+ * Split in two because CODE SHIPS BEFORE MIGRATIONS HERE. `resend_of` arrives
+ * in 20261205141500, which is FILE ONLY at the time this ships; PostgREST
+ * refuses the WHOLE query when one named column is absent, so naming it
+ * unconditionally would turn every read AND the insert into `42703` and take
+ * the entire Messages panel down between deploy and apply — for a feature that
+ * otherwise still works. So the base set is what the panel actually needs, and
+ * `resend_of` is asked for only while the database appears to have it.
+ */
+const SENT_COLUMNS_BASE =
+  'id, subject, body, audience_total, recipient_count, unreachable_count, delivered_count, notification_id, sent_by, sent_at';
+const SENT_COLUMNS = `${SENT_COLUMNS_BASE}, resend_of`;
+
+// ---------------------------------------------------------------------------
+// Does this database have `resend_of` yet?
+// ---------------------------------------------------------------------------
+// Probed from the answer to a real query rather than from a catalogue lookup on
+// every request: the optimistic read costs nothing once the column exists, and
+// the ONE failing read that proves it does not is remembered for a minute so a
+// dark deploy does not pay for it on every call.
+//
+// The negative is cached with a deadline rather than forever, on purpose. This
+// column is applied by an operator while the code is already live, and a
+// process that remembered "missing" for its whole lifetime would keep hiding
+// the column for hours after it existed. A minute is short enough that the
+// panel heals itself without a redeploy and long enough to be worth caching.
+const RESEND_COLUMN_RECHECK_MS = 60_000;
+let resendColumnMissingUntil = 0;
+
+function resendColumnLooksPresent(): boolean {
+  return Date.now() >= resendColumnMissingUntil;
+}
+
+/**
+ * "This database has no resend_of column" — and nothing else.
+ *
+ * Two codes, because PostgREST reports the same absence two ways: a SELECT of a
+ * column that is not there comes back as Postgres `42703` (undefined_column),
+ * while an INSERT naming it in the payload is rejected earlier, by the schema
+ * cache, as `PGRST204`. Both are matched on the column NAME as well as the
+ * code, so an unrelated missing column still fails loudly instead of being
+ * quietly retried into a wrong answer.
+ */
+function isMissingResendColumn(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const e = error as { code?: string; message?: string; details?: string };
+  if (e.code !== '42703' && e.code !== 'PGRST204') return false;
+  return `${e.message ?? ''} ${e.details ?? ''}`.includes('resend_of');
+}
+
+function noteResendColumnMissing(scope: string): void {
+  if (resendColumnLooksPresent()) {
+    logger.warn(
+      MODULE,
+      'event_registrant_messages.resend_of is not in the database yet — migration 20261205141500 is not applied. Reading and writing without it; repeats will not be recorded until it is applied.',
+      { scope }
+    );
+  }
+  resendColumnMissingUntil = Date.now() + RESEND_COLUMN_RECHECK_MS;
+}
+
+/**
+ * Run one ledger query with `resend_of` if the database has it, and once
+ * without if it turns out not to. `run` is called with the column list to use,
+ * so the caller builds the query rather than this helper guessing its shape.
+ */
+async function withResendColumn<T>(
+  scope: string,
+  run: (columns: string, hasResend: boolean) => PromiseLike<{ data: T; error: unknown }>
+): Promise<{ data: T; error: unknown; hasResend: boolean }> {
+  const optimistic = resendColumnLooksPresent();
+  const first = await run(optimistic ? SENT_COLUMNS : SENT_COLUMNS_BASE, optimistic);
+  if (optimistic && isMissingResendColumn(first.error)) {
+    noteResendColumnMissing(scope);
+    const retry = await run(SENT_COLUMNS_BASE, false);
+    return { ...retry, hasResend: false };
+  }
+  return { ...first, hasResend: optimistic };
+}
+
+/** A row read without the column still has to satisfy the type. Null, not undefined. */
+function normaliseResend<R extends { resend_of?: string | null }>(row: R): R {
+  return { ...row, resend_of: row.resend_of ?? null } as R;
+}
+
+/**
+ * Thrown when a DELIBERATE resend is asked for on a database that has no
+ * `resend_of` column to record it on. Refused rather than downgraded: sending
+ * it anyway would deliver a second blast and file it as a first send, which is
+ * the unlabelled repeat this feature exists to abolish.
+ */
+export class ResendNotRecordableError extends Error {
+  constructor() {
+    super('resend_of is not in the database yet (migration 20261205141500 is not applied)');
+    this.name = 'ResendNotRecordableError';
+  }
+}
+
+/**
+ * Thrown when the database's own duplicate guard refuses the insert — i.e. a
+ * concurrent first send of the same words won the race. Carries the row it
+ * collided with so the route can answer exactly as the pre-check would have.
+ * Nothing has been delivered when this is thrown: the ledger row is claimed
+ * before the fanout runs.
+ */
+export class ContentDuplicateError extends Error {
+  readonly duplicate: ContentMatchRow | null;
+  constructor(duplicate: ContentMatchRow | null) {
+    super('An identical message was recorded on this event by a concurrent send.');
+    this.name = 'ContentDuplicateError';
+    this.duplicate = duplicate;
+  }
+}
+
+/** The unique index 20261205141500 adds, by name, so 23505 can be told apart. */
+const CONTENT_UNIQUE_INDEX = 'uq_event_registrant_messages_first_send_content';
+
+function isContentUniqueViolation(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const e = error as { code?: string; message?: string; details?: string; constraint?: string };
+  if (e.code !== '23505') return false;
+  return `${e.constraint ?? ''} ${e.message ?? ''} ${e.details ?? ''}`.includes(
+    CONTENT_UNIQUE_INDEX
+  );
+}
 
 // ============================================================================
 // Pure helpers (exported for unit tests — no Supabase, no DOM)
@@ -286,6 +410,15 @@ export interface ContentMatchRow {
   body: string;
   client_token: string;
   sent_at: string;
+  /**
+   * Carried so the refusal can say what actually happened to the match rather
+   * than assert a delivery the ledger cannot support. A matched row sitting at
+   * notification_id NULL / delivered_count 0 was never confirmed, and telling
+   * its author it "has already been sent" is the precise falsehood
+   * deliveryState() exists to stop.
+   */
+  notification_id: string | null;
+  delivered_count: number;
 }
 
 /**
@@ -322,6 +455,15 @@ export function contentMatchIn(
  * already been established, and a duplicate the reader's RLS happens not to
  * return would be a duplicate we let through — the exact failure this guard
  * exists to stop.
+ *
+ * This is the FIRST of two guards, not the only one: it reads and then the
+ * caller inserts, so two concurrent composes can both pass it. The partial
+ * UNIQUE index added by 20261205141500 is what actually makes a duplicate first
+ * send impossible; this read exists so the common case gets a sentence an
+ * organiser can act on instead of a constraint violation.
+ *
+ * Names no column the base table lacks, deliberately — it has to keep working
+ * before 20261205141500 applies.
  */
 export async function findContentDuplicate(
   service: SupabaseClient,
@@ -330,7 +472,7 @@ export async function findContentDuplicate(
 ): Promise<ContentMatchRow | null> {
   const { data, error } = await service
     .from('event_registrant_messages')
-    .select('id, subject, body, client_token, sent_at')
+    .select('id, subject, body, client_token, sent_at, notification_id, delivered_count')
     .eq('event_id', eventId)
     .eq('subject', input.subject)
     .order('sent_at', { ascending: false })
@@ -450,14 +592,16 @@ export async function listSentMessages(
   limit = 20,
   service?: SupabaseClient
 ): Promise<SentMessageRow[]> {
-  const { data, error } = await db
-    .from('event_registrant_messages')
-    .select(SENT_COLUMNS)
-    .eq('event_id', eventId)
-    .order('sent_at', { ascending: false })
-    .limit(limit);
+  const { data, error } = await withResendColumn<unknown>('listSentMessages', (columns) =>
+    db
+      .from('event_registrant_messages')
+      .select(columns)
+      .eq('event_id', eventId)
+      .order('sent_at', { ascending: false })
+      .limit(limit)
+  );
   if (error) throw error;
-  const rows = (data ?? []) as SentMessageRow[];
+  const rows = ((data ?? []) as SentMessageRow[]).map(normaliseResend);
   return withSenderNames(rows, service ?? db);
 }
 
@@ -521,38 +665,64 @@ export async function sendRegistrantMessage(
 
   const audience = await getAudience(service, eventId);
 
-  const { data: claimed, error: claimErr } = await service
-    .from('event_registrant_messages')
-    .insert({
-      event_id: eventId,
-      subject: input.subject,
-      body: input.body,
-      audience_total: audience.audienceTotal,
-      recipient_count: audience.recipientIds.length,
-      unreachable_count: audience.unreachable,
-      delivered_count: 0,
-      sent_by: actorId,
-      client_token: input.clientToken,
-      // The organiser's stated intent, not an inference. Null on a first send.
-      resend_of: input.resendOf ?? null,
-    })
-    .select(SENT_COLUMNS)
-    .maybeSingle();
+  const { data: claimed, error: claimErr } = await withResendColumn<unknown>(
+    'claimRow',
+    (columns, hasResend) => {
+      // A DELIBERATE resend with nowhere to record it is refused, not silently
+      // downgraded: an unlabelled second blast is the outcome this whole
+      // feature exists to abolish. Thrown from inside the runner so the
+      // optimistic attempt's own 42703 is what tells us the column is gone.
+      if (!hasResend && input.resendOf) {
+        return Promise.reject(new ResendNotRecordableError());
+      }
+      return service
+        .from('event_registrant_messages')
+        .insert({
+          event_id: eventId,
+          subject: input.subject,
+          body: input.body,
+          audience_total: audience.audienceTotal,
+          recipient_count: audience.recipientIds.length,
+          unreachable_count: audience.unreachable,
+          delivered_count: 0,
+          sent_by: actorId,
+          client_token: input.clientToken,
+          // The organiser's stated intent, not an inference. Null on a first
+          // send. Omitted entirely while the column does not exist — naming it
+          // would fail the insert outright.
+          ...(hasResend ? { resend_of: input.resendOf ?? null } : {}),
+        })
+        .select(columns)
+        .maybeSingle();
+    }
+  );
 
-  let row = claimed as SentMessageRow | null;
+  let row = claimed ? normaliseResend(claimed as SentMessageRow) : null;
 
   if (claimErr) {
+    // The database's own duplicate guard fired: a concurrent POST claiming to
+    // be a new message got the same words in first. Nothing has been delivered
+    // — the fanout is below this line — so this answers exactly as the route's
+    // pre-check would have, naming the row that won.
+    if (isContentUniqueViolation(claimErr)) {
+      const winner = await findContentDuplicate(service, eventId, input);
+      throw new ContentDuplicateError(winner);
+    }
     // 23505 = unique_violation on (event_id, client_token): this exact compose
     // has been submitted before. Read the first row back rather than sending.
-    if (claimErr.code !== '23505') throw claimErr;
-    const { data: existing, error: readErr } = await service
-      .from('event_registrant_messages')
-      .select(SENT_COLUMNS)
-      .eq('event_id', eventId)
-      .eq('client_token', input.clientToken)
-      .maybeSingle();
+    if ((claimErr as { code?: string }).code !== '23505') throw claimErr;
+    const { data: existing, error: readErr } = await withResendColumn<unknown>(
+      'claimReadBack',
+      (columns) =>
+        service
+          .from('event_registrant_messages')
+          .select(columns)
+          .eq('event_id', eventId)
+          .eq('client_token', input.clientToken)
+          .maybeSingle()
+    );
     if (readErr) throw readErr;
-    row = existing as SentMessageRow | null;
+    row = existing ? normaliseResend(existing as SentMessageRow) : null;
     if (!row) throw claimErr;
     // An earlier attempt that genuinely delivered: say so, send nothing.
     if (!isUndelivered(row)) {
@@ -585,8 +755,8 @@ export async function sendRegistrantMessage(
 
   const ledger = ledgerUpdateFor(row, audience.recipientIds.length, outcome);
 
-  // The write-back is retried once and then given up on WITHOUT throwing, and
-  // that is the second half of "a delivered message must never be logged as
+  // The write-back is attempted twice and then given up on WITHOUT throwing,
+  // and that is the second half of "a delivered message must never be logged as
   // delivered to 0".
   //
   // By this line the fanout has already run. Throwing here would abandon the
@@ -597,23 +767,36 @@ export async function sendRegistrantMessage(
   // returned either way, so the answer is true even when the row is stale, and
   // any later retry under the same client_token heals the row through the
   // fanout's idempotent path.
+  //
+  // THE LOOP TURNS ON `updated`, NOT ON `error`, and so does the log. An UPDATE
+  // that matches no row answers with NO error and NO data — the row was deleted
+  // under us, or RLS narrowed it away — and an earlier version of this code
+  // treated that as success: it stopped after one attempt, left updateErr null,
+  // logged nothing, and still returned the ledger counts as though the row had
+  // been written. That is the one abandonment nobody would ever find. A failure
+  // to record is a failure to record whether or not the database called it one.
   let updated: SentMessageRow | null = null;
   let updateErr: unknown = null;
   for (let attempt = 0; attempt < 2 && !updated; attempt += 1) {
-    const res = await service
-      .from('event_registrant_messages')
-      .update(ledger)
-      .eq('id', row.id)
-      .select(SENT_COLUMNS)
-      .maybeSingle();
-    updated = (res.data as SentMessageRow | null) ?? null;
+    const res = await withResendColumn<unknown>('ledgerWriteBack', (columns) =>
+      service
+        .from('event_registrant_messages')
+        .update(ledger)
+        .eq('id', row.id)
+        .select(columns)
+        .maybeSingle()
+    );
+    updated = res.data ? normaliseResend(res.data as SentMessageRow) : null;
     updateErr = res.error ?? null;
-    if (!res.error) break;
   }
-  if (!updated && updateErr) {
-    logger.error(MODULE, 'ledger write-back failed after a completed fanout', {
+  if (!updated) {
+    logger.error(MODULE, 'ledger write-back did not record a completed fanout', {
       message_id: row.id,
       delivered_count: ledger.delivered_count,
+      // Names which of the two abandonments this was, because they need
+      // different investigations: one is a database that answered badly, the
+      // other a row that is no longer there to write to.
+      reason: updateErr ? 'update-failed' : 'no-row-matched',
       error: updateErr,
     });
   }
