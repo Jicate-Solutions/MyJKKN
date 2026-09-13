@@ -45,8 +45,11 @@ export interface ReferralReviewRow {
   payout_cleared_at: string | null;
   payout_cleared_by_name: string | null;
   payout_cleared_note: string | null;
-  /** Bucket D only — where the learner stands in the admission lifecycle. */
+  /** Buckets D and E only — where the learner stands in the admission lifecycle. */
   lifecycle_status?: string | null;
+  /** Bucket E only. false = the learner has no section at all, so there is no
+   *  register anyone could mark and an admin release is the ONLY route out. */
+  has_section?: boolean | null;
 }
 
 export interface ReferralReviewWorklist {
@@ -60,6 +63,8 @@ export interface ReferralReviewWorklist {
     unlinked: number;
     no_enquiry_trail: number;
     attendance_held: number;
+    /** Present only once 20261203092000 is applied — `?? 0` at every read site. */
+    no_register_held?: number;
   };
   /** How much of the checking job is left, counted the same way the generator
    *  counts it — so the progress on screen and the money that would move can
@@ -70,9 +75,17 @@ export interface ReferralReviewWorklist {
     total: number;
   };
   /** Enrolled referrals whose sessions ARE marked and who have never been recorded
-   *  present. Listed only where a register exists — an unmarked session says
-   *  nothing about the learner, so those are never held and never shown. */
+   *  present — a LEARNER problem. Mirrors GATE 2 of the commission generator. */
   attendance_held: ReferralReviewRow[];
+  /** Enrolled referrals nobody marks at all, or who have no section yet — a
+   *  COLLEGE problem. Held from 2026-09-12 (rule 12) and mirrors GATE 3 of the
+   *  generator, of which attendance_held is the exact complement: every
+   *  unmeasured, uncleared referral lands in exactly one of the two.
+   *
+   *  OPTIONAL on purpose. The key only exists once migration 20261203092000 is
+   *  applied; until then this is undefined and every read site must default it,
+   *  or the screen throws instead of degrading. */
+  no_register_held?: ReferralReviewRow[];
   /** Read live, not asserted, so the "nothing is payable yet" banner cannot go
    *  stale the moment someone sets a rate. */
   money_position: {
@@ -101,8 +114,15 @@ export class ReferralReviewService {
   }
 
   /**
-   * Release ONE referral held because session attendance has never recorded its
-   * learner. Records who and when. Writes no money row and pays nobody.
+   * Release ONE referral held on either attendance ground — a kept register that
+   * has never recorded the learner (bucket D), or no register kept at all / no
+   * section yet (bucket E). One call serves both: the clearance keys on
+   * (learner_profile_id, academic_year) and knows nothing about sections.
+   *
+   * WRITE-ONCE per learner per year (constraint referral_attendance_clearances_once).
+   * A second attempt reports already_cleared rather than re-stamping it.
+   *
+   * Records who and when. Writes no money row and pays nobody.
    */
   static async clearAttendanceHold(
     learnerProfileId: string,
