@@ -87,6 +87,12 @@ export interface WaitlistEntry {
   joined_at: string;
   offered_at: string | null;
   notified_at: string | null;
+  /**
+   * The one-time code this person must quote to take their place up, for the
+   * organiser to read to them. Null for anybody with a MyJKKN account — their
+   * offer is bound to it and needs no code — and null once the code is spent.
+   */
+  claim_code: string | null;
 }
 
 export interface WaitlistPanel {
@@ -697,6 +703,102 @@ export interface OutstandingOffer {
  * — so without this lookup the door refuses the one person whose place it is
  * holding and puts them at the back of the queue they were just promoted off.
  */
+/** Normalise a spoken code: case and the spaces or dashes people add reading it. */
+export function normClaimCode(value: string | null | undefined): string | null {
+  const cleaned = (value ?? '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+  return cleaned ? cleaned : null;
+}
+
+/** What a guest's attempt to claim an offered place resolved to. */
+export type GuestClaimLookup =
+  /** The code matches an outstanding offer on this event. */
+  | { outcome: 'match'; offer: OutstandingOffer }
+  /** No code was given, but this person does hold an offer — ask them for it. */
+  | { outcome: 'code_required' }
+  /** A code was given and matches nothing outstanding on this event. */
+  | { outcome: 'no_match' }
+  /** Nothing here belongs to this person at all. */
+  | { outcome: 'none' };
+
+/**
+ * A GUEST'S offer, which is reachable ONLY through the one-time code.
+ *
+ * The Director's ruling, 13 Sep: a sign-up with no account claims their place
+ * with a code the organiser reads to them over the phone. He chose that over
+ * leaving name-plus-number sufficient, and over keeping phone sign-ups out of
+ * the queue altogether — the latter because it would quietly disadvantage the
+ * people least likely to hold an account, which here is frequently a school-age
+ * learner on a parent's number.
+ *
+ * So the code is the credential and the contact details are not. They are still
+ * checked, because a code read to the wrong person should not also survive a
+ * mismatched phone number, but no combination of name and contact details opens
+ * this door on its own any more.
+ */
+export async function findGuestOfferByCode(
+  service: SupabaseClient,
+  eventId: string,
+  code: string | null,
+  who: WaitlistIdentity,
+  formId?: string | null
+): Promise<GuestClaimLookup> {
+  const normalised = normClaimCode(code);
+
+  if (!normalised) {
+    // Say WHICH thing is missing. "This event is full" to somebody holding an
+    // offer they were phoned about is the feature failing silently.
+    const hit = await findOpenRow(service, eventId, who, ['offered'], formId);
+    if (hit.row && !hit.row.profile_id) return { outcome: 'code_required' };
+    return { outcome: 'none' };
+  }
+
+  const { data, error } = await (service as any)
+    .from('event_registration_waitlist')
+    .select('id, queue_seq, status, profile_id, form_id, claim_code')
+    .eq('event_id', eventId)
+    .eq('status', 'offered')
+    .eq('claim_code', normalised)
+    .limit(2);
+
+  if (error) {
+    if (isMissingObject(error)) return { outcome: 'none' };
+    throw new WaitlistReadError('check a waiting-list claim code', eventId, error);
+  }
+  const row = (data ?? [])[0] as
+    | { id: string; queue_seq: number; profile_id: string | null; form_id: string | null }
+    | undefined;
+  if (!row) return { outcome: 'no_match' };
+  if (formId && row.form_id && row.form_id !== formId) return { outcome: 'no_match' };
+
+  return { outcome: 'match', offer: { id: row.id, queue_seq: row.queue_seq } };
+}
+
+/**
+ * Put a fresh code on an offered row, which invalidates whatever was read out
+ * before. Setting the column to NULL is the whole operation: the BEFORE trigger
+ * mints the replacement, so the two can never disagree.
+ *
+ * Exists because this mechanism travels through a phone call and phone calls go
+ * wrong — a character misheard, nobody answering, a note thrown away. Without a
+ * way to re-issue, one bad call would cost that person their place and hold the
+ * seat for good.
+ */
+export async function reissueClaimCode(
+  service: SupabaseClient,
+  waitlistId: string
+): Promise<string | null> {
+  const { data, error } = await (service as any)
+    .from('event_registration_waitlist')
+    .update({ claim_code: null })
+    .eq('id', waitlistId)
+    .eq('status', 'offered')
+    .is('profile_id', null)
+    .select('claim_code')
+    .maybeSingle();
+  if (error || !data) return null;
+  return (data as { claim_code: string | null }).claim_code ?? null;
+}
+
 export async function findOutstandingOffer(
   service: SupabaseClient,
   eventId: string,
@@ -775,14 +877,26 @@ export type ClaimOutcome = 'claimed' | 'lost' | 'error';
 
 export async function claimOffer(
   service: SupabaseClient,
-  waitlistId: string
+  waitlistId: string,
+  /**
+   * The code this claim is spending, for a guest row. Passing it does two
+   * things in ONE statement: it proves the claimant has the code, and it spends
+   * it. The database refuses a guest claim that does not — see
+   * fn_event_waitlist_claim_code_guard — so forgetting it here fails loudly
+   * rather than quietly making the code reusable.
+   */
+  claimCode?: string | null
 ): Promise<ClaimOutcome> {
-  const { data, error } = await (service as any)
+  const code = normClaimCode(claimCode);
+
+  let query = (service as any)
     .from('event_registration_waitlist')
-    .update({ status: 'registered' })
+    .update(code ? { status: 'registered', claim_code: null } : { status: 'registered' })
     .eq('id', waitlistId)
-    .eq('status', 'offered')
-    .select('id');
+    .eq('status', 'offered');
+  if (code) query = query.eq('claim_code', code);
+
+  const { data, error } = await query.select('id');
   if (error) return 'error';
   return Array.isArray(data) && data.length > 0 ? 'claimed' : 'lost';
 }
@@ -1097,6 +1211,7 @@ export function orderQueue(
     joined_at: string;
     offered_at?: string | null;
     notified_at?: string | null;
+    claim_code?: string | null;
   }>
 ): WaitlistEntry[] {
   const bySeq = [...rows].sort((a, b) => a.queue_seq - b.queue_seq);
@@ -1114,6 +1229,7 @@ export function orderQueue(
     joined_at: r.joined_at,
     offered_at: r.offered_at ?? null,
     notified_at: r.notified_at ?? null,
+    claim_code: r.claim_code ?? null,
   }));
 
   entries.sort((a, b) => statusRank(a.status) - statusRank(b.status) || a.queue_seq - b.queue_seq);
@@ -1150,7 +1266,7 @@ export async function getWaitlistPanel(
   // construction — at most one per freed place — so they are read in full and
   // the cap applies only to the people still waiting.
   const OFFER_COLUMNS =
-    'id, queue_seq, status, participant_name, participant_email, participant_phone, unreachable, joined_at, offered_at, notified_at';
+    'id, queue_seq, status, participant_name, participant_email, participant_phone, unreachable, joined_at, offered_at, notified_at, claim_code';
 
   const [offeredRead, waitingRead] = await Promise.all([
     (service as any)
