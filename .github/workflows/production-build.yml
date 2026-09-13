@@ -81,53 +81,105 @@ name: Production Build
 # simpler but would make the check never report at all on a skipped PR, and a
 # required check that never reports blocks the PR forever.
 #
-# ── MEASURED ON ITS FIRST THREE RUNS: THE BUILD DOES NOT FIT ON A STANDARD ──────
+# ── MEASURED ON ITS FIRST FOUR RUNS: THE BUILD DOES NOT FIT ON A STANDARD ───────
 #                           GITHUB RUNNER
 #
 # ⚠️ READ THIS BEFORE DEBUGGING A RED MARK FROM THIS GATE. As of this workflow's
 # introduction it fails on EVERY PR, including its own, and NOT because of the PR.
 #
-# Three runs, two of them byte-identical re-runs of the same commit, all died at
-# exactly the same place with a bare `##[error]The operation was canceled.`:
+# Every claim below is quoted from the four job logs, which are the only
+# evidence that survives: see "the Report step never runs" at the end.
 #
-#   ✓ Compiled successfully in 4.8min      ← the app compiles. Nothing is broken.
+#   job 103691131931  9088d80c4d attempt 1
+#   job 103691886647  9088d80c4d attempt 2   (byte-identical re-run)
+#   job 103692773340  884a9e2def             (first run carrying the memory trace)
+#   job 103693517213  dd9214c418
+#
+# All four compiled the app and then died to a bare pair of runner messages —
+# `The runner has received a shutdown signal.` followed by
+# `##[error]The operation was canceled.` — with no error of their own:
+#
+#   ✓ Compiled successfully in 4.3–4.8min   ← the app compiles. Nothing is broken.
 #   ✓ Completed runAfterProductionCompile
 #     Collecting page data using 3 workers ...
-#   ##[error]The operation was canceled.   ← ~76s later
+#   ##[error]The operation was canceled.    ← 22s, 27s and 76s later
 #
-# The memory trace added in the follow-up commit settles the cause. Runner is
-# 4 vCPU / ~16 GB. During page-data collection:
+# They did NOT all die in the same place, and the difference matters. Attempt 1
+# never reached page-data collection at all: it has no "Collecting page data"
+# line and no "✓ Completed runAfterProductionCompile", and died 5s after
+# "Compiled successfully" while Sentry's runAfterProductionCompile hook was
+# still running. The other three died 22–76s into page-data collection.
 #
-#   07:35:49  used= 9267MB  avail=6722MB
-#   07:36:19  used=13447MB  avail=2542MB
-#   07:37:34  used=15547MB  avail= 442MB
-#   07:39:49  used=15860MB  avail= 129MB   ← pinned here ~2 min, then death
+# ── WHAT THE MEMORY TRACE ACTUALLY SHOWS (it is NOT the page-data workers) ──
 #
-# Available memory falls to 129 MB and the runner is killed. `next build` spawns
-# THREE page-data workers, and each inherits `NODE_OPTIONS=--max-old-space-size=12288`
-# — a 12 GB per-process heap ceiling hard-coded into `npm run build` in
-# package.json via cross-env. cross-env sets that variable explicitly, so it
-# OVERRIDES anything this workflow exports: the ceiling cannot be lowered from
-# here. Three workers that each only begin collecting garbage at 12 GB will
-# exhaust a 16 GB box, and that is what the trace shows them doing.
+# Runner is 4 vCPU / 15 GiB + 3 GiB swap — printed by the "Runner capacity" step
+# in all four runs (`vCPU: 4`, `Mem: 15Gi`). The trace from job 103692773340,
+# against that run's own phase timestamps:
+#
+#   07:36:49  used=14818MB  avail=1170MB   ┐
+#   07:37:19  used=15042MB  avail= 947MB   │ still "Creating an optimized
+#   07:37:34  used=15547MB  avail= 442MB   │  production build ..."
+#   07:37:49  used=15648MB  avail= 341MB   ┘
+#   ... avail stays between 226MB and 582MB for the next two minutes ...
+#   07:39:41  ✓ Compiled successfully in 4.8min
+#   07:39:47  Collecting page data using 3 workers ...   ← workers start HERE
+#   07:39:49  used=15860MB  avail= 129MB
+#   07:40:14  ##[error]The operation was canceled.
+#
+# So the box was already exhausted — under 1 GB available from 07:37:19, and
+# pinned near zero from 07:37:49 — a full 2.5 minutes BEFORE the first
+# page-data worker existed. Job 103693517213 has the same shape (avail=326MB at
+# 07:45:26; workers at 07:46:20).
+#
+# An earlier revision of this header blamed the three page-data workers, each
+# inheriting the 12 GB heap ceiling. The trace above refutes that: the memory is
+# consumed by the Turbopack COMPILE. Page-data collection is merely the phase
+# that happens to be running when a host sitting at ~130 MB available is finally
+# torn down — the last straw, not the cause.
+#
+# The 12 GB ceiling is real and still worth knowing:
+# `npm run build` hard-codes `cross-env NODE_OPTIONS="--max-old-space-size=12288
+# --max-semi-space-size=128"`. cross-env sets those explicitly, so they OVERRIDE
+# anything this workflow exports — the ceiling cannot be lowered from here. But
+# it is a ceiling, not the measured cause, and next.config.ts already caps
+# Turbopack itself at 4 GB (`turbopackMemoryLimit`) without keeping total usage
+# anywhere near that.
 #
 # This is a real finding about the build, not a defect in this gate — the gate
 # ran the production build and reported, reproducibly, what happened. Resolving
 # it needs a decision that is NOT this workflow's to make, because every option
 # changes something outside CI:
 #
-#   (a) a larger runner (8-core/32 GB) — org setting, costs money;
+#   (a) a larger runner (8-core/32 GB) — org setting, costs money. The only
+#       option the trace directly supports, since the compile alone needs more
+#       than this box has;
 #   (b) lower `--max-old-space-size` in package.json — changes what Vercel runs;
-#   (c) cap the worker count via `experimental.cpus` in next.config.ts — same.
+#   (c) cap the worker count via `experimental.cpus` in next.config.ts — same,
+#       AND unlikely to be sufficient on its own: available memory is already
+#       ~130 MB before the workers start. (Inference from the trace, not a
+#       measured result — nobody has run the build with fewer workers.)
 #
 # Until one is chosen, this gate is advisory and its red mark means "the build
-# still does not fit", not "this PR is broken". A PR-caused failure looks
-# different: it fails BEFORE "Compiled successfully", with a named error.
+# still does not fit", not "this PR is broken".
 #
-# One consequence worth knowing: when the runner is killed this way, the job's
+# ── TELLING THE TWO FAILURE KINDS APART ─────────────────────────────────────
+#
+# Do NOT use "did it get past Compiled successfully?" as the test. The class
+# this gate exists to catch — a `'use server'` violation, an import-time throw,
+# a failing generateStaticParams — surfaces DURING page-data collection, the
+# same phase where the memory death lands. Use the ERROR SHAPE instead:
+#
+#   • Out of memory  → NO error from next/node at all, just the runner's own
+#     `The runner has received a shutdown signal.` + `The operation was
+#     canceled.`, and the memory trace's last samples read avail < 300MB.
+#   • Caused by the PR → a NAMED error with a file and a reason, and the trace
+#     still showing healthy headroom.
+#
+# One consequence worth knowing: when the runner is killed this way the job's
 # final "Report" step does NOT run — `always()` cannot save a step on a machine
-# that is being torn down. That is why this explanation lives here, in the file,
-# rather than only in a step summary nobody will receive.
+# being torn down. Confirmed: zero of the four logs contain any Report output.
+# That is why this explanation lives here, in the file, rather than only in a
+# step summary nobody will receive.
 
 on:
   pull_request:
@@ -178,6 +230,15 @@ jobs:
       # and those cannot change the output of `next build`. Skipping them saves
       # ~5 minutes of Actions time per PR without creating a blind spot: the deny
       # list below is conservative, so anything not obviously inert builds.
+      # The filter itself lives in scripts/ci/build-relevance.sh so that its
+      # test suite runs the SAME code this step runs. It did not, originally,
+      # and the inline version shipped a false green: it asked git for
+      # `--diff-filter=AM`, so a PR that only DELETED or only RENAMED source
+      # files scored zero, skipped the build, and reported success. Merged
+      # PR #3295 (23 deleted route files) is a real example. See that script's
+      # header for the measurement and scripts/ci/build-relevance.test.sh for
+      # the fixtures — deletion, rename, rename-out-to-docs and typechange are
+      # all pinned there, and all four fail against the old invocation.
       - name: Does this PR touch anything the build reads?
         id: relevant
         env:
@@ -185,13 +246,8 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
         run: |
           set -euo pipefail
-          git diff --name-only --diff-filter=AM "$BASE_SHA"..."$HEAD_SHA" > /tmp/changed.txt
-
-          # Paths that provably cannot affect `next build`. Everything else does
-          # — including .github/workflows, so a change to THIS file builds and
-          # tests itself rather than shipping unexercised.
-          grep -vE '(^docs/|^specs/|^supabase/|^artifacts/|^\.claude/|^\.screenshots/|\.md$|\.sql$)' \
-            /tmp/changed.txt > /tmp/build-relevant.txt || true
+          scripts/ci/build-relevance.sh changed  "$BASE_SHA" "$HEAD_SHA" > /tmp/changed.txt
+          scripts/ci/build-relevance.sh relevant "$BASE_SHA" "$HEAD_SHA" > /tmp/build-relevant.txt
 
           total=$(wc -l < /tmp/changed.txt | tr -d ' ')
           count=$(wc -l < /tmp/build-relevant.txt | tr -d ' ')
@@ -242,21 +298,26 @@ jobs:
         if: steps.relevant.outputs.count != '0' && steps.nm.outputs.cache-hit != 'true'
         run: npm ci --no-audit --no-fund
 
-      # Printed because the answer is not knowable before this workflow's first
+      # Printed because the answer was not knowable before this workflow's first
       # real run, and it decides whether this gate is viable as written.
       #
-      # `npm run build` hard-codes `cross-env NODE_OPTIONS="--max-old-space-size=12288"`
-      # — a 12 GB heap ceiling. cross-env sets that variable explicitly, so it
-      # OVERRIDES anything this workflow exports; the value cannot be tuned from
-      # here without editing package.json, which would change what Vercel runs and
-      # is out of this change's scope.
+      # `npm run build` hard-codes `cross-env NODE_OPTIONS="--max-old-space-size=12288
+      # --max-semi-space-size=128"` — a 12 GB heap ceiling. cross-env sets those
+      # explicitly, so they OVERRIDE anything this workflow exports; the values
+      # cannot be tuned from here without editing package.json, which would change
+      # what Vercel runs and is out of this change's scope.
       #
-      # A GitHub-hosted standard runner on a private repo is 2 vCPU / ~7 GB RAM.
-      # A 12 GB ceiling on a 7 GB box is not an instant failure — the flag is a
-      # ceiling, not an allocation — but if the build's live set exceeds physical
-      # memory the kernel OOM-killer ends it, and the failure reads as a generic
-      # non-zero exit. This step makes the first run's log say plainly which
-      # machine it got, so that diagnosis takes seconds instead of a bisect.
+      # NOW ANSWERED, by this step itself on all four runs to date: the runner is
+      # 4 vCPU / 15 GiB + 3 GiB swap (`vCPU: 4`, `Mem: 15Gi`) — NOT the 2 vCPU /
+      # ~7 GB an earlier revision of this comment predicted. The prediction was a
+      # guess written before the first run; the numbers below are the measurement.
+      # The extra headroom does not save the build: see the memory trace in the
+      # header, where the compile alone drives available memory under 300 MB.
+      #
+      # Keep this step. A 12 GB ceiling is a ceiling, not an allocation, so an
+      # over-budget build does not fail with a clean message — the kernel or the
+      # runner agent ends it and the log reads as a generic cancellation. Having
+      # the machine's real size in every log turns that diagnosis into seconds.
       - name: Runner capacity (diagnostic for the heap ceiling)
         if: steps.relevant.outputs.count != '0'
         run: |
@@ -355,3 +416,26 @@ jobs:
             echo "so a red mark here does not block this merge. It is reporting a real fact about"
             echo "the build regardless._"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # Matches the self-test job the other gates in this repo carry
+  # (secdef-anon-revoke.yml, ungrantable-permissions.yml, typecheck-pr-scoped.yml).
+  #
+  # It exists because the relevance filter's FIRST version was tested — with two
+  # fixtures, "docs-only -> 0" and "mixed code -> 3". Both were Added/Modified
+  # files, and the filter said `--diff-filter=AM`, so the tests exercised only
+  # paths that already passed and the gate shipped blind to deletions and
+  # renames. A fixture set that proves only the happy path is how a broken gate
+  # stays green. Every "-> build" case in the suite is one the old filter got
+  # wrong.
+  #
+  # Cheap: pure bash and git against a scratch repo, no npm install, no build.
+  self-test:
+    name: The build gate's own tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test the relevance filter
+        run: bash scripts/ci/build-relevance.test.sh
