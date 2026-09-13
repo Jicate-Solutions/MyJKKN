@@ -15,6 +15,7 @@
 // count renders "no data" (dashed), never zero, never silently healthy.
 // ============================================================================
 
+import { institutionLabelById } from '@/lib/utils/institutions/institution-labels';
 import type {
   ClusterInstitutionOption,
   ClusterPreset,
@@ -93,6 +94,14 @@ export function ClusterLens({
     .map((id) => byId.get(id))
     .filter((i): i is ClusterInstitutionOption => Boolean(i));
 
+  // Labelled over the FULL institution list, never over `members`. CAS Aided
+  // and CAS Self share a display_name; if only one of the pair is in the
+  // cluster, the selected subset contains no collision and would render
+  // "(Autonomous)" here while the picker above rendered "(Aided)". The roster
+  // exists to say exactly which colleges are inside the aggregate, so it has
+  // to agree with the checkbox that put them there.
+  const labelById = institutionLabelById(institutions);
+
   return (
     <div className="space-y-4">
       {/* What this lens is — and what it deliberately is not */}
@@ -146,7 +155,7 @@ export function ClusterLens({
                 className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[11px] text-foreground"
                 title={m.name}
               >
-                {m.display_name || m.name}
+                {labelById.get(m.id) ?? m.name}
               </span>
             ))}
           </div>
