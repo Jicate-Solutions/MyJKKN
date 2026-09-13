@@ -10994,3 +10994,51 @@ CREATE POLICY hcoc_update ON public.hr_comp_off_credits
         AND hr_organization_id IN (SELECT unnest(public.fn_my_hr_organization_ids()))
         AND NOT (employee_id IN (SELECT unnest(public.fn_my_staff_ids()))))
   );
+
+-- =====================================================================================
+-- WhatsApp campus bridge — read-only RLS  (2026-09-13)
+-- Source of truth: supabase/migrations/20261211090000_wa_bridge_outbox.sql
+--
+-- `institution_id IS NOT NULL` in the outbox policy is LOAD-BEARING.
+-- public.role_has_institution_access(uuid) returns TRUE for a NULL argument
+-- (`IF check_institution_id IS NULL THEN RETURN true`), so without that guard every
+-- platform-wide message is readable by every holder of
+-- admission.settings.whatsapp.view, at every college — the opposite of what the
+-- column's own COMMENT promised. Proven, with a negative control, by
+-- supabase/tests/wa-bridge/run.sh.
+-- =====================================================================================
+DROP POLICY IF EXISTS wa_bridge_outbox_select ON public.wa_bridge_outbox;
+CREATE POLICY wa_bridge_outbox_select ON public.wa_bridge_outbox
+  FOR SELECT
+  USING (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR (
+      institution_id IS NOT NULL
+      AND public.user_has_permission('admission.settings.whatsapp.view')
+      AND public.role_has_institution_access(institution_id)
+    )
+  );
+
+-- wa_bridge_inbound has no institution_id: an inbound message arrives from a
+-- phone number, and until it is matched to a lead there is no institution to
+-- attribute it to. Scoping it by the matched lead's institution would hide
+-- every UNMATCHED message from everyone, which is the opposite of useful — an
+-- unmatched message is the one most likely to be someone nobody has answered.
+DROP POLICY IF EXISTS wa_bridge_inbound_select ON public.wa_bridge_inbound;
+CREATE POLICY wa_bridge_inbound_select ON public.wa_bridge_inbound
+  FOR SELECT
+  USING (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR public.user_has_permission('admission.settings.whatsapp.view')
+  );
+
+DROP POLICY IF EXISTS wa_bridge_status_select ON public.wa_bridge_status;
+CREATE POLICY wa_bridge_status_select ON public.wa_bridge_status
+  FOR SELECT
+  USING (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR public.user_has_permission('admission.settings.whatsapp.view')
+  );
