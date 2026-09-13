@@ -24,6 +24,7 @@ import {
 const MON_02 = '2026-11-02T04:30:00.000Z';
 const TUE_03 = '2026-11-03T04:30:00.000Z';
 const TUE_03_PM = '2026-11-03T08:30:00.000Z';
+const MON_02_PM = '2026-11-02T08:30:00.000Z';
 const MON_09 = '2026-11-09T04:30:00.000Z';
 const MON_16 = '2026-11-16T04:30:00.000Z';
 const MON_23 = '2026-11-23T04:30:00.000Z';
@@ -364,6 +365,83 @@ describe('proposeMonthlySlate — collisions', () => {
     expect(out.placed).toHaveLength(1);
     expect(out.placed[0].seriesId).toBe('s-a');
     expect(out.unplaceable[0].reason).toBe('all_candidates_taken');
+  });
+});
+
+// ============================================================================
+// Availability is duration-dependent
+// ============================================================================
+
+describe('proposeMonthlySlate — duration-aware availability', () => {
+  it('uses the set computed for THIS series length, not another one', () => {
+    // The host has a 60-minute gap at 10:00 and a 120-minute gap at 14:00.
+    // A two-hour series must land at 14:00 — placing it at 10:00 would book
+    // it straight over whatever follows.
+    const out = proposeMonthlySlate(
+      input({
+        series: [
+          series({
+            durationMin: 120,
+            coverageMode: 'listed_only',
+            units: [{ institutionId: CET, isExcluded: false }],
+          }),
+        ],
+        availability: [
+          { profileId: DIRECTOR, durationMin: 60, freeStarts: [MON_02] },
+          { profileId: DIRECTOR, durationMin: 120, freeStarts: [MON_02_PM] },
+        ],
+      }),
+    );
+    expect(out.placed).toHaveLength(1);
+    expect(out.placed[0].start).toBe(MON_02_PM);
+    // 04:30Z + 120 min would be 06:30Z; 08:30Z + 120 min = 10:30Z.
+    expect(out.placed[0].end).toBe('2026-11-02T10:30:00.000Z');
+  });
+
+  it('does NOT borrow another duration\'s answer when its own is missing', () => {
+    const out = proposeMonthlySlate(
+      input({
+        series: [series({ durationMin: 120 })],
+        availability: [{ profileId: DIRECTOR, durationMin: 60, freeStarts: [MON_02, MON_09] }],
+      }),
+    );
+    expect(out.placed).toHaveLength(0);
+    expect(out.unplaceable.every((u) => u.reason === 'no_shared_availability')).toBe(true);
+  });
+
+  it('an entry with no durationMin still answers for any length', () => {
+    // The simple case: every series the same length, one availability set.
+    const out = proposeMonthlySlate(
+      input({
+        series: [series({ durationMin: 90 })],
+        availability: [{ profileId: DIRECTOR, freeStarts: [MON_02, MON_09, MON_16] }],
+      }),
+    );
+    expect(out.placed).toHaveLength(3);
+  });
+
+  it('matches each person on the SAME duration when they differ', () => {
+    const out = proposeMonthlySlate(
+      input({
+        series: [
+          series({
+            durationMin: 120,
+            attendees: [{ profileId: EAO, isRequired: true }],
+            coverageMode: 'listed_only',
+            units: [{ institutionId: CET, isExcluded: false }],
+          }),
+        ],
+        availability: [
+          { profileId: DIRECTOR, durationMin: 120, freeStarts: [MON_02_PM, MON_09] },
+          // The EAO's 120-minute set shares only MON_09.
+          { profileId: EAO, durationMin: 120, freeStarts: [MON_09] },
+          // A decoy 60-minute set that must not be consulted.
+          { profileId: EAO, durationMin: 60, freeStarts: [MON_02_PM] },
+        ],
+      }),
+    );
+    expect(out.placed).toHaveLength(1);
+    expect(out.placed[0].start).toBe(MON_09);
   });
 });
 

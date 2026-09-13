@@ -106,6 +106,18 @@ export interface SlateAwayPeriod {
  */
 export interface SlateAvailability {
   profileId: string;
+  /**
+   * The meeting length these starts were computed for.
+   *
+   * Availability is duration-dependent and there is no way around it: a 10:00
+   * start is free for a 60-minute meeting and not free for a 120-minute one if
+   * something sits at 11:30. So the caller computes one set per distinct series
+   * duration, and the engine matches on (profileId, durationMin).
+   *
+   * Optional for the simple case where every series runs the same length —
+   * an entry with no durationMin answers for any duration.
+   */
+  durationMin?: number;
   freeStarts: readonly string[];
 }
 
@@ -284,16 +296,32 @@ function rankCandidates(
 function sharedFreeStarts(
   requiredProfileIds: readonly string[],
   availability: readonly SlateAvailability[],
+  durationMin: number,
 ): string[] {
   if (requiredProfileIds.length === 0) return [];
-  const byProfile = new Map(availability.map((a) => [a.profileId, new Set(a.freeStarts)]));
 
-  const first = byProfile.get(requiredProfileIds[0]);
+  // Exact duration match wins; an entry with no durationMin answers for any
+  // length. Anything computed for a DIFFERENT duration is not evidence about
+  // this one and is ignored rather than borrowed — borrowing a 60-minute
+  // answer for a 120-minute meeting is how a meeting gets booked over the
+  // thing that follows it.
+  const pick = (pid: string): Set<string> | null => {
+    const exact = availability.find(
+      (a) => a.profileId === pid && a.durationMin === durationMin,
+    );
+    if (exact) return new Set(exact.freeStarts);
+    const any = availability.find(
+      (a) => a.profileId === pid && a.durationMin === undefined,
+    );
+    return any ? new Set(any.freeStarts) : null;
+  };
+
+  const first = pick(requiredProfileIds[0]);
   if (!first) return [];
 
   let shared = [...first];
   for (const pid of requiredProfileIds.slice(1)) {
-    const theirs = byProfile.get(pid);
+    const theirs = pick(pid);
     if (!theirs) return [];
     shared = shared.filter((s) => theirs.has(s));
     if (shared.length === 0) return [];
@@ -360,7 +388,7 @@ export function proposeMonthlySlate(input: ProposeSlateInput): ProposedSlate {
         ? series.rotationCursor
         : (series.rotationCursor + 1) % input.rotationOrder.length;
 
-    const shared = sharedFreeStarts(required, input.availability);
+    const shared = sharedFreeStarts(required, input.availability, series.durationMin);
     const ranked = rankCandidates(shared, series, timezone);
     const occurrences = occurrencesPerMonth(series.cadence);
     const durationMs = series.durationMin * 60_000;
