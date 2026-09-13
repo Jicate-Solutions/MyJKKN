@@ -47,7 +47,9 @@ export function useSendRegistrantMessage(eventId: string) {
   return useMutation<
     { message: EventRegistrantMessage; deduplicated: boolean },
     Error,
-    { subject: string; body: string; clientToken: string }
+    // `resendOf` is the organiser's stated intent to repeat an earlier message.
+    // Absent on a compose; set only by the "Send again" action.
+    { subject: string; body: string; clientToken: string; resendOf?: string | null }
   >({
     mutationFn: (input) => EventsNotificationService.sendRegistrantMessage(eventId, input),
     onSuccess: () => {
