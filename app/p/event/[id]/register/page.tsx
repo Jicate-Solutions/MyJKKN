@@ -21,9 +21,9 @@ import { Ban, CalendarClock, CalendarDays, MapPin, Ticket } from 'lucide-react';
 import { effectiveFee, formRegistrationState, isFormOpen } from '@/types/tournament';
 import { EventRegisterForm } from './_components/event-register-form';
 import {
+  PUBLIC_CANCELLATION_CONTACT_EMAIL,
+  PUBLIC_CANCELLATION_NOTICE,
   PUBLIC_EVENT_COLUMNS,
-  fetchCancellationDetails,
-  formatCancelledOn,
 } from './_lib/cancellation';
 
 export const dynamic = 'force-dynamic';
@@ -98,10 +98,10 @@ export default async function PublicEventRegisterPage({
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );
 
-  // PUBLIC_EVENT_COLUMNS names only columns that exist on production TODAY. The
-  // cancellation columns are fetched separately and tolerantly below — see
-  // ./_lib/cancellation.ts for why one missing column would otherwise break
-  // public registration for every event.
+  // PUBLIC_EVENT_COLUMNS names only columns that exist on production TODAY, and
+  // this is now the page's ONLY read of `events` — the cancellation columns are
+  // not read here at all. See ./_lib/cancellation.ts for why one missing column
+  // would otherwise break public registration for every event.
   const { data: ev } = await svc
     .from('events')
     .select(PUBLIC_EVENT_COLUMNS)
@@ -112,41 +112,55 @@ export default async function PublicEventRegisterPage({
     return <Empty title="Registration not available" msg="This event is not open for registration." />;
   }
 
-  // A CANCELLED event says so, by name, with the reason the organiser gave.
+  // A CANCELLED event says so, by name — in a STANDARD line, not in the
+  // organiser's own words.
   //
   // Checked BEFORE every other branch: someone holding this link was told about
   // this event, and "not open for registration" — the generic answer this page
-  // gave until now — reads as a closed window they might have missed rather than
-  // as an event that is not happening. No redirect and no 404: the page exists,
-  // the answer is just no, and the reason is the only thing that makes the no
-  // usable.
+  // gave until this state existed — reads as a closed window they might have
+  // missed rather than as an event that is not happening. No redirect and no
+  // 404: the page exists, and the answer is just no.
+  //
+  // WHY NO REASON HERE (Director's ruling, 13 Sep: "Short public line, full
+  // reason kept inside"). `cancellation_reason` is free text typed by an
+  // organiser at the worst moment of an event's life, with no review step
+  // between the textarea and every person holding the link. It is still
+  // required, still stored exactly as typed, and still shown IN FULL on
+  // /events/[id] to colleagues at the institution who can open the event — it
+  // just stops being published. What the public needs from this page is the
+  // fact and a way to ask; both are here.
   //
   // Registration is not stopped HERE, and no second mechanism is added: this
   // page and /api/events/[eventId]/public-register have always refused a
   // `cancelled` event, exactly as they refuse a closed registration window. This
   // branch only replaces a silent-shaped refusal with an explicit one.
   if (ev.status === 'cancelled') {
-    // Second, best-effort read. Returns nulls if the migration has not been
-    // applied, and the copy below falls back to "no reason recorded" — the
-    // event still says, plainly, that it is cancelled.
-    const { reason, cancelledAt } = await fetchCancellationDetails(svc, id);
-    const cancelledOn = formatCancelledOn(cancelledAt);
-
     return (
       <main className="mx-auto max-w-xl px-4 py-16">
         <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-6 text-center">
           <Ban className="mx-auto mb-3 h-10 w-10 text-red-600 dark:text-red-400" />
-          <h1 className="text-xl font-semibold">This event has been cancelled</h1>
+          <h1 className="text-xl font-semibold">{PUBLIC_CANCELLATION_NOTICE.headline}</h1>
           <p className="mt-1 text-sm font-medium">{ev.name}</p>
-          {cancelledOn && (
-            <p className="mt-1 text-xs text-muted-foreground">Cancelled on {cancelledOn}</p>
-          )}
-          <p className="mt-4 whitespace-pre-line text-sm">
-            {reason || 'The organiser has not recorded a reason. Please contact them for details.'}
-          </p>
+          <p className="mt-4 text-sm">{PUBLIC_CANCELLATION_NOTICE.body}</p>
+          <p className="mt-2 text-sm">{PUBLIC_CANCELLATION_NOTICE.alreadyRegistered}</p>
+          {/* The subject line is the whole of this address's routing. It goes to
+              ONE institution-wide mailbox for every cancelled event at every
+              college (see PUBLIC_CANCELLATION_CONTACT_EMAIL), so a bare mailto
+              arrives with nothing saying which event it is about. Stamping the
+              event's name and id into the subject costs nothing, needs no
+              schema, and is what makes the reply possible — the reader can look
+              the event up instead of asking which one it was. */}
           <p className="mt-4 text-xs text-muted-foreground">
-            No further registrations are being accepted. If you already registered, your
-            entry has not been removed — the organiser still has your details.
+            {PUBLIC_CANCELLATION_NOTICE.contactPrompt}{' '}
+            <a
+              className="font-medium underline underline-offset-2"
+              href={`mailto:${PUBLIC_CANCELLATION_CONTACT_EMAIL}?subject=${encodeURIComponent(
+                `Cancelled event: ${ev.name} (${id})`
+              )}`}
+            >
+              {PUBLIC_CANCELLATION_CONTACT_EMAIL}
+            </a>
+            .
           </p>
         </div>
       </main>

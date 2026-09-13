@@ -64,6 +64,7 @@ import { NaacCriteriaChips } from '@/components/events/shared/naac-criteria-fiel
 import { EventLogistics } from '@/components/events/shared/event-logistics';
 import {
   useCancelGeneralEvent,
+  useEventCancellation,
   useGeneralEvent,
   useUpdateGeneralEvent,
   useUpdateGeneralEventStatus,
@@ -151,10 +152,18 @@ function Fact({
 /**
  * Call the event off, in the organiser's own words.
  *
- * The reason is REQUIRED and it is PUBLIC: /p/event/[id]/register prints it to
- * whoever follows the registration link. That is the whole point of the state —
- * moving the event back to Draft already hid it, and told the people registered
- * nothing.
+ * The reason is REQUIRED and it is INTERNAL. Director's ruling, 13 Sep: "Short
+ * public line, full reason kept inside." /p/event/[id]/register shows a
+ * standard cancellation line and an address to write to; it does not print this
+ * text. The reason is stored exactly as typed and shown in full in the banner
+ * further down this page — which is read by colleagues at the institution who
+ * can open this event, NOT only by the organiser's own team. The hint under the
+ * textarea says so, because that is a wider room than "my team" and it changes
+ * what a person writes.
+ *
+ * The dialog has to SAY that, because it used to promise the opposite — and an
+ * organiser who believes they are writing to the public writes a different
+ * sentence from one writing to their own colleagues.
  *
  * Its own dialog rather than an entry in the status menu, because a free-text
  * reason needs somewhere to be typed. The hub's row menu deliberately does not
@@ -188,9 +197,10 @@ function CancelEventDialog({ event }: { event: Event }) {
         <DialogHeader>
           <DialogTitle>Cancel {event.name}?</DialogTitle>
           <DialogDescription>
-            The event page will say the event is cancelled and show your reason, and no
-            further registrations are accepted. Everyone who already registered stays on
-            the list.
+            The public event page will say the event is cancelled and give an address to
+            write to. It does <strong>not</strong> show your reason. No further
+            registrations are accepted, and everyone who already registered stays on the
+            list.
           </DialogDescription>
         </DialogHeader>
 
@@ -230,7 +240,9 @@ function CancelEventDialog({ event }: { event: Event }) {
             placeholder="e.g. The chief guest is unavailable and no replacement date is fixed yet."
           />
           <p className="text-xs text-muted-foreground">
-            Required, and shown publicly — write it for the people who registered.
+            Required. It is recorded on this page, where colleagues at your institution
+            who can open this event will read it — and it is <strong>not</strong> shown on
+            the public event page. Write it for them and for the record.
           </p>
         </div>
 
@@ -360,7 +372,8 @@ function ReinstateEventDialog({
 /**
  * Draft <-> Active, plus Cancelled. General events run the model in
  * GENERAL_EVENT_STATUS_TRANSITIONS: Draft hides the event and closes
- * registration, Active opens it, Cancelled calls it off with a public reason.
+ * registration, Active opens it, Cancelled calls it off and records why —
+ * internally: the public page shows a standard line, not the organiser's words.
  * The shared 8-state lifecycle is never offered here — it has no draft -> live
  * edge, so a one-click activation gated on it would be rejected server-side.
  */
@@ -463,7 +476,7 @@ function PublicVisibilityToggle({
             ? active
               ? 'Anyone with the link can see this event.'
               : event.status === 'cancelled'
-                ? 'Marked public. Anyone following the registration link is told the event is cancelled, and why.'
+                ? 'Marked public. Anyone following the registration link is told the event is cancelled, and given an address to write to.'
                 : 'Marked public, but still hidden while the event is a Draft.'
             : 'Only signed-in users at your institution can see this event.'}
         </p>
@@ -487,6 +500,15 @@ export default function GeneralEventDetailPage() {
   const id = String(params?.id ?? '');
 
   const { data: event, isLoading, isError } = useGeneralEvent(id);
+  // The organiser's words live in their own table now (migration 20261204113700):
+  // `events` is anon-readable, so a column there would publish them to the public
+  // key the moment a cancelled event was reinstated. Fetched ONLY for a cancelled
+  // event — every other event has no row to fetch.
+  const {
+    data: cancellation,
+    isLoading: cancellationLoading,
+    isError: cancellationFailed,
+  } = useEventCancellation(id, event?.status === 'cancelled');
   const { institutions } = useInstitutionsWithAccess();
   const { profile } = useAuth();
   const { isSuperAdmin } = usePermissions();
@@ -662,23 +684,46 @@ export default function GeneralEventDetailPage() {
 
         {/* A cancelled event says so, at the top, with the reason it was given.
             House rule: a refusal is explicit and names what happened — the
-            organiser must not have to infer it from a missing "Active" badge. */}
+            organiser must not have to infer it from a missing "Active" badge.
+
+            THIS is where the organiser's words live now, and the only place
+            they are shown. The public page prints a standard line instead
+            (Director's ruling, 13 Sep). Team members lose nothing; the public gains a
+            sentence somebody wrote calmly. */}
         {event.status === 'cancelled' && (
           <div className="flex gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-4">
             <Ban className="mt-0.5 h-5 w-5 shrink-0 text-red-600 dark:text-red-400" />
             <div className="min-w-0 space-y-1">
               <p className="text-sm font-semibold text-red-600 dark:text-red-400">
                 This event is cancelled
-                {formatDate(event.cancelled_at) ? ` · ${formatDate(event.cancelled_at)}` : ''}
+                {formatDate(cancellation?.cancelled_at ?? null)
+                  ? ` · ${formatDate(cancellation?.cancelled_at ?? null)}`
+                  : ''}
               </p>
+              {/* FOUR states, and only one of them may say "no reason was
+                  recorded". That sentence is a claim about what a colleague did,
+                  and the query can end without data for two reasons that are not
+                  that: it is still in flight, or it FAILED (RLS denial, network
+                  — and the hook does not retry, so a failure lands as
+                  isLoading:false with data:undefined, which reads identically to
+                  an empty result). Saying "nobody wrote a reason" because the
+                  read broke is the worst answer available, and this banner is now
+                  the only place the reason is shown. */}
               <p className="break-words text-sm">
-                {event.cancellation_reason || 'No reason was recorded for this cancellation.'}
+                {cancellationLoading
+                  ? 'Loading the reason…'
+                  : cancellationFailed
+                    ? 'The reason could not be loaded — you may not have access to it, or the connection failed. It has not been deleted.'
+                    : cancellation?.reason || 'No reason was recorded for this cancellation.'}
               </p>
               <p className="text-xs text-muted-foreground">
-                Registration is closed and the public page shows this reason. Everyone who
-                registered is still on the list. The rooms and items this event had
-                reserved were released when it was cancelled, and everyone assigned a role
-                was un-assigned — reinstating the event does not bring those back.
+                Registration is closed. This reason is kept for colleagues at your
+                institution who can open this event, and is <strong>not
+                shown on the public page</strong> — the public page says the event is
+                cancelled and gives an address to write to. Everyone who registered is
+                still on the list. The rooms and items this event had reserved were
+                released when it was cancelled, and everyone assigned a role was
+                un-assigned — reinstating the event does not bring those back.
               </p>
             </div>
           </div>
