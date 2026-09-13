@@ -39,6 +39,8 @@ const KEYS = {
     ['event-feedback-my-response', formId, registrationId] as const,
   /** Prefix match over every registration's cached response to one form. */
   myResponseAll: (formId: string) => ['event-feedback-my-response', formId] as const,
+  /** Everything the caller is being asked about, across all events. */
+  myPending: () => ['event-feedback-my-pending'] as const,
 };
 
 function invalidateForms(qc: ReturnType<typeof useQueryClient>, eventId: string) {
@@ -236,6 +238,20 @@ export function useCanSelfRegisterForFeedback(formId: string, enabled: boolean) 
   });
 }
 
+/**
+ * Everything the signed-in person is being asked about, across every event.
+ *
+ * Backs /my-event-feedback, the general-events equivalent of
+ * /learners/my-induction. Each row is already gated by the same functions the
+ * write path uses, so anything listed here can actually be submitted.
+ */
+export function useMyPendingEventFeedback() {
+  return useQuery({
+    queryKey: KEYS.myPending(),
+    queryFn: () => EventFeedbackService.myPendingFeedback(),
+  });
+}
+
 export function useSubmitFeedback(eventId: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -265,6 +281,9 @@ export function useSubmitFeedback(eventId: string) {
       qc.invalidateQueries({ queryKey: KEYS.responses(vars.formId) });
       qc.invalidateQueries({ queryKey: KEYS.summary(vars.formId) });
       qc.invalidateQueries({ queryKey: KEYS.list(eventId) });
+      // The answered form must leave the caller's queue immediately, or the
+      // page they came from still says they owe an answer they just gave.
+      qc.invalidateQueries({ queryKey: KEYS.myPending() });
       toast.success('Thanks — your feedback has been recorded');
     },
     onError: (e: Error) => toast.error(getErrorMessage(e) || 'Could not submit your feedback'),
