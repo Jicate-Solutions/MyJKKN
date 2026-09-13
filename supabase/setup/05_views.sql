@@ -733,9 +733,13 @@ ORDER BY i.name, p.program_name, clp.current_semester;
 -- flow writes a reason.
 --
 -- NOTE, out of scope for the exclusion above and NOT fixed here: this view carries no
--- `security_invoker`, unlike every other marathon_* view (marathon_sponsors,
--- marathon_committees, marathon_tasks, marathon_incidents, … all set it). It therefore
--- runs as owner and does NOT apply `events_public_read`'s `status NOT IN ('draft',
+-- `security_invoker`. Counted from the catalog rather than asserted: exactly three
+-- marathon_* views lack it — marathon_events, marathon_categories and
+-- marathon_registrations, the three 2026-04-09 compat views defined in THIS file — and
+-- all eight added later by migration (marathon_sponsors, marathon_budget_items,
+-- marathon_committees, marathon_tasks, marathon_incidents, marathon_volunteer_checkins,
+-- marathon_sponsor_deliverables, marathon_sponsor_activity_log) set it. Without it the
+-- view runs as OWNER and does NOT apply `events_public_read`'s `status NOT IN ('draft',
 -- 'cancelled')` filter, so a cancelled marathon row is readable through it when it is
 -- not readable through the base table. Adding security_invoker would change what the
 -- live external marathon site can see and needs its own PR and its own verification.
