@@ -248,6 +248,30 @@ export async function isWaitlistAvailable(service: SupabaseClient): Promise<bool
   return !isMissingObject(error);
 }
 
+/**
+ * Does this event owe ANYBODY an outstanding offer?
+ *
+ * A cheap, identity-free question the public page can ask before it decides to
+ * shut its door. It cannot ask "does this visitor hold one" — a guest has no
+ * session — so it asks whether the door needs to exist at all and lets the
+ * route work out who may walk through it.
+ *
+ * Never throws: a failure answers "no", which is the door's existing behaviour.
+ */
+export async function hasOutstandingOffer(
+  service: SupabaseClient,
+  eventId: string
+): Promise<boolean> {
+  const { data, error } = await (service as any)
+    .from('event_registration_waitlist')
+    .select('id')
+    .eq('event_id', eventId)
+    .eq('status', 'offered')
+    .limit(1);
+  if (error) return false;
+  return Boolean(data?.length);
+}
+
 export interface JoinWaitlistInput {
   eventId: string;
   formId: string | null;
@@ -1167,13 +1191,25 @@ export async function getWaitlistPanel(
   }
 
   const entries = orderQueue((rows ?? []) as any[]);
+  const rendered = entries.filter((e) => e.status === 'waiting').length;
+
+  // COUNTED, NOT INFERRED FROM THE PAGE. The waiting read is capped at 500 rows,
+  // so on a longer queue `entries.filter(...).length` reports 500 and the card
+  // tells the organiser that is how many people are waiting. The number is asked
+  // for directly; only the LIST is truncated, and the count is what the card
+  // states.
+  const { count: waitingCount, error: waitingCountError } = await (service as any)
+    .from('event_registration_waitlist')
+    .select('id', { count: 'exact', head: true })
+    .eq('event_id', eventId)
+    .eq('status', 'waiting');
 
   return {
     cap_behavior: capBehavior,
     max_registrations: maxRegistrations,
     taken: await countTaken(service, eventId),
     entries,
-    waiting_count: entries.filter((e) => e.status === 'waiting').length,
+    waiting_count: waitingCountError ? rendered : waitingCount ?? rendered,
     offered_count: entries.filter((e) => e.status === 'offered').length,
     not_yet_available: false,
   };

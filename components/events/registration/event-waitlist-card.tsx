@@ -37,7 +37,6 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
 import type { WaitlistEntry, WaitlistPanel } from '@/lib/services/events/waitlist-service';
 
 /** "3 days", "5 hours", "12 minutes" — how long an offer has been outstanding. */
@@ -145,8 +144,11 @@ export function EventWaitlistCard({ eventId }: { eventId: string }) {
     void load();
   }, [load]);
 
-  if (loading) return <Skeleton className="h-24 w-full" />;
-  if (!state) return null;
+  // NOTHING WHILE WE DO NOT YET KNOW. A skeleton here was shown to every viewer
+  // of every event console, including the 401/403 case the header promises
+  // renders nothing — so "you may not see this queue" flashed a loading box at
+  // people who were about to be shown no box at all.
+  if (loading || !state) return null;
   if (state.kind === 'not_allowed') return null;
 
   if (state.kind === 'failed') {
