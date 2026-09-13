@@ -34,8 +34,10 @@ import {
   WaitlistReadError,
   attachRegistration,
   claimOffer,
+  closeOpenRowsFor,
   countTaken,
   deliverPendingOffers,
+  findClaimInFlight,
   findOutstandingOffer,
   joinWaitlist,
   queuedMessage,
@@ -147,9 +149,15 @@ export async function POST(
     if (ev.registration_open_date && now < new Date(ev.registration_open_date)) {
       return NextResponse.json({ error: 'Registration has not opened yet' }, { status: 422 });
     }
-    if (ev.registration_close_date && now > new Date(ev.registration_close_date)) {
-      return NextResponse.json({ error: 'Registration has closed' }, { status: 422 });
-    }
+    // DEFERRED, NOT DROPPED. An offer made while the window was open must still
+    // be claimable after it closes — the place was promised, it is being held,
+    // and the promotion trigger now refuses to make new offers past the close
+    // date. Refusing the holder here instead would hold that seat for good,
+    // since an offer has no deadline and no revocation. Everybody else is
+    // refused exactly as before, a few checks further down.
+    const registrationClosed = Boolean(
+      ev.registration_close_date && now > new Date(ev.registration_close_date)
+    );
 
     // ---- resolve the form; NEVER trust the posted id blindly ----
     // Without the event_id check a caller could point a submission at another
@@ -345,7 +353,18 @@ export async function POST(
         formRow.id
       );
       if (offer) {
-        if (await claimOffer(svc as any, offer.id)) {
+        const claim = await claimOffer(svc as any, offer.id);
+        if (claim === 'error') {
+          // The write failed. Saying "refresh in a moment" to a permanent
+          // permission or write failure leaves somebody refreshing at an offer
+          // that can never be claimed.
+          logger.error(MODULE, `claimOffer failed for waitlist row ${offer.id}`);
+          return NextResponse.json(
+            { error: 'Your place could not be confirmed just now. Please try again in a moment.' },
+            { status: 500 }
+          );
+        }
+        if (claim === 'claimed') {
           claimedWaitlistId = offer.id;
           claimedForRelease = offer.id;
         } else {
@@ -368,7 +387,39 @@ export async function POST(
             { status: 409 }
           );
         }
+      } else if (
+        await findClaimInFlight(
+          svc as any,
+          eventId,
+          {
+            profileId: selfProfileId,
+            learnerId: selfLearnerId,
+            email: contact.email,
+            phone: contact.phone,
+            name: dto.participant_name.trim(),
+          },
+          formRow.id
+        )
+      ) {
+        // No 'offered' row, but this person has one mid-claim: the CAS committed
+        // and its registration has not. Without this probe the 409 guard above
+        // cannot see them, `taken` reads one low, and a second registration —
+        // and on a paid form a second Razorpay order — is written for the same
+        // held place.
+        return NextResponse.json(
+          {
+            error:
+              'Your place is being taken up right now — another submission for this offer is still going through. Refresh this page in a moment to see your registration.',
+            claim_in_progress: true,
+          },
+          { status: 409 }
+        );
       }
+    }
+
+    // Everybody who is not holding an offer meets the closed window here.
+    if (registrationClosed && !claimedWaitlistId) {
+      return NextResponse.json({ error: 'Registration has closed' }, { status: 422 });
     }
 
     if (!claimedWaitlistId && ev.max_registrations && ev.cap_behavior !== 'allow_overflow') {
@@ -491,10 +542,10 @@ export async function POST(
         await releaseOffer(svc as any, claimedWaitlistId);
         claimedForRelease = null;
       }
-      return NextResponse.json(
-        { error: regErr?.message || 'Failed to register' },
-        { status: 500 }
-      );
+      // Same policy as the catch below: no database text to a stranger. This
+      // line predates that rule and quietly contradicted it three lines up.
+      logger.error(MODULE, 'registration insert failed', regErr);
+      return NextResponse.json({ error: 'Failed to register' }, { status: 500 });
     }
 
     // The queue row now names the registration it became. This is what stops
@@ -519,6 +570,26 @@ export async function POST(
         /* the seat is correct either way; the link is a convenience */
       }
     }
+
+    // AND CLOSE ANY OPEN QUEUE ROW THIS PERSON STILL HOLDS, claimed or not.
+    // Somebody can be on the waiting list and then register through the ordinary
+    // door — capacity raised, or a seat freed without the trigger reaching them.
+    // Their 'waiting' row used to survive that, and a later cancellation then
+    // promoted an already-registered person to 'offered', holding a seat with no
+    // deadline and no way to give it back.
+    await closeOpenRowsFor(
+      svc as any,
+      eventId,
+      {
+        profileId: selfProfileId,
+        learnerId: selfLearnerId,
+        email: contact.email,
+        phone: contact.phone,
+        name: dto.participant_name.trim(),
+      },
+      formRow.id,
+      reg.id
+    );
 
     // ---- payment ----
     if (fee <= 0) {
