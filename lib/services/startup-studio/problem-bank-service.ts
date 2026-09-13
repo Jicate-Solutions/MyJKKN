@@ -29,6 +29,24 @@ const PROBLEM_WITH_DETAILS_SELECT = `
   nif_candidate:ss_nif_candidates(*)
 `;
 
+/**
+ * What a caller may send when scoring a problem — the columns
+ * ss_problem_scores actually has. composite_score is deliberately absent: it
+ * is a generated column and supplying it makes the insert fail. Typed rather
+ * than Record<string, any> because that is what let four field names that
+ * never existed pass typecheck for six months.
+ */
+export interface ProblemScoreInput {
+  severity_score?: number | null;
+  validation_score?: number | null;
+  uniqueness_score?: number | null;
+  feasibility_score?: number | null;
+  impact_potential_score?: number | null;
+  scored_by?: string;
+  scored_by_user?: string | null;
+  notes?: string | null;
+}
+
 export class ProblemBankService extends BaseService {
   // ── List problems with pagination & filters ──────────────────────────
 
@@ -216,22 +234,31 @@ export class ProblemBankService extends BaseService {
 
   static async addScore(
     problemId: string,
-    data: Record<string, any>
+    data: ProblemScoreInput
   ): Promise<SSProblemScore> {
-    // Calculate composite score from provided dimensions
-    const severity = data.severity ?? 0;
-    const frequency = data.frequency ?? 0;
-    const solvability = data.solvability ?? 0;
-    const marketSize = data.market_size ?? 0;
-    const compositeScore =
-      (severity + frequency + solvability + marketSize) / 4;
-
+    // composite_score is a GENERATED column. Postgres computes it itself:
+    //
+    //   (COALESCE(severity_score, 0) + COALESCE(validation_score, 0)
+    //    + COALESCE(uniqueness_score, 0) + COALESCE(feasibility_score, 0)
+    //    + COALESCE(impact_potential_score, 0)) / 5.0
+    //
+    // and REFUSES any insert that supplies a value for it — SQLSTATE 428C9,
+    // "cannot insert a non-DEFAULT value into column composite_score".
+    //
+    // What was here before computed a composite in TypeScript from
+    // data.severity / data.frequency / data.solvability / data.market_size —
+    // four names that have never been columns on this table — and then
+    // inserted that number into the generated column. So every call threw
+    // 428C9 before a row was ever written. ss_problem_scores has sat at zero
+    // rows since March 2026 not because problems score badly, but because
+    // scoring a problem has never once been able to succeed.
+    //
+    // The dimensions go in; the database does the arithmetic.
     const { data: score, error } = await this.supabase
       .from('ss_problem_scores')
       .insert({
         problem_id: problemId,
         ...data,
-        composite_score: compositeScore,
       })
       .select()
       .single();
