@@ -13,10 +13,12 @@
  *                                         This is the ADOPTION lane — the whole
  *                                         point of the module is "every staff
  *                                         member has a booking link."
- *   - admin (meetings.analytics.view)  → the module operator: routing forms,
- *                                         automated reminders, webhooks, the
- *                                         embeddable widget, analytics, and the
- *                                         leadership adoption scoreboard.
+ *   - admin (meetings.analytics.view)  → the module operator: the recurring
+ *                                         series and the rules a month is laid
+ *                                         out against, routing forms, automated
+ *                                         reminders, webhooks, the embeddable
+ *                                         widget, analytics, and the leadership
+ *                                         adoption scoreboard.
  *
  * There is NO ungated baseline lane: people who BOOK a meeting do so from the
  * public internet (`/meet/<handle>`), which is not a guide surface. Every viewer
@@ -287,6 +289,7 @@ export const GUIDES: GuideBook = {
       startHere: { label: 'Open the Adoption scoreboard', href: '/meetings/adoption' },
       journey: [
         'Watch adoption by department',
+        'Set up the meetings that repeat',
         'Route enquiries with forms',
         'Automate reminders and follow-ups',
         'Read the analytics',
@@ -315,6 +318,53 @@ export const GUIDES: GuideBook = {
               detail:
                 'How many bookings happened, by meeting type and over time — the numbers that tell you whether the tool is actually being used, not just set up.',
               link: { label: 'Take me there', href: '/meetings/analytics' },
+            },
+          ],
+        },
+        {
+          id: 'recurring-series',
+          title: 'Set up the meetings that repeat',
+          steps: [
+            {
+              action:
+                'Open **Recurring Series** and define each meeting that repeats — IQAC, the fortnightly and monthly reviews — once.',
+              detail:
+                'This is the list of meetings the institution holds again and again. Adding one here books nothing: it is the list a month is later proposed from, instead of every date being typed out by hand.',
+              platforms: {
+                web: 'Left sidebar → **Meetings** → **Recurring Series**.',
+                mobile: 'Tap **More (⋯)** → **Meetings → Recurring Series**.',
+              },
+              link: { label: 'Take me there', href: '/meetings/series' },
+            },
+            {
+              action:
+                'Give each series a name, how often it repeats, a preferred day and start time, and how long it runs.',
+              detail:
+                'A series repeats weekly, fortnightly, twice a month, or monthly. **Priority when two want the same slot** decides which one goes first — a lower number goes first, and 100 is the default.',
+              tip: 'Turn on **May be held online** for a series that should move online when the host is travelling, rather than being skipped that week. A paused series stays configured but is left out.',
+            },
+            {
+              action:
+                'Open **Scheduling Rules** — what stops a meeting being placed, and who yields when two colleges want the same slot.',
+              detail:
+                'Two rules live here and both are yours to set: blocked periods and the rotation order. Everything about a single series stays on the Recurring Series tab.',
+              platforms: {
+                web: 'Left sidebar → **Meetings** → **Scheduling Rules**.',
+                mobile: 'Tap **More (⋯)** → **Meetings → Scheduling Rules**.',
+              },
+              link: { label: 'Take me there', href: '/meetings/series/rules' },
+            },
+            {
+              action:
+                'Add a **blocked period** for each public holiday and festival, so nothing is placed on those days.',
+              detail:
+                'Name it, pick **Public holiday** or **Festival**, and set the first and last day — leave the last day empty for a single day. A blocked period can apply to every college or to just one.',
+              tip: 'Travel is deliberately not a blocked period. A week away turns a series into an online meeting instead — that is the **May be held online** switch on the series.',
+            },
+            {
+              action: 'Set the **rotation order** over the colleges with the up and down buttons, then save.',
+              detail:
+                'When two colleges want the same slot, whoever went first last cycle goes later this cycle. This is the order rotation walks, so no college stays permanently squeezed.',
             },
           ],
         },
@@ -406,6 +456,9 @@ export const GUIDES: GuideBook = {
     ['Routing form', 'A short set of questions that sends each booker to the right host or pool based on their answers — used most for admission counselling.'],
     ['Workflow', 'An automatic action that fires on a booking — most often a reminder before the meeting or a follow-up after, to cut no-shows.'],
     ['Webhook', 'A message sent to another system the instant a booking is made, confirmed, or cancelled, so that system can react automatically.'],
+    ['Recurring series', 'A meeting that repeats — IQAC, a fortnightly or monthly review. Defined once on the Recurring Series screen; defining one books nothing on its own.'],
+    ['Blocked period', 'A public holiday or festival when no meeting may be placed. Set on Scheduling Rules, either for every college or for just one.'],
+    ['Rotation order', 'The order the colleges take turns in. When two want the same slot, whoever went first last cycle goes later this cycle.'],
     ['Adoption scoreboard', 'The admin view that shows, by department, how many staff have a live booking page — the leading indicator of whether the tool is being used.'],
   ].map(([term, def]) => ({ term, def })),
 
