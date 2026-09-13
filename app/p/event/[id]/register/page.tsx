@@ -125,9 +125,10 @@ export default async function PublicEventRegisterPage({
   // reason kept inside"). `cancellation_reason` is free text typed by an
   // organiser at the worst moment of an event's life, with no review step
   // between the textarea and every person holding the link. It is still
-  // required, still stored exactly as typed, and still shown IN FULL to team
-  // members on /events/[id] — it just stops being published. What the public
-  // needs from this page is the fact and a way to ask; both are here.
+  // required, still stored exactly as typed, and still shown IN FULL on
+  // /events/[id] to colleagues at the institution who can open the event — it
+  // just stops being published. What the public needs from this page is the
+  // fact and a way to ask; both are here.
   //
   // Registration is not stopped HERE, and no second mechanism is added: this
   // page and /api/events/[eventId]/public-register have always refused a
@@ -142,11 +143,20 @@ export default async function PublicEventRegisterPage({
           <p className="mt-1 text-sm font-medium">{ev.name}</p>
           <p className="mt-4 text-sm">{PUBLIC_CANCELLATION_NOTICE.body}</p>
           <p className="mt-2 text-sm">{PUBLIC_CANCELLATION_NOTICE.alreadyRegistered}</p>
+          {/* The subject line is the whole of this address's routing. It goes to
+              ONE institution-wide mailbox for every cancelled event at every
+              college (see PUBLIC_CANCELLATION_CONTACT_EMAIL), so a bare mailto
+              arrives with nothing saying which event it is about. Stamping the
+              event's name and id into the subject costs nothing, needs no
+              schema, and is what makes the reply possible — the reader can look
+              the event up instead of asking which one it was. */}
           <p className="mt-4 text-xs text-muted-foreground">
             {PUBLIC_CANCELLATION_NOTICE.contactPrompt}{' '}
             <a
               className="font-medium underline underline-offset-2"
-              href={`mailto:${PUBLIC_CANCELLATION_CONTACT_EMAIL}`}
+              href={`mailto:${PUBLIC_CANCELLATION_CONTACT_EMAIL}?subject=${encodeURIComponent(
+                `Cancelled event: ${ev.name} (${id})`
+              )}`}
             >
               {PUBLIC_CANCELLATION_CONTACT_EMAIL}
             </a>

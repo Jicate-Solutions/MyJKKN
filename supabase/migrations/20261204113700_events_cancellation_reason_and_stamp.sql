@@ -24,7 +24,9 @@
 --                        /p/event/[id]/register prints a STANDARD cancellation
 --                        notice and an address to write to; it does not read
 --                        this column at all. The words are shown in full on the
---                        /events/[id] console to the event team. NULLABLE.
+--                        /events/[id] console — read by signed-in users at the
+--                        institution who can open the event, a wider room than
+--                        the organiser's own team. NULLABLE.
 --   cancelled_at         when. Stamped here, never sent by a client.
 --   cancelled_by         who, from auth.uid(). Stamped here, never sent by a
 --                        client — a browser that can update the row could
@@ -90,7 +92,8 @@ ALTER TABLE public.events
 COMMENT ON COLUMN public.events.cancellation_reason IS
   'Why the event was called off, in the organiser''s words. INTERNAL, NOT PUBLIC (Director''s ruling, '
   '13 Sep 2026): /p/event/[id]/register prints a standard cancellation notice and does not read this '
-  'column; the words are shown in full only on the /events/[id] console, to the event team. Do not '
+  'column; the words are shown in full only on the /events/[id] console, which is read by signed-in '
+  'users at the institution who can open the event — a wider room than the organiser''s own team. Do not '
   'publish this column through an anon-readable view. NULLABLE: it is required by the '
   'cancel dialog on /events/[id] and by GeneralEventService.cancel(), not by the table, because other '
   'flows on this shared table cancel an event without a reason. Normalised (trimmed, blank to NULL) by '

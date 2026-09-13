@@ -26,8 +26,8 @@
 // either. There is nothing left on this path that a missing column can break.
 //
 // Nothing is lost by the organiser: `cancellation_reason` is still written
-// exactly as typed, and the event console still shows it in full to team
-// members.
+// exactly as typed, and the event console still shows it in full to colleagues
+// at the institution who can open the event.
 
 /**
  * Columns the registration page needs to decide whether it can take a

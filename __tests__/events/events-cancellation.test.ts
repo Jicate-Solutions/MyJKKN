@@ -237,6 +237,17 @@ describe('the public cancellation line — standard, not the organiser\'s free t
     expect(page).toContain('mailto:');
   });
 
+  it('names the event in the mailto subject, because one mailbox takes them all', () => {
+    // PUBLIC_CANCELLATION_CONTACT_EMAIL is ONE institution-wide address for
+    // every cancelled event at every college. A bare mailto arrives with
+    // nothing saying which event it is about, so the subject is the whole of
+    // the routing. Costs nothing and needs no schema — it is independent of
+    // whether the Director keeps this address.
+    expect(page).toMatch(/mailto:\$\{PUBLIC_CANCELLATION_CONTACT_EMAIL\}\?subject=/);
+    expect(page).toContain('encodeURIComponent');
+    expect(page).toMatch(/Cancelled event: \$\{ev\.name\} \(\$\{id\}\)/);
+  });
+
   it('renders no organiser-supplied text in the cancelled branch', () => {
     // The regression this guards: `{reason}` back in the markup. Every string
     // the cancelled branch renders must come from the frozen notice constant.
@@ -268,7 +279,7 @@ describe('GeneralEventService.cancel', () => {
       (e: unknown) => (e as Error).message
     );
     expect(message).not.toMatch(/the people registered will be shown it/i);
-    expect(message).toMatch(/team members/i);
+    expect(message).toMatch(/colleagues at your institution/i);
     expect(message).toMatch(/standard notice/i);
   });
 
@@ -386,8 +397,18 @@ describe('migration 20261204113700 — the trigger must stay compatible with eve
     // authoritative description the next builder or DBA opens. This file is not
     // applied yet, so editing it in place changes both the repo AND what
     // eventually lands in the catalog.
-    const comment = sql.slice(sql.indexOf('COMMENT ON COLUMN public.events.cancellation_reason'));
-    const body = comment.slice(0, comment.indexOf(';'));
+    const start = sql.indexOf('COMMENT ON COLUMN public.events.cancellation_reason');
+    expect(start).toBeGreaterThan(-1);
+    const comment = sql.slice(start);
+    // Terminate on the STATEMENT end (`';`), not on the first semicolon: the
+    // comment text itself contains one ("…does not read this column; the words
+    // are shown…"), which would cut the body a third of the way in and make
+    // every assertion below pass without inspecting the rest.
+    const end = comment.indexOf("';");
+    expect(end).toBeGreaterThan(-1);
+    const body = comment.slice(0, end);
+    expect(body).toContain('Do not');          // the last sentence is inside the slice
+    expect(body.length).toBeGreaterThan(400);  // …and the slice is the whole comment
     expect(body).not.toMatch(/PUBLIC — printed on/);
     expect(body).not.toMatch(/anyone holding the registration link/);
     expect(body).toMatch(/INTERNAL, NOT PUBLIC/);
@@ -408,18 +429,47 @@ describe('no anon-readable relation may republish what the ruling took off the p
   // from before the columns existed.
   const views = readFileSync(join(process.cwd(), 'supabase/setup/05_views.sql'), 'utf8');
 
+  /**
+   * The DO block, with BOTH markers proved present first. An unguarded
+   * `slice(indexOf(a), indexOf(b))` silently inspects the wrong region — or the
+   * whole file — when a marker is missing, which is how a guard passes while
+   * guarding nothing.
+   */
+  const doBlock = (() => {
+    const from = views.indexOf('DO $marathon_events_pin$');
+    const to = views.indexOf('END $marathon_events_pin$;');
+    if (from === -1 || to === -1 || to <= from) return null;
+    return views.slice(from, to);
+  })();
+
+  it('the marathon_events pin block is where this test thinks it is', () => {
+    expect(doBlock).not.toBeNull();
+    expect(doBlock).toContain('CREATE OR REPLACE VIEW public.marathon_events');
+  });
+
   it('marathon_events excludes the cancellation columns when it is rebuilt from scratch', () => {
-    const doBlock = views.slice(
-      views.indexOf('DO $marathon_events_pin$'),
-      views.indexOf('END $marathon_events_pin$;')
-    );
-    expect(doBlock).not.toHaveLength(0);
+    // …inside the NOT IN exclusion specifically, not merely somewhere in the block.
+    const notIn = doBlock!.slice(doBlock!.indexOf('NOT IN ('));
+    const list = notIn.slice(0, notIn.indexOf(')'));
     for (const col of ['cancellation_reason', 'cancelled_at', 'cancelled_by']) {
-      expect(doBlock).toContain(`'${col}'`);
+      expect(list).toContain(`'${col}'`);
     }
-    // …and specifically inside the NOT IN exclusion, not merely somewhere in the block.
-    const notIn = doBlock.slice(doBlock.indexOf('NOT IN ('));
-    expect(notIn.slice(0, notIn.indexOf(')'))).toMatch(/cancellation_reason/);
+  });
+
+  it('repairs an ALREADY-DRIFTED view instead of pinning the exposure in place', () => {
+    // The exclusion above only covers the fresh-rebuild branch. The other
+    // branch reuses the live view's own column list VERBATIM — so an
+    // environment that applied 20261204113700 and rebuilt this view before the
+    // exclusion landed already publishes the three columns, and re-running
+    // setup would freeze that definition forever. Filtering that list is not
+    // the fix either: CREATE OR REPLACE VIEW may append columns, never drop
+    // them, so it would simply error. The drifted view has to be dropped.
+    expect(doBlock).toMatch(/DROP VIEW public\.marathon_events/);
+    expect(doBlock).not.toMatch(/DROP VIEW[^;]*CASCADE/i);
+
+    // …and only when it is actually carrying one of the three.
+    const guard = doBlock!.slice(0, doBlock!.indexOf('DROP VIEW'));
+    expect(guard).toMatch(/column_name IN \(\s*'cancellation_reason', 'cancelled_at', 'cancelled_by'\s*\)/);
   });
 });
 
@@ -457,8 +507,8 @@ describe('the cancel dialog must keep telling the organiser what cancelling rele
   });
 
   it('tells the organiser plainly that the reason is internal', () => {
-    expect(page).toMatch(/not<\/strong> shown on the public event page/i);
-    expect(page).toMatch(/Recorded for your team members/i);
+    expect(page).toMatch(/not<\/strong> shown on\s+the public event page/i);
+    expect(page).toMatch(/colleagues at your institution\s+who can open this event will read it/i);
   });
 });
 

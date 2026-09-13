@@ -714,7 +714,11 @@ ORDER BY i.name, p.program_name, clp.current_semester;
 -- Reading the columns back is the only way to be certain.
 --   * View already exists  -> reuse ITS OWN column list verbatim. The result is
 --     identical to what consumers see today, and because the definition is now
---     explicit the view can never silently gain a column again.
+--     explicit the view can never silently gain a column again. EXCEPT when that
+--     list already carries a cancellation column — see "REPAIR BEFORE PIN"
+--     below; that view is dropped and rebuilt rather than pinned, because
+--     CREATE OR REPLACE VIEW cannot drop a column and pinning would make the
+--     exposure permanent.
 --   * View does not exist (fresh rebuild from setup) -> every column on
 --     public.events EXCEPT the three institutional-numbering columns and the
 --     three cancellation columns.
@@ -747,6 +751,29 @@ DO $marathon_events_pin$
 DECLARE
   v_cols TEXT;
 BEGIN
+  -- REPAIR BEFORE PIN. A marathon_events that ALREADY carries a cancellation
+  -- column is the drifted state the exclusion below exists to end — an
+  -- environment that applied 20261204113700 and then rebuilt this view before
+  -- this fix landed. Reusing such a view's own list verbatim would FREEZE the
+  -- exposure permanently, and filtering the list instead would only error:
+  -- CREATE OR REPLACE VIEW may append columns, never drop them. So the view is
+  -- dropped and rebuilt from `public.events` by the branch below.
+  --
+  -- No CASCADE, deliberately. Nothing in this repository reads marathon_events
+  -- (it serves an external public marathon site over PostgREST; grep of app
+  -- code and of every other view returns nothing), so if some object does
+  -- depend on it the DROP must fail LOUDLY rather than silently take that
+  -- object with it. The GRANTs at the end of this marathon block re-issue the
+  -- view's ACL, which a DROP would otherwise discard.
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'marathon_events'
+       AND column_name IN ('cancellation_reason', 'cancelled_at', 'cancelled_by')
+  ) THEN
+    RAISE WARNING 'marathon_events published a cancellation column to anon — dropping and rebuilding it without one';
+    DROP VIEW public.marathon_events;
+  END IF;
+
   SELECT string_agg(format('e.%I', column_name), ', ' ORDER BY ordinal_position)
     INTO v_cols
     FROM information_schema.columns

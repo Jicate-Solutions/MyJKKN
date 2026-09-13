@@ -154,8 +154,11 @@ function Fact({
  * The reason is REQUIRED and it is INTERNAL. Director's ruling, 13 Sep: "Short
  * public line, full reason kept inside." /p/event/[id]/register shows a
  * standard cancellation line and an address to write to; it does not print this
- * text. The reason is stored exactly as typed and shown in full to team members
- * in the banner further down this page.
+ * text. The reason is stored exactly as typed and shown in full in the banner
+ * further down this page — which is read by colleagues at the institution who
+ * can open this event, NOT only by the organiser's own team. The hint under the
+ * textarea says so, because that is a wider room than "my team" and it changes
+ * what a person writes.
  *
  * The dialog has to SAY that, because it used to promise the opposite — and an
  * organiser who believes they are writing to the public writes a different
@@ -236,9 +239,9 @@ function CancelEventDialog({ event }: { event: Event }) {
             placeholder="e.g. The chief guest is unavailable and no replacement date is fixed yet."
           />
           <p className="text-xs text-muted-foreground">
-            Required. Recorded for your team members and shown on this page — it is{' '}
-            <strong>not</strong> shown on the public event page. Write it for your
-            colleagues and for the record.
+            Required. It is recorded on this page, where colleagues at your institution
+            who can open this event will read it — and it is <strong>not</strong> shown on
+            the public event page. Write it for them and for the record.
           </p>
         </div>
 
@@ -586,7 +589,8 @@ export default function GeneralEventDetailPage() {
                 {event.cancellation_reason || 'No reason was recorded for this cancellation.'}
               </p>
               <p className="text-xs text-muted-foreground">
-                Registration is closed. This reason is kept for team members and is <strong>not
+                Registration is closed. This reason is kept for colleagues at your
+                institution who can open this event, and is <strong>not
                 shown on the public page</strong> — the public page says the event is
                 cancelled and gives an address to write to. Everyone who registered is
                 still on the list. The rooms and items this event had reserved were

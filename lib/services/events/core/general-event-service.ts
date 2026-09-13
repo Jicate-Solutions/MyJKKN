@@ -112,7 +112,7 @@ export class GeneralEventService {
         // an organiser writing to the public writes a different sentence from
         // one writing to their colleagues.
         throw new Error(
-          'Give a reason for cancelling — it is kept on the event page for your team members. The public page shows a standard notice instead.'
+          'Give a reason for cancelling — it is kept on the event page, where colleagues at your institution who can open this event will read it. The public page shows a standard notice instead.'
         );
       }
 
