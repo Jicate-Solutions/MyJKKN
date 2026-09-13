@@ -201,6 +201,14 @@ const PUBLIC_PATHS_SET = new Set([
   //                makes a page reachable — this allowlist is, and '/verify/' and
   //                '/r/' below each shipped 307ing to login by omitting it. Caught
   //                here before merge by fetching the URL with no session.
+  '/events-at-jkkn', // Public events listing — the index that answers "what is on?"
+  //                for somebody who was never sent a registration link. Lives
+  //                under app/(public)/events-at-jkkn/. Spelled out rather than
+  //                '/events' because app/(routes)/events is the AUTHENTICATED
+  //                module and owns that path — the same collision already
+  //                documented for '/course/' and '/learn/' below. Listed as an
+  //                EXACT path, not a prefix: '/events' as a prefix would
+  //                unauthenticate the entire module.
   '/employers/submit', // CDC employer self-submit vacancy form — public, no login
   '/api/admission/leads/refer', // Agent referral API
   '/api/admission/leads/inbound' // Inbound webhook API
