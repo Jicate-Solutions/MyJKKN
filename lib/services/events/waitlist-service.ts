@@ -1009,7 +1009,6 @@ export async function closeOpenRowsFor(
         if (!isMissingObject(error)) {
           // Never silent: a queue row still holding a seat is exactly what the
           // organiser's card exists to show, and somebody has to know to look.
-          // eslint-disable-next-line no-console
           console.error(
             `[${MODULE}] could not close waiting-list row ${hit.row.id} after registration ${registrationId}:`,
             error.message ?? error

@@ -210,6 +210,9 @@ export default async function PublicEventRegisterPage({
     );
   }
 
+  /** The window has shut, but somebody is still owed a place they can claim. */
+  let windowClosedButOwesAnOffer = false;
+
   const now = new Date();
   if (ev.registration_open_date && now < new Date(ev.registration_open_date)) {
     return (
@@ -219,8 +222,24 @@ export default async function PublicEventRegisterPage({
       />
     );
   }
+  // THE CLOSED WINDOW DEFERS FOR SOMEBODY WHO IS OWED A PLACE.
+  //
+  // The route already defers its own close-date refusal for a caller holding an
+  // offer — the offer was made while the window was open, the seat is being
+  // held, and there is no way to withdraw it. But this page is the route's only
+  // caller, so refusing here left that exemption unreachable and the seat
+  // stranded for good. That is the SECOND time a gate on this page has quietly
+  // undone a door the route deliberately left open; the first was capacity.
+  //
+  // The question asked is identity-free — "does this event owe anybody a place"
+  // — because a guest has no session to ask about. The route still decides who
+  // may actually walk through, and now demands a claim code to do it.
   if (ev.registration_close_date && now > new Date(ev.registration_close_date)) {
-    return <Empty title="Registration closed" msg="The registration window for this event has closed." />;
+    const owesAnOffer = await hasOutstandingOffer(svc as never, id);
+    if (!owesAnOffer) {
+      return <Empty title="Registration closed" msg="The registration window for this event has closed." />;
+    }
+    windowClosedButOwesAnOffer = true;
   }
 
   // WHICH form? Same resolution rules as the tournament page, deliberately —
@@ -370,6 +389,12 @@ export default async function PublicEventRegisterPage({
       full = true;
       claimOnly = owesAnOffer;
     }
+  }
+
+  // A shut window is claim-only by definition: nobody new can join from here.
+  if (windowClosedButOwesAnOffer) {
+    full = true;
+    claimOnly = true;
   }
 
   // Hybrid identity: a signed-in JKKN user is linked to their record; a guest

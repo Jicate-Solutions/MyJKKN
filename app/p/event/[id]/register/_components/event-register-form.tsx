@@ -235,7 +235,9 @@ export function EventRegisterForm({
         <p className="mt-3 text-xs text-muted-foreground">
           Nothing has been charged. If a place frees up it is offered to whoever is
           at the front of the queue, and you are told — then you come back to this
-          page and send the form again to take the place up.
+          page and send the form again to take the place up. If an organiser has
+          already phoned you a code, put it in the code box above; if you queued
+          while signed in, sign in and send the form again.
         </p>
       </div>
     );
@@ -290,9 +292,9 @@ export function EventRegisterForm({
               className="mt-1 font-mono tracking-[0.2em]"
             />
             <p className="mt-1 text-[11px] text-muted-foreground">
-              Leave this empty if you are joining the waiting list for the first
-              time. Codes never contain the letter O or I, or a zero or one — if
-              you heard one of those, it was the other character.
+              {claimOnly
+                ? 'Codes never contain the letter O or I, or a zero or one — if you heard one of those, it was the other character.'
+                : 'Leave this empty if you are joining the waiting list for the first time. Codes never contain the letter O or I, or a zero or one — if you heard one of those, it was the other character.'}
             </p>
           </div>
         </div>
