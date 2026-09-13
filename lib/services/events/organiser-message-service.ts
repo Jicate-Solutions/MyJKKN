@@ -45,8 +45,23 @@ export const MESSAGEABLE_STATUSES = ['registered', 'confirmed', 'checked_in'] as
 export const SUBJECT_MAX = 120;
 export const BODY_MAX = 2000;
 
+/** One PostgREST page. Matches this project's db-max-rows so a short page means "done". */
+export const AUDIENCE_PAGE_SIZE = 1000;
+/** Explicit backstop on the paged read. Past this the counts are reported as a floor. */
+export const AUDIENCE_HARD_CAP = 50000;
+/** Batch size for the id→row lookups (learner ids, sender names). */
+const LOOKUP_CHUNK = 500;
+
 export interface RegistrationAudienceRow {
   profile_id: string | null;
+  /**
+   * An internal registrant is often filed by learner, not by profile:
+   * events_registrations carries profile_id, learner_id AND
+   * external_participant_id, and "one of these will be set" (01_tables.sql).
+   * Reading profile_id alone silently drops every learner registered by
+   * learner_id — people who DO have a MyJKKN account and can be reached.
+   */
+  learner_id: string | null;
   status: string | null;
 }
 
@@ -56,11 +71,22 @@ export interface EventMessageAudience {
   /** Distinct profiles that will actually receive the message. */
   recipientIds: string[];
   /**
-   * Registrations in scope with no MyJKKN account (external participants
-   * registered by phone, bulk imports). They are counted, and shown, because a
-   * recipient count that quietly omits them overstates the reach.
+   * Registrations in scope that could not be matched to ANY MyJKKN account —
+   * no profile_id, and no learner_id that resolves to a profile. External
+   * participants registered by phone and most bulk imports land here. They are
+   * counted, and shown, because a recipient count that quietly omits them
+   * overstates the reach.
+   *
+   * NOT "registrants without an account": we cannot prove a person has no
+   * account, only that this registration does not name one we can find.
    */
   unreachable: number;
+  /**
+   * True when the registration read hit its hard cap and stopped. The counts
+   * are then a FLOOR, not the audience — and the board says so rather than
+   * printing a number it cannot stand behind.
+   */
+  truncated: boolean;
 }
 
 export interface SentMessageRow {
@@ -69,11 +95,18 @@ export interface SentMessageRow {
   body: string;
   audience_total: number;
   recipient_count: number;
+  unreachable_count: number;
   delivered_count: number;
   notification_id: string | null;
   sent_by: string | null;
+  /** Resolved from profiles.full_name for display. Null when unknown. */
+  sent_by_name?: string | null;
   sent_at: string;
 }
+
+/** Every column the ledger reads back, in one place so the three reads agree. */
+const SENT_COLUMNS =
+  'id, subject, body, audience_total, recipient_count, unreachable_count, delivered_count, notification_id, sent_by, sent_at';
 
 // ============================================================================
 // Pure helpers (exported for unit tests — no Supabase, no DOM)
@@ -82,20 +115,51 @@ export interface SentMessageRow {
 /**
  * Split raw registration rows into "will be told" and "cannot be told".
  * De-duplicates by profile: one person registered twice hears once.
+ *
+ * `learnerProfiles` maps events_registrations.learner_id → profiles.id (the
+ * identity chain profiles.learner_id → learners_profiles.id). A registration
+ * with no profile_id but a learner_id that resolves IS reachable, and counting
+ * it as "no account" would both understate the blast radius and tell the
+ * organiser a falsehood about a learner who does have one.
  */
-export function resolveAudience(rows: RegistrationAudienceRow[]): EventMessageAudience {
+export function resolveAudience(
+  rows: RegistrationAudienceRow[],
+  learnerProfiles: Record<string, string> = {},
+  truncated = false
+): EventMessageAudience {
   const inScope = rows.filter((r) =>
     (MESSAGEABLE_STATUSES as readonly string[]).includes(r.status ?? '')
   );
+  const resolved = inScope.map((r) => {
+    if (r.profile_id) return r.profile_id;
+    if (r.learner_id && learnerProfiles[r.learner_id]) return learnerProfiles[r.learner_id];
+    return null;
+  });
   const recipientIds = Array.from(
-    new Set(inScope.map((r) => r.profile_id).filter((id): id is string => Boolean(id)))
+    new Set(resolved.filter((id): id is string => Boolean(id)))
   );
-  const reachableRows = inScope.filter((r) => Boolean(r.profile_id)).length;
   return {
     audienceTotal: inScope.length,
     recipientIds,
-    unreachable: inScope.length - reachableRows,
+    unreachable: resolved.filter((id) => !id).length,
+    truncated,
   };
+}
+
+/** The learner ids worth looking up: in scope, and not already reachable. */
+export function unresolvedLearnerIds(rows: RegistrationAudienceRow[]): string[] {
+  return Array.from(
+    new Set(
+      rows
+        .filter(
+          (r) =>
+            (MESSAGEABLE_STATUSES as readonly string[]).includes(r.status ?? '') &&
+            !r.profile_id &&
+            Boolean(r.learner_id)
+        )
+        .map((r) => r.learner_id as string)
+    )
+  );
 }
 
 export interface MessageInput {
@@ -165,6 +229,18 @@ export function fanoutKey(messageRowId: string): string {
   return `events:registrant_message:${messageRowId}`;
 }
 
+// The compose-side idempotency rule — the token is bound to the message's
+// CONTENT, not to the attempt, so a retry of a send that looked like it failed
+// lands on the same ledger row instead of blasting twice. Lives in its own
+// import-free module because the board needs it and this file must never reach
+// the client bundle (it imports the notification fanout).
+export {
+  composeKey,
+  mintComposeToken,
+  tokenForCompose,
+  type ComposeToken,
+} from './organiser-message-compose';
+
 // ============================================================================
 // Reads
 // ============================================================================
@@ -183,30 +259,98 @@ export async function getAudience(
   service: SupabaseClient,
   eventId: string
 ): Promise<EventMessageAudience> {
-  const { data, error } = await service
-    .from('events_registrations')
-    .select('profile_id, status')
-    .eq('event_id', eventId);
-  if (error) throw error;
-  return resolveAudience((data ?? []) as RegistrationAudienceRow[]);
+  const rows: RegistrationAudienceRow[] = [];
+  let truncated = false;
+
+  // PAGED, not a bare select. PostgREST caps a response at db-max-rows (1000 on
+  // this project) and returns the truncated page with NO error, so an unpaged
+  // read would quietly print "1000 registrants will receive this" for a 2,400-
+  // person marathon — a lie about the exact number this whole feature exists to
+  // make honest. `.order('id')` gives the pages a stable order to walk.
+  for (let from = 0; from < AUDIENCE_HARD_CAP; from += AUDIENCE_PAGE_SIZE) {
+    const { data, error } = await service
+      .from('events_registrations')
+      .select('profile_id, learner_id, status')
+      .eq('event_id', eventId)
+      .order('id', { ascending: true })
+      .range(from, from + AUDIENCE_PAGE_SIZE - 1);
+    if (error) throw error;
+    const page = (data ?? []) as RegistrationAudienceRow[];
+    rows.push(...page);
+    if (page.length < AUDIENCE_PAGE_SIZE) break;
+    // The cap is the explicit backstop: no event in this system has 50,000
+    // registrations, and if one ever does the board must say the count is a
+    // floor rather than pretend it is the audience.
+    if (from + AUDIENCE_PAGE_SIZE >= AUDIENCE_HARD_CAP) truncated = true;
+  }
+
+  // Registrations filed by learner rather than by profile still belong to a
+  // person with an account — resolve them instead of writing them off.
+  const learnerIds = unresolvedLearnerIds(rows);
+  const learnerProfiles: Record<string, string> = {};
+  for (let i = 0; i < learnerIds.length; i += LOOKUP_CHUNK) {
+    const chunk = learnerIds.slice(i, i + LOOKUP_CHUNK);
+    const { data, error } = await service
+      .from('profiles')
+      .select('id, learner_id')
+      .in('learner_id', chunk);
+    if (error) throw error;
+    for (const p of (data ?? []) as { id: string; learner_id: string | null }[]) {
+      if (p.learner_id && p.id && !learnerProfiles[p.learner_id]) {
+        learnerProfiles[p.learner_id] = p.id;
+      }
+    }
+  }
+
+  return resolveAudience(rows, learnerProfiles, truncated);
 }
 
-/** What has already been sent, newest first. Read under the caller's RLS. */
+/**
+ * What has already been sent, newest first, with the sender's name resolved.
+ *
+ * The log is read under the caller's RLS; the NAMES are read with the
+ * service-role client. `profiles` is not broadly readable and a sender who is
+ * outside the reader's institution would otherwise come back null — which is
+ * how "who sent it" ends up promised in the header and never shown. The only
+ * thing crossing the boundary is a full name already attached to a message
+ * these readers are authorised to see.
+ */
 export async function listSentMessages(
   db: SupabaseClient,
   eventId: string,
-  limit = 20
+  limit = 20,
+  service?: SupabaseClient
 ): Promise<SentMessageRow[]> {
   const { data, error } = await db
     .from('event_registrant_messages')
-    .select(
-      'id, subject, body, audience_total, recipient_count, delivered_count, notification_id, sent_by, sent_at'
-    )
+    .select(SENT_COLUMNS)
     .eq('event_id', eventId)
     .order('sent_at', { ascending: false })
     .limit(limit);
   if (error) throw error;
-  return (data ?? []) as SentMessageRow[];
+  const rows = (data ?? []) as SentMessageRow[];
+  return withSenderNames(rows, service ?? db);
+}
+
+/** Attach profiles.full_name to each row's sent_by. Never throws the read away. */
+export async function withSenderNames(
+  rows: SentMessageRow[],
+  reader: SupabaseClient
+): Promise<SentMessageRow[]> {
+  const ids = Array.from(new Set(rows.map((r) => r.sent_by).filter((id): id is string => Boolean(id))));
+  if (ids.length === 0) return rows.map((r) => ({ ...r, sent_by_name: null }));
+
+  const names: Record<string, string> = {};
+  for (let i = 0; i < ids.length; i += LOOKUP_CHUNK) {
+    const { data } = await reader
+      .from('profiles')
+      .select('id, full_name')
+      .in('id', ids.slice(i, i + LOOKUP_CHUNK));
+    for (const p of (data ?? []) as { id: string; full_name: string | null }[]) {
+      if (p.id && p.full_name) names[p.id] = p.full_name;
+    }
+  }
+  return rows.map((r) => ({ ...r, sent_by_name: (r.sent_by && names[r.sent_by]) || null }));
 }
 
 // ============================================================================
@@ -249,13 +393,12 @@ export async function sendRegistrantMessage(
       body: input.body,
       audience_total: audience.audienceTotal,
       recipient_count: audience.recipientIds.length,
+      unreachable_count: audience.unreachable,
       delivered_count: 0,
       sent_by: actorId,
       client_token: input.clientToken,
     })
-    .select(
-      'id, subject, body, audience_total, recipient_count, delivered_count, notification_id, sent_by, sent_at'
-    )
+    .select(SENT_COLUMNS)
     .maybeSingle();
 
   let row = claimed as SentMessageRow | null;
@@ -266,9 +409,7 @@ export async function sendRegistrantMessage(
     if (claimErr.code !== '23505') throw claimErr;
     const { data: existing, error: readErr } = await service
       .from('event_registrant_messages')
-      .select(
-        'id, subject, body, audience_total, recipient_count, delivered_count, notification_id, sent_by, sent_at'
-      )
+      .select(SENT_COLUMNS)
       .eq('event_id', eventId)
       .eq('client_token', input.clientToken)
       .maybeSingle();
@@ -276,7 +417,9 @@ export async function sendRegistrantMessage(
     row = existing as SentMessageRow | null;
     if (!row) throw claimErr;
     // An earlier attempt that genuinely delivered: say so, send nothing.
-    if (!isUndelivered(row)) return { message: row, deduplicated: true };
+    if (!isUndelivered(row)) {
+      return { message: (await withSenderNames([row], service))[0], deduplicated: true };
+    }
   }
 
   if (!row) throw new Error('Could not record the message before sending it.');
@@ -304,19 +447,53 @@ export async function sendRegistrantMessage(
 
   const { data: updated, error: updateErr } = await service
     .from('event_registrant_messages')
-    .update({
-      delivered_count: outcome.notified,
-      notification_id: outcome.notificationId ?? null,
-    })
+    .update(ledgerUpdateFor(row, audience.recipientIds.length, outcome))
     .eq('id', row.id)
-    .select(
-      'id, subject, body, audience_total, recipient_count, delivered_count, notification_id, sent_by, sent_at'
-    )
+    .select(SENT_COLUMNS)
     .maybeSingle();
   if (updateErr) throw updateErr;
 
+  const message = (updated as SentMessageRow | null) ?? row;
   return {
-    message: (updated as SentMessageRow | null) ?? row,
+    message: (await withSenderNames([message], service))[0],
     deduplicated: outcome.skipped === 'idempotent',
+  };
+}
+
+/**
+ * What to write back to the ledger after a fanout.
+ *
+ * The naive `delivered_count: outcome.notified` is wrong on the one path that
+ * matters. `fanoutNotification` returns `notified: 0` when it skips as
+ * `idempotent` — 0 rows were INSERTED because the notification already existed
+ * — but it calls ensureLinks() first, which guarantees a user_notifications row
+ * for every recipient. So the message IS delivered, and writing 0 tells the
+ * organiser "Delivered to 0 of 34" about a message all 34 people can read.
+ * That reads as a failure, and the organiser's next move is to send it again —
+ * which is precisely the duplicate blast the token guard exists to prevent.
+ *
+ * Pure and exported so that behaviour is pinned by a test rather than by a
+ * comment.
+ */
+export function ledgerUpdateFor(
+  row: Pick<SentMessageRow, 'delivered_count' | 'notification_id'>,
+  recipientCount: number,
+  outcome: { notified: number; notificationId?: string | null; skipped?: string }
+): { delivered_count: number; notification_id: string | null } {
+  const notificationId = outcome.notificationId ?? row.notification_id ?? null;
+
+  if (outcome.skipped === 'idempotent') {
+    // ensureLinks() has just re-asserted a link for every recipient, so every
+    // one of them holds the notification. Never regress a count that was
+    // already recorded higher.
+    return {
+      delivered_count: Math.max(row.delivered_count ?? 0, recipientCount),
+      notification_id: notificationId,
+    };
+  }
+
+  return {
+    delivered_count: Math.max(row.delivered_count ?? 0, outcome.notified),
+    notification_id: notificationId,
   };
 }

@@ -27,14 +27,19 @@ export interface EventsNotificationRow {
 }
 
 /**
- * What the organiser sees BEFORE pressing send: how many registrants will
- * actually receive the message, how many are registered at all, and how many
- * of those have no MyJKKN account and will therefore hear nothing in-app.
+ * What the organiser sees BEFORE pressing send: how many people will actually
+ * receive the message, how many registrations are in scope at all, and how many
+ * of those match no MyJKKN account and will therefore hear nothing in-app.
+ *
+ * `unreachable` is NOT `audience_total - recipient_count`: one person
+ * registered twice makes those two differ without anybody being unreachable.
  */
 export interface EventMessageAudienceSummary {
   recipient_count: number;
   audience_total: number;
   unreachable: number;
+  /** The registration read hit its cap — treat the counts as a floor. */
+  truncated?: boolean;
 }
 
 /** One message that has already gone out. */
@@ -44,9 +49,12 @@ export interface EventRegistrantMessage {
   body: string;
   audience_total: number;
   recipient_count: number;
+  unreachable_count: number;
   delivered_count: number;
   notification_id: string | null;
   sent_by: string | null;
+  /** profiles.full_name of the sender, resolved server-side. */
+  sent_by_name: string | null;
   sent_at: string;
 }
 

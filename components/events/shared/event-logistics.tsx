@@ -145,9 +145,15 @@ export const EVENT_LOGISTICS_TABS: EventLogisticsTab[] = [
     render: ({ eventId, canManage }) => <KitBoard eventId={eventId} canManage={canManage} />,
   },
   // The organiser's one manual, deliberate message to the event's registrants.
-  // Appended, per the registry rule at the top of this file. The board renders
-  // an explicit "you do not have access" card rather than disappearing for a
-  // non-manager, so it is NOT added to SENSITIVE_TAB_KEYS below.
+  // Appended, per the registry rule at the top of this file.
+  //
+  // NOT in SENSITIVE_TAB_KEYS, and NOT gated on canManage — both for the same
+  // reason. `canManage` on /events/[id] is canEditEvent(), which recognises
+  // neither the event's in-charge nor an ordinary admin, while the server gate
+  // fn_can_manage_event_messages recognises both. Hiding or disabling on
+  // canManage would lock out two of the four roles allowed to send. The board
+  // asks the server and renders an explicit "you do not have access" card when
+  // the answer is no (house rule #27); no registrant data renders in that state.
   {
     key: 'messages',
     label: 'Messages',
@@ -173,10 +179,24 @@ export const EVENT_LOGISTICS_TABS: EventLogisticsTab[] = [
 const SENSITIVE_TAB_KEYS = ['sponsors', 'budget', 'incidents'] as const;
 
 /**
- * The event's primary record. Always shown, even when `enabledTools` names a
- * narrower set — an event whose registrations you cannot reach is not a console.
+ * Tabs that are shown even when `enabledTools` names a narrower set.
+ *
+ * `registrations` — the event's primary record. An event whose registrations
+ * you cannot reach is not a console.
+ *
+ * `messages` — the organiser's only way to tell registrants anything. It is
+ * NOT opt-in, and cannot be, for a reason worth stating: `enabled_tools` is
+ * written once by the create wizard and never edited afterwards (the edit
+ * dialog merges `config` without touching it, and EVENT_TOOL_KEYS in
+ * types/events-presets.ts does not list `messages` at all, so no picker can
+ * add it). A selection saved before this tab existed therefore cannot name it,
+ * and no operator anywhere in the product can turn it on. Left to opt in, the
+ * tab would be permanently invisible on every event that chose its tools —
+ * built, wired, and unreachable, which is the failure mode this codebase keeps
+ * repeating. Opt-out is not offered because "we could not tell the registrants"
+ * is never the better default.
  */
-const ALWAYS_ON_TAB_KEY = 'registrations';
+const ALWAYS_ON_TAB_KEYS = ['registrations', 'messages'] as const;
 
 function tabVisible(
   tab: EventLogisticsTab,
@@ -200,7 +220,9 @@ function tabVisible(
   // silently blank the console for them.
   if (!enabledTools?.length) return true;
 
-  return tab.key === ALWAYS_ON_TAB_KEY || enabledTools.includes(tab.key);
+  return (
+    (ALWAYS_ON_TAB_KEYS as readonly string[]).includes(tab.key) || enabledTools.includes(tab.key)
+  );
 }
 
 /** Exported for tests — the filter above with no React around it. */

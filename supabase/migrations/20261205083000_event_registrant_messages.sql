@@ -52,11 +52,17 @@ CREATE TABLE IF NOT EXISTS public.event_registrant_messages (
   subject           TEXT NOT NULL,
   body              TEXT NOT NULL,
 
-  -- Resolved at send time, never recomputed. audience_total is every
-  -- registration in scope; recipient_count is the subset that had an account
-  -- to deliver to; delivered_count is what the fanout actually wrote.
+  -- Resolved at send time, never recomputed. audience_total counts
+  -- REGISTRATIONS in scope; recipient_count counts distinct PEOPLE the message
+  -- was addressed to; unreachable_count counts the registrations that could not
+  -- be matched to a MyJKKN account at all. The three are stored separately
+  -- because they are not derivable from one another: one person registered
+  -- twice makes audience_total exceed recipient_count without anyone being
+  -- unreachable, so `audience_total - recipient_count` is NOT the unreachable
+  -- number and must never be shown as one.
   audience_total    INTEGER NOT NULL DEFAULT 0,
   recipient_count   INTEGER NOT NULL DEFAULT 0,
+  unreachable_count INTEGER NOT NULL DEFAULT 0,
   delivered_count   INTEGER NOT NULL DEFAULT 0,
 
   -- The notifications row this send produced. NULL means the fanout never
@@ -75,9 +81,11 @@ CREATE TABLE IF NOT EXISTS public.event_registrant_messages (
 COMMENT ON TABLE public.event_registrant_messages IS
   'One row per manual message an organiser sent to an event''s registrants. The message itself is delivered through the canonical notification fanout; this table exists so the organiser can see what was already said, by whom, and how far it reached — and so a second click cannot silently repeat it.';
 COMMENT ON COLUMN public.event_registrant_messages.audience_total IS
-  'Registrations in scope at send time (status registered/confirmed/checked_in), including those with no MyJKKN account. Always >= recipient_count.';
+  'REGISTRATIONS in scope at send time (status registered/confirmed/checked_in), including those that could not be matched to a MyJKKN account.';
 COMMENT ON COLUMN public.event_registrant_messages.recipient_count IS
-  'Distinct profiles the message was addressed to. External registrants with no profile_id are counted in audience_total but not here — they were not reachable in-app.';
+  'Distinct PEOPLE the message was addressed to. A registration is matched to a person by events_registrations.profile_id, or by learner_id resolved through profiles.learner_id — an internal learner registered without profile_id is therefore a recipient, not an unreachable.';
+COMMENT ON COLUMN public.event_registrant_messages.unreachable_count IS
+  'Registrations in scope that could NOT be matched to any MyJKKN account (no profile_id, and no learner_id that resolves to a profile) and therefore received nothing in-app. Stored rather than derived: audience_total - recipient_count is a different number, because one person registered twice inflates audience_total without anyone being unreachable.';
 COMMENT ON COLUMN public.event_registrant_messages.delivered_count IS
   'user_notifications rows the fanout reported writing. 0 with notification_id NULL means the attempt failed and may be retried under the same client_token.';
 COMMENT ON COLUMN public.event_registrant_messages.client_token IS
@@ -135,14 +143,56 @@ GRANT  EXECUTE ON FUNCTION public.fn_can_manage_event_messages(uuid) TO authenti
 -- RLS
 -- ---------------------------------------------------------------------------
 -- READ-ONLY for `authenticated`, and only for people who may manage the event.
--- There is no INSERT/UPDATE/DELETE grant and no such policy: every write comes
--- from the API route under the service-role client, after it has checked the
--- gate above and resolved the audience itself. A client that could write here
--- directly could claim a send that never happened, or claim a recipient count
--- that was never resolved — and this table's only job is to be believed.
-REVOKE ALL ON public.event_registrant_messages FROM anon, PUBLIC;
+-- Every write comes from the API route under the service-role client, after it
+-- has checked the gate above and resolved the audience itself. A client that
+-- could write here directly could claim a send that never happened, or claim a
+-- recipient count that was never resolved — and this table's only job is to be
+-- believed.
+--
+-- ⚠️ `authenticated` MUST be named in the REVOKE, not just anon and PUBLIC.
+-- Supabase ships `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES
+-- TO anon, authenticated, service_role`, so the moment CREATE TABLE runs,
+-- `authenticated` holds its OWN direct INSERT/UPDATE/DELETE grant — one that is
+-- entirely independent of PUBLIC and therefore survives
+-- `REVOKE ALL ... FROM anon, PUBLIC`. Revoking only those two leaves the table
+-- writable by every signed-in user and the "append-only" claim above false.
+-- (Repo rule; see memory feedback_authenticated_holds_a_direct_table_grant_too.)
+REVOKE ALL ON public.event_registrant_messages FROM anon, authenticated, PUBLIC;
 GRANT SELECT ON public.event_registrant_messages TO authenticated;
 GRANT SELECT, INSERT, UPDATE ON public.event_registrant_messages TO service_role;
+
+-- Assert the result rather than trusting the statements above: a grant that did
+-- not take is invisible until someone writes a row they should not have been
+-- able to write. This fails the migration loudly instead.
+DO $assert$
+DECLARE
+  v_priv text;
+BEGIN
+  FOREACH v_priv IN ARRAY ARRAY['INSERT', 'UPDATE', 'DELETE'] LOOP
+    IF has_table_privilege('authenticated', 'public.event_registrant_messages', v_priv) THEN
+      RAISE EXCEPTION
+        'event_registrant_messages is not append-only: role authenticated still holds % on it', v_priv;
+    END IF;
+    IF has_table_privilege('anon', 'public.event_registrant_messages', v_priv) THEN
+      RAISE EXCEPTION
+        'event_registrant_messages is writable by anon: role anon still holds % on it', v_priv;
+    END IF;
+  END LOOP;
+
+  IF has_table_privilege('anon', 'public.event_registrant_messages', 'SELECT') THEN
+    RAISE EXCEPTION 'event_registrant_messages is readable by anon';
+  END IF;
+
+  -- The grants that MUST be present, so a copy-paste that revoked too much
+  -- fails here rather than at the first organiser who opens the tab.
+  IF NOT has_table_privilege('authenticated', 'public.event_registrant_messages', 'SELECT') THEN
+    RAISE EXCEPTION 'event_registrant_messages is unreadable by authenticated — the sent log would never render';
+  END IF;
+  IF NOT has_table_privilege('service_role', 'public.event_registrant_messages', 'INSERT') THEN
+    RAISE EXCEPTION 'event_registrant_messages cannot be written by service_role — no message could ever be recorded';
+  END IF;
+END
+$assert$;
 
 ALTER TABLE public.event_registrant_messages ENABLE ROW LEVEL SECURITY;
 

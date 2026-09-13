@@ -142,16 +142,20 @@ export async function GET(
     if (auth.denied) return auth.denied;
 
     const audience = await getAudience(auth.service, eventId);
-    const sent = await listSentMessages(auth.db, eventId);
+    const sent = await listSentMessages(auth.db, eventId, 20, auth.service);
 
     return NextResponse.json({
       success: true,
       audience: {
-        // Distinct people who will actually receive it.
+        // Distinct people who will actually receive it — including learners
+        // registered by learner_id rather than profile_id.
         recipient_count: audience.recipientIds.length,
-        // Everyone registered, including those with no account to receive it.
+        // Every registration in scope, matched or not.
         audience_total: audience.audienceTotal,
+        // Registrations that match no MyJKKN account we can find.
         unreachable: audience.unreachable,
+        // True when the paged read hit its cap: the counts are then a floor.
+        truncated: audience.truncated,
       },
       messages: sent,
     });
@@ -202,7 +206,7 @@ export async function POST(
         {
           success: false,
           error:
-            'Nobody registered for this event has a MyJKKN account yet, so there is no one to message in the app.',
+            'No registration for this event could be matched to a MyJKKN account, so there is no one to message in the app.',
           code: 'NO_RECIPIENTS',
         },
         { status: 409 }

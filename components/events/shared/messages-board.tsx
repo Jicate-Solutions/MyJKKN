@@ -10,15 +10,31 @@
 // Three things this board insists on, because it sends real messages to real
 // people:
 //   1. The recipient count is shown BEFORE the send, next to the number of
-//      registrants who have no account and will therefore hear nothing.
+//      registrants who match no account and will therefore hear nothing.
 //   2. Sending takes a second, explicit confirmation that repeats the count.
 //   3. Everything already sent is listed, with who sent it and how far it
 //      reached — so the organiser can see they have already said this.
 //
-// Denial is explicit, never a redirect and never an empty panel (house rule
-// #27): someone who may not message this event is told so, and told who can.
+// ---------------------------------------------------------------------------
+// WHO DECIDES ACCESS — the server, and only the server
+// ---------------------------------------------------------------------------
+// This board does NOT gate on the host page's `canManage` prop, and that is
+// deliberate rather than lax. On /events/[id] — every non-tournament event —
+// `canManage` is canEditEvent(), which mirrors events_auth_update: super admin,
+// the creator, or the grandfather clause for creator-less rows. It recognises
+// NEITHER the event's appointed in-charge (events.config->incharges) NOR an
+// ordinary admin. Both of those ARE allowed by fn_can_manage_event_messages,
+// which is the authority the route actually enforces. Gating the board on
+// `canManage` therefore handed a "you do not have access" card to two of the
+// four roles this feature exists for, on almost every event in the system,
+// without ever asking the server.
+//
+// So: the panel request always goes out, and the denial card renders only when
+// the SERVER refuses. Exactly the reasoning the post-event feedback card on the
+// same page already carries. Denial stays explicit, never a redirect and never
+// an empty panel (house rule #27).
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -49,6 +65,12 @@ import {
   EventMessageError,
   type EventRegistrantMessage,
 } from '@/lib/services/events/notification-service';
+import {
+  composeKey,
+  mintComposeToken,
+  tokenForCompose,
+  type ComposeToken,
+} from '@/lib/services/events/organiser-message-compose';
 
 const SUBJECT_MAX = 120;
 const BODY_MAX = 2000;
@@ -56,17 +78,6 @@ const BODY_MAX = 2000;
 const NO_ACCESS_TITLE = 'You do not have access to this';
 const NO_ACCESS_BODY =
   'Messaging an event\'s registrants is limited to the event\'s creator, the person named as its in-charge, and administrators. Ask an event coordinator to add you as in-charge if you need to send updates.';
-
-function mintToken(): string {
-  // crypto.randomUUID is present in every browser this app supports; the
-  // fallback keeps a non-secure context (and jsdom) from throwing.
-  const c = globalThis.crypto as Crypto | undefined;
-  if (c?.randomUUID) return c.randomUUID();
-  return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, (ch) => {
-    const n = Number(ch);
-    return (n ^ (Math.floor(Math.random() * 256) & (15 >> (n / 4)))).toString(16);
-  });
-}
 
 function formatWhen(iso: string): string {
   const d = new Date(iso);
@@ -96,6 +107,10 @@ function DeniedCard() {
 
 function SentMessageRow({ message }: { message: EventRegistrantMessage }) {
   const failed = !message.notification_id && message.delivered_count === 0;
+  // The unreachable number is STORED, never derived: audience_total counts
+  // registrations and recipient_count counts people, so one learner registered
+  // twice would otherwise be reported as someone who heard nothing.
+  const unreachable = message.unreachable_count ?? 0;
   return (
     <li className="rounded-md border bg-background p-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -104,16 +119,20 @@ function SentMessageRow({ message }: { message: EventRegistrantMessage }) {
       </div>
       <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{message.body}</p>
       <p className="mt-2 text-xs text-muted-foreground">
+        {/* "Who sent it" — promised in this board's header and in the PR, so it
+            is shown. sent_by_name is resolved server-side; an unresolvable
+            sender says so rather than silently collapsing to nothing. */}
+        Sent by {message.sent_by_name ?? (message.sent_by ? 'a former account' : 'an unknown sender')}.{' '}
         {failed ? (
           <span className="text-destructive">
             This send did not complete — nothing was delivered. Send it again.
           </span>
         ) : (
           <>
-            Delivered to {message.delivered_count} of {message.recipient_count} registrants with an
-            account
-            {message.audience_total > message.recipient_count
-              ? ` (${message.audience_total - message.recipient_count} more registered without one)`
+            Delivered to {message.delivered_count} of {message.recipient_count}{' '}
+            {message.recipient_count === 1 ? 'registrant' : 'registrants'} we could reach
+            {unreachable > 0
+              ? ` (${unreachable} more could not be matched to a MyJKKN account)`
               : ''}
             .
           </>
@@ -125,22 +144,44 @@ function SentMessageRow({ message }: { message: EventRegistrantMessage }) {
 
 export function MessagesBoard({
   eventId,
-  canManage,
+  canManage: _canManage,
 }: {
   eventId: string;
-  canManage: boolean;
+  /**
+   * Accepted so this board drops into the shared tab registry like every other
+   * one — and deliberately UNUSED as an authority. See the file header: on
+   * /events/[id] this prop is canEditEvent(), which does not recognise the
+   * event's in-charge or an ordinary admin, both of whom
+   * fn_can_manage_event_messages allows. Gating on it locked out the people the
+   * feature is for. The server decides; this board renders the server's answer.
+   */
+  canManage?: boolean;
 }) {
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
-  const [token, setToken] = useState(() => mintToken());
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [result, setResult] = useState<{ delivered: number; repeated: boolean } | null>(null);
 
-  // The host page's own notion of "can manage" short-circuits the request, but
-  // it is NOT the authority: the route re-checks fn_can_manage_event_messages
-  // and the branch below renders its denial too.
-  const panel = useEventMessagePanel(eventId, canManage);
+  // The idempotency token is bound to the CONTENT being sent and held in a ref,
+  // not in state, so a retry reads the same token synchronously rather than
+  // whatever a pending re-render has settled on. See
+  // lib/services/events/organiser-message-compose.ts for why a failed send must
+  // NOT re-mint it.
+  const composeToken = useRef<ComposeToken | null>(null);
+  const tokenFor = (subjectText: string, bodyText: string): string => {
+    const next = tokenForCompose(
+      composeToken.current,
+      composeKey(subjectText, bodyText),
+      mintComposeToken
+    );
+    composeToken.current = next;
+    return next.token;
+  };
+
+  // ALWAYS asks. The host page's `canManage` is not consulted — it is wrong for
+  // the in-charge and for an ordinary admin on every non-tournament event.
+  const panel = useEventMessagePanel(eventId);
   const send = useSendRegistrantMessage(eventId);
 
   const deniedByServer =
@@ -155,7 +196,7 @@ export function MessagesBoard({
     [subject, body, recipients]
   );
 
-  if (!canManage || deniedByServer) return <DeniedCard />;
+  if (deniedByServer) return <DeniedCard />;
 
   if (panel.isLoading) {
     return (
@@ -186,8 +227,14 @@ export function MessagesBoard({
 
   const doSend = async () => {
     setFormError(null);
+    const trimmedSubject = subject.trim();
+    const trimmedBody = body.trim();
     try {
-      const outcome = await send.mutateAsync({ subject: subject.trim(), body: body.trim(), clientToken: token });
+      const outcome = await send.mutateAsync({
+        subject: trimmedSubject,
+        body: trimmedBody,
+        clientToken: tokenFor(trimmedSubject, trimmedBody),
+      });
       setConfirmOpen(false);
       setResult({
         delivered: outcome.message.delivered_count,
@@ -195,15 +242,15 @@ export function MessagesBoard({
       });
       setSubject('');
       setBody('');
-      // A fresh token: the next message is a new message, never a repeat of
-      // the one just sent.
-      setToken(mintToken());
+      // Only a CONFIRMED send clears the binding: the next message is a new
+      // message, never a repeat of the one just sent.
+      composeToken.current = null;
     } catch (error) {
       setConfirmOpen(false);
-      // The token is re-minted on failure too, so a retry of a send that may
-      // have half-happened is judged on its own — the fanout's idempotency key
-      // is what stops a genuine duplicate.
-      setToken(mintToken());
+      // The token is deliberately KEPT. This is the path a human repeats — an
+      // error they may well have been shown after the send already committed —
+      // and re-minting here would let the retry claim a fresh ledger row, a
+      // fresh fanout key, and deliver the same announcement twice.
       setFormError(
         error instanceof Error ? error.message : 'Could not send the message. Please try again.'
       );
@@ -222,10 +269,25 @@ export function MessagesBoard({
               {recipients === 1 ? 'registrant' : 'registrants'} will receive this
             </span>
           </div>
+          {/* NOT "registered without a MyJKKN account". A registration is
+              matched to a person by profile_id OR by learner_id resolved
+              through profiles.learner_id; what is left is a registration we
+              could not match to an account, which is not the same claim as the
+              person not having one. Saying the stronger thing tells an
+              organiser a learner has no account when the registration desk
+              simply filed them by phone. */}
           {audience && audience.unreachable > 0 ? (
             <span className="text-xs text-muted-foreground">
-              {audience.unreachable} more registered without a MyJKKN account and will not see an
-              in-app message. Reach them by phone.
+              {audience.unreachable}{' '}
+              {audience.unreachable === 1 ? 'registration' : 'registrations'} could not be matched to
+              a MyJKKN account, so those people will not see an in-app message. Reach them by phone.
+            </span>
+          ) : null}
+          {audience?.truncated ? (
+            <span className="flex items-center gap-1.5 text-xs text-amber-700">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              This event has more registrations than the panel reads in one go — the number above is
+              a minimum, and the message will reach at least that many.
             </span>
           ) : null}
         </CardContent>
@@ -277,8 +339,8 @@ export function MessagesBoard({
 
         {recipients === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Nobody registered for this event has a MyJKKN account yet, so there is no one to message
-            in the app.
+            No registration for this event could be matched to a MyJKKN account, so there is no one
+            to message in the app.
           </p>
         ) : null}
 
