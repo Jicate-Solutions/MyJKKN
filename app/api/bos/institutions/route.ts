@@ -82,7 +82,7 @@ export async function GET() {
 
     visible.sort((a, b) => a.name.localeCompare(b.name));
 
-    return withReferenceListCache(NextResponse.json(visible));
+    return withReferenceListCache(NextResponse.json(visible), visible.length);
   } catch (error) {
     console.error('[bos/institutions] GET error:', error);
     return NextResponse.json({ error: 'Failed to fetch institutions' }, { status: 500 });

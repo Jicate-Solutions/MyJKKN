@@ -15,8 +15,10 @@ export async function GET(request: NextRequest) {
 
     if (error) throw error;
 
+    const rows = data || [];
     return withReferenceListCache(
-      NextResponse.json({ data: data || [], count: data?.length || 0 })
+      NextResponse.json({ data: rows, count: rows.length }),
+      rows.length
     );
   } catch (error) {
     console.error('[GET /api/institutions]', error);

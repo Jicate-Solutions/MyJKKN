@@ -2,15 +2,17 @@
  * Reference lists — 60-second private browser cache.
  *
  * Five GET-only reference routes (institutions, departments, BoS
- * institutions / regulations / boards) set
- * `Cache-Control: private, max-age=60, stale-while-revalidate=300` on their
- * 200 response so the browser reuses the body across page navigations and
- * React Query refetches. The two things that must never happen:
+ * institutions / regulations / boards) set `Cache-Control: private, max-age=60`
+ * on a NON-EMPTY 200 response so the browser reuses the body across page
+ * navigations and React Query refetches. The three things that must never
+ * happen:
  *
  *   - an error response carries the header (a 401 cached for 60 s would keep a
  *     freshly signed-in user locked out of every dropdown);
- *   - a response is ever `public` / `s-maxage` (these rows are per-user and
- *     per-tenant; the CDN must never hold them).
+ *   - an EMPTY list carries it (an admin fixes a user's institution mapping,
+ *     says "reload", and the dropdown must not stay empty for a minute);
+ *   - a response is ever `public` / `s-maxage` / `stale-while-revalidate`
+ *     (per-user, per-tenant rows; and SWR would break the 60 s bound).
  *
  * Auth and the Supabase / COE reads are faked; only the header is under test.
  */
@@ -24,13 +26,17 @@ import { REFERENCE_LIST_CACHE, withReferenceListCache } from '@/lib/http/cache-c
 
 let currentUser: { id: string } | null = { id: 'user-1' };
 let queryError: { message: string } | null = null;
+/** When true every DB and COE read answers with zero rows. */
+let emptyLists = false;
 
 /** Chainable PostgREST fake: every builder call returns itself; awaiting it yields rows. */
 function chain(rows: unknown[]) {
   const q: any = {};
   for (const m of ['select', 'order', 'eq', 'in']) q[m] = () => q;
   q.then = (res: any, rej: any) =>
-    Promise.resolve(queryError ? { data: null, error: queryError } : { data: rows, error: null }).then(res, rej);
+    Promise.resolve(
+      queryError ? { data: null, error: queryError } : { data: emptyLists ? [] : rows, error: null }
+    ).then(res, rej);
   return q;
 }
 
@@ -93,6 +99,7 @@ vi.mock('@/lib/services/coe/coe-rest-client', () => ({
     create: () => ({
       get: (path: string) =>
         Promise.resolve(
+          emptyLists ? [] :
           path === '/api/v1/institutions'
             ? [{ id: 'c1', institution_code: 'JKKN-CAS', name: 'JKKN CAS', myjkkn_institution_ids: ['i1'], is_active: true }]
             : [{ id: 'b1', board_code: 'CS', board_name: 'Computer Science' }]
@@ -128,6 +135,7 @@ const ROUTES: Array<{ name: string; call: () => Promise<Response> }> = [
 beforeEach(() => {
   currentUser = { id: 'user-1' };
   queryError = null;
+  emptyLists = false;
   vi.spyOn(console, 'log').mockImplementation(() => {});
   vi.spyOn(console, 'warn').mockImplementation(() => {});
   vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -135,14 +143,19 @@ beforeEach(() => {
 
 describe('withReferenceListCache', () => {
   it('sets the private 60 s policy and keys the browser cache on the session cookie', () => {
-    const res = withReferenceListCache(NextResponse.json({ ok: true }));
+    const res = withReferenceListCache(NextResponse.json([{ id: 'i1' }]), 1);
     expect(res.headers.get('cache-control')).toBe(REFERENCE_LIST_CACHE);
     expect(res.headers.get('vary')).toBe('Cookie');
   });
 
-  it('is browser-only: never public, never s-maxage', () => {
-    expect(REFERENCE_LIST_CACHE).toMatch(/^private,/);
-    expect(REFERENCE_LIST_CACHE).not.toMatch(/public|s-maxage/);
+  it('leaves an empty list uncached', () => {
+    const res = withReferenceListCache(NextResponse.json([]), 0);
+    expect(res.headers.get('cache-control')).toBeNull();
+    expect(res.headers.get('vary')).toBeNull();
+  });
+
+  it('is exactly a 60 s browser bound: private, no s-maxage, no stale-while-revalidate', () => {
+    expect(REFERENCE_LIST_CACHE).toBe('private, max-age=60');
   });
 });
 
@@ -157,6 +170,15 @@ describe.each(ROUTES)('$name', ({ call }) => {
     currentUser = null;
     const res = await call();
     expect(res.status).toBe(401);
+    expect(res.headers.get('cache-control')).not.toBe(REFERENCE_LIST_CACHE);
+  });
+
+  it('200 with an EMPTY list never carries it', async () => {
+    emptyLists = true;
+    const res = await call();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(Array.isArray(body) ? body : body.data).toEqual([]);
     expect(res.headers.get('cache-control')).not.toBe(REFERENCE_LIST_CACHE);
   });
 });

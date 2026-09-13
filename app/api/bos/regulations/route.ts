@@ -63,7 +63,8 @@ export async function GET(request: NextRequest) {
     });
 
     return withReferenceListCache(
-      NextResponse.json({ data: formatted, count: formatted.length })
+      NextResponse.json({ data: formatted, count: formatted.length }),
+      formatted.length
     );
   } catch (error) {
     console.error('[GET /api/bos/regulations]', error);

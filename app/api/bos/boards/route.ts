@@ -119,7 +119,8 @@ export async function GET(request: NextRequest) {
     const boards = extractBoards(raw);
 
     return withReferenceListCache(
-      NextResponse.json({ data: boards, count: boards.length })
+      NextResponse.json({ data: boards, count: boards.length }),
+      boards.length
     );
   } catch (error) {
     console.error('[GET /api/bos/boards]', error);

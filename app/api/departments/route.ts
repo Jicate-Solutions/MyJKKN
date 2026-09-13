@@ -42,7 +42,10 @@ export const GET = withAuth(async (request) => {
         name: dept.department_name
       })) || [];
 
-    return withReferenceListCache(NextResponse.json(transformedDepartments));
+    return withReferenceListCache(
+      NextResponse.json(transformedDepartments),
+      transformedDepartments.length
+    );
   } catch (error) {
     console.error('[DEPARTMENTS_GET] Error fetching departments:', error);
     return NextResponse.json(
