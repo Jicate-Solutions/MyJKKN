@@ -140,6 +140,35 @@ async function readHighlights(supabase: Db, shas: string[]): Promise<HighlightRo
   return out;
 }
 
+/**
+ * Report rows for a set of entries — Director ruling 7.
+ *
+ * RLS decides what comes back and the two answers are BOTH correct, which is
+ * why this one query serves the strip and the queue:
+ *   • an ordinary reader sees only their own taps, so the strip can say "you
+ *     reported this" after a reload instead of offering the link again;
+ *   • someone holding whats_new.highlights.manage sees every tap, so the queue
+ *     can show the count — the honest measure of how often the writing is
+ *     wrong, which is the deliverable of that ruling.
+ * Nothing here filters by user: doing so would put the boundary in this file
+ * instead of in the policy.
+ */
+async function readReports(
+  supabase: Db,
+  shas: string[]
+): Promise<{ sha: string; reported_by: string }[]> {
+  const out: { sha: string; reported_by: string }[] = [];
+  for (let i = 0; i < shas.length; i += IN_CHUNK) {
+    const { data, error } = await supabase
+      .from('changelog_highlight_reports')
+      .select('sha,reported_by')
+      .in('sha', shas.slice(i, i + IN_CHUNK));
+    if (error) throw new Error(error.message);
+    out.push(...((data as { sha: string; reported_by: string }[] | null) ?? []));
+  }
+  return out;
+}
+
 async function readModules(supabase: Db, visible: string[]): Promise<Record<string, ChangelogModule>> {
   if (visible.length === 0) return {};
   const { data, error } = await supabase
@@ -187,9 +216,17 @@ export async function GET(request: Request) {
       entries.map((e) => e.sha)
     );
     const byKey = new Map(highlights.map((h) => [`${h.app_key}:${h.sha}`, h]));
+    const reports = await readReports(
+      supabase,
+      entries.map((e) => e.sha)
+    );
 
     if (!wantsQueue) {
       // ── the reader's strip ───────────────────────────────────────────────
+      // Ruling 7: a reader who has already tapped "report" sees that state
+      // rather than the link. `reports` is RLS-scoped to their own rows here,
+      // so this set can only ever contain THIS reader's taps.
+      const myReports = new Set(reports.map((r) => r.sha));
       // Only rows a person approved, in the same newest-first order the plain
       // list below uses. An empty array is the normal answer for a week nobody
       // wrote up, and the strip renders NOTHING for it rather than an empty box.
@@ -217,6 +254,11 @@ export async function GET(request: Request) {
             subject: e.subject,
             author: e.author,
             source: h.source,
+            // Ruling 7's state, not its count. A reader is never shown how many
+            // OTHER people flagged a write-up: that number is a super admin's
+            // measure, and putting it on the card would turn a quiet check into
+            // a pile-on signal.
+            reported: myReports.has(e.sha),
           };
         })
         .filter((x): x is NonNullable<typeof x> => x !== null);
@@ -239,6 +281,15 @@ export async function GET(request: Request) {
         },
         { status: 403 }
       );
+    }
+
+    // Ruling 7's deliverable: how many DISTINCT readers said each write-up is
+    // wrong. Distinct by construction — the UNIQUE (app_key, sha, reported_by)
+    // in 20261207090000 means one row per reader, so this is a plain tally and
+    // not a de-duplication this file could get wrong.
+    const reportCounts: Record<string, number> = {};
+    for (const r of reports) {
+      reportCounts[r.sha] = (reportCounts[r.sha] ?? 0) + 1;
     }
 
     const modules = await readModules(supabase, visible);
@@ -270,6 +321,10 @@ export async function GET(request: Request) {
           // So the queue can show which rows a model wrote — those are the ones
           // worth a person's attention, since nothing else has read them.
           source: h.source,
+          // Ruling 7. Zero is the normal answer and is sent explicitly, so the
+          // screen can say "nobody has flagged this" rather than leaving the
+          // reader of the queue to guess whether the number is missing or nil.
+          reports: reportCounts[h.sha] ?? 0,
         })),
         candidates: candidates.map((c) => ({
           sha: c.entry.h,
