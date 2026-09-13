@@ -23,49 +23,69 @@ import { PublicEventsService } from '@/lib/services/events/public-events-service
 
 type QueryResult = { data: unknown; error: { message: string } | null };
 
-/** Minimal recording stand-in for the PostgREST builder chain. */
-function makeClient(result: QueryResult) {
+/**
+ * Minimal recording stand-in for the PostgREST builder chain.
+ *
+ * The service issues TWO bounded reads — dated rows (`start_date` not null) and
+ * undated ones (`start_date` is null) — so each `from()` hands back its own
+ * builder, and which result it resolves to is decided by the filter the service
+ * actually applied. `dated` is the default because most fixtures carry dates.
+ */
+function makeClient(dated: QueryResult, undated: QueryResult = { data: [], error: null }) {
   const calls = {
     from: [] as string[],
     select: [] as string[],
     eq: [] as Array<[string, unknown]>,
     neq: [] as Array<[string, unknown]>,
     in: [] as Array<[string, unknown]>,
+    is: [] as Array<[string, unknown]>,
+    not: [] as Array<[string, string, unknown]>,
     order: [] as Array<[string, { ascending?: boolean } | undefined]>,
     limit: [] as number[],
   };
-  const builder: Record<string, unknown> = {
-    select(columns: string) {
-      calls.select.push(columns);
-      return builder;
-    },
-    eq(column: string, value: unknown) {
-      calls.eq.push([column, value]);
-      return builder;
-    },
-    neq(column: string, value: unknown) {
-      calls.neq.push([column, value]);
-      return builder;
-    },
-    in(column: string, values: unknown) {
-      calls.in.push([column, values]);
-      return builder;
-    },
-    order(column: string, options?: { ascending?: boolean }) {
-      calls.order.push([column, options]);
-      return builder;
-    },
-    limit(count: number) {
-      calls.limit.push(count);
-      return builder;
-    },
-    then(onFulfilled: (value: QueryResult) => unknown) {
-      return Promise.resolve(result).then(onFulfilled);
-    },
-  };
+
   const client = {
     from(table: string) {
       calls.from.push(table);
+      let wantsUndated = false;
+      const builder: Record<string, unknown> = {
+        select(columns: string) {
+          calls.select.push(columns);
+          return builder;
+        },
+        eq(column: string, value: unknown) {
+          calls.eq.push([column, value]);
+          return builder;
+        },
+        neq(column: string, value: unknown) {
+          calls.neq.push([column, value]);
+          return builder;
+        },
+        in(column: string, values: unknown) {
+          calls.in.push([column, values]);
+          return builder;
+        },
+        is(column: string, value: unknown) {
+          calls.is.push([column, value]);
+          if (column === 'start_date' && value === null) wantsUndated = true;
+          return builder;
+        },
+        not(column: string, operator: string, value: unknown) {
+          calls.not.push([column, operator, value]);
+          return builder;
+        },
+        order(column: string, options?: { ascending?: boolean }) {
+          calls.order.push([column, options]);
+          return builder;
+        },
+        limit(count: number) {
+          calls.limit.push(count);
+          return builder;
+        },
+        then(onFulfilled: (value: QueryResult) => unknown) {
+          return Promise.resolve(wantsUndated ? undated : dated).then(onFulfilled);
+        },
+      };
       return builder;
     },
   };
@@ -79,7 +99,12 @@ function makeClient(result: QueryResult) {
  * pointed at anything else.
  */
 function makeAdmin(tables: Record<string, QueryResult>) {
-  const calls = { from: [] as string[], select: [] as string[], in: [] as Array<[string, unknown]> };
+  const calls = {
+    from: [] as string[],
+    select: [] as string[],
+    in: [] as Array<[string, unknown]>,
+    eq: [] as Array<[string, unknown]>,
+  };
   const client = {
     from(table: string) {
       calls.from.push(table);
@@ -89,7 +114,8 @@ function makeAdmin(tables: Record<string, QueryResult>) {
           calls.select.push(columns);
           return builder;
         },
-        eq() {
+        eq(column: string, value: unknown) {
+          calls.eq.push([column, value]);
           return builder;
         },
         in(column: string, values: unknown) {
@@ -158,7 +184,8 @@ describe('PublicEventsService.listPublic — only what somebody chose to make pu
     await PublicEventsService.listPublic(client);
 
     const visibilityFilters = calls.eq.filter(([column]) => column === 'visibility');
-    expect(visibilityFilters).toEqual([['visibility', 'public']]);
+    expect(visibilityFilters.length).toBeGreaterThan(0);
+    for (const filter of visibilityFilters) expect(filter).toEqual(['visibility', 'public']);
   });
 });
 
@@ -167,7 +194,7 @@ describe('PublicEventsService.listPublic — the public gate', () => {
     const { client, calls } = makeClient({ data: [FUTURE], error: null });
     await PublicEventsService.listPublic(client);
 
-    expect(calls.from).toEqual(['events']);
+    expect(new Set(calls.from)).toEqual(new Set(['events']));
     expect(calls.eq).toContainEqual(['is_public', true]);
     expect(calls.neq).toContainEqual(['status', 'draft']);
     expect(calls.neq).toContainEqual(['status', 'cancelled']);
@@ -177,18 +204,22 @@ describe('PublicEventsService.listPublic — the public gate', () => {
     const { client, calls } = makeClient({ data: [], error: null });
     await PublicEventsService.listPublic(client);
 
-    expect(calls.limit).toHaveLength(1);
-    expect(calls.limit[0]).toBeGreaterThan(0);
+    // One cap per read, and the reads are bounded in number (dated + undated).
+    expect(calls.limit.length).toBeGreaterThan(0);
+    expect(calls.limit.length).toBeLessThanOrEqual(2);
+    for (const cap of calls.limit) expect(cap).toBeGreaterThan(0);
   });
 
   it('never selects every column — a column added to events later cannot leak by omission', async () => {
     const { client, calls } = makeClient({ data: [], error: null });
     await PublicEventsService.listPublic(client);
 
-    expect(calls.select).toHaveLength(1);
-    expect(calls.select[0]).not.toContain('*');
-    for (const column of ['id', 'name', 'event_type', 'registration_close_date']) {
-      expect(calls.select[0]).toContain(column);
+    expect(calls.select.length).toBeGreaterThan(0);
+    for (const selected of calls.select) {
+      expect(selected).not.toContain('*');
+      for (const column of ['id', 'name', 'event_type', 'registration_close_date']) {
+        expect(selected).toContain(column);
+      }
     }
   });
 
@@ -208,7 +239,7 @@ describe('PublicEventsService.listPublic — the public gate', () => {
       'budget_estimate',
       'approval_chain_snapshot',
     ]) {
-      expect(calls.select[0]).not.toContain(forbidden);
+      for (const selected of calls.select) expect(selected).not.toContain(forbidden);
     }
   });
 
@@ -224,10 +255,33 @@ describe('PublicEventsService.listPublic — the public gate', () => {
     const { client, calls } = makeClient({ data: [], error: null });
     await PublicEventsService.listPublic(client);
 
-    expect(calls.order.map(([column]) => column)).toEqual(['start_date', 'event_date']);
     for (const [, options] of calls.order) {
       expect(options?.ascending).toBe(false);
     }
+    // And the undated rows get a read of their own, so an event carrying only
+    // event_date is not the first casualty of the cap.
+    expect(calls.is).toContainEqual(['start_date', null]);
+    expect(calls.not).toContainEqual(['start_date', 'is', null]);
+  });
+
+  it('lists the undated rows the cap would otherwise drop first', async () => {
+    // A row carrying only event_date has a NULL start_date, which sorts below
+    // the oldest archive row under a single descending order — so it, and not
+    // the ancient archive, is the first casualty of LIMIT. It gets its own
+    // bounded read.
+    const undated = {
+      ...FUTURE,
+      id: 'undated',
+      name: 'Marathon with only an event_date',
+      start_date: null,
+      end_date: null,
+      event_date: '2099-04-12',
+      start_time: null,
+    };
+    const { client } = makeClient({ data: [FUTURE], error: null }, { data: [undated], error: null });
+    const result = await PublicEventsService.listPublic(client);
+
+    expect(result.map((e) => e.id).sort()).toEqual([FUTURE.id, 'undated'].sort());
   });
 
   it('says a failed read FAILED, so an outage cannot pass for "nothing is on"', async () => {
@@ -285,7 +339,9 @@ describe('PublicEventsService.listPublic — never invite a registration that wi
     const [event] = await PublicEventsService.listPublic(client, admin);
 
     expect(event.registerHref).toBeNull();
-    expect(event.registerNote).toBe('Registration is not open for this one yet.');
+    // "not open", not "not open yet" — a form switched off after it ran is
+    // shut, not pending, and this read cannot tell the two apart.
+    expect(event.registerNote).toBe('Registration is not open for this one.');
   });
 
   it('treats a form outside its window as shut, exactly as the registration page does', async () => {
@@ -321,6 +377,44 @@ describe('PublicEventsService.listPublic — never invite a registration that wi
     expect(event.registerHref).toBeNull();
     // "Closed" would be a guess; the card simply announces the event.
     expect(event.registerNote).toBeNull();
+  });
+
+  it('does not let one door table answer for the other', async () => {
+    // A failure reading tournament_divisions must not strip the button from an
+    // unrelated general event: one table's outage, one table's silence.
+    const tournament = { ...FUTURE, id: 'tournament', event_type: 'sports_tournament' };
+    const general = { ...FUTURE, id: 'general' };
+    const { client } = makeClient({ data: [general, tournament], error: null });
+    const { admin } = makeAdmin({
+      event_registration_forms: openFormFor('general'),
+      tournament_divisions: { data: null, error: { message: '42703 column does not exist' } },
+    });
+    const result = await PublicEventsService.listPublic(client, admin);
+    const byId = Object.fromEntries(result.map((e) => [e.id, e]));
+
+    expect(byId.general.registerHref).toBe('/p/event/general/register');
+    expect(byId.tournament.registerHref).toBeNull();
+    expect(byId.tournament.registerNote).toBeNull(); // unknown, not "closed"
+  });
+
+  it('settles whether a public door exists BEFORE reading the registration window', async () => {
+    // Otherwise a marathon or a School of Influence event with a future open
+    // date advertises "Registration opens on <date>" for a door this listing
+    // will never offer — and for SoI, advertises it to the public.
+    const { client } = makeClient({
+      data: [
+        { ...FUTURE, id: 'soi', event_type: 'school_of_influence', registration_open_date: '2099-02-01' },
+        { ...FUTURE, id: 'marathon', event_type: 'marathon', registration_open_date: '2099-02-01' },
+      ],
+      error: null,
+    });
+    const { admin } = makeAdmin({ event_registration_forms: openFormFor(FUTURE.id) });
+    const result = await PublicEventsService.listPublic(client, admin);
+
+    for (const event of result) {
+      expect(event.registerHref).toBeNull();
+      expect(event.registerNote).not.toMatch(/Registration opens on/);
+    }
   });
 
   it('asks the door question of two tables only, by event id', async () => {
@@ -384,6 +478,9 @@ describe('PublicEventsService.listPublic — never invite a registration that wi
     expect(open.registerHref).toBe(`/p/tournament/${tournament.id}/register`);
     expect(shut.registerHref).toBeNull();
     expect(withDivisions.calls.from).toEqual(['tournament_divisions']);
+    // The division must be an ACTIVE one — the tournament page requires it, and
+    // a stub that ignored its filter arguments could not have caught a drift.
+    expect(withDivisions.calls.eq).toContainEqual(['is_active', true]);
   });
 
   it('offers a marathon no link at all, because no public one exists', async () => {
@@ -529,7 +626,10 @@ describe('PublicEventsService.listPublic — what a reader is shown', () => {
   });
 
   it('badges "Happening now" only for a run of days that began before today', async () => {
-    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    // Same arithmetic the service uses: India is a fixed +05:30, so shifting
+    // the instant and taking the UTC date is the Indian calendar day. Not
+    // toLocaleDateString('en-CA') — the trick the service header rejects.
+    const today = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const startsLaterToday = {
       ...FUTURE,
       id: 'today',

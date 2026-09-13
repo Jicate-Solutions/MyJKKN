@@ -66,6 +66,14 @@
 // PRIVACY: event-level facts only. Nothing returned here names or counts a
 // person.
 //
+// NO institution_id FILTER, DELIBERATELY. Every institution in this database is
+// a JKKN college — one walkable campus, one public face — and www.jkkn.ai is
+// that face, so an event any of them marks `public` belongs on this page. The
+// card cannot name which college (anon cannot read `institutions`), which is
+// why the page is titled for JKKN rather than per-college. If this platform is
+// ever sold to an institution outside JKKN, this read needs an institution
+// filter BEFORE that tenant is onboarded, not after.
+//
 // Pattern: lib/services/programmes/public-programme-service.ts — the proven
 // precedent for a single public gatekeeper reading through the anon client.
 
@@ -169,29 +177,25 @@ function doorFor(eventType: string | null): Door {
 }
 
 /**
- * A moment as the calendar day it falls on IN INDIA, assembled part by part.
+ * A moment as the calendar day it falls on IN INDIA.
  *
- * Not `toLocaleDateString('en-CA')`: that relies on a locale's formatting
- * happening to be YYYY-MM-DD, and on a runtime without full ICU it degrades to
- * M/D/YYYY instead of throwing — which would leave every `<` and `>` in this
- * file comparing strings that no longer sort as dates, silently. The parts are
- * requested by name and joined here, so the shape is this file's own.
+ * Arithmetic, not `Intl`. India is a fixed +05:30 with no daylight saving, so
+ * shifting the instant and taking the UTC date is exact — and it depends on no
+ * locale data at all. Both alternatives were worse:
+ *   * `toLocaleDateString('en-CA')` relies on a locale's format happening to be
+ *     YYYY-MM-DD; on a runtime without full ICU it degrades to M/D/YYYY instead
+ *     of throwing, and every `<` in this file silently stops comparing dates.
+ *   * `new Intl.DateTimeFormat(..., { timeZone })` THROWS RangeError on a
+ *     small-ICU runtime — and at module scope that is an import-time crash, so
+ *     an anonymous visitor gets a 500 instead of the fail-closed empty listing
+ *     this module promises.
  */
-const IST_PARTS = new Intl.DateTimeFormat('en-US', {
-  timeZone: 'Asia/Kolkata',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-});
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 
 function istDay(date: Date): string | null {
-  const parts = IST_PARTS.formatToParts(date);
-  const get = (type: string) => parts.find((p) => p.type === type)?.value;
-  const year = get('year');
-  const month = get('month');
-  const day = get('day');
-  if (!year || !month || !day) return null;
-  return `${year}-${month}-${day}`;
+  const shifted = new Date(date.getTime() + IST_OFFSET_MS);
+  if (Number.isNaN(shifted.getTime())) return null;
+  return shifted.toISOString().slice(0, 10);
 }
 
 /**
@@ -219,7 +223,8 @@ function dayOf(value: string | null): string | null {
 
 /** Today as 'YYYY-MM-DD' in India, which is the calendar these dates mean. */
 function todayInIndia(): string {
-  return istDay(new Date()) ?? new Date().toISOString().slice(0, 10);
+  // istDay only returns null for an invalid Date, which `new Date()` is not.
+  return istDay(new Date())!;
 }
 
 /**
@@ -301,8 +306,9 @@ function formatWhen(startDay: string | null, endDay: string | null, row: EventRo
  * defect this exists to remove.
  */
 export interface OpenDoors {
-  general: Set<string>;
-  tournament: Set<string>;
+  /** null = this kind of door could not be checked. Never "none are open". */
+  general: Set<string> | null;
+  tournament: Set<string> | null;
 }
 
 interface DoorCandidate {
@@ -313,51 +319,73 @@ interface DoorCandidate {
 async function openDoors(
   admin: SupabaseClient,
   candidates: DoorCandidate[],
-): Promise<OpenDoors | null> {
+): Promise<OpenDoors> {
   const generalIds = candidates.filter((c) => c.kind === 'general').map((c) => c.id);
   const tournamentIds = candidates.filter((c) => c.kind === 'tournament').map((c) => c.id);
 
-  const general = new Set<string>();
-  const tournament = new Set<string>();
-
-  try {
-    // selectInChunks, not a bare .in(): PostgREST encodes the ids into the query
-    // string and the gateway rejects the request past ~680 of them, silently
-    // enough that the caller sees an empty result rather than an error. A
-    // rejected read here would quietly withdraw every button on the page.
-    const forms = await selectInChunks<{
-      event_id: string;
-      is_enabled: boolean | null;
-      starts_at: string | null;
-      ends_at: string | null;
-    }>(generalIds, (chunk) =>
-      settle(
-        admin
-          .from('event_registration_forms')
-          .select('event_id, is_enabled, starts_at, ends_at')
-          .in('event_id', chunk),
-      ),
-    );
-    const now = new Date();
-    for (const form of forms) {
-      if (isFormOpen(form, now)) general.add(form.event_id);
+  // ONE TRY PER TABLE. A shared catch would let a failure on
+  // `tournament_divisions` strip the button from every general event on the
+  // page too — one table's outage silently answering a question about another.
+  const general = await (async () => {
+    try {
+      // selectInChunks, not a bare .in(): PostgREST encodes the ids into the
+      // query string and the gateway rejects the request past ~680 of them,
+      // silently enough that the caller sees an empty result rather than an
+      // error. It throws on the first failing chunk, so a partial set can never
+      // be mistaken for a complete one.
+      const forms = await selectInChunks<{
+        event_id: string;
+        is_enabled: boolean | null;
+        starts_at: string | null;
+        ends_at: string | null;
+      }>(generalIds, (chunk) =>
+        settle(
+          admin
+            .from('event_registration_forms')
+            // Exactly the fields FormWindowLike declares, plus the id to group
+            // by. Selecting less would make isFormOpen() read undefined and
+            // disagree with the registration page it exists to agree with.
+            .select('event_id, is_enabled, starts_at, ends_at')
+            .in('event_id', chunk),
+        ),
+      );
+      const now = new Date();
+      const open = new Set<string>();
+      for (const form of forms) {
+        if (isFormOpen(form, now)) open.add(form.event_id);
+      }
+      return open;
+    } catch (err) {
+      console.error(
+        `${LOG_PREFIX} DOOR_CHECK_FAILED event_registration_forms:`,
+        err instanceof Error ? err.message : err,
+      );
+      return null;
     }
+  })();
 
-    const divisions = await selectInChunks<{ event_id: string }>(tournamentIds, (chunk) =>
-      settle(
-        admin.from('tournament_divisions').select('event_id').eq('is_active', true).in('event_id', chunk),
-      ),
-    );
-    for (const division of divisions) {
-      tournament.add(division.event_id);
+  const tournament = await (async () => {
+    try {
+      const divisions = await selectInChunks<{ event_id: string }>(tournamentIds, (chunk) =>
+        settle(
+          admin
+            .from('tournament_divisions')
+            .select('event_id')
+            .eq('is_active', true)
+            .in('event_id', chunk),
+        ),
+      );
+      const open = new Set<string>();
+      for (const division of divisions) open.add(division.event_id);
+      return open;
+    } catch (err) {
+      console.error(
+        `${LOG_PREFIX} DOOR_CHECK_FAILED tournament_divisions:`,
+        err instanceof Error ? err.message : err,
+      );
+      return null;
     }
-  } catch (err) {
-    console.error(
-      `${LOG_PREFIX} registration-door check failed:`,
-      err instanceof Error ? err.message : err,
-    );
-    return null;
-  }
+  })();
 
   return { general, tournament };
 }
@@ -380,6 +408,14 @@ function resolveRegistration(
   // explanation.
   if (isPast) return { href: null, note: null, candidate: null };
 
+  // WHETHER a public door exists is settled BEFORE the event's registration
+  // window is read. The other order promises a door that will never open:
+  // "Registration opens on 1 October" on a marathon this listing can never link
+  // to, or on a School of Influence event — advertising to the public a
+  // programme the 2026-08-13 ruling reserves for JKKN learners.
+  const door = doorFor(row.event_type);
+  if (door.kind === 'closed') return { href: null, note: door.note, candidate: null };
+
   const opensOn = dayOf(row.registration_open_date);
   if (opensOn && opensOn > today) {
     const label = formatDay(opensOn);
@@ -395,8 +431,6 @@ function resolveRegistration(
     return { href: null, note: 'Registration has closed.', candidate: null };
   }
 
-  const door = doorFor(row.event_type);
-  if (door.kind === 'closed') return { href: null, note: door.note, candidate: null };
   if (door.kind === 'tournament') {
     return {
       href: `/p/tournament/${row.id}/register`,
@@ -443,31 +477,50 @@ export class PublicEventsService {
     supabase: SupabaseClient,
     admin?: SupabaseClient | null,
   ): Promise<{ events: PublicEvent[]; readFailed: boolean }> {
-    let query = supabase
-      .from('events')
-      .select(PUBLIC_COLUMNS)
-      // In front of the policy, not instead of it.
-      .eq('is_public', true)
-      // The Director's ruling: only what somebody chose to make public.
-      .eq('visibility', PUBLIC_VISIBILITY);
+    /** The public gate, re-stated in front of the policy on every read. */
+    const publicRows = () => {
+      let q = supabase
+        .from('events')
+        .select(PUBLIC_COLUMNS)
+        // In front of the policy, not instead of it.
+        .eq('is_public', true)
+        // The Director's ruling: only what somebody chose to make public.
+        .eq('visibility', PUBLIC_VISIBILITY);
+      for (const status of HIDDEN_STATUSES) {
+        q = q.neq('status', status);
+      }
+      return q;
+    };
 
-    for (const status of HIDDEN_STATUSES) {
-      query = query.neq('status', status);
-    }
+    // TWO BOUNDED READS, because one cannot see both kinds of row.
+    //
+    // Dated rows come NEWEST FIRST. Ascending would spend the whole budget on
+    // the OLDEST archive rows the moment the public list outgrows the cap,
+    // truncating every upcoming event off the end — "Coming up" permanently
+    // empty, the archive ancient, and nothing erroring.
+    //
+    // Rows with a NULL start_date are read separately, ordered by event_date.
+    // PostgREST cannot order on coalesce(start_date, event_date) without a view,
+    // and under a single descending order NULLs land below the oldest archive
+    // row — so the event_date-only rows (production has them) would be the FIRST
+    // casualties of the cap, upcoming ones included. Each read is capped on its
+    // own, so the page stays bounded at 2 × PAGE_LIMIT.
+    const [dated, undated] = await Promise.all([
+      settle<{ data: unknown; error: { message: string; code?: string } | null }>(
+        publicRows()
+          .not('start_date', 'is', null)
+          .order('start_date', { ascending: false })
+          .limit(PAGE_LIMIT),
+      ),
+      settle<{ data: unknown; error: { message: string; code?: string } | null }>(
+        publicRows()
+          .is('start_date', null)
+          .order('event_date', { ascending: false, nullsFirst: false })
+          .limit(PAGE_LIMIT),
+      ),
+    ]);
 
-    // NEWEST FIRST, then re-ordered for reading below. Ascending would spend the
-    // whole 200-row budget on the OLDEST archive rows the moment the public list
-    // outgrows it, truncating every upcoming event off the end — "Coming up"
-    // would go permanently empty while the archive showed ancient cards, and
-    // nothing would error. Newest-first means the cap can only ever drop the
-    // oldest archive rows, which is the only loss a reader would not miss.
-    const { data, error } = await settle<{ data: unknown; error: { message: string; code?: string } | null }>(
-      query
-        .order('start_date', { ascending: false, nullsFirst: false })
-        .order('event_date', { ascending: false, nullsFirst: false })
-        .limit(PAGE_LIMIT),
-    );
-
+    const error = dated.error ?? undated.error;
     if (error) {
       console.error(
         `${LOG_PREFIX} LISTING_READ_FAILED — the page cannot show what is public:`,
@@ -477,9 +530,19 @@ export class PublicEventsService {
       return { events: [], readFailed: true }; // fail closed, but say so
     }
 
+    const data = [
+      ...((dated.data ?? []) as unknown as EventRow[]),
+      ...((undated.data ?? []) as unknown as EventRow[]),
+    ];
+    if (data.length >= PAGE_LIMIT) {
+      console.warn(
+        `${LOG_PREFIX} LISTING_CAPPED — ${data.length} rows read at a cap of ${PAGE_LIMIT} per read; the oldest public events are not being listed.`,
+      );
+    }
+
     const today = todayInIndia();
 
-    const rows = ((data ?? []) as unknown as EventRow[]).map((row) => {
+    const rows = data.map((row) => {
       // event_date stands in for either end when the range columns are empty —
       // one production row (a marathon) carries only event_date. Each end also
       // falls back to the OTHER end, so a row carrying nothing but end_date is
@@ -512,7 +575,7 @@ export class PublicEventsService {
     const candidates = rows
       .map((r) => r.registration.candidate)
       .filter((c): c is DoorCandidate => c !== null);
-    let doors: OpenDoors | null = null;
+    let doors: OpenDoors = { general: null, tournament: null };
     if (candidates.length > 0) {
       if (admin) {
         doors = await openDoors(admin, candidates);
@@ -528,16 +591,17 @@ export class PublicEventsService {
       let registerNote = registration.note;
 
       if (registration.candidate) {
-        const open =
-          doors !== null &&
-          (registration.candidate.kind === 'general'
-            ? doors.general.has(registration.candidate.id)
-            : doors.tournament.has(registration.candidate.id));
+        // Per KIND, so one table's outage cannot answer for the other.
+        const known =
+          registration.candidate.kind === 'general' ? doors.general : doors.tournament;
+        const open = known !== null && known.has(registration.candidate.id);
         if (!open) {
           registerHref = null;
           // When the check itself could not run we know nothing, and saying
           // "closed" would be a guess. The card simply announces the event.
-          registerNote = doors === null ? null : 'Registration is not open for this one yet.';
+          // "not open" rather than "not open yet": a form switched off after it
+          // ran is shut, not pending, and this read cannot tell which.
+          registerNote = known === null ? null : 'Registration is not open for this one.';
         }
       }
 
