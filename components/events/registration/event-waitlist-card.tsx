@@ -83,7 +83,11 @@ function QueueRow({ entry }: { entry: WaitlistEntry }) {
           <>
             <Badge variant="default" className="gap-1">
               <Clock className="h-3 w-3" />
-              Offered {elapsedLabel(entry.offered_at)} ago
+              {/* elapsedLabel returns '' for a null or clock-skewed offered_at,
+                  which rendered as the nonsense "Offered  ago". */}
+              {elapsedLabel(entry.offered_at)
+                ? `Offered ${elapsedLabel(entry.offered_at)} ago`
+                : 'Offered'}
             </Badge>
             {entry.unreachable && (
               <span className="flex items-center gap-1 text-[11px] text-amber-600 dark:text-amber-400">

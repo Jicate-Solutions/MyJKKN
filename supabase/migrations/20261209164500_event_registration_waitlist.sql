@@ -171,35 +171,31 @@ CREATE INDEX IF NOT EXISTS idx_event_registration_waitlist_pending_notify
 -- ---------------------------------------------------------------------------
 -- ONE PERSON, ONE OPEN PLACE IN THE QUEUE
 -- ---------------------------------------------------------------------------
--- Without these, somebody who refreshes and resubmits gets a SECOND row with a
+-- Without this, somebody who refreshes and resubmits gets a SECOND row with a
 -- fresh queue_seq; enough repeats and one person occupies the entire head of
 -- the queue and is offered every place that frees. joinWaitlist() returns an
--- existing open row rather than inserting, and these are the backstop for two
--- submissions racing past that check — the service re-reads on 23505 and tells
+-- existing open row rather than inserting, and this is the backstop for two
+-- submissions racing past that check: the service re-reads on 23505 and tells
 -- the person their real position instead of surfacing an error.
+--
+-- PROFILE ONLY. There is deliberately NO unique index on participant_phone or
+-- participant_email, and that is not an oversight — a first draft had both and
+-- they were wrong for this institution. Siblings share a parent's phone number
+-- and a family shares one email address; here that is routine rather than an
+-- edge case. A unique index on the contact detail would reject the second
+-- child's insert with 23505, the service's re-read would hand back the FIRST
+-- child's row, and the second child would be told "you are already number 4 on
+-- the waiting list" — holding a stranger's waitlist_id, never actually queued.
+-- Two people behind one phone number are separated in the SERVICE, by name
+-- (findOpenRow), where a failed match costs a duplicate row rather than
+-- somebody else's place. Only profile_id is a person.
 --
 -- PARTIAL on the two OPEN statuses only. A 'registered' row must not block the
 -- same person queueing for a later run of the same event, and a 'withdrawn' one
--- must not block them rejoining. Matching a guest by phone or email is the only
--- identity a guest has.
---
--- PLAIN COLUMNS, NOT lower(...): the email is lower-cased and trimmed by
--- joinWaitlist() before it is ever written, so the stored value IS the
--- normalised one and the lookup that precedes the insert compares exactly the
--- same string this index does. An expression index the service did not mirror
--- would reject an insert (23505) that the service's own re-read could not then
--- find, and the registrant would be told the queue was broken.
+-- must not block them rejoining.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_event_registration_waitlist_open_profile
   ON public.event_registration_waitlist (event_id, profile_id)
   WHERE profile_id IS NOT NULL AND status IN ('waiting', 'offered');
-
-CREATE UNIQUE INDEX IF NOT EXISTS uq_event_registration_waitlist_open_phone
-  ON public.event_registration_waitlist (event_id, participant_phone)
-  WHERE participant_phone IS NOT NULL AND status IN ('waiting', 'offered');
-
-CREATE UNIQUE INDEX IF NOT EXISTS uq_event_registration_waitlist_open_email
-  ON public.event_registration_waitlist (event_id, participant_email)
-  WHERE participant_email IS NOT NULL AND status IN ('waiting', 'offered');
 
 -- ---------------------------------------------------------------------------
 -- queue_seq assignment

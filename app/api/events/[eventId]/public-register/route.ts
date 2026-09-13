@@ -94,6 +94,12 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ eventId: string }> }
 ) {
+  // Hoisted so the catch at the bottom can hand a claimed offer back. See the
+  // comment there: a claim that outlives a failed registration destroys the
+  // place permanently, and this is the only handle on it.
+  let svc: ReturnType<typeof createServiceRoleClient> | null = null;
+  let claimedForRelease: string | null = null;
+
   try {
     const { eventId } = await params;
     const dto = (await request.json().catch(() => ({}))) as PublicEventRegisterBody;
@@ -108,7 +114,7 @@ export async function POST(
       );
     }
 
-    const svc = createServiceRoleClient();
+    svc = createServiceRoleClient();
 
     // ---- event must exist, be open, and not own a specialised register route ----
     const { data: ev } = await (svc as any)
@@ -278,10 +284,20 @@ export async function POST(
     // user_notifications) to race a lambda that Vercel freezes the moment the
     // response is sent, which is the half-written inbox notify.ts exists to
     // prevent. It never throws on its own; the guard is for the unexpected.
-    try {
-      await deliverPendingOffers(svc as any, eventId);
-    } catch {
-      /* an announcement must never take down the registration that triggered it */
+    //
+    // GATED and CAPPED. It is awaited on the critical path of somebody's
+    // registration, so it runs only for events that can actually have a queue,
+    // and announces at most a handful per request — each row costs a
+    // notification fanout plus an update, and an unbounded loop here would put
+    // unbounded latency in front of a registrant on a serverless function.
+    // Offers it does not reach are picked up by the next request or by the
+    // organiser opening the card.
+    if (ev.cap_behavior === 'waitlist' && ev.max_registrations) {
+      try {
+        await deliverPendingOffers(svc as any, eventId, 5);
+      } catch {
+        /* an announcement must never take down the registration that triggered it */
+      }
     }
 
     // ---- is this person holding an offer? ----
@@ -304,16 +320,25 @@ export async function POST(
     // a regression this introduces — the capacity check has always been a read
     // followed by an unserialised insert — and closing it properly means moving
     // capacity into the database, which is a different change from this one.
+    //
+    // NOT gated on cap_behavior. An offer that is outstanding holds a place
+    // whatever the switch says afterwards — countTaken counts 'offered' rows
+    // unconditionally — so an organiser flipping the event to strict_cap while
+    // somebody holds an offer would otherwise strand that seat: unclaimable,
+    // and this PR ships no way to revoke it. The claim is the only exit the row
+    // has, so it must stay reachable.
     let claimedWaitlistId: string | null = null;
-    if (ev.cap_behavior === 'waitlist' && ev.max_registrations) {
+    if (ev.max_registrations) {
       const offer = await findOutstandingOffer(svc as any, eventId, {
         profileId: selfProfileId,
         learnerId: selfLearnerId,
         email: contact.email,
         phone: contact.phone,
+        name: dto.participant_name.trim(),
       });
       if (offer && (await claimOffer(svc as any, offer.id))) {
         claimedWaitlistId = offer.id;
+        claimedForRelease = offer.id;
       }
     }
 
@@ -424,7 +449,10 @@ export async function POST(
       // The claim was taken before this write on purpose; hand the place back
       // rather than losing it to a row that says 'registered' and points at no
       // registration.
-      if (claimedWaitlistId) await releaseOffer(svc as any, claimedWaitlistId);
+      if (claimedWaitlistId) {
+        await releaseOffer(svc as any, claimedWaitlistId);
+        claimedForRelease = null;
+      }
       return NextResponse.json(
         { error: regErr?.message || 'Failed to register' },
         { status: 500 }
@@ -435,7 +463,10 @@ export async function POST(
     // 'offered' being a terminal state: the place is no longer double-counted
     // by fn_event_waitlist_taken, and the organiser's card stops showing a
     // phantom "Offered N days ago" that never clears.
-    if (claimedWaitlistId) await attachRegistration(svc as any, claimedWaitlistId, reg.id);
+    if (claimedWaitlistId) {
+      await attachRegistration(svc as any, claimedWaitlistId, reg.id);
+      claimedForRelease = null;
+    }
 
     // ---- payment ----
     if (fee <= 0) {
@@ -484,6 +515,17 @@ export async function POST(
       { status: 201 }
     );
   } catch (err) {
+    // A CLAIMED OFFER MUST NOT SURVIVE A FAILED REGISTRATION.
+    //
+    // The claim is taken before the registration is written, and the explicit
+    // release next to that write only covers the insert returning an error.
+    // Anything else between the two — a fee lookup throwing, a timeout, a
+    // capacity read now throwing rather than guessing — would leave the row
+    // 'registered' with registration_id NULL: the offer consumed, the place
+    // gone for good, and nobody able to claim it again.
+    if (claimedForRelease && svc) {
+      await releaseOffer(svc as any, claimedForRelease).catch(() => undefined);
+    }
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Failed to register' },
       { status: 500 }

@@ -238,7 +238,12 @@ export function EventRegisterForm({
             {feeLabel ?? 'Registration fee'}: {formatMoney(fee)}
           </p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            You&apos;ll be taken to a secure Razorpay page to pay after you submit.
+            {/* On a full event this form joins a queue, and nothing is charged
+                for that. Saying "you'll be taken to a payment page" alongside
+                the waiting-list banner told the same person two things. */}
+            {full
+              ? 'Nothing is charged to join the waiting list. This fee applies only if a place is offered to you and you take it up.'
+              : "You'll be taken to a secure Razorpay page to pay after you submit."}
           </p>
         </div>
       )}

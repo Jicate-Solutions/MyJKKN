@@ -113,20 +113,38 @@ describe('orderQueue — where an offer appears', () => {
 });
 
 describe('orderQueue — a valid total order, not just a two-status special case', () => {
-  // The comparator must give the same answer whichever way round the pair is
-  // handed to it. A sort whose comparator says "a after b" AND "b after a"
-  // produces an engine-dependent order — the result depends on how V8 happens
-  // to walk the array, which is not a thing to ship on a screen that decides
-  // who gets a place.
-  const STATUSES = ['offered', 'waiting', 'registered', 'withdrawn', 'something_new'];
+  // RANK ORDER, in both arrangements. Feeding the same rows in a different
+  // ARRAY order proves nothing here — orderQueue sorts by queue_seq first, so
+  // both inputs become the same array before the status sort ever runs, and
+  // such a test passes for any comparator at all, including the broken one.
+  // What has teeth is making queue_seq order CONTRADICT rank order: the status
+  // sort is then the only thing that can produce the right answer.
+  //
+  // Listed weakest-to-strongest claim: offers first, then people still waiting,
+  // then anybody who has left the queue. An unknown status sorts last.
+  const BY_RANK = ['offered', 'waiting', 'registered', 'withdrawn', 'something_new'];
 
-  it('is antisymmetric for every pair of statuses', () => {
-    for (const a of STATUSES) {
-      for (const b of STATUSES) {
-        if (a === b) continue;
-        const forward = orderQueue([row({ queue_seq: 1, status: a }), row({ queue_seq: 2, status: b })]);
-        const backward = orderQueue([row({ queue_seq: 2, status: b }), row({ queue_seq: 1, status: a })]);
-        expect(forward.map((e) => e.id)).toEqual(backward.map((e) => e.id));
+  it('sorts every pair by rank, whichever queue_seq order they arrive in', () => {
+    for (let i = 0; i < BY_RANK.length; i++) {
+      for (let j = i + 1; j < BY_RANK.length; j++) {
+        const higher = BY_RANK[i];
+        const lower = BY_RANK[j];
+
+        // (a) queue_seq already agrees with rank.
+        const agreeing = orderQueue([
+          row({ queue_seq: 1, status: higher }),
+          row({ queue_seq: 2, status: lower }),
+        ]);
+        expect(agreeing.map((e) => e.status)).toEqual([higher, lower]);
+
+        // (b) queue_seq contradicts rank — the case the old comparator got
+        // wrong in exactly one of the two directions, so the answer depended on
+        // which way the rows happened to be stored.
+        const contradicting = orderQueue([
+          row({ queue_seq: 1, status: lower }),
+          row({ queue_seq: 2, status: higher }),
+        ]);
+        expect(contradicting.map((e) => e.status)).toEqual([higher, lower]);
       }
     }
   });

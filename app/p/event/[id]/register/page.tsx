@@ -329,7 +329,16 @@ export default async function PublicEventRegisterPage({
   // showed before.
   let full = false;
   if (ev.max_registrations && ev.cap_behavior !== 'allow_overflow') {
-    const taken = await countTaken(svc as never, id);
+    // countTaken THROWS rather than reporting a failed count as zero, because
+    // reading a full event as empty would open the form past its capacity. Here
+    // the safe answer to "I could not count" is the refusal this page has
+    // always given — never the form.
+    let taken: number;
+    try {
+      taken = await countTaken(svc as never, id);
+    } catch {
+      return <Empty title="Registration full" msg="This event has reached its maximum number of registrations." />;
+    }
     if (taken >= ev.max_registrations) {
       const queues = ev.cap_behavior === 'waitlist' && (await isWaitlistAvailable(svc as never));
       if (!queues) {

@@ -122,6 +122,10 @@ const MISSING_OBJECT_CODES = new Set(['42P01', '42883', 'PGRST202', 'PGRST205'])
 export function isMissingObject(error: unknown): boolean {
   const code = (error as { code?: string } | null)?.code;
   if (code && MISSING_OBJECT_CODES.has(code)) return true;
+  // 42703 is "column ... does not exist" — SCHEMA DRIFT, not a missing table,
+  // and the message regex below would otherwise swallow it as "no waiting list
+  // yet". A column that went missing is a fault to surface, not to degrade past.
+  if (code === '42703') return false;
   const message = (error as { message?: string } | null)?.message ?? '';
   return /does not exist|schema cache/i.test(message);
 }
@@ -143,11 +147,20 @@ export async function countTaken(
   service: SupabaseClient,
   eventId: string
 ): Promise<number> {
-  const { count } = await (service as any)
+  const { count, error: regError } = await (service as any)
     .from('events_registrations')
     .select('id', { count: 'exact', head: true })
     .eq('event_id', eventId)
     .neq('status', LIVE_REGISTRATION_FILTER);
+
+  // THROWS RATHER THAN GUESSING. `count ?? 0` on a failed query reads a full
+  // event as empty, and the caller then registers past max_registrations —
+  // over-selling the room is a worse outcome than an error, and it is silent.
+  if (regError) {
+    throw new Error(
+      `Could not count registrations for event ${eventId}: ${regError.message ?? 'unknown error'}`
+    );
+  }
 
   let offered = 0;
   const { count: offeredCount, error } = await (service as any)
@@ -155,7 +168,18 @@ export async function countTaken(
     .select('id', { count: 'exact', head: true })
     .eq('event_id', eventId)
     .eq('status', 'offered');
-  if (!error) offered = offeredCount ?? 0;
+  if (error) {
+    // No table yet = no offers, which is exactly the number this route counted
+    // before the feature existed. Any OTHER failure drops the held-place term,
+    // and a passer-by then registers into the gap the queue exists to fill.
+    if (!isMissingObject(error)) {
+      throw new Error(
+        `Could not count outstanding offers for event ${eventId}: ${error.message ?? 'unknown error'}`
+      );
+    }
+  } else {
+    offered = offeredCount ?? 0;
+  }
 
   return (count ?? 0) + offered;
 }
@@ -175,11 +199,21 @@ export async function countTaken(
  * refusal that has always been there.
  */
 export async function isWaitlistAvailable(service: SupabaseClient): Promise<boolean> {
+  // One row, no COUNT: `{ count: 'exact', head: true }` makes PostgREST run an
+  // unfiltered count over the whole table, which is a table scan to answer a
+  // yes/no question about the schema.
   const { error } = await (service as any)
     .from('event_registration_waitlist')
-    .select('id', { count: 'exact', head: true })
+    .select('id')
     .limit(1);
-  return !error;
+  // ONLY a missing object means "no queue yet". Returning false for ANY error
+  // turns a transient outage into a permanent "Registration full" with nothing
+  // logged — which is the unreachable-queue bug this whole feature exists to
+  // remove. If the table is there but unreadable here, the queue is still real:
+  // the write path runs under the service role and the route reports a genuine
+  // failure as a 500 rather than as a capacity decision.
+  if (!error) return true;
+  return !isMissingObject(error);
 }
 
 export interface JoinWaitlistInput {
@@ -241,6 +275,18 @@ function normPhone(value: string | null | undefined): string | null {
   return trimmed ? trimmed : null;
 }
 
+/**
+ * A name reduced to what two submissions by the same person have in common:
+ * case folded, outer and inner whitespace collapsed.
+ *
+ * Used ONLY to tell two people apart when they share a contact detail, never to
+ * merge them — a name that does not match simply means "a different person",
+ * which costs at worst a duplicate queue row.
+ */
+function normName(value: string | null | undefined): string {
+  return (value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
 /** Rank among rows still waiting, counted by queue_seq. 1-based. */
 async function positionOf(
   service: SupabaseClient,
@@ -265,6 +311,16 @@ async function positionOf(
  * `existing.missingTable` after `if (existing.found) return` is still a TS2339.
  * A flat shape with an explicit null needs no narrowing at all.
  */
+/** Everything a submission knows about who is submitting it. */
+export interface WaitlistIdentity {
+  profileId?: string | null;
+  learnerId?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  /** Required to match on a shared phone or email — see findOpenRow. */
+  name?: string | null;
+}
+
 interface OpenRowLookup {
   row: {
     id: string;
@@ -272,6 +328,7 @@ interface OpenRowLookup {
     status: string;
     registration_id: string | null;
     profile_id: string | null;
+    participant_name?: string | null;
   } | null;
   /** true only when the waiting-list table is not in the schema yet. */
   missingTable: boolean;
@@ -291,37 +348,106 @@ interface OpenRowLookup {
 async function findOpenRow(
   service: SupabaseClient,
   eventId: string,
-  who: {
-    profileId?: string | null;
-    learnerId?: string | null;
-    email?: string | null;
-    phone?: string | null;
-  },
+  who: WaitlistIdentity,
   statuses: readonly string[] = OPEN_WAITLIST_STATUSES
 ): Promise<OpenRowLookup> {
-  const attempts: Array<[string, string]> = [];
-  if (who.profileId) attempts.push(['profile_id', who.profileId]);
-  if (who.learnerId) attempts.push(['learner_id', who.learnerId]);
+  // IDENTITY matches on its own; a CONTACT DETAIL must also agree on the name.
+  //
+  // A phone number is not a person here. Siblings share a parent's number and a
+  // family shares one email address — routine in this domain, not an edge case.
+  // Matching on the contact alone would hand the second child the first child's
+  // queue row, tell them they were "already number 4", and never queue them at
+  // all. The name is what separates two people behind one number; it is only
+  // ever used to SPLIT them, so a name that fails to match costs a duplicate
+  // row, never somebody else's place.
+  const attempts: Array<{ column: string; value: string; byName: boolean }> = [];
+  if (who.profileId) attempts.push({ column: 'profile_id', value: who.profileId, byName: false });
+  if (who.learnerId) attempts.push({ column: 'learner_id', value: who.learnerId, byName: false });
   const phone = normPhone(who.phone);
-  if (phone) attempts.push(['participant_phone', phone]);
+  if (phone) attempts.push({ column: 'participant_phone', value: phone, byName: true });
   const email = normEmail(who.email);
-  if (email) attempts.push(['participant_email', email]);
+  if (email) attempts.push({ column: 'participant_email', value: email, byName: true });
 
-  for (const [column, value] of attempts) {
+  const wantedName = normName(who.name);
+
+  for (const attempt of attempts) {
     const { data, error } = await (service as any)
       .from('event_registration_waitlist')
-      .select('id, queue_seq, status, registration_id, profile_id')
+      .select('id, queue_seq, status, registration_id, profile_id, participant_name')
       .eq('event_id', eventId)
       .in('status', statuses)
-      .eq(column, value)
+      .eq(attempt.column, attempt.value)
       .order('queue_seq', { ascending: true })
-      .limit(1);
+      .limit(20);
 
     if (error) return { row: null, missingTable: isMissingObject(error) };
-    if (data?.length) return { row: data[0], missingTable: false };
+    if (!data?.length) continue;
+
+    const rows = data as Array<{ participant_name?: string | null }>;
+    const hit = attempt.byName
+      ? rows.find((r) => normName(r.participant_name) === wantedName && wantedName !== '')
+      : rows[0];
+    if (hit) return { row: hit as OpenRowLookup['row'], missingTable: false };
   }
 
   return { row: null, missingTable: false };
+}
+
+/**
+ * This person's live registration for this form, if they already have one.
+ *
+ * Same identity rules as findOpenRow — an account matches on its own, a contact
+ * detail must also agree on the name, because a shared family phone is not a
+ * person. A cancelled registration is not a registration.
+ */
+async function findLiveRegistration(
+  service: SupabaseClient,
+  eventId: string,
+  formId: string | null,
+  who: WaitlistIdentity
+): Promise<string | null> {
+  // events_registrations stores the email AS TYPED — only the waiting list
+  // lower-cases it — so a single `.eq` on the normalised form would miss
+  // "Abc@x.com". Both spellings are offered instead of reaching for `ilike`,
+  // whose `_` and `%` are wildcards and an email may legally contain `_`.
+  const attempts: Array<{ column: string; values: string[]; byName: boolean }> = [];
+  if (who.profileId) attempts.push({ column: 'profile_id', values: [who.profileId], byName: false });
+  if (who.learnerId) attempts.push({ column: 'learner_id', values: [who.learnerId], byName: false });
+  const phone = normPhone(who.phone);
+  if (phone) attempts.push({ column: 'participant_phone', values: [phone], byName: true });
+  const typedEmail = who.email?.trim() || null;
+  const email = normEmail(who.email);
+  if (email) {
+    attempts.push({
+      column: 'participant_email',
+      values: Array.from(new Set([email, typedEmail].filter(Boolean) as string[])),
+      byName: true,
+    });
+  }
+
+  const wantedName = normName(who.name);
+
+  for (const attempt of attempts) {
+    let query = (service as any)
+      .from('events_registrations')
+      .select('id, participant_name')
+      .eq('event_id', eventId)
+      .neq('status', LIVE_REGISTRATION_FILTER)
+      .in(attempt.column, attempt.values)
+      .limit(20);
+    if (formId) query = query.eq('form_id', formId);
+
+    const { data, error } = await query;
+    if (error || !data?.length) continue;
+
+    const rows = data as Array<{ id: string; participant_name?: string | null }>;
+    const hit = attempt.byName
+      ? rows.find((r) => normName(r.participant_name) === wantedName && wantedName !== '')
+      : rows[0];
+    if (hit) return hit.id;
+  }
+
+  return null;
 }
 
 /**
@@ -339,19 +465,28 @@ export async function joinWaitlist(
   service: SupabaseClient,
   input: JoinWaitlistInput
 ): Promise<JoinWaitlistResult> {
-  const who = {
+  const who: WaitlistIdentity = {
     profileId: input.profileId,
     learnerId: input.learnerId,
     email: input.participantEmail,
     phone: input.participantPhone,
+    name: input.participantName,
   };
 
-  // Already took a place up on this event? Say so, rather than queueing them
-  // for something they are already registered for.
-  const taken = await findOpenRow(service, input.eventId, who, ['registered']);
-  if (taken.row) {
-    return { outcome: 'already_registered', registrationId: taken.row.registration_id };
-  }
+  // Already registered for THIS FORM? Say so, rather than queueing them for
+  // something they are already going to.
+  //
+  // Read from events_registrations, not from a 'registered' waitlist row, and
+  // scoped to the form. Both matter. The waitlist knows only about people who
+  // came through the queue, so somebody who registered normally BEFORE the
+  // event filled up and then resubmitted would have been queued, later
+  // promoted, and left holding a second seat they already occupied — with no
+  // way to give it back. And an event holds many forms, one per monthly run:
+  // scoping to the event would let one taken place block that person from ever
+  // queueing for a later run, which is the opposite of what this table's own
+  // comment promises.
+  const live = await findLiveRegistration(service, input.eventId, input.formId, who);
+  if (live) return { outcome: 'already_registered', registrationId: live };
 
   const existing = await findOpenRow(service, input.eventId, who);
   if (existing.row) {
@@ -444,12 +579,7 @@ export interface OutstandingOffer {
 export async function findOutstandingOffer(
   service: SupabaseClient,
   eventId: string,
-  who: {
-    profileId?: string | null;
-    learnerId?: string | null;
-    email?: string | null;
-    phone?: string | null;
-  }
+  who: WaitlistIdentity
 ): Promise<OutstandingOffer | null> {
   const hit = await findOpenRow(service, eventId, who, ['offered']);
   if (!hit.row) return null;
@@ -563,7 +693,17 @@ export function queuedMessage(position: number | null, already = false): string 
  */
 export async function deliverPendingOffers(
   service: SupabaseClient,
-  eventId: string
+  eventId: string,
+  /**
+   * How many offers one pass may announce. The public registration door passes
+   * a small number: this is awaited on the critical path of somebody's
+   * registration, each row costs a notification fanout plus an update, and an
+   * unbounded loop there puts unbounded latency in front of a registrant. The
+   * organiser's card, which is not on anybody's critical path, takes the
+   * default. Nothing is lost by announcing fewer per pass — the rest are picked
+   * up by the next request that touches the event.
+   */
+  maxRows = 50
 ): Promise<{ notified: number; unreachable: number }> {
   const outcome = { notified: 0, unreachable: 0 };
 
@@ -574,7 +714,7 @@ export async function deliverPendingOffers(
     .eq('status', 'offered')
     .is('notified_at', null)
     .order('queue_seq', { ascending: true })
-    .limit(50);
+    .limit(maxRows);
 
   if (error || !pending?.length) return outcome;
 
@@ -747,13 +887,21 @@ export async function getWaitlistPanel(
   service: SupabaseClient,
   eventId: string
 ): Promise<WaitlistPanel> {
-  const { data: event } = await (service as any)
+  const { data: event, error: eventError } = await (service as any)
     .from('events')
     .select('cap_behavior, max_registrations')
     .eq('id', eventId)
     .maybeSingle();
 
-  const capBehavior = ((event as any)?.cap_behavior ?? 'waitlist') as EventCapBehavior;
+  // NOT READ IS NOT 'waitlist'. The old `?? 'waitlist'` reported a value nobody
+  // successfully looked up — and the card decides whether to render at all on
+  // that value, so an unreadable event quietly became "this event queues".
+  if (eventError) {
+    throw new Error(
+      `Could not read event ${eventId} for its waiting list: ${eventError.message ?? 'unknown error'}`
+    );
+  }
+  const capBehavior = ((event as any)?.cap_behavior ?? null) as EventCapBehavior | null;
   const maxRegistrations = ((event as any)?.max_registrations ?? null) as number | null;
 
   const { data: rows, error } = await (service as any)
@@ -763,9 +911,19 @@ export async function getWaitlistPanel(
     )
     .eq('event_id', eventId)
     .in('status', ['waiting', 'offered'])
-    .order('queue_seq', { ascending: true });
+    .order('queue_seq', { ascending: true })
+    .limit(500);
 
   if (error) {
+    // Only a missing table is "not yet available". Anything else is a real
+    // failure and must reach the card's explicit could-not-load state — an
+    // empty panel with not_yet_available=false rendered identically to "nobody
+    // is waiting", which made that state unreachable and hid a stalled offer.
+    if (!isMissingObject(error)) {
+      throw new Error(
+        `Could not read the waiting list for event ${eventId}: ${error.message ?? 'unknown error'}`
+      );
+    }
     return {
       cap_behavior: capBehavior,
       max_registrations: maxRegistrations,
@@ -773,7 +931,7 @@ export async function getWaitlistPanel(
       entries: [],
       waiting_count: 0,
       offered_count: 0,
-      not_yet_available: isMissingObject(error),
+      not_yet_available: true,
     };
   }
 
