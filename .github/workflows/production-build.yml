@@ -388,6 +388,35 @@ jobs:
       # 6144 here against production's 12288. See the header for why a LOWER cap
       # is what makes the build fit. `build` itself is untouched, so the command
       # Vercel runs is byte-identical to what it was before this workflow existed.
+      # The last lever that lives entirely inside CI. Per-process RSS (job
+      # 103714083617) showed ONE node process reaching 14,867 MB against a
+      # 6,144 MB V8 cap — 2.4x the cap — so the memory is Turbopack's Rust
+      # allocations, outside V8, where --max-old-space-size has no authority and
+      # `turbopackMemoryLimit` (next.config.ts, off-limits here) is the only
+      # config knob. What CI CAN change is how much the kernel has to page into.
+      # A standard runner ships ~4 GB of swap on a 15 GiB box but has ~70 GB free
+      # on /mnt. Swap does not make the build use less memory; it gives the
+      # kernel somewhere to put cold pages instead of killing the job, at the
+      # cost of speed. The 30-minute timeout bounds that cost.
+      #
+      # Nothing here touches package.json, next.config.ts, or anything Vercel
+      # executes — it is runner configuration, not build configuration.
+      - name: Give the runner more swap
+        if: steps.relevant.outputs.count != '0'
+        run: |
+          set -euo pipefail
+          echo "before:"; free -h
+          sudo swapoff -a || true
+          sudo rm -f /mnt/swapfile
+          sudo fallocate -l 24G /mnt/swapfile || sudo dd if=/dev/zero of=/mnt/swapfile bs=1M count=24576 status=none
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile > /dev/null
+          sudo swapon /mnt/swapfile
+          # Prefer swapping over dying. The default (60) is tuned for interactive
+          # machines; a batch build would rather page than be killed.
+          sudo sysctl -w vm.swappiness=80 > /dev/null
+          echo "after:"; free -h
+
       - name: Build (same steps as Vercel, lower heap cap)
         if: steps.relevant.outputs.count != '0'
         env:
@@ -435,7 +464,7 @@ jobs:
           # fixes. Per-process RSS can.
           echo "::group::Memory trace (15s samples)"
           ( while true; do
-              echo "[mem] $(date -u +%H:%M:%S) $(free -m | awk '/^Mem:/{printf "used=%sMB avail=%sMB", $3, $7}') top3(pid:rss) $(ps -eo pid,rss,comm --sort=-rss --no-headers 2>/dev/null | head -3 | awk '{printf "%s:%dM/%s ", $1, $2/1024, $3}')"
+              echo "[mem] $(date -u +%H:%M:%S) $(free -m | awk '/^Mem:/{printf "used=%sMB avail=%sMB", $3, $7} /^Swap:/{printf " swap=%s/%sMB", $3, $2}') top3(pid:rss) $(ps -eo pid,rss,comm --sort=-rss --no-headers 2>/dev/null | head -3 | awk '{printf "%s:%dM/%s ", $1, $2/1024, $3}')"
               sleep 15
             done ) &
           sampler=$!
