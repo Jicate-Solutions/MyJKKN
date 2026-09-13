@@ -26,8 +26,112 @@ export interface EventsNotificationRow {
   } | null;
 }
 
+/**
+ * What the organiser sees BEFORE pressing send: how many registrants will
+ * actually receive the message, how many are registered at all, and how many
+ * of those have no MyJKKN account and will therefore hear nothing in-app.
+ */
+export interface EventMessageAudienceSummary {
+  recipient_count: number;
+  audience_total: number;
+  unreachable: number;
+}
+
+/** One message that has already gone out. */
+export interface EventRegistrantMessage {
+  id: string;
+  subject: string;
+  body: string;
+  audience_total: number;
+  recipient_count: number;
+  delivered_count: number;
+  notification_id: string | null;
+  sent_by: string | null;
+  sent_at: string;
+}
+
+export interface EventMessagePanel {
+  audience: EventMessageAudienceSummary;
+  messages: EventRegistrantMessage[];
+}
+
+/**
+ * An error carrying the server's own sentence and code, so the board can show
+ * the explicit "you do not have access" state (house rule #27) rather than a
+ * generic failure — or a silent redirect.
+ */
+export class EventMessageError extends Error {
+  constructor(
+    message: string,
+    readonly code: string | null,
+    readonly status: number
+  ) {
+    super(message);
+    this.name = 'EventMessageError';
+  }
+}
+
+async function readJsonOrThrow(res: Response): Promise<any> {
+  const payload = await res.json().catch(() => null);
+  if (!res.ok || payload?.success !== true) {
+    throw new EventMessageError(
+      payload?.error ?? 'Something went wrong. Please try again.',
+      payload?.code ?? null,
+      res.status
+    );
+  }
+  return payload;
+}
+
 export class EventsNotificationService {
   private static supabase = createClientSupabaseClient();
+
+  // ─── ORGANISER MESSAGES ───────────────────────────────────────────────
+  //
+  // The manual "Message registrants" surface. Both calls go through
+  // /api/events/[eventId]/messages, which authorises the session against
+  // fn_can_manage_event_messages and then delivers through the SAME canonical
+  // fanout the notify route uses — no second notification path.
+
+  /** Recipient count + the log of what has already been sent. */
+  static async getMessagePanel(eventId: string): Promise<EventMessagePanel> {
+    const res = await fetch(`/api/events/${encodeURIComponent(eventId)}/messages`, {
+      method: 'GET',
+      cache: 'no-store',
+    });
+    const payload = await readJsonOrThrow(res);
+    return {
+      audience: payload.audience as EventMessageAudienceSummary,
+      messages: (payload.messages ?? []) as EventRegistrantMessage[],
+    };
+  }
+
+  /**
+   * Send one message to this event's registrants.
+   *
+   * `clientToken` is minted once per composed message. Re-posting the same
+   * token returns the first send rather than delivering a second time
+   * (`deduplicated: true`), which is what makes a double click harmless.
+   */
+  static async sendRegistrantMessage(
+    eventId: string,
+    input: { subject: string; body: string; clientToken: string }
+  ): Promise<{ message: EventRegistrantMessage; deduplicated: boolean }> {
+    const res = await fetch(`/api/events/${encodeURIComponent(eventId)}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        subject: input.subject,
+        body: input.body,
+        client_token: input.clientToken,
+      }),
+    });
+    const payload = await readJsonOrThrow(res);
+    return {
+      message: payload.message as EventRegistrantMessage,
+      deduplicated: payload.deduplicated === true,
+    };
+  }
 
   // ─── DISPATCH ─────────────────────────────────────────────────────────
 
