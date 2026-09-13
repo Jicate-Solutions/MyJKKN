@@ -105,6 +105,25 @@ describe('institutionsFallingBack — which colleges the registry owner still co
   it('no scopes at all → every college falls back', () => {
     expect(institutionsFallingBack(LOOP, [], INSTITUTIONS)).toHaveLength(INSTITUTIONS.length);
   });
+
+  it('only colleges and schools count — a company or the back office is never "falling back"', () => {
+    // Live estate 2026-09-13: Jicate Solutions (company), JKKN Main Office
+    // (admin_office), Nattraja Incubation Forum (company) have no learners
+    // and were the ONLY names the line would have printed.
+    const estate: LoopOwnerInstitution[] = [
+      { id: 'vendor', name: 'Jicate Solutions', entity_type: 'company' },
+      { id: 'office', name: 'JKKN Main Office', entity_type: 'admin_office' },
+      { id: 'forum', name: 'Nattraja Incubation Forum', entity_type: 'company' },
+      { id: 'inst-allied', name: 'JKKN College of Allied Health Sciences', entity_type: 'institution' },
+      { id: 'school', name: 'Nattraja Vidhyalya CBSE', entity_type: 'school' },
+      { id: 'unknown', name: 'Row with no entity_type', entity_type: null },
+    ];
+    expect(institutionsFallingBack(LOOP, [], estate).map((i) => i.id)).toEqual([
+      'inst-allied',
+      'school',
+      'unknown',
+    ]);
+  });
 });
 
 describe('fallbackSummaryLine — the one line the weekly summary carries', () => {
@@ -156,6 +175,16 @@ describe('fn_loop_owner_for_institution — the SQL twin states the same rule', 
     expect(sql).toMatch(/is_super_admin\(\)/);
     expect(sql).toMatch(/is_admin\(\)/);
     expect(sql).toMatch(/RAISE EXCEPTION 'not authorized'/);
+  });
+
+  it('the guard is NULL-safe — a session with no JWT claims is refused, not waved through', () => {
+    // auth.role() is NULL without claims; NULL = 'service_role' is NULL and
+    // plpgsql's IF NOT (NULL OR false OR false) takes neither branch.
+    expect(sql).toMatch(/COALESCE\(auth\.role\(\) = 'service_role', false\)/);
+  });
+
+  it('a NULL institution resolves to nobody, never to the estate-level owner', () => {
+    expect(sql).toMatch(/IF p_loop_key IS NULL OR p_institution_id IS NULL THEN\s+RETURN NULL;/);
   });
 
   it('re-asserts REVOKE FROM anon, PUBLIC and grants authenticated in the same file', () => {

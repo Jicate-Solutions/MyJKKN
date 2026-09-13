@@ -1057,7 +1057,12 @@ export default async function LoopControlTowerPage({
   // contract: before that migration applies the table is missing, the read
   // errors, and the panel simply shows no per-college block — never a 500.
   type ScopeRead = { loop_key: string; institution_id: string; owner_email: string };
-  type InstitutionRead = { id: string; name: string | null; is_active: boolean | null };
+  type InstitutionRead = {
+    id: string;
+    name: string | null;
+    is_active: boolean | null;
+    entity_type: string | null;
+  };
   const [scopeReads, institutionReads] = await Promise.all([
     admin
       .from('loop_owner_scopes')
@@ -1068,7 +1073,7 @@ export default async function LoopControlTowerPage({
       ),
     admin
       .from('institutions')
-      .select('id,name,is_active')
+      .select('id,name,is_active,entity_type')
       .order('name', { ascending: true })
       .then(
         (r) => (r.data ?? []) as InstitutionRead[],
@@ -1088,7 +1093,7 @@ export default async function LoopControlTowerPage({
   // scope on an inactive one still renders (by name) so it can be removed.
   const institutionOptions: InstitutionOption[] = institutionReads
     .filter((i) => i.is_active !== false)
-    .map((i) => ({ id: i.id, name: i.name ?? i.id }));
+    .map((i) => ({ id: i.id, name: i.name ?? i.id, entity_type: i.entity_type }));
 
   // ── Proven-green thresholds (spec 2026-08-13) ─────────────────────────────
   // Two Director-adjustable policy rows (seeded by 20260813033300); in-code

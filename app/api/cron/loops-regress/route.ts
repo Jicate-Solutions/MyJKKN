@@ -212,18 +212,24 @@ export async function GET(request: NextRequest) {
   let ownerFallbackColleges = 0;
   try {
     type ScopeRead = { loop_key: string; institution_id: string; owner_email: string | null };
-    type InstitutionRead = { id: string; name: string | null };
+    type InstitutionRead = { id: string; name: string | null; entity_type: string | null };
     type RegistryRead = { owner_email: string | null };
     const [scopeRes, instRes, regRes] = await Promise.all([
       admin.from('loop_owner_scopes').select('loop_key,institution_id,owner_email').eq('loop_key', SCOPED_LOOP),
-      admin.from('institutions').select('id,name').eq('is_active', true).order('name', { ascending: true }),
+      // entity_type travels so the helper counts colleges/schools only — the
+      // estate's company / admin_office rows have no learners to fall back.
+      admin.from('institutions').select('id,name,entity_type').eq('is_active', true).order('name', { ascending: true }),
       admin.from('loop_registry').select('owner_email').eq('loop_key', SCOPED_LOOP).maybeSingle(),
     ]);
     if (!scopeRes.error && !instRes.error && !regRes.error) {
       const falling = institutionsFallingBack(
         SCOPED_LOOP,
         (scopeRes.data ?? []) as ScopeRead[],
-        ((instRes.data ?? []) as InstitutionRead[]).map((i) => ({ id: i.id, name: i.name ?? i.id }))
+        ((instRes.data ?? []) as InstitutionRead[]).map((i) => ({
+          id: i.id,
+          name: i.name ?? i.id,
+          entity_type: i.entity_type,
+        }))
       );
       ownerFallbackColleges = falling.length;
       ownerFallback = fallbackSummaryLine(

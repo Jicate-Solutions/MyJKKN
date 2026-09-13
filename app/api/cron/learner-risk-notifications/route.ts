@@ -60,6 +60,14 @@ function chunk<T>(xs: T[], size: number): T[][] {
   return out;
 }
 
+/**
+ * Escape LIKE/ILIKE metacharacters so a PostgREST `ilike` pattern matches the
+ * value literally. Postgres' default escape character is the backslash.
+ */
+function escapeLikePattern(s: string): string {
+  return s.replace(/[\\%_]/g, '\\$&');
+}
+
 /** Today in IST, as YYYY-MM-DD — the calendar the assessments are keyed by. */
 function istToday(): string {
   return new Date(Date.now() + 5.5 * 3600_000).toISOString().slice(0, 10);
@@ -173,7 +181,36 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     trend_direction: RiskCandidate['trend_direction'];
   }>;
   if (rows.length === 0) {
-    return NextResponse.json({ ok: true, assessment_date: assessmentDate, candidates: 0, sent: 0 });
+    // A quiet zero must be distinguishable from a stalled engine. Nothing
+    // upstream of this route writes learner_risk_assessments on a schedule
+    // (compute_learner_risk_assessment is operator-run — 20260730160100), so
+    // the newest assessment date and its age travel with the response; the
+    // dispatcher status line prints assessments_stale_days whenever it is
+    // non-zero, and every downstream step — the department digests AND the
+    // loop-owner routing below — is idle until the engine writes today's rows.
+    const { data: latest } = await supabase
+      .from('learner_risk_assessments')
+      .select('assessment_date')
+      .order('assessment_date', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const latestDate = (latest as { assessment_date: string } | null)?.assessment_date ?? null;
+    const staleDays = latestDate
+      ? Math.max(0, Math.round((Date.parse(assessmentDate) - Date.parse(latestDate)) / 86_400_000))
+      : null;
+    return NextResponse.json({
+      ok: true,
+      assessment_date: assessmentDate,
+      candidates: 0,
+      sent: 0,
+      assessments_latest: latestDate,
+      ...(staleDays !== null ? { assessments_stale_days: staleDays } : {}),
+      ...(staleDays !== null && staleDays > 1
+        ? {
+            hint: `no assessments for ${assessmentDate}; the newest are ${staleDays} days old — the risk engine has not run, so nothing downstream (department digests, loop-owner routing) can fire`,
+          }
+        : {}),
+    });
   }
 
   const learnerIds = rows.map((r) => r.learner_id);
@@ -382,17 +419,38 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   // ── Scoped loop owner (2026-09-13, Director decision) ───────────────────
   // The attendance-intervention loop is owned per college (loop_owner_scopes,
-  // 20261019020000 — the seven Principals). Each college's owner is ADDED as
-  // a recipient of that college's department digests, resolved through
-  // fn_loop_owner_for_institution (20261210020000): the scoped owner when a
-  // scope row exists, else loop_registry.owner_email (the Director) for the
-  // colleges without one. Existing recipients are never replaced and the
-  // recipient Set already de-duplicates, so an owner who is also a head is
-  // told once per message. Every miss is COUNTED, never widened: an
-  // unapplied function, a loop with no registry owner, or an owner email
-  // with no active profile all leave the department's recipients exactly as
-  // they were.
+  // 20261019020000 — seeded with the seven Principals; the Owners & verdicts
+  // panel adds or changes rows, and production held ten on 2026-09-13). Each
+  // college's owner is ADDED as a recipient of that college's department
+  // digests, resolved through fn_loop_owner_for_institution (20261210020000):
+  // the scoped owner when a scope row exists, else loop_registry.owner_email
+  // (the Director) for a college without one. Existing recipients are never
+  // replaced and the recipient Set already de-duplicates, so an owner who is
+  // also a head is told once per message.
+  //
+  // The digest body names learners with scores, attendance and arrears, and
+  // user_notifications sits outside the row policy on learner_risk_assessments
+  // — so an owner is admitted ONLY when that policy would let them open the
+  // rows they are told about ("Institution admins can view risk assessments",
+  // rls_initplan_wrap_sweep.sql: a principal/admin of the SAME institution, or
+  // a super admin). A registry entry naming anyone else (a vice-principal, a
+  // CAO, the Principal of a different college) is recorded in owner_misses
+  // as 'owner_cannot_read' and NOT sent: the panel is the Director's registry,
+  // but an alert must never carry what its recipient could not open. Every
+  // other miss is recorded the same way — an unapplied function, a loop with
+  // no registry owner, an owner email with no active profile — and the
+  // department's recipients are left exactly as they were. Misses are a LIST
+  // (one entry per institution, naming the address), kept apart from
+  // `skipped`, whose counters are per learner.
   const LOOP_KEY = 'attendance-intervention';
+  /** Roles the learner_risk_assessments row policy admits institution-wide. */
+  const OWNER_READ_ROLES = new Set(['principal', 'admin']);
+  type OwnerMiss = {
+    institution_id: string;
+    owner_email: string | null;
+    reason: 'owner_unresolved' | 'owner_none' | 'owner_no_profile' | 'owner_cannot_read';
+  };
+  const ownerMisses: OwnerMiss[] = [];
   const ownerUserByInstitution = new Map<string, string>();
   const institutionIds = Array.from(new Set(selected.map((s) => s.candidate.institution_id)));
   for (const institutionId of institutionIds) {
@@ -403,35 +461,51 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (ownerErr) {
       // Typically PGRST202 before the migration applies — visible in the
       // response, silent for the department heads who still get their digest.
-      skipped.owner_unresolved = (skipped.owner_unresolved ?? 0) + 1;
+      ownerMisses.push({ institution_id: institutionId, owner_email: null, reason: 'owner_unresolved' });
       continue;
     }
     const email = typeof ownerEmail === 'string' ? ownerEmail.trim() : '';
     if (email === '') {
-      skipped.owner_none = (skipped.owner_none ?? 0) + 1;
+      ownerMisses.push({ institution_id: institutionId, owner_email: null, reason: 'owner_none' });
       continue;
     }
-    // ilike with no wildcard = case-insensitive equality on the stored email.
+    // Case-insensitive EQUALITY on the stored email. PostgREST's ilike treats
+    // '_' and '%' inside the value as wildcards, so they are escaped: an owner
+    // address with an underscore must match its one profile, not several.
     const { data: ownerProfile } = await supabase
       .from('profiles')
-      .select('id')
-      .ilike('email', email)
+      .select('id, role, institution_id, is_super_admin')
+      .ilike('email', escapeLikePattern(email))
       .neq('is_active', false)
       .limit(1)
       .maybeSingle();
-    const ownerId = (ownerProfile as { id: string } | null)?.id;
-    if (!ownerId) {
-      skipped.owner_no_profile = (skipped.owner_no_profile ?? 0) + 1;
+    const owner = ownerProfile as {
+      id: string;
+      role: string | null;
+      institution_id: string | null;
+      is_super_admin: boolean | null;
+    } | null;
+    if (!owner) {
+      ownerMisses.push({ institution_id: institutionId, owner_email: email, reason: 'owner_no_profile' });
       continue;
     }
-    ownerUserByInstitution.set(institutionId, ownerId);
+    const canReadAssessments =
+      owner.is_super_admin === true ||
+      (owner.institution_id === institutionId && OWNER_READ_ROLES.has(owner.role ?? ''));
+    if (!canReadAssessments) {
+      ownerMisses.push({ institution_id: institutionId, owner_email: email, reason: 'owner_cannot_read' });
+      continue;
+    }
+    ownerUserByInstitution.set(institutionId, owner.id);
   }
-  let ownerRecipients = 0;
+  // Departments (not messages — in individual mode one department is many)
+  // whose recipient set gained the owner.
+  let ownerDepartments = 0;
   for (const [key, list] of byDept) {
     const ownerId = ownerUserByInstitution.get(list[0].candidate.institution_id);
     if (!ownerId) continue;
     const set = recipientsByDept.get(key) ?? new Set<string>();
-    if (!set.has(ownerId)) ownerRecipients += 1;
+    if (!set.has(ownerId)) ownerDepartments += 1;
     set.add(ownerId);
     recipientsByDept.set(key, set);
   }
@@ -506,7 +580,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           category: 'learners:risk',
           kind: 'work_item',
           priority: msg.learners.some((s) => s.candidate.risk_tier === 'critical') ? 'high' : 'normal',
-          url: '/learners/risk',
+          // The role-scoped caseload page (principal / super admin: the whole
+          // college; hod: their department). '/learners/risk' had no page —
+          // the bell card linked to a 404 (review finding 2026-09-13).
+          url: '/learners/advisor-caseload',
           source: 'learner-risk-staff-notifications',
           idempotencyKey: idempotencyKey(policies.mode, msg.scope, assessmentDate),
           metadata: {
@@ -575,10 +652,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     departments: byDept.size,
     sent,
     announced,
-    // Department messages that gained a scoped/registry loop owner as an extra
-    // recipient (0 before 20261210020000 applies — then skipped.owner_unresolved
-    // says why).
-    owner_recipients: ownerRecipients,
+    // Departments whose recipient set gained the scoped/registry loop owner
+    // (0 before 20261210020000 applies — then owner_misses says why, one entry
+    // per institution with at-risk learners: owner_unresolved / owner_none /
+    // owner_no_profile / owner_cannot_read). owner_missed is the count the
+    // dispatcher status line prints when non-zero.
+    owner_departments: ownerDepartments,
+    owner_missed: ownerMisses.length,
+    owner_misses: ownerMisses,
     skipped,
     results,
     elapsed_ms: Date.now() - started,

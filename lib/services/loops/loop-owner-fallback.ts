@@ -27,6 +27,21 @@ export interface LoopOwnerScope {
 export interface LoopOwnerInstitution {
   id: string;
   name: string;
+  /**
+   * institutions.entity_type. When present, only colleges and schools count
+   * as "falling back" — the estate also holds `company` and `admin_office`
+   * rows (a vendor, an incubation forum, the back office) that have no
+   * learners and would otherwise be the ONLY names on the fallback line.
+   */
+  entity_type?: string | null;
+}
+
+/** institutions.entity_type values that hold learners — the loop's colleges. */
+export const LOOP_OWNER_ENTITY_TYPES: ReadonlySet<string> = new Set(['institution', 'school']);
+
+/** True when the row is a college/school, or when its entity_type is unknown. */
+export function isLoopOwnerCollege(i: LoopOwnerInstitution): boolean {
+  return i.entity_type == null || LOOP_OWNER_ENTITY_TYPES.has(i.entity_type);
 }
 
 /** Mirror of the SQL NULLIF(btrim(...)): blank and whitespace are "absent". */
@@ -48,9 +63,10 @@ export function resolveLoopOwnerEmail(
 
 /**
  * The institutions that currently fall back to the registry owner for one
- * loop: every institution in `institutions` with no scope row for `loopKey`,
- * or whose scope row carries a blank email. Order is preserved from
- * `institutions` (the callers pass a name-sorted list).
+ * loop: every college/school in `institutions` (see isLoopOwnerCollege) with
+ * no scope row for `loopKey`, or whose scope row carries a blank email.
+ * Order is preserved from `institutions` (the callers pass a name-sorted
+ * list).
  */
 export function institutionsFallingBack(
   loopKey: string,
@@ -63,7 +79,7 @@ export function institutionsFallingBack(
       scoped.add(s.institution_id);
     }
   }
-  return institutions.filter((i) => !scoped.has(i.id));
+  return institutions.filter((i) => isLoopOwnerCollege(i) && !scoped.has(i.id));
 }
 
 /**

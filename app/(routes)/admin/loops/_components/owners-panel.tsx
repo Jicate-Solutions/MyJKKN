@@ -38,7 +38,10 @@ import toast from 'react-hot-toast';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { institutionsFallingBack } from '@/lib/services/loops/loop-owner-fallback';
+import {
+  fallbackSummaryLine,
+  institutionsFallingBack,
+} from '@/lib/services/loops/loop-owner-fallback';
 
 export interface OwnerPanelRow {
   loop_key: string;
@@ -66,6 +69,8 @@ export interface ScopedOwnerRow {
 export interface InstitutionOption {
   id: string;
   name: string;
+  /** institutions.entity_type — the fallback line counts colleges/schools only. */
+  entity_type?: string | null;
 }
 
 /** The two editable fields, as the inputs hold them (always strings). */
@@ -523,11 +528,11 @@ export function OwnersPanel({
                               className="mt-1.5 text-[11px] text-muted-foreground"
                               data-testid={`owner-fallback-${row.loop_key}`}
                             >
-                              {fallingBack.length === 1
-                                ? '1 college falls back to '
-                                : `${fallingBack.length} colleges fall back to `}
+                              {/* Same line the weekly summary carries — a
+                                  blank registry owner reads "to nobody",
+                                  never an empty span. */}
                               <span className="font-mono">
-                                {row.owner_email ?? 'the registry owner'}
+                                {fallbackSummaryLine(fallingBack.length, row.owner_email)}
                               </span>
                               : {fallingBack.map((i) => i.name).join(', ')}
                             </p>
