@@ -221,5 +221,5 @@ END;
 $function$
 ;
 
-REVOKE EXECUTE ON FUNCTION public.fn_compute_input_attrition_pipeline(uuid) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_compute_input_attrition_pipeline(uuid) TO authenticated;  -- ci:allow-secdef-authenticated (pre-existing reader, no new exposure)
+REVOKE EXECUTE ON FUNCTION public.fn_compute_input_attrition_pipeline(uuid, uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_compute_input_attrition_pipeline(uuid, uuid) TO authenticated;  -- ci:allow-secdef-authenticated (pre-existing reader, no new exposure)
