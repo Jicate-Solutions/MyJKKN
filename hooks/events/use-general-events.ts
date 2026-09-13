@@ -151,10 +151,10 @@ export function useCancelGeneralEvent() {
     onSuccess: (event) => {
       queryClient.invalidateQueries({ queryKey: KEYS.all });
       queryClient.invalidateQueries({ queryKey: KEYS.detail(event.id) });
-      // The reason lives in its own table now, under its own query key — without
-      // this the banner would render "No reason was recorded" against a reason
-      // that was just written.
-      queryClient.invalidateQueries({ queryKey: KEYS.cancellation(event.id) });
+      // No separate invalidate for KEYS.cancellation(id): it is
+      // [...KEYS.all, 'cancellation', id], and invalidateQueries prefix-matches,
+      // so the KEYS.all call above already covers it. Adding one would read as
+      // load-bearing to the next person and be a no-op.
       // Names the cascade, because it has already happened by the time this
       // shows: tr_event_cancelled_cascade_release releases the event's rooms and
       // un-assigns its people inside the same write.

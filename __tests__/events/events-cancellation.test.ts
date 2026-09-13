@@ -499,6 +499,43 @@ describe('migration 20261204113700 — the reason lives off the anon-readable ta
     );
   });
 
+  it('does not let its own stamp trigger eat the history it backfills', () => {
+    // trg_event_cancellation_stamp fires BEFORE INSERT unconditionally and
+    // overwrites cancelled_at with now() and cancelled_by with auth.uid() —
+    // NULL on a migration connection. Left enabled over the backfill it would
+    // replace the real who and when of every cancellation recorded under the old
+    // shape with "now, nobody", and the next statement drops the source columns,
+    // so the loss is irreversible. Disabling it for the copy keeps the trigger
+    // unconditional everywhere else, which is what stops a browser naming
+    // somebody else as the canceller.
+    expect(code).toMatch(/DISABLE TRIGGER trg_event_cancellation_stamp/i);
+    expect(code).toMatch(/ENABLE TRIGGER trg_event_cancellation_stamp/i);
+    // …and it proves the values survived before destroying the source.
+    expect(code).toMatch(/the backfill did not preserve cancelled_at/i);
+  });
+
+  it('builds the backfill dynamically, so a PARTIAL old shape does not half-apply', () => {
+    // Static SQL naming e.cancellation_reason cannot plan when that column is
+    // the missing one, and it would abort AFTER the table, policies and trigger
+    // were created — a half-applied migration no re-run can clear.
+    const backfill = code.slice(code.indexOf('$events_cancellation_drop_old$'));
+    expect(backfill).toMatch(/EXECUTE format\(/);
+    expect(backfill).toMatch(/NULL::timestamptz/);
+    expect(backfill).toMatch(/NULL::uuid/);
+  });
+
+  it('lets everyone who can WRITE a reason read it back', () => {
+    // maybeSingle() returns data:null with NO error for a row RLS hides, so a
+    // creator or in-charge who could write but not read would be told "No reason
+    // was recorded" about the sentence they had just written.
+    const read = code.slice(
+      code.indexOf('CREATE POLICY "event_cancellations_auth_read"'),
+      code.indexOf('CREATE POLICY "event_cancellations_auth_write"')
+    );
+    expect(read).toMatch(/created_by = \(SELECT auth\.uid\(\)\)/);
+    expect(read).toMatch(/fn_is_event_incharge/);
+  });
+
   it('removes the old column-based shape instead of leaving it beside the new one', () => {
     // A database that applied the earlier draft keeps the anon exposure unless
     // this file takes it away. The drop is guarded on dependent views and is
@@ -572,6 +609,15 @@ describe('no anon-readable relation may republish what the ruling took off the p
     }
   });
 
+  it('refuses to rebuild a view whose predicate it cannot reproduce', () => {
+    // The rebuild hardcodes WHERE e.event_type = 'marathon'. If the live view's
+    // predicate were ever narrower, rebuilding from the hardcoded one would
+    // silently publish MORE rows to the anonymous internet — and the DROP a few
+    // lines later destroys the original definition, so nobody could tell after.
+    expect(doBlock).toMatch(/pg_get_viewdef/);
+    expect(doBlock).toMatch(/predicate this rebuild does not reproduce/i);
+  });
+
   it('repairs an ALREADY-DRIFTED view instead of pinning the exposure in place', () => {
     // The exclusion above only covers the fresh-rebuild branch. The other
     // branch reuses the live view's own column list VERBATIM — so an
@@ -586,6 +632,45 @@ describe('no anon-readable relation may republish what the ruling took off the p
     // …and only when it is actually carrying one of the three.
     const guard = doBlock!.slice(0, doBlock!.indexOf('DROP VIEW'));
     expect(guard).toMatch(/column_name IN \(\s*'cancellation_reason', 'cancelled_at', 'cancelled_by'\s*\)/);
+  });
+});
+
+describe('the console banner is the only place the reason is shown, so it must not lie', () => {
+  const page = readFileSync(join(process.cwd(), 'app/(routes)/events/[id]/page.tsx'), 'utf8');
+
+  it('says something different when the read FAILED than when there was no reason', () => {
+    // useEventCancellation sets retry:false and getCancellation throws on an RLS
+    // denial or a network error, so a failure arrives as isLoading:false with
+    // data:undefined — identical in shape to an empty result. Without a separate
+    // branch the page claims "No reason was recorded for this cancellation",
+    // which is a false statement about what a colleague did, made because the
+    // query broke.
+    expect(page).toMatch(/isError:\s*cancellationFailed/);
+    expect(page).toMatch(/cancellationFailed\s*\n?\s*\?/);
+    expect(page).toMatch(/could not be loaded/i);
+    expect(page).toMatch(/has not been deleted/i);
+  });
+
+  it('still distinguishes "loading" from "no reason"', () => {
+    expect(page).toMatch(/cancellationLoading/);
+    expect(page).toMatch(/Loading the reason/);
+  });
+});
+
+describe('the service must not build a browser client at module evaluation', () => {
+  const svc = readFileSync(
+    join(process.cwd(), 'lib/services/events/core/general-event-service.ts'),
+    'utf8'
+  );
+
+  it('constructs the Supabase client inside a method, not in a static field', () => {
+    // A static field initializer runs at MODULE EVALUATION, so the client would
+    // be constructed during SSR/prerender of every route whose client tree
+    // imports this file — where cookies and `document` do not exist. That turns
+    // a bad query into an import-time throw that takes the whole event console
+    // down, and pins one instance for the process lifetime.
+    expect(svc).not.toMatch(/static\s+supabase\s*=\s*createClientSupabaseClient\(\)/);
+    expect(svc).toMatch(/private static cancellations\(\)[\s\S]{0,400}createClientSupabaseClient\(\)/);
   });
 });
 

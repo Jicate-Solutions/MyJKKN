@@ -102,10 +102,15 @@ DECLARE
   v_has_cols BOOLEAN;
   v_dependents TEXT;
 BEGIN
+  -- ALL THREE, not just the reason. A database holding cancelled_at/cancelled_by
+  -- without cancellation_reason — a partially-applied earlier draft, or a
+  -- hand-dropped column — would otherwise skip the repair entirely and then fail
+  -- section 6, which asserts on all three, leaving a half-applied migration that
+  -- re-running cannot clear.
   SELECT EXISTS (
     SELECT 1 FROM information_schema.columns
      WHERE table_schema = 'public' AND table_name = 'events'
-       AND column_name = 'cancellation_reason'
+       AND column_name IN ('cancellation_reason', 'cancelled_at', 'cancelled_by')
   ) INTO v_has_cols;
 
   IF NOT v_has_cols THEN
@@ -184,9 +189,27 @@ COMMENT ON COLUMN public.event_cancellations.cancelled_by IS
 
 ALTER TABLE public.event_cancellations ENABLE ROW LEVEL SECURITY;
 
--- READ: exactly the audience events_auth_read gives the event itself to —
--- signed-in users at the event's institution — plus the super-admin bypass the
--- house pattern puts first in every policy.
+-- READ: the audience events_auth_read gives the event itself to — signed-in
+-- users at the event's institution — UNION everyone the write policies below
+-- admit. The union matters in both directions and neither arm is decorative:
+--
+--   · WITHOUT the writer arms, a creator or in-charge whose profiles.institution_id
+--     is NULL or points elsewhere could WRITE a reason and then not read it back.
+--     `maybeSingle()` returns data:null with NO error for a row RLS hides, so the
+--     console would tell that person "No reason was recorded for this
+--     cancellation" about the sentence they had just written — a silent wrong
+--     answer, and the worst kind.
+--   · WITHOUT the institution arm, colleagues who could always see the reason
+--     when it was a column on `events` would stop seeing it, which is a
+--     behaviour change this ruling never asked for.
+--
+-- ⚠️ OPEN QUESTION FOR THE DIRECTOR, carried over rather than silently decided:
+-- the institution arm means ANY signed-in profile at that college — including
+-- learners — can read every cancellation reason for its events. That is exactly
+-- as wide as the old column on `events` was, so this is not a regression, and
+-- narrowing it is a product decision about who "inside" means, not a bug fix.
+-- If it should be narrower, delete the institution arm: the writer arms already
+-- cover organisers, and the cancel dialog's copy is the other half to change.
 DROP POLICY IF EXISTS "event_cancellations_auth_read" ON public.event_cancellations;
 CREATE POLICY "event_cancellations_auth_read" ON public.event_cancellations
   FOR SELECT TO authenticated USING (
@@ -194,9 +217,13 @@ CREATE POLICY "event_cancellations_auth_read" ON public.event_cancellations
     OR EXISTS (
       SELECT 1 FROM public.events e
        WHERE e.id = event_cancellations.event_id
-         AND e.institution_id IN (
-           SELECT p.institution_id FROM public.profiles p
-            WHERE p.id = (SELECT auth.uid()) AND p.institution_id IS NOT NULL
+         AND (
+           e.institution_id IN (
+             SELECT p.institution_id FROM public.profiles p
+              WHERE p.id = (SELECT auth.uid()) AND p.institution_id IS NOT NULL
+           )
+           OR e.created_by = (SELECT auth.uid())
+           OR public.fn_is_event_incharge(e.id)
          )
     )
   );
@@ -343,21 +370,72 @@ DROP TRIGGER  IF EXISTS trg_events_stamp_cancellation ON public.events;
 DROP FUNCTION IF EXISTS public.fn_events_stamp_cancellation();
 
 DO $events_cancellation_drop_old$
+DECLARE
+  v_has_reason BOOLEAN;
+  v_has_at     BOOLEAN;
+  v_has_by     BOOLEAN;
+  v_where      TEXT;
 BEGIN
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-     WHERE table_schema = 'public' AND table_name = 'events'
-       AND column_name = 'cancellation_reason'
-  ) THEN
+  -- Each column INDEPENDENTLY. A partial old shape is a real state — an earlier
+  -- draft that half-applied, or a hand-dropped column — and the copy below is
+  -- built by EXECUTE rather than written out because static SQL naming
+  -- `e.cancellation_reason` fails to plan when that column is the one missing,
+  -- which would abort the migration AFTER the table, policies and trigger were
+  -- created and leave a half-applied state no re-run could clear.
+  SELECT
+    bool_or(column_name = 'cancellation_reason'),
+    bool_or(column_name = 'cancelled_at'),
+    bool_or(column_name = 'cancelled_by')
+  INTO v_has_reason, v_has_at, v_has_by
+  FROM information_schema.columns
+   WHERE table_schema = 'public' AND table_name = 'events';
+
+  IF coalesce(v_has_reason, false) OR coalesce(v_has_at, false) OR coalesce(v_has_by, false) THEN
+    -- ⚠️ THE TRIGGER MUST NOT RUN OVER THE BACKFILL. trg_event_cancellation_stamp
+    -- fires BEFORE INSERT unconditionally and overwrites cancelled_at with now()
+    -- and cancelled_by with auth.uid() — which is NULL on a migration connection.
+    -- Left enabled it would replace the REAL who and when of every cancellation
+    -- recorded under the old shape with "now, nobody", and the next statement
+    -- drops the source columns, so the loss is irreversible. Disabling it for the
+    -- copy keeps the trigger unconditional everywhere else, which is what stops a
+    -- browser naming somebody else as the canceller.
+    ALTER TABLE public.event_cancellations DISABLE TRIGGER trg_event_cancellation_stamp;
+
     -- Carry the words across BEFORE the columns go. Section 0 has already proved
-    -- no view depends on them, so this drop cannot fail on a dependency.
-    INSERT INTO public.event_cancellations (event_id, reason, cancelled_at, cancelled_by)
-    SELECT e.id, e.cancellation_reason, coalesce(e.cancelled_at, now()), e.cancelled_by
-      FROM public.events e
-     WHERE e.cancellation_reason IS NOT NULL
-        OR e.cancelled_at IS NOT NULL
-        OR e.cancelled_by IS NOT NULL
-    ON CONFLICT (event_id) DO NOTHING;
+    -- no view depends on them, so the drop below cannot fail on a dependency.
+    -- Only the columns that EXIST are named; the rest are typed NULLs.
+    v_where := array_to_string(ARRAY[
+      CASE WHEN v_has_reason THEN 'e.cancellation_reason IS NOT NULL' END,
+      CASE WHEN v_has_at     THEN 'e.cancelled_at IS NOT NULL'        END,
+      CASE WHEN v_has_by     THEN 'e.cancelled_by IS NOT NULL'        END
+    ], ' OR ');
+
+    EXECUTE format(
+      'INSERT INTO public.event_cancellations (event_id, reason, cancelled_at, cancelled_by)
+       SELECT e.id, %s, coalesce(%s, now()), %s FROM public.events e WHERE %s
+       ON CONFLICT (event_id) DO NOTHING',
+      CASE WHEN v_has_reason THEN 'e.cancellation_reason' ELSE 'NULL::text'        END,
+      CASE WHEN v_has_at     THEN 'e.cancelled_at'        ELSE 'NULL::timestamptz' END,
+      CASE WHEN v_has_by     THEN 'e.cancelled_by'        ELSE 'NULL::uuid'        END,
+      v_where
+    );
+
+    ALTER TABLE public.event_cancellations ENABLE TRIGGER trg_event_cancellation_stamp;
+
+    -- Prove the history actually survived, BEFORE destroying the source. If the
+    -- stamp had eaten it, every carried row would now read cancelled_at = the
+    -- moment of this migration — so compare against the source while it exists.
+    IF v_has_at THEN
+      IF EXISTS (
+        SELECT 1
+          FROM public.events e
+          JOIN public.event_cancellations c ON c.event_id = e.id
+         WHERE e.cancelled_at IS NOT NULL
+           AND c.cancelled_at IS DISTINCT FROM e.cancelled_at
+      ) THEN
+        RAISE EXCEPTION 'the backfill did not preserve cancelled_at — refusing to drop the source columns';
+      END IF;
+    END IF;
 
     ALTER TABLE public.events
       DROP COLUMN IF EXISTS cancellation_reason,

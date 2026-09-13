@@ -401,10 +401,11 @@ export default function GeneralEventDetailPage() {
   // `events` is anon-readable, so a column there would publish them to the public
   // key the moment a cancelled event was reinstated. Fetched ONLY for a cancelled
   // event — every other event has no row to fetch.
-  const { data: cancellation, isLoading: cancellationLoading } = useEventCancellation(
-    id,
-    event?.status === 'cancelled',
-  );
+  const {
+    data: cancellation,
+    isLoading: cancellationLoading,
+    isError: cancellationFailed,
+  } = useEventCancellation(id, event?.status === 'cancelled');
   const { institutions } = useInstitutionsWithAccess();
   const { profile } = useAuth();
   const { isSuperAdmin } = usePermissions();
@@ -596,15 +597,21 @@ export default function GeneralEventDetailPage() {
                   ? ` · ${formatDate(cancellation?.cancelled_at ?? null)}`
                   : ''}
               </p>
-              {/* Three states, not two. "Still loading" must not render as "no
-                  reason was recorded" — that sentence is a claim about what the
-                  organiser did, and showing it for a second while the query is
-                  in flight tells every reader something untrue about a
-                  colleague. */}
+              {/* FOUR states, and only one of them may say "no reason was
+                  recorded". That sentence is a claim about what a colleague did,
+                  and the query can end without data for two reasons that are not
+                  that: it is still in flight, or it FAILED (RLS denial, network
+                  — and the hook does not retry, so a failure lands as
+                  isLoading:false with data:undefined, which reads identically to
+                  an empty result). Saying "nobody wrote a reason" because the
+                  read broke is the worst answer available, and this banner is now
+                  the only place the reason is shown. */}
               <p className="break-words text-sm">
                 {cancellationLoading
                   ? 'Loading the reason…'
-                  : cancellation?.reason || 'No reason was recorded for this cancellation.'}
+                  : cancellationFailed
+                    ? 'The reason could not be loaded — you may not have access to it, or the connection failed. It has not been deleted.'
+                    : cancellation?.reason || 'No reason was recorded for this cancellation.'}
               </p>
               <p className="text-xs text-muted-foreground">
                 Registration is closed. This reason is kept for colleagues at your

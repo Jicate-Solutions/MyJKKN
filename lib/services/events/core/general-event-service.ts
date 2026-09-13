@@ -53,13 +53,22 @@ type EventCancellationsTable = {
 };
 
 export class GeneralEventService {
-  /** Browser client, session-scoped — every read and write below runs under RLS. */
-  private static supabase = createClientSupabaseClient();
-
-  /** `public.event_cancellations`, typed by hand — see EventCancellationsTable. */
+  /**
+   * `public.event_cancellations`, typed by hand — see EventCancellationsTable.
+   *
+   * The client is built HERE, per call, and not in a `static supabase = …`
+   * field. A static field initializer runs at MODULE EVALUATION, so a browser
+   * Supabase client would be constructed during SSR/prerender of any route whose
+   * client tree imports this file (every one that pulls in
+   * hooks/events/use-general-events.ts), where cookies and `document` do not
+   * exist. That turns a bad query into an import-time throw that takes the whole
+   * event console down, and pins one instance for the process lifetime.
+   */
   private static cancellations(): EventCancellationsTable {
     return (
-      this.supabase as unknown as { from: (table: string) => EventCancellationsTable }
+      createClientSupabaseClient() as unknown as {
+        from: (table: string) => EventCancellationsTable;
+      }
     ).from('event_cancellations');
   }
 

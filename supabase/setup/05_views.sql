@@ -754,6 +754,7 @@ ORDER BY i.name, p.program_name, clp.current_semester;
 DO $marathon_events_pin$
 DECLARE
   v_cols TEXT;
+  v_viewdef TEXT;
 BEGIN
   -- REPAIR BEFORE PIN. A marathon_events that ALREADY carries a cancellation
   -- column is the drifted state the exclusion below exists to end — an
@@ -789,6 +790,20 @@ BEGIN
 
     IF v_cols IS NULL THEN
       RAISE EXCEPTION 'marathon_events carries a cancellation column but public.events reports none — refusing to drop a live anon view with nothing to rebuild it from';
+    END IF;
+
+    -- THE REBUILD MUST NOT WIDEN WHAT ANON SEES. The CREATE below hardcodes
+    -- `WHERE e.event_type = 'marathon'`. If the live view's own predicate were
+    -- ever narrower — also filtering is_public or status, say — rebuilding from
+    -- the hardcoded one would silently publish MORE rows to the anonymous
+    -- internet, and the original definition is destroyed by the DROP a few lines
+    -- down, so nobody could tell afterwards. Read it back first and stop if it
+    -- is not the predicate this block knows how to reproduce.
+    SELECT pg_get_viewdef('public.marathon_events'::regclass, true) INTO v_viewdef;
+    IF v_viewdef !~ 'WHERE\s+e?\.?event_type\s*=\s*''marathon''::text\s*;?\s*$' THEN
+      RAISE EXCEPTION
+        'marathon_events has a predicate this rebuild does not reproduce, so dropping it could widen what anon reads. Definition: %',
+        v_viewdef;
     END IF;
 
     RAISE WARNING 'marathon_events published a cancellation column to anon — dropping and rebuilding it without one';
