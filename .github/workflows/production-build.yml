@@ -1,13 +1,14 @@
 name: Production Build
 
 # Runs the REAL production build on every pull request against main — `npm run
-# build:ci`, which performs the same steps as the `npm run build` Vercel runs,
-# at a lower V8 heap cap. `build` itself is never modified by this workflow, so
-# what Vercel runs is byte-identical to what it ran before this file existed.
+# build:ci`, which performs the same steps as the `npm run build` Vercel runs.
+# `build` itself is never modified by this workflow, so what Vercel runs is
+# byte-identical to what it ran before this file existed.
 #
-# ⚠️ This gate is RED on every PR today and the cause is NOT your PR. See
-# "MEASURED" below before debugging. The lower cap was an attempt at the fix;
-# it has not worked yet, and that section says what was measured instead.
+# The build does not fit in a standard runner's RAM. It fits once the runner is
+# given enough swap, which this workflow does for itself — see "MEASURED" below.
+# That took three hypotheses and six runs, and the two that were wrong are kept
+# there because each looks right until you read the trace that kills it.
 #
 # ── WHY THIS EXISTS ─────────────────────────────────────────────────────────────
 #
@@ -68,18 +69,22 @@ name: Production Build
 #     a bad import boundary, a failing `generateStaticParams`, or a module that
 #     throws at import time during page-data collection.
 #
-# ── ADVISORY ON DAY ONE (deliberate) ────────────────────────────────────────────
+# ── ADVISORY UNTIL PROMOTED, AND READY TO BE ───────────────────────────────────
 #
 # Adding a workflow file does NOT make it a required status check — branch
 # protection carries an explicit list, and this job is not on it. So a red X here
-# is INFORMATIONAL and blocks no merge.
+# is INFORMATIONAL and blocks no merge until somebody changes that.
 #
-# That is on purpose for the first weeks. Nobody has ever measured whether main
-# builds clean in CI, because CI has never built it. If main is already broken,
-# a required gate would red-wall every open PR at once for a break none of them
-# caused — which is exactly what happened repo-wide in August. Let it run
-# advisory, watch a week of real runs, THEN the Director can promote it by adding
-# "Production Build" to the required checks on main.
+# The original reason to keep it advisory was that nobody had ever measured
+# whether main builds clean in CI, because CI had never built it — and making an
+# unmeasured gate required would red-wall every open PR at once for a break none
+# of them caused, exactly what happened repo-wide in August.
+#
+# That reason is now spent: the build has been measured, and it goes green (job
+# 103714981423 — full chain, 1555 static pages, serwist, exit 0). One green run
+# is not a week of them, so the honest position is: promote it when a few days of
+# real PRs look right, by adding "Production Build" to the required checks on
+# main. Nothing in this file needs to change for that.
 #
 # This job is written to survive that promotion unchanged: it ALWAYS runs and
 # ALWAYS reports a conclusion, even for a docs-only PR (the expensive steps skip,
@@ -87,14 +92,16 @@ name: Production Build
 # simpler but would make the check never report at all on a skipped PR, and a
 # required check that never reports blocks the PR forever.
 #
-# ── MEASURED: THE BUILD DOES NOT FIT ON A STANDARD GITHUB RUNNER, AND ──────────
-#                        LOWERING THE HEAP CAP DID NOT FIX IT
+# ── MEASURED: WHY THIS BUILD NEEDS SWAP, AND THE TWO WRONG ANSWERS FIRST ───────
 #
-# ⚠️ READ THIS BEFORE DEBUGGING A RED MARK FROM THIS GATE. As of this writing it
-# still fails on EVERY PR, including its own, and NOT because of the PR. Two
-# hypotheses have been tested and written up below; neither has fixed it yet.
-# Until it goes green once, treat a red mark here as "the build still does not
-# fit" unless the log shows a NAMED error — the last section is how to tell.
+# ⚠️ READ THIS BEFORE DEBUGGING A RED MARK FROM THIS GATE.
+#
+# On its first six runs this workflow failed on EVERY PR, including its own, and
+# NOT because of the PR. It is fixed now — by the swap step below — but the two
+# hypotheses that came first are kept here because each is the obvious answer,
+# and each is wrong in a way only the trace reveals. If you are about to "fix"
+# this gate by lowering a heap number or asking for a bigger runner, read on:
+# both were tried and measured.
 #
 # Every claim below is quoted from job logs, which are the only evidence that
 # survives: see "the Report step never runs" at the end.
@@ -176,14 +183,57 @@ name: Production Build
 # next.config.ts carries a SEPARATE `turbopackMemoryLimit` knob — currently
 # 4 GB, and evidently not holding either.
 #
-# So the cap is not (yet) the answer. What this workflow does have is its own
-# entry point, which is what makes any of this testable without touching what
-# Vercel runs:
+# ── HYPOTHESIS 3, THE RIGHT ONE: THE MEMORY IS TURBOPACK'S, SO GIVE IT SWAP ──
+#
+# Per-process RSS settled what neither cap experiment could. Job 103714083617,
+# running at --max-old-space-size=6144:
+#
+#   11:07:28  2632:1971M/node
+#   11:08:28  2632:10861M/node
+#   11:11:57  ✓ Compiled successfully in 4.6min
+#   11:12:26  2632:14867M/node   ← 2.4× the 6144 MB V8 cap
+#   11:12:41  ##[error]The operation was canceled.
+#
+# ONE node process at 14,867 MB while V8's old-space ceiling is 6,144 MB.
+# Memory that large inside a process capped that low is not in V8's old space:
+# it is Turbopack's Rust allocations, which run as a native addon in the same
+# process. No NODE_OPTIONS value governs them. (That also finishes off the
+# page-data-worker theory — one process, and this run died before page-data
+# collection began at all.)
+#
+# `turbopackMemoryLimit` in next.config.ts is the only config knob for it, and
+# that file is off-limits here because Vercel reads it. It cannot be set from
+# the environment either: Next 16.2.2 exposes NEXT_DISABLE_MEMORY_WATCHER,
+# NEXT_TURBOPACK_TRACING, NEXT_TURBOPACK_USE_WORKER and
+# NEXT_TURBOPACK_VERBOSE_ISSUES — no memory limit among them.
+#
+# What IS in CI's gift is how much the kernel can page out to. Swap does not
+# make the build use less memory; it gives the kernel somewhere to put cold
+# pages instead of killing the job. A standard runner ships ~15 GiB RAM and
+# 3.0 GiB of swap. That is not enough, and the failing runs prove it twice over:
+# they show `Swap: 3.0Gi 0B 3.0Gi` — swap present, ZERO used, killed anyway.
+#
+# With 24 GB of swap on /mnt and vm.swappiness=80, job 103714981423 went green:
+#
+#   11:17:22  swap=73MB      ← kernel starts paging, right where runs used to die
+#   11:19:52  swap=3897MB
+#   peak      swap=8898MB    ← ~8.9 GB, far past the 3.0 GiB a runner ships with
+#   11:20:07  ✓ Compiled successfully in 4.9min
+#   11:21:12  ✓ Generating static pages (1555/1555) in 29.3s
+#   11:21:22  serwist build — the whole chain, through to the end
+#
+# 8.9 GB of swap used is why the default 3.0 GiB could never have covered it,
+# and why raising swappiness alone would not have been enough either.
+#
+# Cost: the build step runs ~6.3 minutes, against ~5.5 for the runs that died
+# mid-way. Paging is cheaper here than a bigger runner, and it changes nothing
+# about the app.
+#
+# ── THE TWO SCRIPTS ─────────────────────────────────────────────────────────
 #
 #   `build`    — what Vercel runs. Cap 12288. UNTOUCHED by this workflow, and a
 #                parity guard keeps it that way.
-#   `build:ci` — what this job runs. The same steps in the same order, at
-#                whatever cap is under test (currently 6144).
+#   `build:ci` — what this job runs. The same steps in the same order, cap 6144.
 #
 # cross-env sets NODE_OPTIONS explicitly and so overrides anything a workflow
 # exports; a second script is the only way to build at a different cap. The
@@ -191,17 +241,18 @@ name: Production Build
 # a step is ever added to one and not the other, or if the CI cap stops being
 # the lower of the two.
 #
-# NEXT DIAGNOSTIC, already wired in: the memory trace now names the three
-# largest processes by RSS at every sample. System-wide totals cannot tell
-# "one compiler holding 12 GB" from "three workers holding 4 GB each", and
-# those have different fixes. The next red run answers that question in its
-# own log.
+# The 6144 cap is now known NOT to be what makes this work — swap is. It is kept
+# because a lower ceiling costs nothing and keeps V8's own growth modest while
+# the machine is already paging. Raising it toward 12288 would increase fidelity
+# to production; nobody has measured whether the build still fits if you do.
 #
 # ── WHAT THE CI BUILD IS AND IS NOT ─────────────────────────────────────────
 #
 # It is NOT byte-identical to Vercel's build. It runs the same steps, the same
-# Turbopack, the same codegen and the same four `check:*` gates, with a smaller
-# V8 heap ceiling.
+# Turbopack, the same codegen and the same four `check:*` gates — but with a
+# smaller V8 heap ceiling, and on a machine given far more swap than Vercel's
+# container has. The second difference is the load-bearing one: this build
+# completes partly by paging, which Vercel's container may not be able to do.
 #
 #   CAUGHT: compile failures, a `'use server'` file with a synchronous export,
 #   bad import boundaries, a module that throws at import time during page-data
@@ -234,9 +285,9 @@ name: Production Build
 #
 # One consequence worth knowing: when the runner is killed this way the job's
 # final "Report" step does NOT run — `always()` cannot save a step on a machine
-# being torn down. Confirmed: zero of the four logs contain any Report output.
-# That is why this explanation lives here, in the file, rather than only in a
-# step summary nobody will receive.
+# being torn down. Confirmed: not one of the six failing runs' logs contains any
+# Report output, while the green run's does. That is why this explanation lives
+# here, in the file, rather than only in a step summary nobody will receive.
 
 on:
   pull_request:
