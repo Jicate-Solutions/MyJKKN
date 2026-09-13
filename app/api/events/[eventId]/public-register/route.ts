@@ -107,6 +107,8 @@ export async function POST(
   // place permanently, and this is the only handle on it.
   let svc: ReturnType<typeof createServiceRoleClient> | null = null;
   let claimedForRelease: string | null = null;
+  /** Written back unchanged on release — the organiser already read it out. */
+  let claimedCodeForRelease: string | null = null;
 
   try {
     const { eventId } = await params;
@@ -308,7 +310,17 @@ export async function POST(
     // organiser opening the card.
     if (ev.cap_behavior === 'waitlist' && ev.max_registrations) {
       try {
-        await deliverPendingOffers(svc as any, eventId, 5);
+        // A DEADLINE, not just a row cap. This is awaited on the critical path
+        // of an unauthenticated POST, and a slow notifications write would
+        // otherwise hold every registration on the event open until the
+        // serverless function is killed — including the offer holder's. The
+        // pass is resumable by construction: whatever it does not reach keeps
+        // its `notified_at IS NULL` and is picked up by the next request or by
+        // the organiser opening the queue card.
+        await Promise.race([
+          deliverPendingOffers(svc as any, eventId, 5),
+          new Promise((resolve) => setTimeout(resolve, 1500)),
+        ]);
       } catch {
         /* an announcement must never take down the registration that triggered it */
       }
@@ -359,7 +371,7 @@ export async function POST(
       // them — so from 13 Sep their credential is a one-time code read to them
       // on that call. Name and contact details are no longer sufficient on
       // their own, because the organiser's own screen shows both.
-      let offer = selfProfileId ? await findOutstandingOffer(svc as any, eventId, who, formRow.id) : null;
+      let offer = await findOutstandingOffer(svc as any, eventId, who, formRow.id);
 
       if (!offer) {
         const guest = await findGuestOfferByCode(
@@ -369,16 +381,18 @@ export async function POST(
           who,
           formRow.id
         );
-        if (guest.outcome === 'code_required') {
-          return NextResponse.json(
-            {
-              error:
-                'A place is being held for you. To take it up, enter the code the organiser read to you on the phone. If you do not have it, ask them to read it again — they can issue a new one.',
-              claim_code_required: true,
-            },
-            { status: 422 }
-          );
-        }
+        // A WRONG CODE IS SAID SO; A MISSING ONE IS NOT.
+        //
+        // Telling somebody "a place is being held for you, now find your code"
+        // would answer, on an unauthenticated and unrate-limited endpoint,
+        // whether a guessed name and phone number is on this event's waiting
+        // list — an enumeration oracle over exactly the list of named people
+        // with phone numbers this feature is careful about everywhere else. So
+        // a caller with no code is treated like anybody else arriving at a full
+        // event, and the 202 they get says generically that a code goes in the
+        // field above if an organiser gave them one. Somebody who DID type a
+        // code has already demonstrated they were given one, so telling them it
+        // did not match reveals nothing they did not bring with them.
         if (guest.outcome === 'no_match') {
           return NextResponse.json(
             {
@@ -393,7 +407,7 @@ export async function POST(
       }
 
       if (offer) {
-        const claim = await claimOffer(svc as any, offer.id, dto.claim_code ?? null);
+        const claim = await claimOffer(svc as any, offer.id, offer.claimCode, offer.isGuest);
         if (claim === 'error') {
           // The write failed. Saying "refresh in a moment" to a permanent
           // permission or write failure leaves somebody refreshing at an offer
@@ -407,6 +421,7 @@ export async function POST(
         if (claim === 'claimed') {
           claimedWaitlistId = offer.id;
           claimedForRelease = offer.id;
+          claimedCodeForRelease = offer.claimCode;
         } else {
           // LOST THE COMPARE-AND-SWAP, AND THIS MUST NOT FALL THROUGH.
           //
@@ -479,18 +494,21 @@ export async function POST(
         // on the waiting list" for an event they are registered for would be
         // both wrong and alarming.
         if (queued.outcome === 'already_registered') {
-          // paid_required mirrors the registration that actually exists. Saying
-          // `false` for an unpaid one tells somebody they are in when their
-          // payment never landed, and gives them no way back to it.
+          // NO registration_id TO AN UNAUTHENTICATED CALLER. This is a public
+          // door, so returning the id and payment state of the registration
+          // that a guessed name and phone number matched would hand a
+          // stranger somebody else's record. A signed-in caller matched on
+          // their own account gets the detail, because it is their own.
+          const isSelf = Boolean(selfProfileId || selfLearnerId);
           return NextResponse.json(
             {
-              registration_id: queued.registrationId,
-              paid_required: queued.paymentPending,
               already_registered: true,
+              paid_required: queued.paymentPending,
+              ...(isSelf ? { registration_id: queued.registrationId } : {}),
               ...(queued.paymentPending
                 ? {
                     warning:
-                      'You already have a registration for this form, but its payment has not been confirmed. Contact the organiser rather than registering again.',
+                      'There is already a registration for this form with these details, and its payment has not been confirmed. Contact the organiser rather than registering again.',
                   }
                 : {}),
             },
@@ -566,7 +584,7 @@ export async function POST(
       // rather than losing it to a row that says 'registered' and points at no
       // registration.
       if (claimedWaitlistId) {
-        await releaseOffer(svc as any, claimedWaitlistId);
+        await releaseOffer(svc as any, claimedWaitlistId, claimedCodeForRelease);
         claimedForRelease = null;
       }
       // Same policy as the catch below: no database text to a stranger. This
@@ -674,7 +692,9 @@ export async function POST(
     // 'registered' with registration_id NULL: the offer consumed, the place
     // gone for good, and nobody able to claim it again.
     if (claimedForRelease && svc) {
-      await releaseOffer(svc as any, claimedForRelease).catch(() => undefined);
+      await releaseOffer(svc as any, claimedForRelease, claimedCodeForRelease).catch(
+        () => undefined
+      );
     }
     // NO DATABASE TEXT TO A STRANGER. This is an unauthenticated public door,
     // and the reads behind it now throw rather than guessing — so a raw message
