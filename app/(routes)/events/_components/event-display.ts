@@ -87,12 +87,10 @@ export function eventStatusLabel(event: Event): string {
 /** Green-tinted badge for anything that is neither a draft nor cancelled. */
 export const isEventOpen = (event: Event) => isGeneralEventActive(event.status);
 
-/** The Events Hub status dropdown, in order. */
-export const EVENT_STATUS_FILTERS = ['all', 'active', 'draft', 'cancelled'] as const;
-export type EventStatusFilter = (typeof EVENT_STATUS_FILTERS)[number];
-
 /**
  * Does this row belong under the chosen status filter?
+ * Filter values: 'all' | 'active' | 'draft' | 'cancelled', matching the
+ * SelectItems in events-data-table.tsx.
  *
  * THREE buckets, not two, and that is the whole point. The filter used to be
  * `isEventOpen(e) === (filter === 'active')`, so "Draft" meant "not open" —

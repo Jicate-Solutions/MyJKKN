@@ -27,12 +27,15 @@
  * DO NOT ADD `cancellation_reason`, `cancelled_at` or `cancelled_by` HERE.
  * They are not on production yet, and one missing column fails the whole
  * select (42703), which would break public registration for every event.
- * `__tests__/events/public-register-cancellation.test.ts` fails if they are
- * added back.
+ * `__tests__/events/events-cancellation.test.ts` fails if they are added back.
+ *
+ * ONE STRING LITERAL, NOT A CONCATENATION. supabase-js infers the row type from
+ * the literal type of the argument to `.select()`; `'a, b' + 'c'` widens to
+ * `string`, the generic falls back to `GenericStringError`, and every field read
+ * off the result becomes a TS2339. Keep it on one line however long it gets.
  */
 export const PUBLIC_EVENT_COLUMNS =
-  'id, name, event_type, status, event_date, start_date, venue, venue_text, ' +
-  'registration_open_date, registration_close_date, max_registrations';
+  'id, name, event_type, status, event_date, start_date, venue, venue_text, registration_open_date, registration_close_date, max_registrations';
 
 export interface CancellationDetails {
   reason: string | null;
@@ -54,25 +57,14 @@ export const NO_CANCELLATION_DETAILS: CancellationDetails = {
  * detail is missing. That is the correct trade: the status is the part the
  * reader must not be denied.
  *
- * Typed against the minimum shape it uses so it can be called with the page's
- * supabase-js client and exercised in a test with a stub.
+ * Duck-typed on `from` alone, so the page's supabase-js client and a stub in a
+ * test both satisfy it. The builder chain is deliberately `any`: spelling the
+ * PostgREST builder out here would couple this helper to the client's generics
+ * for no gain, and every value that comes back is narrowed at runtime below —
+ * which it has to be anyway, because the columns may not exist.
  */
 export async function fetchCancellationDetails(
-  client: {
-    from: (table: string) => {
-      select: (columns: string) => {
-        eq: (
-          column: string,
-          value: string
-        ) => {
-          maybeSingle: () => Promise<{
-            data: { cancellation_reason?: string | null; cancelled_at?: string | null } | null;
-            error: { code?: string; message?: string } | null;
-          }>;
-        };
-      };
-    };
-  },
+  client: { from: (table: string) => any },
   eventId: string
 ): Promise<CancellationDetails> {
   try {
@@ -84,12 +76,11 @@ export async function fetchCancellationDetails(
 
     if (error || !data) return NO_CANCELLATION_DETAILS;
 
-    const reason = typeof data.cancellation_reason === 'string' ? data.cancellation_reason.trim() : '';
+    const row = data as { cancellation_reason?: unknown; cancelled_at?: unknown };
+    const reason = typeof row.cancellation_reason === 'string' ? row.cancellation_reason.trim() : '';
+    const cancelledAt = typeof row.cancelled_at === 'string' ? row.cancelled_at : null;
 
-    return {
-      reason: reason || null,
-      cancelledAt: data.cancelled_at ?? null,
-    };
+    return { reason: reason || null, cancelledAt };
   } catch {
     return NO_CANCELLATION_DETAILS;
   }
