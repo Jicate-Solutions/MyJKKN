@@ -303,6 +303,7 @@ GRANT  EXECUTE ON FUNCTION public.fn_events_open_standard_feedback(integer, inte
 -- and grows by one per event per day). Only survivors of that reach the per-row
 -- function call, which stays the authority on WHICH registration and on
 -- attendance.
+--
 -- The OUT columns are part of the signature and CREATE OR REPLACE cannot change
 -- them, so an edit to this list would fail on a re-run against a database that
 -- already has the earlier shape. Dropped first, then recreated and re-granted
