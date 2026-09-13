@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { GoogleOneTap } from '@/components/auth/google-one-tap';
+import Link from 'next/link';
 import Script from 'next/script';
 import { GraduationCap, BookOpen, Users, Award, Brain, AlertTriangle, XCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -502,6 +503,30 @@ export default function LoginPage() {
                 Access is restricted to pre-registered JKKN staff, faculty, and
                 enrolled students. If you haven&apos;t been onboarded, please
                 contact your administrator.
+              </p>
+
+              {/* The only door out of here for somebody who is NOT part of JKKN.
+                  '/' sends every logged-out visitor to this page, so this is
+                  where a member of the public actually lands — and until now the
+                  page told them to contact an administrator and nothing else.
+                  These two are the public indexes: events open to visitors, and
+                  the programmes on offer. */}
+              <p className='text-xs text-gray-600 dark:text-gray-400 text-center leading-relaxed'>
+                Not part of JKKN?{' '}
+                <Link
+                  href='/events-at-jkkn'
+                  className='font-medium text-green-700 dark:text-green-500 underline underline-offset-2'
+                >
+                  See what is on at JKKN
+                </Link>{' '}
+                or{' '}
+                <Link
+                  href='/programmes'
+                  className='font-medium text-green-700 dark:text-green-500 underline underline-offset-2'
+                >
+                  browse the programmes
+                </Link>
+                .
               </p>
 
               {/* Terms */}
