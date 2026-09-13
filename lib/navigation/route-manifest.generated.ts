@@ -3755,6 +3755,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/foundation/onemark/results",
+            "label": "Results",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/foundation/onemark/review",
             "label": "Review",
             "iconName": "FileText",
