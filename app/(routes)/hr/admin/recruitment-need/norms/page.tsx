@@ -79,8 +79,8 @@ const EMPTY_FORM: NormFormData = {
   adjunct_weight: 0.5,
   count_visiting: false,
   visiting_weight: 0.25,
-  threshold_amber_pct: 80,
-  threshold_red_pct: 60,
+  threshold_amber_pct: 110,
+  threshold_red_pct: 120,
   effective_from: '',
   effective_until: '',
   notes: '',
@@ -380,7 +380,7 @@ export default function NormsAdminPage() {
                     id="threshold_amber_pct"
                     type="number"
                     min="0"
-                    max="100"
+                    max="200"
                     value={form.threshold_amber_pct}
                     onChange={(e) => setForm({ ...form, threshold_amber_pct: Number(e.target.value) })}
                   />
@@ -391,7 +391,7 @@ export default function NormsAdminPage() {
                     id="threshold_red_pct"
                     type="number"
                     min="0"
-                    max="100"
+                    max="200"
                     value={form.threshold_red_pct}
                     onChange={(e) => setForm({ ...form, threshold_red_pct: Number(e.target.value) })}
                   />

@@ -17,11 +17,27 @@
  * archive failure taught that lesson the other way round — see the archiveError
  * note in lib/changelog/use-changelog.ts.)
  *
- * Everything here was approved by a person. Nothing is generated at read time.
+ * WHO WROTE THESE, AND WHY THE ORIGINAL LINE IS ALWAYS SHOWN. Most of these are
+ * now written by a model on the Max lane and published with nobody reading them
+ * first — the Director reversed the "a person approves each one" rule on
+ * 2026-09-13, because the approval queue meant ongoing work and so nothing was
+ * ever written at all (changelog_highlights held 0 rows).
+ *
+ * That makes the small grey line under each card the load-bearing part of this
+ * component, not a detail. It is the developer's own commit subject, verbatim —
+ * what ACTUALLY shipped. A reader who finds a headline surprising can check it
+ * against the real change in the same glance, without leaving the page or
+ * trusting us. This page exists to teach people what they can now do, and
+ * unreviewed text about ten applications reaches every reader here; a confident
+ * wrong claim with no way to check it is worse than no highlight at all.
+ *
+ * Deleting that line to tidy the card removes the only check there is.
+ *
+ * Nothing is generated at read time.
  */
 
 import { useEffect, useState } from 'react';
-import { Sparkles, Wrench, ShieldCheck } from 'lucide-react';
+import { Sparkles, Wrench, ShieldCheck, Flag } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ChangelogModule } from '@/lib/changelog/types';
 
@@ -36,7 +52,19 @@ interface StripItem {
   headline: string | null;
   affects: string | null;
   action: string | null;
+  /** The developer's own commit subject — what actually shipped. See the header:
+   *  this is the check on an unreviewed headline, and it always renders. */
+  subject?: string;
+  author?: string;
+  /** 'ai' when nobody read it before it was published. */
+  source?: 'human' | 'ai';
+  /** THIS reader has already flagged this write-up as wrong (ruling 7). Never
+   *  anyone else's count — see the report button below for why. */
+  reported?: boolean;
 }
+
+/** What has happened to this reader's report-it tap on one card. */
+type ReportState = 'idle' | 'sending' | 'done' | 'failed';
 
 const KIND_STYLE: Record<HighlightKind, { icon: typeof Sparkles; chip: string; label: string }> = {
   new: {
@@ -62,6 +90,36 @@ interface HighlightsStripProps {
 
 export function HighlightsStrip({ modules }: HighlightsStripProps) {
   const [items, setItems] = useState<StripItem[] | null>(null);
+  const [reports, setReports] = useState<Record<string, ReportState>>({});
+
+  /**
+   * Ruling 7 — the review layer, one tap.
+   *
+   * Nothing about this changes what is on the page. It records that ONE reader
+   * says this write-up is wrong, and the count of distinct readers is what a
+   * super admin reads in the queue. A page any reader could un-publish by
+   * tapping would be a worse failure than the sentence it was fixing.
+   *
+   * Optimistic-free on purpose: the button says "Sending…" and only says
+   * "Reported" once the write actually landed, because a tap that silently did
+   * nothing is exactly the failure this link exists to catch elsewhere.
+   */
+  async function report(sha: string) {
+    setReports((r) => ({ ...r, [sha]: 'sending' }));
+    try {
+      const res = await fetch('/api/whats-new/highlights/report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sha }),
+      });
+      const body = await res.json().catch(() => null);
+      // `already: true` is a success — a reader who taps twice has still told
+      // us once, and the count is of distinct readers either way.
+      setReports((r) => ({ ...r, [sha]: res.ok && body?.ok ? 'done' : 'failed' }));
+    } catch {
+      setReports((r) => ({ ...r, [sha]: 'failed' }));
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -138,6 +196,64 @@ export function HighlightsStrip({ modules }: HighlightsStripProps) {
                   <dd className="inline break-words text-foreground/90">{h.action}</dd>
                 </div>
               </dl>
+
+              {/* The original developer line. Smaller, quieter, and never
+                  hidden — see the component header for why this is the part
+                  that must not be removed. Rendered only when the payload
+                  carries it, so an older cached response degrades to the card
+                  as it looked before rather than to an empty rule. */}
+              {h.subject && (
+                <p className="mt-3 border-t pt-2 text-[11px] leading-relaxed text-muted-foreground/80">
+                  <span className="font-medium">
+                    {h.source === 'ai' ? 'Written automatically from: ' : 'Original note: '}
+                  </span>
+                  <span className="break-words font-mono">{h.subject}</span>
+                  {h.author && <span className="break-words"> — {h.author}</span>}
+                </p>
+              )}
+
+              {/* REPORT IT — Director ruling 7, 2026-09-13.
+                  This is the review layer. It replaces the approval queue he
+                  declined, by moving the check from one person doing weekly
+                  work to every reader doing nothing until something looks
+                  wrong. The writer publishes UNREVIEWED, twice an hour; this
+                  link and the other two safeguards (a hidden write-up is never
+                  rewritten; a silent stop is not silent) are what make that
+                  cadence safe, so removing it reopens the cadence decision.
+                  Deliberately quiet: it must be findable, never louder than the
+                  write-up it sits under. */}
+              {(() => {
+                const state: ReportState = reports[h.sha] ?? (h.reported ? 'done' : 'idle');
+                if (state === 'done') {
+                  return (
+                    <p className="mt-2 text-[11px] text-muted-foreground">
+                      Thanks — you reported this. Someone will take a look.
+                    </p>
+                  );
+                }
+                return (
+                  <div className="mt-2">
+                    <button
+                      type="button"
+                      onClick={() => void report(h.sha)}
+                      disabled={state === 'sending'}
+                      className="inline-flex items-center gap-1 rounded text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+                    >
+                      <Flag className="h-3 w-3" aria-hidden="true" />
+                      {state === 'sending' ? 'Sending…' : 'This looks wrong'}
+                    </button>
+                    {state === 'failed' && (
+                      // Said out loud rather than swallowed. A reader who taps
+                      // and is told nothing assumes it worked, and the count —
+                      // the whole deliverable of this ruling — is then quietly
+                      // short.
+                      <span role="alert" className="ml-2 text-[11px] text-rose-700 dark:text-rose-400">
+                        That did not send. Try again.
+                      </span>
+                    )}
+                  </div>
+                );
+              })()}
             </li>
           );
         })}
