@@ -350,7 +350,7 @@ export const GUIDES: GuideBook = {
                 'Two rules live here and both are yours to set: blocked periods and the rotation order. Everything about a single series stays on the Recurring Series tab.',
               platforms: {
                 web: 'Left sidebar → **Meetings** → **Scheduling Rules**.',
-                mobile: 'Tap **More (⋯)** → **Meetings → Scheduling Rules**.',
+                mobile: 'Tap **More (⋯)** → **Meetings → Recurring Series**, then the **Scheduling rules** tab.',
               },
               link: { label: 'Take me there', href: '/meetings/series/rules' },
             },
