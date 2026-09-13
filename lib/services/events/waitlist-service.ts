@@ -271,6 +271,7 @@ interface OpenRowLookup {
     queue_seq: number;
     status: string;
     registration_id: string | null;
+    profile_id: string | null;
   } | null;
   /** true only when the waiting-list table is not in the schema yet. */
   missingTable: boolean;
@@ -309,7 +310,7 @@ async function findOpenRow(
   for (const [column, value] of attempts) {
     const { data, error } = await (service as any)
       .from('event_registration_waitlist')
-      .select('id, queue_seq, status, registration_id')
+      .select('id, queue_seq, status, registration_id, profile_id')
       .eq('event_id', eventId)
       .in('status', statuses)
       .eq(column, value)
@@ -451,7 +452,19 @@ export async function findOutstandingOffer(
   }
 ): Promise<OutstandingOffer | null> {
   const hit = await findOpenRow(service, eventId, who, ['offered']);
-  return hit.row ? { id: hit.row.id, queue_seq: hit.row.queue_seq } : null;
+  if (!hit.row) return null;
+
+  // AN OFFER MADE TO AN ACCOUNT MAY ONLY BE CLAIMED BY THAT ACCOUNT.
+  //
+  // A guest has no identity but a phone number, so a contact match has to be
+  // enough for them — it is the same detail an organiser would ask for on the
+  // phone, and the public door has always run on name-plus-one-contact. But
+  // when the queue row DOES name an account, that is a stronger fact than a
+  // typed-in email, and letting a contact match beat it would let anybody who
+  // knows somebody's email walk off with the place being held for them.
+  if (hit.row.profile_id && hit.row.profile_id !== who.profileId) return null;
+
+  return { id: hit.row.id, queue_seq: hit.row.queue_seq };
 }
 
 /**
