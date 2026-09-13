@@ -71,6 +71,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { isFormOpen } from '@/types/tournament';
+import { selectInChunks } from '@/lib/utils/postgrest-in-chunks';
 
 const LOG_PREFIX = '[public-events]';
 
@@ -279,43 +280,35 @@ async function openDoors(
   const tournament = new Set<string>();
 
   try {
-    if (generalIds.length > 0) {
-      const { data, error } = await admin
+    // selectInChunks, not a bare .in(): PostgREST encodes the ids into the query
+    // string and the gateway rejects the request past ~680 of them, silently
+    // enough that the caller sees an empty result rather than an error. A
+    // rejected read here would quietly withdraw every button on the page.
+    const forms = await selectInChunks<{
+      event_id: string;
+      is_enabled: boolean | null;
+      starts_at: string | null;
+      ends_at: string | null;
+    }>(generalIds, (chunk) =>
+      admin
         .from('event_registration_forms')
         .select('event_id, is_enabled, starts_at, ends_at')
-        .in('event_id', generalIds);
-      if (error) {
-        console.error(`${LOG_PREFIX} registration-form check failed:`, error.message);
-        return null;
-      }
-      const now = new Date();
-      for (const form of (data ?? []) as Array<{
-        event_id: string;
-        is_enabled: boolean | null;
-        starts_at: string | null;
-        ends_at: string | null;
-      }>) {
-        if (isFormOpen(form, now)) general.add(form.event_id);
-      }
+        .in('event_id', chunk),
+    );
+    const now = new Date();
+    for (const form of forms) {
+      if (isFormOpen(form, now)) general.add(form.event_id);
     }
 
-    if (tournamentIds.length > 0) {
-      const { data, error } = await admin
-        .from('tournament_divisions')
-        .select('event_id')
-        .eq('is_active', true)
-        .in('event_id', tournamentIds);
-      if (error) {
-        console.error(`${LOG_PREFIX} tournament-division check failed:`, error.message);
-        return null;
-      }
-      for (const division of (data ?? []) as Array<{ event_id: string }>) {
-        tournament.add(division.event_id);
-      }
+    const divisions = await selectInChunks<{ event_id: string }>(tournamentIds, (chunk) =>
+      admin.from('tournament_divisions').select('event_id').eq('is_active', true).in('event_id', chunk),
+    );
+    for (const division of divisions) {
+      tournament.add(division.event_id);
     }
   } catch (err) {
     console.error(
-      `${LOG_PREFIX} registration-door check threw:`,
+      `${LOG_PREFIX} registration-door check failed:`,
       err instanceof Error ? err.message : err,
     );
     return null;
