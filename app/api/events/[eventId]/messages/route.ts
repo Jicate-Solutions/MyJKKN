@@ -318,22 +318,31 @@ export async function POST(
       message: result.message,
     });
   } catch (error) {
-    // The database's duplicate guard refused the insert: a concurrent compose
-    // of the same words won the race. Answer it exactly as the pre-check above
-    // would have — and say so plainly, because NOTHING was delivered here (the
-    // ledger row is claimed before the fanout runs), which the generic 500 copy
-    // below would get wrong in the most dangerous direction.
+    // The database's duplicate guard refused the insert. NOTHING was delivered
+    // here — the ledger row is claimed before the fanout runs — which the
+    // generic 500 copy below would get wrong in the most dangerous direction,
+    // so this answers exactly as the pre-check above would have.
+    //
+    // TWO WAYS TO ARRIVE HERE, and the unnamed one is why the fallback sentence
+    // dates nothing. Usually a concurrent compose of the same words won the
+    // race, and `duplicate` names the row that won. But the index also catches
+    // what the pre-check structurally cannot: it reads only the 50 most recent
+    // messages with this subject, while the constraint covers every row on the
+    // event. A repeat of something far enough back is refused here with
+    // `findContentDuplicate` still returning null — so the copy must not say
+    // "a moment ago" about a message that may be months old.
     if (error instanceof ContentDuplicateError) {
       logger.warn(MODULE, 'duplicate first send refused by the database guard', {
         event_id: eventId,
         duplicate_of: error.duplicate?.id ?? null,
+        matched_in_read: Boolean(error.duplicate),
       });
       return NextResponse.json(
         {
           success: false,
           error: error.duplicate
             ? alreadySentMessage(error.duplicate)
-            : 'A message with these exact words was recorded on this event a moment ago, so nothing was sent just now. Reload the page: it will be in the list below, and "Send again" on it will repeat it deliberately.',
+            : 'A message with these exact words already exists on this event, so nothing was sent just now. Find it in the sent log and use "Send again" on it if you meant to repeat it — that will tell you how many people receive it, and some of them may have it twice.',
           code: 'ALREADY_SENT',
           duplicate_of: error.duplicate?.id ?? null,
         },
