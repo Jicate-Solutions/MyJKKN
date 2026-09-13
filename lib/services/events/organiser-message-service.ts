@@ -57,6 +57,17 @@ export const AUDIENCE_HARD_CAP = 50000;
 /** Batch size for the id→row lookups (learner ids, sender names). */
 const LOOKUP_CHUNK = 500;
 
+/**
+ * How far back the duplicate READ looks, in messages sharing this exact
+ * subject. The database constraint is unbounded; this is the window in which a
+ * duplicate gets a helpful sentence instead of a constraint violation.
+ */
+export const DUPLICATE_SCAN_LIMIT = 50;
+/** Columns the duplicate read needs, and no column the base table lacks. */
+const MATCH_COLUMNS = 'id, subject, body, client_token, sent_at, notification_id, delivered_count';
+/** Backstop on the resend tally. Resends are rare; this is a guard, not a page. */
+const RESEND_COUNT_CAP = 1000;
+
 export interface RegistrationAudienceRow {
   profile_id: string | null;
   /**
@@ -334,8 +345,10 @@ export function validateMessageInput(
   const subject = (input?.subject ?? '').trim();
   const body = (input?.body ?? '').trim();
   const clientToken = (input?.clientToken ?? '').trim();
-  const resendOfRaw = (input?.resendOf ?? '') === null ? '' : String(input?.resendOf ?? '').trim();
-  const resendOf = resendOfRaw || null;
+  // `?? ''` has already turned null and undefined into '', so no null test is
+  // needed here — an earlier `=== null ? '' : …` guard could never be true and
+  // read as protection it did not provide.
+  const resendOf = String(input?.resendOf ?? '').trim() || null;
   const value: MessageInput = { subject, body, clientToken, resendOf };
   const fail = (error: string): MessageValidation => ({ ok: false, error, value });
 
@@ -468,17 +481,126 @@ export function contentMatchIn(
 export async function findContentDuplicate(
   service: SupabaseClient,
   eventId: string,
-  input: Pick<MessageInput, 'subject' | 'body' | 'clientToken'>
+  input: Pick<MessageInput, 'subject' | 'body' | 'clientToken'>,
+  options: { exhaustive?: boolean } = {}
 ): Promise<ContentMatchRow | null> {
   const { data, error } = await service
     .from('event_registrant_messages')
-    .select('id, subject, body, client_token, sent_at, notification_id, delivered_count')
+    .select(MATCH_COLUMNS)
     .eq('event_id', eventId)
     .eq('subject', input.subject)
     .order('sent_at', { ascending: false })
-    .limit(50);
+    .limit(DUPLICATE_SCAN_LIMIT);
   if (error) throw error;
-  return contentMatchIn((data ?? []) as ContentMatchRow[], input.subject, input.body, input.clientToken);
+  const windowed = contentMatchIn(
+    (data ?? []) as ContentMatchRow[],
+    input.subject,
+    input.body,
+    input.clientToken
+  );
+  if (windowed || !options.exhaustive) return windowed;
+
+  // ── The window missed, and the caller cannot afford a miss ────────────
+  //
+  // Reached only from the 23505 handler, where the DATABASE has already proved
+  // a duplicate exists. The scan above is bounded at 50 rows with this subject,
+  // while the constraint covers every row on the event however old — so on a
+  // busy event the two disagree, and the request that loses is precisely the
+  // one whose organiser most needs to be told WHICH message it matched. A 409
+  // that names nothing leaves them with no way to send at all, which is the
+  // ruling ("allow a deliberate resend") failing exactly where it was meant to
+  // hold.
+  //
+  // An exact equality on subject AND body rather than a wider scan: the API
+  // trims before writing, so the stored values are already what composeKey
+  // compares, and one indexed row is cheaper than a deeper page. It is a second
+  // query, but only on a path where the insert has already failed.
+  const { data: exact, error: exactErr } = await service
+    .from('event_registrant_messages')
+    .select(MATCH_COLUMNS)
+    .eq('event_id', eventId)
+    .eq('subject', input.subject.trim())
+    .eq('body', input.body.trim())
+    .neq('client_token', input.clientToken)
+    .order('sent_at', { ascending: false })
+    .limit(1);
+  if (exactErr) throw exactErr;
+  return ((exact ?? []) as ContentMatchRow[])[0] ?? null;
+}
+
+/**
+ * One already-sent message by id, with the sender's name resolved — the same
+ * shape the history renders.
+ *
+ * Exists so a duplicate refusal can hand the board the ACTUAL row rather than
+ * an id it may not be able to find: the panel shows the newest 20 messages and
+ * has no pagination, so "use Send again on it in the list below" is a lie for
+ * anything older. With the row in the 409 the organiser acts on it directly,
+ * whatever its position in the history or its age.
+ */
+export async function getSentMessageById(
+  service: SupabaseClient,
+  eventId: string,
+  messageId: string
+): Promise<SentMessageRow | null> {
+  const { data, error } = await withResendColumn<unknown>('getSentMessageById', (columns) =>
+    service
+      .from('event_registrant_messages')
+      .select(columns)
+      .eq('event_id', eventId)
+      .eq('id', messageId)
+      .maybeSingle()
+  );
+  if (error) throw error;
+  if (!data) return null;
+  const row = normaliseResend(data as SentMessageRow);
+  return (await withSenderNames([row], service))[0];
+}
+
+/**
+ * How many DELIBERATE resends each of these messages has, counted over the
+ * whole event rather than over the page the board happens to be showing.
+ *
+ * The board used to tally this from the same 20 rows it renders, so a message
+ * repeated three times whose repeats had scrolled past the window displayed no
+ * "Sent again" line at all — a row that WAS repeated reading as never repeated,
+ * in the one feature whose stated purpose is an honest blast radius. The
+ * partial index idx_event_registrant_messages_resend_of exists for this read.
+ *
+ * Returns {} when the column is not in the database yet, which is the same
+ * thing the board renders today: no claim rather than a wrong one.
+ */
+export async function countResendsFor(
+  service: SupabaseClient,
+  eventId: string,
+  originalIds: string[]
+): Promise<Record<string, number>> {
+  if (originalIds.length === 0) return {};
+  if (!resendColumnLooksPresent()) return {};
+
+  const counts: Record<string, number> = {};
+  for (let i = 0; i < originalIds.length; i += LOOKUP_CHUNK) {
+    const chunk = originalIds.slice(i, i + LOOKUP_CHUNK);
+    const { data, error } = await service
+      .from('event_registrant_messages')
+      .select('resend_of')
+      .eq('event_id', eventId)
+      .in('resend_of', chunk)
+      .limit(RESEND_COUNT_CAP);
+    if (error) {
+      // The column is simply not there yet. Say nothing rather than fail the
+      // whole panel over a decoration — the history itself still reads.
+      if (isMissingResendColumn(error)) {
+        noteResendColumnMissing('countResendsFor');
+        return {};
+      }
+      throw error;
+    }
+    for (const r of (data ?? []) as { resend_of: string | null }[]) {
+      if (r.resend_of) counts[r.resend_of] = (counts[r.resend_of] ?? 0) + 1;
+    }
+  }
+  return counts;
 }
 
 // `deliveryState` — what the history is allowed to claim about a send — lives
@@ -705,7 +827,10 @@ export async function sendRegistrantMessage(
     // — the fanout is below this line — so this answers exactly as the route's
     // pre-check would have, naming the row that won.
     if (isContentUniqueViolation(claimErr)) {
-      const winner = await findContentDuplicate(service, eventId, input);
+      // `exhaustive` because the database has just PROVEN a duplicate exists:
+      // if the bounded read cannot see it, the answer is to look harder, not to
+      // hand the organiser a refusal that names nothing.
+      const winner = await findContentDuplicate(service, eventId, input, { exhaustive: true });
       throw new ContentDuplicateError(winner);
     }
     // 23505 = unique_violation on (event_id, client_token): this exact compose

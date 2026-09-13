@@ -41,8 +41,10 @@ import {
   MODULE,
   ContentDuplicateError,
   ResendNotRecordableError,
+  countResendsFor,
   findContentDuplicate,
   getAudience,
+  getSentMessageById,
   listSentMessages,
   sendRegistrantMessage,
   validateMessageInput,
@@ -50,6 +52,13 @@ import {
 } from '@/lib/services/events/organiser-message-service';
 import { deliveryState } from '@/lib/services/events/organiser-message-compose';
 import { logger } from '@/lib/utils/enhanced-logger';
+
+/**
+ * How many sent messages the panel shows. The duplicate guard is NOT bounded by
+ * this — which is why a refusal has to hand back the matched row itself rather
+ * than point at a list that may not contain it.
+ */
+const SENT_LOG_LIMIT = 20;
 
 /**
  * The refusal shown when a compose repeats words already on this event.
@@ -64,9 +73,46 @@ import { logger } from '@/lib/utils/enhanced-logger';
  */
 function alreadySentMessage(duplicate: ContentMatchRow): string {
   if (deliveryState(duplicate) === 'unconfirmed') {
-    return 'An earlier message with these exact words is already on this event, but it was never confirmed as delivered — we cannot tell you whether registrants received it. Nothing was sent just now. Check with a registrant, or use "Send again" on that message: it will tell you how many people receive it, and some of them may have it twice.';
+    return 'An earlier message with these exact words is already on this event, but it was never confirmed as delivered — we cannot tell you whether registrants received it. Nothing was sent just now. Check with a registrant, or use "Send it again" below: it will tell you how many people receive it, and some of them may have it twice.';
   }
-  return 'This message has already been sent to this event\'s registrants. Nothing was sent again. If you meant to send it a second time, use "Send again" on it in the list below — it will tell you how many people receive it, and some of them will have it twice.';
+  return 'This message has already been sent to this event\'s registrants. Nothing was sent again. If you meant to send it a second time, use "Send it again" below — it will tell you how many people receive it, and some of them will have it twice.';
+}
+
+/**
+ * The 409 for a message whose words are already on this event.
+ *
+ * It carries the MATCHED ROW, not just its id, and that is the whole point.
+ * The panel renders the newest 20 messages and has no pagination and no lookup
+ * by id, while the guard covers every message on the event however old — so
+ * telling the organiser to "use Send again on it in the list below" was, on a
+ * busy event, an instruction they could not follow, and there was then no route
+ * by which that text could be sent at all. With the row in the response the
+ * board offers the resend against that exact message, whatever its position in
+ * the history.
+ *
+ * `duplicate` is null only when the database's constraint fired and even the
+ * exhaustive lookup could not name a row (it should not happen; the copy does
+ * not promise a row in that case).
+ */
+async function duplicateRefusal(
+  service: Parameters<typeof getSentMessageById>[0],
+  eventId: string,
+  duplicate: ContentMatchRow | null
+): Promise<NextResponse> {
+  const full = duplicate ? await getSentMessageById(service, eventId, duplicate.id) : null;
+  return NextResponse.json(
+    {
+      success: false,
+      error: duplicate
+        ? alreadySentMessage(duplicate)
+        : 'A message with these exact words already exists on this event, so nothing was sent just now. Find it in the sent log and use "Send again" on it if you meant to repeat it — that will tell you how many people receive it, and some of them may have it twice.',
+      code: 'ALREADY_SENT',
+      duplicate_of: duplicate?.id ?? null,
+      // The row itself, so the board never has to find it.
+      duplicate: full,
+    },
+    { status: 409 }
+  );
 }
 
 const NO_ACCESS =
@@ -169,10 +215,20 @@ export async function GET(
     if (auth.denied) return auth.denied;
 
     const audience = await getAudience(auth.service, eventId);
-    const sent = await listSentMessages(auth.db, eventId, 20, auth.service);
+    const sent = await listSentMessages(auth.db, eventId, SENT_LOG_LIMIT, auth.service);
+    // Counted over the WHOLE event, not over the page above. Tallying repeats
+    // from the 20 rows the board renders made a message resent three times,
+    // whose repeats had scrolled past, read as never repeated — a false zero in
+    // the one feature whose purpose is an honest blast radius.
+    const resendCounts = await countResendsFor(
+      auth.service,
+      eventId,
+      sent.map((m) => m.id)
+    );
 
     return NextResponse.json({
       success: true,
+      resend_counts: resendCounts,
       audience: {
         // Distinct people who will actually receive it — including learners
         // registered by learner_id rather than profile_id.
@@ -208,8 +264,11 @@ export async function POST(
   { params }: { params: Promise<{ eventId: string }> }
 ): Promise<NextResponse> {
   const { eventId } = await params;
+  // Hoisted out of the try: the duplicate-race branch in the catch needs the
+  // service client to read back the row the constraint collided with.
+  let auth: Awaited<ReturnType<typeof authorise>> | null = null;
   try {
-    const auth = await authorise(eventId);
+    auth = await authorise(eventId);
     if (auth.denied) return auth.denied;
 
     const raw = await request.json().catch(() => null);
@@ -254,17 +313,7 @@ export async function POST(
     // than a constraint violation.
     if (!parsed.value.resendOf) {
       const duplicate = await findContentDuplicate(auth.service, eventId, parsed.value);
-      if (duplicate) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: alreadySentMessage(duplicate),
-            code: 'ALREADY_SENT',
-            duplicate_of: duplicate.id,
-          },
-          { status: 409 }
-        );
-      }
+      if (duplicate) return duplicateRefusal(auth.service, eventId, duplicate);
     } else {
       // A resend must name a message that exists ON THIS EVENT. Unchecked, the
       // id is caller-supplied and would let one event's row be recorded as a
@@ -331,23 +380,13 @@ export async function POST(
     // event. A repeat of something far enough back is refused here with
     // `findContentDuplicate` still returning null — so the copy must not say
     // "a moment ago" about a message that may be months old.
-    if (error instanceof ContentDuplicateError) {
+    if (error instanceof ContentDuplicateError && auth?.service) {
       logger.warn(MODULE, 'duplicate first send refused by the database guard', {
         event_id: eventId,
         duplicate_of: error.duplicate?.id ?? null,
         matched_in_read: Boolean(error.duplicate),
       });
-      return NextResponse.json(
-        {
-          success: false,
-          error: error.duplicate
-            ? alreadySentMessage(error.duplicate)
-            : 'A message with these exact words already exists on this event, so nothing was sent just now. Find it in the sent log and use "Send again" on it if you meant to repeat it — that will tell you how many people receive it, and some of them may have it twice.',
-          code: 'ALREADY_SENT',
-          duplicate_of: error.duplicate?.id ?? null,
-        },
-        { status: 409 }
-      );
+      return duplicateRefusal(auth.service, eventId, error.duplicate);
     }
 
     // A deliberate resend on a database that has no column to record it on.

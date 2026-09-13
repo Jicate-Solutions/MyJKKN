@@ -66,6 +66,14 @@ export interface EventRegistrantMessage {
 export interface EventMessagePanel {
   audience: EventMessageAudienceSummary;
   messages: EventRegistrantMessage[];
+  /**
+   * message id → how many deliberate resends it has, counted over the WHOLE
+   * event rather than over the page in `messages`. Derived client-side from the
+   * visible rows, a message resent three times whose repeats had scrolled past
+   * the window read as never repeated. Empty when the `resend_of` column is not
+   * in the database yet — no claim rather than a wrong one.
+   */
+  resendCounts: Record<string, number>;
 }
 
 /**
@@ -77,7 +85,16 @@ export class EventMessageError extends Error {
   constructor(
     message: string,
     readonly code: string | null,
-    readonly status: number
+    readonly status: number,
+    /**
+     * For `ALREADY_SENT`: the message this compose duplicates, as the server
+     * found it. THE ROW, not an id — the panel shows only the newest 20
+     * messages and has no pagination, so an id the board cannot resolve is an
+     * instruction the organiser cannot follow, and on a busy event that left no
+     * way to send the text at all. Null on every other failure, and on the rare
+     * refusal where even the exhaustive lookup named nothing.
+     */
+    readonly duplicate: EventRegistrantMessage | null = null
   ) {
     super(message);
     this.name = 'EventMessageError';
@@ -90,7 +107,8 @@ async function readJsonOrThrow(res: Response): Promise<any> {
     throw new EventMessageError(
       payload?.error ?? 'Something went wrong. Please try again.',
       payload?.code ?? null,
-      res.status
+      res.status,
+      (payload?.duplicate ?? null) as EventRegistrantMessage | null
     );
   }
   return payload;
@@ -116,6 +134,7 @@ export class EventsNotificationService {
     return {
       audience: payload.audience as EventMessageAudienceSummary,
       messages: (payload.messages ?? []) as EventRegistrantMessage[],
+      resendCounts: (payload.resend_counts ?? {}) as Record<string, number>,
     };
   }
 

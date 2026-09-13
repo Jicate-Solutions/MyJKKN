@@ -202,6 +202,7 @@ function makeClient(handle: (op: Op) => { data: any; error: any }) {
         insert: (p: any) => ((state.op = 'insert'), (state.payload = p), builder),
         update: (p: any) => ((state.op = 'update'), (state.payload = p), builder),
         eq: (c: string, v: any) => ((state.filters[c] = v), builder),
+        neq: (c: string, v: any) => ((state.filters[`not_${c}`] = v), builder),
         in: (c: string, v: any) => ((state.filters[c] = v), builder),
         order: () => builder,
         limit: () => builder,
@@ -616,5 +617,149 @@ describe('the ledger write-back is abandoned LOUDLY, on every path', () => {
     expect(ops.filter((o) => o.op === 'update')).toHaveLength(2);
     // And the answer still tells the organiser the truth about the fanout.
     expect(result.message.delivered_count).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8. The refusal must be able to NAME what it matched, at any age
+// ---------------------------------------------------------------------------
+// The bounded read looks at the 50 most recent messages with this subject; the
+// database constraint covers every row on the event. When they disagree, the
+// organiser gets a refusal that names nothing — and since the panel shows only
+// the newest 20 messages with no pagination, no way to send that text at all.
+
+describe('findContentDuplicate — exhaustive only when the database says there is one', () => {
+  it('falls back to an exact lookup when the window missed it', async () => {
+    const svc = await freshService();
+    const ancient = {
+      id: 'msg-from-march',
+      subject: SUBJECT,
+      body: BODY,
+      client_token: TOKEN_A,
+      sent_at: '2026-03-02T09:00:00.000Z',
+      notification_id: 'notif-1',
+      delivered_count: 34,
+    };
+    const { client, ops } = makeClient((op) => {
+      // The bounded scan returns 50 rows with this subject, none of them the
+      // one we are looking for — the busy-event case.
+      if (op.filters.body === undefined) return ok([]);
+      return ok([ancient]);
+    });
+
+    const found = await svc.findContentDuplicate(
+      client,
+      EVENT,
+      { subject: SUBJECT, body: BODY, clientToken: TOKEN_B },
+      { exhaustive: true }
+    );
+
+    expect(found?.id).toBe('msg-from-march');
+    expect(ops).toHaveLength(2);
+    // The second read is targeted — exact subject AND body, one row.
+    expect(ops[1].filters.subject).toBe(SUBJECT);
+    expect(ops[1].filters.body).toBe(BODY);
+  });
+
+  it('does NOT pay for the second read on an ordinary compose', async () => {
+    // Every send goes through the non-exhaustive path. A miss there means "no
+    // duplicate", which is the overwhelmingly common answer.
+    const svc = await freshService();
+    const { client, ops } = makeClient(() => ok([]));
+
+    const found = await svc.findContentDuplicate(client, EVENT, {
+      subject: SUBJECT,
+      body: BODY,
+      clientToken: TOKEN_B,
+    });
+
+    expect(found).toBeNull();
+    expect(ops).toHaveLength(1);
+  });
+
+  it('still prefers the windowed match, which is the newest', async () => {
+    const svc = await freshService();
+    const recent = {
+      id: 'msg-recent',
+      subject: SUBJECT,
+      body: BODY,
+      client_token: TOKEN_A,
+      sent_at: '2026-09-12T09:00:00.000Z',
+      notification_id: 'notif-2',
+      delivered_count: 30,
+    };
+    const { client, ops } = makeClient(() => ok([recent]));
+
+    const found = await svc.findContentDuplicate(
+      client,
+      EVENT,
+      { subject: SUBJECT, body: BODY, clientToken: TOKEN_B },
+      { exhaustive: true }
+    );
+
+    expect(found?.id).toBe('msg-recent');
+    expect(ops).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 9. The repeat count is the EVENT's, not the page's
+// ---------------------------------------------------------------------------
+
+describe('countResendsFor — counted over the event, not over the visible rows', () => {
+  it('counts repeats that are nowhere near the 20 rows the board renders', async () => {
+    const svc = await freshService();
+    const { client, ops } = makeClient(() =>
+      ok([{ resend_of: 'msg-old' }, { resend_of: 'msg-old' }, { resend_of: 'msg-old' }])
+    );
+
+    const counts = await svc.countResendsFor(client, EVENT, ['msg-old']);
+
+    expect(counts).toEqual({ 'msg-old': 3 });
+    expect(ops[0].filters.event_id).toBe(EVENT);
+  });
+
+  it('claims NOTHING when the column is not in the database yet', async () => {
+    // No count is honest before the migration applies. A zero would not be: it
+    // reads as "never repeated" about a message that may well have been.
+    const svc = await freshService();
+    const { client } = makeClient(() => ({
+      data: null,
+      error: {
+        code: '42703',
+        message: 'column event_registrant_messages.resend_of does not exist',
+        details: null,
+      },
+    }));
+
+    await expect(svc.countResendsFor(client, EVENT, ['msg-old'])).resolves.toEqual({});
+  });
+
+  it('asks nothing at all when there are no messages to count for', async () => {
+    const svc = await freshService();
+    const { client, ops } = makeClient(() => ok([]));
+    await expect(svc.countResendsFor(client, EVENT, [])).resolves.toEqual({});
+    expect(ops).toHaveLength(0);
+  });
+});
+
+describe('getSentMessageById — the row a refusal hands back', () => {
+  it('returns the message with its sender resolved', async () => {
+    const svc = await freshService();
+    const { client } = makeClient((op) => {
+      if (op.table === 'profiles') return ok([{ id: 'actor-1', full_name: 'R. Priya' }]);
+      return ok(ledgerRow({ id: 'msg-old' }));
+    });
+
+    const row = await svc.getSentMessageById(client, EVENT, 'msg-old');
+
+    expect(row?.id).toBe('msg-old');
+    expect(row?.sent_by_name).toBe('R. Priya');
+  });
+
+  it('returns null rather than inventing a row when there is none', async () => {
+    const svc = await freshService();
+    const { client } = makeClient(() => ok(null));
+    await expect(svc.getSentMessageById(client, EVENT, 'nope')).resolves.toBeNull();
   });
 });

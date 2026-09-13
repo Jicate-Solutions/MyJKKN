@@ -232,6 +232,17 @@ export function MessagesBoard({
   const [body, setBody] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  /**
+   * The already-sent message a refused compose matched, as the SERVER found it.
+   *
+   * Held separately from the history because it need not be in the history: the
+   * panel shows the newest 20 messages and the duplicate guard covers every
+   * message on the event however old. Pointing at "the list below" was, on a
+   * busy event, an instruction the organiser could not follow — and with no
+   * pagination and no lookup by id there was then no way to send that text at
+   * all, which is this feature's own ruling failing where it was meant to hold.
+   */
+  const [refusedDuplicate, setRefusedDuplicate] = useState<EventRegistrantMessage | null>(null);
   const [result, setResult] = useState<{ delivered: number; repeated: boolean } | null>(null);
   /** The already-sent message the organiser has asked to repeat, pending confirmation. */
   const [resendTarget, setResendTarget] = useState<EventRegistrantMessage | null>(null);
@@ -288,22 +299,26 @@ export function MessagesBoard({
   const messages = panel.data?.messages;
 
   /**
-   * Which rows repeat which, read off the log the board already has.
+   * Which rows repeat which.
    *
-   * `sentAtById` is only used to date the message a resend repeats. The log is
-   * capped, so an original that has fallen off the end is not in the map — the
-   * row then says it repeats an earlier message without naming the date, rather
-   * than inventing one.
+   * `sentAtById` is only used to date the message a resend repeats, and IS read
+   * off the capped log: an original that has fallen off the end is not in the
+   * map, and the row then says it repeats an earlier message without naming the
+   * date rather than inventing one. That is an absence, not a wrong number.
+   *
+   * `resendCounts` is NOT derived here, and that is the fix. Counting repeats
+   * from the same 20 rows the board renders made a message resent three times,
+   * whose repeats had scrolled past the window, display no "Sent again" line at
+   * all — a row that WAS repeated reading as never repeated, in the one feature
+   * whose stated purpose is an honest blast radius. The server counts it over
+   * the whole event.
    */
-  const lineage = useMemo(() => {
-    const sentAtById: Record<string, string> = {};
-    const resendCounts: Record<string, number> = {};
-    for (const m of messages ?? []) {
-      sentAtById[m.id] = m.sent_at;
-      if (m.resend_of) resendCounts[m.resend_of] = (resendCounts[m.resend_of] ?? 0) + 1;
-    }
-    return { sentAtById, resendCounts };
+  const sentAtById = useMemo(() => {
+    const byId: Record<string, string> = {};
+    for (const m of messages ?? []) byId[m.id] = m.sent_at;
+    return byId;
   }, [messages]);
+  const resendCounts = panel.data?.resendCounts ?? {};
 
   if (deniedByServer) return <DeniedCard />;
 
@@ -336,6 +351,7 @@ export function MessagesBoard({
 
   const doSend = async () => {
     setFormError(null);
+    setRefusedDuplicate(null);
     const trimmedSubject = subject.trim();
     const trimmedBody = body.trim();
     try {
@@ -362,6 +378,14 @@ export function MessagesBoard({
       // fresh fanout key, and deliver the same announcement twice.
       setFormError(
         error instanceof Error ? error.message : 'Could not send the message. Please try again.'
+      );
+      // A refusal that names the message it matched hands the row back with it.
+      // Keeping it is what turns "you cannot send this" into "send THAT one
+      // again", without the organiser having to find it.
+      setRefusedDuplicate(
+        error instanceof EventMessageError && error.code === 'ALREADY_SENT'
+          ? error.duplicate
+          : null
       );
     }
   };
@@ -390,6 +414,16 @@ export function MessagesBoard({
         delivered: outcome.message.delivered_count,
         repeated: outcome.deduplicated,
       });
+      // The refusal that led here has been acted on: the words the organiser
+      // typed have now gone out, deliberately. Clearing the compose box too,
+      // so the form does not still hold text the server would refuse again.
+      setRefusedDuplicate(null);
+      setFormError(null);
+      if (composeKey(subject, body) === composeKey(target.subject, target.body)) {
+        setSubject('');
+        setBody('');
+        composeToken.current = null;
+      }
       // Only a confirmed resend clears the binding. The next "Send again" on
       // this message is then a new decision, with a new row of its own.
       delete resendTokens.current[target.id];
@@ -475,6 +509,52 @@ export function MessagesBoard({
           </p>
         ) : null}
 
+        {/* ── The message the refusal matched, reachable from here ─────────
+            Rendered from the row the server returned, NOT looked up in the
+            history — the history is capped at 20 and this one may be far older.
+            Without it, "use Send again on it in the list below" was an
+            instruction that could not be followed and the text could not be
+            sent by any route. */}
+        {refusedDuplicate ? (
+          <div className="rounded-md border border-amber-300 bg-amber-50/60 p-3">
+            {/* The apostrophe is escaped, NOT written as `&apos;`. This is a
+                JavaScript string, not JSX text, so an HTML entity here reaches
+                the organiser as the five literal characters `&apos;` — which is
+                exactly what it did until someone rendered the component and
+                read it. Same escaping as NO_ACCESS_BODY at the top of the file. */}
+            <p className="text-xs font-medium text-amber-900">
+              This is the message it matched
+              {sentAtById[refusedDuplicate.id] ? '' : ', from earlier in this event\'s history'}:
+            </p>
+            <p className="mt-1.5 text-sm font-medium">{refusedDuplicate.subject}</p>
+            <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-sm text-muted-foreground">
+              {refusedDuplicate.body}
+            </p>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Sent {formatWhen(refusedDuplicate.sent_at)}
+              {refusedDuplicate.sent_by_name ? ` by ${refusedDuplicate.sent_by_name}` : ''}
+              {deliveryState(refusedDuplicate) === 'delivered'
+                ? ` — recorded as delivered to ${refusedDuplicate.delivered_count} of ${refusedDuplicate.recipient_count} we could reach.`
+                : ' — that send was never confirmed.'}
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-3"
+              disabled={send.isPending || recipients === 0}
+              onClick={() => {
+                setResult(null);
+                setResendError(null);
+                setResendTarget(refusedDuplicate);
+              }}
+            >
+              <Repeat className="mr-2 h-4 w-4" />
+              Send it again
+            </Button>
+          </div>
+        ) : null}
+
         {result ? (
           <p className="flex items-start gap-2 text-sm text-emerald-700">
             <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
@@ -497,6 +577,7 @@ export function MessagesBoard({
           onClick={() => {
             setResult(null);
             setFormError(null);
+            setRefusedDuplicate(null);
             setConfirmOpen(true);
           }}
         >
@@ -515,11 +596,11 @@ export function MessagesBoard({
                 key={m.id}
                 message={m}
                 repeatedOn={
-                  m.resend_of && lineage.sentAtById[m.resend_of]
-                    ? formatWhen(lineage.sentAtById[m.resend_of])
+                  m.resend_of && sentAtById[m.resend_of]
+                    ? formatWhen(sentAtById[m.resend_of])
                     : null
                 }
-                resendCount={lineage.resendCounts[m.id] ?? 0}
+                resendCount={resendCounts[m.id] ?? 0}
                 busy={send.isPending}
                 onResend={(target) => {
                   setResult(null);
@@ -586,12 +667,22 @@ export function MessagesBoard({
             <DialogTitle>
               Send this again to {recipients} {recipients === 1 ? 'registrant' : 'registrants'}?
             </DialogTitle>
+            {/* This sentence used to end "— not to remind people", which the
+                compose box itself made untrue: any message whose subject and
+                body already exist on this event is now refused, so a genuinely
+                repeated announcement ("Today's session starts at 9am", on day
+                two) can ONLY be sent from here. Telling the organiser not to
+                use the one path that works is worse than saying nothing. The
+                warning that carries the safety is the second sentence, and that
+                one is unchanged. */}
             <DialogDescription>
               This sends the same message a second time.{' '}
               <span className="font-medium text-foreground">
                 Anyone who already received it will receive it again.
               </span>{' '}
-              Use this when a send may not have gone out — not to remind people.
+              That is what this is for — whether the first send may not have gone out, or you mean
+              to say the same thing again. Sending a message the registrants have already read is
+              how an announcement starts being ignored, so do it because you decided to.
             </DialogDescription>
           </DialogHeader>
           <div className="rounded-md border bg-muted/40 p-3">
