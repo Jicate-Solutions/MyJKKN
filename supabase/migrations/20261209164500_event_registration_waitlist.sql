@@ -209,8 +209,17 @@ CREATE INDEX IF NOT EXISTS idx_event_registration_waitlist_pending_notify
 -- PARTIAL on the two OPEN statuses only. A 'registered' row must not block the
 -- same person queueing for a later run of the same event, and a 'withdrawn' one
 -- must not block them rejoining.
+-- SCOPED TO THE FORM, because every service lookup is. An event holds many
+-- forms, one per monthly run. An index on (event_id, profile_id) alone rejected
+-- a signed-in person joining October's form while they still held a row on
+-- September's — and because the service's re-read after 23505 is form-scoped, it
+-- could not find the row that had won, so a legitimate join answered HTTP 500.
+-- That is precisely the cross-run block this table's comments promise not to
+-- cause. COALESCE gives the rows that stored no form_id a single shared key, so
+-- they still cannot double up.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_event_registration_waitlist_open_profile
-  ON public.event_registration_waitlist (event_id, profile_id)
+  ON public.event_registration_waitlist
+     (event_id, profile_id, COALESCE(form_id, '00000000-0000-0000-0000-000000000000'::uuid))
   WHERE profile_id IS NOT NULL AND status IN ('waiting', 'offered');
 
 -- The claim look-up runs on exactly this, and UNIQUE is the point rather than a

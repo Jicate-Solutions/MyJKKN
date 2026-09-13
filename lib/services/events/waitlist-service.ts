@@ -400,6 +400,7 @@ interface OpenRowLookup {
     participant_email?: string | null;
     participant_phone?: string | null;
     form_id?: string | null;
+    claim_code?: string | null;
   } | null;
   /** true only when the waiting-list table is not in the schema yet. */
   missingTable: boolean;
@@ -454,7 +455,7 @@ async function findOpenRow(
     const { data, error } = await (service as any)
       .from('event_registration_waitlist')
       .select(
-        'id, queue_seq, status, registration_id, updated_at, profile_id, participant_name, participant_email, participant_phone, form_id'
+        'id, queue_seq, status, registration_id, updated_at, profile_id, participant_name, participant_email, participant_phone, form_id, claim_code'
       )
       .eq('event_id', eventId)
       .in('status', statuses)
@@ -693,6 +694,19 @@ export async function joinWaitlist(
 export interface OutstandingOffer {
   id: string;
   queue_seq: number;
+  /**
+   * True when the row belongs to nobody's account, which is the only kind of
+   * row that carries — and must spend — a claim code. The caller cannot infer
+   * this from whether a code was typed: a signed-in person may type one into a
+   * field that is on screen for everybody.
+   */
+  isGuest: boolean;
+  /**
+   * The code as stored, so a claim that has to be handed back can put the SAME
+   * code back rather than minting a new one. The organiser has already read
+   * this one down a phone.
+   */
+  claimCode: string | null;
 }
 
 /**
@@ -711,13 +725,11 @@ export function normClaimCode(value: string | null | undefined): string | null {
 
 /** What a guest's attempt to claim an offered place resolved to. */
 export type GuestClaimLookup =
-  /** The code matches an outstanding offer on this event. */
+  /** The code matches an outstanding guest offer on this event. */
   | { outcome: 'match'; offer: OutstandingOffer }
-  /** No code was given, but this person does hold an offer — ask them for it. */
-  | { outcome: 'code_required' }
-  /** A code was given and matches nothing outstanding on this event. */
+  /** A code was given and matches nothing claimable here. */
   | { outcome: 'no_match' }
-  /** Nothing here belongs to this person at all. */
+  /** No code was given. Says nothing about whether this person holds a place. */
   | { outcome: 'none' };
 
 /**
@@ -730,10 +742,18 @@ export type GuestClaimLookup =
  * people least likely to hold an account, which here is frequently a school-age
  * learner on a parent's number.
  *
- * So the code is the credential and the contact details are not. They are still
- * checked, because a code read to the wrong person should not also survive a
- * mismatched phone number, but no combination of name and contact details opens
- * this door on its own any more.
+ * IT TELLS A STRANGER NOTHING. There is deliberately no "you hold a place, now
+ * find your code" answer: this is an unauthenticated, unrate-limited door, and
+ * a response that distinguished "that person is on the list" from "they are
+ * not" would turn a guessed name and phone number into a way to enumerate an
+ * event's waiting list. Without a code the answer is simply `none`, and the
+ * caller is treated like anybody else arriving at a full event.
+ *
+ * THE CODE IS THE CREDENTIAL AND THE CONTACT DETAILS ARE STILL CHECKED. Both,
+ * because a six-character code that somebody overheard, or mistyped into a
+ * collision, must not also survive a phone number that does not match the row —
+ * otherwise the registration is written under the wrong person's name and the
+ * code is spent, so the real holder is told their own code is invalid.
  */
 export async function findGuestOfferByCode(
   service: SupabaseClient,
@@ -743,18 +763,11 @@ export async function findGuestOfferByCode(
   formId?: string | null
 ): Promise<GuestClaimLookup> {
   const normalised = normClaimCode(code);
-
-  if (!normalised) {
-    // Say WHICH thing is missing. "This event is full" to somebody holding an
-    // offer they were phoned about is the feature failing silently.
-    const hit = await findOpenRow(service, eventId, who, ['offered'], formId);
-    if (hit.row && !hit.row.profile_id) return { outcome: 'code_required' };
-    return { outcome: 'none' };
-  }
+  if (!normalised) return { outcome: 'none' };
 
   const { data, error } = await (service as any)
     .from('event_registration_waitlist')
-    .select('id, queue_seq, status, profile_id, form_id, claim_code')
+    .select('id, queue_seq, status, profile_id, form_id, claim_code, participant_email, participant_phone')
     .eq('event_id', eventId)
     .eq('status', 'offered')
     .eq('claim_code', normalised)
@@ -764,13 +777,36 @@ export async function findGuestOfferByCode(
     if (isMissingObject(error)) return { outcome: 'none' };
     throw new WaitlistReadError('check a waiting-list claim code', eventId, error);
   }
+
   const row = (data ?? [])[0] as
-    | { id: string; queue_seq: number; profile_id: string | null; form_id: string | null }
+    | {
+        id: string;
+        queue_seq: number;
+        profile_id: string | null;
+        form_id: string | null;
+        claim_code: string | null;
+        participant_email: string | null;
+        participant_phone: string | null;
+      }
     | undefined;
   if (!row) return { outcome: 'no_match' };
+
+  // Codes exist only on guest rows. An account-bound row carries none, so a
+  // match here would mean something has gone wrong; refuse rather than claim.
+  if (row.profile_id) return { outcome: 'no_match' };
   if (formId && row.form_id && row.form_id !== formId) return { outcome: 'no_match' };
 
-  return { outcome: 'match', offer: { id: row.id, queue_seq: row.queue_seq } };
+  // At least one of the details the offer was actually made to must match.
+  const rowPhone = normPhone(row.participant_phone);
+  const rowEmail = normEmail(row.participant_email);
+  const phoneAgrees = Boolean(rowPhone && rowPhone === normPhone(who.phone));
+  const emailAgrees = Boolean(rowEmail && rowEmail === normEmail(who.email));
+  if ((rowPhone || rowEmail) && !phoneAgrees && !emailAgrees) return { outcome: 'no_match' };
+
+  return {
+    outcome: 'match',
+    offer: { id: row.id, queue_seq: row.queue_seq, isGuest: true, claimCode: row.claim_code },
+  };
 }
 
 /**
@@ -812,6 +848,10 @@ export async function findOutstandingOffer(
    */
   formId?: string | null
 ): Promise<OutstandingOffer | null> {
+  // NO ACCOUNT, NO ACCOUNT-PATH. Without a signed-in caller there is nothing to
+  // bind an offer to, and every guest row goes through the code instead.
+  if (!who.profileId) return null;
+
   const hit = await findOpenRow(service, eventId, who, ['offered'], formId);
   if (!hit.row) return null;
 
@@ -823,31 +863,23 @@ export async function findOutstandingOffer(
   // when the queue row DOES name an account, that is a stronger fact than a
   // typed-in email, and letting a contact match beat it would let anybody who
   // knows somebody's email walk off with the place being held for them.
-  if (hit.row.profile_id && hit.row.profile_id !== who.profileId) return null;
-
-  // A GUEST OFFER REQUIRES EVERY CONTACT DETAIL THE ROW HOLDS, not just the one
-  // that found it. A guest has no account, so name-plus-a-contact is the only
-  // handle there is — but the organiser's card displays the name AND the phone
-  // number, so a classmate can know both. Demanding the full set the person
-  // queued with (phone AND email, when they gave both) raises the bar for
-  // somebody who knows only one of them.
   //
-  // THIS IS A MITIGATION, NOT A PROOF OF IDENTITY, and it is written down as
-  // such: whoever can produce the exact details a guest queued with can take
-  // the place held for them, and with no deadline and no revocation that is
-  // unrecoverable. The real answer is a one-time claim token carried in the
-  // offer — which a guest cannot be sent in-app, so it has to reach them
-  // through the organiser's phone call, and that is a change to what the
-  // organiser is asked to say rather than a change to this function. Flagged
-  // in the PR as an open decision instead of being half-built here.
-  if (!hit.row.profile_id) {
-    const rowPhone = normPhone(hit.row.participant_phone);
-    const rowEmail = normEmail(hit.row.participant_email);
-    if (rowPhone && rowPhone !== normPhone(who.phone)) return null;
-    if (rowEmail && rowEmail !== normEmail(who.email)) return null;
-  }
+  // EXACT MATCH, not "not somebody else's". The old test was
+  // `row.profile_id && row.profile_id !== who.profileId`, which passes a row
+  // whose profile_id is NULL — so a signed-in person who had queued while
+  // logged out matched their own GUEST row here on name and phone, skipped the
+  // code path entirely, and was then refused by the database for claiming
+  // without spending the code. The route turned that into a 500 on every
+  // attempt, for good, with the code prompt never shown. A guest row belongs to
+  // findGuestOfferByCode and nowhere else.
+  if (hit.row.profile_id !== who.profileId) return null;
 
-  return { id: hit.row.id, queue_seq: hit.row.queue_seq };
+  return {
+    id: hit.row.id,
+    queue_seq: hit.row.queue_seq,
+    isGuest: false,
+    claimCode: hit.row.claim_code ?? null,
+  };
 }
 
 /**
@@ -885,9 +917,17 @@ export async function claimOffer(
    * fn_event_waitlist_claim_code_guard — so forgetting it here fails loudly
    * rather than quietly making the code reusable.
    */
-  claimCode?: string | null
+  claimCode?: string | null,
+  /**
+   * Whether this row is a guest row, decided by the LOOKUP rather than by
+   * whether a code was typed. The claim-code field is on screen for everybody,
+   * so a signed-in offer holder can type something into it — and predicating
+   * their claim on a code their row does not have matched zero rows, which the
+   * route reported as "another submission is still going through", forever.
+   */
+  isGuest = true
 ): Promise<ClaimOutcome> {
-  const code = normClaimCode(claimCode);
+  const code = isGuest ? normClaimCode(claimCode) : null;
 
   let query = (service as any)
     .from('event_registration_waitlist')
@@ -954,12 +994,29 @@ export async function closeOpenRowsFor(
     for (let i = 0; i < 5; i++) {
       const hit = await findOpenRow(service, eventId, who, OPEN_WAITLIST_STATUSES, formId);
       if (!hit.row) return;
+      // claim_code: null is REQUIRED, not tidiness. A guest row moving
+      // 'offered' -> 'registered' without spending its code is refused by
+      // fn_event_waitlist_claim_code_guard with 42501 — and this loop used to
+      // swallow that, leaving the row 'offered' and counting as a taken seat
+      // for good. That is the permanent seat loss this whole feature exists to
+      // remove, reintroduced silently by its own clean-up.
       const { error } = await (service as any)
         .from('event_registration_waitlist')
-        .update({ status: 'registered', registration_id: registrationId })
+        .update({ status: 'registered', registration_id: registrationId, claim_code: null })
         .eq('id', hit.row.id)
         .in('status', OPEN_WAITLIST_STATUSES);
-      if (error) return;
+      if (error) {
+        if (!isMissingObject(error)) {
+          // Never silent: a queue row still holding a seat is exactly what the
+          // organiser's card exists to show, and somebody has to know to look.
+          // eslint-disable-next-line no-console
+          console.error(
+            `[${MODULE}] could not close waiting-list row ${hit.row.id} after registration ${registrationId}:`,
+            error.message ?? error
+          );
+        }
+        return;
+      }
     }
   } catch {
     /* the registration stands; a stale queue row is the organiser's to see */
@@ -969,11 +1026,22 @@ export async function closeOpenRowsFor(
 /** Put a claim back when the registration it was claimed for could not be written. */
 export async function releaseOffer(
   service: SupabaseClient,
-  waitlistId: string
+  waitlistId: string,
+  /**
+   * The code this claim spent, written back unchanged.
+   *
+   * Without it the BEFORE trigger sees an offered row with no code and mints a
+   * NEW one — so a transient server-side failure would permanently invalidate
+   * the code the organiser had already read down the phone, and the guest's
+   * next attempt would be told their own code is wrong with nothing telling
+   * anybody to call again.
+   */
+  claimCode?: string | null
 ): Promise<void> {
+  const code = normClaimCode(claimCode);
   await (service as any)
     .from('event_registration_waitlist')
-    .update({ status: 'offered' })
+    .update(code ? { status: 'offered', claim_code: code } : { status: 'offered' })
     .eq('id', waitlistId)
     .eq('status', 'registered')
     .is('registration_id', null);
