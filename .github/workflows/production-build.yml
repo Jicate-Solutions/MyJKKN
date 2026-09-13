@@ -243,7 +243,32 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key-build-only
           # Keeps Next's anonymous build telemetry out of CI.
           NEXT_TELEMETRY_DISABLED: '1'
-        run: npm run build
+        run: |
+          # A memory sampler streaming to STDOUT, not to a file summarised at the
+          # end. That distinction is the whole point: when a job dies of memory
+          # exhaustion the runner agent is killed too, so any "print the peak
+          # afterwards" step never executes and the log ends on silence. Streamed
+          # lines are already in the log when the process dies, so the trajectory
+          # up to the last breath is readable.
+          #
+          # Added after this gate's first two runs both died at exactly
+          # "Collecting page data using 3 workers ..." with a bare
+          # "##[error]The operation was canceled." and no diagnostic of any kind.
+          # ~20 lines per build, inside a collapsed group.
+          echo "::group::Memory trace (15s samples)"
+          ( while true; do
+              echo "[mem] $(date -u +%H:%M:%S) $(free -m | awk '/^Mem:/{printf "used=%sMB avail=%sMB", $3, $7}')"
+              sleep 15
+            done ) &
+          sampler=$!
+          # Do not let the sampler's death mask the build's exit code.
+          set +e
+          npm run build
+          build_exit=$?
+          set -e
+          kill "$sampler" 2>/dev/null || true
+          echo "::endgroup::"
+          exit "$build_exit"
 
       - name: Report
         if: always() && steps.relevant.outputs.count != '0'
