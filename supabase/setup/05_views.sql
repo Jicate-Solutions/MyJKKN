@@ -716,7 +716,29 @@ ORDER BY i.name, p.program_name, clp.current_semester;
 --     identical to what consumers see today, and because the definition is now
 --     explicit the view can never silently gain a column again.
 --   * View does not exist (fresh rebuild from setup) -> every column on
---     public.events EXCEPT the three institutional-numbering columns.
+--     public.events EXCEPT the three institutional-numbering columns and the
+--     three cancellation columns.
+--
+-- THE CANCELLATION COLUMNS ARE EXCLUDED BY NAME (2026-09-13). `cancellation_reason`
+-- is free text typed by an organiser at the worst moment of an event's life, and the
+-- Director ruled on 13 Sep that it is INTERNAL: /p/event/[id]/register prints a
+-- standard notice instead, and the words are shown only on the /events/[id] console.
+-- `cancelled_at` / `cancelled_by` name a moment and a person for the same event.
+-- This branch selects whatever `public.events` happens to carry AT APPLY TIME, so the
+-- moment 20261204113700 is applied and then any environment is rebuilt from setup — a
+-- new staging project, a DR restore, or anyone who drops and recreates this view — the
+-- three columns would be appended and GRANTed to `anon` below, publishing to the
+-- anonymous internet the exact text the ruling took off the public page. Excluding
+-- them here costs the marathon site nothing: it has never read them, and no marathon
+-- flow writes a reason.
+--
+-- NOTE, out of scope for the exclusion above and NOT fixed here: this view carries no
+-- `security_invoker`, unlike every other marathon_* view (marathon_sponsors,
+-- marathon_committees, marathon_tasks, marathon_incidents, … all set it). It therefore
+-- runs as owner and does NOT apply `events_public_read`'s `status NOT IN ('draft',
+-- 'cancelled')` filter, so a cancelled marathon row is readable through it when it is
+-- not readable through the base table. Adding security_invoker would change what the
+-- live external marathon site can see and needs its own PR and its own verification.
 DO $marathon_events_pin$
 DECLARE
   v_cols TEXT;
@@ -731,7 +753,8 @@ BEGIN
       INTO v_cols
       FROM information_schema.columns
      WHERE table_schema = 'public' AND table_name = 'events'
-       AND column_name NOT IN ('event_number', 'event_number_year', 'event_number_seq');
+       AND column_name NOT IN ('event_number', 'event_number_year', 'event_number_seq',
+                               'cancellation_reason', 'cancelled_at', 'cancelled_by');
   END IF;
 
   IF v_cols IS NULL THEN

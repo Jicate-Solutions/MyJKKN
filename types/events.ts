@@ -77,7 +77,10 @@ export const GENERAL_EVENT_STATUS_TRANSITIONS: Partial<Record<EventStatus, Event
   // not a return to Draft. Moving it back to draft hides the page and closes
   // registration, but says nothing to the people already registered and leaves
   // the event looking unpublished rather than called off. `cancelled` carries a
-  // reason, and the public registration page prints it.
+  // reason — INTERNAL, not public (Director's ruling, 13 Sep: "short public
+  // line, full reason kept inside"). The public registration page prints a
+  // standard cancellation notice and an address to write to; the organiser's
+  // own words are shown in full only on the /events/[id] console.
   //
   // NOT offered from `draft`: a draft was never announced, so there is nobody to
   // tell and nothing to call off — deleting or leaving it is the honest answer.

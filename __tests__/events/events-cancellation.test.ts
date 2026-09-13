@@ -259,6 +259,19 @@ describe('GeneralEventService.cancel', () => {
     expect(updateEvent).not.toHaveBeenCalled();
   });
 
+  it('does not tell the organiser their reason will be shown to the registrants', async () => {
+    // This is the one message an organiser sees at the exact moment of writing
+    // the reason, and it is in a file the UI copy changes never touched — which
+    // is why a source-level assertion on the dialog could not catch it.
+    const message = await GeneralEventService.cancel('e1', '').then(
+      () => 'it did not throw',
+      (e: unknown) => (e as Error).message
+    );
+    expect(message).not.toMatch(/the people registered will be shown it/i);
+    expect(message).toMatch(/team members/i);
+    expect(message).toMatch(/standard notice/i);
+  });
+
   it('refuses to cancel an event that is not live', async () => {
     getEvent.mockResolvedValue(eventWith({ status: 'draft' }));
 
@@ -367,6 +380,47 @@ describe('migration 20261204113700 — the trigger must stay compatible with eve
     expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS cancellation_reason\s+TEXT/i);
     expect(sql).not.toMatch(/cancellation_reason\s+TEXT\s+NOT NULL/i);
   });
+
+  it('does not describe the reason as public in the catalog comment a DBA will read', () => {
+    // A COMMENT ON COLUMN outlives every TSX comment in this repo: it is the
+    // authoritative description the next builder or DBA opens. This file is not
+    // applied yet, so editing it in place changes both the repo AND what
+    // eventually lands in the catalog.
+    const comment = sql.slice(sql.indexOf('COMMENT ON COLUMN public.events.cancellation_reason'));
+    const body = comment.slice(0, comment.indexOf(';'));
+    expect(body).not.toMatch(/PUBLIC — printed on/);
+    expect(body).not.toMatch(/anyone holding the registration link/);
+    expect(body).toMatch(/INTERNAL, NOT PUBLIC/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('no anon-readable relation may republish what the ruling took off the page', () => {
+  // The public page not reading a column proves nothing about whether the DATA
+  // is reachable. `marathon_events` is an APPROVED anon-readable view over
+  // `public.events` (GRANT SELECT ... TO anon in the same file), and its
+  // fresh-rebuild branch selects every column on `events` minus an exclusion
+  // list. Apply 20261204113700, then rebuild any environment from setup — a new
+  // staging project, a DR restore, a dropped-and-recreated view — and the three
+  // cancellation columns get appended and published, with no migration and no
+  // review. Not live today only because production's view has its list frozen
+  // from before the columns existed.
+  const views = readFileSync(join(process.cwd(), 'supabase/setup/05_views.sql'), 'utf8');
+
+  it('marathon_events excludes the cancellation columns when it is rebuilt from scratch', () => {
+    const doBlock = views.slice(
+      views.indexOf('DO $marathon_events_pin$'),
+      views.indexOf('END $marathon_events_pin$;')
+    );
+    expect(doBlock).not.toHaveLength(0);
+    for (const col of ['cancellation_reason', 'cancelled_at', 'cancelled_by']) {
+      expect(doBlock).toContain(`'${col}'`);
+    }
+    // …and specifically inside the NOT IN exclusion, not merely somewhere in the block.
+    const notIn = doBlock.slice(doBlock.indexOf('NOT IN ('));
+    expect(notIn.slice(0, notIn.indexOf(')'))).toMatch(/cancellation_reason/);
+  });
 });
 
 describe('the cancel dialog must keep telling the organiser what cancelling releases', () => {
@@ -405,28 +459,6 @@ describe('the cancel dialog must keep telling the organiser what cancelling rele
   it('tells the organiser plainly that the reason is internal', () => {
     expect(page).toMatch(/not<\/strong> shown on the public event page/i);
     expect(page).toMatch(/Recorded for your team members/i);
-  });
-});
-
-describe('the reinstate path must carry the same warning the cancel path does', () => {
-  const page = readFileSync(join(process.cwd(), 'app/(routes)/events/[id]/page.tsx'), 'utf8');
-
-  it('is a confirm dialog, not a bare button with a tooltip', () => {
-    // A `title` tooltip does not exist on a phone and is attached to the very
-    // button it is warning about. Reinstating is allowed; doing it unwarned is
-    // what changed.
-    expect(page).toContain('function ReinstateEventDialog');
-    expect(page).toContain('<ReinstateEventDialog');
-  });
-
-  it('says the released rooms and the un-assigned people do not come back', () => {
-    expect(page).toMatch(/The bookings and the people do NOT come back/);
-    expect(page).toMatch(/whoever was next in line for each one has already been given/i);
-    expect(page).toMatch(/They are not re-invited/i);
-  });
-
-  it('offers a way out of the dialog that changes nothing', () => {
-    expect(page).toMatch(/Leave it cancelled/);
   });
 });
 

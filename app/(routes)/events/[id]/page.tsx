@@ -275,100 +275,10 @@ function CancelEventDialog({ event }: { event: Event }) {
 }
 
 /**
- * Put a cancelled event back on — with the one thing the tooltip could never
- * make anybody read.
- *
- * Reinstating IS allowed (Director's second ruling, 13 Sep). What it is not is
- * an undo. `tr_event_cancelled_cascade_release` (migration 20260417000004)
- * fired when the event was cancelled: every linked `resource_reservations` row
- * was cancelled and the next team on each resource's waitlist was promoted, and
- * every invited/accepted `event_human_roles` row was un-assigned. Nothing in
- * this button walks that back, and the rooms may already belong to someone
- * else.
- *
- * The cancel dialog has carried this warning since the state existed; the
- * reinstate path carried it only as a `title` tooltip — invisible on a phone,
- * invisible to anyone who clicks without hovering, and attached to the very
- * button it was warning about. Same warning, same shape, on the way back.
- */
-function ReinstateEventDialog({
-  event,
-  target,
-  disabled,
-  pending,
-  onConfirm,
-}: {
-  event: Event;
-  target: EventStatus;
-  disabled: boolean;
-  pending: boolean;
-  onConfirm: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button size="sm" variant="outline" className="h-8 text-xs" disabled={disabled}>
-          {pending && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
-          Reinstate event
-        </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Put {event.name} back on?</DialogTitle>
-          <DialogDescription>
-            The event becomes visible and open again, and the cancellation notice on the
-            public page comes down. Registrations that were already taken are still there.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-1.5 rounded-md border border-amber-300/60 bg-amber-50 p-3 text-xs dark:border-amber-900/60 dark:bg-amber-950/30">
-          <p className="flex items-center gap-1.5 font-semibold text-amber-900 dark:text-amber-300">
-            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-            The bookings and the people do NOT come back
-          </p>
-          <ul className="list-disc space-y-0.5 pl-5 text-amber-900/90 dark:text-amber-200/90">
-            <li>
-              Every room, venue and item this event had reserved was released when it was
-              cancelled, and whoever was next in line for each one has already been given
-              it. Reinstating does not take any of that back.
-            </li>
-            <li>
-              Everyone invited to or confirmed for a role on this event was un-assigned.
-              They are not re-invited.
-            </li>
-          </ul>
-          <p className="pt-0.5 text-amber-900/90 dark:text-amber-200/90">
-            <strong>Book the rooms and invite the people again</strong> after reinstating —
-            and check the rooms are still free before you announce the event a second time.
-          </p>
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)} disabled={pending}>
-            Leave it cancelled
-          </Button>
-          <Button
-            disabled={pending}
-            onClick={() => {
-              onConfirm();
-              setOpen(false);
-            }}
-          >
-            {pending && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
-            {target === 'draft' ? 'Reinstate as Draft' : 'Reinstate the event'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-/**
  * Draft <-> Active, plus Cancelled. General events run the model in
  * GENERAL_EVENT_STATUS_TRANSITIONS: Draft hides the event and closes
- * registration, Active opens it, Cancelled calls it off with a public reason.
+ * registration, Active opens it, Cancelled calls it off and records why —
+ * internally: the public page shows a standard line, not the organiser's words.
  * The shared 8-state lifecycle is never offered here — it has no draft -> live
  * edge, so a one-click activation gated on it would be rejected server-side.
  */
@@ -407,37 +317,25 @@ function GeneralEventStatusControl({
         )}
       </Badge>
       {/* Read-only viewers keep the status badge and lose the levers. */}
-      {/* Reinstating goes through a confirm step: it is the one move on this
-          control whose consequences are already spent elsewhere — the rooms and
-          the role assignments released on cancel are gone, and a tooltip cannot
-          say so on a phone. Draft <-> Active stays one click; both directions of
-          that are reversible by clicking again. */}
-      {canEdit &&
-        (cancelled ? (
-          <ReinstateEventDialog
-            event={event}
-            target={target}
-            disabled={updateStatus.isPending}
-            pending={updateStatus.isPending}
-            onConfirm={() => updateStatus.mutate({ id: event.id, status: target })}
-          />
-        ) : (
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8 text-xs"
-            disabled={updateStatus.isPending}
-            onClick={() => updateStatus.mutate({ id: event.id, status: target })}
-            title={
-              active
-                ? 'Move back to Draft — hides the event and closes registration'
-                : 'Make this event Active so it is visible and open'
-            }
-          >
-            {updateStatus.isPending && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
-            {active ? 'Move to Draft' : 'Make Active'}
-          </Button>
-        ))}
+      {canEdit && (
+      <Button
+        size="sm"
+        variant="outline"
+        className="h-8 text-xs"
+        disabled={updateStatus.isPending}
+        onClick={() => updateStatus.mutate({ id: event.id, status: target })}
+        title={
+          active
+            ? 'Move back to Draft — hides the event and closes registration'
+            : cancelled
+              ? 'Reinstate this event — it becomes visible and open again, and the cancellation notice comes down. It does NOT restore the rooms or the role assignments that cancelling released.'
+              : 'Make this event Active so it is visible and open'
+        }
+      >
+        {updateStatus.isPending && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+        {active ? 'Move to Draft' : cancelled ? 'Reinstate event' : 'Make Active'}
+      </Button>
+      )}
       {canEdit && canCancel && <CancelEventDialog event={event} />}
     </div>
   );

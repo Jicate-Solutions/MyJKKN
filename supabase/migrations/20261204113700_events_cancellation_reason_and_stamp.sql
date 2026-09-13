@@ -18,9 +18,13 @@
 --
 -- Three columns and one BEFORE UPDATE trigger:
 --
---   cancellation_reason  the organiser's own words, when there are any. It is
---                        PUBLIC — /p/event/[id]/register prints it to whoever
---                        follows the registration link. NULLABLE.
+--   cancellation_reason  the organiser's own words, when there are any.
+--                        INTERNAL, not public — Director's ruling, 13 Sep:
+--                        "short public line, full reason kept inside".
+--                        /p/event/[id]/register prints a STANDARD cancellation
+--                        notice and an address to write to; it does not read
+--                        this column at all. The words are shown in full on the
+--                        /events/[id] console to the event team. NULLABLE.
 --   cancelled_at         when. Stamped here, never sent by a client.
 --   cancelled_by         who, from auth.uid(). Stamped here, never sent by a
 --                        client — a browser that can update the row could
@@ -84,8 +88,10 @@ ALTER TABLE public.events
   ADD COLUMN IF NOT EXISTS cancelled_by        UUID;
 
 COMMENT ON COLUMN public.events.cancellation_reason IS
-  'Why the event was called off, in the organiser''s words. PUBLIC — printed on '
-  '/p/event/[id]/register to anyone holding the registration link. NULLABLE: it is required by the '
+  'Why the event was called off, in the organiser''s words. INTERNAL, NOT PUBLIC (Director''s ruling, '
+  '13 Sep 2026): /p/event/[id]/register prints a standard cancellation notice and does not read this '
+  'column; the words are shown in full only on the /events/[id] console, to the event team. Do not '
+  'publish this column through an anon-readable view. NULLABLE: it is required by the '
   'cancel dialog on /events/[id] and by GeneralEventService.cancel(), not by the table, because other '
   'flows on this shared table cancel an event without a reason. Normalised (trimmed, blank to NULL) by '
   'trg_events_stamp_cancellation. Kept, not cleared, if the event is later reinstated.';
@@ -125,9 +131,10 @@ COMMENT ON COLUMN public.events.cancelled_by IS
 --
 -- Every other writer keeps working exactly as it did, and simply gets
 -- cancelled_at / cancelled_by stamped for free. A cancelled event with no reason
--- renders honestly in both places that read it ("No reason was recorded for this
--- cancellation" on the console, "The organiser has not recorded a reason" on the
--- public page) rather than failing the write.
+-- renders honestly on the one screen that reads it ("No reason was recorded for
+-- this cancellation" on the /events/[id] console) rather than failing the write.
+-- The public page never reads this column, so a blank reason changes nothing
+-- there: it shows the same standard cancellation notice either way.
 
 CREATE OR REPLACE FUNCTION public.fn_events_stamp_cancellation()
 RETURNS trigger

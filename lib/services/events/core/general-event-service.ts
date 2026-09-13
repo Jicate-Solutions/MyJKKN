@@ -106,7 +106,14 @@ export class GeneralEventService {
 
     try {
       if (!trimmedReason) {
-        throw new Error('Give a reason for cancelling — the people registered will be shown it.');
+        // Not "the people registered will be shown it": since the Director's
+        // ruling of 13 Sep the public page prints a standard line and never
+        // this text. The reason is kept for the event team — say so, because
+        // an organiser writing to the public writes a different sentence from
+        // one writing to their colleagues.
+        throw new Error(
+          'Give a reason for cancelling — it is kept on the event page for your team members. The public page shows a standard notice instead.'
+        );
       }
 
       const event = await this.assertTransition(id, 'cancelled');
