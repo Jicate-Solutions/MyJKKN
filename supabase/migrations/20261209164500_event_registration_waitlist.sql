@@ -309,8 +309,27 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
   SELECT
+    -- Genuinely platform-wide, and the only branch that is.
     public.is_super_admin()
-    OR public.is_admin()
+    -- AN ADMIN IS SCOPED TO THEIR OWN INSTITUTION HERE.
+    --
+    -- is_admin() is role_key-based and cluster-wide, so an unscoped branch would
+    -- let an administrator of ANY college read ANY other college's queue — and
+    -- this queue is a list of named people with their phone numbers, which is a
+    -- cross-tenant PII read, not a convenience. role_has_institution_access() is
+    -- the canonical scope mechanism: an 'all'-scoped role still passes
+    -- everywhere, an 'own'-scoped one is held to its own institution. The
+    -- NULL check keeps an event with no institution readable rather than
+    -- locking admins out of it.
+    OR (
+      public.is_admin()
+      AND EXISTS (
+        SELECT 1
+        FROM public.events e
+        WHERE e.id = p_event_id
+          AND (e.institution_id IS NULL OR public.role_has_institution_access(e.institution_id))
+      )
+    )
     OR public.fn_is_event_incharge(p_event_id)
     OR EXISTS (
       SELECT 1
@@ -321,7 +340,7 @@ AS $$
 $$;
 
 COMMENT ON FUNCTION public.fn_can_manage_event_waitlist(uuid) IS
-  'Authority to read an event''s sign-up waiting list. Super admin, admin, the event in-charge (events.config->incharges), or the event''s creator — nothing else. Mirrors fn_can_manage_event_messages; deliberately rejects events.view.';
+  'Authority to read an event''s sign-up waiting list. Super admin; an admin WITH institution access to the event (role_has_institution_access — this queue is named people and phone numbers, so an admin of another college must not read it); the event in-charge (events.config->incharges); or the event''s creator. Nothing else. Modelled on fn_can_manage_event_messages but deliberately STRICTER than it on the admin branch, and it rejects events.view.';
 
 -- Postgres grants EXECUTE to PUBLIC by default and Supabase's ALTER DEFAULT
 -- PRIVILEGES grants anon on top, so a new SECURITY DEFINER function is callable
@@ -358,7 +377,15 @@ DECLARE
   v_behavior   TEXT;
   v_next_id    UUID;
 BEGIN
-  v_event_id := COALESCE(OLD.event_id, NEW.event_id);
+  -- OLD, not COALESCE(OLD, NEW). Both triggers that call this — AFTER UPDATE OF
+  -- status and AFTER DELETE — have OLD set, so OLD alone is correct for both and
+  -- NEW is never needed. Reviewers have twice read the COALESCE as raising
+  -- `record "new" is not assigned yet` on the DELETE path and aborting every
+  -- delete on events_registrations. It does NOT do that on PostgreSQL 16 —
+  -- verified: a raw DELETE returns DELETE 1 and the head of the queue is
+  -- promoted — but a line that has to be defended twice is worth replacing with
+  -- one that raises no question at all.
+  v_event_id := OLD.event_id;
   IF v_event_id IS NULL THEN
     RETURN NULL;
   END IF;

@@ -134,6 +134,27 @@ export function isMissingObject(error: unknown): boolean {
 export const LIVE_REGISTRATION_FILTER = 'cancelled';
 
 /**
+ * A read this feature could not complete.
+ *
+ * It carries the database's own words in `detail` FOR THE SERVER LOG ONLY, and
+ * a fixed, boring sentence as its `message`. The public registration door
+ * returns `err.message` to an unauthenticated caller, so a raw PostgREST string
+ * there publishes table names and grant detail — "permission denied for table
+ * event_registration_waitlist" tells a stranger the table exists, what it is
+ * called, and that they were refused by a grant rather than by a filter.
+ */
+export class WaitlistReadError extends Error {
+  readonly detail: string;
+  constructor(what: string, eventId: string, cause: unknown) {
+    super('The waiting list could not be read. Please try again in a moment.');
+    this.name = 'WaitlistReadError';
+    this.detail = `Could not ${what} for event ${eventId}: ${
+      (cause as { message?: string } | null)?.message ?? 'unknown error'
+    }`;
+  }
+}
+
+/**
  * How many places are taken: non-cancelled registrations plus offers that are
  * still outstanding. An offer HOLDS its place — otherwise a passer-by could
  * register into the gap the queue exists to fill.
@@ -145,7 +166,21 @@ export const LIVE_REGISTRATION_FILTER = 'cancelled';
  */
 export async function countTaken(
   service: SupabaseClient,
-  eventId: string
+  eventId: string,
+  /**
+   * Whether a FAILED offers count is fatal.
+   *
+   * true (the default) for the registration door, which decides whether to
+   * accept somebody: silently dropping the held-place term there lets a
+   * passer-by register into the very gap the queue exists to fill.
+   *
+   * false for callers that only choose what COPY to show — the public page.
+   * Throwing there closes registration for every capped event on any transient
+   * read failure, which is the unreachable-queue bug this feature exists to
+   * remove; and the door re-checks strictly on submit, so the page under-
+   * counting costs at worst a form that is answered and then queued.
+   */
+  strictOffers = true
 ): Promise<number> {
   const { count, error: regError } = await (service as any)
     .from('events_registrations')
@@ -157,9 +192,7 @@ export async function countTaken(
   // event as empty, and the caller then registers past max_registrations —
   // over-selling the room is a worse outcome than an error, and it is silent.
   if (regError) {
-    throw new Error(
-      `Could not count registrations for event ${eventId}: ${regError.message ?? 'unknown error'}`
-    );
+    throw new WaitlistReadError('count registrations', eventId, regError);
   }
 
   let offered = 0;
@@ -171,11 +204,10 @@ export async function countTaken(
   if (error) {
     // No table yet = no offers, which is exactly the number this route counted
     // before the feature existed. Any OTHER failure drops the held-place term,
-    // and a passer-by then registers into the gap the queue exists to fill.
-    if (!isMissingObject(error)) {
-      throw new Error(
-        `Could not count outstanding offers for event ${eventId}: ${error.message ?? 'unknown error'}`
-      );
+    // and a passer-by then registers into the gap the queue exists to fill —
+    // so the door treats it as fatal and a copy-picking caller does not.
+    if (strictOffers && !isMissingObject(error)) {
+      throw new WaitlistReadError('count outstanding offers', eventId, error);
     }
   } else {
     offered = offeredCount ?? 0;
@@ -897,9 +929,7 @@ export async function getWaitlistPanel(
   // successfully looked up — and the card decides whether to render at all on
   // that value, so an unreadable event quietly became "this event queues".
   if (eventError) {
-    throw new Error(
-      `Could not read event ${eventId} for its waiting list: ${eventError.message ?? 'unknown error'}`
-    );
+    throw new WaitlistReadError('read the event', eventId, eventError);
   }
   const capBehavior = ((event as any)?.cap_behavior ?? null) as EventCapBehavior | null;
   const maxRegistrations = ((event as any)?.max_registrations ?? null) as number | null;
@@ -920,9 +950,7 @@ export async function getWaitlistPanel(
     // empty panel with not_yet_available=false rendered identically to "nobody
     // is waiting", which made that state unreachable and hid a stalled offer.
     if (!isMissingObject(error)) {
-      throw new Error(
-        `Could not read the waiting list for event ${eventId}: ${error.message ?? 'unknown error'}`
-      );
+      throw new WaitlistReadError('read the waiting list', eventId, error);
     }
     return {
       cap_behavior: capBehavior,
