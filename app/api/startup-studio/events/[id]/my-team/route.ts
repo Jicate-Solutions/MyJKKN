@@ -3,7 +3,6 @@ import { withAuth } from '@/lib/auth/with-auth'
 import { successApiResponse, errorResponse } from '@/lib/api/response'
 import { corsHeaders } from '@/lib/api-keys/cors'
 import { isValidUuid } from '@/lib/api-keys/query-helpers'
-import { BaseService } from '@/lib/services/base-service'
 
 export async function OPTIONS() {
   return NextResponse.json({}, { headers: corsHeaders })
@@ -17,11 +16,11 @@ export const GET = withAuth(async (request, auth, context) => {
   const supabase = auth.supabase
   const userId = auth.user.id
 
-  // Step 1: Find team where the user is a member for this event
+  // Step 1: Find the registration where the user is a team member for this event
   const { data: membership, error: memberError } = await supabase
-    .from('ss_team_members')
-    .select('team_id')
-    .eq('user_id', userId)
+    .from('event_team_members')
+    .select('registration_id')
+    .eq('profile_id', userId)
 
   if (memberError) {
     return errorResponse(`Failed to look up team membership: ${memberError.message}`, 500)
@@ -31,89 +30,71 @@ export const GET = withAuth(async (request, auth, context) => {
     return successApiResponse({ team: null, message: 'No team found' })
   }
 
-  const teamIds = membership.map((m: any) => m.team_id)
+  const registrationIds = membership.map((m: any) => m.registration_id)
 
-  // Step 2: Find the team that belongs to this event
-  const { data: team, error: teamError } = await supabase
-    .from('ss_teams')
+  // Step 2: Find the registration that belongs to this event
+  const { data: registration, error: regError } = await supabase
+    .from('event_registrations')
     .select(`
       *,
       institution:institutions(id, name),
-      members:ss_team_members(
-        id, user_id, role, department, is_anchor, has_laptop,
-        user:profiles!user_id(id, full_name, email)
+      members:event_team_members(
+        id, full_name, email, is_leader, has_laptop
       )
     `)
     .eq('event_id', eventId)
-    .in('id', teamIds)
+    .in('id', registrationIds)
     .maybeSingle()
 
-  if (teamError) {
-    return errorResponse(`Failed to fetch team: ${teamError.message}`, 500)
+  if (regError) {
+    return errorResponse(`Failed to fetch team: ${regError.message}`, 500)
   }
 
-  if (!team) {
+  if (!registration) {
     return successApiResponse({ team: null, message: 'No team found for this event' })
   }
 
-  // Step 3: Get build venue info
-  let buildVenue = null
-  if (team.build_venue_id) {
-    const { data } = await supabase
-      .from('ss_event_venues')
-      .select('id, venue_name, location_info, capacity, resource:resources(id, name, building_number, room_number)')
-      .eq('id', team.build_venue_id)
-      .maybeSingle()
-    buildVenue = data
-  }
-
-  // Step 4: Get demo venue info
-  let demoVenue = null
-  if (team.demo_venue_id) {
-    const { data } = await supabase
-      .from('ss_event_venues')
-      .select('id, venue_name, location_info, capacity, resource:resources(id, name, building_number, room_number)')
-      .eq('id', team.demo_venue_id)
-      .maybeSingle()
-    demoVenue = data
-  }
-
-  // Step 5: Get presentation slot
-  const { data: slot } = await supabase
-    .from('ss_presentation_slots')
-    .select('id, slot_time, duration_mins, room, status')
-    .eq('team_id', team.id)
-    .maybeSingle()
-
-  // Step 6: Get mentor info
-  let mentor = null
-  if (team.mentor_id) {
-    const { data } = await supabase
-      .from('profiles')
-      .select('id, full_name, email')
-      .eq('id', team.mentor_id)
-      .maybeSingle()
-    mentor = data
-  }
-
-  // Step 7: Get submission if exists (including metrics fields)
+  // Step 3: Get latest submission if exists (including metrics fields)
   const { data: submission } = await supabase
-    .from('ss_appathon_submissions')
-    .select('id, app_name, live_url, status, submitted_at, mrr_amount, paying_users_count, proof_urls, metrics_updated_at')
-    .eq('team_id', team.id)
+    .from('event_submissions')
+    .select('id, app_name, live_app_url, submitted_at, mrr_amount, paying_users_count, user_count, active_users_count, metrics_updated_at')
     .eq('event_id', eventId)
+    .eq('registration_id', registration.id)
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
 
   return successApiResponse({
     team: {
-      ...team,
-      build_venue: buildVenue,
-      demo_venue: demoVenue,
-      presentation_slot: slot,
-      mentor,
-      submission,
+      ...registration,
+      name: registration.team_name,
+      registration_status: registration.status,
+      // Venue allocation and mentor assignment now live at the venue level
+      // (event_venue_assignments / event_staff_assignments), not per-team —
+      // no single-team equivalent exists yet, so these render as "not yet assigned".
+      build_venue: null,
+      demo_venue: null,
+      presentation_slot: null,
+      mentor: null,
+      members: (registration.members || []).map((m: any) => ({
+        id: m.id,
+        user: { full_name: m.full_name, email: m.email },
+        is_anchor: m.is_leader,
+        has_laptop: m.has_laptop,
+      })),
+      submission: submission
+        ? {
+            app_name: submission.app_name,
+            live_url: submission.live_app_url,
+            status: 'submitted',
+            submitted_at: submission.submitted_at,
+            metrics_updated_at: submission.metrics_updated_at,
+            mrr_amount: submission.mrr_amount,
+            paying_users_count: submission.paying_users_count,
+            total_users: submission.user_count,
+            active_users: submission.active_users_count,
+          }
+        : null,
     },
   })
 }, { requiredPermission: 'read' })
