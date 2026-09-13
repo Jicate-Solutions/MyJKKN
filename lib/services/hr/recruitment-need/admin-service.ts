@@ -249,16 +249,20 @@ export class RecruitmentNeedAdminService {
   // ═══════════════════════════════════════════════════════════════════════════
 
   static async listWeightPolicies(supabase: SupabaseClient): Promise<WeightPolicy[]> {
+    // The column is `policy_key` (not `key`). Global defaults only: the
+    // workload keys also carry per-institution rows (scope_type='institution',
+    // set on /hr/workload/settings) which are not this screen's business.
     const { data, error } = await supabase
       .from('platform_policies')
-      .select('key, value, description')
-      .like('key', `${WEIGHT_POLICY_PREFIX}%`)
-      .order('key');
+      .select('policy_key, value, description')
+      .like('policy_key', `${WEIGHT_POLICY_PREFIX}%`)
+      .eq('scope_type', 'global')
+      .order('policy_key');
     if (error) throw error;
-    return (data ?? []).map((r: { key: string; value: string; description?: string | null }) => ({
-      key: r.key,
+    return (data ?? []).map((r: { policy_key: string; value: string; description?: string | null }) => ({
+      key: r.policy_key,
       value: r.value,
-      label: r.description ?? r.key.replace(WEIGHT_POLICY_PREFIX, ''),
+      label: r.description ?? r.policy_key.replace(WEIGHT_POLICY_PREFIX, ''),
     }));
   }
 
@@ -275,7 +279,8 @@ export class RecruitmentNeedAdminService {
       const { error } = await supabase
         .from('platform_policies')
         .update({ value: w.value })
-        .eq('key', w.key);
+        .eq('policy_key', w.key)
+        .eq('scope_type', 'global');
       if (error) throw error;
     }
   }
@@ -287,14 +292,15 @@ export class RecruitmentNeedAdminService {
   static async listThresholdPolicies(supabase: SupabaseClient): Promise<ThresholdPolicy[]> {
     const { data, error } = await supabase
       .from('platform_policies')
-      .select('key, value, description')
-      .like('key', `${THRESHOLD_POLICY_PREFIX}%`)
-      .order('key');
+      .select('policy_key, value, description')
+      .like('policy_key', `${THRESHOLD_POLICY_PREFIX}%`)
+      .eq('scope_type', 'global')
+      .order('policy_key');
     if (error) throw error;
-    return (data ?? []).map((r: { key: string; value: string; description?: string | null }) => ({
-      key: r.key,
+    return (data ?? []).map((r: { policy_key: string; value: string; description?: string | null }) => ({
+      key: r.policy_key,
       value: r.value,
-      label: r.description ?? r.key.replace(THRESHOLD_POLICY_PREFIX, ''),
+      label: r.description ?? r.policy_key.replace(THRESHOLD_POLICY_PREFIX, ''),
     }));
   }
 
@@ -310,7 +316,8 @@ export class RecruitmentNeedAdminService {
       const { error } = await supabase
         .from('platform_policies')
         .update({ value: t.value })
-        .eq('key', t.key);
+        .eq('policy_key', t.key)
+        .eq('scope_type', 'global');
       if (error) throw error;
     }
   }
