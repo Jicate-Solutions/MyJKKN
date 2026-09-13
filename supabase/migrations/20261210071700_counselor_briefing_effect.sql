@@ -19,10 +19,11 @@
 --      counselor, no notification of any kind. So the results table's SELECT
 --      policy is is_super_admin() alone and the read fn's gate is service_role
 --      or super admin — narrower than the consultants sibling on purpose.
---      NOTE: no /admin/loops panel reads counselor_briefing_effects yet (the
---      consultants sibling is in the same state); until a follow-up UI PR wires
---      one, the flag is reachable only by a super admin reading the table or
---      calling fn_counselor_briefing_effect_by_college;
+--      SURFACE: /admin/loops (super-admin-gated server component) renders a
+--      "Counselor briefing effect" block — counselors measured, how many
+--      carry a delta, and the counselors flagged 'briefing changed nothing'
+--      for the current and previous ISO week — via a service-role read of
+--      this table (app/(routes)/admin/loops/_components/counselor-briefing-panel.tsx);
 --   5. INDEPENDENT of the weekly intake-readiness alarm (#3008) but MAY feed
 --      it: fn_counselor_briefing_effect_by_college(institution_id) is the one
 --      read fn a future alarm edge can call. The alarm itself is untouched.
@@ -129,7 +130,7 @@ CREATE TABLE IF NOT EXISTS public.counselor_briefing_effects (
 COMMENT ON TABLE public.counselor_briefing_effects IS
   'Admission-counselor loop MEASUREMENT spine (Wave 2, Director answers 2026-09-06). One row per (counselor, ISO week): rate of action on briefing-NAMED leads, forward-move rate on those leads vs the counselor''s OWN trailing-8-week forward-move rate (same estimator both sides; NOT the same population — named leads are the generator''s top-3 hot leads, the baseline is every lead touched, so forward_delta carries hot-lead selection and is not a causal lift), the delta in percentage points, and the counter-metric flag briefing_changed_nothing. READ-ONLY telemetry — nothing consumes these rows to route leads, rate counselors or pay anything.';
 COMMENT ON COLUMN public.counselor_briefing_effects.briefing_changed_nothing IS
-  'COUNTER-METRIC (Director answer 4): true when the counselor took no action on any named lead across the last ignore_briefings_n named briefings AND still moved leads forward at or above their own 8-week baseline this week. The briefing cost money and changed nothing. Director 2026-09-13: super-admin ONLY (the /admin/loops audience; no /admin/loops panel reads this table yet — follow-up UI PR) — never sent to admission team members or the counselor, no notification of any kind.';
+  'COUNTER-METRIC (Director answer 4): true when the counselor took no action on any named lead across the last ignore_briefings_n named briefings AND still moved leads forward at or above their own 8-week baseline this week. The briefing cost money and changed nothing. Director 2026-09-13: super-admin ONLY (shown on /admin/loops, a super-admin-gated page, and nowhere else) — never sent to admission team members or the counselor, no notification of any kind.';
 COMMENT ON COLUMN public.counselor_briefing_effects.named_action_rate IS
   'named_leads_actioned_n / named_leads_n as a % (2 dp). NUMERATOR is this counselor''s own actions; DENOMINATOR is every lead the INSTITUTION''s briefings named that week (the briefing is one per-institution row read by every counselor of that institution — useTodaysBriefing(institutionId) has no user filter). Several counselors share one list, so ~100/N% is the practical ceiling for N active counselors — a low value is NOT "ignored most of the briefing". NULL when nothing was named.';
 COMMENT ON COLUMN public.counselor_briefing_effects.named_leads_current_year_n IS
@@ -147,8 +148,8 @@ CREATE INDEX IF NOT EXISTS idx_cbe_counselor_week
 -- the sibling's (is_super_admin() OR is_admin() OR admission.leads.view):
 -- Director 2026-09-13 — the counter-metric flag is for the super admin only
 -- (the /admin/loops audience; /admin/loops gates on profiles.is_super_admin
--- server-side, though no panel there reads this table yet — follow-up UI PR),
--- never for admission team members or the counselor.
+-- server-side and its counselor-briefing block reads this table with the
+-- service role), never for admission team members or the counselor.
 -- service_role (the cron / server) bypasses RLS as always.
 
 ALTER TABLE public.counselor_briefing_effects ENABLE ROW LEVEL SECURITY;
@@ -156,7 +157,7 @@ ALTER TABLE public.counselor_briefing_effects ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "cbe_select" ON public.counselor_briefing_effects;
 CREATE POLICY "cbe_select" ON public.counselor_briefing_effects
 FOR SELECT USING (
-  is_super_admin()
+  (SELECT is_super_admin())   -- initplan-wrapped: evaluated once per statement, not per row (house pattern, 20260730 rls_initplan_hoisting)
 );
 
 REVOKE ALL ON public.counselor_briefing_effects FROM anon, authenticated, PUBLIC;
@@ -253,16 +254,30 @@ IMMUTABLE
 PARALLEL SAFE
 SET search_path = public
 AS $function$
+  -- RULE for a NULL from_stage (fix round 2, reviewer B): the history row a
+  -- lead's CREATION writes (capture_admission_lead: from_stage NULL → 'new')
+  -- is an arrival, not a move — it must never count as a forward move, or
+  -- every new lead the counselor touched would read as a win. So a NULL
+  -- from_stage is forward ONLY when to_stage ranks ABOVE 'new' (rank 1) —
+  -- i.e. the lead entered the pipeline already past the first stage.
+  -- A NULL-RANK from_stage that is NOT NULL (not_reachable, lost, dormant …)
+  -- is a revival back into the pipeline and stays forward (Director answer 3).
   SELECT public.fn_counselor_briefing_stage_rank(p_to) IS NOT NULL
      AND (
-       p_from IS NULL
-       OR public.fn_counselor_briefing_stage_rank(p_from) IS NULL
-       OR public.fn_counselor_briefing_stage_rank(p_to) > public.fn_counselor_briefing_stage_rank(p_from)
+       CASE
+         WHEN p_from IS NULL
+           THEN public.fn_counselor_briefing_stage_rank(p_to)
+                > public.fn_counselor_briefing_stage_rank('new')
+         WHEN public.fn_counselor_briefing_stage_rank(p_from) IS NULL
+           THEN true
+         ELSE public.fn_counselor_briefing_stage_rank(p_to)
+              > public.fn_counselor_briefing_stage_rank(p_from)
+       END
      );
 $function$;
 
 COMMENT ON FUNCTION public.fn_counselor_briefing_is_forward(text, text) IS
-  'Counselor-briefing loop: true when a funnel_stage transition is a forward pipeline move (Director answer 3). Rank table in fn_counselor_briefing_stage_rank; into not_reachable/loss/idle stages is never forward, out of them is.';
+  'Counselor-briefing loop: true when a funnel_stage transition is a forward pipeline move (Director answer 3). Rank table in fn_counselor_briefing_stage_rank; into not_reachable/loss/idle stages is never forward, out of them is; a NULL from_stage (the creation row) is forward only when to_stage ranks above ''new''.';
 
 -- Pure helpers, not SECURITY DEFINER — still locked to the house pattern.
 REVOKE EXECUTE ON FUNCTION public.fn_counselor_briefing_stage_rank(text) FROM anon, PUBLIC;
@@ -417,11 +432,16 @@ BEGIN
     ),
     acts AS (
       -- Both action sources, unioned; matched on profiles.id.
-      SELECT a.created_by AS uid, a.lead_id, a.created_at AS acted_at
+      -- admission_lead_activities.created_at is NULLABLE (types/supabase.ts);
+      -- a row with no created_at would otherwise drop out of every window
+      -- silently. completed_at is the only other "it happened" timestamp the
+      -- table carries (there is no updated_at; scheduled_at can be a future
+      -- plan, never an action) — fix round 2, reviewer B.
+      SELECT a.created_by AS uid, a.lead_id, COALESCE(a.created_at, a.completed_at) AS acted_at
       FROM public.admission_lead_activities a
       WHERE a.created_by IS NOT NULL
-        AND a.created_at >= v_lo_ts
-        AND a.created_at <  v_hi_ts
+        AND COALESCE(a.created_at, a.completed_at) >= v_lo_ts
+        AND COALESCE(a.created_at, a.completed_at) <  v_hi_ts
         AND a.created_by IN (SELECT cs.uid FROM cs)
       UNION ALL
       SELECT l.counselor_id, l.lead_id, COALESCE(l.started_at, l.created_at)
@@ -434,9 +454,16 @@ BEGIN
     ),
     fwd AS (
       -- Director answer 3: any forward stage move, from the canonical history.
+      -- created_at is nullable here too, but it is the table's ONLY timestamp
+      -- (columns: id, lead_id, from_stage, to_stage, changed_by, notes,
+      -- created_at — types/supabase.ts); a row with none cannot be placed in
+      -- any window and is left out BY NAME rather than by accident. The
+      -- writers (track_lead_stage_transition, capture_admission_lead) rely
+      -- on the DEFAULT now(), so such a row is not expected in practice.
       SELECT h.lead_id, h.created_at AS moved_at
       FROM public.admission_lead_stage_history h
-      WHERE h.created_at >= v_lo_ts
+      WHERE h.created_at IS NOT NULL
+        AND h.created_at >= v_lo_ts
         AND h.created_at <  v_hi2_ts
         AND public.fn_counselor_briefing_is_forward(h.from_stage::text, h.to_stage::text)
     ),

@@ -47,6 +47,10 @@ import {
   WaitingOnDirectorPanel,
   loadWaitingOnDirector,
 } from './_components/waiting-on-director';
+import {
+  CounselorBriefingPanel,
+  loadCounselorBriefingSummary,
+} from './_components/counselor-briefing-panel';
 import { staleThresholdMs, isAlarmStatus } from '@/lib/ai-routines/loop-governance';
 import { getRoutineById } from '@/lib/ai-routines/registry';
 import type {
@@ -434,6 +438,11 @@ export default async function LoopControlTowerPage({
   // graduations + charter drafts). Tower view only; every source swallows to
   // empty, same contract as the reads above.
   const waitingItems = view === 'tower' ? await loadWaitingOnDirector(admin) : [];
+
+  // Counselor briefing effect — the counter-metric the Director ruled he sees
+  // HERE (2026-09-13). Tower view only; a failed read is rendered as such.
+  const counselorBriefing =
+    view === 'tower' ? await loadCounselorBriefingSummary(admin) : null;
 
   // ── Live config, read from the SAME tables /admin/ai-routines edits, so the
   // two pages can't drift. Best-effort: any read failure falls back to each
@@ -1705,6 +1714,11 @@ export default async function LoopControlTowerPage({
             <LoopTower stats={towerStats} registry={registry} latestAuditByKey={latestAuditByKey} latestSimByKey={latestSimByKey} conflicts={conflicts} />
           </div>
           <LoopControlTower tiers={tiers} summary={summary} asOf={asOf} />
+          {counselorBriefing && (
+            <div className="mt-6">
+              <CounselorBriefingPanel summary={counselorBriefing} />
+            </div>
+          )}
           <div className="mt-6">
             <OwnersPanel
               rows={ownersPanelRows}

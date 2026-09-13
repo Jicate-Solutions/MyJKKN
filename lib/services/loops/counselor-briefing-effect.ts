@@ -14,9 +14,10 @@
 //      moves leads forward at/above their own baseline is flagged
 //      briefing_changed_nothing — the loop's safety gauge. Director
 //      2026-09-13: super-admin ONLY (super-admin RLS + a super-admin /
-//      service_role gate on the read fn; no /admin/loops panel reads the
-//      table yet — a follow-up UI PR) — never sent to admission team members
-//      or the counselor, no notification of any kind;
+//      service_role gate on the read fn; surfaced on /admin/loops — itself
+//      super-admin-gated — by _components/counselor-briefing-panel.tsx) —
+//      never sent to admission team members or the counselor, no
+//      notification of any kind;
 //   5. independent of the weekly intake-readiness alarm; the ONE hook the
 //      alarm may feed from is fn_counselor_briefing_effect_by_college.
 //
@@ -102,7 +103,7 @@ export interface CounselorBriefingRunResult {
   measured: number;
   /** Rows whose forward_delta is a number (both sides cleared the floor). */
   with_delta: number;
-  /** Counter-metric hits — a count only; the rows themselves are super-admin-only (no page reads them yet). */
+  /** Counter-metric hits — a count only; the rows themselves are super-admin-only (read by the /admin/loops block). */
   flagged_changed_nothing: number;
 }
 
