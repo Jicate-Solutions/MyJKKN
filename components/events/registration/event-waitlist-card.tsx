@@ -55,7 +55,20 @@ function contactLine(entry: WaitlistEntry): string {
   return [entry.participant_phone, entry.participant_email].filter(Boolean).join(' · ');
 }
 
-function QueueRow({ entry }: { entry: WaitlistEntry }) {
+/** "4KQ M7X" — grouped, because it is going to be read aloud. */
+function spokenCode(code: string): string {
+  return code.length > 4 ? `${code.slice(0, 3)} ${code.slice(3)}` : code;
+}
+
+function QueueRow({
+  entry,
+  onReissue,
+  reissuing,
+}: {
+  entry: WaitlistEntry;
+  onReissue: (id: string) => void;
+  reissuing: boolean;
+}) {
   const offered = entry.status === 'offered';
   return (
     <li className="flex items-start justify-between gap-3 border-b py-2 last:border-b-0">
@@ -91,8 +104,35 @@ function QueueRow({ entry }: { entry: WaitlistEntry }) {
             {entry.unreachable && (
               <span className="flex items-center gap-1 text-[11px] text-amber-600 dark:text-amber-400">
                 <PhoneCall className="h-3 w-3" />
-                No MyJKKN account — tell them yourself
+                No MyJKKN account — phone them
               </span>
+            )}
+            {/* THE THING THE ORGANISER HAS TO DO. This code is the only way a
+                person with no account can take their place up, and it reaches
+                them only if somebody says it out loud. A screen that shows a
+                code without saying to read it out is a feature that depends on
+                a person doing something nobody told them to do. */}
+            {entry.claim_code && (
+              <div className="mt-1 flex flex-col items-end gap-1 rounded-md border border-amber-500/40 bg-amber-500/5 px-2 py-1.5">
+                <span className="text-[11px] font-medium text-amber-700 dark:text-amber-400">
+                  Read this code to them:
+                </span>
+                <span className="font-mono text-base font-bold tracking-[0.2em]">
+                  {spokenCode(entry.claim_code)}
+                </span>
+                <span className="text-[10px] text-muted-foreground">
+                  They type it on the registration page. No letter O or I, and no
+                  zero or one — every character is spoken as it looks.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onReissue(entry.id)}
+                  disabled={reissuing}
+                  className="text-[11px] font-medium underline underline-offset-2 disabled:opacity-50"
+                >
+                  {reissuing ? 'Issuing…' : 'Issue a new code'}
+                </button>
+              </div>
             )}
             {!entry.unreachable && !entry.notified_at && (
               <span className="text-[11px] text-muted-foreground">Not announced yet</span>
@@ -116,6 +156,8 @@ type CardState =
 export function EventWaitlistCard({ eventId }: { eventId: string }) {
   const [state, setState] = useState<CardState | null>(null);
   const [loading, setLoading] = useState(true);
+  const [reissuingId, setReissuingId] = useState<string | null>(null);
+  const [reissueError, setReissueError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -139,6 +181,35 @@ export function EventWaitlistCard({ eventId }: { eventId: string }) {
       setLoading(false);
     }
   }, [eventId]);
+
+  const reissue = useCallback(
+    async (waitlistId: string) => {
+      setReissueError(null);
+      setReissuingId(waitlistId);
+      try {
+        const res = await fetch(`/api/events/${encodeURIComponent(eventId)}/waitlist`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'reissue_code', waitlist_id: waitlistId }),
+        });
+        const payload = await res.json().catch(() => null);
+        if (!res.ok || payload?.success !== true) {
+          setReissueError(
+            payload?.error ?? 'A new code could not be issued. Please try again.'
+          );
+          return;
+        }
+        // Re-read rather than patching in place: issuing a new code invalidates
+        // the old one, and the card must never show a code that no longer works.
+        await load();
+      } catch {
+        setReissueError('A new code could not be issued. Please try again.');
+      } finally {
+        setReissuingId(null);
+      }
+    },
+    [eventId, load]
+  );
 
   useEffect(() => {
     void load();
@@ -219,17 +290,30 @@ export function EventWaitlistCard({ eventId }: { eventId: string }) {
       <CardContent className="space-y-3">
         <ul className="space-y-0">
           {panel.entries.map((entry) => (
-            <QueueRow key={entry.id} entry={entry} />
+            <QueueRow
+              key={entry.id}
+              entry={entry}
+              onReissue={reissue}
+              reissuing={reissuingId === entry.id}
+            />
           ))}
         </ul>
+
+        {reissueError && (
+          <p className="rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs text-destructive">
+            {reissueError}
+          </p>
+        )}
 
         {panel.offered_count > 0 && (
           <p className="rounded-md bg-muted/60 p-3 text-xs text-muted-foreground">
             An offered place is held for that person and counts as taken until they
-            take it up on the registration page. There is no deadline: an offer
-            nobody answers keeps its place, and nobody behind it moves up. This
-            screen cannot take an offer back yet — if one stalls, tell an
-            administrator.
+            take it up on the registration page. Anybody with a code above has no
+            MyJKKN account, so <strong>the code only reaches them if you phone
+            them and read it out</strong> — nothing else will tell them. There is
+            no deadline: an offer nobody answers keeps its place, and nobody
+            behind it moves up. This screen cannot take an offer back yet — if one
+            stalls, tell an administrator.
           </p>
         )}
       </CardContent>
