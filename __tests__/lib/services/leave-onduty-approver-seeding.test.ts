@@ -38,9 +38,33 @@ const SECTION_ID = '3896c106-229f-496d-8552-50823e615c56';
 const DEPARTMENT_ID = '57047edf-b70b-4785-b68a-52b8880cad2a';
 const APPLICATION_ID = '11111111-1111-4111-8111-111111111111';
 
-// 2026-08-13 is a Thursday, far enough ahead that the backdate rule in
-// validateApplicationData does not reject it.
-const APPLY_DATE = '2026-08-13';
+// Computed, never hardcoded. This date must satisfy TWO independent constraints,
+// and a fixed calendar date cannot keep satisfying either one:
+//
+//   1. It must be a THURSDAY. getPeriodsForDate() does
+//      `dayNames[new Date(date).getDay()]` (leave-onduty-service.ts) and looks the
+//      result up in the timetable fixture below, whose schedule has a THURSDAY key
+//      and nothing else. A non-Thursday yields no periods and the service throws
+//      "Period detection failed".
+//   2. It must be within validateApplicationData's maxBackdate window
+//      (DEFAULT_VALIDATION_RULES.dates.maxBackdate = 30 days, types/leave-onduty.ts).
+//      There is no future-date limit, so a FUTURE Thursday satisfies both forever.
+//
+// This was hardcoded to '2026-08-13' under a comment calling it "far enough ahead".
+// It expired silently at midnight on 2026-09-13 — day 31 — and failed all 6 tests
+// in this file on every PR whose gated subset includes it. The reported error was
+// about backdating, which pointed nowhere near the fixture's THURSDAY key, so the
+// next person to hit it would have paid the same debugging cost again.
+//
+// Picking the NEXT Thursday (today, if today is Thursday) keeps both constraints
+// true on every future run without pinning the suite to a wall-clock date.
+const APPLY_DATE = (() => {
+  const d = new Date();
+  d.setHours(12, 0, 0, 0); // midday: no DST or UTC-rollover edge when formatting
+  d.setDate(d.getDate() + ((4 - d.getDay() + 7) % 7)); // 4 = Thursday; 0 keeps today
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+})();
 const PERIOD_ID = 'd0f0d519-43ef-467b-8385-fcc961185b93';
 const COURSE_ID = 'd990aed1-95b2-4f18-86f8-f9223dc3d8ec';
 
