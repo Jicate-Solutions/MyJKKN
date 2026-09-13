@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -152,7 +153,7 @@ func (w *WA) connectWithRetry(ctx context.Context) error {
 	backoff := minBackoff
 	for {
 		err := w.client.Connect()
-		if err == nil {
+		if connectSucceeded(err) {
 			return nil
 		}
 		w.setLastErr(err.Error())
@@ -167,6 +168,27 @@ func (w *WA) connectWithRetry(ctx context.Context) error {
 			backoff = maxBackoff
 		}
 	}
+}
+
+// connectSucceeded reports whether a Client.Connect() outcome leaves us with a
+// live socket.
+//
+// whatsmeow answers a Connect() on an already-live socket with
+// ErrAlreadyConnected, which is NOT nil. Treating that as a failure made
+// connectWithRetry loop forever on a connection that was already working: the
+// watchdog never returned, so the bridge stopped watching anything. It is a
+// success, not an error.
+func connectSucceeded(err error) bool {
+	return err == nil || errors.Is(err, whatsmeow.ErrAlreadyConnected)
+}
+
+// LIDs exposes whatsmeow's LID↔phone-number map so inbound can turn a LID
+// sender into a real phone number before MyJKKN ever sees it.
+func (w *WA) LIDs() LIDResolver {
+	if w.client == nil || w.client.Store == nil || w.client.Store.LIDs == nil {
+		return nil
+	}
+	return w.client.Store.LIDs
 }
 
 // KeepAlive re-dials whenever whatsmeow's own auto-reconnect has given up.

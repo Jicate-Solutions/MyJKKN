@@ -193,6 +193,28 @@ campus can reach it, and neither can the internet.
 
 ---
 
+## Unlinking WhatsApp (`/logout`)
+
+`POST /logout` unlinks the WhatsApp account. Every campus message stops until
+somebody walks to this box and scans a new QR, so it asks for the password:
+
+```cmd
+curl -X POST -H "x-bridge-secret: YOUR_BRIDGE_SECRET" http://127.0.0.1:8080/logout
+```
+
+Three things have to be true or the request is refused with `403`:
+
+1. it carries `x-bridge-secret` matching `BRIDGE_SECRET`;
+2. it did not come from a web page on another site (`Origin` must be local);
+3. it arrived on `127.0.0.1` or `localhost`.
+
+Being on loopback is **not** a password. Any program on this Windows box — and
+any web page open in a browser on it — can reach `127.0.0.1:8080`, and before
+these checks a single cross-origin form POST from any website was enough to log
+the bridge out. `/health` and `/qr` stay open: they only read.
+
+---
+
 ## Where the logs are
 
 ```
@@ -265,21 +287,38 @@ sure. No QR is needed.
 
 ## Every setting, in one table
 
-| Setting | Default | What it does |
-|---|---|---|
-| `MYJKKN_URL` | *(required)* | Where MyJKKN lives, e.g. `https://www.jkkn.ai`. Must be `https://`. |
-| `BRIDGE_SECRET` | *(required)* | Shared password proving this box is ours. |
-| `POLL_INTERVAL_SECONDS` | `5` | How often to ask MyJKKN for messages to send. |
-| `SEND_DELAY_MS` | `1500` | Pause between two sends. Raise it if WhatsApp complains. |
-| `DB_PATH` | `jkkn-whatsapp-bridge.db` | The file holding the WhatsApp login and any queued replies. **Back this up.** |
-| `LISTEN_ADDR` | `127.0.0.1:8080` | Where the health page lives. Must stay on `127.0.0.1`. |
-| `LOG_PATH` | `logs/bridge.log` | Log file. Rotates at 10 MB, keeps 10 files for 30 days. |
-| `PENDING_LIMIT` | `20` | How many messages to fetch per check. |
-| `HEARTBEAT_SECONDS` | `60` | How often to tell MyJKKN we are alive. |
-| `FORWARD_GROUP_MESSAGES` | `false` | Whether messages from WhatsApp **groups** are sent up to MyJKKN. Off by default. |
-| `MAX_MEDIA_MB` | `16` | Largest attachment the bridge will send. |
-| `ALLOW_INSECURE_URL` | `false` | Allows a plain `http://` MyJKKN URL. **Testing only** — it would put the secret on the wire in clear text. |
-| `HTTP_TIMEOUT_SECONDS` | `30` | How long to wait for MyJKKN before giving up on one call. |
+| Setting | Default | Allowed range | What it does |
+|---|---|---|---|
+| `MYJKKN_URL` | *(required)* | — | Where MyJKKN lives, e.g. `https://www.jkkn.ai`. Must be `https://`. |
+| `BRIDGE_SECRET` | *(required)* | — | Shared password proving this box is ours. Also unlocks `POST /logout`. |
+| `POLL_INTERVAL_SECONDS` | `5` | 1 – 3600 | How often to ask MyJKKN for messages to send. |
+| `SEND_DELAY_MS` | `1500` | 250 – 60000 | Pause between two sends. Raise it if WhatsApp complains. |
+| `DB_PATH` | `jkkn-whatsapp-bridge.db` | — | The file holding the WhatsApp login and any queued replies. **Back this up.** |
+| `LISTEN_ADDR` | `127.0.0.1:8080` | — | Where the health page lives. Must stay on `127.0.0.1`. |
+| `LOG_PATH` | `logs/bridge.log` | — | Log file. Rotates at 10 MB, keeps 10 files for 30 days. |
+| `PENDING_LIMIT` | `20` | 1 – 100 | How many messages to fetch per check. |
+| `HEARTBEAT_SECONDS` | `60` | `0` = **off**, else 10 – 3600 | How often to tell MyJKKN we are alive. See below. |
+| `FORWARD_GROUP_MESSAGES` | `false` | — | Whether messages from WhatsApp **groups** are sent up to MyJKKN. Off by default. |
+| `MAX_MEDIA_MB` | `16` | 1 – 100 | Largest attachment the bridge will send. |
+| `ALLOW_INSECURE_URL` | `false` | — | Allows a plain `http://` MyJKKN URL. **Testing only** — it would put the secret on the wire in clear text. |
+| `HTTP_TIMEOUT_SECONDS` | `30` | 5 – 300 | How long to wait for MyJKKN before giving up on one call. |
+
+### What happens to a number outside its range
+
+Nothing breaks. The bridge corrects the value to the nearest end of the range,
+writes one `WARN config: …` line saying what it changed, and carries on. A typo
+in the `.bat` file must never leave an unattended box dead. Something that is
+not a number at all (`HEARTBEAT_SECONDS=sixty`) falls back to the default.
+
+### `HEARTBEAT_SECONDS=0` means OFF
+
+Setting it to `0` **switches the heartbeat off**, deliberately — `0` is the
+ordinary way to disable a knob. Messages keep flowing exactly as before; the
+only effect is that MyJKKN is never told this bridge is alive, so its dashboard
+will show the bridge as silent. A startup `WARN` says so. To turn it back on,
+set `HEARTBEAT_SECONDS=60`.
+
+A **negative** value is a typo, not a decision, so it falls back to `60`.
 
 ---
 
@@ -317,6 +356,40 @@ authenticated by the `x-bridge-secret` header:
 | `POST /api/whatsapp-bridge/ack` | result of one send |
 | `POST /api/whatsapp-bridge/inbound` | a received message |
 | `POST /api/whatsapp-bridge/heartbeat` | liveness |
+
+#### The wire contract
+
+**`to` on a pending message** is canonical E.164, **digits only** — no leading
+`+`, no server suffix:
+
+```
+919894116664          <- correct
++919894116664         <- accepted, the + is stripped
+919894116664@c.us     <- accepted, the suffix is stripped
+919894116664@s.whatsapp.net  <- accepted, the suffix is stripped
+9894116664            <- REJECTED, acked back as failed
+```
+
+That last line is deliberate. A 10-digit number has no country code, and the
+bridge will not invent one: guessing `91` would deliver a learner's message to a
+stranger in another country. It acks the message `failed` with a readable error
+instead, which is loud and fixable.
+
+**`type`** is exactly `text` or `media`. An absent or empty `type` is read as
+`text`; anything else is acked `failed`.
+
+**An inbound message** carries two fields beyond the obvious ones:
+
+| Field | Why it is there |
+|---|---|
+| `from_type` | `phone`, `lid` or `unknown`. Only match `from` against a learner's or a staff member's phone number when this says `phone`. |
+| `chat_jid` | The conversation to reply into, e.g. `919894116664@s.whatsapp.net` or `120363...@g.us`. In a group the sender is the person, not the group, so a reply needs this. |
+
+`from_type` exists because WhatsApp increasingly identifies a sender by a
+**LID** rather than a phone number. A LID is a bare numeric string that looks
+exactly like a phone number, so matching one against a phone column quietly
+finds an unrelated person. The bridge resolves a LID to the real number when
+WhatsApp has told it the mapping, and labels it `lid` when it cannot.
 
 ### Tests
 

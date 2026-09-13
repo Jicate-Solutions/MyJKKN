@@ -71,6 +71,8 @@ func TestInboundMessage_Marshal(t *testing.T) {
 	ts := time.Date(2026, 9, 13, 10, 30, 0, 0, time.UTC)
 	raw, err := json.Marshal(InboundMessage{
 		From:        "919876543210",
+		FromType:    FromTypePhone,
+		ChatJID:     "919876543210@s.whatsapp.net",
 		SenderName:  "Priya",
 		WAMessageID: "3EB0ABC",
 		Body:        "When does the hostel reopen?",
@@ -81,9 +83,59 @@ func TestInboundMessage_Marshal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"from":"919876543210","sender_name":"Priya","wa_message_id":"3EB0ABC","body":"When does the hostel reopen?","type":"text","timestamp":"2026-09-13T10:30:00Z","is_group":false}`
+	want := `{"from":"919876543210","from_type":"phone","chat_jid":"919876543210@s.whatsapp.net","sender_name":"Priya","wa_message_id":"3EB0ABC","body":"When does the hostel reopen?","type":"text","timestamp":"2026-09-13T10:30:00Z","is_group":false}`
 	if string(raw) != want {
 		t.Fatalf("inbound marshalled as\n  %s\nwant\n  %s", raw, want)
+	}
+}
+
+// REGRESSION (fix 7). A forwarded group message used to carry only the sender's
+// address, which is the person — not the group. With no chat_jid on the wire
+// MyJKKN had nowhere to send a reply, so a group message could never be
+// answered.
+func TestInboundMessage_CarriesTheChatJIDForAGroup(t *testing.T) {
+	raw, err := json.Marshal(InboundMessage{
+		From:     "919876543210",
+		FromType: FromTypePhone,
+		ChatJID:  "120363001234567890@g.us",
+		Body:     "Is the bus running?",
+		Type:     "text",
+		IsGroup:  true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back map[string]any
+	if err := json.Unmarshal(raw, &back); err != nil {
+		t.Fatal(err)
+	}
+	if back["chat_jid"] != "120363001234567890@g.us" {
+		t.Fatalf("chat_jid = %v — a group message cannot be replied to without it", back["chat_jid"])
+	}
+	if back["from"] == back["chat_jid"] {
+		t.Fatal("in a group the sender and the chat are different addresses")
+	}
+}
+
+// REGRESSION (fix 3). An unresolvable LID must reach MyJKKN labelled, so
+// nothing downstream matches it against a learner's phone number.
+func TestInboundMessage_LabelsALID(t *testing.T) {
+	raw, err := json.Marshal(InboundMessage{
+		From:     "123456789012345",
+		FromType: FromTypeLID,
+		ChatJID:  "123456789012345@lid",
+		Body:     "hello",
+		Type:     "text",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back map[string]any
+	if err := json.Unmarshal(raw, &back); err != nil {
+		t.Fatal(err)
+	}
+	if back["from_type"] != FromTypeLID {
+		t.Fatalf("from_type = %v, want %q", back["from_type"], FromTypeLID)
 	}
 }
 

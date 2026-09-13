@@ -42,6 +42,9 @@ func run() error {
 
 	log.Infof("JKKN WhatsApp bridge %s starting", Version)
 	log.Infof("MyJKKN: %s | session file: %s | log: %s", cfg.MyJKKNURL, cfg.DBPath, cfg.LogPath)
+	for _, warning := range cfg.Warnings {
+		log.Warnf("config: %s", warning)
+	}
 
 	// Ctrl+C, and the stop signal a Windows service manager sends.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -68,7 +71,7 @@ func run() error {
 	defer wa.Close()
 
 	api := NewMyJKKNClient(cfg, log)
-	inbound := NewInbound(cfg, api, spool, log)
+	inbound := NewInbound(cfg, api, spool, wa.LIDs(), log)
 	wa.SetMessageHandler(inbound.Handle)
 
 	operator := NewOperatorServer(cfg, wa, spool, log)
@@ -94,6 +97,14 @@ func run() error {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
+	// A message that reached WhatsApp microseconds before the stop signal still
+	// has to be acked, or MyJKKN re-queues it and a real person is messaged
+	// twice. Outbound.Run acks on a detached context; this waits for it.
+	if !outbound.Wait(shutdownCtx) {
+		log.Warnf("outbound did not finish its last acknowledgement in time — MyJKKN may re-queue one message")
+	}
+
 	if err := operator.Shutdown(shutdownCtx); err != nil {
 		log.Warnf("operator server did not shut down cleanly: %v", err)
 	}
@@ -103,7 +114,16 @@ func run() error {
 
 // runHeartbeat tells MyJKKN the bridge is alive. A failure is logged and
 // otherwise ignored: a dashboard going quiet must never stop real messages.
+//
+// A period of zero means the operator switched the heartbeat off. Handing that
+// zero to time.NewTicker is a panic ("non-positive interval for NewTicker"),
+// and a panic in this goroutine takes the whole unattended process down — the
+// crash loop this guard exists to prevent.
 func runHeartbeat(ctx context.Context, cfg *Config, wa *WA, api *MyJKKNClient, log *Logger) {
+	if cfg.HeartbeatPeriod <= 0 {
+		log.Warnf("heartbeat: switched off (HEARTBEAT_SECONDS=0) — MyJKKN will not be told this bridge is alive")
+		return
+	}
 	ticker := time.NewTicker(cfg.HeartbeatPeriod)
 	defer ticker.Stop()
 	for {

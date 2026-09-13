@@ -3,9 +3,12 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -123,6 +126,17 @@ func (s *OperatorServer) handleLogout(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "use POST"})
 		return
 	}
+	// /logout unlinks the WhatsApp session and stops every message on campus
+	// until somebody walks to the Windows box and rescans a QR. Binding to
+	// loopback is not protection: any browser tab or any process on that box
+	// could reach it, and a plain cross-origin form POST was enough to fire it.
+	if reason := authorizeOperatorRequest(r, s.cfg); reason != "" {
+		s.log.Warnf("/logout: refused a request — %s (origin=%q host=%q remote=%q)", reason, r.Header.Get("Origin"), r.Host, r.RemoteAddr)
+		writeJSON(w, http.StatusForbidden, map[string]string{
+			"error": "refused: " + reason + ". Send the bridge secret in the x-bridge-secret header from this machine.",
+		})
+		return
+	}
 	if err := s.wa.Logout(r.Context()); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -132,6 +146,60 @@ func (s *OperatorServer) handleLogout(w http.ResponseWriter, r *http.Request) {
 		"status":  "logged_out",
 		"message": "Session unlinked. Restart the bridge and scan a new QR to pair again.",
 	})
+}
+
+// authorizeOperatorRequest guards the state-changing operator endpoints. It
+// returns an empty string when the request may proceed, or a short reason why
+// it may not.
+//
+// Three independent checks, because each stops a different attack:
+//
+//   - the shared secret in a custom header. A cross-origin <form> POST cannot
+//     set a header at all, and a cross-origin fetch() that tries triggers a
+//     CORS preflight this server never answers. This is the real lock.
+//   - Origin must be local when it is present, so a page on the box itself
+//     cannot drive the endpoint from a tab the operator has open.
+//   - Host must be loopback, which closes DNS rebinding (a hostname that
+//     resolves to 127.0.0.1 but carries an attacker's origin).
+func authorizeOperatorRequest(r *http.Request, cfg *Config) string {
+	if !isLoopbackHost(r.Host) {
+		return "requests must arrive on 127.0.0.1 or localhost"
+	}
+	if origin := strings.TrimSpace(r.Header.Get("Origin")); origin != "" && !isLocalOrigin(origin) {
+		return "cross-origin requests are not accepted"
+	}
+	presented := r.Header.Get("x-bridge-secret")
+	if presented == "" {
+		return "missing the x-bridge-secret header"
+	}
+	if subtle.ConstantTimeCompare([]byte(presented), []byte(cfg.BridgeSecret)) != 1 {
+		return "the x-bridge-secret header does not match BRIDGE_SECRET"
+	}
+	return ""
+}
+
+// isLoopbackHost reports whether a Host header names this machine.
+func isLoopbackHost(host string) bool {
+	hostname := host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		hostname = h
+	}
+	switch strings.ToLower(strings.Trim(hostname, "[]")) {
+	case "127.0.0.1", "localhost", "::1":
+		return true
+	}
+	return false
+}
+
+// isLocalOrigin reports whether an Origin header names a page served by this
+// machine. "null" (a sandboxed iframe or a file:// page) is deliberately NOT
+// local: it is exactly what an attacker's frame presents.
+func isLocalOrigin(origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	return isLoopbackHost(u.Host)
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {

@@ -39,7 +39,17 @@ type AckRequest struct {
 
 // InboundMessage is a WhatsApp message travelling up into MyJKKN.
 type InboundMessage struct {
-	From        string `json:"from"`
+	From string `json:"from"`
+	// FromType says how to read From: "phone" (a real E.164 number, safe to
+	// match against a learner's phone), "lid" (a WhatsApp pseudonymous id that
+	// merely LOOKS like a phone number — never match it against one), or
+	// "unknown". See ResolveSenderAddress.
+	FromType string `json:"from_type"`
+	// ChatJID is the conversation the message belongs to, e.g.
+	// "919876543210@s.whatsapp.net" or "1203630...@g.us". Without it a
+	// forwarded group message can never be replied to: the sender's address is
+	// the person, not the group.
+	ChatJID     string `json:"chat_jid"`
 	SenderName  string `json:"sender_name"`
 	WAMessageID string `json:"wa_message_id"`
 	Body        string `json:"body"`
