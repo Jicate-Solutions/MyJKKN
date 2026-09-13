@@ -54,6 +54,15 @@
  * offset, which moves 38 of 7,305 commits (0.52%), all of them UTC-stamped
  * GitHub merges that genuinely happened after IST midnight.
  *
+ * ONE-OFF REWRITE, 2026-09-13, same shape again. `href` joined the fingerprint
+ * when each entry started carrying the screen the change happened on, so that a
+ * reader can open it rather than go hunting. Every stored row holds NULL for it;
+ * the first run after this ships writes the ~1,300 that have a link and leaves
+ * the rest as they are. It MUST be in the fingerprint: a column the upsert sets
+ * but the fingerprint ignores can never be corrected, because the row carrying
+ * the stale value would always look unchanged — a page renamed six months from
+ * now would keep its dead link forever.
+ *
  * The skip changes what is WRITTEN, never what is COMPARED. The prune below is
  * still handed git's full sha list, not the short list of changed rows: prune it
  * against the changed rows and the first quiet day deletes the entire changelog.
@@ -130,7 +139,7 @@ const FIRST_SEED_FLOOR = 1000;
  *  same table. It must match the column's DEFAULT in the migration. */
 const APP_KEY = 'myjkkn';
 
-/** Rows per INSERT. 10 columns × 500 = 5,000 parameters, well inside Postgres's
+/** Rows per INSERT. 11 columns × 500 = 5,500 parameters, well inside Postgres's
  *  65,535 limit, and ten round trips for the whole history instead of 4,746. */
 const BATCH = 500;
 
@@ -159,7 +168,7 @@ function fail(message, detail) {
  *  the stale value would always look unchanged. */
 export const ENTRY_COLUMNS = [
   'sha', 'entry_date', 'entry_at', 'kind', 'module_key', 'subject', 'author',
-  'pr_number', 'breaking', 'ordinal',
+  'href', 'pr_number', 'breaking', 'ordinal',
 ];
 
 /** The module columns the upsert sets, same reasoning. `key` is the conflict target. */
@@ -219,7 +228,8 @@ function toInstantKey(value) {
  *  shape here fixes it for every caller instead of contorting the test.
  *
  * @param {{ h: string, d: string, at?: string | null, t?: string, m?: string,
- *           s?: string, a?: string, e?: string, p?: number, b?: number | boolean }} e
+ *           s?: string, a?: string, e?: string, l?: string | null, p?: number,
+ *           b?: number | boolean }} e
  * @param {number} ordinal
  */
 export function entryRow(e, ordinal) {
@@ -235,6 +245,11 @@ export function entryRow(e, ordinal) {
     module_key: e.m,
     subject: e.s,
     author: e.a,
+    // The screen this change happened on, or null when the commit touched no
+    // still-existing static page. NULL is the ordinary case (roughly three
+    // quarters of entries) and the page falls back to the module's own href for
+    // it — see supabase/migrations/20261206120000_changelog_entries_href.sql.
+    href: e.l ?? null,
     pr_number: e.p ?? null,
     breaking: e.b === 1,
     ordinal,
@@ -330,13 +345,19 @@ export function planModuleWrites(modules, stored) {
 async function main() {
   const REF = resolveRef();
   const DRY_RUN = process.argv.includes('--dry-run');
-  const { entries, modules, gitFailed, skipped, recovered } = collectChangelog({ ref: REF });
+  const { entries, modules, gitFailed, skipped, recovered, links } = collectChangelog({ ref: REF });
 
   console.log(`Read ${entries.length} entries from ${REF}, across ${Object.keys(modules).length} modules.`);
   console.log(`  ${entries[entries.length - 1]?.d ?? '—'} → ${entries[0]?.d ?? '—'}`);
   console.log(`  skipped: ${skipped.nonUserFacing} non-user-facing, ${skipped.internal} internal-scope, ` +
     `${skipped.engineering} build-toolchain, ${skipped.contentFree} content-free`);
   console.log(`  module recovered from changed files: ${recovered}`);
+  // Said out loud every run, because the honest shape of this feature is that
+  // most entries do NOT get their own screen and fall back to their module. A
+  // silent 26% would read as a bug the first time somebody counted the links.
+  console.log(`  deep links: ${links.precise} open their own screen, ` +
+    `${entries.length - links.precise} fall back to their module` +
+    (links.dropped ? `, ${links.dropped} dropped (the page no longer exists)` : ''));
 
   if (gitFailed) {
     // Not fatal on its own: on a full clone without the remote configured, the
@@ -471,7 +492,7 @@ export async function writeChangelog({ client, entries, modules, ref }) {
       // `entry_at::text` would instead render in the session's timezone, which
       // is a setting, not a fact.
       `SELECT sha, entry_date::text AS entry_date, entry_at, kind, module_key, subject, author,
-              pr_number, breaking, ordinal
+              href, pr_number, breaking, ordinal
          FROM public.changelog_entries
         WHERE app_key = $1`,
       [APP_KEY]
@@ -515,21 +536,21 @@ export async function writeChangelog({ client, entries, modules, ref }) {
       const slice = changed.slice(i, i + BATCH);
       const values = [];
       const rows = slice.map((e, n) => {
-        // TEN columns per row since entry_at joined them, not nine. This stride
-        // is the one number that must move with the column list: leave it at 9
-        // and every row after the first reads its neighbour's parameters —
-        // valid SQL, no error, entirely wrong data.
-        const b = n * 10;
+        // ELEVEN columns per row since href joined them — ten when entry_at did,
+        // nine before that. This stride is the one number that must move with
+        // the column list: leave it behind and every row after the first reads
+        // its neighbour's parameters — valid SQL, no error, entirely wrong data.
+        const b = n * 11;
         // e.ordinal was assigned by assignOrdinals over the WHOLE read, not by
         // position in this batch or in the changed list — it is the only thing
         // that preserves git's order for the dozen-odd changes sharing a date.
         values.push(e.sha, e.entry_date, e.entry_at, e.kind, e.module_key, e.subject, e.author,
-          e.pr_number, e.breaking, e.ordinal);
-        return `($${b + 1}, $${b + 2}::date, $${b + 3}::timestamptz, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7}, $${b + 8}::int, $${b + 9}::boolean, $${b + 10}::int)`;
+          e.href, e.pr_number, e.breaking, e.ordinal);
+        return `($${b + 1}, $${b + 2}::date, $${b + 3}::timestamptz, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7}, $${b + 8}, $${b + 9}::int, $${b + 10}::boolean, $${b + 11}::int)`;
       });
       await client.query(
         `INSERT INTO public.changelog_entries
-           (sha, entry_date, entry_at, kind, module_key, subject, author, pr_number, breaking, ordinal)
+           (sha, entry_date, entry_at, kind, module_key, subject, author, href, pr_number, breaking, ordinal)
          VALUES ${rows.join(', ')}
          ON CONFLICT (app_key, sha) DO UPDATE
            SET entry_date = EXCLUDED.entry_date,
@@ -538,6 +559,7 @@ export async function writeChangelog({ client, entries, modules, ref }) {
                module_key = EXCLUDED.module_key,
                subject    = EXCLUDED.subject,
                author     = EXCLUDED.author,
+               href       = EXCLUDED.href,
                pr_number  = EXCLUDED.pr_number,
                breaking   = EXCLUDED.breaking,
                ordinal    = EXCLUDED.ordinal,

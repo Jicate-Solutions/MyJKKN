@@ -42,6 +42,8 @@ type GitEntry = {
   s?: string;
   a?: string;
   e?: string;
+  /** The screen the change happened on — entryRow writes it to the `href` column. */
+  l?: string | null;
   p?: number;
   b?: number | boolean;
 };
@@ -568,6 +570,10 @@ describe('the fingerprint', () => {
       module_key: { ...base, m: 'platform' },
       subject: { ...base, s: 'A different thing' },
       author: { ...base, a: 'Someone Else' },
+      // href joined the upsert on 2026-09-13. If it were written but not
+      // fingerprinted, a page renamed six months from now would keep its dead
+      // link forever: the corrected row would always look unchanged.
+      href: { ...base, l: '/hr/admin/norms' },
       pr_number: { ...base, p: 4242 },
       breaking: { ...base, b: 1 },
     };
