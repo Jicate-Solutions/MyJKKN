@@ -108,39 +108,23 @@ async function loadEvents(): Promise<PublicListing> {
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  /**
-   * A DEGRADED RENDER IS NEVER CACHED.
-   *
-   * Everything here fails soft and still returns a page, which is right for the
-   * visitor in front of it and wrong for the next five minutes: ISR would bake
-   * "We could not load the events just now" — or a listing whose Register
-   * buttons are missing because one door read timed out — into the cached HTML
-   * and serve it to every visitor AND every crawler on a route that allows
-   * indexing, long after the backend recovered. noStore() takes this one render
-   * out of the cache, so the blip lasts as long as the blip.
-   */
-  const degraded = (listing: PublicListing) => {
-    if (listing.readFailed || listing.doorCheckFailed) noStore();
-    return listing;
-  };
-
   if (!url || !anonKey) {
     console.error(
       '[public-events] LISTING_READ_FAILED — Supabase URL or anon key is not configured, so nothing can be listed.',
     );
-    return degraded({ events: [], readFailed: true, doorCheckFailed: false });
+    return { events: [], readFailed: true, doorCheckFailed: false };
   }
 
   try {
     const anon = createClient(url, anonKey);
     const admin = serviceKey ? createClient(url, serviceKey) : null;
-    return degraded(await PublicEventsService.listPublicWithStatus(anon, admin));
+    return await PublicEventsService.listPublicWithStatus(anon, admin);
   } catch (err) {
     console.error(
       '[public-events] LISTING_READ_FAILED — the listing threw:',
       err instanceof Error ? err.message : err,
     );
-    return degraded({ events: [], readFailed: true, doorCheckFailed: false });
+    return { events: [], readFailed: true, doorCheckFailed: false };
   }
 }
 
@@ -274,7 +258,30 @@ function CouldNotLoad() {
 }
 
 export default async function PublicEventsPage() {
-  const { events, readFailed } = await loadEvents();
+  const { events, readFailed, doorCheckFailed } = await loadEvents();
+
+  /**
+   * A DEGRADED RENDER IS NEVER CACHED — and this call sits OUTSIDE every
+   * try/catch on purpose.
+   *
+   * Everything in loadEvents() fails soft and still returns a page, which is
+   * right for the visitor in front of it and wrong for the next five minutes:
+   * ISR would bake "We could not load the events just now", or a listing whose
+   * Register buttons are missing because a door read timed out, into cached
+   * HTML served to every visitor AND every crawler on a route that allows
+   * indexing, long after the backend recovered.
+   *
+   * noStore() opts THIS render out by throwing DynamicServerError during a
+   * static render — a control-flow signal Next must receive. Called inside
+   * loadEvents()'s catch, that throw was swallowed and turned a listing that
+   * had read perfectly well into a fabricated failure panel. It belongs here,
+   * where nothing catches it.
+   *
+   * A missing service key is deliberately NOT one of these signals: it is a
+   * stable configuration fact, identical on every render, and bailing out for
+   * it would make an anonymous cached page hit the database on every request.
+   */
+  if (readFailed || doorCheckFailed) noStore();
   // The service already ordered these: what is on now or still to come first,
   // soonest first, then the archive newest first.
   const upcoming = events.filter((event) => !event.isPast);

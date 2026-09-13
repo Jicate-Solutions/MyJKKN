@@ -26,10 +26,12 @@ type QueryResult = { data: unknown; error: { message: string } | null };
 /**
  * Minimal recording stand-in for the PostgREST builder chain.
  *
- * The service issues TWO bounded reads — dated rows (`start_date` not null) and
- * undated ones (`start_date` is null) — so each `from()` hands back its own
- * builder, and which result it resolves to is decided by the filter the service
- * actually applied. `dated` is the default because most fixtures carry dates.
+ * The service issues THREE bounded reads — everything still live, every dated
+ * row, and the undated ones (`start_date` is null) — so each `from()` hands back
+ * its own builder and the filter the service actually applied decides which
+ * result it resolves to. `dated` is the default because most fixtures carry
+ * dates, and the live read overlaps it exactly as it does in production (the
+ * service de-duplicates by id).
  */
 function makeClient(dated: QueryResult, undated: QueryResult = { data: [], error: null }) {
   const calls = {
@@ -40,6 +42,7 @@ function makeClient(dated: QueryResult, undated: QueryResult = { data: [], error
     in: [] as Array<[string, unknown]>,
     is: [] as Array<[string, unknown]>,
     not: [] as Array<[string, string, unknown]>,
+    or: [] as string[],
     order: [] as Array<[string, { ascending?: boolean } | undefined]>,
     limit: [] as number[],
   };
@@ -72,6 +75,13 @@ function makeClient(dated: QueryResult, undated: QueryResult = { data: [], error
         },
         not(column: string, operator: string, value: unknown) {
           calls.not.push([column, operator, value]);
+          return builder;
+        },
+        or(filter: string) {
+          // The LIVE read. It overlaps the dated read by design and the service
+          // de-duplicates by id, so resolving it to the same fixture is what
+          // production does too.
+          calls.or.push(filter);
           return builder;
         },
         order(column: string, options?: { ascending?: boolean }) {
@@ -204,9 +214,9 @@ describe('PublicEventsService.listPublic — the public gate', () => {
     const { client, calls } = makeClient({ data: [], error: null });
     await PublicEventsService.listPublic(client);
 
-    // One cap per read, and the reads are bounded in number (dated + undated).
-    expect(calls.limit.length).toBeGreaterThan(0);
-    expect(calls.limit.length).toBeLessThanOrEqual(2);
+    // One cap per read, and the reads are bounded in number (live, dated,
+    // undated) — so the page is bounded at 3 × the cap, never by the table.
+    expect(calls.limit.length).toBe(3);
     for (const cap of calls.limit) expect(cap).toBeGreaterThan(0);
   });
 
@@ -255,13 +265,20 @@ describe('PublicEventsService.listPublic — the public gate', () => {
     const { client, calls } = makeClient({ data: [], error: null });
     await PublicEventsService.listPublic(client);
 
-    for (const [, options] of calls.order) {
-      expect(options?.ascending).toBe(false);
-    }
-    // And the undated rows get a read of their own, so an event carrying only
-    // event_date is not the first casualty of the cap.
-    expect(calls.is).toContainEqual(['start_date', null]);
+    // The archive reads descend; only the LIVE read ascends, because it is
+    // bounded by "today or later" and so has no old end to drop.
+    const descending = calls.order.filter(([, options]) => options?.ascending === false);
+    expect(descending.length).toBe(2);
+
+    // Three reads, each capped on its own, so nothing a visitor can still
+    // attend is ever the casualty of a cap:
+    //   live    — end/start/event date today or later
+    //   dated   — every dated row, newest first
+    //   undated — the event_date-only rows production carries
+    expect(calls.or.length).toBe(1);
+    expect(calls.or[0]).toMatch(/^end_date\.gte\.\d{4}-\d{2}-\d{2},start_date\.gte\./);
     expect(calls.not).toContainEqual(['start_date', 'is', null]);
+    expect(calls.is).toContainEqual(['start_date', null]);
   });
 
   it('lists the undated rows the cap would otherwise drop first', async () => {

@@ -136,9 +136,14 @@ export interface PublicListing {
   /** The listing itself could not be read. Render something other than "empty". */
   readFailed: boolean;
   /**
-   * A registration door this page needed could not be checked, so some cards are
-   * missing a button they may be entitled to. The page uses this to decline
-   * caching a render whose silence is an outage rather than a fact.
+   * A registration door this page needed could not be checked AT RUNTIME — a
+   * read that errored or timed out. TRANSIENT, so the page declines to cache a
+   * render whose missing buttons are an outage rather than a fact.
+   *
+   * NOT set when the service-role client is simply absent: that is a stable
+   * configuration fact, identical on every render, and treating it as a
+   * transient failure would call noStore() on every request and turn an
+   * anonymous cached page into one any client can make hit the database.
    */
   doorCheckFailed: boolean;
 }
@@ -528,27 +533,46 @@ export class PublicEventsService {
       return q;
     };
 
-    // TWO BOUNDED READS, because one cannot see both kinds of row.
+    // Today in India — the calendar every date on this page is compared against,
+    // and the pivot the LIVE read below is built on.
+    const today = todayInIndia();
+
+    // THREE BOUNDED READS, because no single one of them can keep the promise.
     //
-    // Dated rows come NEWEST FIRST. Ascending would spend the whole budget on
-    // the OLDEST archive rows the moment the public list outgrows the cap,
-    // truncating every upcoming event off the end — "Coming up" permanently
-    // empty, the archive ancient, and nothing erroring.
+    //   1. LIVE     — anything whose end, start or event date is today or later.
+    //                 Read first and capped on its own, so nothing a visitor can
+    //                 still attend is ever truncated. This is what makes the
+    //                 invariant true rather than merely intended: without it,
+    //                 "newest first" still drops the earliest-STARTING rows,
+    //                 which is exactly where a long run that is on RIGHT NOW
+    //                 lives (old start_date, future end_date).
+    //   2. DATED    — every dated row, newest first. Ascending would spend the
+    //                 whole budget on the OLDEST archive rows the moment the
+    //                 list outgrows the cap.
+    //   3. UNDATED  — rows with a NULL start_date, ordered by event_date.
+    //                 PostgREST cannot order on coalesce(start_date, event_date)
+    //                 without a view, and under one descending order NULLs land
+    //                 below the oldest archive row — so the event_date-only rows
+    //                 production carries would be the first casualties.
     //
-    // Rows with a NULL start_date are read separately, ordered by event_date.
-    // PostgREST cannot order on coalesce(start_date, event_date) without a view,
-    // and under a single descending order NULLs land below the oldest archive
-    // row — so the event_date-only rows (production has them) would be the FIRST
-    // casualties of the cap, upcoming ones included. Each read is capped on its
-    // own, so the page stays bounded at 2 × PAGE_LIMIT.
+    // The three overlap, so rows are de-duplicated by id below. Each is capped
+    // on its own: the page stays bounded at 3 × PAGE_LIMIT.
+    //
     // The whole read is guarded, not just its { error } channel: settle()'s
     // AbortSignal REJECTS on timeout, and a network failure rejects too, so
     // without this the module's "any read error returns an empty list" promise
     // would be kept only for callers who happen to wrap it themselves.
+    let live: ReadResult;
     let dated: ReadResult;
     let undated: ReadResult;
     try {
-      [dated, undated] = await Promise.all([
+      [live, dated, undated] = await Promise.all([
+        settle<ReadResult>(
+          publicRows()
+            .or(`end_date.gte.${today},start_date.gte.${today},event_date.gte.${today}`)
+            .order('start_date', { ascending: true, nullsFirst: false })
+            .limit(PAGE_LIMIT),
+        ),
         settle<ReadResult>(
           publicRows()
             .not('start_date', 'is', null)
@@ -570,7 +594,7 @@ export class PublicEventsService {
       return { events: [], readFailed: true, doorCheckFailed: false };
     }
 
-    const error = dated.error ?? undated.error;
+    const error = live.error ?? dated.error ?? undated.error;
     if (error) {
       console.error(
         `${LOG_PREFIX} LISTING_READ_FAILED — the page cannot show what is public:`,
@@ -580,24 +604,27 @@ export class PublicEventsService {
       return { events: [], readFailed: true, doorCheckFailed: false }; // fail closed, but say so
     }
 
+    const liveRows = (live.data ?? []) as unknown as EventRow[];
     const datedRows = (dated.data ?? []) as unknown as EventRow[];
     const undatedRows = (undated.data ?? []) as unknown as EventRow[];
     // Each read is capped on its own, so each is judged on its own. Summing them
     // and comparing against one cap warns when nothing was truncated (150 + 60)
     // and stays silent when something was (199 dated, 0 undated).
     for (const [label, rows] of [
+      ['live', liveRows],
       ['dated', datedRows],
       ['undated', undatedRows],
     ] as const) {
       if (rows.length >= PAGE_LIMIT) {
         console.warn(
-          `${LOG_PREFIX} LISTING_CAPPED — the ${label} read returned its full ${PAGE_LIMIT}-row cap; older public events are not being listed.`,
+          `${LOG_PREFIX} LISTING_CAPPED — the ${label} read returned its full ${PAGE_LIMIT}-row cap; some public events are not being listed.`,
         );
       }
     }
-    const data = [...datedRows, ...undatedRows];
-
-    const today = todayInIndia();
+    // De-duplicated by id: the live read overlaps the other two by design.
+    const data = [...new Map(
+      [...liveRows, ...datedRows, ...undatedRows].map((row) => [row.id, row]),
+    ).values()];
 
     const rows = data.map((row) => {
       // event_date stands in for either end when the range columns are empty —
@@ -725,9 +752,13 @@ export class PublicEventsService {
       // True only when a door SOMETHING on this page needed could not be
       // checked — so the caller can decline to cache a render whose missing
       // buttons are an outage rather than a fact.
-      doorCheckFailed: candidates.some((candidate) =>
-        candidate.kind === 'general' ? doors.general === null : doors.tournament === null,
-      ),
+      // Only a door that was actually ATTEMPTED and failed. With no admin
+      // client nothing was attempted — see the field's own comment.
+      doorCheckFailed:
+        admin != null &&
+        candidates.some((candidate) =>
+          candidate.kind === 'general' ? doors.general === null : doors.tournament === null,
+        ),
     };
   }
 }
