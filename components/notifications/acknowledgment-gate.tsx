@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
   Clock,
@@ -16,7 +16,22 @@ import { RichTextDisplay } from '@/components/ui/rich-text-editor';
 import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
 import { usePermissions } from '@/hooks/use-permissions';
-import type { UnacknowledgedNotification, VerificationQuestion } from '@/types/notifications';
+import {
+  useNotificationPulse,
+  invalidateNotificationPulse
+} from '@/hooks/notification/use-notification-pulse';
+import type { UnacknowledgedNotification } from '@/types/notifications';
+
+// Shape of metadata.verification_question as this gate reads it (question,
+// options, correct_index). types/notifications never exported a
+// VerificationQuestion, so the old import was a standing type error in this
+// file; declared here so the PR-scoped typecheck can pass on a file this PR
+// has to touch. Type-only — no behaviour change.
+interface VerificationQuestion {
+  question: string;
+  options: string[];
+  correct_index: number;
+}
 
 /**
  * AcknowledgmentGate — The core component that replaces Google Chat's voluntary 🙏
@@ -50,20 +65,14 @@ function AcknowledgmentGateInner({ children }: { children: React.ReactNode }) {
   // otherwise the gate treats a not-yet-known super admin as a regular user.
   const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
 
-  // Fetch unacknowledged notifications — disabled for super admins so we don't
-  // waste a request every 60s for a value we'll never act on. Also gated on
-  // permissions being LOADED: firing while isSuperAdmin is still defaulting to
-  // false is what flashed the modal for exempt super admins on load.
-  const { data, isLoading } = useQuery({
-    queryKey: ['unacknowledged-notifications'],
-    queryFn: async () => {
-      const res = await fetch('/api/notifications/acknowledge');
-      if (!res.ok) return { unacknowledged: [], count: 0, has_pending: false };
-      return res.json();
-    },
-    enabled: !isSuperAdmin && !permissionsLoading,
-    refetchInterval: 60000, // Check every minute for new mandatory notifications
-    refetchOnWindowFocus: true
+  // Fetch unacknowledged notifications via the shared pulse poll (one request
+  // per cycle for this gate AND the dashboard widget; 60 s while active, 5 min
+  // idle, nothing while hidden). Disabled for super admins so we don't waste a
+  // request for a value we'll never act on. Also gated on permissions being
+  // LOADED: firing while isSuperAdmin is still defaulting to false is what
+  // flashed the modal for exempt super admins on load.
+  const { data, isLoading } = useNotificationPulse({
+    enabled: !isSuperAdmin && !permissionsLoading
   });
 
   const notifications: UnacknowledgedNotification[] =
@@ -82,9 +91,7 @@ function AcknowledgmentGateInner({ children }: { children: React.ReactNode }) {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ['unacknowledged-notifications']
-      });
+      invalidateNotificationPulse(queryClient);
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
     }
   });
