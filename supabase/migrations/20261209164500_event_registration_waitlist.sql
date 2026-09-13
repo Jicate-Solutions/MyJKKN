@@ -132,6 +132,22 @@ CREATE TABLE IF NOT EXISTS public.event_registration_waitlist (
   -- MyJKKN account. The organiser's card reads this and says "contact them".
   unreachable       BOOLEAN NOT NULL DEFAULT false,
 
+  -- ONE-TIME CLAIM CODE, for a sign-up with no MyJKKN account (Director's
+  -- ruling, 2026-09-13). A guest is told their code by the organiser over the
+  -- phone — the only channel that reaches them — and it is the ONLY thing that
+  -- turns their offered place into a registration. Name and phone number stop
+  -- being sufficient on their own, because the organiser's own screen shows
+  -- both and a classmate can read them.
+  --
+  -- NULL in three different situations, all meaningful:
+  --   * the row belongs to an ACCOUNT — the offer is already bound to it and
+  --     the Director's ruling explicitly leaves that path alone;
+  --   * the row is not 'offered', so there is nothing to claim;
+  --   * the code has been SPENT. The claim consumes it in the same statement
+  --     that claims, which is what makes one-time true under a race.
+  claim_code        TEXT,
+  claim_code_issued_at TIMESTAMPTZ,
+
   -- Filled when the offer is taken up and becomes a real registration.
   registration_id   UUID REFERENCES public.events_registrations(id) ON DELETE SET NULL,
 
@@ -197,6 +213,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_event_registration_waitlist_open_profile
   ON public.event_registration_waitlist (event_id, profile_id)
   WHERE profile_id IS NOT NULL AND status IN ('waiting', 'offered');
 
+-- The claim look-up runs on exactly this, and UNIQUE is the point rather than a
+-- bonus: two live codes that collide inside one event would let one spoken code
+-- match two people's places.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_event_registration_waitlist_claim_code
+  ON public.event_registration_waitlist (event_id, claim_code)
+  WHERE claim_code IS NOT NULL;
+
+COMMENT ON COLUMN public.event_registration_waitlist.claim_code IS
+  'One-time code a guest (no MyJKKN account) must quote to take an offered place up. Read to them by the organiser over the phone — the only channel that reaches somebody with no account. NULL means: the row belongs to an account (that path needs no code), or the row is not offered, or the code has been spent. Consumed by the same UPDATE that claims, so one-time survives a race.';
+COMMENT ON COLUMN public.event_registration_waitlist.claim_code_issued_at IS
+  'When the current code was minted. Re-issuing sets claim_code to NULL and the BEFORE trigger mints a fresh one, which invalidates whatever was read out before.';
+
 -- ---------------------------------------------------------------------------
 -- queue_seq assignment
 -- ---------------------------------------------------------------------------
@@ -229,6 +257,104 @@ DROP TRIGGER IF EXISTS tr_event_registration_waitlist_seq ON public.event_regist
 CREATE TRIGGER tr_event_registration_waitlist_seq
   BEFORE INSERT ON public.event_registration_waitlist
   FOR EACH ROW EXECUTE FUNCTION public.fn_event_registration_waitlist_assign_seq();
+
+-- ---------------------------------------------------------------------------
+-- The claim code: minting it, and making "one-time" a database fact
+-- ---------------------------------------------------------------------------
+-- ALPHABET. This code's entire journey is a person reading it down a phone to
+-- another person, so the characters people mishear or misread are simply not in
+-- it: no 0/O, no 1/I/L, and no U (which is heard as "you" often enough to
+-- matter). 30 characters over 6 positions is 729 million codes, which is ample
+-- for a queue that is measured in tens.
+CREATE OR REPLACE FUNCTION public.fn_event_waitlist_new_claim_code()
+RETURNS TEXT
+LANGUAGE sql
+VOLATILE
+SET search_path = public
+AS $$
+  SELECT string_agg(
+           substr('23456789ABCDEFGHJKMNPQRSTVWXYZ',
+                  1 + floor(random() * 30)::int, 1), '')
+    FROM generate_series(1, 6);
+$$;
+
+COMMENT ON FUNCTION public.fn_event_waitlist_new_claim_code() IS
+  'A 6-character claim code from an alphabet with no 0/O, 1/I/L or U, because the code is read aloud over a telephone and those are the characters that get heard wrong.';
+
+REVOKE EXECUTE ON FUNCTION public.fn_event_waitlist_new_claim_code() FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_event_waitlist_new_claim_code() TO service_role;
+
+-- Two rules, one trigger, both enforced by the DATABASE rather than by whoever
+-- remembers to write the right WHERE clause.
+--
+--   1. A guest row entering 'offered' without a code gets one. That covers
+--      promotion, an organiser re-issuing (set claim_code = NULL and a fresh one
+--      appears), and a claim that had to be handed back — which is exactly right:
+--      a failed claim must invalidate the code that was already read out.
+--   2. A guest's offered row may only become 'registered' in a statement that
+--      ALSO spends the code. An application that forgot the code in its WHERE
+--      clause is refused here, so "one-time" does not rest on any caller
+--      getting it right. This PR has already been caught twice assuming an
+--      application check was enough under a race.
+CREATE OR REPLACE FUNCTION public.fn_event_waitlist_claim_code_guard()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+DECLARE
+  v_candidate TEXT;
+  v_taken     BOOLEAN;
+BEGIN
+  IF TG_OP = 'UPDATE'
+     AND OLD.profile_id IS NULL
+     AND OLD.status = 'offered'
+     AND NEW.status = 'registered'
+     AND OLD.claim_code IS NOT NULL
+     AND NEW.claim_code IS NOT DISTINCT FROM OLD.claim_code
+  THEN
+    RAISE EXCEPTION
+      'A guest waiting-list offer can only be claimed by a statement that also spends its claim code (row %).', OLD.id
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- Leaving the queue takes the code with it; nothing should be claimable.
+  IF TG_OP = 'UPDATE' AND NEW.status = 'withdrawn' THEN
+    NEW.claim_code := NULL;
+  END IF;
+
+  IF NEW.status = 'offered' AND NEW.profile_id IS NULL AND NEW.claim_code IS NULL THEN
+    FOR i IN 1..8 LOOP
+      v_candidate := public.fn_event_waitlist_new_claim_code();
+      SELECT EXISTS (
+        SELECT 1 FROM public.event_registration_waitlist w
+         WHERE w.event_id = NEW.event_id AND w.claim_code = v_candidate
+      ) INTO v_taken;
+      EXIT WHEN NOT v_taken;
+      v_candidate := NULL;
+    END LOOP;
+
+    IF v_candidate IS NULL THEN
+      RAISE EXCEPTION 'Could not mint a unique waiting-list claim code for event %', NEW.event_id;
+    END IF;
+
+    NEW.claim_code := v_candidate;
+    NEW.claim_code_issued_at := now();
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION public.fn_event_waitlist_claim_code_guard() IS
+  'Mints a one-time claim code whenever a guest row enters ''offered'' without one (promotion, re-issue, or a released claim), and REFUSES a guest offer -> registered transition that does not spend the code in the same statement. The second rule is what makes one-time a database fact rather than a convention the application has to remember.';
+
+DROP TRIGGER IF EXISTS tr_event_registration_waitlist_claim_code ON public.event_registration_waitlist;
+CREATE TRIGGER tr_event_registration_waitlist_claim_code
+  BEFORE INSERT OR UPDATE ON public.event_registration_waitlist
+  FOR EACH ROW EXECUTE FUNCTION public.fn_event_waitlist_claim_code_guard();
+
+REVOKE EXECUTE ON FUNCTION public.fn_event_waitlist_claim_code_guard()
+  FROM anon, authenticated, PUBLIC;
 
 CREATE OR REPLACE FUNCTION public.fn_event_registration_waitlist_touch()
 RETURNS TRIGGER
@@ -578,4 +704,7 @@ CREATE POLICY event_registration_waitlist_select ON public.event_registration_wa
 -- DROP FUNCTION IF EXISTS public.fn_event_registration_freed_offer_waitlist();
 -- DROP FUNCTION IF EXISTS public.fn_can_manage_event_waitlist(uuid);
 -- DROP FUNCTION IF EXISTS public.fn_event_waitlist_taken(uuid);
+-- DROP TRIGGER IF EXISTS tr_event_registration_waitlist_claim_code ON public.event_registration_waitlist;
+-- DROP FUNCTION IF EXISTS public.fn_event_waitlist_claim_code_guard();
+-- DROP FUNCTION IF EXISTS public.fn_event_waitlist_new_claim_code();
 -- DROP TABLE IF EXISTS public.event_registration_waitlist;
