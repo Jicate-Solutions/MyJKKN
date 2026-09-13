@@ -23,7 +23,7 @@ import {
   type CoverageMode,
   type SeriesCadence,
 } from '@/lib/services/meetings/recurring-series-config';
-import { labelInstitutions } from '@/lib/services/meetings/institution-labels';
+import { labelInstitutions } from '@/lib/utils/institutions/institution-labels';
 
 // NOTE: repo compiles with strictNullChecks:false — flat optional-field shape,
 // not a discriminated union (matches meetings/manage/actions.ts).
