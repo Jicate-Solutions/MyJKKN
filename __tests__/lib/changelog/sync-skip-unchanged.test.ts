@@ -554,7 +554,17 @@ describe('invariant 3 — one transaction', () => {
     await run(db, gitEntries());
 
     const begin = db.sql.findIndex((s) => s.startsWith('BEGIN'));
-    const compare = db.sql.findIndex((s) => s.includes('WHERE app_key = $1'));
+    // The COMPARISON read, named by the column list it projects rather than by
+    // `WHERE app_key = $1` alone. That clause stopped identifying this statement
+    // on 2026-09-13, when the row-count guard became per-app and grew the same
+    // clause — and it is issued BEFORE the transaction, on purpose, because a
+    // guard that refuses to write must be able to return without leaving one
+    // open. Matching it instead of this one made the assertion read backwards.
+    const compare = db.sql.findIndex(
+      (s) => s.includes('FROM public.changelog_entries')
+        && s.includes('WHERE app_key = $1')
+        && s.includes('ordinal')
+    );
     expect(begin).toBeGreaterThanOrEqual(0);
     expect(compare).toBeGreaterThan(begin);
   });

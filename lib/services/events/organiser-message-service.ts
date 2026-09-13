@@ -29,6 +29,11 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
+// Imported (not only re-exported at the foot of this file) because the
+// duplicate-content guard below compares composes with the same function the
+// browser mints tokens with — one definition of "the same message", not two.
+import { composeKey } from './organiser-message-compose';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 export const MODULE = 'events/registrant-messages';
 
@@ -51,6 +56,17 @@ export const AUDIENCE_PAGE_SIZE = 1000;
 export const AUDIENCE_HARD_CAP = 50000;
 /** Batch size for the id→row lookups (learner ids, sender names). */
 const LOOKUP_CHUNK = 500;
+
+/**
+ * How far back the duplicate READ looks, in messages sharing this exact
+ * subject. The database constraint is unbounded; this is the window in which a
+ * duplicate gets a helpful sentence instead of a constraint violation.
+ */
+export const DUPLICATE_SCAN_LIMIT = 50;
+/** Columns the duplicate read needs, and no column the base table lacks. */
+const MATCH_COLUMNS = 'id, subject, body, client_token, sent_at, notification_id, delivered_count';
+/** Backstop on the resend tally. Resends are rare; this is a guard, not a page. */
+const RESEND_COUNT_CAP = 1000;
 
 export interface RegistrationAudienceRow {
   profile_id: string | null;
@@ -102,11 +118,141 @@ export interface SentMessageRow {
   /** Resolved from profiles.full_name for display. Null when unknown. */
   sent_by_name?: string | null;
   sent_at: string;
+  /**
+   * Set when this row is a DELIBERATE resend of an earlier message on the same
+   * event. Null on a first send. See the resend section below for why the
+   * intent is carried on the request rather than inferred from the text.
+   */
+  resend_of: string | null;
 }
 
-/** Every column the ledger reads back, in one place so the three reads agree. */
-const SENT_COLUMNS =
+/**
+ * Every column the ledger reads back, in one place so the three reads agree.
+ *
+ * Split in two because CODE SHIPS BEFORE MIGRATIONS HERE. `resend_of` arrives
+ * in 20261205141500, which is FILE ONLY at the time this ships; PostgREST
+ * refuses the WHOLE query when one named column is absent, so naming it
+ * unconditionally would turn every read AND the insert into `42703` and take
+ * the entire Messages panel down between deploy and apply — for a feature that
+ * otherwise still works. So the base set is what the panel actually needs, and
+ * `resend_of` is asked for only while the database appears to have it.
+ */
+const SENT_COLUMNS_BASE =
   'id, subject, body, audience_total, recipient_count, unreachable_count, delivered_count, notification_id, sent_by, sent_at';
+const SENT_COLUMNS = `${SENT_COLUMNS_BASE}, resend_of`;
+
+// ---------------------------------------------------------------------------
+// Does this database have `resend_of` yet?
+// ---------------------------------------------------------------------------
+// Probed from the answer to a real query rather than from a catalogue lookup on
+// every request: the optimistic read costs nothing once the column exists, and
+// the ONE failing read that proves it does not is remembered for a minute so a
+// dark deploy does not pay for it on every call.
+//
+// The negative is cached with a deadline rather than forever, on purpose. This
+// column is applied by an operator while the code is already live, and a
+// process that remembered "missing" for its whole lifetime would keep hiding
+// the column for hours after it existed. A minute is short enough that the
+// panel heals itself without a redeploy and long enough to be worth caching.
+const RESEND_COLUMN_RECHECK_MS = 60_000;
+let resendColumnMissingUntil = 0;
+
+function resendColumnLooksPresent(): boolean {
+  return Date.now() >= resendColumnMissingUntil;
+}
+
+/**
+ * "This database has no resend_of column" — and nothing else.
+ *
+ * Two codes, because PostgREST reports the same absence two ways: a SELECT of a
+ * column that is not there comes back as Postgres `42703` (undefined_column),
+ * while an INSERT naming it in the payload is rejected earlier, by the schema
+ * cache, as `PGRST204`. Both are matched on the column NAME as well as the
+ * code, so an unrelated missing column still fails loudly instead of being
+ * quietly retried into a wrong answer.
+ */
+function isMissingResendColumn(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const e = error as { code?: string; message?: string; details?: string };
+  if (e.code !== '42703' && e.code !== 'PGRST204') return false;
+  return `${e.message ?? ''} ${e.details ?? ''}`.includes('resend_of');
+}
+
+function noteResendColumnMissing(scope: string): void {
+  if (resendColumnLooksPresent()) {
+    logger.warn(
+      MODULE,
+      'event_registrant_messages.resend_of is not in the database yet — migration 20261205141500 is not applied. Reading and writing without it; repeats will not be recorded until it is applied.',
+      { scope }
+    );
+  }
+  resendColumnMissingUntil = Date.now() + RESEND_COLUMN_RECHECK_MS;
+}
+
+/**
+ * Run one ledger query with `resend_of` if the database has it, and once
+ * without if it turns out not to. `run` is called with the column list to use,
+ * so the caller builds the query rather than this helper guessing its shape.
+ */
+async function withResendColumn<T>(
+  scope: string,
+  run: (columns: string, hasResend: boolean) => PromiseLike<{ data: T; error: unknown }>
+): Promise<{ data: T; error: unknown; hasResend: boolean }> {
+  const optimistic = resendColumnLooksPresent();
+  const first = await run(optimistic ? SENT_COLUMNS : SENT_COLUMNS_BASE, optimistic);
+  if (optimistic && isMissingResendColumn(first.error)) {
+    noteResendColumnMissing(scope);
+    const retry = await run(SENT_COLUMNS_BASE, false);
+    return { ...retry, hasResend: false };
+  }
+  return { ...first, hasResend: optimistic };
+}
+
+/** A row read without the column still has to satisfy the type. Null, not undefined. */
+function normaliseResend<R extends { resend_of?: string | null }>(row: R): R {
+  return { ...row, resend_of: row.resend_of ?? null } as R;
+}
+
+/**
+ * Thrown when a DELIBERATE resend is asked for on a database that has no
+ * `resend_of` column to record it on. Refused rather than downgraded: sending
+ * it anyway would deliver a second blast and file it as a first send, which is
+ * the unlabelled repeat this feature exists to abolish.
+ */
+export class ResendNotRecordableError extends Error {
+  constructor() {
+    super('resend_of is not in the database yet (migration 20261205141500 is not applied)');
+    this.name = 'ResendNotRecordableError';
+  }
+}
+
+/**
+ * Thrown when the database's own duplicate guard refuses the insert — i.e. a
+ * concurrent first send of the same words won the race. Carries the row it
+ * collided with so the route can answer exactly as the pre-check would have.
+ * Nothing has been delivered when this is thrown: the ledger row is claimed
+ * before the fanout runs.
+ */
+export class ContentDuplicateError extends Error {
+  readonly duplicate: ContentMatchRow | null;
+  constructor(duplicate: ContentMatchRow | null) {
+    super('An identical message was recorded on this event by a concurrent send.');
+    this.name = 'ContentDuplicateError';
+    this.duplicate = duplicate;
+  }
+}
+
+/** The unique index 20261205141500 adds, by name, so 23505 can be told apart. */
+const CONTENT_UNIQUE_INDEX = 'uq_event_registrant_messages_first_send_content';
+
+function isContentUniqueViolation(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const e = error as { code?: string; message?: string; details?: string; constraint?: string };
+  if (e.code !== '23505') return false;
+  return `${e.constraint ?? ''} ${e.message ?? ''} ${e.details ?? ''}`.includes(
+    CONTENT_UNIQUE_INDEX
+  );
+}
 
 // ============================================================================
 // Pure helpers (exported for unit tests — no Supabase, no DOM)
@@ -166,6 +312,13 @@ export interface MessageInput {
   subject: string;
   body: string;
   clientToken: string;
+  /**
+   * The id of the message this one deliberately repeats, or null for a first
+   * send. Present ONLY when the organiser used the "Send again" action and
+   * confirmed a dialog that stated the recipient count and warned that some
+   * people may receive it twice. It is never set by the compose form.
+   */
+  resendOf?: string | null;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -192,7 +345,11 @@ export function validateMessageInput(
   const subject = (input?.subject ?? '').trim();
   const body = (input?.body ?? '').trim();
   const clientToken = (input?.clientToken ?? '').trim();
-  const value: MessageInput = { subject, body, clientToken };
+  // `?? ''` has already turned null and undefined into '', so no null test is
+  // needed here — an earlier `=== null ? '' : …` guard could never be true and
+  // read as protection it did not provide.
+  const resendOf = String(input?.resendOf ?? '').trim() || null;
+  const value: MessageInput = { subject, body, clientToken, resendOf };
   const fail = (error: string): MessageValidation => ({ ok: false, error, value });
 
   if (!subject) return fail('Add a subject so registrants can see what this is about.');
@@ -205,6 +362,13 @@ export function validateMessageInput(
   }
   if (!UUID_RE.test(clientToken)) {
     return fail('This message could not be identified. Close the form and try again.');
+  }
+  // A malformed resend target is refused rather than dropped. Dropping it would
+  // silently downgrade a deliberate resend into a first send, which the
+  // duplicate guard below would then refuse with a confusing sentence — or,
+  // worse, let through as an unlabelled repeat.
+  if (resendOf !== null && !UUID_RE.test(resendOf)) {
+    return fail('That message could not be identified. Reload the page and try again.');
   }
   return { ok: true, error: null, value };
 }
@@ -229,13 +393,231 @@ export function fanoutKey(messageRowId: string): string {
   return `events:registrant_message:${messageRowId}`;
 }
 
+// ============================================================================
+// Deliberate resend
+// ============================================================================
+//
+// The ruling this implements: "show what was sent, allow a deliberate resend."
+//
+// The double-click guard does NOT weaken. What changes is that a SECOND send of
+// the same words is now a decision the organiser states, rather than a side
+// effect of invisible client state:
+//
+//   * The compose form never sets `resendOf`. A send whose subject and body
+//     already exist on this event under a DIFFERENT client_token is refused,
+//     and the refusal names the message it matched. Before this, re-typing the
+//     identical announcement after a page reload delivered a silent second
+//     blast; re-typing it without a reload was silently swallowed. Same
+//     keystrokes, opposite outcomes, neither of them visible.
+//   * The "Send again" action sets `resendOf` to the message being repeated,
+//     after a confirmation that states the recipient count and says plainly
+//     that some people may receive it twice. That request is never refused for
+//     duplicate content — repeating is the whole point of it.
+//
+// A resend is its own ledger row, so it gets its own fanout key and genuinely
+// delivers, and the history can say which rows are repeats of which.
+
+export interface ContentMatchRow {
+  id: string;
+  subject: string;
+  body: string;
+  client_token: string;
+  sent_at: string;
+  /**
+   * Carried so the refusal can say what actually happened to the match rather
+   * than assert a delivery the ledger cannot support. A matched row sitting at
+   * notification_id NULL / delivered_count 0 was never confirmed, and telling
+   * its author it "has already been sent" is the precise falsehood
+   * deliveryState() exists to stop.
+   */
+  notification_id: string | null;
+  delivered_count: number;
+}
+
+/**
+ * The existing message this compose would duplicate, or null.
+ *
+ * A row carrying THIS request's own client_token is not a duplicate — it is
+ * this very send, arriving twice. That case belongs to the UNIQUE constraint
+ * and its "deduplicated" answer, and routing it here instead would tell an
+ * organiser who double-clicked that they must confirm a resend they never asked
+ * for.
+ *
+ * Pure and exported so the rule is pinned by a test rather than by a comment.
+ */
+export function contentMatchIn(
+  rows: ContentMatchRow[],
+  subject: string,
+  body: string,
+  clientToken: string
+): ContentMatchRow | null {
+  const wantedKey = composeKey(subject, body);
+  const matches = rows.filter(
+    (r) => r.client_token !== clientToken && composeKey(r.subject, r.body) === wantedKey
+  );
+  if (matches.length === 0) return null;
+  // Newest first: the organiser is asked about the most recent time they said
+  // this, which is the one they are most likely to be reasoning about.
+  return matches.sort((a, b) => (a.sent_at < b.sent_at ? 1 : -1))[0];
+}
+
+/**
+ * Look for an earlier message on this event with identical subject and body.
+ *
+ * Read with the service-role client on purpose: the caller's authority has
+ * already been established, and a duplicate the reader's RLS happens not to
+ * return would be a duplicate we let through — the exact failure this guard
+ * exists to stop.
+ *
+ * This is the FIRST of two guards, not the only one: it reads and then the
+ * caller inserts, so two concurrent composes can both pass it. The partial
+ * UNIQUE index added by 20261205141500 is what actually makes a duplicate first
+ * send impossible; this read exists so the common case gets a sentence an
+ * organiser can act on instead of a constraint violation.
+ *
+ * Names no column the base table lacks, deliberately — it has to keep working
+ * before 20261205141500 applies.
+ */
+export async function findContentDuplicate(
+  service: SupabaseClient,
+  eventId: string,
+  input: Pick<MessageInput, 'subject' | 'body' | 'clientToken'>,
+  options: { exhaustive?: boolean } = {}
+): Promise<ContentMatchRow | null> {
+  const { data, error } = await service
+    .from('event_registrant_messages')
+    .select(MATCH_COLUMNS)
+    .eq('event_id', eventId)
+    .eq('subject', input.subject)
+    .order('sent_at', { ascending: false })
+    .limit(DUPLICATE_SCAN_LIMIT);
+  if (error) throw error;
+  const windowed = contentMatchIn(
+    (data ?? []) as ContentMatchRow[],
+    input.subject,
+    input.body,
+    input.clientToken
+  );
+  if (windowed || !options.exhaustive) return windowed;
+
+  // ── The window missed, and the caller cannot afford a miss ────────────
+  //
+  // Reached only from the 23505 handler, where the DATABASE has already proved
+  // a duplicate exists. The scan above is bounded at 50 rows with this subject,
+  // while the constraint covers every row on the event however old — so on a
+  // busy event the two disagree, and the request that loses is precisely the
+  // one whose organiser most needs to be told WHICH message it matched. A 409
+  // that names nothing leaves them with no way to send at all, which is the
+  // ruling ("allow a deliberate resend") failing exactly where it was meant to
+  // hold.
+  //
+  // An exact equality on subject AND body rather than a wider scan: the API
+  // trims before writing, so the stored values are already what composeKey
+  // compares, and one indexed row is cheaper than a deeper page. It is a second
+  // query, but only on a path where the insert has already failed.
+  const { data: exact, error: exactErr } = await service
+    .from('event_registrant_messages')
+    .select(MATCH_COLUMNS)
+    .eq('event_id', eventId)
+    .eq('subject', input.subject.trim())
+    .eq('body', input.body.trim())
+    .neq('client_token', input.clientToken)
+    .order('sent_at', { ascending: false })
+    .limit(1);
+  if (exactErr) throw exactErr;
+  return ((exact ?? []) as ContentMatchRow[])[0] ?? null;
+}
+
+/**
+ * One already-sent message by id, with the sender's name resolved — the same
+ * shape the history renders.
+ *
+ * Exists so a duplicate refusal can hand the board the ACTUAL row rather than
+ * an id it may not be able to find: the panel shows the newest 20 messages and
+ * has no pagination, so "use Send again on it in the list below" is a lie for
+ * anything older. With the row in the 409 the organiser acts on it directly,
+ * whatever its position in the history or its age.
+ */
+export async function getSentMessageById(
+  service: SupabaseClient,
+  eventId: string,
+  messageId: string
+): Promise<SentMessageRow | null> {
+  const { data, error } = await withResendColumn<unknown>('getSentMessageById', (columns) =>
+    service
+      .from('event_registrant_messages')
+      .select(columns)
+      .eq('event_id', eventId)
+      .eq('id', messageId)
+      .maybeSingle()
+  );
+  if (error) throw error;
+  if (!data) return null;
+  const row = normaliseResend(data as SentMessageRow);
+  return (await withSenderNames([row], service))[0];
+}
+
+/**
+ * How many DELIBERATE resends each of these messages has, counted over the
+ * whole event rather than over the page the board happens to be showing.
+ *
+ * The board used to tally this from the same 20 rows it renders, so a message
+ * repeated three times whose repeats had scrolled past the window displayed no
+ * "Sent again" line at all — a row that WAS repeated reading as never repeated,
+ * in the one feature whose stated purpose is an honest blast radius. The
+ * partial index idx_event_registrant_messages_resend_of exists for this read.
+ *
+ * Returns {} when the column is not in the database yet, which is the same
+ * thing the board renders today: no claim rather than a wrong one.
+ */
+export async function countResendsFor(
+  service: SupabaseClient,
+  eventId: string,
+  originalIds: string[]
+): Promise<Record<string, number>> {
+  if (originalIds.length === 0) return {};
+  if (!resendColumnLooksPresent()) return {};
+
+  const counts: Record<string, number> = {};
+  for (let i = 0; i < originalIds.length; i += LOOKUP_CHUNK) {
+    const chunk = originalIds.slice(i, i + LOOKUP_CHUNK);
+    const { data, error } = await service
+      .from('event_registrant_messages')
+      .select('resend_of')
+      .eq('event_id', eventId)
+      .in('resend_of', chunk)
+      .limit(RESEND_COUNT_CAP);
+    if (error) {
+      // The column is simply not there yet. Say nothing rather than fail the
+      // whole panel over a decoration — the history itself still reads.
+      if (isMissingResendColumn(error)) {
+        noteResendColumnMissing('countResendsFor');
+        return {};
+      }
+      throw error;
+    }
+    for (const r of (data ?? []) as { resend_of: string | null }[]) {
+      if (r.resend_of) counts[r.resend_of] = (counts[r.resend_of] ?? 0) + 1;
+    }
+  }
+  return counts;
+}
+
+// `deliveryState` — what the history is allowed to claim about a send — lives
+// in organiser-message-compose.ts, because the BOARD has to render the same
+// verdict the server records and cannot import this file (it pulls in the
+// notification fanout). Re-exported here so server callers have one import
+// site. See that module for why "failed, nothing was delivered" is not one of
+// the states it can return.
+
 // The compose-side idempotency rule — the token is bound to the message's
 // CONTENT, not to the attempt, so a retry of a send that looked like it failed
 // lands on the same ledger row instead of blasting twice. Lives in its own
 // import-free module because the board needs it and this file must never reach
 // the client bundle (it imports the notification fanout).
+export { composeKey };
 export {
-  composeKey,
+  deliveryState,
   mintComposeToken,
   tokenForCompose,
   type ComposeToken,
@@ -332,14 +714,16 @@ export async function listSentMessages(
   limit = 20,
   service?: SupabaseClient
 ): Promise<SentMessageRow[]> {
-  const { data, error } = await db
-    .from('event_registrant_messages')
-    .select(SENT_COLUMNS)
-    .eq('event_id', eventId)
-    .order('sent_at', { ascending: false })
-    .limit(limit);
+  const { data, error } = await withResendColumn<unknown>('listSentMessages', (columns) =>
+    db
+      .from('event_registrant_messages')
+      .select(columns)
+      .eq('event_id', eventId)
+      .order('sent_at', { ascending: false })
+      .limit(limit)
+  );
   if (error) throw error;
-  const rows = (data ?? []) as SentMessageRow[];
+  const rows = ((data ?? []) as SentMessageRow[]).map(normaliseResend);
   return withSenderNames(rows, service ?? db);
 }
 
@@ -382,6 +766,13 @@ export interface SendResult {
  * fanout runs under an idempotency key derived from that row. A row that
  * already delivered is returned untouched; a row whose fanout failed is
  * retried, and the fanout's own key stops a retry from delivering twice.
+ *
+ * `input.resendOf`, when set, is recorded on the new row. It does not change
+ * how the send works — a resend is an ordinary send of its own row, with its
+ * own fanout key, which is exactly why it delivers. What it changes is what the
+ * history can say afterwards, and it is the flag the ROUTE checks before
+ * allowing a message whose text has been sent before. The caller is responsible
+ * for having established the organiser's intent; this function trusts it.
  */
 export async function sendRegistrantMessage(
   service: SupabaseClient,
@@ -396,36 +787,67 @@ export async function sendRegistrantMessage(
 
   const audience = await getAudience(service, eventId);
 
-  const { data: claimed, error: claimErr } = await service
-    .from('event_registrant_messages')
-    .insert({
-      event_id: eventId,
-      subject: input.subject,
-      body: input.body,
-      audience_total: audience.audienceTotal,
-      recipient_count: audience.recipientIds.length,
-      unreachable_count: audience.unreachable,
-      delivered_count: 0,
-      sent_by: actorId,
-      client_token: input.clientToken,
-    })
-    .select(SENT_COLUMNS)
-    .maybeSingle();
+  const { data: claimed, error: claimErr } = await withResendColumn<unknown>(
+    'claimRow',
+    (columns, hasResend) => {
+      // A DELIBERATE resend with nowhere to record it is refused, not silently
+      // downgraded: an unlabelled second blast is the outcome this whole
+      // feature exists to abolish. Thrown from inside the runner so the
+      // optimistic attempt's own 42703 is what tells us the column is gone.
+      if (!hasResend && input.resendOf) {
+        return Promise.reject(new ResendNotRecordableError());
+      }
+      return service
+        .from('event_registrant_messages')
+        .insert({
+          event_id: eventId,
+          subject: input.subject,
+          body: input.body,
+          audience_total: audience.audienceTotal,
+          recipient_count: audience.recipientIds.length,
+          unreachable_count: audience.unreachable,
+          delivered_count: 0,
+          sent_by: actorId,
+          client_token: input.clientToken,
+          // The organiser's stated intent, not an inference. Null on a first
+          // send. Omitted entirely while the column does not exist — naming it
+          // would fail the insert outright.
+          ...(hasResend ? { resend_of: input.resendOf ?? null } : {}),
+        })
+        .select(columns)
+        .maybeSingle();
+    }
+  );
 
-  let row = claimed as SentMessageRow | null;
+  let row = claimed ? normaliseResend(claimed as SentMessageRow) : null;
 
   if (claimErr) {
+    // The database's own duplicate guard fired: a concurrent POST claiming to
+    // be a new message got the same words in first. Nothing has been delivered
+    // — the fanout is below this line — so this answers exactly as the route's
+    // pre-check would have, naming the row that won.
+    if (isContentUniqueViolation(claimErr)) {
+      // `exhaustive` because the database has just PROVEN a duplicate exists:
+      // if the bounded read cannot see it, the answer is to look harder, not to
+      // hand the organiser a refusal that names nothing.
+      const winner = await findContentDuplicate(service, eventId, input, { exhaustive: true });
+      throw new ContentDuplicateError(winner);
+    }
     // 23505 = unique_violation on (event_id, client_token): this exact compose
     // has been submitted before. Read the first row back rather than sending.
-    if (claimErr.code !== '23505') throw claimErr;
-    const { data: existing, error: readErr } = await service
-      .from('event_registrant_messages')
-      .select(SENT_COLUMNS)
-      .eq('event_id', eventId)
-      .eq('client_token', input.clientToken)
-      .maybeSingle();
+    if ((claimErr as { code?: string }).code !== '23505') throw claimErr;
+    const { data: existing, error: readErr } = await withResendColumn<unknown>(
+      'claimReadBack',
+      (columns) =>
+        service
+          .from('event_registrant_messages')
+          .select(columns)
+          .eq('event_id', eventId)
+          .eq('client_token', input.clientToken)
+          .maybeSingle()
+    );
     if (readErr) throw readErr;
-    row = existing as SentMessageRow | null;
+    row = existing ? normaliseResend(existing as SentMessageRow) : null;
     if (!row) throw claimErr;
     // An earlier attempt that genuinely delivered: say so, send nothing.
     if (!isUndelivered(row)) {
@@ -456,15 +878,57 @@ export async function sendRegistrantMessage(
     extraColumns: { type: 'events' },
   });
 
-  const { data: updated, error: updateErr } = await service
-    .from('event_registrant_messages')
-    .update(ledgerUpdateFor(row, audience.recipientIds.length, outcome))
-    .eq('id', row.id)
-    .select(SENT_COLUMNS)
-    .maybeSingle();
-  if (updateErr) throw updateErr;
+  const ledger = ledgerUpdateFor(row, audience.recipientIds.length, outcome);
 
-  const message = (updated as SentMessageRow | null) ?? row;
+  // The write-back is attempted twice and then given up on WITHOUT throwing,
+  // and that is the second half of "a delivered message must never be logged as
+  // delivered to 0".
+  //
+  // By this line the fanout has already run. Throwing here would abandon the
+  // one place that knows the message reached people: the row stays at
+  // delivered_count 0 / notification_id NULL, the API answers 500, and the
+  // organiser reads "the send did not complete" about an announcement every
+  // registrant can already see — and sends it again. The counts we hold are
+  // returned either way, so the answer is true even when the row is stale, and
+  // any later retry under the same client_token heals the row through the
+  // fanout's idempotent path.
+  //
+  // THE LOOP TURNS ON `updated`, NOT ON `error`, and so does the log. An UPDATE
+  // that matches no row answers with NO error and NO data — the row was deleted
+  // under us, or RLS narrowed it away — and an earlier version of this code
+  // treated that as success: it stopped after one attempt, left updateErr null,
+  // logged nothing, and still returned the ledger counts as though the row had
+  // been written. That is the one abandonment nobody would ever find. A failure
+  // to record is a failure to record whether or not the database called it one.
+  let updated: SentMessageRow | null = null;
+  let updateErr: unknown = null;
+  for (let attempt = 0; attempt < 2 && !updated; attempt += 1) {
+    const res = await withResendColumn<unknown>('ledgerWriteBack', (columns) =>
+      service
+        .from('event_registrant_messages')
+        .update(ledger)
+        .eq('id', row.id)
+        .select(columns)
+        .maybeSingle()
+    );
+    updated = res.data ? normaliseResend(res.data as SentMessageRow) : null;
+    updateErr = res.error ?? null;
+  }
+  if (!updated) {
+    logger.error(MODULE, 'ledger write-back did not record a completed fanout', {
+      message_id: row.id,
+      delivered_count: ledger.delivered_count,
+      // Names which of the two abandonments this was, because they need
+      // different investigations: one is a database that answered badly, the
+      // other a row that is no longer there to write to.
+      reason: updateErr ? 'update-failed' : 'no-row-matched',
+      error: updateErr,
+    });
+  }
+
+  // Fall back to what we KNOW, not to the pre-fanout row: `row` still says
+  // delivered_count 0, which is the falsehood this whole path guards against.
+  const message = updated ?? { ...row, ...ledger };
   return {
     message: (await withSenderNames([message], service))[0],
     deduplicated: outcome.skipped === 'idempotent',
