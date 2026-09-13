@@ -364,6 +364,7 @@ interface OpenRowLookup {
     queue_seq: number;
     status: string;
     registration_id: string | null;
+    updated_at?: string | null;
     profile_id: string | null;
     participant_name?: string | null;
     participant_email?: string | null;
@@ -389,7 +390,16 @@ async function findOpenRow(
   service: SupabaseClient,
   eventId: string,
   who: WaitlistIdentity,
-  statuses: readonly string[] = OPEN_WAITLIST_STATUSES
+  statuses: readonly string[] = OPEN_WAITLIST_STATUSES,
+  /**
+   * The form being submitted. An event holds many forms — one per monthly run —
+   * so an EVENT-scoped lookup told somebody queueing for October that they were
+   * "already on the waiting list" because of September's row, which is exactly
+   * the cross-run block this table's own comment promises not to cause. A row
+   * that stored no form_id matches anything, since there is nothing to
+   * contradict.
+   */
+  formId?: string | null
 ): Promise<OpenRowLookup> {
   // IDENTITY matches on its own; a CONTACT DETAIL must also agree on the name.
   //
@@ -414,7 +424,7 @@ async function findOpenRow(
     const { data, error } = await (service as any)
       .from('event_registration_waitlist')
       .select(
-        'id, queue_seq, status, registration_id, profile_id, participant_name, participant_email, participant_phone, form_id'
+        'id, queue_seq, status, registration_id, updated_at, profile_id, participant_name, participant_email, participant_phone, form_id'
       )
       .eq('event_id', eventId)
       .in('status', statuses)
@@ -422,14 +432,24 @@ async function findOpenRow(
       .order('queue_seq', { ascending: true })
       .limit(20);
 
-    if (error) return { row: null, missingTable: isMissingObject(error) };
+    // A REAL READ FAILURE IS NOT "NO OFFER". Returning null here made
+    // findOutstandingOffer report "this person holds nothing", so a transient
+    // error refused the offer holder at the capacity check and re-queued them at
+    // the back with a fresh queue_seq — the precise failure the claim path
+    // exists to prevent. Only a missing table degrades.
+    if (error) {
+      if (isMissingObject(error)) return { row: null, missingTable: true };
+      throw new WaitlistReadError('read the waiting list', eventId, error);
+    }
     if (!data?.length) continue;
 
-    const rows = data as Array<{ participant_name?: string | null }>;
+    const rows = (data as Array<NonNullable<OpenRowLookup['row']>>).filter(
+      (r) => !formId || !r.form_id || r.form_id === formId
+    );
     const hit = attempt.byName
       ? rows.find((r) => normName(r.participant_name) === wantedName && wantedName !== '')
       : rows[0];
-    if (hit) return { row: hit as OpenRowLookup['row'], missingTable: false };
+    if (hit) return { row: hit, missingTable: false };
   }
 
   return { row: null, missingTable: false };
@@ -559,7 +579,7 @@ export async function joinWaitlist(
     };
   }
 
-  const existing = await findOpenRow(service, input.eventId, who);
+  const existing = await findOpenRow(service, input.eventId, who, OPEN_WAITLIST_STATUSES, input.formId);
   if (existing.row) {
     return {
       outcome: 'queued',
@@ -596,7 +616,13 @@ export async function joinWaitlist(
     // Two submissions raced. One of them won and that row IS this person's
     // place — re-read it rather than telling them something went wrong.
     if ((error as { code?: string }).code === '23505') {
-      const again = await findOpenRow(service, input.eventId, who);
+      const again = await findOpenRow(
+        service,
+        input.eventId,
+        who,
+        OPEN_WAITLIST_STATUSES,
+        input.formId
+      );
       if (again.row) {
         return {
           outcome: 'queued',
@@ -660,9 +686,8 @@ export async function findOutstandingOffer(
    */
   formId?: string | null
 ): Promise<OutstandingOffer | null> {
-  const hit = await findOpenRow(service, eventId, who, ['offered']);
+  const hit = await findOpenRow(service, eventId, who, ['offered'], formId);
   if (!hit.row) return null;
-  if (formId && hit.row.form_id && hit.row.form_id !== formId) return null;
 
   // AN OFFER MADE TO AN ACCOUNT MAY ONLY BE CLAIMED BY THAT ACCOUNT.
   //
@@ -712,18 +737,95 @@ export async function findOutstandingOffer(
  * releaseOffer() if that write fails — the other order would let a double
  * submit create two registrations for one place.
  */
+/**
+ * 'claimed' — this caller now owns the place.
+ * 'lost'    — somebody else got there first. A genuine zero-row CAS loss.
+ * 'error'   — the write itself failed and NOTHING is known.
+ *
+ * Three, not a boolean. Folding 'error' into 'lost' made the route answer 409
+ * "your place is being taken up right now, refresh in a moment" to a permanent
+ * write or permission failure — an offer that can never be claimed, and a person
+ * told to keep refreshing at it.
+ */
+export type ClaimOutcome = 'claimed' | 'lost' | 'error';
+
 export async function claimOffer(
   service: SupabaseClient,
   waitlistId: string
-): Promise<boolean> {
+): Promise<ClaimOutcome> {
   const { data, error } = await (service as any)
     .from('event_registration_waitlist')
     .update({ status: 'registered' })
     .eq('id', waitlistId)
     .eq('status', 'offered')
     .select('id');
-  if (error) return false;
-  return Array.isArray(data) && data.length > 0;
+  if (error) return 'error';
+  return Array.isArray(data) && data.length > 0 ? 'claimed' : 'lost';
+}
+
+/**
+ * Is somebody midway through turning this offer into a registration?
+ *
+ * A row that is 'registered' with no registration_id yet is exactly that: the
+ * compare-and-swap has committed and the registration insert has not. A second
+ * submit arriving in that gap finds no 'offered' row at all, so the CAS guard
+ * cannot see it — it would read `taken` one low, pass the capacity check, and
+ * write a second registration and a second payment order for one held place.
+ *
+ * BOUNDED BY TIME on purpose. An unattached 'registered' row is also the
+ * deliberate resting state when attachRegistration fails after a successful
+ * insert, and that one is permanent — treating it as "in flight" forever would
+ * answer 409 to that person for good. Past the window the caller falls through,
+ * and their real registration is found by findLiveRegistration instead.
+ */
+export async function findClaimInFlight(
+  service: SupabaseClient,
+  eventId: string,
+  who: WaitlistIdentity,
+  formId: string | null,
+  withinMs = 120_000
+): Promise<boolean> {
+  const hit = await findOpenRow(service, eventId, who, ['registered'], formId);
+  if (!hit.row || hit.row.registration_id) return false;
+  const updatedAt = hit.row.updated_at ? Date.parse(hit.row.updated_at) : NaN;
+  if (!Number.isFinite(updatedAt)) return false;
+  return Date.now() - updatedAt < withinMs;
+}
+
+/**
+ * Close every open queue row this person still holds on this event.
+ *
+ * Called after ANY successful registration, not only one that claimed an offer.
+ * Somebody can be on the waiting list and then register normally — capacity is
+ * raised, or a seat frees without the trigger reaching them — and their
+ * 'waiting' row used to survive that. A later cancellation then promoted an
+ * already-registered person to 'offered', and with no deadline and no
+ * revocation that row held a seat for good: the permanent seat loss this whole
+ * feature exists to remove, reintroduced through the ordinary door.
+ *
+ * Best effort. The registration is real either way.
+ */
+export async function closeOpenRowsFor(
+  service: SupabaseClient,
+  eventId: string,
+  who: WaitlistIdentity,
+  formId: string | null,
+  registrationId: string
+): Promise<void> {
+  try {
+    for (let i = 0; i < 5; i++) {
+      const hit = await findOpenRow(service, eventId, who, OPEN_WAITLIST_STATUSES, formId);
+      if (!hit.row) return;
+      const { error } = await (service as any)
+        .from('event_registration_waitlist')
+        .update({ status: 'registered', registration_id: registrationId })
+        .eq('id', hit.row.id)
+        .in('status', OPEN_WAITLIST_STATUSES);
+      if (error) return;
+    }
+  } catch {
+    /* the registration stands; a stale queue row is the organiser's to see */
+  }
 }
 
 /** Put a claim back when the registration it was claimed for could not be written. */
