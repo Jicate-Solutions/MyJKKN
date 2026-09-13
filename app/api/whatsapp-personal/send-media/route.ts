@@ -12,7 +12,10 @@ import { WhatsAppPersonalMessageService } from '@/lib/services/whatsapp/whatsapp
 import {
   personalSendMediaAPI,
   resolveHistoryAnchor,
+  normalizeToE164,
   ByowDisabledError,
+  ByowPolicyUnreadableError,
+  BridgeRecipientError,
 } from '@/lib/whatsapp/personal-api-client';
 import {
   checkByowDeptAccess,
@@ -62,13 +65,22 @@ export async function POST(request: NextRequest) {
     institutionId = access.institutionId ?? null;
   }
 
-  const logAnchor = await resolveHistoryAnchor(deptId);
+  let toE164: string;
+  try {
+    toE164 = normalizeToE164(to);
+  } catch (err) {
+    const msg = err instanceof BridgeRecipientError ? err.message : 'Invalid recipient';
+    return NextResponse.json({ error: msg }, { status: 400 });
+  }
+
+  // Caller's own scope only — see ../send/route.ts.
+  const logAnchor = await resolveHistoryAnchor(deptId, user.id);
   const logEntry = logAnchor
     ? await WhatsAppPersonalMessageService.logMessage({
         department_id: logAnchor.department_id,
         connection_id: logAnchor.id,
         recipient_type: 'individual',
-        recipient_phone: to,
+        recipient_phone: toE164,
         recipient_name: recipient_name || undefined,
         message_content: caption || `[${media_type || 'media'}]`,
         lead_id: lead_id || undefined,
@@ -78,7 +90,7 @@ export async function POST(request: NextRequest) {
     : null;
 
   try {
-    const result = await personalSendMediaAPI(to, media_url, caption || undefined, {
+    const result = await personalSendMediaAPI(toE164, media_url, caption || undefined, {
       leadId: lead_id || null,
       institutionId,
       createdBy: user.id,
@@ -100,7 +112,15 @@ export async function POST(request: NextRequest) {
         error_message: msg,
       });
     }
-    const status = error instanceof ByowDisabledError ? 503 : 500;
+    // A rejected media `type` (BridgeOutboxTypeRejectedError) falls through to
+    // 500, but its MESSAGE names the constraint and the contract, so the "every
+    // media send fails" case is diagnosable from the response alone.
+    const status =
+      error instanceof ByowDisabledError || error instanceof ByowPolicyUnreadableError
+        ? 503
+        : error instanceof BridgeRecipientError
+          ? 400
+          : 500;
     return NextResponse.json({ success: false, queued: false, error: msg }, { status });
   }
 }

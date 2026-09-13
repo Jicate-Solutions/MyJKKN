@@ -59,6 +59,9 @@ export async function POST(request: NextRequest) {
       phone_number: health.phoneNumber,
       last_heartbeat_at: health.lastHeartbeatAt,
       reason: health.reason ?? null,
+      // 'query_error' / 'not_configured' carry a message; a quiet bridge does
+      // not. getBridgeHealth() no longer throws, so this route always answers.
+      error: health.error ?? null,
     },
   });
 }

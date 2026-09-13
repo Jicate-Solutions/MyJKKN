@@ -54,6 +54,10 @@ export async function POST(request: NextRequest) {
       logged_in: health.loggedIn,
       phone_number: health.phoneNumber,
       last_heartbeat_at: health.lastHeartbeatAt,
+      reason: health.reason ?? null,
+      // See ../connect/route.ts — a missing table reads as 'query_error', not
+      // as a bridge that simply has nothing to say.
+      error: health.error ?? null,
     },
   });
 }
