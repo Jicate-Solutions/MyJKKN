@@ -42,11 +42,25 @@ import {
 import { EVENT_TOOL_KEYS, EVENT_TOOL_LABELS } from '@/types/events-presets';
 
 /**
- * Tabs shown regardless of the saved selection. Mirrored here rather than
- * imported because it is deliberately NOT exported — a tab quietly added to the
- * always-on set should have to change this list too, in a file a reviewer reads.
+ * Tabs shown regardless of the saved selection.
+ *
+ * ⚠️ DO NOT "FIX" THIS BY IMPORTING IT. This list is duplicated from
+ * event-logistics.tsx ON PURPOSE, and importing the real one would silently
+ * delete the check. An always-on tab is a tab that bypasses the picker
+ * entirely, which is the one change in this file that should never happen
+ * without a human seeing it. If this list is imported, adding a tab to the
+ * always-on set makes both sides agree automatically and the test keeps
+ * passing — it would assert only that the file equals itself.
+ *
+ * It earned that design on its first outing. PR #3699 added `messages` to the
+ * always-on set while this branch was open; on merge the invariant fired with
+ * "messages … PERMANENTLY HIDDEN" until this list was updated to match. That
+ * was the mirror working, not failing: the merge could not complete until
+ * somebody looked at the always-on set and agreed with it.
+ *
+ * So: when the real list changes, change this one too, and say why in the PR.
  */
-const ALWAYS_ON = ['registrations'];
+const ALWAYS_ON = ['registrations', 'messages'];
 
 const PICKER = EVENT_TOOL_KEYS as readonly string[];
 const keys = (tabs: { key: string }[]) => tabs.map((t) => t.key);

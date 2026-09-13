@@ -11,7 +11,7 @@
 import type { ComponentType, ReactNode } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Handshake, Package, Wallet, Users, UserCheck, QrCode, HeartHandshake, AlertTriangle, BadgeCheck, Upload, BarChart3, Shirt, ClipboardList } from 'lucide-react';
+import { Handshake, Package, Wallet, Users, UserCheck, QrCode, HeartHandshake, AlertTriangle, BadgeCheck, Upload, BarChart3, Shirt, ClipboardList, Megaphone } from 'lucide-react';
 import { RegistrationsBoard } from './registrations-board';
 import { SponsorsBoard } from './sponsors-board';
 import { BudgetBoard } from './budget-board';
@@ -24,6 +24,7 @@ import { CertificatesBoard } from './certificates-board';
 import { BulkImportBoard } from './bulk-import-board';
 import { AnalyticsBoard } from './analytics-board';
 import { KitBoard } from './kit-board';
+import { MessagesBoard } from './messages-board';
 
 export interface EventLogisticsContext {
   eventId: string;
@@ -175,6 +176,25 @@ export const EVENT_LOGISTICS_TABS: EventLogisticsTab[] = [
     eventTypes: 'all',
     render: ({ eventId, canManage }) => <KitBoard eventId={eventId} canManage={canManage} />,
   },
+  // The organiser's one manual, deliberate message to the event's registrants.
+  // Appended, per the registry rule at the top of this file.
+  //
+  // NOT in SENSITIVE_TAB_KEYS, and NOT gated on canManage — both for the same
+  // reason. `canManage` on /events/[id] is canEditEvent(), which recognises
+  // neither the event's in-charge nor an ordinary admin, while the server gate
+  // fn_can_manage_event_messages recognises both. Hiding or disabling on
+  // canManage would lock out two of the four roles allowed to send. The board
+  // asks the server and renders an explicit "you do not have access" card when
+  // the answer is no (house rule #27); no registrant data renders in that state.
+  {
+    key: 'messages',
+    label: 'Messages',
+    icon: Megaphone,
+    eventTypes: 'all',
+    render: ({ eventId, canManage }) => (
+      <MessagesBoard eventId={eventId} canManage={canManage} />
+    ),
+  },
 ];
 
 /**
@@ -191,10 +211,24 @@ export const EVENT_LOGISTICS_TABS: EventLogisticsTab[] = [
 const SENSITIVE_TAB_KEYS = ['sponsors', 'budget', 'incidents'] as const;
 
 /**
- * The event's primary record. Always shown, even when `enabledTools` names a
- * narrower set — an event whose registrations you cannot reach is not a console.
+ * Tabs that are shown even when `enabledTools` names a narrower set.
+ *
+ * `registrations` — the event's primary record. An event whose registrations
+ * you cannot reach is not a console.
+ *
+ * `messages` — the organiser's only way to tell registrants anything. It is
+ * NOT opt-in, and cannot be, for a reason worth stating: `enabled_tools` is
+ * written once by the create wizard and never edited afterwards (the edit
+ * dialog merges `config` without touching it, and EVENT_TOOL_KEYS in
+ * types/events-presets.ts does not list `messages` at all, so no picker can
+ * add it). A selection saved before this tab existed therefore cannot name it,
+ * and no operator anywhere in the product can turn it on. Left to opt in, the
+ * tab would be permanently invisible on every event that chose its tools —
+ * built, wired, and unreachable, which is the failure mode this codebase keeps
+ * repeating. Opt-out is not offered because "we could not tell the registrants"
+ * is never the better default.
  */
-const ALWAYS_ON_TAB_KEY = 'registrations';
+const ALWAYS_ON_TAB_KEYS = ['registrations', 'messages'] as const;
 
 function tabVisible(
   tab: EventLogisticsTab,
@@ -220,10 +254,20 @@ function tabVisible(
   // behaviour everyone currently depends on: it must not change.
   if (!enabledTools?.length) return true;
 
-  // Compare against the tab's TOOL key, not its own key. They are the same
-  // string for every tab but Check-in and QR Passes, which share the wizard's
-  // single "Check-in & QR Passes" entry.
-  return tab.key === ALWAYS_ON_TAB_KEY || enabledTools.includes(toolKeyFor(tab));
+  // BOTH halves of this line were changed by concurrent PRs, and the resolution
+  // keeps both. #3699 widened the always-on set (Messages joined Registrations);
+  // this PR changed what a saved selection is compared AGAINST — the tab's TOOL
+  // key rather than its own key, because Check-in and QR Passes share the
+  // wizard's single "Check-in & QR Passes" entry.
+  //
+  // Dropping either half is a silent regression, and each has its own failing
+  // assertion in __tests__/events/event-logistics-tool-keys.test.ts: lose the
+  // first and `messages` becomes unreachable, lose the second and `check-in`
+  // goes back to being a dead checkbox.
+  return (
+    (ALWAYS_ON_TAB_KEYS as readonly string[]).includes(tab.key) ||
+    enabledTools.includes(toolKeyFor(tab))
+  );
 }
 
 /** Exported for tests — the filter above with no React around it. */
