@@ -98,23 +98,28 @@ export const metadata: Metadata = {
  * it no card offers a button, which is the honest outcome when the answer is
  * unknown.
  */
-async function loadEvents(): Promise<PublicEvent[]> {
+async function loadEvents(): Promise<{ events: PublicEvent[]; readFailed: boolean }> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!url || !anonKey) {
-    console.error('[public-events] Supabase URL or anon key is not configured — rendering an empty listing.');
-    return [];
+    console.error(
+      '[public-events] LISTING_READ_FAILED — Supabase URL or anon key is not configured, so nothing can be listed.',
+    );
+    return { events: [], readFailed: true };
   }
 
   try {
     const anon = createClient(url, anonKey);
     const admin = serviceKey ? createClient(url, serviceKey) : null;
-    return await PublicEventsService.listPublic(anon, admin);
+    return await PublicEventsService.listPublicWithStatus(anon, admin);
   } catch (err) {
-    console.error('[public-events] listing could not be loaded:', err instanceof Error ? err.message : err);
-    return [];
+    console.error(
+      '[public-events] LISTING_READ_FAILED — the listing threw:',
+      err instanceof Error ? err.message : err,
+    );
+    return { events: [], readFailed: true };
   }
 }
 
@@ -208,8 +213,47 @@ function NothingOpen() {
   );
 }
 
+/**
+ * The listing could not be read at all.
+ *
+ * Deliberately NOT the "nothing is open" panel. This page declares an empty
+ * listing to be normal, so an outage rendered as an empty listing is
+ * indistinguishable from success and nobody ever finds out. A visitor is told
+ * the truth — we could not load it — rather than told there is nothing on.
+ */
+function CouldNotLoad() {
+  return (
+    <section className="rounded-lg border border-[#0E4D34]/20 bg-white px-5 py-6">
+      <h2
+        className="text-lg text-[#0E4D34]"
+        style={{ fontFamily: 'var(--font-dm-serif-display), serif' }}
+      >
+        We could not load the events just now
+      </h2>
+      <p className="mt-2 text-sm leading-relaxed text-[#1C2B24]/80">
+        This is a problem at our end, not yours, and it is not a sign that nothing is on. Please try
+        again in a few minutes — or ask us directly what is coming.
+      </p>
+      <div className="mt-4 flex flex-wrap gap-3">
+        <Link
+          href="/meet"
+          className="inline-flex items-center rounded-md bg-[#0E4D34] px-3.5 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-90"
+        >
+          Talk to someone at JKKN
+        </Link>
+        <Link
+          href="/programmes"
+          className="inline-flex items-center rounded-md border border-[#0E4D34]/30 px-3.5 py-2 text-xs font-semibold text-[#0E4D34] transition-colors hover:bg-[#0E4D34]/5"
+        >
+          See the programmes on offer
+        </Link>
+      </div>
+    </section>
+  );
+}
+
 export default async function PublicEventsPage() {
-  const events = await loadEvents();
+  const { events, readFailed } = await loadEvents();
   // The service already ordered these: what is on now or still to come first,
   // soonest first, then the archive newest first.
   const upcoming = events.filter((event) => !event.isPast);
@@ -239,7 +283,9 @@ export default async function PublicEventsPage() {
           </p>
         </header>
 
-        {upcoming.length === 0 && past.length === 0 ? (
+        {readFailed ? (
+          <CouldNotLoad />
+        ) : upcoming.length === 0 && past.length === 0 ? (
           <NothingOpen />
         ) : (
           <>

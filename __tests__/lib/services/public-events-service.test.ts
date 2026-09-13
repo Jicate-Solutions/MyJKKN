@@ -31,7 +31,7 @@ function makeClient(result: QueryResult) {
     eq: [] as Array<[string, unknown]>,
     neq: [] as Array<[string, unknown]>,
     in: [] as Array<[string, unknown]>,
-    order: [] as string[],
+    order: [] as Array<[string, { ascending?: boolean } | undefined]>,
     limit: [] as number[],
   };
   const builder: Record<string, unknown> = {
@@ -51,8 +51,8 @@ function makeClient(result: QueryResult) {
       calls.in.push([column, values]);
       return builder;
     },
-    order(column: string) {
-      calls.order.push(column);
+    order(column: string, options?: { ascending?: boolean }) {
+      calls.order.push([column, options]);
       return builder;
     },
     limit(count: number) {
@@ -215,6 +215,31 @@ describe('PublicEventsService.listPublic — the public gate', () => {
   it('returns an empty listing when the read fails (fail closed)', async () => {
     const { client } = makeClient({ data: null, error: { message: 'boom' } });
     expect(await PublicEventsService.listPublic(client)).toEqual([]);
+  });
+
+  it('reads NEWEST first, so the cap can only ever drop the oldest archive rows', async () => {
+    // Ascending + LIMIT would spend the whole budget on the oldest archive the
+    // moment the public list outgrows the cap, truncating every upcoming event
+    // off the end — "Coming up" empty, archive ancient, and nothing errors.
+    const { client, calls } = makeClient({ data: [], error: null });
+    await PublicEventsService.listPublic(client);
+
+    expect(calls.order.map(([column]) => column)).toEqual(['start_date', 'event_date']);
+    for (const [, options] of calls.order) {
+      expect(options?.ascending).toBe(false);
+    }
+  });
+
+  it('says a failed read FAILED, so an outage cannot pass for "nothing is on"', async () => {
+    const failed = await PublicEventsService.listPublicWithStatus(
+      makeClient({ data: null, error: { message: 'permission denied' } }).client,
+    );
+    const empty = await PublicEventsService.listPublicWithStatus(
+      makeClient({ data: [], error: null }).client,
+    );
+
+    expect(failed).toEqual({ events: [], readFailed: true });
+    expect(empty).toEqual({ events: [], readFailed: false });
   });
 
   it('returns an empty listing when nothing is public', async () => {
@@ -480,6 +505,54 @@ describe('PublicEventsService.listPublic — what a reader is shown', () => {
 
     expect(result[0].whenLabel).toBe('4 March 2099, 9:30 am – 3:30 pm');
     expect(result[1].whenLabel).toBe('4 March – 9 March 2099');
+  });
+
+  it('reads a row carrying only an end date as a single day on that date', async () => {
+    const { client } = makeClient({
+      data: [
+        {
+          ...FUTURE,
+          start_date: null,
+          event_date: null,
+          end_date: '2099-05-06T00:00:00+00:00',
+          start_time: null,
+          end_time: null,
+        },
+      ],
+      error: null,
+    });
+    const [event] = await PublicEventsService.listPublic(client);
+
+    // Not "the start is unknown, but here is the end date under When".
+    expect(event.whenLabel).toBe('6 May 2099');
+    expect(event.isPast).toBe(false);
+  });
+
+  it('badges "Happening now" only for a run of days that began before today', async () => {
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    const startsLaterToday = {
+      ...FUTURE,
+      id: 'today',
+      start_date: `${today}T00:00:00+05:30`,
+      end_date: `${today}T00:00:00+05:30`,
+      start_time: '18:00:00',
+      end_time: null,
+    };
+    const startedBefore = {
+      ...FUTURE,
+      id: 'running',
+      start_date: '2000-01-01T00:00:00+00:00',
+      end_date: '2099-12-31T00:00:00+00:00',
+      start_time: null,
+      end_time: null,
+    };
+    const { client } = makeClient({ data: [startsLaterToday, startedBefore], error: null });
+    const result = await PublicEventsService.listPublic(client);
+    const byId = Object.fromEntries(result.map((e) => [e.id, e]));
+
+    expect(byId.today.isOnNow).toBe(false);
+    expect(byId.today.isPast).toBe(false);
+    expect(byId.running.isOnNow).toBe(true);
   });
 
   it('does not call an undated event past — being unable to date it is not evidence it is over', async () => {

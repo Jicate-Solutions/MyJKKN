@@ -169,6 +169,32 @@ function doorFor(eventType: string | null): Door {
 }
 
 /**
+ * A moment as the calendar day it falls on IN INDIA, assembled part by part.
+ *
+ * Not `toLocaleDateString('en-CA')`: that relies on a locale's formatting
+ * happening to be YYYY-MM-DD, and on a runtime without full ICU it degrades to
+ * M/D/YYYY instead of throwing — which would leave every `<` and `>` in this
+ * file comparing strings that no longer sort as dates, silently. The parts are
+ * requested by name and joined here, so the shape is this file's own.
+ */
+const IST_PARTS = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'Asia/Kolkata',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+function istDay(date: Date): string | null {
+  const parts = IST_PARTS.formatToParts(date);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value;
+  const year = get('year');
+  const month = get('month');
+  const day = get('day');
+  if (!year || !month || !day) return null;
+  return `${year}-${month}-${day}`;
+}
+
+/**
  * A date or timestamp reduced to the calendar day it names IN INDIA.
  *
  * Both halves of every comparison in this file are Indian calendar days. That
@@ -188,14 +214,29 @@ function dayOf(value: string | null): string | null {
 
   const parsed = new Date(raw);
   if (Number.isNaN(parsed.getTime())) return null;
-  // 'en-CA' is the locale that formats as YYYY-MM-DD, which is what makes these
-  // day strings comparable with a plain < or >.
-  return parsed.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  return istDay(parsed);
 }
 
 /** Today as 'YYYY-MM-DD' in India, which is the calendar these dates mean. */
 function todayInIndia(): string {
-  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  return istDay(new Date()) ?? new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * Await a PostgREST builder with an abort signal attached when the builder
+ * supports one. Pattern lifted from lib/auth/handover-route-access.ts: a
+ * stalled socket on a cached public route would otherwise hold a regeneration
+ * open indefinitely while anonymous traffic queues more of them behind it.
+ */
+const READ_TIMEOUT_MS = 8000;
+
+async function settle<T>(builder: unknown): Promise<T> {
+  const withAbort = builder as { abortSignal?: (s: AbortSignal) => unknown };
+  return (
+    typeof withAbort?.abortSignal === 'function'
+      ? await withAbort.abortSignal(AbortSignal.timeout(READ_TIMEOUT_MS))
+      : await (builder as Promise<unknown>)
+  ) as T;
 }
 
 /** 'YYYY-MM-DD' → '18 August 2026'. Parsed as UTC so the day never shifts. */
@@ -290,10 +331,12 @@ async function openDoors(
       starts_at: string | null;
       ends_at: string | null;
     }>(generalIds, (chunk) =>
-      admin
-        .from('event_registration_forms')
-        .select('event_id, is_enabled, starts_at, ends_at')
-        .in('event_id', chunk),
+      settle(
+        admin
+          .from('event_registration_forms')
+          .select('event_id, is_enabled, starts_at, ends_at')
+          .in('event_id', chunk),
+      ),
     );
     const now = new Date();
     for (const form of forms) {
@@ -301,7 +344,9 @@ async function openDoors(
     }
 
     const divisions = await selectInChunks<{ event_id: string }>(tournamentIds, (chunk) =>
-      admin.from('tournament_divisions').select('event_id').eq('is_active', true).in('event_id', chunk),
+      settle(
+        admin.from('tournament_divisions').select('event_id').eq('is_active', true).in('event_id', chunk),
+      ),
     );
     for (const division of divisions) {
       tournament.add(division.event_id);
@@ -383,6 +428,21 @@ export class PublicEventsService {
     supabase: SupabaseClient,
     admin?: SupabaseClient | null,
   ): Promise<PublicEvent[]> {
+    return (await PublicEventsService.listPublicWithStatus(supabase, admin)).events;
+  }
+
+  /**
+   * The same listing, plus whether the read actually succeeded.
+   *
+   * A page that treats "nothing is public" as its normal state cannot also
+   * treat a failed read as an empty list — the two are pixel-identical and the
+   * outage is never noticed. The caller renders a different panel for
+   * `readFailed`.
+   */
+  static async listPublicWithStatus(
+    supabase: SupabaseClient,
+    admin?: SupabaseClient | null,
+  ): Promise<{ events: PublicEvent[]; readFailed: boolean }> {
     let query = supabase
       .from('events')
       .select(PUBLIC_COLUMNS)
@@ -395,27 +455,47 @@ export class PublicEventsService {
       query = query.neq('status', status);
     }
 
-    const { data, error } = await query
-      .order('start_date', { ascending: true, nullsFirst: false })
-      .order('event_date', { ascending: true, nullsFirst: false })
-      .limit(PAGE_LIMIT);
+    // NEWEST FIRST, then re-ordered for reading below. Ascending would spend the
+    // whole 200-row budget on the OLDEST archive rows the moment the public list
+    // outgrows it, truncating every upcoming event off the end — "Coming up"
+    // would go permanently empty while the archive showed ancient cards, and
+    // nothing would error. Newest-first means the cap can only ever drop the
+    // oldest archive rows, which is the only loss a reader would not miss.
+    const { data, error } = await settle<{ data: unknown; error: { message: string; code?: string } | null }>(
+      query
+        .order('start_date', { ascending: false, nullsFirst: false })
+        .order('event_date', { ascending: false, nullsFirst: false })
+        .limit(PAGE_LIMIT),
+    );
 
     if (error) {
-      console.error(`${LOG_PREFIX} listing read failed:`, error.message);
-      return []; // fail closed
+      console.error(
+        `${LOG_PREFIX} LISTING_READ_FAILED — the page cannot show what is public:`,
+        error.code ?? '',
+        error.message,
+      );
+      return { events: [], readFailed: true }; // fail closed, but say so
     }
 
     const today = todayInIndia();
 
     const rows = ((data ?? []) as unknown as EventRow[]).map((row) => {
       // event_date stands in for either end when the range columns are empty —
-      // one production row (a marathon) carries only event_date.
-      const startDay = dayOf(row.start_date) ?? dayOf(row.event_date);
-      const endDay = dayOf(row.end_date) ?? dayOf(row.event_date) ?? startDay;
+      // one production row (a marathon) carries only event_date. Each end also
+      // falls back to the OTHER end, so a row carrying nothing but end_date is
+      // read as a single day on that date rather than as an event whose start
+      // is unknown — which would have printed the end date under "When" while
+      // refusing to treat the same date as a start.
+      const endCandidate = dayOf(row.end_date) ?? dayOf(row.event_date);
+      const startDay = dayOf(row.start_date) ?? dayOf(row.event_date) ?? endCandidate;
+      const endDay = endCandidate ?? startDay;
       // An undated event is NOT treated as past. Being unable to date it is not
       // evidence that it is over, and hiding it would be a guess.
       const isPast = endDay !== null && endDay < today;
-      const isOnNow = !isPast && startDay !== null && startDay <= today;
+      // "Happening now" means a run of days that BEGAN before today and has not
+      // ended. An event that starts later today is not yet happening, and
+      // saying so from midnight is a small lie repeated on every card.
+      const isOnNow = !isPast && startDay !== null && startDay < today;
       const registration = resolveRegistration(row, isPast, today);
 
       return {
@@ -438,7 +518,7 @@ export class PublicEventsService {
         doors = await openDoors(admin, candidates);
       } else {
         console.error(
-          `${LOG_PREFIX} no service-role client supplied — no registration link can be verified, so none is offered.`,
+          `${LOG_PREFIX} SERVICE_KEY_MISSING — no registration door can be verified, so no card offers a Register button. ${candidates.length} event(s) affected.`,
         );
       }
     }
@@ -499,10 +579,13 @@ export class PublicEventsService {
       .filter((e) => e.isPast)
       .sort((a, b) => b._sortKey.localeCompare(a._sortKey) || a.name.localeCompare(b.name));
 
-    return [...upcoming, ...past].map(({ _sortKey, _tieKey, ...event }) => {
-      void _sortKey;
-      void _tieKey;
-      return event;
-    });
+    return {
+      events: [...upcoming, ...past].map(({ _sortKey, _tieKey, ...event }) => {
+        void _sortKey;
+        void _tieKey;
+        return event;
+      }),
+      readFailed: false,
+    };
   }
 }
