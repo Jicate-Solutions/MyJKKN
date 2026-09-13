@@ -44,8 +44,33 @@ export interface EventLogisticsTab {
   icon: ComponentType<{ className?: string }>;
   /** 'all' = every event type; otherwise the event_type discriminators that should see this tab. */
   eventTypes: 'all' | string[];
+  /**
+   * The `events.config.enabled_tools` key that switches this tab on — i.e. the
+   * EVENT_TOOL_KEYS entry the create wizard writes. Defaults to `key`, which is
+   * right for every tab whose picker entry is spelled the same.
+   *
+   * Declared HERE, on the tab, rather than in a lookup table somewhere else,
+   * for two reasons. The registry is append-only so that concurrent PRs don't
+   * collide; a side table would be a second place every new tab has to
+   * remember to touch, and the whole defect below is what happens when the two
+   * vocabularies are maintained apart. And one picker entry may legitimately
+   * cover SEVERAL tabs — "Check-in & QR Passes" is one checkbox over two
+   * boards — which a tab-key rename cannot express at all.
+   *
+   * The invariant in __tests__/events/event-logistics-tool-keys.test.ts fails
+   * loudly if a tab's tool key is not offerable, or if a picker key mounts
+   * nothing.
+   */
+  toolKey?: string;
   render: (ctx: EventLogisticsContext) => ReactNode;
 }
+
+/**
+ * The `enabled_tools` key that turns this tab on. `toolKey` when the tab
+ * declares one, otherwise the tab's own key.
+ */
+export const toolKeyFor = (tab: Pick<EventLogisticsTab, 'key' | 'toolKey'>): string =>
+  tab.toolKey ?? tab.key;
 
 // ── Append-only tab registry ────────────────────────────────────────────────
 // PR1 registers Sponsors. PR2+ push their own entry here (one per PR → low conflict).
@@ -86,11 +111,17 @@ export const EVENT_LOGISTICS_TABS: EventLogisticsTab[] = [
       <CommitteesBoard eventId={eventId} canManage={canManage} canEditTasks={canEditTasks} />
     ),
   },
+  // Check-in and QR Passes are ONE choice in the create wizard — the checkbox is
+  // labelled "Check-in & QR Passes" — so both name that entry's key. Without
+  // this, `enabledTools.includes('checkin')` never matched the 'check-in' the
+  // wizard writes, and neither board could be reached on an event that had
+  // chosen its tools. See the invariant test.
   {
     key: 'checkin',
     label: 'Check-in',
     icon: UserCheck,
     eventTypes: 'all',
+    toolKey: 'check-in',
     render: ({ eventId, canManage }) => <CheckinBoard eventId={eventId} canManage={canManage} />,
   },
   {
@@ -98,6 +129,7 @@ export const EVENT_LOGISTICS_TABS: EventLogisticsTab[] = [
     label: 'QR Passes',
     icon: QrCode,
     eventTypes: 'all',
+    toolKey: 'check-in',
     render: ({ eventId, canManage }) => <QrBoard eventId={eventId} canManage={canManage} />,
   },
   {
@@ -217,11 +249,24 @@ function tabVisible(
 
   // An ABSENT or EMPTY selection means "every tool" — events created before the
   // tools picker existed have no key at all, and writing [] to mean "none" would
-  // silently blank the console for them.
+  // silently blank the console for them. This is the path EVERY event in
+  // production takes today (55 of 55 carry no enabled_tools), so it is the
+  // behaviour everyone currently depends on: it must not change.
   if (!enabledTools?.length) return true;
 
+  // BOTH halves of this line were changed by concurrent PRs, and the resolution
+  // keeps both. #3699 widened the always-on set (Messages joined Registrations);
+  // this PR changed what a saved selection is compared AGAINST — the tab's TOOL
+  // key rather than its own key, because Check-in and QR Passes share the
+  // wizard's single "Check-in & QR Passes" entry.
+  //
+  // Dropping either half is a silent regression, and each has its own failing
+  // assertion in __tests__/events/event-logistics-tool-keys.test.ts: lose the
+  // first and `messages` becomes unreachable, lose the second and `check-in`
+  // goes back to being a dead checkbox.
   return (
-    (ALWAYS_ON_TAB_KEYS as readonly string[]).includes(tab.key) || enabledTools.includes(tab.key)
+    (ALWAYS_ON_TAB_KEYS as readonly string[]).includes(tab.key) ||
+    enabledTools.includes(toolKeyFor(tab))
   );
 }
 
