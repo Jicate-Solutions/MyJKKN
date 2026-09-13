@@ -26,6 +26,7 @@ import { describe, it, expect } from 'vitest';
 
 import {
   isMissingObject,
+  normClaimCode,
   orderQueue,
   queuedMessage,
 } from '@/lib/services/events/waitlist-service';
@@ -215,6 +216,26 @@ describe('queuedMessage — what the person is told', () => {
   it('still names the position for somebody already queued', () => {
     expect(queuedMessage(4, true)).toContain('number 4');
     expect(queuedMessage(1, true)).toContain('first');
+  });
+});
+
+describe('normClaimCode — a code that travelled through a phone call', () => {
+  // The code is read aloud by an organiser and typed by whoever is listening.
+  // People group it, hyphenate it, and type it in whatever case their phone
+  // gives them. None of that should cost somebody their place.
+  it('accepts the spacing and case a person actually types', () => {
+    for (const typed of ['4KQM7X', '4kqm7x', '4KQ M7X', '4kq-m7x', ' 4KQ  M7X ', '4KQ.M7X']) {
+      expect(normClaimCode(typed)).toBe('4KQM7X');
+    }
+  });
+
+  it('treats an empty or absent code as absent, not as an empty match', () => {
+    // A blank must never be allowed to equal a stored NULL and claim a place.
+    expect(normClaimCode('')).toBeNull();
+    expect(normClaimCode('   ')).toBeNull();
+    expect(normClaimCode('---')).toBeNull();
+    expect(normClaimCode(null)).toBeNull();
+    expect(normClaimCode(undefined)).toBeNull();
   });
 });
 
