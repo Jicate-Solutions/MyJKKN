@@ -38,6 +38,7 @@ import toast from 'react-hot-toast';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { institutionsFallingBack } from '@/lib/services/loops/loop-owner-fallback';
 
 export interface OwnerPanelRow {
   loop_key: string;
@@ -321,6 +322,11 @@ export function OwnersPanel({
                 const rowScopes = scopesFor(row.loop_key);
                 const scopedIds = new Set(rowScopes.map((s) => s.institution_id));
                 const addable = institutions.filter((i) => !scopedIds.has(i.id));
+                // Fallback visibility (2026-09-13): the active colleges with no
+                // scope row for this loop — they are owned by the registry
+                // owner above. Computed from the same rows the list renders
+                // from, so removing an owner moves that college here at once.
+                const fallingBack = institutionsFallingBack(row.loop_key, scopes, institutions);
                 const add = addDraftFor(row.loop_key);
                 const addBusy =
                   busyScopeKey === scopeKey(row.loop_key, add.institution_id);
@@ -512,6 +518,20 @@ export function OwnersPanel({
                               </li>
                             )}
                           </ul>
+                          {fallingBack.length > 0 && (
+                            <p
+                              className="mt-1.5 text-[11px] text-muted-foreground"
+                              data-testid={`owner-fallback-${row.loop_key}`}
+                            >
+                              {fallingBack.length === 1
+                                ? '1 college falls back to '
+                                : `${fallingBack.length} colleges fall back to `}
+                              <span className="font-mono">
+                                {row.owner_email ?? 'the registry owner'}
+                              </span>
+                              : {fallingBack.map((i) => i.name).join(', ')}
+                            </p>
+                          )}
                         </div>
                       </td>
                     </tr>

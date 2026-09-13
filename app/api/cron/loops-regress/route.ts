@@ -43,6 +43,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
 import { findingsFingerprint } from '@/lib/ai-routines/loop-governance';
+import {
+  fallbackSummaryLine,
+  institutionsFallingBack,
+} from '@/lib/services/loops/loop-owner-fallback';
 
 // One RPC per manifested loop with an in-DB sim. Extend alongside the
 // manifests — never remove entries without retiring the manifest too.
@@ -196,11 +200,48 @@ export async function GET(request: NextRequest) {
     notified = outcome.notified;
   }
 
+  // Owner fallback visibility (2026-09-13, Director decision): the weekly
+  // summary carries one line saying how many colleges currently fall back to
+  // the registry owner for the per-college loop, so a Principal scope that was
+  // blanked — or a college never scoped — is never a silent gap. Read-only;
+  // best-effort: a read failure must not fail the regress run, so it reports
+  // the line it could not compute instead of throwing. The numeric twin
+  // (owner_fallback_colleges) is what the dispatcher's status line prints.
+  const SCOPED_LOOP = 'attendance-intervention';
+  let ownerFallback = 'owner fallback unknown — loop_owner_scopes or institutions unreadable';
+  let ownerFallbackColleges = 0;
+  try {
+    type ScopeRead = { loop_key: string; institution_id: string; owner_email: string | null };
+    type InstitutionRead = { id: string; name: string | null };
+    type RegistryRead = { owner_email: string | null };
+    const [scopeRes, instRes, regRes] = await Promise.all([
+      admin.from('loop_owner_scopes').select('loop_key,institution_id,owner_email').eq('loop_key', SCOPED_LOOP),
+      admin.from('institutions').select('id,name').eq('is_active', true).order('name', { ascending: true }),
+      admin.from('loop_registry').select('owner_email').eq('loop_key', SCOPED_LOOP).maybeSingle(),
+    ]);
+    if (!scopeRes.error && !instRes.error && !regRes.error) {
+      const falling = institutionsFallingBack(
+        SCOPED_LOOP,
+        (scopeRes.data ?? []) as ScopeRead[],
+        ((instRes.data ?? []) as InstitutionRead[]).map((i) => ({ id: i.id, name: i.name ?? i.id }))
+      );
+      ownerFallbackColleges = falling.length;
+      ownerFallback = fallbackSummaryLine(
+        falling.length,
+        (regRes.data as RegistryRead | null)?.owner_email ?? null
+      );
+    }
+  } catch {
+    /* the regress verdicts above are the run's purpose; the line stays "unknown" */
+  }
+
   return NextResponse.json({
     ok: true,
     ran: results.length,
     verified: results.filter((r) => r.verdict === 'measure-verified').length,
     failures: failures.map((f) => ({ loop: f.loop_key, verdict: f.verdict })),
     notified,
+    owner_fallback_colleges: ownerFallbackColleges,
+    owner_fallback: ownerFallback,
   });
 }

@@ -380,6 +380,62 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
   }
 
+  // ── Scoped loop owner (2026-09-13, Director decision) ───────────────────
+  // The attendance-intervention loop is owned per college (loop_owner_scopes,
+  // 20261019020000 — the seven Principals). Each college's owner is ADDED as
+  // a recipient of that college's department digests, resolved through
+  // fn_loop_owner_for_institution (20261210020000): the scoped owner when a
+  // scope row exists, else loop_registry.owner_email (the Director) for the
+  // colleges without one. Existing recipients are never replaced and the
+  // recipient Set already de-duplicates, so an owner who is also a head is
+  // told once per message. Every miss is COUNTED, never widened: an
+  // unapplied function, a loop with no registry owner, or an owner email
+  // with no active profile all leave the department's recipients exactly as
+  // they were.
+  const LOOP_KEY = 'attendance-intervention';
+  const ownerUserByInstitution = new Map<string, string>();
+  const institutionIds = Array.from(new Set(selected.map((s) => s.candidate.institution_id)));
+  for (const institutionId of institutionIds) {
+    const { data: ownerEmail, error: ownerErr } = await supabase.rpc('fn_loop_owner_for_institution', {
+      p_loop_key: LOOP_KEY,
+      p_institution_id: institutionId,
+    });
+    if (ownerErr) {
+      // Typically PGRST202 before the migration applies — visible in the
+      // response, silent for the department heads who still get their digest.
+      skipped.owner_unresolved = (skipped.owner_unresolved ?? 0) + 1;
+      continue;
+    }
+    const email = typeof ownerEmail === 'string' ? ownerEmail.trim() : '';
+    if (email === '') {
+      skipped.owner_none = (skipped.owner_none ?? 0) + 1;
+      continue;
+    }
+    // ilike with no wildcard = case-insensitive equality on the stored email.
+    const { data: ownerProfile } = await supabase
+      .from('profiles')
+      .select('id')
+      .ilike('email', email)
+      .neq('is_active', false)
+      .limit(1)
+      .maybeSingle();
+    const ownerId = (ownerProfile as { id: string } | null)?.id;
+    if (!ownerId) {
+      skipped.owner_no_profile = (skipped.owner_no_profile ?? 0) + 1;
+      continue;
+    }
+    ownerUserByInstitution.set(institutionId, ownerId);
+  }
+  let ownerRecipients = 0;
+  for (const [key, list] of byDept) {
+    const ownerId = ownerUserByInstitution.get(list[0].candidate.institution_id);
+    if (!ownerId) continue;
+    const set = recipientsByDept.get(key) ?? new Set<string>();
+    if (!set.has(ownerId)) ownerRecipients += 1;
+    set.add(ownerId);
+    recipientsByDept.set(key, set);
+  }
+
   // Stable system author for notifications.created_by (NOT NULL). Using the
   // earliest super admin rather than a recipient keeps "who sent this" honest.
   const { data: sysActor } = await supabase
@@ -519,6 +575,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     departments: byDept.size,
     sent,
     announced,
+    // Department messages that gained a scoped/registry loop owner as an extra
+    // recipient (0 before 20261210020000 applies — then skipped.owner_unresolved
+    // says why).
+    owner_recipients: ownerRecipients,
     skipped,
     results,
     elapsed_ms: Date.now() - started,
