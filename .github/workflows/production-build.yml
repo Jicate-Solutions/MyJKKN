@@ -1,0 +1,357 @@
+name: Production Build
+
+# Runs the REAL production build (`npm run build` — the same command Vercel runs)
+# on every pull request against main.
+#
+# ── WHY THIS EXISTS ─────────────────────────────────────────────────────────────
+#
+# Until this workflow, NOTHING in this repository ever ran `next build` before a
+# merge. Verified on main at the time of writing:
+#
+#   $ grep -rn "npm run build\|next build" .github/workflows/
+#   nav-reachability-gate.yml:12:#   in only ONE place — `npm run build` at Vercel DEPLOY time — so orphans
+#
+# One hit, and it is a COMMENT saying exactly that: the build only ever ran after
+# the merge, at Vercel deploy time. So a PR could be unanimously green and still
+# be unbuildable, and the first thing to find out was the production deploy —
+# which then blocks EVERY deploy repo-wide, not just the offending module.
+#
+# That is not hypothetical. PR #3239 (merged 2026-09-01) shipped a synchronous
+# export from a file whose first line is `'use server'`, which Next.js forbids.
+# Its head commit 03106910f4e577394bca7aa99101397f8991ab02 carried:
+#
+#   $ gh api repos/.../commits/03106910f4/check-runs --jq '[.check_runs[].conclusion] | group_by(.) | ...'
+#   {"neutral":1,"skipped":2,"success":22}
+#
+# Twenty-two successes, zero failures, and not one of them compiled the app.
+# Twice that month a hand-run local build was the only thing that caught this class.
+#
+# ── WHY A NEW FILE INSTEAD OF REVIVING `build-check.yml` ────────────────────────
+#
+# `.github/workflows/build-check.yml` is often assumed to cover this. It does not,
+# for two independent reasons, both checked rather than remembered:
+#
+#  1. IT NO LONGER EXISTS. It was DELETED (not disabled) on 2026-06-11 by
+#     c86a2243f5 "ci: retire AI Pulse gate + build-check, resurrect 4 orphaned
+#     checks, add Claude risk review (#1330)" — a 60-line deletion. It has not run
+#     on any PR since that date.
+#
+#  2. IT NEVER BUILT ANYTHING ANYWAY. Its last version ran `npx tsc --noEmit`
+#     plus four script checks. The word "Build" in its name was the whole problem:
+#     it made the hole look covered to anyone scanning the workflow list.
+#
+# And every one of its non-build steps is already live in a standalone workflow
+# today, so restoring the file would duplicate five checks and change nothing:
+#
+#   check:reachability            → nav-reachability-gate.yml
+#   check:sidebar                 → nav-reachability-gate.yml, module-config-audits.yml
+#   check:audit-coverage          → nav-reachability-gate.yml, module-config-audits.yml
+#   check-bug-module-classifier   → module-config-audits.yml
+#   tsc --noEmit                  → typecheck-pr-scoped.yml
+#
+# So: a new workflow, scoped to the one thing genuinely missing, named after what
+# it actually does.
+#
+# ── WHY THIS IS NOT REDUNDANT WITH `TypeCheck (PR-scoped)` ──────────────────────
+#
+# `next.config.ts` line 107 sets `typescript.ignoreBuildErrors: true`. The two
+# gates therefore cannot cover for each other, in either direction:
+#
+#   • The build IGNORES type errors  → TypeCheck is the only thing catching those.
+#   • TypeCheck never compiles the app → it cannot see a `'use server'` violation,
+#     a bad import boundary, a failing `generateStaticParams`, or a module that
+#     throws at import time during page-data collection.
+#
+# ── ADVISORY ON DAY ONE (deliberate) ────────────────────────────────────────────
+#
+# Adding a workflow file does NOT make it a required status check — branch
+# protection carries an explicit list, and this job is not on it. So a red X here
+# is INFORMATIONAL and blocks no merge.
+#
+# That is on purpose for the first weeks. Nobody has ever measured whether main
+# builds clean in CI, because CI has never built it. If main is already broken,
+# a required gate would red-wall every open PR at once for a break none of them
+# caused — which is exactly what happened repo-wide in August. Let it run
+# advisory, watch a week of real runs, THEN the Director can promote it by adding
+# "Production Build" to the required checks on main.
+#
+# This job is written to survive that promotion unchanged: it ALWAYS runs and
+# ALWAYS reports a conclusion, even for a docs-only PR (the expensive steps skip,
+# the job still reports success). A `paths-ignore:` trigger filter would have been
+# simpler but would make the check never report at all on a skipped PR, and a
+# required check that never reports blocks the PR forever.
+#
+# ── MEASURED ON ITS FIRST THREE RUNS: THE BUILD DOES NOT FIT ON A STANDARD ──────
+#                           GITHUB RUNNER
+#
+# ⚠️ READ THIS BEFORE DEBUGGING A RED MARK FROM THIS GATE. As of this workflow's
+# introduction it fails on EVERY PR, including its own, and NOT because of the PR.
+#
+# Three runs, two of them byte-identical re-runs of the same commit, all died at
+# exactly the same place with a bare `##[error]The operation was canceled.`:
+#
+#   ✓ Compiled successfully in 4.8min      ← the app compiles. Nothing is broken.
+#   ✓ Completed runAfterProductionCompile
+#     Collecting page data using 3 workers ...
+#   ##[error]The operation was canceled.   ← ~76s later
+#
+# The memory trace added in the follow-up commit settles the cause. Runner is
+# 4 vCPU / ~16 GB. During page-data collection:
+#
+#   07:35:49  used= 9267MB  avail=6722MB
+#   07:36:19  used=13447MB  avail=2542MB
+#   07:37:34  used=15547MB  avail= 442MB
+#   07:39:49  used=15860MB  avail= 129MB   ← pinned here ~2 min, then death
+#
+# Available memory falls to 129 MB and the runner is killed. `next build` spawns
+# THREE page-data workers, and each inherits `NODE_OPTIONS=--max-old-space-size=12288`
+# — a 12 GB per-process heap ceiling hard-coded into `npm run build` in
+# package.json via cross-env. cross-env sets that variable explicitly, so it
+# OVERRIDES anything this workflow exports: the ceiling cannot be lowered from
+# here. Three workers that each only begin collecting garbage at 12 GB will
+# exhaust a 16 GB box, and that is what the trace shows them doing.
+#
+# This is a real finding about the build, not a defect in this gate — the gate
+# ran the production build and reported, reproducibly, what happened. Resolving
+# it needs a decision that is NOT this workflow's to make, because every option
+# changes something outside CI:
+#
+#   (a) a larger runner (8-core/32 GB) — org setting, costs money;
+#   (b) lower `--max-old-space-size` in package.json — changes what Vercel runs;
+#   (c) cap the worker count via `experimental.cpus` in next.config.ts — same.
+#
+# Until one is chosen, this gate is advisory and its red mark means "the build
+# still does not fit", not "this PR is broken". A PR-caused failure looks
+# different: it fails BEFORE "Compiled successfully", with a named error.
+#
+# One consequence worth knowing: when the runner is killed this way, the job's
+# final "Report" step does NOT run — `always()` cannot save a step on a machine
+# that is being torn down. That is why this explanation lives here, in the file,
+# rather than only in a step summary nobody will receive.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+  # Inert until the merge queue is enabled on this repo, then it catches the
+  # "two green PRs break when combined" class against the queue's merged tree.
+  # Mirrors typecheck-pr-scoped.yml.
+  merge_group:
+    types: [checks_requested]
+
+permissions:
+  contents: read
+
+concurrency:
+  # A full build is 3-7 minutes. On a branch being pushed to repeatedly, the older
+  # runs are answering a question nobody is asking any more. Superseded runs report
+  # `cancelled`, which is neither pass nor fail — correct for a run that was
+  # abandoned, and harmless here because the newer run replaces its verdict.
+  group: production-build-${{ github.event.pull_request.number || github.event.merge_group.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Production Build
+    runs-on: ubuntu-latest
+    # A real build here is 3-7 minutes. 30 is deliberately generous: a timeout
+    # reports `cancelled`, which reads as neither pass nor fail, so a clock that
+    # is merely tight turns this gate into a source of unreadable verdicts.
+    timeout-minutes: 30
+
+    # NOTE: deliberately NO `if: ${{ !github.event.pull_request.draft }}`.
+    #
+    # TypeCheck (PR-scoped) and the terminology gate both skip drafts, which is a
+    # reasonable trade for them. It is the wrong trade here: a build break is
+    # cheapest to fix while the author is still drafting, and "it looked green
+    # while nothing checked it" is the precise failure this gate exists to end.
+    # Cost is controlled by the build-relevance filter below instead — docs-only
+    # and SQL-only PRs never pay for an install or a build.
+
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history for the base...head diff below
+
+      # Cost control. This repo's PRs are frequently docs-only or migration-only,
+      # and those cannot change the output of `next build`. Skipping them saves
+      # ~5 minutes of Actions time per PR without creating a blind spot: the deny
+      # list below is conservative, so anything not obviously inert builds.
+      - name: Does this PR touch anything the build reads?
+        id: relevant
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+        run: |
+          set -euo pipefail
+          git diff --name-only --diff-filter=AM "$BASE_SHA"..."$HEAD_SHA" > /tmp/changed.txt
+
+          # Paths that provably cannot affect `next build`. Everything else does
+          # — including .github/workflows, so a change to THIS file builds and
+          # tests itself rather than shipping unexercised.
+          grep -vE '(^docs/|^specs/|^supabase/|^artifacts/|^\.claude/|^\.screenshots/|\.md$|\.sql$)' \
+            /tmp/changed.txt > /tmp/build-relevant.txt || true
+
+          total=$(wc -l < /tmp/changed.txt | tr -d ' ')
+          count=$(wc -l < /tmp/build-relevant.txt | tr -d ' ')
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+
+          echo "::group::Build-relevant files ($count of $total changed)"
+          head -50 /tmp/build-relevant.txt
+          # `if` rather than `[ … ] && echo`. Both are correct under `set -e` —
+          # bash exempts a failing test on the left of `&&` from -e, which was
+          # confirmed by running it, not by reading the manual — but the `if` form
+          # does not require the reader to know that exemption to see it is safe.
+          if [ "$count" -gt 50 ]; then echo "... and $((count - 50)) more"; fi
+          echo "::endgroup::"
+
+      - name: Skip — nothing build-relevant changed
+        if: steps.relevant.outputs.count == '0'
+        run: |
+          echo "::notice::This PR changes only docs/SQL/spec files, which cannot affect \`next build\`. Build skipped."
+          {
+            echo "## Production Build — skipped"
+            echo ""
+            echo "This PR touches no file that \`next build\` reads (docs, specs, SQL and"
+            echo "migrations only), so the build was not run. The check reports success so that"
+            echo "it stays safe to promote to a required check."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup Node
+        if: steps.relevant.outputs.count != '0'
+        uses: actions/setup-node@v4
+        with:
+          # 22 matches typecheck-pr-scoped.yml and one of the two majors that
+          # seed-node-modules-cache.yml warms. Changing it here costs a cold
+          # install on every run.
+          node-version: '22'
+
+      # Key is byte-identical to the one seed-node-modules-cache.yml writes from
+      # main, which is the only way a PR run gets a hit: GitHub scopes caches
+      # created inside a PR to that PR's own merge ref.
+      - name: Cache node_modules
+        if: steps.relevant.outputs.count != '0'
+        id: nm
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+
+      - name: Install deps
+        if: steps.relevant.outputs.count != '0' && steps.nm.outputs.cache-hit != 'true'
+        run: npm ci --no-audit --no-fund
+
+      # Printed because the answer is not knowable before this workflow's first
+      # real run, and it decides whether this gate is viable as written.
+      #
+      # `npm run build` hard-codes `cross-env NODE_OPTIONS="--max-old-space-size=12288"`
+      # — a 12 GB heap ceiling. cross-env sets that variable explicitly, so it
+      # OVERRIDES anything this workflow exports; the value cannot be tuned from
+      # here without editing package.json, which would change what Vercel runs and
+      # is out of this change's scope.
+      #
+      # A GitHub-hosted standard runner on a private repo is 2 vCPU / ~7 GB RAM.
+      # A 12 GB ceiling on a 7 GB box is not an instant failure — the flag is a
+      # ceiling, not an allocation — but if the build's live set exceeds physical
+      # memory the kernel OOM-killer ends it, and the failure reads as a generic
+      # non-zero exit. This step makes the first run's log say plainly which
+      # machine it got, so that diagnosis takes seconds instead of a bisect.
+      - name: Runner capacity (diagnostic for the heap ceiling)
+        if: steps.relevant.outputs.count != '0'
+        run: |
+          echo "vCPU: $(nproc)"
+          free -h
+          echo "npm run build sets --max-old-space-size=12288 (12 GB) via cross-env."
+          echo "If this job dies with a bare non-zero exit or 'Killed', compare that to MemTotal above."
+
+      - name: Build (the same command Vercel runs)
+        if: steps.relevant.outputs.count != '0'
+        env:
+          # ── PLACEHOLDERS, NOT SECRETS ────────────────────────────────────────
+          # Nothing here is real and nothing here may become real. This job
+          # compiles the app; it must never hold a credential that could reach a
+          # live database, because a build runs arbitrary repo code.
+          #
+          # They exist because `lib/supabase/server.ts:92` throws
+          # "Missing Supabase service role credentials" when SUPABASE_SERVICE_ROLE_KEY
+          # is absent, and any module that builds a client at import time would
+          # take the build down during page-data collection. A syntactically valid
+          # value is all that is needed — supabase-js validates that the URL parses,
+          # and never contacts the host at build time.
+          #
+          # No repo secret is used or added. Checked before writing this: no
+          # workflow in .github/workflows references a SUPABASE_SERVICE_ROLE_KEY
+          # secret, so there was none to reuse. In particular SUPABASE_DB_URL is
+          # NOT repurposed here — it is a SHARED SUPERUSER connection string used
+          # by five workflows, and handing it to a build job would be a privilege
+          # escalation dressed as a convenience.
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key-build-only
+          SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key-build-only
+          # Keeps Next's anonymous build telemetry out of CI.
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: |
+          # A memory sampler streaming to STDOUT, not to a file summarised at the
+          # end. That distinction is the whole point: when a job dies of memory
+          # exhaustion the runner agent is killed too, so any "print the peak
+          # afterwards" step never executes and the log ends on silence. Streamed
+          # lines are already in the log when the process dies, so the trajectory
+          # up to the last breath is readable.
+          #
+          # Added after this gate's first two runs both died at exactly
+          # "Collecting page data using 3 workers ..." with a bare
+          # "##[error]The operation was canceled." and no diagnostic of any kind.
+          # ~20 lines per build, inside a collapsed group.
+          echo "::group::Memory trace (15s samples)"
+          ( while true; do
+              echo "[mem] $(date -u +%H:%M:%S) $(free -m | awk '/^Mem:/{printf "used=%sMB avail=%sMB", $3, $7}')"
+              sleep 15
+            done ) &
+          sampler=$!
+          # Do not let the sampler's death mask the build's exit code.
+          set +e
+          npm run build
+          build_exit=$?
+          set -e
+          kill "$sampler" 2>/dev/null || true
+          echo "::endgroup::"
+          exit "$build_exit"
+
+      - name: Report
+        if: always() && steps.relevant.outputs.count != '0'
+        run: |
+          {
+            if [ "${{ job.status }}" = "success" ]; then
+              echo "## Production Build passed"
+              echo ""
+              echo "\`npm run build\` completed — the same command Vercel runs on deploy."
+            else
+              echo "## Production Build FAILED"
+              echo ""
+              echo "\`npm run build\` did not complete. **This is the command Vercel runs**, so"
+              echo "merging this PR is likely to block deploys for the whole repository, not just"
+              echo "for the module this PR touches."
+              echo ""
+              echo "Reproduce locally with the same placeholder env:"
+              echo ""
+              echo '```bash'
+              echo 'NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co \'
+              echo 'NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder-anon-key-build-only \'
+              echo 'SUPABASE_SERVICE_ROLE_KEY=placeholder-service-role-key-build-only \'
+              echo 'npm run build'
+              echo '```'
+              echo ""
+              echo "Note that \`npm run build\` also re-runs \`check:sidebar\`, \`check:reachability\`"
+              echo "and \`check:audit-coverage\`. If **nav-reachability-gate** or"
+              echo "**module-config-audits** is also red on this PR, fix that first — this job is"
+              echo "most likely reporting the same underlying failure, before it ever reached"
+              echo "\`next build\`."
+            fi
+            echo ""
+            echo "---"
+            echo ""
+            echo "_**Advisory check.** \`Production Build\` is not in the required checks on main,"
+            echo "so a red mark here does not block this merge. It is reporting a real fact about"
+            echo "the build regardless._"
+          } >> "$GITHUB_STEP_SUMMARY"
