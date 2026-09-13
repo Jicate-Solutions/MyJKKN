@@ -19,6 +19,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
+  AlertTriangle,
   Ban,
   Building2,
   CalendarDays,
@@ -189,9 +190,35 @@ function CancelEventDialog({ event }: { event: Event }) {
           <DialogDescription>
             The event page will say the event is cancelled and show your reason, and no
             further registrations are accepted. Everyone who already registered stays on
-            the list — nothing is deleted.
+            the list.
           </DialogDescription>
         </DialogHeader>
+
+        {/* What cancelling RELEASES. tr_event_cancelled_cascade_release
+            (migration 20260417000004) has fired on status → 'cancelled' since
+            April; this dialog is the first thing that can reach it, so the
+            organiser has to be told before they commit — and told that
+            reinstating does not undo it. See GeneralEventService.cancel(). */}
+        <div className="space-y-1.5 rounded-md border border-amber-300/60 bg-amber-50 p-3 text-xs dark:border-amber-900/60 dark:bg-amber-950/30">
+          <p className="flex items-center gap-1.5 font-semibold text-amber-900 dark:text-amber-300">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            Cancelling also gives up this event&apos;s bookings
+          </p>
+          <ul className="list-disc space-y-0.5 pl-5 text-amber-900/90 dark:text-amber-200/90">
+            <li>
+              Every room, venue and item reserved for this event (and for its sessions) is
+              released — and can be taken straight away by whoever is next in line for it.
+            </li>
+            <li>
+              Everyone invited to or confirmed for a role on this event is un-assigned.
+            </li>
+          </ul>
+          <p className="pt-0.5 text-amber-900/90 dark:text-amber-200/90">
+            <strong>Reinstating the event later does not get any of this back.</strong> You
+            would have to book the rooms and invite the people again — and the rooms may be
+            gone. Registrations are the exception: those are kept, untouched.
+          </p>
+        </div>
 
         <div className="space-y-2">
           <Label htmlFor="ge-cancel-reason">Why is it being cancelled?</Label>
@@ -292,7 +319,7 @@ function GeneralEventStatusControl({
           active
             ? 'Move back to Draft — hides the event and closes registration'
             : cancelled
-              ? 'Reinstate this event — it becomes visible and open again, and the cancellation notice comes down'
+              ? 'Reinstate this event — it becomes visible and open again, and the cancellation notice comes down. It does NOT restore the rooms or the role assignments that cancelling released.'
               : 'Make this event Active so it is visible and open'
         }
       >
@@ -546,7 +573,9 @@ export default function GeneralEventDetailPage() {
               </p>
               <p className="text-xs text-muted-foreground">
                 Registration is closed and the public page shows this reason. Everyone who
-                registered is still on the list — nothing was removed.
+                registered is still on the list. The rooms and items this event had
+                reserved were released when it was cancelled, and everyone assigned a role
+                was un-assigned — reinstating the event does not bring those back.
               </p>
             </div>
           </div>

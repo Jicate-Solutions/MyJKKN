@@ -33,10 +33,11 @@ export class GeneralEventService {
    */
   static async updateStatus(id: string, newStatus: EventStatus): Promise<Event> {
     try {
-      // Cancelling carries a reason this signature has nowhere to put, and the
-      // database refuses a reasonless cancel outright (trg_events_stamp_
-      // cancellation). Refusing here names the right door instead of letting the
-      // call travel to the server to fail there.
+      // Cancelling carries a reason this signature has nowhere to put. The
+      // database does NOT refuse a reasonless cancel — `events` is shared with
+      // marathons and tournaments, whose own flows cancel without one — so this
+      // guard is the requirement, not a duplicate of a server-side one. Refusing
+      // here names the right door.
       if (newStatus === 'cancelled') {
         throw new Error('Cancelling an event needs a reason — use GeneralEventService.cancel().');
       }
@@ -77,6 +78,20 @@ export class GeneralEventService {
    * Registration stops because the public page and /api/events/[eventId]/
    * public-register both already refuse a `cancelled` event — the same guard
    * that closes a registration window, not a second mechanism.
+   *
+   * ⚠️ WHAT IT SETS OFF, WHICH IS NOT NOTHING. The database trigger
+   * tr_event_cancelled_cascade_release (migration 20260417000004, live since
+   * April) fires AFTER this write and RELEASES the event's bookings: every
+   * resource_reservations row linked to the event or its sessions goes to
+   * 'cancelled', and every invited/accepted event_human_roles assignment goes to
+   * 'cancelled' too. Releasing a reservation in turn restores stock and promotes
+   * whoever is next on that resource's waitlist — so the room can be taken by
+   * someone else within the same transaction. NONE of it is undone by moving the
+   * event back to 'live'. The cancel dialog says all of this before the
+   * organiser commits; do not remove that copy.
+   *
+   * The requirement that a reason be given lives HERE and in the dialog, not in
+   * the database: see the note in migration 20261204113700.
    *
    * `cancelled_at` and `cancelled_by` are NOT sent from here. They are stamped
    * by the BEFORE UPDATE trigger from auth.uid(), so the row records who

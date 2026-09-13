@@ -149,7 +149,10 @@ export function useCancelGeneralEvent() {
     onSuccess: (event) => {
       queryClient.invalidateQueries({ queryKey: KEYS.all });
       queryClient.invalidateQueries({ queryKey: KEYS.detail(event.id) });
-      toast.success('Event cancelled — registration is now closed');
+      // Names the cascade, because it has already happened by the time this
+      // shows: tr_event_cancelled_cascade_release releases the event's rooms and
+      // un-assigns its people inside the same write.
+      toast.success('Event cancelled — registration is closed and its bookings are released');
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to cancel event');

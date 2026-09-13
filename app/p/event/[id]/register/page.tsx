@@ -20,6 +20,11 @@ import { createClient as createSessionClient } from '@/lib/supabase/server';
 import { Ban, CalendarClock, CalendarDays, MapPin, Ticket } from 'lucide-react';
 import { effectiveFee, formRegistrationState, isFormOpen } from '@/types/tournament';
 import { EventRegisterForm } from './_components/event-register-form';
+import {
+  PUBLIC_EVENT_COLUMNS,
+  fetchCancellationDetails,
+  formatCancelledOn,
+} from './_lib/cancellation';
 
 export const dynamic = 'force-dynamic';
 
@@ -93,11 +98,13 @@ export default async function PublicEventRegisterPage({
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );
 
+  // PUBLIC_EVENT_COLUMNS names only columns that exist on production TODAY. The
+  // cancellation columns are fetched separately and tolerantly below — see
+  // ./_lib/cancellation.ts for why one missing column would otherwise break
+  // public registration for every event.
   const { data: ev } = await svc
     .from('events')
-    .select(
-      'id, name, event_type, status, event_date, start_date, venue, venue_text, registration_open_date, registration_close_date, max_registrations, cancellation_reason, cancelled_at'
-    )
+    .select(PUBLIC_EVENT_COLUMNS)
     .eq('id', id)
     .maybeSingle();
 
@@ -119,13 +126,11 @@ export default async function PublicEventRegisterPage({
   // `cancelled` event, exactly as they refuse a closed registration window. This
   // branch only replaces a silent-shaped refusal with an explicit one.
   if (ev.status === 'cancelled') {
-    const cancelledOn = ev.cancelled_at
-      ? new Date(ev.cancelled_at).toLocaleDateString('en-IN', {
-          day: 'numeric',
-          month: 'long',
-          year: 'numeric',
-        })
-      : null;
+    // Second, best-effort read. Returns nulls if the migration has not been
+    // applied, and the copy below falls back to "no reason recorded" — the
+    // event still says, plainly, that it is cancelled.
+    const { reason, cancelledAt } = await fetchCancellationDetails(svc, id);
+    const cancelledOn = formatCancelledOn(cancelledAt);
 
     return (
       <main className="mx-auto max-w-xl px-4 py-16">
@@ -137,8 +142,7 @@ export default async function PublicEventRegisterPage({
             <p className="mt-1 text-xs text-muted-foreground">Cancelled on {cancelledOn}</p>
           )}
           <p className="mt-4 whitespace-pre-line text-sm">
-            {ev.cancellation_reason ||
-              'The organiser has not recorded a reason. Please contact them for details.'}
+            {reason || 'The organiser has not recorded a reason. Please contact them for details.'}
           </p>
           <p className="mt-4 text-xs text-muted-foreground">
             No further registrations are being accepted. If you already registered, your

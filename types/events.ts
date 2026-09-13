@@ -232,11 +232,18 @@ export interface Event {
   // quality-evidence-spine emitter (PR #2408); written by the NAAC criteria
   // field on the tournament edit dialog (Wave 3, 2026-07-26).
   naac_criteria: string[];
-  // Cancellation (migration 20261204113700). Written only when an event is
-  // called off: the organiser supplies `cancellation_reason`, and a BEFORE
-  // UPDATE trigger stamps `cancelled_at` / `cancelled_by` — the client never
-  // sets the last two. All three survive an un-cancel, as the record of what
-  // happened; read them only when `status === 'cancelled'`.
+  // Cancellation (migration 20261204113700 — FILE ONLY, not yet applied to
+  // production as of 2026-09-13). Written only when an event is called off: the
+  // organiser supplies `cancellation_reason`, and a BEFORE UPDATE trigger stamps
+  // `cancelled_at` / `cancelled_by` — the client never sets the last two. All
+  // three survive an un-cancel, as the record of what happened; read them only
+  // when `status === 'cancelled'`.
+  //
+  // Because the migration may not be applied yet, these arrive as `undefined`
+  // from a `select('*')` against today's schema. Treat a falsy value as "not
+  // recorded" — never name them in an explicit `.select()` on a public path, or
+  // PostgREST fails the whole query with 42703. See
+  // app/p/event/[id]/register/_lib/cancellation.ts.
   cancellation_reason: string | null;
   cancelled_at: string | null;
   /** auth.uid() of whoever cancelled it, stamped by the trigger. */
@@ -401,9 +408,14 @@ export interface UpdateEventDto extends Partial<CreateEventDto> {
   hero_video_url?: string;
   route_config?: Record<string, unknown>;
   /**
-   * Why the event was called off. Required by the database when `status` moves
-   * to 'cancelled' (trigger trg_events_stamp_cancellation raises 23514 without
-   * it); `cancelled_at` and `cancelled_by` are stamped there, never sent here.
+   * Why the event was called off.
+   *
+   * Required by GeneralEventService.cancel() and by the cancel dialog — NOT by
+   * the table. `events` is shared with marathons, tournaments and inductions,
+   * whose own flows cancel a row without a reason, so a table-wide requirement
+   * would break them. The trigger trg_events_stamp_cancellation only normalises
+   * this value (trim, blank → NULL) and stamps `cancelled_at` / `cancelled_by`,
+   * which are never sent from here.
    */
   cancellation_reason?: string | null;
 }
