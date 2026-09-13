@@ -251,13 +251,46 @@ describe('getAudience — paged, not truncated', () => {
     expect(audience.truncated).toBe(false);
   });
 
-  it('stops after one read when the first page is short', async () => {
+  it('does not trust a SHORT page to mean "that is everyone"', async () => {
+    // If db-max-rows is ever lower than the page we ask for, every page comes
+    // back short. Breaking on a short page would read 400 of these 900
+    // registrants and report it as the whole audience — the same mistake as not
+    // paging at all, and just as silent. The loop stops on an EMPTY page and
+    // asks from rows.length, so a server-side cap it never knew about is
+    // walked correctly.
+    const SERVER_CAP = 400;
+    const { client } = makeClient((op) => {
+      if (op.table !== 'events_registrations') return ok([]);
+      const from = op.range ? op.range[0] : 0;
+      return ok(page(Math.max(0, Math.min(SERVER_CAP, 900 - from)), from));
+    });
+
+    const audience = await getAudience(client, EVENT);
+    expect(audience.audienceTotal).toBe(900);
+  });
+
+  it('walks from rows.length, so pages never overlap or skip', async () => {
+    const { client, ops } = makeClient((op) => {
+      if (op.table !== 'events_registrations') return ok([]);
+      const from = op.range ? op.range[0] : 0;
+      return ok(page(Math.max(0, Math.min(AUDIENCE_PAGE_SIZE, 1500 - from)), from));
+    });
+    const audience = await getAudience(client, EVENT);
+    // 1,500 registrations, all distinct — no id counted twice, none missed.
+    expect(audience.recipientIds).toHaveLength(1500);
+    const starts = ops.filter((o) => o.table === 'events_registrations').map((o) => o.range![0]);
+    expect(starts).toEqual([0, AUDIENCE_PAGE_SIZE, 1500]);
+  });
+
+  it('stops as soon as a page comes back empty', async () => {
     const { client, ops } = makeClient((op) =>
-      op.table === 'events_registrations' ? ok(page(7)) : ok([])
+      op.table === 'events_registrations'
+        ? ok(op.range && op.range[0] === 0 ? page(7) : [])
+        : ok([])
     );
     const audience = await getAudience(client, EVENT);
     expect(audience.audienceTotal).toBe(7);
-    expect(ops.filter((o) => o.table === 'events_registrations')).toHaveLength(1);
+    expect(ops.filter((o) => o.table === 'events_registrations')).toHaveLength(2);
   });
 
   it('asks the profiles table only about learner ids it could not already reach', async () => {

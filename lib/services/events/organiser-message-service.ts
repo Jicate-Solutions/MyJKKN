@@ -262,12 +262,27 @@ export async function getAudience(
   const rows: RegistrationAudienceRow[] = [];
   let truncated = false;
 
-  // PAGED, not a bare select. PostgREST caps a response at db-max-rows (1000 on
-  // this project) and returns the truncated page with NO error, so an unpaged
-  // read would quietly print "1000 registrants will receive this" for a 2,400-
-  // person marathon — a lie about the exact number this whole feature exists to
-  // make honest. `.order('id')` gives the pages a stable order to walk.
-  for (let from = 0; from < AUDIENCE_HARD_CAP; from += AUDIENCE_PAGE_SIZE) {
+  // PAGED, not a bare select. PostgREST caps a response at db-max-rows and
+  // returns the truncated page with NO error, so an unpaged read would quietly
+  // print "1000 registrants will receive this" for a 2,400-person marathon — a
+  // lie about the exact number this whole feature exists to make honest.
+  // `.order('id')` gives the pages a stable order to walk.
+  //
+  // The loop stops on an EMPTY page, never on a short one, and each request
+  // starts at `rows.length` rather than at a multiple of the page size. That
+  // costs one extra round trip per read and buys independence from the server's
+  // actual cap: if db-max-rows is ever lower than AUDIENCE_PAGE_SIZE, a
+  // short-page break would read one page and call it the whole audience —
+  // which is the same class of mistake as not paging at all.
+  for (;;) {
+    // The explicit backstop. No event in this system has 50,000 registrations;
+    // if one ever does, the board says the count is a floor rather than
+    // pretending it is the audience.
+    if (rows.length >= AUDIENCE_HARD_CAP) {
+      truncated = true;
+      break;
+    }
+    const from = rows.length;
     const { data, error } = await service
       .from('events_registrations')
       .select('profile_id, learner_id, status')
@@ -276,12 +291,8 @@ export async function getAudience(
       .range(from, from + AUDIENCE_PAGE_SIZE - 1);
     if (error) throw error;
     const page = (data ?? []) as RegistrationAudienceRow[];
+    if (page.length === 0) break;
     rows.push(...page);
-    if (page.length < AUDIENCE_PAGE_SIZE) break;
-    // The cap is the explicit backstop: no event in this system has 50,000
-    // registrations, and if one ever does the board must say the count is a
-    // floor rather than pretend it is the audience.
-    if (from + AUDIENCE_PAGE_SIZE >= AUDIENCE_HARD_CAP) truncated = true;
   }
 
   // Registrations filed by learner rather than by profile still belong to a
