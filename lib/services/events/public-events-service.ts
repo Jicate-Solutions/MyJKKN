@@ -125,6 +125,24 @@ export interface PublicEvent {
   registerNote: string | null;
 }
 
+/** What one PostgREST read hands back, before any of it is trusted. */
+interface ReadResult {
+  data: unknown;
+  error: { message: string; code?: string } | null;
+}
+
+export interface PublicListing {
+  events: PublicEvent[];
+  /** The listing itself could not be read. Render something other than "empty". */
+  readFailed: boolean;
+  /**
+   * A registration door this page needed could not be checked, so some cards are
+   * missing a button they may be entitled to. The page uses this to decline
+   * caching a render whose silence is an outage rather than a fact.
+   */
+  doorCheckFailed: boolean;
+}
+
 interface EventRow {
   id: string;
   name: string;
@@ -244,16 +262,30 @@ async function settle<T>(builder: unknown): Promise<T> {
   ) as T;
 }
 
-/** 'YYYY-MM-DD' → '18 August 2026'. Parsed as UTC so the day never shifts. */
+/**
+ * 'YYYY-MM-DD' → '18 August 2026'.
+ *
+ * The month names are written out rather than fetched from a locale. The day
+ * key above avoids ICU for correctness; formatting it through
+ * `toLocaleDateString('en-IN')` would have put the dependency straight back for
+ * appearance — on a small-ICU build `en-IN` degrades to en-US and every date on
+ * the page silently becomes "August 18, 2026". Twelve strings is a cheaper
+ * promise to keep than a runtime's locale data.
+ */
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+] as const;
+
 function formatDay(iso: string, withYear = true): string | null {
-  const parsed = new Date(`${iso}T00:00:00Z`);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return parsed.toLocaleDateString('en-IN', {
-    day: 'numeric',
-    month: 'long',
-    ...(withYear ? { year: 'numeric' } : {}),
-    timeZone: 'UTC',
-  });
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!match) return null;
+  const [, year, month, day] = match;
+  const monthName = MONTHS[Number(month) - 1];
+  if (!monthName) return null;
+  const dayOfMonth = Number(day);
+  if (!dayOfMonth || dayOfMonth > 31) return null;
+  return withYear ? `${dayOfMonth} ${monthName} ${year}` : `${dayOfMonth} ${monthName}`;
 }
 
 /** '09:00:00' → '9:00 am'. Anything unparseable is dropped, never guessed. */
@@ -326,7 +358,7 @@ async function openDoors(
   // ONE TRY PER TABLE. A shared catch would let a failure on
   // `tournament_divisions` strip the button from every general event on the
   // page too — one table's outage silently answering a question about another.
-  const general = await (async () => {
+  const readGeneral = (async () => {
     try {
       // selectInChunks, not a bare .in(): PostgREST encodes the ids into the
       // query string and the gateway rejects the request past ~680 of them,
@@ -364,7 +396,7 @@ async function openDoors(
     }
   })();
 
-  const tournament = await (async () => {
+  const readTournament = (async () => {
     try {
       const divisions = await selectInChunks<{ event_id: string }>(tournamentIds, (chunk) =>
         settle(
@@ -387,6 +419,10 @@ async function openDoors(
     }
   })();
 
+  // Concurrently: each read owns its own catch, so nothing is shared but the
+  // clock — and awaiting them in turn stacked two 8s timeouts on a public
+  // route's render path.
+  const [general, tournament] = await Promise.all([readGeneral, readTournament]);
   return { general, tournament };
 }
 
@@ -476,7 +512,7 @@ export class PublicEventsService {
   static async listPublicWithStatus(
     supabase: SupabaseClient,
     admin?: SupabaseClient | null,
-  ): Promise<{ events: PublicEvent[]; readFailed: boolean }> {
+  ): Promise<PublicListing> {
     /** The public gate, re-stated in front of the policy on every read. */
     const publicRows = () => {
       let q = supabase
@@ -505,20 +541,34 @@ export class PublicEventsService {
     // row — so the event_date-only rows (production has them) would be the FIRST
     // casualties of the cap, upcoming ones included. Each read is capped on its
     // own, so the page stays bounded at 2 × PAGE_LIMIT.
-    const [dated, undated] = await Promise.all([
-      settle<{ data: unknown; error: { message: string; code?: string } | null }>(
-        publicRows()
-          .not('start_date', 'is', null)
-          .order('start_date', { ascending: false })
-          .limit(PAGE_LIMIT),
-      ),
-      settle<{ data: unknown; error: { message: string; code?: string } | null }>(
-        publicRows()
-          .is('start_date', null)
-          .order('event_date', { ascending: false, nullsFirst: false })
-          .limit(PAGE_LIMIT),
-      ),
-    ]);
+    // The whole read is guarded, not just its { error } channel: settle()'s
+    // AbortSignal REJECTS on timeout, and a network failure rejects too, so
+    // without this the module's "any read error returns an empty list" promise
+    // would be kept only for callers who happen to wrap it themselves.
+    let dated: ReadResult;
+    let undated: ReadResult;
+    try {
+      [dated, undated] = await Promise.all([
+        settle<ReadResult>(
+          publicRows()
+            .not('start_date', 'is', null)
+            .order('start_date', { ascending: false })
+            .limit(PAGE_LIMIT),
+        ),
+        settle<ReadResult>(
+          publicRows()
+            .is('start_date', null)
+            .order('event_date', { ascending: false, nullsFirst: false })
+            .limit(PAGE_LIMIT),
+        ),
+      ]);
+    } catch (err) {
+      console.error(
+        `${LOG_PREFIX} LISTING_READ_FAILED — the read threw (timeout or network):`,
+        err instanceof Error ? err.message : err,
+      );
+      return { events: [], readFailed: true, doorCheckFailed: false };
+    }
 
     const error = dated.error ?? undated.error;
     if (error) {
@@ -527,18 +577,25 @@ export class PublicEventsService {
         error.code ?? '',
         error.message,
       );
-      return { events: [], readFailed: true }; // fail closed, but say so
+      return { events: [], readFailed: true, doorCheckFailed: false }; // fail closed, but say so
     }
 
-    const data = [
-      ...((dated.data ?? []) as unknown as EventRow[]),
-      ...((undated.data ?? []) as unknown as EventRow[]),
-    ];
-    if (data.length >= PAGE_LIMIT) {
-      console.warn(
-        `${LOG_PREFIX} LISTING_CAPPED — ${data.length} rows read at a cap of ${PAGE_LIMIT} per read; the oldest public events are not being listed.`,
-      );
+    const datedRows = (dated.data ?? []) as unknown as EventRow[];
+    const undatedRows = (undated.data ?? []) as unknown as EventRow[];
+    // Each read is capped on its own, so each is judged on its own. Summing them
+    // and comparing against one cap warns when nothing was truncated (150 + 60)
+    // and stays silent when something was (199 dated, 0 undated).
+    for (const [label, rows] of [
+      ['dated', datedRows],
+      ['undated', undatedRows],
+    ] as const) {
+      if (rows.length >= PAGE_LIMIT) {
+        console.warn(
+          `${LOG_PREFIX} LISTING_CAPPED — the ${label} read returned its full ${PAGE_LIMIT}-row cap; older public events are not being listed.`,
+        );
+      }
     }
+    const data = [...datedRows, ...undatedRows];
 
     const today = todayInIndia();
 
@@ -627,7 +684,16 @@ export class PublicEventsService {
         // it sorts to today and is labelled "Happening now" rather than being
         // filed under its own start date behind next month's lecture.
         _sortKey: isOnNow ? today : (startDay ?? endDay ?? '9999-12-31'),
-        _tieKey: endDay ?? startDay ?? '',
+        // An event already RUNNING outranks one that merely starts later today.
+        // Both share today as their primary key, so the tie-break decides — and
+        // ranking a running event by its far-off end day would put it below the
+        // thing that has not begun, the exact inversion isOnNow exists to stop.
+        _tieKey: isOnNow ? '' : (endDay ?? startDay ?? ''),
+        // The archive is ordered by when things ENDED, because that is what
+        // "recently" means. Ordering it by start day files a long event that
+        // finished yesterday below a single day years earlier that happened to
+        // start later.
+        _endKey: endDay ?? startDay ?? '',
       };
     });
 
@@ -641,15 +707,27 @@ export class PublicEventsService {
       );
     const past = events
       .filter((e) => e.isPast)
-      .sort((a, b) => b._sortKey.localeCompare(a._sortKey) || a.name.localeCompare(b.name));
+      .sort(
+        (a, b) =>
+          b._endKey.localeCompare(a._endKey) ||
+          b._sortKey.localeCompare(a._sortKey) ||
+          a.name.localeCompare(b.name),
+      );
 
     return {
-      events: [...upcoming, ...past].map(({ _sortKey, _tieKey, ...event }) => {
+      events: [...upcoming, ...past].map(({ _sortKey, _tieKey, _endKey, ...event }) => {
         void _sortKey;
         void _tieKey;
+        void _endKey;
         return event;
       }),
       readFailed: false,
+      // True only when a door SOMETHING on this page needed could not be
+      // checked — so the caller can decline to cache a render whose missing
+      // buttons are an outage rather than a fact.
+      doorCheckFailed: candidates.some((candidate) =>
+        candidate.kind === 'general' ? doors.general === null : doors.tournament === null,
+      ),
     };
   }
 }

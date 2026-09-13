@@ -292,8 +292,8 @@ describe('PublicEventsService.listPublic — the public gate', () => {
       makeClient({ data: [], error: null }).client,
     );
 
-    expect(failed).toEqual({ events: [], readFailed: true });
-    expect(empty).toEqual({ events: [], readFailed: false });
+    expect(failed).toEqual({ events: [], readFailed: true, doorCheckFailed: false });
+    expect(empty).toEqual({ events: [], readFailed: false, doorCheckFailed: false });
   });
 
   it('returns an empty listing when nothing is public', async () => {
@@ -365,6 +365,25 @@ describe('PublicEventsService.listPublic — never invite a registration that wi
 
     expect(event.registerHref).toBeNull();
     expect(event.registerNote).toBeNull();
+  });
+
+  it('reports a door it could not check, so the caller can refuse to cache the silence', async () => {
+    // A card missing its button because a read timed out looks exactly like a
+    // card with no registration. The page uses this flag to keep that render
+    // out of the ISR cache rather than serving it for five minutes.
+    const { client } = makeClient({ data: [FUTURE], error: null });
+    const { admin } = makeAdmin({
+      event_registration_forms: { data: null, error: { message: 'timeout' } },
+    });
+
+    const failed = await PublicEventsService.listPublicWithStatus(client, admin);
+    const fine = await PublicEventsService.listPublicWithStatus(
+      makeClient({ data: [FUTURE], error: null }).client,
+      makeAdmin({ event_registration_forms: openFormFor(FUTURE.id) }).admin,
+    );
+
+    expect(failed.doorCheckFailed).toBe(true);
+    expect(fine.doorCheckFailed).toBe(false);
   });
 
   it('says nothing about registration when the door check itself fails', async () => {
@@ -580,6 +599,59 @@ describe('PublicEventsService.listPublic — what a reader is shown', () => {
     expect(result.map((e) => e.id)).toEqual(['running', 'soon']);
     expect(result[0].isOnNow).toBe(true);
     expect(result[1].isOnNow).toBe(false);
+  });
+
+  it('ranks a running event above one that merely starts later today', async () => {
+    const today = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const running = {
+      ...FUTURE,
+      id: 'running',
+      start_date: '2000-01-01T00:00:00+00:00',
+      end_date: '2099-12-31T00:00:00+00:00',
+      start_time: null,
+      end_time: null,
+    };
+    const startsToday = {
+      ...FUTURE,
+      id: 'starts-today',
+      start_date: `${today}T00:00:00+05:30`,
+      end_date: `${today}T00:00:00+05:30`,
+      start_time: null,
+      end_time: null,
+    };
+    // Both share today as their primary key; the tie-break decides, and ranking
+    // the running one by its far-off end day would invert them.
+    const { client } = makeClient({ data: [startsToday, running], error: null });
+    const result = await PublicEventsService.listPublic(client);
+
+    expect(result.map((e) => e.id)).toEqual(['running', 'starts-today']);
+  });
+
+  it('orders "Recently at JKKN" by when things ENDED', async () => {
+    const endedYesterday = {
+      ...FUTURE,
+      id: 'long-run',
+      name: 'A long run that ended recently',
+      start_date: '2019-11-01T00:00:00+00:00',
+      end_date: '2020-06-30T00:00:00+00:00',
+      start_time: null,
+      end_time: null,
+    };
+    const oneDayLater = {
+      ...FUTURE,
+      id: 'single-day',
+      name: 'A single day that started later but ended sooner',
+      start_date: '2020-01-15T00:00:00+00:00',
+      end_date: '2020-01-15T00:00:00+00:00',
+      start_time: null,
+      end_time: null,
+    };
+    const { client } = makeClient({ data: [oneDayLater, endedYesterday], error: null });
+    const result = await PublicEventsService.listPublic(client);
+
+    // Sorted by start day, the single day would lead the archive despite having
+    // finished five months earlier.
+    expect(result.map((e) => e.id)).toEqual(['long-run', 'single-day']);
   });
 
   it('withholds the description from the archive and keeps it on what is coming', async () => {

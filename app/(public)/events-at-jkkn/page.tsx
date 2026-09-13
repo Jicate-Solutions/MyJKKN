@@ -42,8 +42,13 @@
 
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { unstable_noStore as noStore } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
-import { PublicEventsService, type PublicEvent } from '@/lib/services/events/public-events-service';
+import {
+  PublicEventsService,
+  type PublicEvent,
+  type PublicListing,
+} from '@/lib/services/events/public-events-service';
 
 /**
  * Five minutes of cache, rather than force-dynamic.
@@ -98,28 +103,44 @@ export const metadata: Metadata = {
  * it no card offers a button, which is the honest outcome when the answer is
  * unknown.
  */
-async function loadEvents(): Promise<{ events: PublicEvent[]; readFailed: boolean }> {
+async function loadEvents(): Promise<PublicListing> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  /**
+   * A DEGRADED RENDER IS NEVER CACHED.
+   *
+   * Everything here fails soft and still returns a page, which is right for the
+   * visitor in front of it and wrong for the next five minutes: ISR would bake
+   * "We could not load the events just now" — or a listing whose Register
+   * buttons are missing because one door read timed out — into the cached HTML
+   * and serve it to every visitor AND every crawler on a route that allows
+   * indexing, long after the backend recovered. noStore() takes this one render
+   * out of the cache, so the blip lasts as long as the blip.
+   */
+  const degraded = (listing: PublicListing) => {
+    if (listing.readFailed || listing.doorCheckFailed) noStore();
+    return listing;
+  };
 
   if (!url || !anonKey) {
     console.error(
       '[public-events] LISTING_READ_FAILED — Supabase URL or anon key is not configured, so nothing can be listed.',
     );
-    return { events: [], readFailed: true };
+    return degraded({ events: [], readFailed: true, doorCheckFailed: false });
   }
 
   try {
     const anon = createClient(url, anonKey);
     const admin = serviceKey ? createClient(url, serviceKey) : null;
-    return await PublicEventsService.listPublicWithStatus(anon, admin);
+    return degraded(await PublicEventsService.listPublicWithStatus(anon, admin));
   } catch (err) {
     console.error(
       '[public-events] LISTING_READ_FAILED — the listing threw:',
       err instanceof Error ? err.message : err,
     );
-    return { events: [], readFailed: true };
+    return degraded({ events: [], readFailed: true, doorCheckFailed: false });
   }
 }
 

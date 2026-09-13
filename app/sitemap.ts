@@ -60,7 +60,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
     (p) => !EXCLUDE_PREFIXES.some((skip) => p.startsWith(skip))
   );
 
+  // Subject to the same exclusions as the manifest's own paths. Appending after
+  // the filter would let a future entry under an excluded prefix walk straight
+  // past the list that exists to keep working surfaces out of sitemap.xml.
   for (const path of PUBLIC_PAGES) {
+    if (EXCLUDE_PREFIXES.some((skip) => path.startsWith(skip))) continue;
     if (!publicPaths.includes(path)) {
       publicPaths.push(path);
     }
