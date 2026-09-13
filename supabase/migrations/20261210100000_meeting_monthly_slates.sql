@@ -32,7 +32,14 @@
 --     allowed to have no time at all, and why the CHECK below ties those two
 --     facts together so one cannot drift from the other.
 --
--- NOT APPLIED TO PRODUCTION. This ships as a file; applying it is Director-gated.
+-- APPLIED TO PRODUCTION 2026-09-13, with the Director's explicit yes in session.
+-- Ledger row written: supabase_migrations.schema_migrations version 20261210100000.
+-- Verified live after applying: 3 tables with RLS on, anon holds NO grants, 11
+-- policies, 2 triggers, 12 CHECK constraints — and the constraints were
+-- negative-controlled ON PRODUCTION inside BEGIN..ROLLBACK (an unplaceable row
+-- carrying a time, a placed row with no time, an approved slate with no approver,
+-- ends_at before starts_at, a bad month: all rejected; two good writes accepted;
+-- all three tables left at 0 rows).
 
 -- ---------------------------------------------------------------------------
 -- 1. The proposed month
