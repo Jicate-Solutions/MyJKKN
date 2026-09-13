@@ -375,6 +375,8 @@ DECLARE
   v_event_id   UUID;
   v_max        INTEGER;
   v_behavior   TEXT;
+  v_status     TEXT;
+  v_closes_at  TIMESTAMPTZ;
   v_next_id    UUID;
 BEGIN
   -- OLD, not COALESCE(OLD, NEW). Both triggers that call this — AFTER UPDATE OF
@@ -390,12 +392,49 @@ BEGIN
     RETURN NULL;
   END IF;
 
-  SELECT e.max_registrations, e.cap_behavior
-    INTO v_max, v_behavior
+  SELECT e.max_registrations, e.cap_behavior, e.status, e.registration_close_date
+    INTO v_max, v_behavior, v_status, v_closes_at
     FROM public.events e
    WHERE e.id = v_event_id;
 
   IF v_max IS NULL OR v_behavior IS DISTINCT FROM 'waitlist' THEN
+    RETURN NULL;
+  END IF;
+
+  -- DO NOT OFFER A PLACE NOBODY COULD TAKE.
+  --
+  -- Two ways that happened. (1) A CANCELLED EVENT. Cancelling an event cancels
+  -- its registrations, and every one of those rows fires this trigger — so a
+  -- bulk cancel offered a held, irrevocable place to one waiter per cancelled
+  -- registration, i.e. to the whole queue, on an event that is not happening.
+  -- (2) AFTER THE WINDOW CLOSES. public-register refuses a closed window, so an
+  -- offer made afterwards was announced ("open the registration page") and then
+  -- turned away at the door — and because an offer holds its place with no
+  -- deadline and no revocation, that seat was held for good.
+  --
+  -- An offer made while the window was OPEN stays claimable after it closes:
+  -- the route exempts a caller who already holds one. That exemption is what
+  -- makes this guard safe rather than merely restrictive.
+  IF v_status IN ('cancelled', 'completed', 'draft') THEN
+    RETURN NULL;
+  END IF;
+  IF v_closes_at IS NOT NULL AND now() > v_closes_at THEN
+    RETURN NULL;
+  END IF;
+
+  -- CHEAPEST QUESTION FIRST. fn_event_waitlist_taken runs two COUNTs, and both
+  -- triggers are FOR EACH ROW: a bulk cancel of n registrations ran 2n counts
+  -- over the same two tables to discover, n times, that nobody is queuing.
+  -- Nothing below can do anything without a waiting row, so look for one first.
+  SELECT w.id
+    INTO v_next_id
+    FROM public.event_registration_waitlist w
+   WHERE w.event_id = v_event_id
+     AND w.status = 'waiting'
+   ORDER BY w.queue_seq ASC
+   LIMIT 1;
+
+  IF v_next_id IS NULL THEN
     RETURN NULL;
   END IF;
 
@@ -407,6 +446,8 @@ BEGIN
     RETURN NULL;
   END IF;
 
+  -- Re-read under the lock: the row found before it may have been promoted by a
+  -- concurrent firing.
   SELECT w.id
     INTO v_next_id
     FROM public.event_registration_waitlist w
@@ -430,7 +471,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.fn_event_registration_freed_offer_waitlist() IS
-  'When a registration is cancelled or removed from a waitlist-behaviour event that has spare capacity, offers the freed place to the person at the head of the queue. Offers one row only, holds the place, and sets no deadline. Announcing the offer is done by the application through the canonical notification fanout, never here.';
+  'When a registration is cancelled or removed from a waitlist-behaviour event that has spare capacity, offers the freed place to the person at the head of the queue. Offers one row only, holds the place, and sets no deadline. Refuses to offer at all when the event is draft/cancelled/completed or its registration window has closed — an offer nobody can take still holds its seat for good. Checks for a waiting row BEFORE counting, so a bulk cancel does not run two COUNTs per cancelled registration. Announcing the offer is done by the application through the canonical notification fanout, never here.';
 
 -- The third SECURITY DEFINER function in this file, and the one the
 -- check-secdef-anon-revoke gate never examined: that gate skips RETURNS TRIGGER,
