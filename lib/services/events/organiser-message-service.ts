@@ -339,25 +339,12 @@ export async function findContentDuplicate(
   return contentMatchIn((data ?? []) as ContentMatchRow[], input.subject, input.body, input.clientToken);
 }
 
-/**
- * How far a recorded send actually got, as the history is allowed to state it.
- *
- *   delivered   — the fanout reported recipients, or a notification exists.
- *   unconfirmed — the row was claimed and the ledger never heard back.
- *
- * The third state a reader might expect — "failed, nothing was delivered" —
- * deliberately does not exist, because we cannot prove it. A row sits at
- * notification_id NULL / delivered_count 0 when the fanout threw, AND when the
- * fanout fully succeeded and only the write-back afterwards failed. Those look
- * identical from here and one of them means every registrant already has the
- * message. Printing "nothing was delivered" over that second case is the exact
- * falsehood that pushes an organiser into a duplicate blast.
- */
-export function deliveryState(
-  row: Pick<SentMessageRow, 'notification_id' | 'delivered_count'>
-): 'delivered' | 'unconfirmed' {
-  return isUndelivered(row) ? 'unconfirmed' : 'delivered';
-}
+// `deliveryState` — what the history is allowed to claim about a send — lives
+// in organiser-message-compose.ts, because the BOARD has to render the same
+// verdict the server records and cannot import this file (it pulls in the
+// notification fanout). Re-exported here so server callers have one import
+// site. See that module for why "failed, nothing was delivered" is not one of
+// the states it can return.
 
 // The compose-side idempotency rule — the token is bound to the message's
 // CONTENT, not to the attempt, so a retry of a send that looked like it failed
@@ -366,6 +353,7 @@ export function deliveryState(
 // the client bundle (it imports the notification fanout).
 export { composeKey };
 export {
+  deliveryState,
   mintComposeToken,
   tokenForCompose,
   type ComposeToken,

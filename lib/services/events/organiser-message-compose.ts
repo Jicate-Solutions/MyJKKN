@@ -24,6 +24,32 @@
 // the next one.
 
 /**
+ * How far a recorded send actually got, as the history is allowed to state it.
+ *
+ *   delivered   — the fanout reported recipients, or a notification exists.
+ *   unconfirmed — the row was claimed and the ledger never heard back.
+ *
+ * The third state a reader expects — "failed, nothing was delivered" —
+ * deliberately does not exist, because we cannot claim it. A row sits at
+ * notification_id NULL / delivered_count 0 when the fanout threw, AND when the
+ * fanout fully succeeded and only the write-back afterwards failed. Those are
+ * indistinguishable from here, and one of them means every registrant already
+ * has the message. Printing "nothing was delivered" over that second case is
+ * the exact falsehood that pushes an organiser into a duplicate blast.
+ *
+ * Lives in this import-free module, next to composeKey and for the same
+ * reason: the board must render the same verdict the server records, and
+ * organiser-message-service.ts imports the notification fanout so it can never
+ * reach the client bundle. One definition, not two that drift.
+ */
+export function deliveryState(row: {
+  notification_id: string | null;
+  delivered_count: number;
+}): 'delivered' | 'unconfirmed' {
+  return !row.notification_id && (row.delivered_count ?? 0) === 0 ? 'unconfirmed' : 'delivered';
+}
+
+/**
  * Identity of one composed message. Insensitive to surrounding whitespace.
  *
  * JSON-encoded rather than concatenated with a separator: the encoding is

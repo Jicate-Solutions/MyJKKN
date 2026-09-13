@@ -88,6 +88,7 @@ import {
 } from '@/lib/services/events/notification-service';
 import {
   composeKey,
+  deliveryState,
   mintComposeToken,
   tokenForCompose,
   type ComposeToken,
@@ -141,13 +142,10 @@ function SentMessageRow({
   onResend: (message: EventRegistrantMessage) => void;
   busy: boolean;
 }) {
-  // NOT "failed". notification_id NULL with delivered_count 0 is the state a row
-  // is left in when the fanout threw AND when the fanout fully succeeded and
-  // only the write-back afterwards failed. Those are indistinguishable from
-  // here, and in the second one every registrant already has the message. The
-  // old copy — "nothing was delivered" — asserted the reading that pushes an
-  // organiser straight into a duplicate blast.
-  const unconfirmed = !message.notification_id && message.delivered_count === 0;
+  // NOT "failed". The server and this board read the same function, so the
+  // history cannot claim a verdict the ledger does not support — see
+  // deliveryState() for why "nothing was delivered" is not one of the answers.
+  const unconfirmed = deliveryState(message) === 'unconfirmed';
   // The unreachable number is STORED, never derived: audience_total counts
   // registrations and recipient_count counts people, so one learner registered
   // twice would otherwise be reported as someone who heard nothing.
@@ -603,7 +601,7 @@ export function MessagesBoard({
             </p>
             <p className="mt-2 text-xs text-muted-foreground">
               First sent {resendTarget ? formatWhen(resendTarget.sent_at) : ''}
-              {resendTarget && !(!resendTarget.notification_id && resendTarget.delivered_count === 0)
+              {resendTarget && deliveryState(resendTarget) === 'delivered'
                 ? ` — recorded as delivered to ${resendTarget.delivered_count} of ${resendTarget.recipient_count} we could reach.`
                 : ' — that send was never confirmed.'}
             </p>
