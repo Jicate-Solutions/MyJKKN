@@ -115,13 +115,15 @@ assert "RENAME source -> denied path (old side)    -> build" 1 "$(count "$BASE" 
 # ── 6. TYPECHANGE (file becomes a symlink) -> BUILD ──────────────────────────
 #    Status T. Another letter an allow-list would have to remember; omitting
 #    --diff-filter entirely is what covers it.
+#    `branch` has already restored the tree to BASE, so lib/helper.ts is back.
 branch f-typechange
-/bin/rm -f lib/fresh2.ts
-git rm -q --cached lib/helper.ts 2>/dev/null || true
-git checkout -q "$BASE" -- lib/helper.ts 2>/dev/null || true
 /bin/rm -f lib/helper.ts
 ln -s ../docs/guide.md lib/helper.ts
 git add -A && git commit -qm "turn a source file into a symlink"
+# Assert the status really is T — if a future git reported this as D+A the case
+# would still pass for the wrong reason, and stop guarding the missing letter.
+status6="$(git diff --name-status "$BASE...HEAD" | cut -c1 | tr -d '\n')"
+assert "TYPECHANGE reported as git status T         (sanity)" "T" "$status6"
 assert "TYPECHANGE source file -> symlink          -> build" 1 "$(count "$BASE" HEAD)"
 
 # ── 7. deletion of docs/SQL only -> SKIP (the fix must not over-trigger) ─────
