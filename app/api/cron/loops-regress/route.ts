@@ -66,6 +66,9 @@ const LOOP_FNS: { loopKey: string; fn: string }[] = [
   // consultants (2026-08-26): apply 20261003030000 via Mgmt API BEFORE this
   // line ships — the fn's absence reads as a weekly sim-error alert.
   { loopKey: 'consultants', fn: 'fn_loops_regress_consultants' },
+  // counselor-briefing-effect (2026-09-13): apply 20261210071700 BEFORE this
+  // line ships — the fn's absence reads as a weekly sim-error alert.
+  { loopKey: 'counselor-briefing-effect', fn: 'fn_loops_regress_counselor_briefing_effect' },
 ];
 
 type RegressRow = {
