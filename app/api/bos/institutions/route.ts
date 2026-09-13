@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { CoeRestClient } from '@/lib/services/coe/coe-rest-client';
 import { resolveBosAccess, hasAnyBosPermission, BOS_LOOKUP_VIEW_KEYS } from '@/lib/utils/bos/bos-access';
+import { withReferenceListCache } from '@/lib/http/cache-control';
 
 interface CoeInstitution {
   id: string;
@@ -81,7 +82,7 @@ export async function GET() {
 
     visible.sort((a, b) => a.name.localeCompare(b.name));
 
-    return NextResponse.json(visible);
+    return withReferenceListCache(NextResponse.json(visible), visible.length);
   } catch (error) {
     console.error('[bos/institutions] GET error:', error);
     return NextResponse.json({ error: 'Failed to fetch institutions' }, { status: 500 });

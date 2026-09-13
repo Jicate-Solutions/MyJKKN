@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { withReferenceListCache } from '@/lib/http/cache-control';
 
 export async function GET(request: NextRequest) {
   try {
@@ -14,7 +15,11 @@ export async function GET(request: NextRequest) {
 
     if (error) throw error;
 
-    return NextResponse.json({ data: data || [], count: data?.length || 0 });
+    const rows = data || [];
+    return withReferenceListCache(
+      NextResponse.json({ data: rows, count: rows.length }),
+      rows.length
+    );
   } catch (error) {
     console.error('[GET /api/institutions]', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
