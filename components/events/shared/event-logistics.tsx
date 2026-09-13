@@ -11,7 +11,7 @@
 import type { ComponentType, ReactNode } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Handshake, Package, Wallet, Users, UserCheck, QrCode, HeartHandshake, AlertTriangle, BadgeCheck, Upload, BarChart3, Shirt, ClipboardList } from 'lucide-react';
+import { Handshake, Package, Wallet, Users, UserCheck, QrCode, HeartHandshake, AlertTriangle, BadgeCheck, Upload, BarChart3, Shirt, ClipboardList, Megaphone } from 'lucide-react';
 import { RegistrationsBoard } from './registrations-board';
 import { SponsorsBoard } from './sponsors-board';
 import { BudgetBoard } from './budget-board';
@@ -24,6 +24,7 @@ import { CertificatesBoard } from './certificates-board';
 import { BulkImportBoard } from './bulk-import-board';
 import { AnalyticsBoard } from './analytics-board';
 import { KitBoard } from './kit-board';
+import { MessagesBoard } from './messages-board';
 
 export interface EventLogisticsContext {
   eventId: string;
@@ -142,6 +143,19 @@ export const EVENT_LOGISTICS_TABS: EventLogisticsTab[] = [
     icon: Shirt,
     eventTypes: 'all',
     render: ({ eventId, canManage }) => <KitBoard eventId={eventId} canManage={canManage} />,
+  },
+  // The organiser's one manual, deliberate message to the event's registrants.
+  // Appended, per the registry rule at the top of this file. The board renders
+  // an explicit "you do not have access" card rather than disappearing for a
+  // non-manager, so it is NOT added to SENSITIVE_TAB_KEYS below.
+  {
+    key: 'messages',
+    label: 'Messages',
+    icon: Megaphone,
+    eventTypes: 'all',
+    render: ({ eventId, canManage }) => (
+      <MessagesBoard eventId={eventId} canManage={canManage} />
+    ),
   },
 ];
 
