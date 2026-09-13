@@ -132,6 +132,32 @@ export function useUpdateGeneralEventStatus() {
 }
 
 /**
+ * Call an event off, with a reason.
+ *
+ * Separate from useUpdateGeneralEventStatus because the reason is not optional:
+ * GeneralEventService.cancel refuses a blank one, and so does the database.
+ * Invalidates KEYS.all rather than lists() for the same reason useDeleteEvent
+ * does — the hub table runs in fetchDataFn mode and refreshes off an invalidate
+ * on a CACHED query under the ['general-events'] prefix.
+ */
+export function useCancelGeneralEvent() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+      GeneralEventService.cancel(id, reason),
+    onSuccess: (event) => {
+      queryClient.invalidateQueries({ queryKey: KEYS.all });
+      queryClient.invalidateQueries({ queryKey: KEYS.detail(event.id) });
+      toast.success('Event cancelled — registration is now closed');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to cancel event');
+    },
+  });
+}
+
+/**
  * What deleting this event would cascade away.
  *
  * `enabled` is the point of this hook: the Events Hub renders ten rows a page,

@@ -17,7 +17,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { createClient as createAnonOrService } from '@supabase/supabase-js';
 import { createClient as createSessionClient } from '@/lib/supabase/server';
-import { CalendarClock, CalendarDays, MapPin, Ticket } from 'lucide-react';
+import { Ban, CalendarClock, CalendarDays, MapPin, Ticket } from 'lucide-react';
 import { effectiveFee, formRegistrationState, isFormOpen } from '@/types/tournament';
 import { EventRegisterForm } from './_components/event-register-form';
 
@@ -96,12 +96,60 @@ export default async function PublicEventRegisterPage({
   const { data: ev } = await svc
     .from('events')
     .select(
-      'id, name, event_type, status, event_date, start_date, venue, venue_text, registration_open_date, registration_close_date, max_registrations'
+      'id, name, event_type, status, event_date, start_date, venue, venue_text, registration_open_date, registration_close_date, max_registrations, cancellation_reason, cancelled_at'
     )
     .eq('id', id)
     .maybeSingle();
 
-  if (!ev || ['draft', 'cancelled'].includes(ev.status)) {
+  if (!ev) {
+    return <Empty title="Registration not available" msg="This event is not open for registration." />;
+  }
+
+  // A CANCELLED event says so, by name, with the reason the organiser gave.
+  //
+  // Checked BEFORE every other branch: someone holding this link was told about
+  // this event, and "not open for registration" — the generic answer this page
+  // gave until now — reads as a closed window they might have missed rather than
+  // as an event that is not happening. No redirect and no 404: the page exists,
+  // the answer is just no, and the reason is the only thing that makes the no
+  // usable.
+  //
+  // Registration is not stopped HERE, and no second mechanism is added: this
+  // page and /api/events/[eventId]/public-register have always refused a
+  // `cancelled` event, exactly as they refuse a closed registration window. This
+  // branch only replaces a silent-shaped refusal with an explicit one.
+  if (ev.status === 'cancelled') {
+    const cancelledOn = ev.cancelled_at
+      ? new Date(ev.cancelled_at).toLocaleDateString('en-IN', {
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+        })
+      : null;
+
+    return (
+      <main className="mx-auto max-w-xl px-4 py-16">
+        <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-6 text-center">
+          <Ban className="mx-auto mb-3 h-10 w-10 text-red-600 dark:text-red-400" />
+          <h1 className="text-xl font-semibold">This event has been cancelled</h1>
+          <p className="mt-1 text-sm font-medium">{ev.name}</p>
+          {cancelledOn && (
+            <p className="mt-1 text-xs text-muted-foreground">Cancelled on {cancelledOn}</p>
+          )}
+          <p className="mt-4 whitespace-pre-line text-sm">
+            {ev.cancellation_reason ||
+              'The organiser has not recorded a reason. Please contact them for details.'}
+          </p>
+          <p className="mt-4 text-xs text-muted-foreground">
+            No further registrations are being accepted. If you already registered, your
+            entry has not been removed — the organiser still has your details.
+          </p>
+        </div>
+      </main>
+    );
+  }
+
+  if (ev.status === 'draft') {
     return <Empty title="Registration not available" msg="This event is not open for registration." />;
   }
 

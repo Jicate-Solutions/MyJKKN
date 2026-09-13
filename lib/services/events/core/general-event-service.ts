@@ -33,17 +33,15 @@ export class GeneralEventService {
    */
   static async updateStatus(id: string, newStatus: EventStatus): Promise<Event> {
     try {
-      const event = await EventBaseService.getEvent(id);
-      if (!event) {
-        throw new Error(`Event not found: ${id}`);
+      // Cancelling carries a reason this signature has nowhere to put, and the
+      // database refuses a reasonless cancel outright (trg_events_stamp_
+      // cancellation). Refusing here names the right door instead of letting the
+      // call travel to the server to fail there.
+      if (newStatus === 'cancelled') {
+        throw new Error('Cancelling an event needs a reason — use GeneralEventService.cancel().');
       }
 
-      const allowedTransitions = GENERAL_EVENT_STATUS_TRANSITIONS[event.status] ?? [];
-      if (!allowedTransitions.includes(newStatus)) {
-        throw new Error(
-          `Invalid status transition: ${event.status} -> ${newStatus}. Allowed: ${allowedTransitions.join(', ') || 'none'}`
-        );
-      }
+      const event = await this.assertTransition(id, newStatus);
 
       const updated = await EventBaseService.updateEvent(id, { status: newStatus });
       logger.info('events/general', 'Status updated', {
@@ -61,5 +59,76 @@ export class GeneralEventService {
       });
       throw error;
     }
+  }
+
+  /**
+   * Call an event off, with the reason the organiser gives.
+   *
+   * A SEPARATE method from updateStatus, not an optional argument on it: every
+   * other transition here is a reasonless flip between Draft and Active, and a
+   * `reason?` parameter that is mandatory for exactly one value is the shape
+   * that gets called without it. The transition itself is still validated
+   * against the same GENERAL_EVENT_STATUS_TRANSITIONS map, so `cancelled` is
+   * reachable only from `live` — a draft was never announced, so there is
+   * nobody to tell.
+   *
+   * WHAT THIS DOES NOT DO. It does not touch events_registrations: a cancelled
+   * event keeps its registrant list, because the list is who has to be told.
+   * Registration stops because the public page and /api/events/[eventId]/
+   * public-register both already refuse a `cancelled` event — the same guard
+   * that closes a registration window, not a second mechanism.
+   *
+   * `cancelled_at` and `cancelled_by` are NOT sent from here. They are stamped
+   * by the BEFORE UPDATE trigger from auth.uid(), so the row records who
+   * actually cancelled it rather than whoever the browser said.
+   *
+   * Permission is the EDIT permission, unchanged: the UI gates on canEditEvent()
+   * and the database on events_auth_update / events_incharge_update. No cancel-
+   * specific guard exists, on purpose — a parallel rule is a rule that drifts.
+   */
+  static async cancel(id: string, reason: string): Promise<Event> {
+    const trimmedReason = reason.trim();
+
+    try {
+      if (!trimmedReason) {
+        throw new Error('Give a reason for cancelling — the people registered will be shown it.');
+      }
+
+      const event = await this.assertTransition(id, 'cancelled');
+
+      const updated = await EventBaseService.updateEvent(id, {
+        status: 'cancelled',
+        cancellation_reason: trimmedReason,
+      });
+      logger.info('events/general', 'Event cancelled', {
+        eventId: id,
+        from: event.status,
+      });
+
+      return updated;
+    } catch (error) {
+      logger.error('events/general', 'Failed to cancel general event', { id, error });
+      throw error;
+    }
+  }
+
+  /**
+   * Load the event and check the move is one this lifecycle allows. Shared by
+   * updateStatus and cancel so the two cannot disagree about the map.
+   */
+  private static async assertTransition(id: string, newStatus: EventStatus): Promise<Event> {
+    const event = await EventBaseService.getEvent(id);
+    if (!event) {
+      throw new Error(`Event not found: ${id}`);
+    }
+
+    const allowedTransitions = GENERAL_EVENT_STATUS_TRANSITIONS[event.status] ?? [];
+    if (!allowedTransitions.includes(newStatus)) {
+      throw new Error(
+        `Invalid status transition: ${event.status} -> ${newStatus}. Allowed: ${allowedTransitions.join(', ') || 'none'}`
+      );
+    }
+
+    return event;
   }
 }

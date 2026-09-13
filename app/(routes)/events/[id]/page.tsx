@@ -19,6 +19,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
+  Ban,
   Building2,
   CalendarDays,
   CalendarClock,
@@ -45,12 +46,23 @@ import {
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
 import { NaacCriteriaChips } from '@/components/events/shared/naac-criteria-field';
 import { EventLogistics } from '@/components/events/shared/event-logistics';
 import {
+  useCancelGeneralEvent,
   useGeneralEvent,
   useUpdateGeneralEvent,
   useUpdateGeneralEventStatus,
@@ -58,6 +70,7 @@ import {
 } from '@/hooks/events/use-general-events';
 import {
   GENERAL_EVENT_ACTIVE_STATUS,
+  GENERAL_EVENT_STATUS_TRANSITIONS,
   generalEventStatusLabel,
   isGeneralEventActive,
 } from '@/types/events';
@@ -135,11 +148,103 @@ function Fact({
 }
 
 /**
- * Draft <-> Active. General events run the 2-state model in
+ * Call the event off, in the organiser's own words.
+ *
+ * The reason is REQUIRED and it is PUBLIC: /p/event/[id]/register prints it to
+ * whoever follows the registration link. That is the whole point of the state —
+ * moving the event back to Draft already hid it, and told the people registered
+ * nothing.
+ *
+ * Its own dialog rather than an entry in the status menu, because a free-text
+ * reason needs somewhere to be typed. The hub's row menu deliberately does not
+ * offer Cancel for the same reason (see row-actions.tsx).
+ */
+function CancelEventDialog({ event }: { event: Event }) {
+  const cancelEvent = useCancelGeneralEvent();
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  const trimmedReason = reason.trim();
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setReason('');
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-8 gap-1.5 text-xs text-red-600 hover:text-red-600 dark:text-red-400 dark:hover:text-red-400"
+        >
+          <Ban className="h-3.5 w-3.5" />
+          Cancel event
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Cancel {event.name}?</DialogTitle>
+          <DialogDescription>
+            The event page will say the event is cancelled and show your reason, and no
+            further registrations are accepted. Everyone who already registered stays on
+            the list — nothing is deleted.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-2">
+          <Label htmlFor="ge-cancel-reason">Why is it being cancelled?</Label>
+          <Textarea
+            id="ge-cancel-reason"
+            rows={4}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="e.g. The chief guest is unavailable and no replacement date is fixed yet."
+          />
+          <p className="text-xs text-muted-foreground">
+            Required, and shown publicly — write it for the people who registered.
+          </p>
+        </div>
+
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => setOpen(false)}
+            disabled={cancelEvent.isPending}
+          >
+            Keep the event
+          </Button>
+          <Button
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            disabled={!trimmedReason || cancelEvent.isPending}
+            onClick={() =>
+              cancelEvent.mutate(
+                { id: event.id, reason: trimmedReason },
+                {
+                  onSuccess: () => {
+                    setOpen(false);
+                    setReason('');
+                  },
+                }
+              )
+            }
+          >
+            {cancelEvent.isPending && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
+            Cancel this event
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Draft <-> Active, plus Cancelled. General events run the model in
  * GENERAL_EVENT_STATUS_TRANSITIONS: Draft hides the event and closes
- * registration, Active opens it. The shared 8-state lifecycle is never offered
- * here — it has no draft -> live edge, so a one-click activation gated on it
- * would be rejected server-side.
+ * registration, Active opens it, Cancelled calls it off with a public reason.
+ * The shared 8-state lifecycle is never offered here — it has no draft -> live
+ * edge, so a one-click activation gated on it would be rejected server-side.
  */
 function GeneralEventStatusControl({
   event,
@@ -150,16 +255,24 @@ function GeneralEventStatusControl({
 }) {
   const updateStatus = useUpdateGeneralEventStatus();
   const active = isGeneralEventActive(event.status);
+  const cancelled = event.status === 'cancelled';
   const target: EventStatus = active ? 'draft' : GENERAL_EVENT_ACTIVE_STATUS;
+  // Read from the same map the service validates against, so the button cannot
+  // offer a move the server will refuse.
+  const canCancel = (GENERAL_EVENT_STATUS_TRANSITIONS[event.status] ?? []).includes(
+    'cancelled'
+  );
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       <Badge
         variant="outline"
         className={`text-[10px] uppercase ${
-          active
-            ? 'border-emerald-300 text-emerald-700 dark:border-emerald-800 dark:text-emerald-400'
-            : ''
+          cancelled
+            ? 'border-destructive/40 text-red-600 dark:text-red-400'
+            : active
+              ? 'border-emerald-300 text-emerald-700 dark:border-emerald-800 dark:text-emerald-400'
+              : ''
         }`}
       >
         {generalEventStatusLabel(event.status)}
@@ -167,7 +280,7 @@ function GeneralEventStatusControl({
           <span className="ml-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
         )}
       </Badge>
-      {/* Read-only viewers keep the status badge and lose the lever. */}
+      {/* Read-only viewers keep the status badge and lose the levers. */}
       {canEdit && (
       <Button
         size="sm"
@@ -178,13 +291,16 @@ function GeneralEventStatusControl({
         title={
           active
             ? 'Move back to Draft — hides the event and closes registration'
-            : 'Make this event Active so it is visible and open'
+            : cancelled
+              ? 'Reinstate this event — it becomes visible and open again, and the cancellation notice comes down'
+              : 'Make this event Active so it is visible and open'
         }
       >
         {updateStatus.isPending && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
-        {active ? 'Move to Draft' : 'Make Active'}
+        {active ? 'Move to Draft' : cancelled ? 'Reinstate event' : 'Make Active'}
       </Button>
       )}
+      {canEdit && canCancel && <CancelEventDialog event={event} />}
     </div>
   );
 }
@@ -216,7 +332,9 @@ function PublicVisibilityToggle({
           {event.is_public
             ? active
               ? 'Anyone with the link can see this event.'
-              : 'Marked public, but still hidden while the event is a Draft.'
+              : event.status === 'cancelled'
+                ? 'Marked public. Anyone following the registration link is told the event is cancelled, and why.'
+                : 'Marked public, but still hidden while the event is a Draft.'
             : 'Only signed-in users at your institution can see this event.'}
         </p>
       </div>
@@ -411,6 +529,28 @@ export default function GeneralEventDetailPage() {
             )}
           </div>
         </div>
+
+        {/* A cancelled event says so, at the top, with the reason it was given.
+            House rule: a refusal is explicit and names what happened — the
+            organiser must not have to infer it from a missing "Active" badge. */}
+        {event.status === 'cancelled' && (
+          <div className="flex gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-4">
+            <Ban className="mt-0.5 h-5 w-5 shrink-0 text-red-600 dark:text-red-400" />
+            <div className="min-w-0 space-y-1">
+              <p className="text-sm font-semibold text-red-600 dark:text-red-400">
+                This event is cancelled
+                {formatDate(event.cancelled_at) ? ` · ${formatDate(event.cancelled_at)}` : ''}
+              </p>
+              <p className="break-words text-sm">
+                {event.cancellation_reason || 'No reason was recorded for this cancellation.'}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Registration is closed and the public page shows this reason. Everyone who
+                registered is still on the list — nothing was removed.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Details left, the levers that change what the world sees on the right. */}
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">

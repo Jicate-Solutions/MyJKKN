@@ -73,7 +73,15 @@ export const GENERAL_EVENT_ACTIVE_STATUS = 'live' as const satisfies EventStatus
  */
 export const GENERAL_EVENT_STATUS_TRANSITIONS: Partial<Record<EventStatus, EventStatus[]>> = {
   draft: ['live'],
-  live: ['draft'],
+  // live -> cancelled (2026-09-13): calling off a live event is a THIRD state,
+  // not a return to Draft. Moving it back to draft hides the page and closes
+  // registration, but says nothing to the people already registered and leaves
+  // the event looking unpublished rather than called off. `cancelled` carries a
+  // reason, and the public registration page prints it.
+  //
+  // NOT offered from `draft`: a draft was never announced, so there is nobody to
+  // tell and nothing to call off — deleting or leaving it is the honest answer.
+  live: ['draft', 'cancelled'],
   planning: ['draft', 'live'],
   preparation: ['draft', 'live'],
   execution: ['draft', 'live'],
@@ -82,14 +90,30 @@ export const GENERAL_EVENT_STATUS_TRANSITIONS: Partial<Record<EventStatus, Event
   cancelled: ['draft', 'live'],
 };
 
-/** Draft vs Active — every non-draft general-event status reads as Active. */
+/**
+ * Draft vs Active vs Cancelled.
+ *
+ * `cancelled` is named rather than collapsed into "Active": every OTHER
+ * non-draft value (planning, execution, post_event, …) is a legacy row still
+ * genuinely running, but a cancelled event is called off, and reporting it as
+ * "Active" in the hub would be the badge lying about the one status that most
+ * needs to be read correctly.
+ */
 export function generalEventStatusLabel(status: string): string {
-  return status === 'draft' ? 'Draft' : 'Active';
+  if (status === 'draft') return 'Draft';
+  if (status === 'cancelled') return 'Cancelled';
+  return 'Active';
 }
 
-/** True when the event is open (i.e. anything that isn't a draft). */
+/**
+ * True when the event is open — not a draft, and not cancelled.
+ *
+ * Cancelled is excluded for the same reason the label names it: this flag drives
+ * the green "open" badge on the hub and the "Event is now Active" toast, and a
+ * called-off event is neither.
+ */
 export function isGeneralEventActive(status: string): boolean {
-  return status !== 'draft';
+  return status !== 'draft' && status !== 'cancelled';
 }
 
 // ── Induction ────────────────────────────────────────────────────────────────
@@ -208,6 +232,15 @@ export interface Event {
   // quality-evidence-spine emitter (PR #2408); written by the NAAC criteria
   // field on the tournament edit dialog (Wave 3, 2026-07-26).
   naac_criteria: string[];
+  // Cancellation (migration 20261204113700). Written only when an event is
+  // called off: the organiser supplies `cancellation_reason`, and a BEFORE
+  // UPDATE trigger stamps `cancelled_at` / `cancelled_by` — the client never
+  // sets the last two. All three survive an un-cancel, as the record of what
+  // happened; read them only when `status === 'cancelled'`.
+  cancellation_reason: string | null;
+  cancelled_at: string | null;
+  /** auth.uid() of whoever cancelled it, stamped by the trigger. */
+  cancelled_by: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -367,6 +400,12 @@ export interface UpdateEventDto extends Partial<CreateEventDto> {
   hero_image_url?: string;
   hero_video_url?: string;
   route_config?: Record<string, unknown>;
+  /**
+   * Why the event was called off. Required by the database when `status` moves
+   * to 'cancelled' (trigger trg_events_stamp_cancellation raises 23514 without
+   * it); `cancelled_at` and `cancelled_by` are stamped there, never sent here.
+   */
+  cancellation_reason?: string | null;
 }
 
 /**
