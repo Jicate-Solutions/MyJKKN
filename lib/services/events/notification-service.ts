@@ -56,11 +56,24 @@ export interface EventRegistrantMessage {
   /** profiles.full_name of the sender, resolved server-side. */
   sent_by_name: string | null;
   sent_at: string;
+  /**
+   * The message this one deliberately repeats, or null for a first send. Set
+   * only by the "Send again" action, never by the compose form.
+   */
+  resend_of: string | null;
 }
 
 export interface EventMessagePanel {
   audience: EventMessageAudienceSummary;
   messages: EventRegistrantMessage[];
+  /**
+   * message id → how many deliberate resends it has, counted over the WHOLE
+   * event rather than over the page in `messages`. Derived client-side from the
+   * visible rows, a message resent three times whose repeats had scrolled past
+   * the window read as never repeated. Empty when the `resend_of` column is not
+   * in the database yet — no claim rather than a wrong one.
+   */
+  resendCounts: Record<string, number>;
 }
 
 /**
@@ -72,7 +85,16 @@ export class EventMessageError extends Error {
   constructor(
     message: string,
     readonly code: string | null,
-    readonly status: number
+    readonly status: number,
+    /**
+     * For `ALREADY_SENT`: the message this compose duplicates, as the server
+     * found it. THE ROW, not an id — the panel shows only the newest 20
+     * messages and has no pagination, so an id the board cannot resolve is an
+     * instruction the organiser cannot follow, and on a busy event that left no
+     * way to send the text at all. Null on every other failure, and on the rare
+     * refusal where even the exhaustive lookup named nothing.
+     */
+    readonly duplicate: EventRegistrantMessage | null = null
   ) {
     super(message);
     this.name = 'EventMessageError';
@@ -85,7 +107,8 @@ async function readJsonOrThrow(res: Response): Promise<any> {
     throw new EventMessageError(
       payload?.error ?? 'Something went wrong. Please try again.',
       payload?.code ?? null,
-      res.status
+      res.status,
+      (payload?.duplicate ?? null) as EventRegistrantMessage | null
     );
   }
   return payload;
@@ -111,6 +134,7 @@ export class EventsNotificationService {
     return {
       audience: payload.audience as EventMessageAudienceSummary,
       messages: (payload.messages ?? []) as EventRegistrantMessage[],
+      resendCounts: (payload.resend_counts ?? {}) as Record<string, number>,
     };
   }
 
@@ -120,10 +144,15 @@ export class EventsNotificationService {
    * `clientToken` is minted once per composed message. Re-posting the same
    * token returns the first send rather than delivering a second time
    * (`deduplicated: true`), which is what makes a double click harmless.
+   *
+   * `resendOf` names the message this one deliberately repeats. Omit it for a
+   * first send — the server then REFUSES the request (409, code `ALREADY_SENT`)
+   * if these exact words have gone out on this event before, so a re-typed
+   * announcement cannot become a silent second blast.
    */
   static async sendRegistrantMessage(
     eventId: string,
-    input: { subject: string; body: string; clientToken: string }
+    input: { subject: string; body: string; clientToken: string; resendOf?: string | null }
   ): Promise<{ message: EventRegistrantMessage; deduplicated: boolean }> {
     const res = await fetch(`/api/events/${encodeURIComponent(eventId)}/messages`, {
       method: 'POST',
@@ -132,6 +161,7 @@ export class EventsNotificationService {
         subject: input.subject,
         body: input.body,
         client_token: input.clientToken,
+        resend_of: input.resendOf ?? null,
       }),
     });
     const payload = await readJsonOrThrow(res);

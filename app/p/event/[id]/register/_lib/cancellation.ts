@@ -1,32 +1,47 @@
-// Public event registration page — what it asks the database for, and how it
-// reads a cancellation without depending on a migration having been applied.
+// Public event registration page — what it asks the database for, and what a
+// visitor is told when the event has been called off.
 //
 // ─── WHY THIS FILE EXISTS ────────────────────────────────────────────────────
 //
-// Code ships before migrations here. A deploy can land minutes or days before an
-// operator applies `20261204113700_events_cancellation_reason_and_stamp.sql`.
+// Two rulings live here, and they pull in the same direction.
 //
-// PostgREST fails an ENTIRE select when one named column is missing —
-// `{"code":"42703","message":"column events.cancellation_reason does not
-// exist"}`, HTTP 400, no rows. So naming `cancellation_reason` / `cancelled_at`
-// in this page's main select would, on today's production schema, return no row
-// for EVERY event and turn the public registration page into "Registration not
-// available" for all 55 of them. Verified read-only against production
-// 2026-09-13: the three columns do not exist, and no event is in `cancelled`.
+// 1. "SHORT PUBLIC LINE, FULL REASON KEPT INSIDE" (Director, 13 Sep). The
+//    organiser's typed reason is written at the worst moment of an event's
+//    life, with no review step, and it used to be published verbatim to anyone
+//    holding the link. The public now gets a plain, standard sentence and
+//    somewhere to ask.
 //
-// The main select therefore names only columns that exist today, and the two
-// cancellation columns are fetched in a SECOND, best-effort query that is only
-// ever run for an event already reading `status = 'cancelled'` — a state
-// production cannot currently reach. Before the migration: nothing changes.
-// After it: the reason and the date appear.
+// 2. "KEEP THE REASON OUT OF THE PUBLIC TABLE ENTIRELY" (Director, 13 Sep).
+//    Not printing it was not enough. `events_public_read` has no TO clause and
+//    `is_public` defaults to true, so `events` is anon-readable — and the reason
+//    is KEPT when an event is reinstated. A column on `events` would therefore
+//    have published the text to the public anon key the moment a cancelled
+//    event went live again, with no page printing it and nothing to notice. So
+//    the reason is not a column on `events` at all: it is a row in
+//    `public.event_cancellations`, which `anon` holds no grant on and no policy
+//    names. See migration 20261204113700.
+//
+// WHAT THAT MEANS FOR THIS FILE. `cancellation_reason`, `cancelled_at` and
+// `cancelled_by` are not columns on `events` — not now, and not after the
+// migration is applied. Naming one in this page's select would be a permanent
+// 42703 (`{"code":"42703","message":"column events.cancellation_reason does not
+// exist"}`, HTTP 400, no rows), which fails the ENTIRE select and would turn
+// public registration into "Registration not available" for every event. This
+// page reads no cancellation data at all, from any table.
+//
+// Nothing is lost by the organiser: the reason is still stored exactly as
+// typed, and the /events/[id] console still shows it in full to colleagues at
+// the institution who can open the event.
 
 /**
  * Columns the registration page needs to decide whether it can take a
- * registration. Unchanged from before the cancellation work — deliberately.
+ * registration.
  *
  * DO NOT ADD `cancellation_reason`, `cancelled_at` or `cancelled_by` HERE.
- * They are not on production yet, and one missing column fails the whole
- * select (42703), which would break public registration for every event.
+ * They are not columns on `events` and are never going to be — they live in
+ * `public.event_cancellations`, deliberately out of reach of the public key.
+ * Naming one here is a permanent 42703, and one missing column fails the whole
+ * select, which would break public registration for every event.
  * `__tests__/events/events-cancellation.test.ts` fails if they are added back.
  *
  * ONE STRING LITERAL, NOT A CONCATENATION. supabase-js infers the row type from
@@ -37,59 +52,34 @@
 export const PUBLIC_EVENT_COLUMNS =
   'id, name, event_type, status, event_date, start_date, venue, venue_text, registration_open_date, registration_close_date, max_registrations';
 
-export interface CancellationDetails {
-  reason: string | null;
-  cancelledAt: string | null;
-}
-
-/** Nothing known — what a pre-migration schema yields, and a safe render. */
-export const NO_CANCELLATION_DETAILS: CancellationDetails = {
-  reason: null,
-  cancelledAt: null,
-};
+/**
+ * Where a member of the public is sent with a question about a cancelled event.
+ *
+ * The `events` table carries no per-event contact — `contact_phone` belongs to
+ * `event_proposals`, a different table with a different lifetime — so this is
+ * the institution-wide address already published on /privacy, /terms and
+ * /data-deletion. One address the public already sees elsewhere beats a guess
+ * at a departmental mailbox that may not be read.
+ */
+export const PUBLIC_CANCELLATION_CONTACT_EMAIL = 'support@jkkn.ac.in';
 
 /**
- * The reason and the date, IF the columns exist.
+ * The whole of what a cancellation says in public. Standard, identical for
+ * every event, written in advance rather than at 11pm by whoever is holding the
+ * phone.
  *
- * Any error at all — the columns missing (42703), the row gone, RLS — degrades
- * to nulls rather than throwing, and the page falls back to "The organiser has
- * not recorded a reason." A cancelled event still says it is cancelled; only the
- * detail is missing. That is the correct trade: the status is the part the
- * reader must not be denied.
- *
- * Duck-typed on `from` alone, so the page's supabase-js client and a stub in a
- * test both satisfy it. The builder chain is deliberately `any`: spelling the
- * PostgREST builder out here would couple this helper to the client's generics
- * for no gain, and every value that comes back is narrowed at runtime below —
- * which it has to be anyway, because the columns may not exist.
+ * Deliberately NOT a template that interpolates the organiser's words. The
+ * moment this file formats free text into the public page again, the ruling is
+ * gone.
  */
-export async function fetchCancellationDetails(
-  client: { from: (table: string) => any },
-  eventId: string
-): Promise<CancellationDetails> {
-  try {
-    const { data, error } = await client
-      .from('events')
-      .select('cancellation_reason, cancelled_at')
-      .eq('id', eventId)
-      .maybeSingle();
-
-    if (error || !data) return NO_CANCELLATION_DETAILS;
-
-    const row = data as { cancellation_reason?: unknown; cancelled_at?: unknown };
-    const reason = typeof row.cancellation_reason === 'string' ? row.cancellation_reason.trim() : '';
-    const cancelledAt = typeof row.cancelled_at === 'string' ? row.cancelled_at : null;
-
-    return { reason: reason || null, cancelledAt };
-  } catch {
-    return NO_CANCELLATION_DETAILS;
-  }
-}
-
-/** "13 September 2026", or null when there is no date to show. */
-export function formatCancelledOn(iso: string | null): string | null {
-  if (!iso) return null;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
-}
+export const PUBLIC_CANCELLATION_NOTICE = {
+  /** The one fact the visitor came for. */
+  headline: 'This event has been cancelled',
+  /** No further entries — said plainly, so nobody waits for the form to reopen. */
+  body: 'No further registrations are being accepted for this event.',
+  /** What happens to an entry already made. True regardless of the reason. */
+  alreadyRegistered:
+    'If you already registered, your entry has not been removed — the organiser still has your details.',
+  /** Somewhere to ask, because the reason is no longer printed here. */
+  contactPrompt: 'For anything else about this event, please write to',
+} as const;

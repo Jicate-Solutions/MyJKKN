@@ -108,6 +108,32 @@ CREATE INDEX IF NOT EXISTS idx_event_registrant_messages_event
 -- and blasting an audience are different acts), and because a function named
 -- for feedback silently deciding who may send messages is exactly the kind of
 -- misdirection that survives review and then surprises someone.
+-- ---------------------------------------------------------------------------
+-- AMENDED 2026-09-13, BEFORE THIS FILE WAS EVER APPLIED — institution scope
+-- ---------------------------------------------------------------------------
+-- The `is_admin()` branch below used to be bare. That function is role-key based
+-- and cluster-wide (profiles.is_super_admin OR role IN ('admin','super_admin',
+-- 'administrator')), and `events` spans nine institutions — so an administrator
+-- of one college would have passed this gate for every other college's events,
+-- and this gate guards a list of registrants and the messages sent to them.
+--
+-- EDITED HERE RATHER THAN HARDENED IN A LATER FILE, on purpose. This migration
+-- is merged to main but NOT APPLIED: the function does not exist in production
+-- and public.event_registrant_messages is absent (both checked against the live
+-- catalogue on 2026-09-13). A later CREATE OR REPLACE would therefore be undone
+-- the moment an operator applied THIS file and re-created the unscoped version
+-- over it — the failure mode recorded in memory
+-- `reference_migration_rename_reverts_later_hardenings`. Amending the proposal
+-- is the only fix that survives being applied in any order.
+--
+-- The applied sibling, fn_can_manage_event_feedback, had the identical flaw and
+-- IS live, so it is fixed by its own dated migration
+-- 20261210090000_event_gates_institution_scope.sql, which carries the counted
+-- impact.
+--
+-- Only the admin branch is scoped. is_super_admin() is genuinely platform-wide;
+-- an in-charge is appointed on this event and a creator made it, so both are
+-- already event-scoped by construction.
 CREATE OR REPLACE FUNCTION public.fn_can_manage_event_messages(p_event_id uuid)
 RETURNS boolean
 LANGUAGE sql
@@ -117,7 +143,15 @@ SET search_path = public
 AS $$
   SELECT
     public.is_super_admin()
-    OR public.is_admin()
+    OR (
+      public.is_admin()
+      AND EXISTS (
+        SELECT 1
+        FROM public.events e
+        WHERE e.id = p_event_id
+          AND (e.institution_id IS NULL OR public.role_has_institution_access(e.institution_id))
+      )
+    )
     OR public.fn_is_event_incharge(p_event_id)
     OR EXISTS (
       SELECT 1
@@ -128,7 +162,7 @@ AS $$
 $$;
 
 COMMENT ON FUNCTION public.fn_can_manage_event_messages(uuid) IS
-  'Authority to send an event''s registrants a message and to read the log of what was already sent. Super admin, admin, the event in-charge (events.config->incharges), or the event''s creator — nothing else. Mirrors fn_can_manage_event_feedback; deliberately rejects events.view.';
+  'Authority to send an event''s registrants a message and to read the log of what was already sent. Super admin; an admin WITH institution access to the event (role_has_institution_access — this gate guards a registrant list and what was said to it, so an admin of another college must not pass); the event in-charge (events.config->incharges); or the event''s creator. Nothing else, and deliberately not events.view.';
 
 -- Lock the function from anon. Postgres grants EXECUTE to PUBLIC by default and
 -- Supabase's ALTER DEFAULT PRIVILEGES grants anon on top, so a new SECURITY

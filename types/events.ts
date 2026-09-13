@@ -77,7 +77,10 @@ export const GENERAL_EVENT_STATUS_TRANSITIONS: Partial<Record<EventStatus, Event
   // not a return to Draft. Moving it back to draft hides the page and closes
   // registration, but says nothing to the people already registered and leaves
   // the event looking unpublished rather than called off. `cancelled` carries a
-  // reason, and the public registration page prints it.
+  // reason — INTERNAL, not public (Director's ruling, 13 Sep: "short public
+  // line, full reason kept inside"). The public registration page prints a
+  // standard cancellation notice and an address to write to; the organiser's
+  // own words are shown in full only on the /events/[id] console.
   //
   // NOT offered from `draft`: a draft was never announced, so there is nobody to
   // tell and nothing to call off — deleting or leaving it is the honest answer.
@@ -232,22 +235,16 @@ export interface Event {
   // quality-evidence-spine emitter (PR #2408); written by the NAAC criteria
   // field on the tournament edit dialog (Wave 3, 2026-07-26).
   naac_criteria: string[];
-  // Cancellation (migration 20261204113700 — FILE ONLY, not yet applied to
-  // production as of 2026-09-13). Written only when an event is called off: the
-  // organiser supplies `cancellation_reason`, and a BEFORE UPDATE trigger stamps
-  // `cancelled_at` / `cancelled_by` — the client never sets the last two. All
-  // three survive an un-cancel, as the record of what happened; read them only
-  // when `status === 'cancelled'`.
+  // NO CANCELLATION FIELDS HERE, AND THEY MUST NOT COME BACK.
   //
-  // Because the migration may not be applied yet, these arrive as `undefined`
-  // from a `select('*')` against today's schema. Treat a falsy value as "not
-  // recorded" — never name them in an explicit `.select()` on a public path, or
-  // PostgREST fails the whole query with 42703. See
-  // app/p/event/[id]/register/_lib/cancellation.ts.
-  cancellation_reason: string | null;
-  cancelled_at: string | null;
-  /** auth.uid() of whoever cancelled it, stamped by the trigger. */
-  cancelled_by: string | null;
+  // Why an event was called off lives in `public.event_cancellations` — see
+  // EventCancellation below and migration 20261204113700. `events` is
+  // anon-readable (`events_public_read` has no TO clause and `is_public`
+  // defaults to true), and the reason is KEPT when an event is reinstated, so a
+  // column here would publish the organiser's verbatim text to the public anon
+  // key the moment a cancelled event went live again — with no page printing it
+  // and nothing to notice. Director's ruling, 13 Sep 2026: "keep the reason out
+  // of the public table entirely."
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -407,17 +404,34 @@ export interface UpdateEventDto extends Partial<CreateEventDto> {
   hero_image_url?: string;
   hero_video_url?: string;
   route_config?: Record<string, unknown>;
-  /**
-   * Why the event was called off.
-   *
-   * Required by GeneralEventService.cancel() and by the cancel dialog — NOT by
-   * the table. `events` is shared with marathons, tournaments and inductions,
-   * whose own flows cancel a row without a reason, so a table-wide requirement
-   * would break them. The trigger trg_events_stamp_cancellation only normalises
-   * this value (trim, blank → NULL) and stamps `cancelled_at` / `cancelled_by`,
-   * which are never sent from here.
-   */
-  cancellation_reason?: string | null;
+  // Deliberately no `cancellation_reason`: it is not a column on `events`. See
+  // the note in the Event interface above, and EventCancellation below.
+}
+
+/**
+ * Why a general event was called off — the row in `public.event_cancellations`.
+ *
+ * A SEPARATE TABLE, not three columns on `events`, because `events` is
+ * anon-readable and the reason is kept when an event is reinstated. See
+ * migration 20261204113700 for the full reasoning and the three alternatives
+ * the Director rejected.
+ *
+ * Read by signed-in users at the event's institution — the same people
+ * `events_auth_read` already shows the event to — and printed in full on the
+ * /events/[id] console. The public registration page never reads this table.
+ *
+ * `cancelled_at` / `cancelled_by` are stamped by trg_event_cancellation_stamp
+ * and are never sent from a client, so a browser that can write the row cannot
+ * name somebody else as the canceller.
+ */
+export interface EventCancellation {
+  event_id: string;
+  /** The organiser's own words. NULL when a cancellation was recorded without one. */
+  reason: string | null;
+  cancelled_at: string;
+  cancelled_by: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 /**

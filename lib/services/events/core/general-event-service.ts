@@ -13,11 +13,65 @@
 // lifecycle rule does not belong to every event type.
 
 import { EventBaseService } from './event-base-service';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { GENERAL_EVENT_STATUS_TRANSITIONS } from '@/types/events';
-import type { Event, EventStatus } from '@/types/events';
+import type { Event, EventCancellation, EventStatus } from '@/types/events';
+
+/**
+ * The two PostgREST calls this service makes against `event_cancellations`.
+ *
+ * WHY A HAND-WRITTEN TYPE. That table is not in the generated `Database` type —
+ * the migration that creates it is a FILE, not an applied schema — so
+ * `.from('event_cancellations')` resolves through the client's generics to an
+ * error shape, and the chain after it collapses into TS2589 ("type
+ * instantiation is excessively deep") plus a TS2769 on the next call. Fixing
+ * only the innermost one just unmasks the next; the chain has to be stepped out
+ * of, not patched.
+ *
+ * Deliberately NOT `any`, and deliberately only these two shapes: a typo in a
+ * column name or a missing `onConflict` is still a type error here, which is the
+ * whole value `any` would have thrown away. When the migration is applied and
+ * the Database type is regenerated, delete this and let the generics do it.
+ */
+type EventCancellationsTable = {
+  upsert: (
+    values: { event_id: string; reason: string | null },
+    options?: { onConflict?: string }
+  ) => Promise<{ error: { message?: string } | null }>;
+  select: (columns: string) => {
+    eq: (
+      column: string,
+      value: string
+    ) => {
+      maybeSingle: () => Promise<{
+        data: EventCancellation | null;
+        error: { message?: string } | null;
+      }>;
+    };
+  };
+};
 
 export class GeneralEventService {
+  /**
+   * `public.event_cancellations`, typed by hand — see EventCancellationsTable.
+   *
+   * The client is built HERE, per call, and not in a `static supabase = …`
+   * field. A static field initializer runs at MODULE EVALUATION, so a browser
+   * Supabase client would be constructed during SSR/prerender of any route whose
+   * client tree imports this file (every one that pulls in
+   * hooks/events/use-general-events.ts), where cookies and `document` do not
+   * exist. That turns a bad query into an import-time throw that takes the whole
+   * event console down, and pins one instance for the process lifetime.
+   */
+  private static cancellations(): EventCancellationsTable {
+    return (
+      createClientSupabaseClient() as unknown as {
+        from: (table: string) => EventCancellationsTable;
+      }
+    ).from('event_cancellations');
+  }
+
   /**
    * Move a general event between Draft and Active.
    *
@@ -93,8 +147,27 @@ export class GeneralEventService {
    * The requirement that a reason be given lives HERE and in the dialog, not in
    * the database: see the note in migration 20261204113700.
    *
+   * ⚠️ THE REASON IS NOT A COLUMN ON `events`, AND THE ORDER OF THE TWO WRITES
+   * BELOW IS LOAD-BEARING. It is a row in `public.event_cancellations`, because
+   * `events` is anon-readable and the reason survives a reinstatement — a column
+   * there would publish the organiser's verbatim text to the public anon key the
+   * moment a cancelled event went live again (Director's ruling, 13 Sep).
+   *
+   * Two writes cannot be one statement from a browser, so they are ordered so
+   * that the only possible half-failure is the SAFE one:
+   *
+   *   1. record the cancellation  — if this fails, nothing has happened at all
+   *      and the event is still live, which is the honest outcome.
+   *   2. flip the status          — if THIS fails, a cancellation row exists for
+   *      an event that is still live. Nothing reads it (every reader gates on
+   *      `status === 'cancelled'`), and the next attempt overwrites it.
+   *
+   * The reverse order is what must never be written: it would leave an event
+   * cancelled — bookings already released by the cascade — with no record of
+   * why, which is the one state this feature exists to prevent.
+   *
    * `cancelled_at` and `cancelled_by` are NOT sent from here. They are stamped
-   * by the BEFORE UPDATE trigger from auth.uid(), so the row records who
+   * by trg_event_cancellation_stamp from auth.uid(), so the row records who
    * actually cancelled it rather than whoever the browser said.
    *
    * Permission is the EDIT permission, unchanged: the UI gates on canEditEvent()
@@ -106,15 +179,38 @@ export class GeneralEventService {
 
     try {
       if (!trimmedReason) {
-        throw new Error('Give a reason for cancelling — the people registered will be shown it.');
+        // Not "the people registered will be shown it": since the Director's
+        // ruling of 13 Sep the public page prints a standard line and never
+        // this text. The reason is kept for the event team — say so, because
+        // an organiser writing to the public writes a different sentence from
+        // one writing to their colleagues.
+        throw new Error(
+          'Give a reason for cancelling — it is kept on the event page, where colleagues at your institution who can open this event will read it. The public page shows a standard notice instead.'
+        );
       }
 
       const event = await this.assertTransition(id, 'cancelled');
 
-      const updated = await EventBaseService.updateEvent(id, {
-        status: 'cancelled',
-        cancellation_reason: trimmedReason,
-      });
+      // 1. The record first. See the ordering note above.
+      const { error: cancellationError } = await this.cancellations().upsert(
+        { event_id: id, reason: trimmedReason },
+        { onConflict: 'event_id' }
+      );
+
+      if (cancellationError) {
+        // Nothing has happened yet: the event is still live and its bookings are
+        // still held. Surfacing this instead of pressing on is the point.
+        logger.error('events/general', 'Failed to record the cancellation reason', {
+          id,
+          error: cancellationError,
+        });
+        throw new Error(
+          'Could not record why this event is being cancelled, so nothing was changed. The event is still active — try again.'
+        );
+      }
+
+      // 2. Then the status, which is what fires the release cascade.
+      const updated = await EventBaseService.updateEvent(id, { status: 'cancelled' });
       logger.info('events/general', 'Event cancelled', {
         eventId: id,
         from: event.status,
@@ -123,6 +219,38 @@ export class GeneralEventService {
       return updated;
     } catch (error) {
       logger.error('events/general', 'Failed to cancel general event', { id, error });
+      throw error;
+    }
+  }
+
+  /**
+   * Why this event was called off — or null when nothing was recorded.
+   *
+   * A SECOND query rather than an embed on the event, deliberately. Embedding it
+   * would put `event_cancellations` into the select of every screen that loads
+   * an event, including ones rendered for people who cannot read it, and a
+   * PostgREST embed of a table the caller cannot see returns null in a shape
+   * indistinguishable from "no cancellation" — a silent wrong answer. One
+   * explicit call, made only when the console needs it, fails loudly instead.
+   *
+   * `maybeSingle()` because most events have no row here, and that is not an
+   * error. A genuine failure (RLS denial, network) still throws.
+   */
+  static async getCancellation(eventId: string): Promise<EventCancellation | null> {
+    try {
+      const { data, error } = await this.cancellations()
+        .select('event_id, reason, cancelled_at, cancelled_by, created_at, updated_at')
+        .eq('event_id', eventId)
+        .maybeSingle();
+
+      if (error) {
+        logger.error('events/general', 'Failed to read the cancellation record', { eventId, error });
+        throw error;
+      }
+
+      return (data as EventCancellation | null) ?? null;
+    } catch (error) {
+      logger.error('events/general', 'Unexpected error in getCancellation', { eventId, error });
       throw error;
     }
   }
