@@ -42,6 +42,20 @@
 --   * NO amount is written anywhere in this file. Every amount column ships
 --     NULL. Rupee figures are the Director's alone.
 --
+-- MERGE ORDER — THIS PR MUST NOT MERGE BEFORE PR #3664:
+--   The delivered count below uses the enrolment allow-list
+--   ('active', 'admitted', 'graduated'). The LIVE payout generator
+--   (fn_generate_referral_commissions, as shipped by
+--   20261017020000_referral_enrolment_and_attendance_gates.sql) uses FOUR
+--   statuses today — those three plus 'reserved'. The disagreement is
+--   DELIBERATE and temporary: PR #3664 removes 'reserved' from the generator
+--   under the Director's rule 15, and the three-status list here is what the
+--   generator will hold once it lands. Merging this file FIRST would open a
+--   window in which the promise counter and the payout counter count the same
+--   learner differently — a 'reserved' learner would be paid, but would not
+--   count toward the promise that decides the rate they are paid at. Land
+--   #3664 first. Do not "fix" this list back to four.
+--
 -- HOW THE TWO PROMISE LEVELS ARE STORED (the core modelling decision):
 --   * a row with `program_id IS NULL` (applies_to_all_programs = true) carries
 --     the YEARLY promise for that consultant and that academic year, and the
@@ -125,21 +139,33 @@ CREATE INDEX IF NOT EXISTS idx_ccs_consultant_year
 --   academic_year IS NULL rows into the same key space, which we do not want.
 --   So the scopes are separated:
 --     (a) COURSE rows  — program_id IS NOT NULL: one active row per
---         (consultant, year, course).
+--         (institution, consultant, year, course).
 --     (b) YEARLY rows  — program_id IS NULL: one active row per
---         (consultant, year). program_id is not in the key at all, so two
---         yearly rows collide on (consultant_id, academic_year) and the second
---         insert is rejected. This is the case a normal unique constraint
---         would have let through.
+--         (institution, consultant, year). program_id is not in the key at
+--         all, so two yearly rows collide on
+--         (institution_id, consultant_id, academic_year) and the second insert
+--         is rejected. This is the case a normal unique constraint would have
+--         let through.
 --   Both are scoped `WHERE is_active` (a superseded row can be deactivated and
 --   a replacement inserted) and `WHERE academic_year IS NOT NULL` (legacy
 --   date-scoped rows are outside the promise model and outside this key).
-CREATE UNIQUE INDEX IF NOT EXISTS uq_ccs_course_scope
-  ON public.consultant_commission_structures (consultant_id, academic_year, program_id)
+--
+-- WHY institution_id LEADS BOTH KEYS (it was absent in the first revision):
+--   institution_id is NOT NULL on this table, and a consultant can refer
+--   learners into more than one JKKN college — 28 of 187 education_consultants
+--   do. Without institution_id in the key, a per-institution rate for the same
+--   consultant and course COULD NOT BE EXPRESSED AT ALL: whichever college
+--   saved first would own that consultant's number for every college, and the
+--   second college's attempt would be rejected as a duplicate. Each college
+--   negotiates its own promise, so each college needs its own row.
+DROP INDEX IF EXISTS public.uq_ccs_course_scope;
+CREATE UNIQUE INDEX uq_ccs_course_scope
+  ON public.consultant_commission_structures (institution_id, consultant_id, academic_year, program_id)
   WHERE is_active AND academic_year IS NOT NULL AND program_id IS NOT NULL;
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_ccs_yearly_scope
-  ON public.consultant_commission_structures (consultant_id, academic_year)
+DROP INDEX IF EXISTS public.uq_ccs_yearly_scope;
+CREATE UNIQUE INDEX uq_ccs_yearly_scope
+  ON public.consultant_commission_structures (institution_id, consultant_id, academic_year)
   WHERE is_active AND academic_year IS NOT NULL AND program_id IS NULL;
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -171,10 +197,19 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_ccs_yearly_scope
 -- not the consultant's performance, and rule 12's own reasoning is that an
 -- unmarked register is the college's failure. Holding it against the
 -- consultant would penalise them twice for someone else's omission.
+-- An earlier revision of this (never-applied) file declared a 3-argument
+-- signature with no institution. Dropping it explicitly stops a stale 3-arg
+-- copy surviving in any scratch or rehearsal database that ran that draft —
+-- CREATE OR REPLACE with a different argument list creates a SECOND function
+-- rather than replacing the first, and two resolvers disagreeing about money is
+-- precisely the failure this file exists to prevent.
+DROP FUNCTION IF EXISTS public.fn_resolve_consultant_course_rate(integer, uuid, uuid);
+
 CREATE OR REPLACE FUNCTION public.fn_resolve_consultant_course_rate(
-  p_year          integer,
-  p_consultant_id uuid,
-  p_program_id    uuid
+  p_year           integer,
+  p_institution_id uuid,
+  p_consultant_id  uuid,
+  p_program_id     uuid
 )
 RETURNS TABLE (
   scope              text,      -- 'course' | 'yearly' | 'none'
@@ -212,10 +247,13 @@ BEGIN
     RAISE EXCEPTION 'fn_resolve_consultant_course_rate: not authorised';
   END IF;
 
-  -- 1. The course's own row.
+  -- 1. The course's own row, for THIS institution. institution_id is NOT NULL
+  --    on the table, so a promise always belongs to exactly one college and
+  --    must only ever be resolved against that college.
   SELECT * INTO v_row
     FROM public.consultant_commission_structures s
-   WHERE s.consultant_id  = p_consultant_id
+   WHERE s.institution_id = p_institution_id
+     AND s.consultant_id  = p_consultant_id
      AND s.academic_year  = p_year
      AND s.program_id     = p_program_id
      AND s.is_active
@@ -229,8 +267,9 @@ BEGIN
     --    that carries no promise.
     SELECT * INTO v_row
       FROM public.consultant_commission_structures s
-     WHERE s.consultant_id = p_consultant_id
-       AND s.academic_year = p_year
+     WHERE s.institution_id = p_institution_id
+       AND s.consultant_id  = p_consultant_id
+       AND s.academic_year  = p_year
        AND s.program_id IS NULL
        AND s.is_active
      LIMIT 1;
@@ -247,14 +286,39 @@ BEGIN
     END IF;
   END IF;
 
-  -- Delivered at the SAME scope that is being judged. Course scope counts only
-  -- that course; yearly scope counts every course. Attendance holds are not
-  -- applied here — see the note above.
+  -- Delivered at the SAME scope that is being judged, and always WITHIN the
+  -- institution whose promise is being judged. Course scope counts only that
+  -- course; yearly scope counts every course of that one college.
+  --
+  -- WHY lp.institution_id is in this count (it was absent in the first
+  -- revision, and the omission was a money bug): a consultant can refer
+  -- learners into more than one JKKN college — 28 of 187 education_consultants
+  -- do. The row that decides the amount is per institution, so counting every
+  -- college's learners against one college's promise inflates the delivered
+  -- count and flips MISSED to KEPT. Measured worst case on production data
+  -- (consultant f146c190-…, year 2026): 194 learners counted against a yearly
+  -- promise whose own college contributed at most 85 — a promise of 100 would
+  -- have been reported as kept, and every one of that consultant's learners
+  -- paid the promised amount instead of the normal one.
+  --
+  -- WHY the JOIN to admission_years stays INNER — decided, not stumbled into
+  -- (this is MyJKKN's documented !inner gotcha in SQL form): a learner whose
+  -- admission_year_id IS NULL is dropped from this count, and one such
+  -- consultant referral exists in production today. That is the intended
+  -- behaviour. A promise is made FOR A YEAR; a learner carrying no year belongs
+  -- to no year, and attributing them to p_year would invent a fact nobody
+  -- recorded. The exclusion is also conservative in the direction that cannot
+  -- over-pay: it can only LOWER the delivered count, so it can only fall back
+  -- to the normal amount. The remedy is to record that learner's admission
+  -- year — a data fix, not a code one.
+  --
+  -- Attendance holds are not applied here — see the note above the function.
   SELECT count(*)::integer INTO v_delivered
     FROM public.learners_profiles lp
     JOIN public.admission_years ay
       ON ay.id = lp.admission_year_id AND ay.year = p_year
-   WHERE lp.referral_type    = 'consultant'
+   WHERE lp.institution_id   = p_institution_id
+     AND lp.referral_type    = 'consultant'
      AND lp.referred_by_id   = p_consultant_id
      AND lp.lifecycle_status::text IN ('active', 'admitted', 'graduated')
      AND (v_scope <> 'course' OR lp.program_id = p_program_id);
@@ -297,31 +361,65 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION public.fn_resolve_consultant_course_rate(integer, uuid, uuid) IS
-  'Rules 13/16/17/20: resolves ONE learner''s pre-tax per-learner referral amount from the consultant''s own promise rows. Course promise judged alone (rule 20); falls back to the yearly row; returns NULL (not 0) when no rate is set. Delivered counts ignore attendance holds on purpose — see the migration header.';
+COMMENT ON FUNCTION public.fn_resolve_consultant_course_rate(integer, uuid, uuid, uuid) IS
+  'Rules 13/16/17/20: resolves ONE learner''s pre-tax per-learner referral amount from the consultant''s own promise rows, always within ONE institution (p_institution_id) — a consultant may refer into several colleges and each college''s promise is its own. Course promise judged alone (rule 20); falls back to the yearly row; returns NULL (not 0) when no rate is set. Delivered counts ignore attendance holds on purpose, and exclude learners with no admission year — see the migration header.';
 
 -- Mandatory anon lockdown, in the same file as the CREATE (CLAUDE.md).
-REVOKE EXECUTE ON FUNCTION public.fn_resolve_consultant_course_rate(integer, uuid, uuid) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_resolve_consultant_course_rate(integer, uuid, uuid) TO authenticated;
+REVOKE EXECUTE ON FUNCTION public.fn_resolve_consultant_course_rate(integer, uuid, uuid, uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_resolve_consultant_course_rate(integer, uuid, uuid, uuid) TO authenticated;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 5. RLS — amounts and promises are admin-only to WRITE
+-- 5. RLS — money is gated to READ and admin-only to WRITE
 -- ─────────────────────────────────────────────────────────────────────────────
 -- The four policies this table already carries (commission_structures_select /
--- _insert / _update / _delete, read live from pg_policies 2026-09-12, all
--- PERMISSIVE) let any user in the owning institution, and any holder of the
--- `admission` role_key, write these rows. Now that the rows carry rupee amounts
--- and promises, that is too wide: writing money config is admin-only, matching
--- the write policy already live on `referral_rate_config`
--- (`is_super_admin() OR is_admin()`).
+-- _insert / _update / _delete, read live from pg_policy, all PERMISSIVE) let
+-- any user in the owning institution, and any holder of the `admission`
+-- role_key, both READ and WRITE these rows. Now that the rows carry rupee
+-- amounts and promises, that is too wide in BOTH directions.
 --
--- PERMISSIVE policies are OR-ed together, so adding an admin-only PERMISSIVE
--- policy would WIDEN access, not narrow it. The narrowing is therefore a
--- RESTRICTIVE policy: every write must ALSO satisfy it, whatever the existing
--- permissive policies allow. Reads are left exactly as they are — the existing
--- select policy already matches the sibling screens.
+-- PERMISSIVE policies are OR-ed together, so adding a narrower PERMISSIVE
+-- policy would WIDEN access, not narrow it. Every narrowing below is therefore
+-- a RESTRICTIVE policy: the request must ALSO satisfy it, whatever the existing
+-- permissive policies allow.
+--
+-- READ — and a correction. An earlier revision of this file left SELECT
+-- untouched and justified it with "the existing select policy already matches
+-- the sibling screens". THAT WAS FALSE, and the difference is the whole risk:
+--
+--   commission_structures_select  =  institution_id = auth_institution_id()
+--                                 OR profiles.role = 'super_admin'
+--                                 OR user_roles → custom_roles.role_key = 'admission'
+--
+--     Its FIRST branch is bare institution membership with no permission check
+--     of any kind, and 7,640 of 7,664 profiles carry an institution_id.
+--
+--   referral_rate_config_read     =  is_super_admin() OR is_admin()
+--                                 OR user_has_permission('admission.consultants.commissions.view')
+--
+-- This screen reads the table through the browser anon key that ships in every
+-- Next.js bundle, so without the policy below any signed-in member of the
+-- owning institution could replay the screen's own query and read base_amount,
+-- promised_amount, promised_count and the clawback configuration. The table
+-- holds 0 rows in production today, so nothing has leaked — it would have armed
+-- itself the moment the first amount was entered.
+--
+-- The expression below is referral_rate_config_read's, verbatim. It is also the
+-- exact gate fn_resolve_consultant_course_rate applies to itself above and the
+-- permission the Promises & Rates tab now guards on, so the screen, the RPC and
+-- the table can no longer disagree about who may see money.
 ALTER TABLE public.consultant_commission_structures ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS commission_structures_money_read_gated ON public.consultant_commission_structures;
+CREATE POLICY commission_structures_money_read_gated
+  ON public.consultant_commission_structures
+  AS RESTRICTIVE
+  FOR SELECT
+  USING (is_super_admin()
+         OR is_admin()
+         OR user_has_permission('admission.consultants.commissions.view'));
+
+-- WRITE — setting a rupee amount or a promise is admin-only, matching the write
+-- policy already live on referral_rate_config (is_super_admin() OR is_admin()).
 DROP POLICY IF EXISTS commission_structures_money_write_admin_only ON public.consultant_commission_structures;
 CREATE POLICY commission_structures_money_write_admin_only
   ON public.consultant_commission_structures

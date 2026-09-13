@@ -849,6 +849,11 @@ function ConsultantDetailContent() {
         </TabsContent>
 
         <TabsContent value="promise-rates" className="mt-4 space-y-4">
+          {/* institution_id is nullable on education_consultants but NOT NULL on
+              consultant_commission_structures. The '' fallback is the tab's
+              explicit "no college linked" signal: PromiseRatesTab disables its
+              write controls and explains what is missing, rather than sending ''
+              into a uuid column and surfacing Postgres' 22P02 in a toast. */}
           <PromiseRatesTab
             consultantId={consultantId}
             institutionId={consultant.institution_id ?? ''}

@@ -18,7 +18,7 @@
 // Amount inputs start EMPTY and carry no example figure. Rupee amounts are the
 // Director's to set.
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -94,15 +94,39 @@ function ScopeDialog({
 
   const isYearly = forceYearly || (editing != null && editing.program_id === null)
 
-  const handleOpenChange = (isOpen: boolean) => {
-    if (isOpen) {
+  // Hydration MUST hang off the `open` prop, not off onOpenChange.
+  //
+  // This dialog has no DialogTrigger — the parent opens it with
+  // setDialogOpen(true). Radix never calls onOpenChange(true) for an
+  // externally-controlled `open`, so the old `if (isOpen) { ...hydrate... }`
+  // branch inside handleOpenChange NEVER RAN. The consequences were both real:
+  //   * Edit opened with four BLANK fields, and Save wrote promised_count,
+  //     promised_amount and base_amount back as NULL — erasing the promise and
+  //     both rupee amounts on that consultant's row.
+  //   * programId stayed '' when editing a course row, so onSubmit's
+  //     "Choose a course first" guard aborted every course edit, while the
+  //     Course select is disabled when editing — so the admin could not supply
+  //     what the guard demanded. The pencil on every course row was dead.
+  // Resetting on close matters too: an amount typed while adding a course
+  // promise used to survive and land on the YEARLY row the next time.
+  //
+  // NOTE FOR A LATER LANE: the sibling
+  // ./commission-structure-tab.tsx has the identical latent bug in its own
+  // ScopeDialog (it hydrates inside handleOpenChange and has no DialogTrigger).
+  // Deliberately NOT fixed here — different lane, different PR.
+  useEffect(() => {
+    if (open) {
       setProgramId(editing?.program_id ?? '')
       setPromisedCount(editing?.promised_count != null ? String(editing.promised_count) : '')
       setPromisedAmount(editing?.promised_amount != null ? String(editing.promised_amount) : '')
       setBaseAmount(editing?.base_amount != null ? String(editing.base_amount) : '')
+    } else {
+      setProgramId('')
+      setPromisedCount('')
+      setPromisedAmount('')
+      setBaseAmount('')
     }
-    onOpenChange(isOpen)
-  }
+  }, [open, editing])
 
   const save = useMutation({
     mutationFn: (input: UpsertConsultantScopeRateInput) =>
@@ -115,10 +139,20 @@ function ScopeDialog({
     onError: (e: Error) => toast.error(e.message || 'Could not save'),
   })
 
+  // ReferralRateService.getPrograms() returns EVERY programme in EVERY
+  // institution. Without the institution filter an admin could attach this
+  // consultant's course promise to another college's programme — and the row
+  // carries this college's institution_id, so the promise and the course would
+  // belong to different colleges. The row being edited is always kept in the
+  // list so its course still renders in the (disabled) select.
   const availablePrograms = useMemo(() => {
     if (!programs) return []
-    return programs.filter((p) => p.id === editing?.program_id || !takenProgramIds.includes(p.id))
-  }, [programs, takenProgramIds, editing?.program_id])
+    return programs.filter(
+      (p) =>
+        p.id === editing?.program_id ||
+        (p.institution_id === institutionId && !takenProgramIds.includes(p.id)),
+    )
+  }, [programs, takenProgramIds, editing?.program_id, institutionId])
 
   const onSubmit = () => {
     if (!isYearly && !programId) {
@@ -138,7 +172,7 @@ function ScopeDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
@@ -232,20 +266,26 @@ function ScopeDialog({
 
 /** One course row, with the decision read back from the database. */
 function CourseRow({
-  row, academicYear, consultantId, canWrite, onEdit, onRetire,
+  row, academicYear, institutionId, consultantId, canWrite, onEdit, onRetire,
 }: {
   row: ConsultantScopeRate
   academicYear: number
+  institutionId: string
   consultantId: string
   canWrite: boolean
   onEdit: () => void
   onRetire: () => void
 }) {
   const { data: resolved, isLoading } = useQuery({
-    queryKey: ['consultant-promise-rates', 'resolve', consultantId, academicYear, row.program_id],
+    queryKey: [
+      'consultant-promise-rates', 'resolve',
+      institutionId, consultantId, academicYear, row.program_id,
+    ],
     queryFn: () =>
-      ConsultantCourseRateService.resolve(academicYear, consultantId, row.program_id as string),
-    enabled: !!row.program_id,
+      ConsultantCourseRateService.resolve(
+        academicYear, institutionId, consultantId, row.program_id as string,
+      ),
+    enabled: !!row.program_id && !!institutionId,
   })
 
   return (
@@ -305,8 +345,10 @@ export function PromiseRatesTab({
   const [forceYearly, setForceYearly] = useState(false)
 
   const { data: rows, isLoading } = useQuery({
-    queryKey: ['consultant-promise-rates', consultantId, year],
-    queryFn: () => ConsultantCourseRateService.listByConsultantYear(consultantId, year),
+    queryKey: ['consultant-promise-rates', institutionId, consultantId, year],
+    queryFn: () =>
+      ConsultantCourseRateService.listByConsultantYear(institutionId, consultantId, year),
+    enabled: !!institutionId,
   })
 
   const yearlyRow = useMemo(() => (rows ?? []).find((r) => r.program_id === null) ?? null, [rows])
@@ -328,8 +370,14 @@ export function PromiseRatesTab({
   const openAddCourse = () => { setEditing(null); setForceYearly(false); setDialogOpen(true) }
   const openYearly = () => { setEditing(yearlyRow); setForceYearly(true); setDialogOpen(true) }
 
+  // Guarded on admission.consultants.commissions.view, NOT the broader
+  // admission.consultants.view. That is the permission the table's RESTRICTIVE
+  // read policy and fn_resolve_consultant_course_rate both require, so a user
+  // holding only the broader one would otherwise open this tab and be served an
+  // empty table by RLS and an error by the RPC — a screen that looks broken
+  // instead of one that says what is missing.
   return (
-    <PermissionGuard module="admission.consultants" action="view">
+    <PermissionGuard module="admission.consultants.commissions" action="view">
       <div className="space-y-4">
         <Alert>
           <AlertCircle className="h-4 w-4" />
@@ -360,16 +408,34 @@ export function PromiseRatesTab({
           </div>
           {canWrite && (
             <>
-              <Button variant="outline" onClick={openYearly}>
+              <Button variant="outline" onClick={openYearly} disabled={!institutionId}>
                 {yearlyRow ? 'Edit yearly promise' : 'Set yearly promise'}
               </Button>
-              <Button onClick={openAddCourse}>
+              <Button onClick={openAddCourse} disabled={!institutionId}>
                 <Plus className="h-4 w-4 mr-2" />
                 Add a course promise
               </Button>
             </>
           )}
         </div>
+
+        {/* institution_id is NOT NULL on the table. This consultant record has
+            no institution, so the page passes an empty string down. Saving it
+            would send '' into a uuid column, Postgres would raise
+            22P02 invalid input syntax for type uuid: "", and the admin would
+            see that raw database sentence in a toast. Say what is actually
+            wrong instead, and keep the buttons out of reach. */}
+        {!institutionId && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>This consultant is not linked to a college yet</AlertTitle>
+            <AlertDescription className="text-sm">
+              Promises and amounts are recorded against one college, so this consultant needs a
+              college on their Details tab before a promise can be set here. Add it there, then
+              come back.
+            </AlertDescription>
+          </Alert>
+        )}
 
         <Card>
           <CardHeader>
@@ -445,6 +511,7 @@ export function PromiseRatesTab({
                         key={r.id}
                         row={r}
                         academicYear={year}
+                        institutionId={institutionId}
                         consultantId={consultantId}
                         canWrite={canWrite}
                         onEdit={() => { setEditing(r); setForceYearly(false); setDialogOpen(true) }}

@@ -79,8 +79,18 @@ export interface ResolvedConsultantRate {
 }
 
 export class ConsultantCourseRateService {
-  /** Every promise/rate scope this consultant has for one academic year. */
+  /**
+   * Every promise/rate scope this consultant has for one academic year AT ONE
+   * INSTITUTION.
+   *
+   * institution_id is part of the query, not an afterthought: a consultant may
+   * refer learners into more than one JKKN college and each college negotiates
+   * its own promise, so the same consultant and year can legitimately carry a
+   * yearly row per college. Listing without the institution would mix two
+   * colleges' money on one screen and leave "the yearly row" ambiguous.
+   */
   static async listByConsultantYear(
+    institutionId: string,
     consultantId: string,
     academicYear: number,
   ): Promise<ConsultantScopeRate[]> {
@@ -88,12 +98,38 @@ export class ConsultantCourseRateService {
     const { data, error } = await (supabase as any)
       .from('consultant_commission_structures')
       .select('*, program:programs(id, program_name)')
+      .eq('institution_id', institutionId)
       .eq('consultant_id', consultantId)
       .eq('academic_year', academicYear)
       .eq('is_active', true)
       .order('program_id', { ascending: true, nullsFirst: true });
     if (error) throw new Error(error.message);
     return (data || []) as ConsultantScopeRate[];
+  }
+
+  /**
+   * Turns a Postgres write failure into a sentence an admin can act on.
+   *
+   * The two partial unique indexes on this table (uq_ccs_yearly_scope,
+   * uq_ccs_course_scope) are the only ones a scope write can trip, and the raw
+   * "duplicate key value violates unique constraint ..." string is not
+   * something a non-coder can do anything with.
+   */
+  private static writeErrorMessage(error: {
+    code?: string;
+    message?: string;
+  }): string {
+    if (error?.code === '23505') {
+      const detail = String(error.message ?? '');
+      if (detail.includes('uq_ccs_yearly_scope')) {
+        return 'This consultant already has an active yearly promise for this year at this institution. Retire the existing one before adding another.';
+      }
+      if (detail.includes('uq_ccs_course_scope')) {
+        return 'This consultant already has an active promise for this course and year at this institution. Retire the existing one before adding another.';
+      }
+      return 'A promise already exists for this consultant at this scope and year. Retire the existing one before adding another.';
+    }
+    return error?.message || 'Could not save this promise.';
   }
 
   /**
@@ -115,35 +151,42 @@ export class ConsultantCourseRateService {
       promised_amount: input.promised_amount,
       base_amount: input.base_amount,
       commission_type: 'flat',
-      is_active: true,
+      // `name` is NOT NULL on the table and predates this feature. It is a
+      // label only — never a rule input — so it is derived, not asked for.
+      //
+      // It is in the SHARED payload, not the insert-only one, so an UPDATE
+      // refreshes it. A row created as "Course promise 2026" and later moved to
+      // another year kept the stale label otherwise — and the existing
+      // Commission Structure tab renders `name`, so the stale label was visible.
+      name:
+        input.program_id === null
+          ? `Yearly promise ${input.academic_year}`
+          : `Course promise ${input.academic_year}`,
       updated_at: new Date().toISOString(),
     };
 
     if (input.id) {
+      // `is_active` is DELIBERATELY not in this payload. Setting it to true on
+      // every update silently REVIVED a retired row, which then collides with
+      // the live row on uq_ccs_course_scope / uq_ccs_yearly_scope. Retiring is
+      // deactivateScope's job and reviving is nobody's — a retired promise is
+      // an audit record, not a draft.
       const { data, error } = await (supabase as any)
         .from('consultant_commission_structures')
         .update(payload)
         .eq('id', input.id)
         .select('*, program:programs(id, program_name)')
         .single();
-      if (error) throw new Error(error.message);
+      if (error) throw new Error(this.writeErrorMessage(error));
       return data as ConsultantScopeRate;
     }
 
     const { data, error } = await (supabase as any)
       .from('consultant_commission_structures')
-      .insert({
-        ...payload,
-        // `name` is NOT NULL on the table and predates this feature. It is a
-        // label only — never a rule input — so it is derived, not asked for.
-        name:
-          input.program_id === null
-            ? `Yearly promise ${input.academic_year}`
-            : `Course promise ${input.academic_year}`,
-      })
+      .insert({ ...payload, is_active: true })
       .select('*, program:programs(id, program_name)')
       .single();
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(this.writeErrorMessage(error));
     return data as ConsultantScopeRate;
   }
 
@@ -158,12 +201,18 @@ export class ConsultantCourseRateService {
   }
 
   /**
-   * The decision for ONE learner's (consultant, course, year): which amount,
-   * which scope decided it, and why. The rules live in SQL — never re-derive
-   * this answer on the client.
+   * The decision for ONE learner's (institution, consultant, course, year):
+   * which amount, which scope decided it, and why. The rules live in SQL —
+   * never re-derive this answer on the client.
+   *
+   * institutionId is required, mirroring the sibling resolver
+   * fn_resolve_referral_rate(p_year, p_institution_id, p_program_id): a
+   * consultant's promise belongs to one college, and the delivered count that
+   * judges it must be counted within that same college.
    */
   static async resolve(
     academicYear: number,
+    institutionId: string,
     consultantId: string,
     programId: string,
   ): Promise<ResolvedConsultantRate | null> {
@@ -172,6 +221,7 @@ export class ConsultantCourseRateService {
       'fn_resolve_consultant_course_rate',
       {
         p_year: academicYear,
+        p_institution_id: institutionId,
         p_consultant_id: consultantId,
         p_program_id: programId,
       },
