@@ -1,10 +1,11 @@
 /**
  * Notifications — GET /api/notifications/pulse.
  *
- * One poll replacing two: the route runs get_unacknowledged_notifications and
- * get_pending_actions in parallel and merges both into one body. Unchanged
- * data answers 304 with no body, keyed on a weak ETag over the payload minus
- * generated_at.
+ * One poll replacing two: the route runs get_unacknowledged_notifications and,
+ * only when the tab asks (`?pending=1`), get_pending_actions in parallel and
+ * merges both into one body. Unchanged data answers 304 with no body, keyed on
+ * a weak ETag over the payload minus generated_at, hashed over id-sorted rows
+ * so RPC row order cannot change it.
  *
  * The load-bearing assertions: the ETag is STABLE across calls with identical
  * data (otherwise the browser never gets a 304 and origin transfer is
@@ -57,8 +58,9 @@ vi.mock('next/server', async () => {
 import { GET } from '@/app/api/notifications/pulse/route';
 import { NextRequest } from 'next/server';
 
-function pulseRequest(headers: Record<string, string> = {}) {
-  return new NextRequest('https://jkkn.ai/api/notifications/pulse', { headers });
+function pulseRequest(headers: Record<string, string> = {}, withPending = true) {
+  const url = `https://jkkn.ai/api/notifications/pulse${withPending ? '?pending=1' : ''}`;
+  return new NextRequest(url, { headers });
 }
 
 // Well in the past so the 4-hour deadline is unambiguously over on any run date.
@@ -120,7 +122,22 @@ describe('GET /api/notifications/pulse', () => {
     expect(serviceRpc).not.toHaveBeenCalled();
   });
 
-  it('merges both RPC results into one body with the original mappings', async () => {
+  it('without ?pending=1 runs only the acknowledgment RPC and returns pending: null', async () => {
+    unacknowledgedRows = [ackRow()];
+    pendingRows = [pendingRow()];
+
+    const res = await GET(pulseRequest({}, false));
+    expect(res.status).toBe(200);
+    expect(userRpc).toHaveBeenCalledWith('get_unacknowledged_notifications', { p_user_id: 'user-1' });
+    expect(serviceRpc).not.toHaveBeenCalled();
+
+    const body = await res.json();
+    expect(body.unacknowledged).toHaveLength(1);
+    expect(body.pending).toBeNull();
+    expect(res.headers.get('etag')).toMatch(/^W\/"[0-9a-f]{40}"$/);
+  });
+
+  it('with ?pending=1 merges both RPC results into one body with the original mappings', async () => {
     unacknowledgedRows = [ackRow()];
     pendingRows = [
       pendingRow(),
@@ -191,6 +208,37 @@ describe('GET /api/notifications/pulse', () => {
     const d = await GET(pulseRequest({ 'if-none-match': a.headers.get('etag')! }));
     expect(d.status).toBe(200);
     expect((await d.json()).unacknowledged).toHaveLength(2);
+  });
+
+  it('gives the same ETag for the same rows in a different order (hash is order-independent)', async () => {
+    const un1 = ackRow();
+    const un2 = ackRow({ id: 'un-2', notification_id: 'n-2', title: 'Second' });
+    const pa1 = pendingRow();
+    const pa2 = pendingRow({ id: 'pa-2', action_type: 'urgent' });
+
+    unacknowledgedRows = [un1, un2];
+    pendingRows = [pa1, pa2];
+    const a = await GET(pulseRequest());
+
+    unacknowledgedRows = [un2, un1];
+    pendingRows = [pa2, pa1];
+    const b = await GET(pulseRequest());
+
+    expect(a.headers.get('etag')).toBe(b.headers.get('etag'));
+    // The response body keeps the RPC's order for display; only the hash is canonical.
+    expect((await b.json()).unacknowledged.map((u: { id: string }) => u.id)).toEqual(['un-2', 'un-1']);
+
+    // And a client holding the first ETag gets a 304 from the reordered rows.
+    const c = await GET(pulseRequest({ 'if-none-match': a.headers.get('etag')! }));
+    expect(c.status).toBe(304);
+  });
+
+  it('gives different ETags with and without pending (hash covers the actual shape)', async () => {
+    unacknowledgedRows = [ackRow()];
+    pendingRows = [];
+    const withPending = await GET(pulseRequest({}, true));
+    const withoutPending = await GET(pulseRequest({}, false));
+    expect(withPending.headers.get('etag')).not.toBe(withoutPending.headers.get('etag'));
   });
 
   it('answers 500, never a 304, when an RPC fails', async () => {

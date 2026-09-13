@@ -24,8 +24,15 @@ import type { PendingAction } from '@/types/notifications';
  * time, which is exactly what makes fetch() send If-None-Match. Never public,
  * never s-maxage: the payload is per user.
  *
+ * Pending actions are opt-in: get_pending_actions (service role, a five-table
+ * function) runs only when the caller sends `?pending=1` — the dashboard
+ * widget does, the acknowledgment gate on every other page does not — so the
+ * Postgres cost stays where it was before this route existed.
+ *
  * The two original routes stay in place for their other callers.
  */
+
+const byId = (a: { id: string }, b: { id: string }) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 export async function GET(request: NextRequest) {
   await connection();
   try {
@@ -40,14 +47,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const wantPending = request.nextUrl.searchParams.get('pending') === '1';
+
     // Service role for get_pending_actions, exactly as pending-actions/route.ts
     // does (the function reads across RLS); the user client for the
     // acknowledgment list, exactly as acknowledge/route.ts does.
-    const serviceClient = createServiceRoleClient();
-
     const [ackResult, pendingResult] = await Promise.all([
       supabase.rpc('get_unacknowledged_notifications', { p_user_id: user.id }),
-      (serviceClient as any).rpc('get_pending_actions', { p_user_id: user.id })
+      wantPending
+        ? (createServiceRoleClient() as any).rpc('get_pending_actions', { p_user_id: user.id })
+        : Promise.resolve({ data: null, error: null })
     ]);
 
     if (ackResult.error) {
@@ -89,19 +98,28 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    // --- pending: same counts as pending-actions/route.ts ---
-    const actions: PendingAction[] = pendingResult.data || [];
-    const urgent_count = actions.filter((a) => a.action_type === 'urgent').length;
-    const tracked_count = actions.filter((a) => a.action_type === 'tracked').length;
+    // --- pending: same counts as pending-actions/route.ts; null when not asked ---
+    let pending: { actions: PendingAction[]; urgent_count: number; tracked_count: number } | null = null;
+    if (wantPending) {
+      const actions: PendingAction[] = pendingResult.data || [];
+      pending = {
+        actions,
+        urgent_count: actions.filter((a) => a.action_type === 'urgent').length,
+        tracked_count: actions.filter((a) => a.action_type === 'tracked').length
+      };
+    }
 
-    const payload = {
-      unacknowledged,
-      pending: { actions, urgent_count, tracked_count }
-    };
+    const payload = { unacknowledged, pending };
 
     // Weak ETag over the data only — generated_at would change every call and
-    // defeat the 304.
-    const etag = `W/"${createHash('sha1').update(JSON.stringify(payload)).digest('hex')}"`;
+    // defeat the 304. Hashed over id-sorted copies: the hash must NOT depend on
+    // RPC row order (both functions order by timestamp, which ties can
+    // reshuffle); the response itself keeps the RPC order for display.
+    const canonical = {
+      unacknowledged: [...unacknowledged].sort(byId),
+      pending: pending && { ...pending, actions: [...pending.actions].sort(byId) }
+    };
+    const etag = `W/"${createHash('sha1').update(JSON.stringify(canonical)).digest('hex')}"`;
     const headers = {
       ETag: etag,
       'Cache-Control': 'private, no-cache'

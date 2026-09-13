@@ -39,6 +39,7 @@ import { RichTextDisplay } from '@/components/ui/rich-text-editor';
 import toast from 'react-hot-toast';
 import {
   useNotificationPulse,
+  usePendingActionsConsumer,
   invalidateNotificationPulse
 } from '@/hooks/notification/use-notification-pulse';
 import type {
@@ -442,6 +443,9 @@ export function ActionItemsWidget() {
   const [selectedAction, setSelectedAction] = useState<PendingAction | null>(null);
 
   // ------- Fetch pending actions (shared pulse poll, no cache-buster) -------
+  // Register as a pending-actions consumer FIRST so the poll asks the route
+  // for them (`?pending=1`); pages without this widget never run that RPC.
+  usePendingActionsConsumer();
   const { data, isLoading } = useNotificationPulse();
 
   // Filter to tracked actions only
