@@ -24,7 +24,7 @@ type PendingMessage struct {
 	MediaURL *string `json:"media_url"` // null for text
 }
 
-// PendingResponse is the body of GET /api/whatsapp-bridge/pending.
+// PendingResponse is the body of POST /api/whatsapp-bridge/pending.
 type PendingResponse struct {
 	Messages []PendingMessage `json:"messages"`
 }
@@ -149,7 +149,7 @@ func (e *HTTPError) IsAuthFailure() bool {
 
 // FetchPending claims up to limit messages waiting to be sent.
 func (c *MyJKKNClient) FetchPending(ctx context.Context, limit int) ([]PendingMessage, error) {
-	raw, err := c.do(ctx, http.MethodGet, fmt.Sprintf("/api/whatsapp-bridge/pending?limit=%d", limit), nil)
+	raw, err := c.do(ctx, http.MethodPost, fmt.Sprintf("/api/whatsapp-bridge/pending?limit=%d", limit), nil)
 	if err != nil {
 		return nil, err
 	}

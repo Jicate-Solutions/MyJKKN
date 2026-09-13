@@ -148,11 +148,12 @@ func TestISOTimestamp_IsUTC(t *testing.T) {
 }
 
 func TestClient_FetchPendingSendsSecretAndLimit(t *testing.T) {
-	var gotSecret, gotQuery, gotPath string
+	var gotSecret, gotQuery, gotPath, gotMethod string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotSecret = r.Header.Get("x-bridge-secret")
 		gotQuery = r.URL.RawQuery
 		gotPath = r.URL.Path
+		gotMethod = r.Method
 		_, _ = w.Write([]byte(`{"messages":[{"id":"a","to":"919876543210","body":"hi","type":"text","media_url":null}]}`))
 	}))
 	defer srv.Close()
@@ -164,6 +165,12 @@ func TestClient_FetchPendingSendsSecretAndLimit(t *testing.T) {
 	}
 	if gotPath != "/api/whatsapp-bridge/pending" {
 		t.Fatalf("path = %q", gotPath)
+	}
+	// Claiming pending work MUTATES the queue (pending -> sending), so MyJKKN
+	// exposes it as POST and answers GET with 405. If this ever regresses to
+	// GET, every outbound message stops silently on the campus box.
+	if gotMethod != http.MethodPost {
+		t.Fatalf("method = %q, want POST (MyJKKN answers GET on this route with 405)", gotMethod)
 	}
 	if gotQuery != "limit=20" {
 		t.Fatalf("query = %q, want limit=20", gotQuery)
