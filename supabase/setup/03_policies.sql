@@ -4835,14 +4835,30 @@ CREATE POLICY "events_reg_admin_update" ON public.events_registrations
     is_super_admin() OR get_current_user_role() = ANY(ARRAY['super_admin','admin','administrator','event_coordinator'])
   );
 
--- Updated: 2026-04-12 - Any authenticated user can update registrations for public active events
--- This enables event-day ops (check-in, t-shirt, certificate) by committee members of any role
-CREATE POLICY "events_reg_public_event_update" ON public.events_registrations
-  FOR UPDATE TO authenticated USING (
-    event_id IN (
-      SELECT id FROM public.events
-      WHERE is_public = true AND status NOT IN ('draft', 'cancelled')
-    )
+-- Updated: 2026-09-13 - Replaced "events_reg_public_event_update" with an ownership-scoped
+-- policy. See migration 20261206093000_events_registrations_scoped_update.sql.
+--
+-- The policy this replaces was added on 2026-04-12 (a marathon event day) to unblock
+-- event-day ops, and its comment here said it was for "committee members of any role".
+-- It did not say that: its only condition was that the EVENT is public and not a draft,
+-- which is a property of the event and never of the caller. With no ownership,
+-- institution or committee test, and with every policy on this table being PERMISSIVE
+-- (so they OR together), it let anyone holding a login update any registration on any
+-- public event — contact details, payment_status, checked_in, bib_number.
+--
+-- Committee access, which is what it was meant to provide, is already granted correctly
+-- by "events_reg_committee_member_update" immediately below.
+CREATE POLICY "events_reg_scoped_update" ON public.events_registrations
+  FOR UPDATE TO authenticated
+  USING (
+    profile_id = (SELECT auth.uid())          -- the person's own registration
+    OR fn_is_event_incharge(event_id)          -- events.config -> 'incharges' -> [].member_id
+    OR fn_is_event_creator(event_id)           -- events.created_by
+  )
+  WITH CHECK (
+    profile_id = (SELECT auth.uid())
+    OR fn_is_event_incharge(event_id)
+    OR fn_is_event_creator(event_id)
   );
 
 -- Updated: 2026-04-12 - Committee members (any role, including students) can update registrations
