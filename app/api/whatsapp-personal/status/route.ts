@@ -1,10 +1,22 @@
 export const dynamic = 'force-dynamic';
 
+// GET /api/whatsapp-personal/status
+//
+// 2026-09-13 — repointed onto the campus bridge. Health is now the heartbeat in
+// `wa_bridge_status`, not a live poll of a remote HTTP service. A heartbeat
+// older than 5 minutes reads as disconnected.
+//
+// There is ONE shared JKKN number, so the reported state is the same for every
+// caller. `department_id` survives only as an authorization scope.
+
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { WhatsAppPersonalConnectionService } from '@/lib/services/whatsapp/whatsapp-personal-connection-service';
-import { personalGetStatusAPI } from '@/lib/whatsapp/personal-api-client';
-import { checkByowDeptAccess, byowAccessHttpStatus } from '@/lib/whatsapp/byow-authz';
+import { getBridgeHealth, BRIDGE_HEARTBEAT_STALE_MS } from '@/lib/whatsapp/personal-api-client';
+import {
+  checkByowDeptAccess,
+  checkByowInstitutionAccess,
+  byowAccessHttpStatus,
+} from '@/lib/whatsapp/byow-authz';
 
 export async function GET(request: NextRequest) {
   await connection();
@@ -14,98 +26,37 @@ export async function GET(request: NextRequest) {
 
   const departmentId = request.nextUrl.searchParams.get('department_id');
 
-  // Support "any" mode for super admins who don't have a department
-  let whatsappConnection: Awaited<ReturnType<typeof WhatsAppPersonalConnectionService.getConnection>> = null;
+  // AUTHORIZATION — preserved. A named department still runs the PR #2064
+  // department gate; 'any'/absent falls back to the cross-department tier.
+  const deptId = departmentId && departmentId !== 'any' ? departmentId : null;
+  const access = deptId
+    ? await checkByowDeptAccess(user.id, deptId)
+    : await checkByowInstitutionAccess(user.id);
 
-  if (departmentId && departmentId !== 'any') {
-    whatsappConnection = await WhatsAppPersonalConnectionService.getConnection(departmentId);
-  }
-  if (!whatsappConnection) {
-    whatsappConnection = await WhatsAppPersonalConnectionService.getAnyReadyConnection();
-  }
-
-  if (!whatsappConnection) {
-    return NextResponse.json({
-      status: 'disconnected',
-      phone_number: null,
-      connected: false,
-    });
-  }
-
-  // Gate on the RESOLVED connection's department — this is the row whose data we
-  // are about to return, and the 'any'/getAnyReadyConnection fallback can resolve
-  // to a department the caller never named. Mirrors the SELECT RLS policy that the
-  // service-role connection service bypasses.
-  const access = await checkByowDeptAccess(user.id, whatsappConnection.department_id);
   if (!access.ok) {
     return NextResponse.json(
-      { error: 'You do not have access to this department’s WhatsApp connection' },
+      { error: 'You do not have access to the shared JKKN WhatsApp number' },
       { status: byowAccessHttpStatus(access) }
     );
   }
 
-  if (whatsappConnection.status === 'disconnected' && !whatsappConnection.service_url) {
-    return NextResponse.json({
-      ...whatsappConnection,
-      connected: false,
-    });
-  }
-
-  const shouldPollLive = whatsappConnection.service_url && (
-    whatsappConnection.status === 'connecting' ||
-    whatsappConnection.status === 'qr_ready' ||
-    whatsappConnection.status === 'authenticated' ||
-    whatsappConnection.status === 'ready'
-  );
-
-  if (shouldPollLive) {
-    const clientId = whatsappConnection.client_id || `dept-${whatsappConnection.department_id}`;
-
-    try {
-      const liveStatus = await personalGetStatusAPI({
-        serviceUrl: whatsappConnection.service_url,
-        apiKey: process.env.WHATSAPP_PERSONAL_API_KEY || '',
-        departmentId: clientId,
-      });
-
-      if (liveStatus.status !== whatsappConnection.status) {
-        await WhatsAppPersonalConnectionService.updateStatus(
-          whatsappConnection.department_id,
-          liveStatus.status,
-          {
-            phone_number: liveStatus.clientInfo?.phoneNumber,
-            push_name: liveStatus.clientInfo?.pushName,
-          }
-        );
-      }
-
-      return NextResponse.json({
-        id: whatsappConnection.id,
-        department_id: whatsappConnection.department_id,
-        status: liveStatus.status,
-        qr_code: liveStatus.qrCode || null,
-        phone_number: liveStatus.clientInfo?.phoneNumber || whatsappConnection.phone_number,
-        push_name: liveStatus.clientInfo?.pushName || whatsappConnection.push_name,
-        connected_at: whatsappConnection.connected_at,
-        connected: liveStatus.status === 'ready',
-      });
-    } catch (err) {
-      console.error('[whatsapp-personal/status] Railway poll failed:', err instanceof Error ? err.message : err);
-      return NextResponse.json({
-        id: whatsappConnection.id,
-        department_id: whatsappConnection.department_id,
-        status: whatsappConnection.status,
-        phone_number: whatsappConnection.phone_number,
-        push_name: whatsappConnection.push_name,
-        connected_at: whatsappConnection.connected_at,
-        connected: whatsappConnection.status === 'ready',
-        error: `Service poll failed: ${err instanceof Error ? err.message : 'unknown'}`,
-      });
-    }
-  }
+  const health = await getBridgeHealth();
+  const connected = health.connected && health.loggedIn;
 
   return NextResponse.json({
-    ...whatsappConnection,
-    connected: whatsappConnection.status === 'ready',
+    department_id: deptId,
+    status: connected ? 'ready' : 'disconnected',
+    connected,
+    phone_number: health.phoneNumber,
+    // The QR lives on the bridge machine and is never relayed through the app.
+    qr_code: null,
+    bridge: {
+      logged_in: health.loggedIn,
+      version: health.version,
+      last_heartbeat_at: health.lastHeartbeatAt,
+      heartbeat_age_ms: health.heartbeatAgeMs,
+      stale_after_ms: BRIDGE_HEARTBEAT_STALE_MS,
+      reason: health.reason ?? null,
+    },
   });
 }

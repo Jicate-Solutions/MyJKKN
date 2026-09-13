@@ -1,10 +1,17 @@
 // lib/services/whatsapp/whatsapp-personal-queue-service.ts
-// Processes wa_personal_message_queue — sends queued messages via personal WA or WABA fallback
+// Processes wa_personal_message_queue — hands 'personal' items to the campus
+// WhatsApp bridge outbox, or sends 'meta_waba' items through the Meta API.
+//
+// 2026-09-13 — repointed off the Railway whatsapp-web.js service. The personal
+// channel no longer performs a send: it enqueues into `wa_bridge_outbox`, which
+// the on-campus Go bridge drains. So for a 'personal' item, `status = 'sent'`
+// now means HANDED OFF to the bridge, not confirmed delivered — the bridge owns
+// the delivery outcome from that point on. ('meta_waba' items are unchanged and
+// still mean actually sent.)
 
 import { createClient } from '@supabase/supabase-js';
-import { WhatsAppPersonalConnectionService } from './whatsapp-personal-connection-service';
 import { WhatsAppPersonalMessageService } from './whatsapp-personal-message-service';
-import { personalSendMessageAPI } from '@/lib/whatsapp/personal-api-client';
+import { personalSendMessageAPI, resolveHistoryAnchor } from '@/lib/whatsapp/personal-api-client';
 import {
   sendTemplateMessage,
   isWhatsAppConfigured,
@@ -115,6 +122,9 @@ export class WhatsAppPersonalQueueService {
 
         const result = await this.sendViaPersonal(item);
         if (result.success) {
+          // 'sent' here means HANDED OFF to the campus bridge outbox. The bridge
+          // owns delivery from this point; wa_message_id stays null until it
+          // reports one back.
           await supabase
             .from('wa_personal_message_queue')
             .update({
@@ -148,54 +158,60 @@ export class WhatsAppPersonalQueueService {
         }
       }
 
-      // Add random delay between sends (2-4 seconds) to avoid detection
-      if (item.channel === 'personal') {
-        await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 2000));
-      }
+      // The 2-4s anti-detection jitter that used to sit here is gone: this loop
+      // no longer sends, it only enqueues. Pacing between actual WhatsApp sends
+      // is the campus bridge's job now, and sleeping here would only stretch the
+      // cron run.
     }
 
     return { processed: pending.length, sent, failed, skipped };
   }
 
-  /** Send via personal WhatsApp (BYOW) */
+  /**
+   * Hand a personal-channel item to the campus bridge outbox.
+   *
+   * No longer requires a 'ready' wa_personal_connections row: there is one
+   * shared JKKN number and nothing marks those rows ready now that transport
+   * left this process. The outbox IS the queue — a bridge that is temporarily
+   * offline drains the backlog when it returns, so we enqueue regardless of the
+   * current heartbeat rather than failing the item into retry.
+   */
   private static async sendViaPersonal(
     item: PersonalMessageQueueItem
   ): Promise<{ success: boolean; messageId?: string; departmentId?: string; error?: string }> {
-    const connection = await WhatsAppPersonalConnectionService.getAnyReadyConnection();
-    if (!connection || connection.status !== 'ready') {
-      return { success: false, error: 'no_personal_connection' };
-    }
-
     try {
       const jid = toJID(item.phone);
-      const clientId = connection.client_id || `dept-${connection.department_id}`;
-      const serviceUrl = connection.service_url || process.env.WHATSAPP_PERSONAL_SERVICE_URL || '';
 
       const result = await personalSendMessageAPI(jid, item.message_content, {
-        serviceUrl: `${serviceUrl}/clients/${clientId}`,
-        apiKey: process.env.WHATSAPP_PERSONAL_API_KEY || '',
+        leadId: item.lead_id,
+        institutionId: item.institution_id ?? null,
+        createdBy: null,
       });
 
-      if (result.success) {
-        // Log to personal message logs for audit
+      // History log — unchanged table. wa_personal_message_logs requires a
+      // department_id and connection_id (both NOT NULL with FKs), so an
+      // existing connection row is reused purely as history metadata.
+      const anchor = await resolveHistoryAnchor(null);
+      if (anchor) {
         await WhatsAppPersonalMessageService.logMessage({
-          department_id: connection.department_id,
-          connection_id: connection.id,
+          department_id: anchor.department_id,
+          connection_id: anchor.id,
           recipient_type: 'individual',
           recipient_phone: jid,
           message_content: item.message_content,
           lead_id: item.lead_id,
           sent_by: 'system',
-          status: 'sent',
-          whatsapp_message_id: result.messageId,
+          // Queued with the bridge; delivery is confirmed out of band.
+          status: 'pending',
         });
       }
 
       return {
-        success: result.success,
-        messageId: result.messageId,
-        departmentId: connection.department_id,
-        error: result.error,
+        success: result.queued,
+        // Intentionally absent: no WhatsApp message id exists until the bridge
+        // actually sends. `result.id` is an outbox row id, not a wa id.
+        messageId: undefined,
+        departmentId: anchor?.department_id,
       };
     } catch (err) {
       return {

@@ -1,11 +1,25 @@
 export const dynamic = 'force-dynamic';
 
+// POST /api/whatsapp-personal/send
+//
+// 2026-09-13 — repointed onto the campus bridge outbox. This route no longer
+// waits for a delivery result: it queues the message and returns immediately.
+// A 200 with `queued: true` means ACCEPTED, not DELIVERED.
+
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { WhatsAppPersonalConnectionService } from '@/lib/services/whatsapp/whatsapp-personal-connection-service';
 import { WhatsAppPersonalMessageService } from '@/lib/services/whatsapp/whatsapp-personal-message-service';
-import { personalSendMessageAPI } from '@/lib/whatsapp/personal-api-client';
-import { checkByowDeptAccess, byowAccessHttpStatus } from '@/lib/whatsapp/byow-authz';
+import {
+  personalSendMessageAPI,
+  resolveHistoryAnchor,
+  ByowDisabledError,
+} from '@/lib/whatsapp/personal-api-client';
+import {
+  checkByowDeptAccess,
+  checkByowInstitutionAccess,
+  getByowSenderInstitution,
+  byowAccessHttpStatus,
+} from '@/lib/whatsapp/byow-authz';
 
 export async function POST(request: NextRequest) {
   await connection();
@@ -20,64 +34,80 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'to and message required' }, { status: 400 });
   }
 
-  // Support 'any' for super admins or find by department
-  let whatsappConnection = (department_id && department_id !== 'any')
-    ? await WhatsAppPersonalConnectionService.getConnection(department_id)
+  // AUTHORIZATION — unchanged in strength, only in what it keys off.
+  // A named department still goes through the PR #2064 department gate. When no
+  // department is named (callers pass 'any'), the institution gate grants only
+  // the cross-department tier that gate already grants. Never removed.
+  const deptId =
+    typeof department_id === 'string' && department_id !== 'any' && department_id.length > 0
+      ? department_id
+      : null;
+
+  let institutionId: string | null;
+  if (deptId) {
+    const access = await checkByowDeptAccess(user.id, deptId);
+    if (!access.ok) {
+      return NextResponse.json(
+        { error: 'You do not have access to this department’s WhatsApp' },
+        { status: byowAccessHttpStatus(access) }
+      );
+    }
+    institutionId = await getByowSenderInstitution(user.id);
+  } else {
+    const access = await checkByowInstitutionAccess(user.id);
+    if (!access.ok) {
+      return NextResponse.json(
+        { error: 'You do not have access to the shared JKKN WhatsApp number' },
+        { status: byowAccessHttpStatus(access) }
+      );
+    }
+    institutionId = access.institutionId ?? null;
+  }
+
+  // History log — unchanged table, unchanged reporting. wa_personal_message_logs
+  // still requires a department_id and a connection_id (both NOT NULL with FKs),
+  // so we reuse an existing wa_personal_connections row purely as history
+  // metadata. It no longer decides where the message goes.
+  const logAnchor = await resolveHistoryAnchor(deptId);
+  const logEntry = logAnchor
+    ? await WhatsAppPersonalMessageService.logMessage({
+        department_id: logAnchor.department_id,
+        connection_id: logAnchor.id,
+        recipient_type: 'individual',
+        recipient_phone: to,
+        recipient_name: recipient_name || undefined,
+        message_content: message,
+        lead_id: lead_id || undefined,
+        sent_by: user.id,
+        status: 'pending',
+      })
     : null;
-  if (!whatsappConnection || whatsappConnection.status !== 'ready') {
-    whatsappConnection = await WhatsAppPersonalConnectionService.getAnyReadyConnection();
-  }
-  if (!whatsappConnection || whatsappConnection.status !== 'ready') {
-    return NextResponse.json({ error: 'Personal WhatsApp not connected' }, { status: 503 });
-  }
 
-  // Gate on the RESOLVED connection's department: the 'any' fallback above can
-  // route a send through a department the caller never named. Without this a
-  // dept-scoped user could send from any connected department's WhatsApp.
-  const access = await checkByowDeptAccess(user.id, whatsappConnection.department_id);
-  if (!access.ok) {
-    return NextResponse.json(
-      { error: 'You do not have access to this department’s WhatsApp connection' },
-      { status: byowAccessHttpStatus(access) }
-    );
-  }
-
-  const logEntry = await WhatsAppPersonalMessageService.logMessage({
-    department_id: whatsappConnection.department_id,
-    connection_id: whatsappConnection.id,
-    recipient_type: 'individual',
-    recipient_phone: to,
-    recipient_name: recipient_name || undefined,
-    message_content: message,
-    lead_id: lead_id || undefined,
-    sent_by: user.id,
-    status: 'pending',
-  });
-
-  const clientId = whatsappConnection.client_id || `dept-${whatsappConnection.department_id}`;
-  const serviceUrl = whatsappConnection.service_url || process.env.WHATSAPP_PERSONAL_SERVICE_URL || '';
-
-  let result: { success: boolean; messageId?: string; error?: string };
   try {
-    result = await personalSendMessageAPI(to, message, {
-      serviceUrl,
-      apiKey: process.env.WHATSAPP_PERSONAL_API_KEY || '',
-      departmentId: clientId,
+    const result = await personalSendMessageAPI(to, message, {
+      leadId: lead_id || null,
+      institutionId,
+      createdBy: user.id,
+    });
+
+    // The log row stays 'pending' until the bridge reports delivery — marking it
+    // 'sent' here would claim a delivery that has not happened yet.
+    return NextResponse.json({
+      success: true,
+      queued: true,
+      id: result.id,
+      bridge_connected: result.bridgeConnected ?? false,
+      log_id: logEntry?.id ?? null,
+      logged: Boolean(logEntry),
     });
   } catch (error) {
-    result = { success: false, error: error instanceof Error ? error.message : 'Send failed' };
+    const msg = error instanceof Error ? error.message : 'Queue failed';
+    if (logEntry) {
+      await WhatsAppPersonalMessageService.updateStatus(logEntry.id, 'failed', {
+        error_message: msg,
+      });
+    }
+    const status = error instanceof ByowDisabledError ? 503 : 500;
+    return NextResponse.json({ success: false, queued: false, error: msg }, { status });
   }
-
-  if (logEntry) {
-    await WhatsAppPersonalMessageService.updateStatus(
-      logEntry.id,
-      result.success ? 'sent' : 'failed',
-      {
-        whatsapp_message_id: result.messageId,
-        error_message: result.error,
-      }
-    );
-  }
-
-  return NextResponse.json(result);
 }
