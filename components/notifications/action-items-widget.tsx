@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo, useRef } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Clock,
   CheckCircle2,
@@ -37,6 +37,11 @@ import { cn } from '@/lib/utils';
 import { StorageUtils } from '@/lib/supabase/storage-utils';
 import { RichTextDisplay } from '@/components/ui/rich-text-editor';
 import toast from 'react-hot-toast';
+import {
+  useNotificationPulse,
+  usePendingActionsConsumer,
+  invalidateNotificationPulse
+} from '@/hooks/notification/use-notification-pulse';
 import type {
   ActionType,
   ResponseType,
@@ -437,25 +442,15 @@ export function ActionItemsWidget() {
   const queryClient = useQueryClient();
   const [selectedAction, setSelectedAction] = useState<PendingAction | null>(null);
 
-  // ------- Fetch pending actions -------
-  const { data, isLoading } = useQuery({
-    queryKey: ['pending-actions-widget'],
-    queryFn: async () => {
-      const res = await fetch(`/api/notifications/pending-actions?_t=${Date.now()}`, {
-        cache: 'no-store',
-        headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
-      });
-      if (!res.ok) return { actions: [] };
-      return res.json();
-    },
-    staleTime: 0,
-    refetchInterval: 60000,
-    refetchOnWindowFocus: true,
-  });
+  // ------- Fetch pending actions (shared pulse poll, no cache-buster) -------
+  // Register as a pending-actions consumer FIRST so the poll asks the route
+  // for them (`?pending=1`); pages without this widget never run that RPC.
+  usePendingActionsConsumer();
+  const { data, isLoading } = useNotificationPulse();
 
   // Filter to tracked actions only
   const trackedActions: PendingAction[] = useMemo(() => {
-    const all: PendingAction[] = data?.actions ?? [];
+    const all: PendingAction[] = data?.pending?.actions ?? [];
     return all.filter((a) => a.action_type === 'tracked');
   }, [data]);
 
@@ -478,7 +473,7 @@ export function ActionItemsWidget() {
     },
     onSuccess: () => {
       toast.success('Response submitted');
-      queryClient.invalidateQueries({ queryKey: ['pending-actions-widget'] });
+      invalidateNotificationPulse(queryClient);
       queryClient.invalidateQueries({ queryKey: ['pending-urgent-actions'] });
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
       setSelectedAction(null);
