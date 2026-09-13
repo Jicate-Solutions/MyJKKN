@@ -382,7 +382,7 @@ instead, which is loud and fixable.
 
 | Field | Why it is there |
 |---|---|
-| `from_type` | `phone`, `lid` or `unknown`. Only match `from` against a learner's or a staff member's phone number when this says `phone`. |
+| `from_type` | `phone`, `lid` or `unknown`. Only match `from` against a learner's or a team member's phone number when this says `phone`. |
 | `chat_jid` | The conversation to reply into, e.g. `919894116664@s.whatsapp.net` or `120363...@g.us`. In a group the sender is the person, not the group, so a reply needs this. |
 
 `from_type` exists because WhatsApp increasingly identifies a sender by a
