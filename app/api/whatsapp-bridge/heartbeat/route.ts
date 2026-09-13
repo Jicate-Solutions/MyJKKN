@@ -30,6 +30,9 @@ export async function POST(request: NextRequest) {
   const unauthorized = authenticateBridge(request);
   if (unauthorized) return unauthorized;
 
+  // readJsonBody guarantees a non-null, non-array OBJECT when it returns no
+  // response, so the destructure below cannot throw on a literal `null` body
+  // and be answered as a 500 instead of a 400.
   const parsed = await readJsonBody<HeartbeatBody>(request);
   if (parsed.response) return parsed.response;
 

@@ -23,8 +23,34 @@
 import { timingSafeEqual } from 'node:crypto';
 import { NextResponse } from 'next/server';
 
-/** Largest request body any bridge endpoint will read, in bytes. */
-export const MAX_BODY_BYTES = 4096;
+/**
+ * Largest raw JSON envelope any bridge endpoint will read, in BYTES.
+ *
+ * ⚠️ This is a transport guard, NOT the message-length rule. The two were once
+ * the same number (4096) and that was a real defect: WhatsApp's 4096 limit is
+ * counted in CHARACTERS, and a Tamil character is three bytes in UTF-8, so a
+ * parent writing in Tamil was refused at roughly 1,300 characters — well inside
+ * what WhatsApp itself allows, and invisible to the person who wrote it.
+ * JKKN's families write in Tamil, so this cap is now set generously enough that
+ * no script is disadvantaged by its own encoding. Message length is enforced
+ * separately, in characters, by MAX_MESSAGE_CHARS.
+ */
+export const MAX_ENVELOPE_BYTES = 64 * 1024;
+
+/**
+ * Longest message body, in CHARACTERS, that WhatsApp itself will carry.
+ *
+ * Counted with the spread form (`[...str].length`) rather than `String.length`,
+ * so an astral character — an emoji, or a rarer Indic sign outside the BMP —
+ * counts once instead of twice. `String.length` counts UTF-16 code units, which
+ * would make an emoji-heavy message look twice as long as it is.
+ */
+export const MAX_MESSAGE_CHARS = 4096;
+
+/** Character count as WhatsApp counts it: one per code point, not per code unit. */
+export function messageCharLength(value: string): number {
+  return [...value].length;
+}
 
 /** Largest batch a single pending poll may claim. */
 export const MAX_PENDING_LIMIT = 50;
@@ -105,11 +131,19 @@ export interface BodyReadResult<T> {
 }
 
 /**
- * Read and parse a JSON body, refusing anything over MAX_BODY_BYTES.
+ * Read and parse a JSON object body, refusing anything over MAX_ENVELOPE_BYTES.
  *
- * The cap is applied to the raw text before JSON.parse, so an absurd payload is
- * discarded without being parsed. A WhatsApp text message is capped at 4096
- * characters by WhatsApp itself, so this is not a limit any real message meets.
+ * The byte cap is applied to the raw text before JSON.parse, so an absurd
+ * payload is discarded without being parsed. It is a transport guard only: the
+ * message-length rule is MAX_MESSAGE_CHARS, counted in characters by the route
+ * that owns the field, because a byte cap silently punishes Tamil.
+ *
+ * A body that parses to anything other than a JSON OBJECT — `null`, a bare
+ * number, a string, an array — is refused here with 400. Every caller
+ * immediately destructures what comes back, and a literal `null` body would
+ * otherwise throw inside the route and be answered as a 500: "we are broken"
+ * instead of "your request was malformed". So when `response` is null, `body`
+ * is guaranteed to be a non-null, non-array object.
  *
  * Same null-means-proceed shape as authenticateBridge, and for the same reason:
  * `strictNullChecks` is off in this repo, so a discriminated union would not
@@ -126,24 +160,37 @@ export async function readJsonBody<T>(request: Request): Promise<BodyReadResult<
     };
   }
 
-  if (Buffer.byteLength(raw, 'utf8') > MAX_BODY_BYTES) {
+  if (Buffer.byteLength(raw, 'utf8') > MAX_ENVELOPE_BYTES) {
     return {
       response: NextResponse.json(
-        { error: `Request body exceeds ${MAX_BODY_BYTES} bytes` },
+        { error: `Request body exceeds ${MAX_ENVELOPE_BYTES} bytes` },
         { status: 413 }
       ),
       body: null,
     };
   }
 
+  let parsed: unknown;
   try {
-    return { response: null, body: JSON.parse(raw) as T };
+    parsed = JSON.parse(raw);
   } catch {
     return {
       response: NextResponse.json({ error: 'Body is not valid JSON' }, { status: 400 }),
       body: null,
     };
   }
+
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return {
+      response: NextResponse.json(
+        { error: 'Body must be a JSON object' },
+        { status: 400 }
+      ),
+      body: null,
+    };
+  }
+
+  return { response: null, body: parsed as T };
 }
 
 /** Clamp a caller-supplied `limit` into [1, MAX_PENDING_LIMIT]. */

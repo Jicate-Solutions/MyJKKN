@@ -33,6 +33,11 @@ export async function POST(request: NextRequest) {
   const unauthorized = authenticateBridge(request);
   if (unauthorized) return unauthorized;
 
+  // readJsonBody guarantees a non-null, non-array OBJECT when it returns no
+  // response, so the destructure below cannot throw. A literal `null` body used
+  // to reach it and be answered as a 500 — "we are broken" in place of "your
+  // request was malformed". The guard lives in readJsonBody so all three bridge
+  // routes hold the same invariant rather than each remembering it.
   const parsed = await readJsonBody<AckBody>(request);
   if (parsed.response) return parsed.response;
 
