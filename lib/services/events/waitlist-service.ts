@@ -1,20 +1,38 @@
 // lib/services/events/waitlist-service.ts
 //
 // The sign-up waiting list for a full event: joining it, reading it in order,
-// and announcing an offer once a place frees.
+// announcing an offer once a place frees, and — the part without which the
+// whole feature is theatre — TAKING THE OFFER UP.
 //
 // ---------------------------------------------------------------------------
-// WHERE THE PIECES LIVE
+// THE WHOLE LOOP, IN ORDER
 // ---------------------------------------------------------------------------
-// Promotion itself is NOT here. It is a database trigger
-// (fn_event_registration_freed_offer_waitlist, migration 20261207090000) on
-// events_registrations, so it catches every way a place can free — a status
-// change to 'cancelled', an organiser removing someone, a deletion — without
-// this feature touching the cancel flow. The trigger moves the head of the
-// queue to 'offered' and stops there.
+//   1. JOIN.    The event is full, cap_behavior = 'waitlist' → joinWaitlist()
+//                writes a 'waiting' row and the person is told their position.
+//   2. PROMOTE. A place frees → the database trigger
+//                fn_event_registration_freed_offer_waitlist (migration
+//                20261209164500) moves the head of the queue to 'offered' and
+//                stops there. It is a trigger, not application code, so it
+//                catches EVERY way a place can free — a status change to
+//                'cancelled', an organiser removing someone, a raw delete —
+//                without this feature touching the cancel flow.
+//   3. ANNOUNCE. deliverPendingOffers() tells that person, through
+//                fanoutNotification().
+//   4. CLAIM.   They come back to the public registration door and submit.
+//                findOutstandingOffer() recognises them, claimOffer() flips the
+//                row 'offered' → 'registered' as a compare-and-swap, the
+//                ordinary registration is written, and attachRegistration()
+//                points registration_id at it.
 //
-// This file does the part a trigger must not do: TELLING the person. Delivery
-// goes through fanoutNotification() — the canonical helper in
+// Step 4 is what closes the loop. WITHOUT IT the offer is terminal: the row
+// keeps holding the place (fn_event_waitlist_taken counts 'offered' as taken),
+// the door the notification points at refuses the very person it was opened
+// for and re-queues them at the BACK, and the event loses a seat permanently
+// with every cancellation. That was the state this file shipped in first; the
+// claim path below is the fix, and nothing here may be changed in a way that
+// leaves 'offered' with no exit again.
+//
+// Delivery goes through fanoutNotification() — the canonical helper in
 // lib/services/_shared/notifications/notify.ts that app/api/events/notify
 // and lib/services/events/organiser-message-service.ts both end in — with the
 // same legacy `type: 'events'` envelope, so the offer lands in the same inbox
@@ -27,10 +45,13 @@
 // The trigger fires inside the cancelling transaction; the notification is sent
 // by deliverPendingOffers(), which runs on the next request that touches the
 // event — the organiser opening the queue card, or anybody hitting the public
-// registration door. The OFFER is therefore instant and the place is held from
-// that instant; the announcement waits for that next request. Nothing is lost
-// if it never comes: offered_at is stored, and the organiser's card shows the
-// offer as outstanding.
+// registration door (where it now runs BEFORE the capacity check and is
+// AWAITED, because behind that check it could never be reached in the one state
+// where an offer exists, and a fire-and-forget fanout on a frozen lambda can
+// half-write the inbox). The OFFER is therefore instant and the place is held
+// from that instant; the announcement waits for that next request. Nothing is
+// lost if it never comes: offered_at is stored, and the organiser's card shows
+// the offer as outstanding.
 //
 // ---------------------------------------------------------------------------
 // A MISSING TABLE IS NOT A FAILURE
@@ -69,8 +90,15 @@ export interface WaitlistEntry {
 }
 
 export interface WaitlistPanel {
-  /** The event's own switch. The queue only exists when this is 'waitlist'. */
-  cap_behavior: EventCapBehavior;
+  /**
+   * The event's own switch. The queue only exists when this is 'waitlist'.
+   *
+   * `null` means NOT READ — the only caller that returns null is the route's
+   * pre-migration branch, which has not been able to check the viewer's
+   * authority and therefore must not report anything it did not query. A panel
+   * that invented 'waitlist' here would be stating a value nobody looked up.
+   */
+  cap_behavior: EventCapBehavior | null;
   max_registrations: number | null;
   /** Live registrations plus outstanding offers — the places actually taken. */
   taken: number;
@@ -132,6 +160,28 @@ export async function countTaken(
   return (count ?? 0) + offered;
 }
 
+/**
+ * Is there a waiting list to join AT ALL yet?
+ *
+ * Asked by the public registration page before it offers a full event's visitor
+ * a queue. Without it that page would, in the deploy-before-apply window, show a
+ * form headed "This event is full — send this to join the waiting list", take
+ * every answer, and THEN refuse with "This event is full." — worse than the
+ * refusal it replaced, and not the "degrades to today's behaviour" this feature
+ * promises. countTaken() cannot answer this: it swallows the missing table into
+ * a zero, which is indistinguishable from a real zero.
+ *
+ * Never throws. Unknown failures answer "no": the honest fallback is the
+ * refusal that has always been there.
+ */
+export async function isWaitlistAvailable(service: SupabaseClient): Promise<boolean> {
+  const { error } = await (service as any)
+    .from('event_registration_waitlist')
+    .select('id', { count: 'exact', head: true })
+    .limit(1);
+  return !error;
+}
+
 export interface JoinWaitlistInput {
   eventId: string;
   formId: string | null;
@@ -144,31 +194,186 @@ export interface JoinWaitlistInput {
   customFields: Record<string, unknown> | null;
 }
 
-export interface JoinWaitlistResult {
-  /** null when the waiting list is not available yet — caller falls back. */
-  id: string | null;
-  /** 1-based place in the queue, for the sentence the person is shown. */
-  position: number | null;
+/**
+ * Three OUTCOMES, never one nullable id.
+ *
+ * The first version of this returned `{ id: null }` for every failure alike, and
+ * the route turned all of them into "This event is full." — so a foreign-key
+ * violation, an RLS refusal and a real database outage were each reported to a
+ * registrant as a capacity message, indistinguishable from the deliberate
+ * pre-migration fallback. A write failure must not wear the fallback's clothes.
+ */
+export type JoinWaitlistResult =
+  | { outcome: 'queued'; id: string; position: number | null; already: boolean }
+  /**
+   * This person already took a place up on this event — their queue row is
+   * 'registered'. A state that only became reachable when the claim path was
+   * added, and one worth answering properly: somebody who registers, then hits
+   * back and resubmits, must not be told they are "number 4 on the waiting
+   * list" for an event they are already going to.
+   */
+  | { outcome: 'already_registered'; registrationId: string | null }
+  /** The table is not there yet. The caller falls back to today's refusal. */
+  | { outcome: 'not_available' }
+  /** A genuine write failure. The caller must NOT report this as "full". */
+  | { outcome: 'error'; message: string };
+
+/** The statuses that mean "this person is still in the queue for a place". */
+const OPEN_WAITLIST_STATUSES = ['waiting', 'offered'] as const;
+
+/**
+ * ONE normaliser, used for BOTH the lookup and the write.
+ *
+ * The email is stored lower-cased and trimmed, so the partial UNIQUE index in
+ * the migration can be a plain column and the pre-insert lookup compares
+ * exactly the string the index compares. If these two ever diverge — an
+ * expression index on one side, a raw value on the other — an insert is
+ * rejected with 23505 that the service's own re-read cannot find, and the
+ * registrant is told the queue is broken when it is working perfectly.
+ */
+function normEmail(value: string | null | undefined): string | null {
+  const trimmed = value?.trim().toLowerCase();
+  return trimmed ? trimmed : null;
+}
+
+function normPhone(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+/** Rank among rows still waiting, counted by queue_seq. 1-based. */
+async function positionOf(
+  service: SupabaseClient,
+  eventId: string,
+  queueSeq: number
+): Promise<number | null> {
+  const { count, error } = await (service as any)
+    .from('event_registration_waitlist')
+    .select('id', { count: 'exact', head: true })
+    .eq('event_id', eventId)
+    .eq('status', 'waiting')
+    .lt('queue_seq', queueSeq);
+  if (error) return null;
+  return (count ?? 0) + 1;
+}
+
+/**
+ * A lookup result, NOT a discriminated union.
+ *
+ * This repo compiles with `strict: false` and `strictNullChecks: false`, under
+ * which narrowing a `{ found: true } | { found: false }` pair does not happen —
+ * `existing.missingTable` after `if (existing.found) return` is still a TS2339.
+ * A flat shape with an explicit null needs no narrowing at all.
+ */
+interface OpenRowLookup {
+  row: {
+    id: string;
+    queue_seq: number;
+    status: string;
+    registration_id: string | null;
+  } | null;
+  /** true only when the waiting-list table is not in the schema yet. */
+  missingTable: boolean;
+}
+
+/**
+ * The open row this person already holds on this event, if any.
+ *
+ * Identity first (a signed-in person is the same person however they typed
+ * their phone number this time), then contact details — because MOST public
+ * registrants are guests with no account, and a guest is exactly who this
+ * feature exists for. Matching a guest on the phone or email THE OFFER WAS MADE
+ * TO is the same trust model the public registration door already runs on: name
+ * plus one contact detail is all it has ever taken to register for an event
+ * here. It grants no more than that door already grants.
+ */
+async function findOpenRow(
+  service: SupabaseClient,
+  eventId: string,
+  who: {
+    profileId?: string | null;
+    learnerId?: string | null;
+    email?: string | null;
+    phone?: string | null;
+  },
+  statuses: readonly string[] = OPEN_WAITLIST_STATUSES
+): Promise<OpenRowLookup> {
+  const attempts: Array<[string, string]> = [];
+  if (who.profileId) attempts.push(['profile_id', who.profileId]);
+  if (who.learnerId) attempts.push(['learner_id', who.learnerId]);
+  const phone = normPhone(who.phone);
+  if (phone) attempts.push(['participant_phone', phone]);
+  const email = normEmail(who.email);
+  if (email) attempts.push(['participant_email', email]);
+
+  for (const [column, value] of attempts) {
+    const { data, error } = await (service as any)
+      .from('event_registration_waitlist')
+      .select('id, queue_seq, status, registration_id')
+      .eq('event_id', eventId)
+      .in('status', statuses)
+      .eq(column, value)
+      .order('queue_seq', { ascending: true })
+      .limit(1);
+
+    if (error) return { row: null, missingTable: isMissingObject(error) };
+    if (data?.length) return { row: data[0], missingTable: false };
+  }
+
+  return { row: null, missingTable: false };
 }
 
 /**
  * Put somebody on the queue and work out the position to tell them.
  *
- * Returns `{ id: null }` — never throws — when the table is not there yet, so
- * the registration route can fall back to today's "This event is full."
+ * ONE PERSON, ONE PLACE. Somebody who refreshes and resubmits used to get a
+ * second row with a fresh queue_seq — enough repeats and one person occupies
+ * the whole head of the queue. An existing open row is now returned as-is
+ * (`already: true`), and three partial UNIQUE indexes in the migration are the
+ * backstop for two submissions racing: a 23505 is re-read rather than surfaced.
+ *
+ * Never throws.
  */
 export async function joinWaitlist(
   service: SupabaseClient,
   input: JoinWaitlistInput
 ): Promise<JoinWaitlistResult> {
+  const who = {
+    profileId: input.profileId,
+    learnerId: input.learnerId,
+    email: input.participantEmail,
+    phone: input.participantPhone,
+  };
+
+  // Already took a place up on this event? Say so, rather than queueing them
+  // for something they are already registered for.
+  const taken = await findOpenRow(service, input.eventId, who, ['registered']);
+  if (taken.row) {
+    return { outcome: 'already_registered', registrationId: taken.row.registration_id };
+  }
+
+  const existing = await findOpenRow(service, input.eventId, who);
+  if (existing.row) {
+    return {
+      outcome: 'queued',
+      id: existing.row.id,
+      position:
+        existing.row.status === 'waiting'
+          ? await positionOf(service, input.eventId, existing.row.queue_seq)
+          : null,
+      already: true,
+    };
+  }
+  if (existing.missingTable) return { outcome: 'not_available' };
+
   const { data, error } = await (service as any)
     .from('event_registration_waitlist')
     .insert({
       event_id: input.eventId,
       form_id: input.formId,
       participant_name: input.participantName,
-      participant_email: input.participantEmail,
-      participant_phone: input.participantPhone,
+      participant_email: normEmail(input.participantEmail),
+      participant_phone: normPhone(input.participantPhone),
       profile_id: input.profileId,
       learner_id: input.learnerId,
       institution_id: input.institutionId,
@@ -178,25 +383,147 @@ export async function joinWaitlist(
     .select('id, queue_seq')
     .single();
 
-  if (error || !data) {
-    return { id: null, position: null };
+  if (error) {
+    if (isMissingObject(error)) return { outcome: 'not_available' };
+
+    // Two submissions raced. One of them won and that row IS this person's
+    // place — re-read it rather than telling them something went wrong.
+    if ((error as { code?: string }).code === '23505') {
+      const again = await findOpenRow(service, input.eventId, who);
+      if (again.row) {
+        return {
+          outcome: 'queued',
+          id: again.row.id,
+          position:
+            again.row.status === 'waiting'
+              ? await positionOf(service, input.eventId, again.row.queue_seq)
+              : null,
+          already: true,
+        };
+      }
+    }
+
+    return {
+      outcome: 'error',
+      message: (error as { message?: string }).message || 'Could not join the waiting list.',
+    };
   }
+
+  if (!data) return { outcome: 'error', message: 'Could not join the waiting list.' };
 
   // Position = rank among the rows still waiting. Counting rows ahead of this
   // one by queue_seq is stable under concurrent joins, and it stays correct
   // when somebody in front withdraws without any renumbering.
-  const { count } = await (service as any)
-    .from('event_registration_waitlist')
-    .select('id', { count: 'exact', head: true })
-    .eq('event_id', input.eventId)
-    .eq('status', 'waiting')
-    .lt('queue_seq', data.queue_seq);
-
-  return { id: data.id as string, position: (count ?? 0) + 1 };
+  return {
+    outcome: 'queued',
+    id: data.id as string,
+    position: await positionOf(service, input.eventId, data.queue_seq as number),
+    already: false,
+  };
 }
 
-/** The sentence a queued person is shown. Plain, and never "you are refused". */
-export function queuedMessage(position: number | null): string {
+// ---------------------------------------------------------------------------
+// TAKING THE OFFER UP — the step without which this feature is an announcement
+// it cannot honour.
+// ---------------------------------------------------------------------------
+
+export interface OutstandingOffer {
+  id: string;
+  queue_seq: number;
+}
+
+/**
+ * The offer this caller is holding on this event, if there is one.
+ *
+ * Called by the public registration door BEFORE it checks capacity, because an
+ * outstanding offer already counts as a taken place (fn_event_waitlist_taken)
+ * — so without this lookup the door refuses the one person whose place it is
+ * holding and puts them at the back of the queue they were just promoted off.
+ */
+export async function findOutstandingOffer(
+  service: SupabaseClient,
+  eventId: string,
+  who: {
+    profileId?: string | null;
+    learnerId?: string | null;
+    email?: string | null;
+    phone?: string | null;
+  }
+): Promise<OutstandingOffer | null> {
+  const hit = await findOpenRow(service, eventId, who, ['offered']);
+  return hit.row ? { id: hit.row.id, queue_seq: hit.row.queue_seq } : null;
+}
+
+/**
+ * Claim an offer: 'offered' → 'registered', as a compare-and-swap.
+ *
+ * The `.eq('status', 'offered')` is the whole point. Two submissions from the
+ * same person, or an organiser acting at the same moment, both read the same
+ * outstanding offer; only the update that still finds it in 'offered' returns a
+ * row, and the loser is told the truth instead of producing a second
+ * registration against one held place.
+ *
+ * Claimed BEFORE the registration is written, and released again by
+ * releaseOffer() if that write fails — the other order would let a double
+ * submit create two registrations for one place.
+ */
+export async function claimOffer(
+  service: SupabaseClient,
+  waitlistId: string
+): Promise<boolean> {
+  const { data, error } = await (service as any)
+    .from('event_registration_waitlist')
+    .update({ status: 'registered' })
+    .eq('id', waitlistId)
+    .eq('status', 'offered')
+    .select('id');
+  if (error) return false;
+  return Array.isArray(data) && data.length > 0;
+}
+
+/** Put a claim back when the registration it was claimed for could not be written. */
+export async function releaseOffer(
+  service: SupabaseClient,
+  waitlistId: string
+): Promise<void> {
+  await (service as any)
+    .from('event_registration_waitlist')
+    .update({ status: 'offered' })
+    .eq('id', waitlistId)
+    .eq('status', 'registered')
+    .is('registration_id', null);
+}
+
+/** Point a claimed row at the registration it became. Best effort by design. */
+export async function attachRegistration(
+  service: SupabaseClient,
+  waitlistId: string,
+  registrationId: string
+): Promise<void> {
+  await (service as any)
+    .from('event_registration_waitlist')
+    .update({ registration_id: registrationId })
+    .eq('id', waitlistId);
+}
+
+/**
+ * The sentence a queued person is shown. Plain, and never "you are refused".
+ *
+ * `already` is set when they were on the queue before this submission — a
+ * refresh, a second click, a return visit. Saying "you have been added" again
+ * would invite them to keep resubmitting to improve a position that cannot
+ * move.
+ */
+export function queuedMessage(position: number | null, already = false): string {
+  if (already) {
+    if (position === 1) {
+      return 'You are already on the waiting list for this event, and you are first in line — if a place frees up it is offered to you. Submitting again does not move you up.';
+    }
+    if (position && position > 1) {
+      return `You are already on the waiting list for this event, at number ${position}. Submitting again does not move you up.`;
+    }
+    return 'You are already on the waiting list for this event. Submitting again does not move you up.';
+  }
   if (!position || position < 1) {
     return 'This event is full, so you have been added to the waiting list. If a place frees up you will be offered it.';
   }
@@ -238,12 +565,20 @@ export async function deliverPendingOffers(
 
   if (error || !pending?.length) return outcome;
 
+  // `created_by` is read for the notification's AUTHOR, not for any write: this
+  // function never updates public.events, so it cannot trip
+  // fn_guard_event_privileged_fields (the BEFORE UPDATE guard that raises 42501
+  // on institution_id / event_type / created_by / config->incharges).
   const { data: event } = await (service as any)
     .from('events')
-    .select('name')
+    .select('name, created_by')
     .eq('id', eventId)
     .maybeSingle();
   const eventName = (event as { name?: string } | null)?.name ?? 'the event';
+  // Without this, notify.ts defaults created_by to userIds[0] and records the
+  // waiting person as the author of their own offer. The offer comes from the
+  // event, so its organiser is the honest author.
+  const authorId = (event as { created_by?: string | null } | null)?.created_by ?? undefined;
 
   // A registration can identify a person by profile_id OR by learner_id
   // resolved through profiles.learner_id — reading profile_id alone drops every
@@ -282,8 +617,13 @@ export async function deliverPendingOffers(
 
     const result = await fanoutNotification(service, {
       title: 'A place has opened up',
-      body: `A place has opened up for ${eventName} and it is being held for you — you were next on the waiting list. Open the event page to complete your registration.`,
+      body: `A place has opened up for ${eventName} and it is being held for you — you were next on the waiting list. Open the registration page and send the form to take it up; nobody else can take this place while it is held for you.`,
       userIds: [userId],
+      createdBy: authorId,
+      // The door the sentence above points at. The registration route
+      // recognises the offer this row holds and lets the form through instead
+      // of refusing it as full.
+      url: `/p/event/${eventId}/register`,
       source: 'events_waitlist_offer',
       metadata: { event_id: eventId, waitlist_id: row.id },
       idempotencyKey: `events_waitlist_offer:${row.id}`,
@@ -306,6 +646,32 @@ export async function deliverPendingOffers(
   }
 
   return outcome;
+}
+
+/**
+ * Sort key by status. A RANK, not a pairwise "is this one offered?" test.
+ *
+ * The first version compared `a.status === 'offered' ? -1 : 1` whenever the two
+ * differed, which is not a total order the moment a third status appears:
+ * waiting-vs-registered returned 1 AND registered-vs-waiting returned 1, so the
+ * result depended on the engine's traversal. It was masked only because the
+ * read filtered to waiting/offered — and it stopped being masked the moment
+ * 'registered' began to be written, which is exactly what the claim path above
+ * does. Any status not named here sorts last, deterministically.
+ */
+function statusRank(status: string): number {
+  switch (status) {
+    case 'offered':
+      return 0;
+    case 'waiting':
+      return 1;
+    case 'registered':
+      return 2;
+    case 'withdrawn':
+      return 3;
+    default:
+      return 4;
+  }
 }
 
 /**
@@ -356,10 +722,7 @@ export function orderQueue(
     notified_at: r.notified_at ?? null,
   }));
 
-  entries.sort((a, b) => {
-    if (a.status === b.status) return a.queue_seq - b.queue_seq;
-    return a.status === 'offered' ? -1 : 1;
-  });
+  entries.sort((a, b) => statusRank(a.status) - statusRank(b.status) || a.queue_seq - b.queue_seq);
 
   return entries;
 }

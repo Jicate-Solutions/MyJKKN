@@ -49,6 +49,7 @@ export function EventRegisterForm({
   feeLabel,
   signedInName,
   signedInEmail,
+  full = false,
   sections,
 }: {
   eventId: string;
@@ -59,6 +60,14 @@ export function EventRegisterForm({
   feeLabel: string | null;
   signedInName: string | null;
   signedInEmail: string | null;
+  /**
+   * The event has no places left AND its cap_behavior is 'waitlist', so this
+   * form is still open on purpose. Sending it joins the queue — or, if a place
+   * has already been offered to this person, takes that place up. The page
+   * cannot tell which of the two applies (a guest has no session to ask about),
+   * so the banner says both and the route decides.
+   */
+  full?: boolean;
   sections: SectionWithFields[];
 }) {
   const [name, setName] = useState(signedInName ?? '');
@@ -183,7 +192,8 @@ export function EventRegisterForm({
         <p className="mt-1 text-sm text-muted-foreground">{queued.message}</p>
         <p className="mt-3 text-xs text-muted-foreground">
           Nothing has been charged. If a place frees up it is offered to whoever is
-          at the front of the queue, and you are told.
+          at the front of the queue, and you are told — then you come back to this
+          page and send the form again to take the place up.
         </p>
       </div>
     );
@@ -206,6 +216,22 @@ export function EventRegisterForm({
 
   return (
     <div className="space-y-5 rounded-xl border bg-card p-5 shadow-sm">
+      {full && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3">
+          <p className="flex items-center gap-2 text-sm font-medium text-amber-700 dark:text-amber-400">
+            <ListOrdered className="h-4 w-4" />
+            This event is full
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Send this form to join the waiting list — nothing is charged for a place
+            in the queue. If a place frees up it is offered to whoever is at the
+            front. And if a place has already been offered to you, this is where you
+            take it up: send the form with the same phone number or email the offer
+            was made to.
+          </p>
+        </div>
+      )}
+
       {isPaid && (
         <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
           <p className="text-sm font-medium">

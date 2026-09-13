@@ -2,13 +2,24 @@
 -- event_registration_waitlist — the sign-up waiting list an event never had.
 --
 -- ⚠️ UNAPPLIED PROPOSAL. The PR that introduces this file does NOT execute it.
--- Until it is applied, public registration behaves exactly as it does today
--- (the 51st person on a 50-place event is refused) — the application code that
--- reads this table catches the "relation does not exist" case and falls back to
--- the old refusal, so merging the code before applying the SQL cannot break
--- registration for any event. Apply with Supabase `apply_migration` (never
--- `execute_sql`, which runs the SQL but writes no
--- supabase_migrations.schema_migrations row).
+-- Until it is applied, public registration behaves exactly as it does today —
+-- the 51st person on a 50-place event is refused — on EVERY path, each checked
+-- one at a time rather than asserted as a blanket:
+--   * /p/event/<id>/register — isWaitlistAvailable() returns false, so the page
+--     shows the same "Registration full" it has always shown. It does NOT offer
+--     a queue that is not there. (This is the path that DID break in the first
+--     version of this feature: the page promised a waiting list, took the whole
+--     form, and then refused — worse than the refusal it replaced.)
+--   * POST /api/events/<id>/public-register — countTaken() reads zero offers
+--     without the table, which is the exact number it counted before this
+--     feature existed; joinWaitlist() returns 'not_available' and the route
+--     answers 422 "This event is full."; findOutstandingOffer() finds nothing,
+--     so nothing is claimed; deliverPendingOffers() returns immediately.
+--   * GET /api/events/<id>/waitlist — the gate function is missing too, so the
+--     route answers not_yet_available (with cap_behavior null, not invented)
+--     and the organiser card renders nothing.
+-- Apply with Supabase `apply_migration` (never `execute_sql`, which runs the
+-- SQL but writes no supabase_migrations.schema_migrations row).
 --
 -- ---------------------------------------------------------------------------
 -- WHY NOT public.event_waitlist
@@ -55,6 +66,23 @@
 -- person who never responds holds that place indefinitely, and nobody behind
 -- them is offered it. `offered_at` is stored so the organiser's queue card can
 -- show exactly how long an offer has been outstanding.
+--
+-- ---------------------------------------------------------------------------
+-- AND AN OFFER CAN BE TAKEN UP — 'offered' IS NOT TERMINAL
+-- ---------------------------------------------------------------------------
+-- The promoted person returns to /p/event/<id>/register and sends the form.
+-- POST /api/events/<id>/public-register recognises the offer BEFORE it checks
+-- capacity (findOutstandingOffer), flips this row 'offered' → 'registered' as a
+-- compare-and-swap (claimOffer), writes the ordinary registration, and points
+-- `registration_id` at it. Only then does the place stop being counted twice.
+--
+-- This is load-bearing, and it is stated here because the first version of this
+-- migration shipped WITHOUT it: nothing anywhere wrote 'registered', so every
+-- freed place turned into a permanently held 'offered' row,
+-- fn_event_waitlist_taken grew monotonically, and the door the offer
+-- notification pointed at refused the very person the place was held for and
+-- put them at the BACK of the queue. Do not reintroduce a state here that has
+-- no exit.
 -- ============================================================================
 
 -- ---------------------------------------------------------------------------
@@ -120,7 +148,7 @@ COMMENT ON TABLE public.event_registration_waitlist IS
 COMMENT ON COLUMN public.event_registration_waitlist.queue_seq IS
   'Join order within the event, assigned once by tr_event_registration_waitlist_seq and never renumbered. The position a person is SHOWN is their rank among rows still in status ''waiting'', computed at read time.';
 COMMENT ON COLUMN public.event_registration_waitlist.status IS
-  'waiting = in the queue. offered = a place freed and is being held for this person (counted as taken; no deadline, see the file header). registered = the offer was taken up and registration_id points at the resulting row. withdrawn = they left the queue or the organiser removed them.';
+  'waiting = in the queue. offered = a place freed and is being held for this person (counted as taken; no deadline, see the file header). registered = the offer was taken up through /api/events/[eventId]/public-register and registration_id points at the resulting row; this is the only exit from offered and it is what stops a freed place being held forever. withdrawn = RESERVED and written by nothing yet: there is no leave-the-queue button and no organiser removal, so no row reaches this value today. The value is kept in the CHECK because removal is the next thing this queue needs, not because anything sets it.';
 COMMENT ON COLUMN public.event_registration_waitlist.offered_at IS
   'When the place was offered. With no expiry deadline this is what makes a stalled offer visible: the organiser card shows how long it has been outstanding.';
 COMMENT ON COLUMN public.event_registration_waitlist.notified_at IS
@@ -139,6 +167,39 @@ CREATE INDEX IF NOT EXISTS idx_event_registration_waitlist_profile
 CREATE INDEX IF NOT EXISTS idx_event_registration_waitlist_pending_notify
   ON public.event_registration_waitlist (event_id)
   WHERE status = 'offered' AND notified_at IS NULL;
+
+-- ---------------------------------------------------------------------------
+-- ONE PERSON, ONE OPEN PLACE IN THE QUEUE
+-- ---------------------------------------------------------------------------
+-- Without these, somebody who refreshes and resubmits gets a SECOND row with a
+-- fresh queue_seq; enough repeats and one person occupies the entire head of
+-- the queue and is offered every place that frees. joinWaitlist() returns an
+-- existing open row rather than inserting, and these are the backstop for two
+-- submissions racing past that check — the service re-reads on 23505 and tells
+-- the person their real position instead of surfacing an error.
+--
+-- PARTIAL on the two OPEN statuses only. A 'registered' row must not block the
+-- same person queueing for a later run of the same event, and a 'withdrawn' one
+-- must not block them rejoining. Matching a guest by phone or email is the only
+-- identity a guest has.
+--
+-- PLAIN COLUMNS, NOT lower(...): the email is lower-cased and trimmed by
+-- joinWaitlist() before it is ever written, so the stored value IS the
+-- normalised one and the lookup that precedes the insert compares exactly the
+-- same string this index does. An expression index the service did not mirror
+-- would reject an insert (23505) that the service's own re-read could not then
+-- find, and the registrant would be told the queue was broken.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_event_registration_waitlist_open_profile
+  ON public.event_registration_waitlist (event_id, profile_id)
+  WHERE profile_id IS NOT NULL AND status IN ('waiting', 'offered');
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_event_registration_waitlist_open_phone
+  ON public.event_registration_waitlist (event_id, participant_phone)
+  WHERE participant_phone IS NOT NULL AND status IN ('waiting', 'offered');
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_event_registration_waitlist_open_email
+  ON public.event_registration_waitlist (event_id, participant_email)
+  WHERE participant_email IS NOT NULL AND status IN ('waiting', 'offered');
 
 -- ---------------------------------------------------------------------------
 -- queue_seq assignment
@@ -348,6 +409,18 @@ $$;
 COMMENT ON FUNCTION public.fn_event_registration_freed_offer_waitlist() IS
   'When a registration is cancelled or removed from a waitlist-behaviour event that has spare capacity, offers the freed place to the person at the head of the queue. Offers one row only, holds the place, and sets no deadline. Announcing the offer is done by the application through the canonical notification fanout, never here.';
 
+-- The third SECURITY DEFINER function in this file, and the one the
+-- check-secdef-anon-revoke gate never examined: that gate skips RETURNS TRIGGER,
+-- so it reported "2 new secdef function(s) checked" and this one kept Postgres's
+-- default PUBLIC grant plus Supabase's ALTER DEFAULT PRIVILEGES grant to anon.
+-- Not exploitable — Postgres refuses a direct call to a trigger function — but
+-- an unlocked default that no automated check looked at is not a thing to leave
+-- lying about. No GRANT follows: firing a trigger does not test EXECUTE (it is
+-- checked once, at CREATE TRIGGER, against the creator), so revoking from
+-- everybody changes nothing about the two triggers below.
+REVOKE EXECUTE ON FUNCTION public.fn_event_registration_freed_offer_waitlist()
+  FROM anon, authenticated, PUBLIC;
+
 DROP TRIGGER IF EXISTS tr_events_registration_cancelled_offer_waitlist ON public.events_registrations;
 CREATE TRIGGER tr_events_registration_cancelled_offer_waitlist
   AFTER UPDATE OF status ON public.events_registrations
@@ -375,6 +448,13 @@ CREATE TRIGGER tr_events_registration_deleted_offer_waitlist
 -- they have checked capacity and authority themselves. A signed-in client that
 -- could write here directly could put itself at the head of somebody else's
 -- queue.
+--
+-- NO DELETE FOR ANYBODY, deliberately and permanently. A queue row is the record
+-- that somebody was refused a place and what happened next; deleting it would
+-- erase the only evidence an offer was ever made. Leaving the queue, when it is
+-- built, is a status change to 'withdrawn', not a delete — which is also why the
+-- assertion block below demands DELETE be absent for anon and authenticated
+-- rather than granting it to service_role "just in case".
 REVOKE ALL ON public.event_registration_waitlist FROM anon, authenticated, PUBLIC;
 GRANT SELECT ON public.event_registration_waitlist TO authenticated;
 GRANT SELECT, INSERT, UPDATE ON public.event_registration_waitlist TO service_role;

@@ -50,7 +50,15 @@
  * off the result becomes a TS2339. Keep it on one line however long it gets.
  */
 export const PUBLIC_EVENT_COLUMNS =
-  'id, name, event_type, status, event_date, start_date, venue, venue_text, registration_open_date, registration_close_date, max_registrations';
+  'id, name, event_type, status, event_date, start_date, venue, venue_text, registration_open_date, registration_close_date, max_registrations, cap_behavior';
+
+// `cap_behavior` was added here on 2026-09-13, when the page stopped slamming a
+// hard "Registration full" door on an event whose own switch says to queue the
+// next person. It is SAFE under the 42703 rule above and it was not added on
+// faith: the column has existed since `20260416000001`, and a read-only
+// PostgREST probe of production the same day returned `{"cap_behavior":
+// "waitlist"}`, HTTP 200. Verify any further addition the same way before
+// making it — one missing column fails the whole select.
 
 /**
  * Where a member of the public is sent with a question about a cancelled event.

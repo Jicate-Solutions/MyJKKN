@@ -13,6 +13,11 @@
 //      after the code deploys, and the whole safety of this feature rests on
 //      that window degrading to today's behaviour rather than breaking public
 //      registration for every event.
+//   4. THAT THE QUEUE ORDER IS A VALID TOTAL ORDER once a status other than
+//      waiting/offered exists. It was not: the first comparator answered 1 for
+//      waiting-vs-registered AND 1 for registered-vs-waiting, which is only
+//      invisible while nothing ever writes 'registered'. Taking an offer up
+//      writes exactly that, so the bug went live with the fix that needed it.
 //
 // The service also talks to Supabase; those functions are not exercised here.
 // Everything below is pure.
@@ -107,6 +112,55 @@ describe('orderQueue — where an offer appears', () => {
   });
 });
 
+describe('orderQueue — a valid total order, not just a two-status special case', () => {
+  // The comparator must give the same answer whichever way round the pair is
+  // handed to it. A sort whose comparator says "a after b" AND "b after a"
+  // produces an engine-dependent order — the result depends on how V8 happens
+  // to walk the array, which is not a thing to ship on a screen that decides
+  // who gets a place.
+  const STATUSES = ['offered', 'waiting', 'registered', 'withdrawn', 'something_new'];
+
+  it('is antisymmetric for every pair of statuses', () => {
+    for (const a of STATUSES) {
+      for (const b of STATUSES) {
+        if (a === b) continue;
+        const forward = orderQueue([row({ queue_seq: 1, status: a }), row({ queue_seq: 2, status: b })]);
+        const backward = orderQueue([row({ queue_seq: 2, status: b }), row({ queue_seq: 1, status: a })]);
+        expect(forward.map((e) => e.id)).toEqual(backward.map((e) => e.id));
+      }
+    }
+  });
+
+  it('puts a taken-up offer below everybody still in the queue', () => {
+    // 'registered' is written the moment somebody takes their offer up. It must
+    // not sit among the people still waiting for a place.
+    const entries = orderQueue([
+      row({ queue_seq: 1, status: 'registered' }),
+      row({ queue_seq: 2, status: 'waiting' }),
+      row({ queue_seq: 3, status: 'offered' }),
+      row({ queue_seq: 4, status: 'withdrawn' }),
+    ]);
+
+    expect(entries.map((e) => e.status)).toEqual([
+      'offered',
+      'waiting',
+      'registered',
+      'withdrawn',
+    ]);
+  });
+
+  it('gives a registered row no position — it is out of the queue, not in it', () => {
+    const entries = orderQueue([
+      row({ queue_seq: 1, status: 'registered' }),
+      row({ queue_seq: 2 }),
+    ]);
+    const registered = entries.find((e) => e.status === 'registered');
+    expect(registered?.position).toBeNull();
+    // ...and it does not consume rank 1 from the person still waiting.
+    expect(entries.find((e) => e.status === 'waiting')?.position).toBe(1);
+  });
+});
+
 describe('queuedMessage — what the person is told', () => {
   it('never says the word "full" without also saying what happens next', () => {
     for (const position of [null, 1, 2, 17]) {
@@ -127,6 +181,22 @@ describe('queuedMessage — what the person is told', () => {
   it('degrades to a position-less sentence rather than saying "number 0"', () => {
     expect(queuedMessage(null)).not.toContain('number');
     expect(queuedMessage(0)).not.toContain('number');
+  });
+
+  // A refresh or a second click used to add a SECOND row and say "you have been
+  // added" again, which invites somebody to keep resubmitting to improve a
+  // position that cannot move. The row is now reused and the sentence says so.
+  it('says "already" to somebody who was on the queue before this submission', () => {
+    for (const position of [null, 1, 4]) {
+      const message = queuedMessage(position, true);
+      expect(message.toLowerCase()).toContain('already');
+      expect(message.toLowerCase()).toContain('does not move you up');
+    }
+  });
+
+  it('still names the position for somebody already queued', () => {
+    expect(queuedMessage(4, true)).toContain('number 4');
+    expect(queuedMessage(1, true)).toContain('first');
   });
 });
 

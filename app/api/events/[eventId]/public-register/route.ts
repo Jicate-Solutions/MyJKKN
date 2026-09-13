@@ -30,10 +30,14 @@ import {
   type FormWindowLike,
 } from '@/types/tournament';
 import {
+  attachRegistration,
+  claimOffer,
   countTaken,
   deliverPendingOffers,
+  findOutstandingOffer,
   joinWaitlist,
   queuedMessage,
+  releaseOffer,
 } from '@/lib/services/events/waitlist-service';
 
 /**
@@ -223,15 +227,25 @@ export async function POST(
     } = await auth.auth.getUser();
     let selfLearnerId: string | null = null;
     let selfInstitutionId: string | null = null;
+    // event_registration_waitlist.profile_id is a FOREIGN KEY to profiles(id).
+    // A signed-in auth user with no profiles row would fail that insert with
+    // 23503 — a real write failure that used to reach the registrant dressed as
+    // "This event is full." Only claim an identity the waiting list can store.
+    let selfProfileId: string | null = null;
     if (user) {
       const { data: profile } = await (svc as any)
         .from('profiles')
-        .select('learner_id, institution_id')
+        .select('id, learner_id, institution_id')
         .eq('id', user.id)
         .maybeSingle();
+      selfProfileId = profile?.id ?? null;
       selfLearnerId = profile?.learner_id ?? null;
       selfInstitutionId = profile?.institution_id ?? null;
     }
+    const contact = {
+      email: dto.participant_email?.trim() || null,
+      phone: dto.participant_phone?.trim() || null,
+    };
 
     // ---- capacity ----
     // What a full event does is decided by events.cap_behavior, a column that
@@ -240,7 +254,9 @@ export async function POST(
     // every one of them refused instead. This is that column finally being
     // honoured; there is no second switch.
     //
-    //   waitlist       → join the queue and be told the position (202)
+    //   waitlist       → join the queue and be told the position (202), OR, if
+    //                    a place has already been offered to this person, take
+    //                    that place up (201) — see the claim below
     //   strict_cap     → refused, exactly as today (422)
     //   allow_overflow → capacity is advisory; registration proceeds
     //
@@ -248,7 +264,52 @@ export async function POST(
     // are still outstanding, because an offer holds its place. Before the
     // migration is applied the second term is zero, so this is the same number
     // the route counted before this feature existed.
-    if (ev.max_registrations && ev.cap_behavior !== 'allow_overflow') {
+
+    // A place may have freed since the last time anybody looked at this event.
+    // The database has already offered it to whoever was next; this is where
+    // that offer gets announced.
+    //
+    // IT RUNS HERE, BEFORE THE CAPACITY CHECK, AND IT IS AWAITED. Behind the
+    // check it could never be reached in the one state where an offer exists:
+    // an outstanding offer counts as a taken place, so a capped waitlist event
+    // with a pending offer returns 202 above and never gets this far — the
+    // announcement was unreachable in exactly the case it was written for. And
+    // `void`-ing it left a two-write fanout (notifications, then
+    // user_notifications) to race a lambda that Vercel freezes the moment the
+    // response is sent, which is the half-written inbox notify.ts exists to
+    // prevent. It never throws on its own; the guard is for the unexpected.
+    try {
+      await deliverPendingOffers(svc as any, eventId);
+    } catch {
+      /* an announcement must never take down the registration that triggered it */
+    }
+
+    // ---- is this person holding an offer? ----
+    // An offer HOLDS its place, which means `taken` already counts it — so
+    // without this lookup the capacity check below refuses the very person the
+    // place is being held for and puts them at the BACK of the queue they were
+    // just promoted off, while the notification they were sent points them at
+    // this exact door. The offer is claimed as a compare-and-swap BEFORE the
+    // registration is written and released again if that write fails, so two
+    // submissions cannot turn one held place into two registrations.
+    // Guarded on max_registrations as well as the switch: with no capacity an
+    // event can never have been full, so it can never have queued anybody and
+    // there is no offer to find. That keeps this lookup off the door of every
+    // uncapped event.
+    let claimedWaitlistId: string | null = null;
+    if (ev.cap_behavior === 'waitlist' && ev.max_registrations) {
+      const offer = await findOutstandingOffer(svc as any, eventId, {
+        profileId: selfProfileId,
+        learnerId: selfLearnerId,
+        email: contact.email,
+        phone: contact.phone,
+      });
+      if (offer && (await claimOffer(svc as any, offer.id))) {
+        claimedWaitlistId = offer.id;
+      }
+    }
+
+    if (!claimedWaitlistId && ev.max_registrations && ev.cap_behavior !== 'allow_overflow') {
       const taken = await countTaken(svc as any, eventId);
       if (taken >= ev.max_registrations) {
         if (ev.cap_behavior !== 'waitlist') {
@@ -259,9 +320,9 @@ export async function POST(
           eventId,
           formId: formRow.id,
           participantName: dto.participant_name.trim(),
-          participantEmail: dto.participant_email?.trim() || null,
-          participantPhone: dto.participant_phone?.trim() || null,
-          profileId: user?.id ?? null,
+          participantEmail: contact.email,
+          participantPhone: contact.phone,
+          profileId: selfProfileId,
           learnerId: selfLearnerId,
           institutionId: selfInstitutionId,
           customFields: dto.custom_fields ?? null,
@@ -269,30 +330,53 @@ export async function POST(
 
         // The waiting list is not there yet (the migration is applied at merge,
         // after this code deploys). Behave exactly as the event did before.
-        if (!queued.id) {
+        if (queued.outcome === 'not_available') {
           return NextResponse.json({ error: 'This event is full.' }, { status: 422 });
         }
 
-        // NO MONEY IS TAKEN TO JOIN A QUEUE. A place is not held yet, and a
-        // paid form's fee is charged through the ordinary registration flow if
-        // and when the offer is taken up.
+        // They already took a place up on this event and have come back — a
+        // refresh, a back button, a second tab. Telling them they are "number 4
+        // on the waiting list" for an event they are registered for would be
+        // both wrong and alarming.
+        if (queued.outcome === 'already_registered') {
+          return NextResponse.json(
+            {
+              registration_id: queued.registrationId,
+              paid_required: false,
+              already_registered: true,
+            },
+            { status: 200 }
+          );
+        }
+
+        // A real write failure. Saying "This event is full." here would dress a
+        // broken queue up as a capacity decision and leave nobody able to tell
+        // the two apart.
+        if (queued.outcome === 'error') {
+          return NextResponse.json(
+            {
+              error:
+                'This event is full and the waiting list could not be updated. Please try again in a moment.',
+            },
+            { status: 500 }
+          );
+        }
+
+        // NO MONEY IS TAKEN TO JOIN A QUEUE. A paid form's fee is charged
+        // through the ordinary registration flow when the offer is taken up —
+        // which is this same route, recognising the offer above.
         return NextResponse.json(
           {
             waitlisted: true,
+            already_waitlisted: queued.already,
             waitlist_id: queued.id,
             position: queued.position,
-            message: queuedMessage(queued.position),
+            message: queuedMessage(queued.position, queued.already),
           },
           { status: 202 }
         );
       }
     }
-
-    // A place may have freed since the last time anybody looked at this event.
-    // The database has already offered it to whoever was next; this is where
-    // that offer gets announced. Best effort, and never allowed to affect the
-    // registration that triggered it.
-    void deliverPendingOffers(svc as any, eventId).catch(() => undefined);
 
     // ---- fee ----
     // Read from the DB, never from the request: a client-supplied amount is a
@@ -329,11 +413,21 @@ export async function POST(
       .single();
 
     if (regErr || !reg) {
+      // The claim was taken before this write on purpose; hand the place back
+      // rather than losing it to a row that says 'registered' and points at no
+      // registration.
+      if (claimedWaitlistId) await releaseOffer(svc as any, claimedWaitlistId);
       return NextResponse.json(
         { error: regErr?.message || 'Failed to register' },
         { status: 500 }
       );
     }
+
+    // The queue row now names the registration it became. This is what stops
+    // 'offered' being a terminal state: the place is no longer double-counted
+    // by fn_event_waitlist_taken, and the organiser's card stops showing a
+    // phantom "Offered N days ago" that never clears.
+    if (claimedWaitlistId) await attachRegistration(svc as any, claimedWaitlistId, reg.id);
 
     // ---- payment ----
     if (fee <= 0) {

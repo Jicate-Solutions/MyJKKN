@@ -3,13 +3,24 @@
 // The waiting list on an event's console: who is queuing, in order, and whether
 // anybody is sitting on an offer that has not been answered.
 //
-// The card is SELF-GATING and silent when it has nothing to say. It asks
-// /api/events/[eventId]/waitlist, which decides authority with
-// fn_can_manage_event_waitlist — the same four branches as the feedback and
-// messages gates. A viewer without that authority gets an explicit refusal from
-// the route and the card renders nothing rather than an empty queue, because an
-// empty queue and "you may not see this queue" must never look the same
-// (house rule #27: nothing here redirects, and nothing pretends).
+// The card is SELF-GATING. It asks /api/events/[eventId]/waitlist, which decides
+// authority with fn_can_manage_event_waitlist — the same four branches as the
+// feedback and messages gates.
+//
+// THREE OUTCOMES, THREE DIFFERENT PIXELS (house rule #27). The first version
+// set one `hidden` flag on ANY non-ok response, so "you may not see this
+// queue", "the queue could not load" and "nobody is waiting" were all the same
+// blank space — the exact conflation the comment here claimed to avoid, and the
+// carefully written NO_ACCESS sentence in the route was shown to nobody:
+//   * NOT ALLOWED (401/403) → renders nothing, on purpose. This card is an
+//     add-on to an event console that many roles legitimately open; a red
+//     refusal box on every one of them would be noise, not information. It is
+//     the one outcome that is deliberately silent, and it is silent because the
+//     viewer has lost nothing.
+//   * COULD NOT LOAD (500, network, bad payload) → says so, with a retry. A
+//     stalled offer is invisible while this is broken, and an organiser who
+//     cannot tell "broken" from "empty" will not go looking.
+//   * NOBODY WAITING → renders nothing. There is no queue to show.
 //
 // Offers are listed FIRST. An offer holds a place and, by the Director's
 // ruling, carries no deadline — so a promoted person who never answers is the
@@ -92,25 +103,35 @@ function QueueRow({ entry }: { entry: WaitlistEntry }) {
   );
 }
 
+type CardState =
+  /** The viewer may not see this queue. Deliberately silent — see the header. */
+  | { kind: 'not_allowed' }
+  /** The queue could not be read. Said out loud, with a retry. */
+  | { kind: 'failed' }
+  | { kind: 'ready'; panel: WaitlistPanel };
+
 export function EventWaitlistCard({ eventId }: { eventId: string }) {
-  const [panel, setPanel] = useState<WaitlistPanel | null>(null);
+  const [state, setState] = useState<CardState | null>(null);
   const [loading, setLoading] = useState(true);
-  /** A refusal, a network failure, or "not allowed" — all mean render nothing. */
-  const [hidden, setHidden] = useState(false);
 
   const load = useCallback(async () => {
+    setLoading(true);
     try {
       const res = await fetch(`/api/events/${encodeURIComponent(eventId)}/waitlist`, {
         cache: 'no-store',
       });
       const payload = await res.json().catch(() => null);
-      if (!res.ok || payload?.success !== true) {
-        setHidden(true);
+      if (res.status === 401 || res.status === 403) {
+        setState({ kind: 'not_allowed' });
         return;
       }
-      setPanel(payload.panel as WaitlistPanel);
+      if (!res.ok || payload?.success !== true || !payload?.panel) {
+        setState({ kind: 'failed' });
+        return;
+      }
+      setState({ kind: 'ready', panel: payload.panel as WaitlistPanel });
     } catch {
-      setHidden(true);
+      setState({ kind: 'failed' });
     } finally {
       setLoading(false);
     }
@@ -120,14 +141,48 @@ export function EventWaitlistCard({ eventId }: { eventId: string }) {
     void load();
   }, [load]);
 
-  if (hidden) return null;
   if (loading) return <Skeleton className="h-24 w-full" />;
-  if (!panel) return null;
+  if (!state) return null;
+  if (state.kind === 'not_allowed') return null;
 
-  // Nothing to show: the event does not queue, or nobody is queuing. The card
-  // stays out of the way rather than adding an empty box to every console.
-  if (panel.cap_behavior !== 'waitlist') return null;
+  if (state.kind === 'failed') {
+    return (
+      <Card className="border-destructive/40">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <ListOrdered className="h-5 w-5" />
+            Waiting list
+          </CardTitle>
+          <CardDescription>
+            The waiting list could not be loaded, so this is not the same as
+            &quot;nobody is waiting&quot;. If somebody has been offered a place, you
+            cannot see it right now.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <button
+            type="button"
+            onClick={() => void load()}
+            className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-muted"
+          >
+            Try again
+          </button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const panel = state.panel;
+
+  // Nothing to show: the queue does not exist yet, the event does not queue, or
+  // nobody is queuing. The card stays out of the way rather than adding an empty
+  // box to every console.
+  //
+  // not_yet_available is checked FIRST because in that state cap_behavior is
+  // null — not read — and testing it before this would be reading a value the
+  // route deliberately refused to invent.
   if (panel.not_yet_available) return null;
+  if (panel.cap_behavior !== 'waitlist') return null;
   if (!panel.entries.length) return null;
 
   const capacityLine =
@@ -158,10 +213,11 @@ export function EventWaitlistCard({ eventId }: { eventId: string }) {
 
         {panel.offered_count > 0 && (
           <p className="rounded-md bg-muted/60 p-3 text-xs text-muted-foreground">
-            An offered place is held for that person and counts as taken. There is
-            no deadline: an offer nobody answers keeps its place, and nobody behind
-            it moves up. This screen cannot take an offer back yet — if one stalls,
-            tell an administrator.
+            An offered place is held for that person and counts as taken until they
+            take it up on the registration page. There is no deadline: an offer
+            nobody answers keeps its place, and nobody behind it moves up. This
+            screen cannot take an offer back yet — if one stalls, tell an
+            administrator.
           </p>
         )}
       </CardContent>

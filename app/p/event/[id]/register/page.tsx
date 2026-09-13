@@ -19,6 +19,7 @@ import { createClient as createAnonOrService } from '@supabase/supabase-js';
 import { createClient as createSessionClient } from '@/lib/supabase/server';
 import { Ban, CalendarClock, CalendarDays, MapPin, Ticket } from 'lucide-react';
 import { effectiveFee, formRegistrationState, isFormOpen } from '@/types/tournament';
+import { countTaken, isWaitlistAvailable } from '@/lib/services/events/waitlist-service';
 import { EventRegisterForm } from './_components/event-register-form';
 import {
   PUBLIC_CANCELLATION_CONTACT_EMAIL,
@@ -299,16 +300,42 @@ export default async function PublicEventRegisterPage({
     fields: (rawFields ?? []).filter((f) => f.section_id === s.id),
   }));
 
-  // Capacity is enforced server-side on submit too; this only avoids showing a
-  // form that cannot be submitted.
-  if (ev.max_registrations) {
-    const { count } = await svc
-      .from('events_registrations')
-      .select('id', { count: 'exact', head: true })
-      .eq('event_id', id)
-      .neq('status', 'cancelled');
-    if ((count ?? 0) >= ev.max_registrations) {
-      return <Empty title="Registration full" msg="This event has reached its maximum number of registrations." />;
+  // ---- capacity: what a FULL event does is the event's own decision ----
+  //
+  // This gate used to return "Registration full" for every full event, full
+  // stop — so the form never mounted, POST /api/events/[eventId]/public-register
+  // was never called, and the waiting list could not be joined by anybody. The
+  // queue was unreachable in production in exactly the case it exists for.
+  //
+  // `events.cap_behavior` decides, the same switch the route honours:
+  //   strict_cap     → the hard refusal, unchanged
+  //   waitlist       → show the form. Sending it joins the queue (202) — or, if
+  //                    a place has already been offered to this person, TAKES
+  //                    THAT PLACE UP. That is the door the offer notification
+  //                    points at, and it must not be shut in their face.
+  //   allow_overflow → show the form; capacity is advisory.
+  //
+  // Counted with the same countTaken() the route uses — registrations plus
+  // outstanding offers — so the sentence this page shows and the answer the
+  // route gives cannot disagree. Capacity is still enforced on submit; this
+  // only decides what the visitor is told.
+  //
+  // AND IT ONLY OFFERS A QUEUE THAT EXISTS. Code ships before migrations here.
+  // Between the deploy and the apply there is no waiting list — so promising one
+  // on this page, collecting every answer on the form and THEN refusing with
+  // "This event is full." would be worse than the refusal it replaced, and it
+  // would break the claim that everything degrades to today's behaviour while
+  // the migration is unapplied. In that window this page shows exactly what it
+  // showed before.
+  let full = false;
+  if (ev.max_registrations && ev.cap_behavior !== 'allow_overflow') {
+    const taken = await countTaken(svc as never, id);
+    if (taken >= ev.max_registrations) {
+      const queues = ev.cap_behavior === 'waitlist' && (await isWaitlistAvailable(svc as never));
+      if (!queues) {
+        return <Empty title="Registration full" msg="This event has reached its maximum number of registrations." />;
+      }
+      full = true;
     }
   }
 
@@ -394,6 +421,7 @@ export default async function PublicEventRegisterPage({
         feeLabel={formRow.fee_label ?? null}
         signedInName={signedInName}
         signedInEmail={signedInEmail}
+        full={full}
         sections={sections as never}
       />
 

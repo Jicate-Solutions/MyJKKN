@@ -63,12 +63,18 @@ export async function GET(
   if (gateError) {
     // The gate function ships in the same migration as the table. Until that is
     // applied the honest answer is "not available yet", not "access denied".
+    //
+    // `cap_behavior: null` means NOT READ, and it is null rather than
+    // 'waitlist' deliberately. This branch has not been able to check the
+    // caller's authority — the function that does that is the one that is
+    // missing — so it must not report an event value it never queried. It said
+    // 'waitlist' before, which was a panel stating a fact nobody looked up.
     if (isMissingObject(gateError)) {
       return NextResponse.json(
         {
           success: true,
           panel: {
-            cap_behavior: 'waitlist',
+            cap_behavior: null,
             max_registrations: null,
             taken: 0,
             entries: [],
