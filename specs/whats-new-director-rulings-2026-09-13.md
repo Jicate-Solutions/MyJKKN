@@ -80,3 +80,37 @@ here: apply the same `title-rules.mjs` filters that MyJKKN's own history goes
 through. If a repository's messages are so thin that almost nothing survives the
 filters, that is a finding to report to that team, not a reason to lower the bar
 for everyone.
+
+## Settled 2026-09-13, second round — the perception question
+
+He put the strategic frame himself: *"business is not about creating value, it's
+about creating the perception of value... it's about convincing the other person
+that what you are building is of value."*
+
+The diagnosis is evidenced by this very feature: 4,933 changes shipped since
+25 March, and the page meant to show them held ZERO rows until 20:00 on
+2026-09-12 — live and empty for six days. Value created, perceived by nobody.
+
+**9. No public version. Everything stays behind the login.** Asked directly
+whether the ten weekly highlights should eventually have a page anyone could
+see — assessors, parents, prospective faculty — he said keep everything
+internal. This is the SECOND time he has ruled this way in one day (the first
+being sign-in-only for the archive), so treat it as a settled boundary, not a
+preference to revisit.
+
+> **Consequence, stated plainly so nobody re-opens it by accident:** the
+> external-perception play — NAAC/NBA assessors, admission-season parents,
+> faculty deciding whether to join — cannot happen through this channel. If
+> that audience matters later, it needs a different vehicle and a fresh
+> decision. Do not quietly widen this page's reach to serve it.
+
+**10. A highlight names the ROLE that asked, never the person.** "Principals
+asked for this", "raised by a HOD" — not "suggested by Dr Priya". Shows the
+institution listens without putting an individual's name on what may have
+started as a complaint, and works when several people asked for the same thing.
+
+**11. Every AI-written highlight renders the original developer line beneath
+it.** Applied without asking (see ruling 4). Perception that survives being
+checked is the only kind worth building in a captive, repeat audience: the same
+HODs open this platform every Monday for years, and a claim they can disprove
+once discounts every claim afterwards.
