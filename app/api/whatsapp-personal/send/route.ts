@@ -12,7 +12,10 @@ import { WhatsAppPersonalMessageService } from '@/lib/services/whatsapp/whatsapp
 import {
   personalSendMessageAPI,
   resolveHistoryAnchor,
+  normalizeToE164,
   ByowDisabledError,
+  ByowPolicyUnreadableError,
+  BridgeRecipientError,
 } from '@/lib/whatsapp/personal-api-client';
 import {
   checkByowDeptAccess,
@@ -68,13 +71,26 @@ export async function POST(request: NextRequest) {
   // still requires a department_id and a connection_id (both NOT NULL with FKs),
   // so we reuse an existing wa_personal_connections row purely as history
   // metadata. It no longer decides where the message goes.
-  const logAnchor = await resolveHistoryAnchor(deptId);
+  // Recipient phone is normalised HERE too, so the history row and the outbox
+  // row carry the identical canonical number rather than two spellings.
+  let toE164: string;
+  try {
+    toE164 = normalizeToE164(to);
+  } catch (err) {
+    const msg = err instanceof BridgeRecipientError ? err.message : 'Invalid recipient';
+    return NextResponse.json({ error: msg }, { status: 400 });
+  }
+
+  // History anchor is resolved from the CALLER's own scope only — never from an
+  // arbitrary department, which would write this message body and this phone
+  // number into a department the caller was never authorised for.
+  const logAnchor = await resolveHistoryAnchor(deptId, user.id);
   const logEntry = logAnchor
     ? await WhatsAppPersonalMessageService.logMessage({
         department_id: logAnchor.department_id,
         connection_id: logAnchor.id,
         recipient_type: 'individual',
-        recipient_phone: to,
+        recipient_phone: toE164,
         recipient_name: recipient_name || undefined,
         message_content: message,
         lead_id: lead_id || undefined,
@@ -84,7 +100,7 @@ export async function POST(request: NextRequest) {
     : null;
 
   try {
-    const result = await personalSendMessageAPI(to, message, {
+    const result = await personalSendMessageAPI(toE164, message, {
       leadId: lead_id || null,
       institutionId,
       createdBy: user.id,
@@ -107,7 +123,14 @@ export async function POST(request: NextRequest) {
         error_message: msg,
       });
     }
-    const status = error instanceof ByowDisabledError ? 503 : 500;
+    // An unreadable kill switch is a refusal to send, not a server fault — it
+    // gets the same 503 as an explicitly disabled switch.
+    const status =
+      error instanceof ByowDisabledError || error instanceof ByowPolicyUnreadableError
+        ? 503
+        : error instanceof BridgeRecipientError
+          ? 400
+          : 500;
     return NextResponse.json({ success: false, queued: false, error: msg }, { status });
   }
 }

@@ -11,7 +11,11 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { getBridgeHealth, BRIDGE_HEARTBEAT_STALE_MS } from '@/lib/whatsapp/personal-api-client';
+import {
+  getBridgeHealth,
+  syncConnectionsToBridgeHealth,
+  BRIDGE_HEARTBEAT_STALE_MS,
+} from '@/lib/whatsapp/personal-api-client';
 import {
   checkByowDeptAccess,
   checkByowInstitutionAccess,
@@ -43,6 +47,13 @@ export async function GET(request: NextRequest) {
   const health = await getBridgeHealth();
   const connected = health.connected && health.loggedIn;
 
+  // KEEP A WRITER for wa_personal_connections.status. This route was that
+  // column's only updater; without it the BYOW health badge — and
+  // isConnected() / getAnyReadyConnection(), which the expo and auto-trigger
+  // services branch on — freeze on whatever the dead Railway service last said
+  // and report it as live state forever. Best-effort, never fails the read.
+  await syncConnectionsToBridgeHealth(health);
+
   return NextResponse.json({
     department_id: deptId,
     status: connected ? 'ready' : 'disconnected',
@@ -57,6 +68,8 @@ export async function GET(request: NextRequest) {
       heartbeat_age_ms: health.heartbeatAgeMs,
       stale_after_ms: BRIDGE_HEARTBEAT_STALE_MS,
       reason: health.reason ?? null,
+      // Distinguishes "we could not ask" from "the bridge is quiet".
+      error: health.error ?? null,
     },
   });
 }

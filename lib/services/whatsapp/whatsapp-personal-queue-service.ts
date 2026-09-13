@@ -11,7 +11,11 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { WhatsAppPersonalMessageService } from './whatsapp-personal-message-service';
-import { personalSendMessageAPI, resolveHistoryAnchor } from '@/lib/whatsapp/personal-api-client';
+import {
+  personalSendMessageAPI,
+  resolveHistoryAnchor,
+  normalizeToE164,
+} from '@/lib/whatsapp/personal-api-client';
 import {
   sendTemplateMessage,
   isWhatsAppConfigured,
@@ -30,13 +34,19 @@ function getServiceClient() {
 const MAX_RETRIES = 3;
 const PERSONAL_WA_DAILY_LIMIT = 200; // Safety limit for personal WA
 
-/** Format phone for personal WA JID */
-function toJID(phone: string): string {
-  let clean = phone.replace(/[\s\-()@c.us]/g, '');
-  if (clean.startsWith('+91')) clean = clean.slice(1);
-  else if (clean.startsWith('0')) clean = '91' + clean.slice(1);
-  else if (/^[6-9]\d{9}$/.test(clean)) clean = '91' + clean;
-  return clean + '@c.us';
+// `toJID` used to live here and appended '@c.us'. It is gone: the bridge takes
+// canonical E.164 DIGITS ONLY, and `normalizeToE164` in personal-api-client.ts
+// is the single place that decides the wire format.
+
+/**
+ * Correlation key written to BOTH `wa_personal_message_queue.wa_message_id` and
+ * `wa_personal_message_logs.whatsapp_message_id` when an item is handed to the
+ * bridge. The prefix keeps it unmistakable: this is an OUTBOX ROW ID, not a
+ * WhatsApp message id — no WhatsApp id exists until the bridge actually sends.
+ */
+const OUTBOX_REF_PREFIX = 'outbox:';
+function outboxRef(outboxId: string): string {
+  return `${OUTBOX_REF_PREFIX}${outboxId}`;
 }
 
 /** Format phone for Meta WABA (no @c.us, no +) */
@@ -57,10 +67,17 @@ export class WhatsAppPersonalQueueService {
     sent: number;
     failed: number;
     skipped: number;
+    /** Handed-off items the bridge has since reported as terminally failed. */
+    reflected: number;
   }> {
     const supabase = getServiceClient();
     const now = new Date().toISOString();
     let sent = 0, failed = 0, skipped = 0;
+
+    // Before queueing anything new, pull terminal bridge failures back in. An
+    // item handed to the outbox is marked 'sent'; without this pass a lead the
+    // bridge could never reach stays recorded as contacted forever.
+    const reflected = await this.reconcileBridgeAcks(supabase, limit);
 
     // Fetch pending items ready for processing
     const { data: pending } = await supabase
@@ -73,7 +90,7 @@ export class WhatsAppPersonalQueueService {
       .limit(limit);
 
     if (!pending || pending.length === 0) {
-      return { processed: 0, sent: 0, failed: 0, skipped: 0 };
+      return { processed: 0, sent: 0, failed: 0, skipped: 0, reflected };
     }
 
     // Check consent for all leads in batch
@@ -129,7 +146,10 @@ export class WhatsAppPersonalQueueService {
             .from('wa_personal_message_queue')
             .update({
               status: 'sent',
-              wa_message_id: result.messageId,
+              // NOT a WhatsApp message id — none exists until the bridge sends.
+              // This is the outbox row id, prefixed so its meaning is explicit,
+              // and it is how reconcileBridgeAcks finds this item again.
+              wa_message_id: result.outboxId ? outboxRef(result.outboxId) : null,
               sent_at: new Date().toISOString(),
               department_id: result.departmentId,
             })
@@ -164,7 +184,7 @@ export class WhatsAppPersonalQueueService {
       // cron run.
     }
 
-    return { processed: pending.length, sent, failed, skipped };
+    return { processed: pending.length, sent, failed, skipped, reflected };
   }
 
   /**
@@ -178,11 +198,16 @@ export class WhatsAppPersonalQueueService {
    */
   private static async sendViaPersonal(
     item: PersonalMessageQueueItem
-  ): Promise<{ success: boolean; messageId?: string; departmentId?: string; error?: string }> {
+  ): Promise<{
+    success: boolean;
+    outboxId?: string;
+    departmentId?: string;
+    error?: string;
+  }> {
     try {
-      const jid = toJID(item.phone);
+      const phone = normalizeToE164(item.phone);
 
-      const result = await personalSendMessageAPI(jid, item.message_content, {
+      const result = await personalSendMessageAPI(phone, item.message_content, {
         leadId: item.lead_id,
         institutionId: item.institution_id ?? null,
         createdBy: null,
@@ -191,26 +216,32 @@ export class WhatsAppPersonalQueueService {
       // History log — unchanged table. wa_personal_message_logs requires a
       // department_id and connection_id (both NOT NULL with FKs), so an
       // existing connection row is reused purely as history metadata.
-      const anchor = await resolveHistoryAnchor(null);
-      if (anchor) {
+      //
+      // SCOPE: the anchor comes from the QUEUE ITEM's own department, never
+      // from "whatever connection row sorts first". An item with no department
+      // gets no history row — a row under the wrong department would publish
+      // this message body and this phone number to staff of a department the
+      // message never belonged to.
+      const anchor = await resolveHistoryAnchor(item.department_id ?? null);
+      if (anchor && result.id) {
         await WhatsAppPersonalMessageService.logMessage({
           department_id: anchor.department_id,
           connection_id: anchor.id,
           recipient_type: 'individual',
-          recipient_phone: jid,
+          recipient_phone: phone,
           message_content: item.message_content,
           lead_id: item.lead_id,
           sent_by: 'system',
           // Queued with the bridge; delivery is confirmed out of band.
           status: 'pending',
+          // Correlation handle so a terminal `failed` ack can find this row.
+          whatsapp_message_id: outboxRef(result.id),
         });
       }
 
       return {
         success: result.queued,
-        // Intentionally absent: no WhatsApp message id exists until the bridge
-        // actually sends. `result.id` is an outbox row id, not a wa id.
-        messageId: undefined,
+        outboxId: result.id,
         departmentId: anchor?.department_id,
       };
     } catch (err) {
@@ -219,6 +250,66 @@ export class WhatsAppPersonalQueueService {
         error: err instanceof Error ? err.message : 'Unknown error',
       };
     }
+  }
+
+  /**
+   * Reflect terminal bridge failures back into the queue and the message log.
+   *
+   * Handing an item to the outbox marked it 'sent' and nothing ever revisited
+   * that, so a lead the bridge could never reach was recorded as contacted —
+   * permanently, and invisibly. This pass finds items whose outbox row has since
+   * gone terminal `failed` and routes them through the normal retry/backoff
+   * path, so an unreachable recipient behaves like any other send failure.
+   *
+   * Idempotent: handleFailure moves the row off 'sent', so a row is only ever
+   * reflected once.
+   */
+  private static async reconcileBridgeAcks(supabase: any, limit: number): Promise<number> {
+    const { data: handedOff } = await supabase
+      .from('wa_personal_message_queue')
+      .select('*')
+      .eq('channel', 'personal')
+      .eq('status', 'sent')
+      .like('wa_message_id', `${OUTBOX_REF_PREFIX}%`)
+      .order('sent_at', { ascending: true })
+      .limit(limit);
+
+    if (!handedOff || handedOff.length === 0) return 0;
+
+    const byOutboxId = new Map<string, PersonalMessageQueueItem>();
+    for (const row of handedOff as PersonalMessageQueueItem[]) {
+      const ref = row.wa_message_id;
+      if (ref) byOutboxId.set(ref.slice(OUTBOX_REF_PREFIX.length), row);
+    }
+
+    const { data: outbox, error } = await supabase
+      .from('wa_bridge_outbox')
+      .select('id, status, error')
+      .in('id', [...byOutboxId.keys()])
+      .eq('status', 'failed');
+
+    // A missing table or a revoked grant must not silently read as "nothing
+    // failed" — leave the rows alone and let the next run try again.
+    if (error || !outbox || outbox.length === 0) return 0;
+
+    let reflected = 0;
+    for (const row of outbox as { id: string; status: string; error: string | null }[]) {
+      const item = byOutboxId.get(row.id);
+      if (!item) continue;
+
+      const reason = row.error || 'bridge reported a terminal failure';
+      await this.handleFailure(supabase, item, reason);
+
+      // Flip the matching history row too, so the lead timeline does not keep
+      // showing a message that was never delivered as pending forever.
+      await supabase
+        .from('wa_personal_message_logs')
+        .update({ status: 'failed', error_message: reason })
+        .eq('whatsapp_message_id', outboxRef(row.id));
+
+      reflected++;
+    }
+    return reflected;
   }
 
   /** Send via Meta WABA as fallback (text message, not template) */
