@@ -366,6 +366,9 @@ interface OpenRowLookup {
     registration_id: string | null;
     profile_id: string | null;
     participant_name?: string | null;
+    participant_email?: string | null;
+    participant_phone?: string | null;
+    form_id?: string | null;
   } | null;
   /** true only when the waiting-list table is not in the schema yet. */
   missingTable: boolean;
@@ -410,7 +413,9 @@ async function findOpenRow(
   for (const attempt of attempts) {
     const { data, error } = await (service as any)
       .from('event_registration_waitlist')
-      .select('id, queue_seq, status, registration_id, profile_id, participant_name')
+      .select(
+        'id, queue_seq, status, registration_id, profile_id, participant_name, participant_email, participant_phone, form_id'
+      )
       .eq('event_id', eventId)
       .in('status', statuses)
       .eq(attempt.column, attempt.value)
@@ -633,10 +638,19 @@ export interface OutstandingOffer {
 export async function findOutstandingOffer(
   service: SupabaseClient,
   eventId: string,
-  who: WaitlistIdentity
+  who: WaitlistIdentity,
+  /**
+   * The form being submitted. An event holds many forms, one per monthly run,
+   * and a queue place is for the run the person joined: without this, September's
+   * queue entry is claimed against October's form — and October's form is what
+   * sets the fee. A row that stored no form_id matches anything, since there is
+   * nothing to contradict.
+   */
+  formId?: string | null
 ): Promise<OutstandingOffer | null> {
   const hit = await findOpenRow(service, eventId, who, ['offered']);
   if (!hit.row) return null;
+  if (formId && hit.row.form_id && hit.row.form_id !== formId) return null;
 
   // AN OFFER MADE TO AN ACCOUNT MAY ONLY BE CLAIMED BY THAT ACCOUNT.
   //
@@ -647,6 +661,28 @@ export async function findOutstandingOffer(
   // typed-in email, and letting a contact match beat it would let anybody who
   // knows somebody's email walk off with the place being held for them.
   if (hit.row.profile_id && hit.row.profile_id !== who.profileId) return null;
+
+  // A GUEST OFFER REQUIRES EVERY CONTACT DETAIL THE ROW HOLDS, not just the one
+  // that found it. A guest has no account, so name-plus-a-contact is the only
+  // handle there is — but the organiser's card displays the name AND the phone
+  // number, so a classmate can know both. Demanding the full set the person
+  // queued with (phone AND email, when they gave both) raises the bar for
+  // somebody who knows only one of them.
+  //
+  // THIS IS A MITIGATION, NOT A PROOF OF IDENTITY, and it is written down as
+  // such: whoever can produce the exact details a guest queued with can take
+  // the place held for them, and with no deadline and no revocation that is
+  // unrecoverable. The real answer is a one-time claim token carried in the
+  // offer — which a guest cannot be sent in-app, so it has to reach them
+  // through the organiser's phone call, and that is a change to what the
+  // organiser is asked to say rather than a change to this function. Flagged
+  // in the PR as an open decision instead of being half-built here.
+  if (!hit.row.profile_id) {
+    const rowPhone = normPhone(hit.row.participant_phone);
+    const rowEmail = normEmail(hit.row.participant_email);
+    if (rowPhone && rowPhone !== normPhone(who.phone)) return null;
+    if (rowEmail && rowEmail !== normEmail(who.email)) return null;
+  }
 
   return { id: hit.row.id, queue_seq: hit.row.queue_seq };
 }
@@ -803,8 +839,21 @@ export async function deliverPendingOffers(
       .from('profiles')
       .select('id, learner_id')
       .in('learner_id', learnerIds);
+    // AN AMBIGUOUS learner_id IS NOT A MATCH. Taking the last row of an
+    // unscoped `.in()` means that if two profiles carry the same learner_id —
+    // a duplicate, a bad import, another tenant — the offer is announced to
+    // whichever happened to sort last. A row with no single answer is left
+    // unresolved, so it is marked `unreachable` and the organiser is told to
+    // contact them, which is the honest outcome rather than a wrong inbox.
+    const seen = new Set<string>();
     for (const p of (profiles ?? []) as { id: string; learner_id: string | null }[]) {
-      if (p.learner_id) learnerToProfile[p.learner_id] = p.id;
+      if (!p.learner_id) continue;
+      if (seen.has(p.learner_id)) {
+        delete learnerToProfile[p.learner_id];
+        continue;
+      }
+      seen.add(p.learner_id);
+      learnerToProfile[p.learner_id] = p.id;
     }
   }
 
@@ -956,15 +1005,33 @@ export async function getWaitlistPanel(
   const capBehavior = ((event as any)?.cap_behavior ?? null) as EventCapBehavior | null;
   const maxRegistrations = ((event as any)?.max_registrations ?? null) as number | null;
 
-  const { data: rows, error } = await (service as any)
-    .from('event_registration_waitlist')
-    .select(
-      'id, queue_seq, status, participant_name, participant_email, participant_phone, unreachable, joined_at, offered_at, notified_at'
-    )
-    .eq('event_id', eventId)
-    .in('status', ['waiting', 'offered'])
-    .order('queue_seq', { ascending: true })
-    .limit(500);
+  // TWO READS, because a flat row cap ordered by queue_seq silently drops the
+  // one row that matters most. On a long queue an 'offered' row with a high
+  // queue_seq falls outside the window, so the card understates the places
+  // taken and hides the stalled offer it exists to surface. Offers are few by
+  // construction — at most one per freed place — so they are read in full and
+  // the cap applies only to the people still waiting.
+  const OFFER_COLUMNS =
+    'id, queue_seq, status, participant_name, participant_email, participant_phone, unreachable, joined_at, offered_at, notified_at';
+
+  const [offeredRead, waitingRead] = await Promise.all([
+    (service as any)
+      .from('event_registration_waitlist')
+      .select(OFFER_COLUMNS)
+      .eq('event_id', eventId)
+      .eq('status', 'offered')
+      .order('queue_seq', { ascending: true }),
+    (service as any)
+      .from('event_registration_waitlist')
+      .select(OFFER_COLUMNS)
+      .eq('event_id', eventId)
+      .eq('status', 'waiting')
+      .order('queue_seq', { ascending: true })
+      .limit(500),
+  ]);
+
+  const error = offeredRead.error ?? waitingRead.error;
+  const rows = error ? null : [...(offeredRead.data ?? []), ...(waitingRead.data ?? [])];
 
   if (error) {
     // Only a missing table is "not yet available". Anything else is a real
