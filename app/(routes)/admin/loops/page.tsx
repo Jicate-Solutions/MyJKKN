@@ -47,6 +47,12 @@ import {
   WaitingOnDirectorPanel,
   loadWaitingOnDirector,
 } from './_components/waiting-on-director';
+import {
+  classifyLoopOwnerProfiles,
+  escapeLikePattern,
+  type LoopOwnerProfileCandidate,
+  type LoopOwnerStatus,
+} from '@/lib/services/loops/loop-owner-fallback';
 import { staleThresholdMs, isAlarmStatus } from '@/lib/ai-routines/loop-governance';
 import { getRoutineById } from '@/lib/ai-routines/registry';
 import type {
@@ -1061,7 +1067,7 @@ export default async function LoopControlTowerPage({
     id: string;
     name: string | null;
     is_active: boolean | null;
-    entity_type: string | null;
+    entity_type: string;
   };
   const [scopeReads, institutionReads] = await Promise.all([
     admin
@@ -1083,11 +1089,46 @@ export default async function LoopControlTowerPage({
   const institutionNameById = new Map(
     institutionReads.map((i) => [i.id, i.name ?? i.id] as const)
   );
+  // Per-scope owner status (fix round 2, 2026-09-13): can an alert REACH the
+  // address? Same lookup and rule as the notification route — active,
+  // non-pre-registered profiles matched case-insensitively (LIKE metacharacters
+  // escaped), then classifyLoopOwnerProfiles — so the panel warns beside the
+  // row exactly when the route would record a miss. One read per distinct
+  // address (ten today). A failed read leaves the status unknown: no warning,
+  // never a 500.
+  const ownerEmails = Array.from(
+    new Set(scopeReads.map((s) => s.owner_email.trim()).filter((e) => e !== ''))
+  );
+  const candidatesByEmail = new Map<string, LoopOwnerProfileCandidate[] | null>(
+    await Promise.all(
+      ownerEmails.map((email) =>
+        admin
+          .from('profiles')
+          .select('id, role, institution_id, is_super_admin')
+          .ilike('email', escapeLikePattern(email))
+          .eq('is_active', true)
+          .not('is_pre_registered', 'is', true)
+          .order('created_at', { ascending: true })
+          .limit(2)
+          .then(
+            (r) =>
+              [email, r.error ? null : ((r.data ?? []) as LoopOwnerProfileCandidate[])] as const,
+            () => [email, null] as const
+          )
+      )
+    )
+  );
+  const ownerStatusFor = (s: ScopeRead): LoopOwnerStatus | undefined => {
+    const candidates = candidatesByEmail.get(s.owner_email.trim());
+    if (candidates == null) return undefined;
+    return classifyLoopOwnerProfiles(candidates, s.institution_id).status;
+  };
   const scopedOwners: ScopedOwnerRow[] = scopeReads.map((s) => ({
     loop_key: s.loop_key,
     institution_id: s.institution_id,
     institution_name: institutionNameById.get(s.institution_id) ?? s.institution_id,
     owner_email: s.owner_email,
+    owner_status: ownerStatusFor(s),
   }));
   // Only active institutions are offered by the add control; an existing
   // scope on an inactive one still renders (by name) so it can be removed.

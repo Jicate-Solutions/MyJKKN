@@ -41,6 +41,8 @@ import { Input } from '@/components/ui/input';
 import {
   fallbackSummaryLine,
   institutionsFallingBack,
+  loopOwnerStatusWarning,
+  type LoopOwnerStatus,
 } from '@/lib/services/loops/loop-owner-fallback';
 
 export interface OwnerPanelRow {
@@ -63,6 +65,14 @@ export interface ScopedOwnerRow {
   institution_id: string;
   institution_name: string;
   owner_email: string;
+  /**
+   * Whether an alert can reach this address, resolved server-side in
+   * ../page.tsx from the same rule the notification route applies
+   * (classifyLoopOwnerProfiles). Absent when unknown — a row just saved
+   * through this panel, or a profiles read that failed — and then no warning
+   * is shown; a reload resolves it.
+   */
+  owner_status?: LoopOwnerStatus;
 }
 
 /** An institution the "add" control can scope a loop to. */
@@ -70,7 +80,7 @@ export interface InstitutionOption {
   id: string;
   name: string;
   /** institutions.entity_type — the fallback line counts colleges/schools only. */
-  entity_type?: string | null;
+  entity_type: string;
 }
 
 /** The two editable fields, as the inputs hold them (always strings). */
@@ -206,7 +216,7 @@ export function OwnersPanel({
    */
   async function saveScope(
     row: OwnerPanelRow,
-    institution: InstitutionOption,
+    institution: Pick<InstitutionOption, 'id' | 'name'>,
     email: string
   ): Promise<boolean> {
     const key = scopeKey(row.loop_key, institution.id);
@@ -426,6 +436,7 @@ export function OwnersPanel({
                                 id: s.institution_id,
                                 name: s.institution_name,
                               };
+                              const ownerWarning = loopOwnerStatusWarning(s.owner_status);
                               return (
                                 <li
                                   key={key}
@@ -463,6 +474,19 @@ export function OwnersPanel({
                                         ? 'Remove'
                                         : 'Save'}
                                   </Button>
+                                  {/* Quiet, read-only: the address is saved,
+                                      but the notification route would not
+                                      admit it (no active account, several,
+                                      or one the risk row policy declines). */}
+                                  {ownerWarning !== null && (
+                                    <span
+                                      role="note"
+                                      data-testid={`owner-status-${key}`}
+                                      className="basis-full text-[11px] text-amber-800 dark:text-amber-300"
+                                    >
+                                      {ownerWarning}
+                                    </span>
+                                  )}
                                 </li>
                               );
                             })}

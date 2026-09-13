@@ -212,7 +212,7 @@ export async function GET(request: NextRequest) {
   let ownerFallbackColleges = 0;
   try {
     type ScopeRead = { loop_key: string; institution_id: string; owner_email: string | null };
-    type InstitutionRead = { id: string; name: string | null; entity_type: string | null };
+    type InstitutionRead = { id: string; name: string | null; entity_type: string };
     type RegistryRead = { owner_email: string | null };
     const [scopeRes, instRes, regRes] = await Promise.all([
       admin.from('loop_owner_scopes').select('loop_key,institution_id,owner_email').eq('loop_key', SCOPED_LOOP),

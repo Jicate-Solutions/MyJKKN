@@ -24,10 +24,14 @@ import path from 'node:path';
 import { describe, it, expect } from 'vitest';
 
 import {
+  classifyLoopOwnerProfiles,
+  escapeLikePattern,
   fallbackSummaryLine,
   institutionsFallingBack,
+  loopOwnerStatusWarning,
   resolveLoopOwnerEmail,
   type LoopOwnerInstitution,
+  type LoopOwnerProfileCandidate,
   type LoopOwnerScope,
 } from '@/lib/services/loops/loop-owner-fallback';
 
@@ -35,11 +39,11 @@ const LOOP = 'attendance-intervention';
 const REGISTRY = 'director@jkkn.ac.in';
 
 const INSTITUTIONS: LoopOwnerInstitution[] = [
-  { id: 'inst-allied', name: 'JKKN College of Allied Health Sciences' },
-  { id: 'inst-arts-self', name: 'JKKN College of Arts and Science (Self)' },
-  { id: 'inst-dental', name: 'JKKN Dental College and Hospital' },
-  { id: 'inst-education', name: 'JKKN College of Education' },
-  { id: 'inst-nursing', name: 'JKKN College of Nursing and Research' },
+  { id: 'inst-allied', name: 'JKKN College of Allied Health Sciences', entity_type: 'institution' },
+  { id: 'inst-arts-self', name: 'JKKN College of Arts and Science (Self)', entity_type: 'institution' },
+  { id: 'inst-dental', name: 'JKKN Dental College and Hospital', entity_type: 'institution' },
+  { id: 'inst-education', name: 'JKKN College of Education', entity_type: 'institution' },
+  { id: 'inst-nursing', name: 'JKKN College of Nursing and Research', entity_type: 'institution' },
 ];
 
 const SCOPES: LoopOwnerScope[] = [
@@ -116,13 +120,89 @@ describe('institutionsFallingBack — which colleges the registry owner still co
       { id: 'forum', name: 'Nattraja Incubation Forum', entity_type: 'company' },
       { id: 'inst-allied', name: 'JKKN College of Allied Health Sciences', entity_type: 'institution' },
       { id: 'school', name: 'Nattraja Vidhyalya CBSE', entity_type: 'school' },
-      { id: 'unknown', name: 'Row with no entity_type', entity_type: null },
     ];
     expect(institutionsFallingBack(LOOP, [], estate).map((i) => i.id)).toEqual([
       'inst-allied',
       'school',
-      'unknown',
     ]);
+  });
+});
+
+describe('classifyLoopOwnerProfiles — can an alert reach the address? (fix round 2)', () => {
+  const DENTAL = 'inst-dental';
+  const principal: LoopOwnerProfileCandidate = {
+    id: 'p-1',
+    role: 'principal',
+    institution_id: DENTAL,
+    is_super_admin: false,
+  };
+
+  it('no active profile → owner_no_profile, nobody picked', () => {
+    expect(classifyLoopOwnerProfiles([], DENTAL)).toEqual({
+      status: 'owner_no_profile',
+      profile_id: null,
+    });
+  });
+
+  it('two profiles sharing the email → owner_ambiguous — the first is NOT silently taken', () => {
+    const twin: LoopOwnerProfileCandidate = { ...principal, id: 'p-2' };
+    expect(classifyLoopOwnerProfiles([principal, twin], DENTAL)).toEqual({
+      status: 'owner_ambiguous',
+      profile_id: null,
+    });
+  });
+
+  it('a principal or admin of the SAME college reads the rows → ok with that profile id', () => {
+    expect(classifyLoopOwnerProfiles([principal], DENTAL)).toEqual({ status: 'ok', profile_id: 'p-1' });
+    expect(classifyLoopOwnerProfiles([{ ...principal, role: 'admin' }], DENTAL).status).toBe('ok');
+  });
+
+  it('a super admin reads everything, whichever college the profile is bound to', () => {
+    const sa: LoopOwnerProfileCandidate = {
+      id: 'sa',
+      role: 'faculty',
+      institution_id: 'inst-elsewhere',
+      is_super_admin: true,
+    };
+    expect(classifyLoopOwnerProfiles([sa], DENTAL)).toEqual({ status: 'ok', profile_id: 'sa' });
+  });
+
+  it('the row policy declines a vice-principal, a CAO, or a Principal bound to ANOTHER college → owner_cannot_read', () => {
+    expect(classifyLoopOwnerProfiles([{ ...principal, role: 'vice_principal' }], DENTAL).status).toBe(
+      'owner_cannot_read'
+    );
+    expect(classifyLoopOwnerProfiles([{ ...principal, role: 'cao' }], DENTAL).status).toBe(
+      'owner_cannot_read'
+    );
+    expect(classifyLoopOwnerProfiles([principal], 'inst-allied').status).toBe('owner_cannot_read');
+    expect(classifyLoopOwnerProfiles([{ ...principal, role: null }], DENTAL).status).toBe(
+      'owner_cannot_read'
+    );
+  });
+});
+
+describe('loopOwnerStatusWarning — the quiet line beside a scope row', () => {
+  it('names the reason an alert will not arrive, and stays silent when it will or is unknown', () => {
+    expect(loopOwnerStatusWarning('owner_no_profile')).toBe(
+      'No active account for this email — alerts will not reach them'
+    );
+    expect(loopOwnerStatusWarning('owner_ambiguous')).toBe(
+      'More than one active account uses this email — alerts will not reach them'
+    );
+    expect(loopOwnerStatusWarning('owner_cannot_read')).toBe(
+      'This account cannot read risk data — alerts will not reach them'
+    );
+    expect(loopOwnerStatusWarning('ok')).toBeNull();
+    expect(loopOwnerStatusWarning(undefined)).toBeNull();
+    expect(loopOwnerStatusWarning(null)).toBeNull();
+  });
+});
+
+describe('escapeLikePattern — an owner address is matched literally through PostgREST ilike', () => {
+  it('escapes %, _, backslash and the PostgREST wildcard *', () => {
+    expect(escapeLikePattern('vice_principal@jkkn.ac.in')).toBe('vice\\_principal@jkkn.ac.in');
+    expect(escapeLikePattern('a%b\\c*d')).toBe('a\\%b\\\\c\\*d');
+    expect(escapeLikePattern('plain@jkkn.ac.in')).toBe('plain@jkkn.ac.in');
   });
 });
 

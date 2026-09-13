@@ -40,6 +40,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
 import {
+  classifyLoopOwnerProfiles,
+  escapeLikePattern,
+  type LoopOwnerProfileCandidate,
+  type LoopOwnerStatus,
+} from '@/lib/services/loops/loop-owner-fallback';
+import {
   buildDigestMessage,
   buildIndividualMessage,
   decideNotification,
@@ -58,14 +64,6 @@ function chunk<T>(xs: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < xs.length; i += size) out.push(xs.slice(i, i + size));
   return out;
-}
-
-/**
- * Escape LIKE/ILIKE metacharacters so a PostgREST `ilike` pattern matches the
- * value literally. Postgres' default escape character is the backslash.
- */
-function escapeLikePattern(s: string): string {
-  return s.replace(/[\\%_]/g, '\\$&');
 }
 
 /** Today in IST, as YYYY-MM-DD — the calendar the assessments are keyed by. */
@@ -438,17 +436,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // as 'owner_cannot_read' and NOT sent: the panel is the Director's registry,
   // but an alert must never carry what its recipient could not open. Every
   // other miss is recorded the same way — an unapplied function, a loop with
-  // no registry owner, an owner email with no active profile — and the
-  // department's recipients are left exactly as they were. Misses are a LIST
-  // (one entry per institution, naming the address), kept apart from
-  // `skipped`, whose counters are per learner.
+  // no registry owner, an owner email with no active profile, an email that
+  // several active profiles share — and the department's recipients are left
+  // exactly as they were. Misses are a LIST (one entry per institution, naming
+  // the address), kept apart from `skipped`, whose counters are per learner.
+  // The admit rule itself lives in lib/services/loops/loop-owner-fallback.ts
+  // (classifyLoopOwnerProfiles) so the Owners & verdicts panel warns from the
+  // same rule beside the row.
   const LOOP_KEY = 'attendance-intervention';
-  /** Roles the learner_risk_assessments row policy admits institution-wide. */
-  const OWNER_READ_ROLES = new Set(['principal', 'admin']);
   type OwnerMiss = {
     institution_id: string;
     owner_email: string | null;
-    reason: 'owner_unresolved' | 'owner_none' | 'owner_no_profile' | 'owner_cannot_read';
+    reason: 'owner_unresolved' | 'owner_none' | Exclude<LoopOwnerStatus, 'ok'>;
   };
   const ownerMisses: OwnerMiss[] = [];
   const ownerUserByInstitution = new Map<string, string>();
@@ -472,31 +471,27 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // Case-insensitive EQUALITY on the stored email. PostgREST's ilike treats
     // '_' and '%' inside the value as wildcards, so they are escaped: an owner
     // address with an underscore must match its one profile, not several.
-    const { data: ownerProfile } = await supabase
+    // Active, non-pre-registered profiles only (a pre-registered shadow row
+    // can share the real account's email), in a deterministic order; when
+    // more than one still matches, none is picked — 'owner_ambiguous' — rather
+    // than the first row the planner happened to return.
+    const { data: ownerCandidates } = await supabase
       .from('profiles')
       .select('id, role, institution_id, is_super_admin')
       .ilike('email', escapeLikePattern(email))
-      .neq('is_active', false)
-      .limit(1)
-      .maybeSingle();
-    const owner = ownerProfile as {
-      id: string;
-      role: string | null;
-      institution_id: string | null;
-      is_super_admin: boolean | null;
-    } | null;
-    if (!owner) {
-      ownerMisses.push({ institution_id: institutionId, owner_email: email, reason: 'owner_no_profile' });
+      .eq('is_active', true)
+      .not('is_pre_registered', 'is', true)
+      .order('created_at', { ascending: true })
+      .limit(2);
+    const verdict = classifyLoopOwnerProfiles(
+      (ownerCandidates ?? []) as LoopOwnerProfileCandidate[],
+      institutionId
+    );
+    if (verdict.status !== 'ok') {
+      ownerMisses.push({ institution_id: institutionId, owner_email: email, reason: verdict.status });
       continue;
     }
-    const canReadAssessments =
-      owner.is_super_admin === true ||
-      (owner.institution_id === institutionId && OWNER_READ_ROLES.has(owner.role ?? ''));
-    if (!canReadAssessments) {
-      ownerMisses.push({ institution_id: institutionId, owner_email: email, reason: 'owner_cannot_read' });
-      continue;
-    }
-    ownerUserByInstitution.set(institutionId, owner.id);
+    ownerUserByInstitution.set(institutionId, verdict.profile_id);
   }
   // Departments (not messages — in individual mode one department is many)
   // whose recipient set gained the owner.
@@ -655,8 +650,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // Departments whose recipient set gained the scoped/registry loop owner
     // (0 before 20261210020000 applies — then owner_misses says why, one entry
     // per institution with at-risk learners: owner_unresolved / owner_none /
-    // owner_no_profile / owner_cannot_read). owner_missed is the count the
-    // dispatcher status line prints when non-zero.
+    // owner_no_profile / owner_ambiguous / owner_cannot_read). owner_missed is
+    // the count the dispatcher status line prints when non-zero.
     owner_departments: ownerDepartments,
     owner_missed: ownerMisses.length,
     owner_misses: ownerMisses,
