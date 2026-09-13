@@ -80,6 +80,54 @@ name: Production Build
 # the job still reports success). A `paths-ignore:` trigger filter would have been
 # simpler but would make the check never report at all on a skipped PR, and a
 # required check that never reports blocks the PR forever.
+#
+# ── MEASURED ON ITS FIRST THREE RUNS: THE BUILD DOES NOT FIT ON A STANDARD ──────
+#                           GITHUB RUNNER
+#
+# ⚠️ READ THIS BEFORE DEBUGGING A RED MARK FROM THIS GATE. As of this workflow's
+# introduction it fails on EVERY PR, including its own, and NOT because of the PR.
+#
+# Three runs, two of them byte-identical re-runs of the same commit, all died at
+# exactly the same place with a bare `##[error]The operation was canceled.`:
+#
+#   ✓ Compiled successfully in 4.8min      ← the app compiles. Nothing is broken.
+#   ✓ Completed runAfterProductionCompile
+#     Collecting page data using 3 workers ...
+#   ##[error]The operation was canceled.   ← ~76s later
+#
+# The memory trace added in the follow-up commit settles the cause. Runner is
+# 4 vCPU / ~16 GB. During page-data collection:
+#
+#   07:35:49  used= 9267MB  avail=6722MB
+#   07:36:19  used=13447MB  avail=2542MB
+#   07:37:34  used=15547MB  avail= 442MB
+#   07:39:49  used=15860MB  avail= 129MB   ← pinned here ~2 min, then death
+#
+# Available memory falls to 129 MB and the runner is killed. `next build` spawns
+# THREE page-data workers, and each inherits `NODE_OPTIONS=--max-old-space-size=12288`
+# — a 12 GB per-process heap ceiling hard-coded into `npm run build` in
+# package.json via cross-env. cross-env sets that variable explicitly, so it
+# OVERRIDES anything this workflow exports: the ceiling cannot be lowered from
+# here. Three workers that each only begin collecting garbage at 12 GB will
+# exhaust a 16 GB box, and that is what the trace shows them doing.
+#
+# This is a real finding about the build, not a defect in this gate — the gate
+# ran the production build and reported, reproducibly, what happened. Resolving
+# it needs a decision that is NOT this workflow's to make, because every option
+# changes something outside CI:
+#
+#   (a) a larger runner (8-core/32 GB) — org setting, costs money;
+#   (b) lower `--max-old-space-size` in package.json — changes what Vercel runs;
+#   (c) cap the worker count via `experimental.cpus` in next.config.ts — same.
+#
+# Until one is chosen, this gate is advisory and its red mark means "the build
+# still does not fit", not "this PR is broken". A PR-caused failure looks
+# different: it fails BEFORE "Compiled successfully", with a named error.
+#
+# One consequence worth knowing: when the runner is killed this way, the job's
+# final "Report" step does NOT run — `always()` cannot save a step on a machine
+# that is being torn down. That is why this explanation lives here, in the file,
+# rather than only in a step summary nobody will receive.
 
 on:
   pull_request:
