@@ -6,12 +6,16 @@ import {
   Flame,
   Phone,
   Clock,
+  Timer,
   AlertTriangle,
   User,
   GraduationCap,
 } from 'lucide-react';
 // BUG-003922: future-relative fallback used bare toLocaleDateString() (US default).
 import { formatDateDMY } from '@/lib/utils/date-format';
+// Ruling 2026-09-13: a counsellor sees how fast their own enquiries were
+// answered, as the two raw clock times rather than a computed duration.
+import { formatFirstTouchResponse } from '@/lib/admission/first-touch-response';
 
 // ---------------------------------------------------------------------------
 // Props
@@ -35,6 +39,9 @@ interface LeadCardProps {
     interested_programs?: string[] | null;
     last_contact_at?: string | null;
     next_followup_at?: string | null;
+    // 2026-09-13 — arrival + first answer, shown as a pair (ruling 1 + edge case 5).
+    created_at?: string | null;
+    first_touch_at?: string | null;
     parent_name?: string | null;
     parent_phone?: string | null;
   };
@@ -121,7 +128,9 @@ function getSourceStyle(source: string): string {
     google_ads: 'bg-red-100 text-red-700',
     google: 'bg-red-100 text-red-700',
     youtube_ads: 'bg-rose-100 text-rose-700',
-    youtube: 'bg-rose-100 text-rose-700',
+    // 2026-09-13: `youtube` was declared twice in this literal (TS1117). The
+    // later red entry is the one that took effect, so the dead rose duplicate
+    // is removed here and the rendered colour is unchanged.
     learner_creator_content: 'bg-fuchsia-100 text-fuchsia-700',
     referral: 'bg-green-100 text-green-700',
     walk_in: 'bg-orange-100 text-orange-700',
@@ -210,6 +219,13 @@ export function LeadCard({ lead }: LeadCardProps) {
     ? timeUntil(lead.next_followup_at)
     : null;
 
+  // Real elapsed time, always — an enquiry that arrived at 11pm and was answered
+  // at 9am waited all night, and both clock times say so without a duration.
+  const firstTouch = formatFirstTouchResponse(
+    lead.created_at,
+    lead.first_touch_at,
+  );
+
   return (
     <Card className="w-full active:scale-[0.98] transition-transform duration-100">
       <CardContent className="p-3.5 space-y-2">
@@ -289,7 +305,25 @@ export function LeadCard({ lead }: LeadCardProps) {
           </div>
         )}
 
-        {/* Row 5 — Last contact */}
+        {/* Row 5 — Response time: arrival beside first answer */}
+        {firstTouch && (
+          <div
+            className={`flex items-center gap-1.5 text-xs ${
+              firstTouch.state === 'awaiting'
+                ? 'text-amber-700 font-medium'
+                : 'text-muted-foreground'
+            }`}
+          >
+            <Timer
+              className={`h-3.5 w-3.5 shrink-0 ${
+                firstTouch.state === 'awaiting' ? 'text-amber-500' : ''
+              }`}
+            />
+            <span>{firstTouch.label}</span>
+          </div>
+        )}
+
+        {/* Row 6 — Last contact */}
         {lead.last_contact_at && (
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Clock className="h-3.5 w-3.5 shrink-0" />
@@ -297,7 +331,7 @@ export function LeadCard({ lead }: LeadCardProps) {
           </div>
         )}
 
-        {/* Row 6 — Next follow-up */}
+        {/* Row 7 — Next follow-up */}
         {followup && (
           <div
             className={`flex items-center gap-1.5 text-xs ${
@@ -320,7 +354,7 @@ export function LeadCard({ lead }: LeadCardProps) {
           </div>
         )}
 
-        {/* Row 7 — Parent info (conditional) */}
+        {/* Row 8 — Parent info (conditional) */}
         {lead.parent_name && (
           <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/80 pt-0.5 border-t border-border/50">
             <User className="h-3 w-3 shrink-0" />

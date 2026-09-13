@@ -17,7 +17,7 @@
 // board, what the server then answers, and what the organiser therefore sees.
 
 import '@testing-library/jest-dom';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // notification-service builds a Supabase browser client at MODULE level (a
@@ -29,7 +29,10 @@ vi.mock('@/lib/supabase/client', () => ({
   getSupabaseClient: () => ({}),
 }));
 
-import { EventMessageError } from '@/lib/services/events/notification-service';
+import {
+  EventMessageError,
+  type EventRegistrantMessage,
+} from '@/lib/services/events/notification-service';
 
 // The board's two hooks, stubbed so a test states the SERVER's answer directly.
 const panelState = vi.hoisted(() => ({
@@ -166,5 +169,172 @@ describe('what the board says about who hears nothing', () => {
     serverAllows({ recipient_count: 34 });
     render(<MessagesBoard eventId="e1" canManage />);
     expect(screen.getByText('34')).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The refusal has to be ACTIONABLE, or the ruling fails where it was meant to hold
+// ---------------------------------------------------------------------------
+// "Show what was sent, allow a deliberate resend." The compose box now refuses a
+// message whose words already went out, and told the organiser to use "Send
+// again" on it in the list below. The list is the newest 20 messages, with no
+// pagination and no lookup by id, while the duplicate guard covers every message
+// on the event however old. So on a busy event — the exact situation where an
+// organiser is unsure whether a notice went out — they were refused and pointed
+// at a button that is not on screen, and there was no route left by which that
+// text could be sent at all.
+//
+// The server now returns the matched ROW with the 409. These tests mount the
+// real board and drive that path.
+
+/** One already-sent message, as the API returns it. */
+const sentMessage = (over: Partial<EventRegistrantMessage> = {}): EventRegistrantMessage => ({
+  id: 'msg-old',
+  subject: 'Venue changed',
+  body: 'We have moved to the main auditorium.',
+  audience_total: 40,
+  recipient_count: 34,
+  unreachable_count: 6,
+  delivered_count: 34,
+  notification_id: 'notif-1',
+  sent_by: 'actor-1',
+  sent_by_name: 'R. Priya',
+  sent_at: '2026-03-02T09:00:00.000Z',
+  resend_of: null,
+  ...over,
+});
+
+/** The server said yes, and this is the log + the counts it returned. */
+function serverAllowsWith(opts: {
+  messages?: EventRegistrantMessage[];
+  resendCounts?: Record<string, number>;
+  recipient_count?: number;
+}) {
+  panelState.current = {
+    data: {
+      audience: {
+        recipient_count: opts.recipient_count ?? 34,
+        audience_total: 40,
+        unreachable: 6,
+        truncated: false,
+      },
+      messages: opts.messages ?? [],
+      resendCounts: opts.resendCounts ?? {},
+    },
+    error: null,
+    isLoading: false,
+    isError: false,
+  };
+}
+
+/** Type a message and take it through the confirmation to the send. */
+async function composeAndSend(subject: string, body: string) {
+  fireEvent.change(screen.getByLabelText(/^subject$/i), { target: { value: subject } });
+  fireEvent.change(screen.getByLabelText(/^message$/i), { target: { value: body } });
+  fireEvent.click(screen.getByRole('button', { name: /review and send/i }));
+  const confirm = await screen.findByRole('button', { name: /^send to 34 registrants$/i });
+  fireEvent.click(confirm);
+}
+
+describe('a refused duplicate must be reachable, whatever its age', () => {
+  it('offers "Send it again" on the matched message even when it is NOT in the visible log', async () => {
+    // The log the board holds does NOT contain the match: it is older than the
+    // 20 rows the panel shows. This is the case that had no way forward.
+    const older = sentMessage({ id: 'msg-from-march', sent_at: '2026-03-02T09:00:00.000Z' });
+    serverAllowsWith({
+      messages: [
+        sentMessage({ id: 'msg-recent', subject: 'Something else', sent_by_name: 'K. Anand' }),
+      ],
+    });
+    sendState.mutateAsync = vi
+      .fn()
+      .mockRejectedValue(
+        new EventMessageError('This message has already been sent.', 'ALREADY_SENT', 409, older)
+      );
+
+    render(<MessagesBoard eventId="e1" canManage />);
+    await composeAndSend('Venue changed', 'We have moved to the main auditorium.');
+
+    // The refusal is shown AND the message it matched is on screen with it.
+    expect(await screen.findByText(/already been sent/i)).toBeInTheDocument();
+    expect(screen.getByText(/this is the message it matched/i)).toBeInTheDocument();
+    expect(screen.getByText(/R\. Priya/)).toBeInTheDocument();
+
+    // And the way forward is a real, enabled button — not an instruction.
+    const again = screen.getByRole('button', { name: /send it again/i });
+    expect(again).toBeEnabled();
+  });
+
+  it('that button opens the resend confirmation for THAT message', async () => {
+    const older = sentMessage({ id: 'msg-from-march', subject: 'Venue changed' });
+    serverAllowsWith({ messages: [] });
+    sendState.mutateAsync = vi
+      .fn()
+      .mockRejectedValue(
+        new EventMessageError('This message has already been sent.', 'ALREADY_SENT', 409, older)
+      );
+
+    render(<MessagesBoard eventId="e1" canManage />);
+    await composeAndSend('Venue changed', 'We have moved to the main auditorium.');
+    fireEvent.click(await screen.findByRole('button', { name: /send it again/i }));
+
+    // The dialog that states the blast radius, for the matched row.
+    expect(
+      await screen.findByRole('button', { name: /^send again to 34 registrants$/i })
+    ).toBeInTheDocument();
+    expect(screen.getByText(/anyone who already received it will receive it again/i))
+      .toBeInTheDocument();
+  });
+
+  it('shows no recovery block when the failure is not a duplicate', async () => {
+    // A 500 must not offer to repeat a message nobody matched.
+    serverAllowsWith({ messages: [] });
+    sendState.mutateAsync = vi
+      .fn()
+      .mockRejectedValue(new EventMessageError('The send did not complete.', null, 500));
+
+    render(<MessagesBoard eventId="e1" canManage />);
+    await composeAndSend('Venue changed', 'We have moved.');
+
+    expect(await screen.findByText(/did not complete/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /send it again/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('the repeat count is the event\'s, not the page\'s', () => {
+  it('renders the SERVER count for a message whose repeats are not in the visible log', () => {
+    // Three resends, none of them in `messages`. Derived from the visible rows
+    // this rendered nothing at all — a message that WAS repeated reading as
+    // never repeated.
+    serverAllowsWith({
+      messages: [sentMessage({ id: 'msg-old' })],
+      resendCounts: { 'msg-old': 3 },
+    });
+    render(<MessagesBoard eventId="e1" canManage />);
+    expect(screen.getByText(/sent again 3 more times/i)).toBeInTheDocument();
+  });
+
+  it('claims nothing when the server sent no counts (column not applied yet)', () => {
+    serverAllowsWith({ messages: [sentMessage({ id: 'msg-old' })], resendCounts: {} });
+    render(<MessagesBoard eventId="e1" canManage />);
+    expect(screen.queryByText(/sent again/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('the resend dialog does not forbid the only use its guard leaves possible', () => {
+  it('no longer tells the organiser not to remind people', async () => {
+    // The compose box refuses ANY message whose subject and body already exist
+    // on this event, so a legitimately repeated announcement — a multi-day
+    // event's "Today's session starts at 9am" — can ONLY go out from here.
+    serverAllowsWith({ messages: [sentMessage({ id: 'msg-old' })] });
+    render(<MessagesBoard eventId="e1" canManage />);
+    fireEvent.click(screen.getByRole('button', { name: /send again/i }));
+
+    expect(await screen.findByText(/whether the first send may not have gone out/i))
+      .toBeInTheDocument();
+    expect(screen.queryByText(/not to remind people/i)).not.toBeInTheDocument();
+    // The sentence that carries the safety is unchanged.
+    expect(screen.getByText(/anyone who already received it will receive it again/i))
+      .toBeInTheDocument();
   });
 });
