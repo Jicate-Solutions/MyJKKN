@@ -69,6 +69,7 @@ import type { EducationConsultant, ConsultantLeadAttribution, ConsultantCommissi
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CommissionStructureTab } from './_components/commission-structure-tab';
+import { PromiseRatesTab } from './_components/promise-rates-tab';
 import { format } from 'date-fns';
 import {
   DropdownMenu,
@@ -598,6 +599,7 @@ function ConsultantDetailContent() {
         <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
           <TabsTrigger value="details">Details</TabsTrigger>
           <TabsTrigger value="commission-structure">Commission Structure</TabsTrigger>
+          <TabsTrigger value="promise-rates">Promises &amp; Rates</TabsTrigger>
           <TabsTrigger value="referrals">Recent Referrals</TabsTrigger>
           <TabsTrigger value="commissions">Recent Commissions</TabsTrigger>
         </TabsList>
@@ -841,6 +843,18 @@ function ConsultantDetailContent() {
 
         <TabsContent value="commission-structure" className="mt-4 space-y-4">
           <CommissionStructureTab
+            consultantId={consultantId}
+            institutionId={consultant.institution_id ?? ''}
+          />
+        </TabsContent>
+
+        <TabsContent value="promise-rates" className="mt-4 space-y-4">
+          {/* institution_id is nullable on education_consultants but NOT NULL on
+              consultant_commission_structures. The '' fallback is the tab's
+              explicit "no college linked" signal: PromiseRatesTab disables its
+              write controls and explains what is missing, rather than sending ''
+              into a uuid column and surfacing Postgres' 22P02 in a toast. */}
+          <PromiseRatesTab
             consultantId={consultantId}
             institutionId={consultant.institution_id ?? ''}
           />
