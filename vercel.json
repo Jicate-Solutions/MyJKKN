@@ -284,6 +284,10 @@
     {
       "path": "/api/cron/hr/decision-emails?secret=${CRON_SECRET}",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/whats-new-highlight-drafts?secret=${CRON_SECRET}",
+      "schedule": "13,43 * * * *"
     }
   ]
 }

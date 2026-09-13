@@ -80,6 +80,9 @@ interface HighlightRow {
   action: string | null;
   status: 'draft' | 'approved' | 'skipped';
   selection_reason: string | null;
+  /** 'ai' — written by the Max-lane writer and published unreviewed. 'human' —
+   *  typed by a person. The strip captions the original developer line with it. */
+  source: 'human' | 'ai';
 }
 
 function toEntry(r: EntryRow): ChangelogEntry {
@@ -129,10 +132,39 @@ async function readHighlights(supabase: Db, shas: string[]): Promise<HighlightRo
   for (let i = 0; i < shas.length; i += IN_CHUNK) {
     const { data, error } = await supabase
       .from('changelog_highlights')
-      .select('app_key,sha,headline,affects,action,status,selection_reason')
+      .select('app_key,sha,headline,affects,action,status,selection_reason,source')
       .in('sha', shas.slice(i, i + IN_CHUNK));
     if (error) throw new Error(error.message);
     out.push(...((data as HighlightRow[] | null) ?? []));
+  }
+  return out;
+}
+
+/**
+ * Report rows for a set of entries — Director ruling 7.
+ *
+ * RLS decides what comes back and the two answers are BOTH correct, which is
+ * why this one query serves the strip and the queue:
+ *   • an ordinary reader sees only their own taps, so the strip can say "you
+ *     reported this" after a reload instead of offering the link again;
+ *   • someone holding whats_new.highlights.manage sees every tap, so the queue
+ *     can show the count — the honest measure of how often the writing is
+ *     wrong, which is the deliverable of that ruling.
+ * Nothing here filters by user: doing so would put the boundary in this file
+ * instead of in the policy.
+ */
+async function readReports(
+  supabase: Db,
+  shas: string[]
+): Promise<{ sha: string; reported_by: string }[]> {
+  const out: { sha: string; reported_by: string }[] = [];
+  for (let i = 0; i < shas.length; i += IN_CHUNK) {
+    const { data, error } = await supabase
+      .from('changelog_highlight_reports')
+      .select('sha,reported_by')
+      .in('sha', shas.slice(i, i + IN_CHUNK));
+    if (error) throw new Error(error.message);
+    out.push(...((data as { sha: string; reported_by: string }[] | null) ?? []));
   }
   return out;
 }
@@ -184,9 +216,17 @@ export async function GET(request: Request) {
       entries.map((e) => e.sha)
     );
     const byKey = new Map(highlights.map((h) => [`${h.app_key}:${h.sha}`, h]));
+    const reports = await readReports(
+      supabase,
+      entries.map((e) => e.sha)
+    );
 
     if (!wantsQueue) {
       // ── the reader's strip ───────────────────────────────────────────────
+      // Ruling 7: a reader who has already tapped "report" sees that state
+      // rather than the link. `reports` is RLS-scoped to their own rows here,
+      // so this set can only ever contain THIS reader's taps.
+      const myReports = new Set(reports.map((r) => r.sha));
       // Only rows a person approved, in the same newest-first order the plain
       // list below uses. An empty array is the normal answer for a week nobody
       // wrote up, and the strip renders NOTHING for it rather than an empty box.
@@ -202,6 +242,23 @@ export async function GET(request: Request) {
             headline: h.headline,
             affects: h.affects,
             action: h.action,
+            // THE MITIGATION, and the reason these two fields are on the strip
+            // payload at all. Most highlights are now written by a model and
+            // published with nobody reading them first (Director ruling
+            // 2026-09-13). The page's purpose is teaching people what they can
+            // do, so a confident wrong claim here is worse than a terse
+            // accurate one — and the only thing standing between the two is the
+            // reader being able to see what actually shipped. The strip renders
+            // `subject` beneath every highlight in smaller type. Removing it
+            // from this payload silently removes that check.
+            subject: e.subject,
+            author: e.author,
+            source: h.source,
+            // Ruling 7's state, not its count. A reader is never shown how many
+            // OTHER people flagged a write-up: that number is a super admin's
+            // measure, and putting it on the card would turn a quiet check into
+            // a pile-on signal.
+            reported: myReports.has(e.sha),
           };
         })
         .filter((x): x is NonNullable<typeof x> => x !== null);
@@ -224,6 +281,15 @@ export async function GET(request: Request) {
         },
         { status: 403 }
       );
+    }
+
+    // Ruling 7's deliverable: how many DISTINCT readers said each write-up is
+    // wrong. Distinct by construction — the UNIQUE (app_key, sha, reported_by)
+    // in 20261207090000 means one row per reader, so this is a plain tally and
+    // not a de-duplication this file could get wrong.
+    const reportCounts: Record<string, number> = {};
+    for (const r of reports) {
+      reportCounts[r.sha] = (reportCounts[r.sha] ?? 0) + 1;
     }
 
     const modules = await readModules(supabase, visible);
@@ -252,6 +318,13 @@ export async function GET(request: Request) {
           action: h.action,
           status: h.status,
           selection_reason: h.selection_reason,
+          // So the queue can show which rows a model wrote — those are the ones
+          // worth a person's attention, since nothing else has read them.
+          source: h.source,
+          // Ruling 7. Zero is the normal answer and is sent explicitly, so the
+          // screen can say "nobody has flagged this" rather than leaving the
+          // reader of the queue to guess whether the number is missing or nil.
+          reports: reportCounts[h.sha] ?? 0,
         })),
         candidates: candidates.map((c) => ({
           sha: c.entry.h,
@@ -367,6 +440,13 @@ export async function PUT(request: Request) {
         action,
         status,
         selection_reason: text(body?.selection_reason),
+        // A person writing through this route OWNS the row from now on, even if
+        // a model wrote it first. This is not bookkeeping: the review-stamp
+        // CHECK (20261203180000) requires an 'ai' row to carry NO reviewer and a
+        // 'human' row to carry one, so approving a machine-written row without
+        // flipping this would be rejected by the database. Setting it here is
+        // also the honest record — from this write on, a person has read it.
+        source: 'human',
         // The review stamp CHECK requires both together, and requires BOTH to be
         // absent while it is still a draft — so a row sent back to draft loses
         // its stamp rather than keeping a stale one.

@@ -42,6 +42,8 @@ type GitEntry = {
   s?: string;
   a?: string;
   e?: string;
+  /** The screen the change happened on — entryRow writes it to the `href` column. */
+  l?: string | null;
   p?: number;
   b?: number | boolean;
 };
@@ -552,7 +554,17 @@ describe('invariant 3 — one transaction', () => {
     await run(db, gitEntries());
 
     const begin = db.sql.findIndex((s) => s.startsWith('BEGIN'));
-    const compare = db.sql.findIndex((s) => s.includes('WHERE app_key = $1'));
+    // The COMPARISON read, named by the column list it projects rather than by
+    // `WHERE app_key = $1` alone. That clause stopped identifying this statement
+    // on 2026-09-13, when the row-count guard became per-app and grew the same
+    // clause — and it is issued BEFORE the transaction, on purpose, because a
+    // guard that refuses to write must be able to return without leaving one
+    // open. Matching it instead of this one made the assertion read backwards.
+    const compare = db.sql.findIndex(
+      (s) => s.includes('FROM public.changelog_entries')
+        && s.includes('WHERE app_key = $1')
+        && s.includes('ordinal')
+    );
     expect(begin).toBeGreaterThanOrEqual(0);
     expect(compare).toBeGreaterThan(begin);
   });
@@ -568,6 +580,10 @@ describe('the fingerprint', () => {
       module_key: { ...base, m: 'platform' },
       subject: { ...base, s: 'A different thing' },
       author: { ...base, a: 'Someone Else' },
+      // href joined the upsert on 2026-09-13. If it were written but not
+      // fingerprinted, a page renamed six months from now would keep its dead
+      // link forever: the corrected row would always look unchanged.
+      href: { ...base, l: '/hr/admin/norms' },
       pr_number: { ...base, p: 4242 },
       breaking: { ...base, b: 1 },
     };

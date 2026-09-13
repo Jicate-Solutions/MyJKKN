@@ -211,6 +211,17 @@ export default async function PublicProgrammesPage() {
             </p>
           </>
         )}
+
+        {/* A visitor who arrives looking for "what is on at JKKN" lands here
+            first, because until now this was the only public index on the
+            estate. Point them at the one that answers their actual question. */}
+        <p className="mt-4 text-xs text-[#1C2B24]/60">
+          Looking for a single day rather than a programme?{' '}
+          <Link href="/events-at-jkkn" className="font-semibold text-[#0E4D34] underline">
+            See what is on at JKKN
+          </Link>
+          .
+        </p>
       </div>
     </div>
   );

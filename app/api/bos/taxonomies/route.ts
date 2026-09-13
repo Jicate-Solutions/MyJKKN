@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { resolveBosAccess, guardInstitutionWrite } from '@/lib/utils/bos/bos-access';
+import { institutionLabelById } from '@/lib/utils/institutions/institution-labels';
 import {
   BosTaxonomyFilters,
   BosTaxonomySummary,
@@ -48,7 +49,11 @@ export async function GET(request: NextRequest) {
     // Use an embedded count for the levels relationship; also join institution name.
     let query = supabase
       .from('bos_taxonomy')
-      .select('*, bos_taxonomy_levels(count), institutions(name, display_name)', { count: 'exact' });
+      // `id` on the embed is load-bearing, not decoration: it is the key that
+      // joins each taxonomy row to the disambiguated label computed below over
+      // the FULL institutions table. name/display_name stay on the embed only
+      // as the degraded fallback for when that read fails.
+      .select('*, bos_taxonomy_levels(count), institutions(id, name, display_name)', { count: 'exact' });
 
     if (filters.institutionsId) {
       query = query.eq('institutions_id', filters.institutionsId);
@@ -66,17 +71,88 @@ export async function GET(request: NextRequest) {
       .order(filters.sortBy ?? 'name', { ascending: filters.sortOrder !== 'desc' })
       .range(offset, offset + limit - 1);
 
-    const { data, error, count } = await query;
+    // ── institution_name, disambiguated ──────────────────────────────────
+    // CAS Aided (a33138b6…) and CAS Self (b0b8a724…) are two distinct
+    // institutions that carry the SAME display_name, so `display_name ?? name`
+    // labelled both "JKKN College of Arts and Science (Autonomous)". The
+    // taxonomy master list then deduplicates rows by `code::institution_name`
+    // and dropped one college's row outright — a row that carries its own
+    // delete button. So the reader saw one row, could not tell which college
+    // it belonged to, and could not reach the other at all.
+    //
+    // The collision set is read SEPARATELY, over the whole institutions
+    // table — NEVER over the institutions embedded in this page of taxonomy
+    // rows. Two narrowings sit between that embed and the full list: the
+    // `institutions_id` filter above, and `.range()` paging. Either one alone
+    // can leave just one half of the Aided/Self pair in `data`, and a pair of
+    // one has no collision to detect — so the very same taxonomy row would
+    // render "(Aided)" in the All Institutions view and "(Autonomous)" once
+    // the institution filter was applied, or depending on which page it
+    // landed on. Two names for one row is the failure this code exists to
+    // remove, so computing the labels from a subset reintroduces it.
+    // __tests__/meetings/institution-label-collision.test.ts pins the rule
+    // ("a subset of one loses the collision — so label the FULL list") and
+    // cluster-lens.tsx already honours it, labelling over its full
+    // institution list rather than over the selected cluster members. This
+    // route now agrees with both.
+    //
+    // Deliberately NOT filtered by is_active: this list decides how to SPELL
+    // a label, not which institutions may be picked. Nothing filters the
+    // taxonomy query by the institution's active flag, so a row belonging to
+    // a deactivated college still renders here — and dropping that college
+    // from the collision set would let it collide with an active one all over
+    // again. Extra rows can only ever make a label more specific, never
+    // ambiguous, which is the safe direction to err in.
+    const [{ data, error, count }, institutionsRead] = await Promise.all([
+      query,
+      supabase.from('institutions').select('id, name, display_name'),
+    ]);
     if (error) throw error;
 
-    // Flatten the embedded count into level_count; extract institution display name.
+    // A failed institutions read degrades to `display_name || name` per row —
+    // main's pre-fix behaviour: ambiguous, but STABLE, i.e. the same row
+    // spells itself the same way in every view. Falling back to the embedded
+    // page rows instead would buy back the disambiguation at the cost of that
+    // stability, which is the wrong half of the property to keep.
+    type InstitutionRow = { id: string; name: string | null; display_name?: string | null };
+    const labelByInstitutionId = institutionsRead.error
+      ? new Map<string, string>()
+      : institutionLabelById(
+          ((institutionsRead.data ?? []) as InstitutionRow[]).map((i) => ({
+            id: i.id,
+            name: i.name ?? '',
+            display_name: i.display_name ?? null,
+          })),
+        );
+
+    // Behaviour note: this makes both colleges' rows visible again in the
+    // super-admin All Institutions view. That is the point — they were never
+    // duplicates, only identically labelled.
+
+    // Flatten the embedded count into level_count; attach the institution label.
+    type EmbeddedInstitution = { id?: string; name?: string; display_name?: string | null };
     const rows: BosTaxonomySummary[] = (data ?? []).map((row: Record<string, unknown>) => {
       const lvls = row.bos_taxonomy_levels as Array<{ count: number }> | undefined;
       const level_count = Array.isArray(lvls) && lvls.length > 0 ? lvls[0].count : 0;
-      const inst = row.institutions as { name?: string; display_name?: string } | null | undefined;
-      const institution_name = inst?.display_name ?? inst?.name ?? undefined;
+      const inst = row.institutions as EmbeddedInstitution | null | undefined;
+      // `||` rather than `??` down the fallback chain, matching the helper:
+      // an empty-string display_name is not a label, and falling through to
+      // `name` is the only useful reading of it.
+      const institution_name =
+        (inst?.id ? labelByInstitutionId.get(inst.id) : undefined) ||
+        inst?.display_name ||
+        inst?.name ||
+        undefined;
       const { bos_taxonomy_levels: _omit, institutions: _omit2, ...rest } = row;
-      return { ...(rest as BosTaxonomySummary), level_count, institution_name };
+      // The `*` select is untyped, so `rest` is Record<string, unknown> and the
+      // compiler cannot see the bos_taxonomy columns in it. `rest as
+      // BosTaxonomySummary` is therefore TS2352 — the two types do not overlap
+      // — and the cast has to go through `unknown`. That error is pre-existing
+      // on main; it only becomes visible once a PR touches this file, because
+      // TypeCheck (PR-scoped) compiles exactly the PR's files and
+      // next.config.ts sets typescript.ignoreBuildErrors: true, so nothing else
+      // was looking. Fixed here rather than left to fail the gate.
+      return { ...rest, level_count, institution_name } as unknown as BosTaxonomySummary;
     });
 
     return NextResponse.json({

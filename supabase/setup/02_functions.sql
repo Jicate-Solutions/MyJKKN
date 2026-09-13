@@ -65965,3 +65965,117 @@ $function$;
 
 REVOKE ALL ON FUNCTION public.hr_leave_approval_queue() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.hr_leave_approval_queue() TO authenticated, service_role;
+
+-- =====================================================================================
+-- WhatsApp campus bridge RPCs  (2026-09-13)
+-- Source of truth: supabase/migrations/20261211090000_wa_bridge_outbox.sql
+-- Both are SECURITY DEFINER and service_role ONLY — a signed-in user holding
+-- EXECUTE could strand a message in `sending` (never delivered, no error anywhere)
+-- or forge a delivery receipt. The REVOKE names `authenticated` explicitly because
+-- Supabase's default privileges give it its own grant, separate from PUBLIC.
+-- =====================================================================================
+CREATE OR REPLACE FUNCTION public.fn_wa_bridge_claim_pending(p_limit integer)
+RETURNS TABLE (
+  id         uuid,
+  to_phone   text,
+  body       text,
+  type       text,
+  media_url  text
+)
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_limit integer := LEAST(GREATEST(COALESCE(p_limit, 20), 1), 50);
+BEGIN
+  -- ONE statement. The sub-select locks the rows it picked and the enclosing
+  -- UPDATE flips them in the same statement, so there is no window in which a
+  -- second concurrent call can see them as pending. SKIP LOCKED makes that
+  -- second call step over them and take the next batch instead of blocking.
+  RETURN QUERY
+  UPDATE public.wa_bridge_outbox o
+     SET status     = 'sending',
+         updated_at = now()
+   WHERE o.id IN (
+           SELECT c.id
+             FROM public.wa_bridge_outbox c
+            WHERE c.status = 'pending'
+            ORDER BY c.created_at
+            LIMIT v_limit
+            FOR UPDATE SKIP LOCKED
+         )
+  RETURNING o.id, o.to_phone, o.body, o.type, o.media_url;
+END;
+$$;
+
+COMMENT ON FUNCTION public.fn_wa_bridge_claim_pending(integer) IS
+  'Claims up to p_limit pending outbox rows for the on-campus bridge and returns them, flipping them to sending in the same statement. FOR UPDATE SKIP LOCKED so two overlapping polls cannot claim the same row. service_role only — this is bridge machinery, not a user action.';
+
+REVOKE EXECUTE ON FUNCTION public.fn_wa_bridge_claim_pending(integer) FROM anon, PUBLIC, authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_wa_bridge_claim_pending(integer) TO service_role;
+
+-- ---------------------------------------------------------------------------
+-- 5. Ack RPC — record the outcome, and decide whether to retry
+-- ---------------------------------------------------------------------------
+-- The retry decision is made HERE and not in TypeScript, because it depends on
+-- the row's current attempts and must be read-and-written atomically. Two acks
+-- racing (the bridge retried its own ack) would otherwise both read attempts=1
+-- and both write attempts=2.
+--
+-- Only a row currently in `sending` is acted on. That is what makes a repeated
+-- ack harmless: the second one matches nothing, returns no row, and the API
+-- reports "already acknowledged" instead of incrementing attempts twice.
+CREATE OR REPLACE FUNCTION public.fn_wa_bridge_ack(
+  p_id            uuid,
+  p_status        text,
+  p_wa_message_id text DEFAULT NULL,
+  p_error         text DEFAULT NULL,
+  p_max_attempts  integer DEFAULT 3
+)
+RETURNS TABLE (
+  id       uuid,
+  status   text,
+  attempts integer
+)
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF p_status NOT IN ('sent', 'failed') THEN
+    RAISE EXCEPTION 'fn_wa_bridge_ack: status must be sent or failed, got %', p_status;
+  END IF;
+
+  RETURN QUERY
+  UPDATE public.wa_bridge_outbox o
+     SET attempts      = o.attempts + 1,
+         -- The cap is compared against the POST-increment count, so
+         -- p_max_attempts = 3 means the message is attempted three times and
+         -- then abandoned — not four.
+         status        = CASE
+                           WHEN p_status = 'sent' THEN 'sent'
+                           WHEN o.attempts + 1 >= p_max_attempts THEN 'failed'
+                           ELSE 'pending'
+                         END,
+         wa_message_id = COALESCE(p_wa_message_id, o.wa_message_id),
+         -- A successful send clears the error left by an earlier attempt, so
+         -- the row does not read as failed-and-sent at the same time.
+         error         = CASE WHEN p_status = 'sent' THEN NULL ELSE p_error END,
+         sent_at       = CASE WHEN p_status = 'sent' THEN now() ELSE o.sent_at END,
+         updated_at    = now()
+   WHERE o.id = p_id
+     AND o.status = 'sending'
+  RETURNING o.id, o.status, o.attempts;
+END;
+$$;
+
+COMMENT ON FUNCTION public.fn_wa_bridge_ack(uuid, text, text, text, integer) IS
+  'Records the bridge''s outcome for one claimed outbox row. Acts only on a row still in `sending`, so a retried ack matches nothing and returns no row instead of double-counting the attempt. A failure below the attempt cap returns the row to pending; at the cap it stays failed. service_role only.';
+
+REVOKE EXECUTE ON FUNCTION public.fn_wa_bridge_ack(uuid, text, text, text, integer) FROM anon, PUBLIC, authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_wa_bridge_ack(uuid, text, text, text, integer) TO service_role;
+
+-- ---------------------------------------------------------------------------
