@@ -173,7 +173,13 @@ CREATE POLICY changelog_highlight_reports_read_all
 -- it (feedback_supabase_anon_execute_default_grant); and `authenticated` holds
 -- its own grant too, so the write surface is named explicitly rather than
 -- assumed (feedback_authenticated_holds_a_direct_table_grant_too).
-REVOKE ALL ON public.changelog_highlight_reports FROM anon, PUBLIC;
+-- `authenticated` is named explicitly. Supabase ships
+-- `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO authenticated`,
+-- so every new table arrives with UPDATE and DELETE already granted to every
+-- signed-in account — a grant the GRANT below does not narrow. Revoking from
+-- anon and PUBLIC alone leaves the table fully writable, which is exactly what
+-- this file's own assertion caught when it refused to apply.
+REVOKE ALL ON public.changelog_highlight_reports FROM anon, PUBLIC, authenticated;
 GRANT SELECT, INSERT ON public.changelog_highlight_reports TO authenticated;
 
 -- ── Assertions — the end state, checked rather than assumed ─────────────────
