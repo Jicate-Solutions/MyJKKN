@@ -2,8 +2,8 @@
 -- every authenticated user ON PURPOSE and cannot be used to reach another
 -- person's data. It takes NO argument at all — there is no parameter through
 -- which a caller could name somebody else — and every row it returns is gated on
--- fn_my_event_feedback_registration / fn_can_self_register_for_event_feedback,
--- both of which pin their identity branches to (SELECT auth.uid()). It is
+-- fn_my_event_feedback_registration, which pins every identity branch to
+-- (SELECT auth.uid()). It is
 -- SECURITY DEFINER for the same reason its two siblings are: it must read
 -- events_registrations past that table's own SELECT policy, which is what lets a
 -- participant be recognised at all. The most it discloses is a list of forms the
@@ -55,7 +55,7 @@
 --     /learners/my-induction; a fourth ask on the same event is noise.
 --   * It SENDS NOTHING. No notification, no email, no push. It writes form,
 --     section and question rows and stops. Attendees find the form on the new
---     /learners/my-event-feedback page, which reads
+--     /my-event-feedback page, which reads
 --     fn_my_pending_event_feedback below.
 --   * It does NOT backfill history. Only events that ended inside the lookback
 --     window are touched, so applying this does not reopen 2024.
@@ -72,6 +72,28 @@
 -- event where BOTH are NULL has no knowable end and is skipped rather than
 -- guessed at.
 --
+-- A DECLARED INVERSION: is_enabled = true ON EVERY ROW THIS WRITES.
+-- event_feedback_forms.is_enabled is `NOT NULL DEFAULT false` and the table's own
+-- migration says why: "a new form starts CLOSED so creating one never begins
+-- collecting by surprise." That default protects a HUMAN drafting a form in the
+-- builder — they set the questions first and open it when they are ready. This
+-- writer has no draft stage and no human to come back: it composes the whole
+-- form in one statement and its entire purpose is that nobody has to remember
+-- to open it. A row written with the default would be invisible to every
+-- attendee, and this routine would be an elaborate way of creating nothing.
+--
+-- The consequence, stated rather than implied: from the day this is applied,
+-- an event ending inside the lookback window BEGINS COLLECTING ANSWERS with no
+-- human approving that event in particular. That is the decision, not an
+-- accident of the insert. Three things bound it: the form asks the same four
+-- fixed questions on every event, so there is nothing event-specific for anyone
+-- to get wrong; it is answerable only by people the event already recorded as
+-- participants (see fn_my_pending_event_feedback below); and the routine itself
+-- can be switched off at /admin/ai-routines with no deploy, which stops every
+-- future form. Forms already opened stay open until their 14 days run out —
+-- switching the routine off does not close them, and closing one early is the
+-- coordinator's existing per-form control.
+--
 -- WHY starts_at = now() AND NOT the event's end time. starts_at is load-bearing
 -- beyond the window: fn_my_event_feedback_registration (20260907160000) freezes
 -- the attendance question at the form's OPENING instant — "was anyone checked in
@@ -80,7 +102,19 @@
 -- would read as "attendance not taken" and every registered no-show could rate
 -- it. Opening at now() keeps the Director's 2026-09-07 decision intact: where
 -- check-ins happened, only people marked present may answer; where they did not,
--- any live registrant may, and a non-registrant may self-register.
+-- any live registrant may.
+--
+-- ONE KNOWN EDGE, disclosed rather than hidden: an event whose check-ins are
+-- reconciled AFTER the 06:45 sweep has no check-in earlier than its form's
+-- starts_at, so it reads as "attendance not taken" for the whole 14 days and
+-- every live registrant may answer, including registered no-shows. There is no
+-- repair path — starts_at is never revised. It is inherent to freezing the
+-- question at the opening instant (the alternative, re-evaluating it, lets one
+-- late hand-entered check-in slam the door on everyone else mid-window, which is
+-- why 20260907160000 froze it). It is bounded to REGISTRANTS of that event, not
+-- the institution, because this page lists nobody else. Coordinators who take
+-- attendance on the day are unaffected; the fix for the rest is to record
+-- check-ins before the next morning.
 -- ============================================================================
 
 -- ── 1. The routine: open the standard form on events that have ended ────────
@@ -225,20 +259,56 @@ GRANT  EXECUTE ON FUNCTION public.fn_events_open_standard_feedback(integer, inte
 --
 -- IT LISTS ONLY WHAT THE CALLER CAN ACTUALLY SUBMIT. Showing a form that RLS
 -- will refuse at submit time repeats the failure one screen later, so each row
--- is gated on the SAME two functions the write path uses:
+-- is gated on the SAME function the write path uses:
 --   fn_my_event_feedback_registration  -> attendance-aware; NULL means "you may
 --                                         not answer", including the case where
 --                                         attendance was taken and you were not
 --                                         marked present.
---   fn_can_self_register_for_event_feedback -> would self-registration succeed?
--- needs_self_register tells the page which of the two got the caller in, so the
--- respond form's existing self-registration path is reached knowingly.
 --
--- COST CONTROL. Both gate functions are STABLE but not free, so the cheap
--- predicates run first — the form must be enabled and inside its window, and the
--- event must be running and in the caller's audience (same institution, or
--- all_jkkn — the same test events_auth_read applies). Only survivors of that
--- reach the per-row function calls.
+-- IT LISTS ONLY EVENTS THE CALLER IS ON THE LIST FOR, and that is a decision,
+-- not an oversight. The obvious wider rule — admit anyone
+-- fn_can_self_register_for_event_feedback would let in — reads as "be generous"
+-- and is measured as a broadcast. That function contains no attendance test and
+-- no invitation test: it returns TRUE for ANY signed-in profile in the event's
+-- audience who holds no registration (e.scope = 'all_jkkn' OR
+-- e.institution_id = mine), provided nobody was checked in before the form
+-- opened. Read against production today (13 Sep 2026): 55 events, of which 2
+-- have any check-in at all and 8 have any registration, against 7,664 profiles.
+-- Pair that with a routine that opens a form on EVERY ended event and the queue
+-- of an all_jkkn event becomes every profile on the platform, each asked to rate
+-- something they may never have heard of.
+--
+-- Three things break if that ships, and the third is the whole design:
+--   * Noise. Up to the LIMIT 50 below, mostly events the reader did not attend.
+--   * Turnout. Answering MINTS an events_registrations row at submit, so a
+--     non-attendee who answers is counted as a participant — the exact
+--     corruption 20260909240000's own header says its read-only twin exists to
+--     prevent. That guard held while self-registration was reachable only by a
+--     pasted link handed to somebody who was actually there.
+--   * The number itself. The fixed question_keys exist so one event's rating is
+--     comparable with another's. A mean over people who were not in the room is
+--     not a worse measurement of the event; it is not a measurement of the event.
+-- Self-registration is NOT removed — the respond page still offers it exactly as
+-- it does today to anyone handed the link, which is the case it was built for.
+-- It is simply not something this page BROADCASTS. The cost, stated plainly: an
+-- event with no participant list collects nothing here until somebody records
+-- who came or shares the link. 47 of 55 events are in that state today, and the
+-- lever for them is recording attendance, not asking 7,664 people.
+--
+-- COST CONTROL. The gate function is STABLE but not free, so the cheap
+-- predicates run first — the form must be enabled and inside its window, the
+-- event must be running and in the caller's audience, and the caller must hold
+-- a live registration on it (the indexed EXISTS below, which is also what bounds
+-- the scan: without it the candidate set is every open form in the institution
+-- and grows by one per event per day). Only survivors of that reach the per-row
+-- function call, which stays the authority on WHICH registration and on
+-- attendance.
+-- The OUT columns are part of the signature and CREATE OR REPLACE cannot change
+-- them, so an edit to this list would fail on a re-run against a database that
+-- already has the earlier shape. Dropped first, then recreated and re-granted
+-- below; nothing depends on it (no view, no policy, no default).
+DROP FUNCTION IF EXISTS public.fn_my_pending_event_feedback();
+
 CREATE OR REPLACE FUNCTION public.fn_my_pending_event_feedback()
 RETURNS TABLE (
   form_id             uuid,
@@ -248,8 +318,7 @@ RETURNS TABLE (
   event_name          text,
   event_type          text,
   event_ended_at      timestamptz,
-  closes_at           timestamptz,
-  needs_self_register boolean
+  closes_at           timestamptz
 )
 LANGUAGE sql
 STABLE
@@ -257,7 +326,7 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
   WITH me AS (
-    SELECT pr.id, pr.institution_id
+    SELECT pr.id, pr.institution_id, pr.learner_id
     FROM public.profiles pr
     WHERE pr.id = (SELECT auth.uid())
   ),
@@ -287,6 +356,22 @@ AS $$
       AND (f.ends_at   IS NULL OR now() <= f.ends_at)
       AND e.status NOT IN ('draft', 'cancelled')
       AND (e.scope = 'all_jkkn' OR e.institution_id = me.institution_id)
+      -- On the list for this event. Identity is matched the same two ways
+      -- fn_my_event_feedback_registration matches it (profile_id, or the
+      -- caller's own profiles.learner_id) so the pre-filter can never admit
+      -- somebody the gate would then reject, or reject somebody it would admit.
+      -- This is a cheap indexed EXISTS, not the verdict: the gate below still
+      -- decides WHICH registration and whether attendance shuts them out.
+      AND EXISTS (
+        SELECT 1
+        FROM public.events_registrations r
+        WHERE r.event_id = e.id
+          AND r.status NOT IN ('cancelled', 'disqualified')
+          AND (
+            r.profile_id = me.id
+            OR (r.learner_id IS NOT NULL AND r.learner_id = me.learner_id)
+          )
+      )
   ),
   resolved AS (
     SELECT
@@ -302,21 +387,18 @@ AS $$
     r.event_name,
     r.event_type,
     r.event_ended_at,
-    r.ends_at AS closes_at,
-    (r.my_registration_id IS NULL) AS needs_self_register
+    r.ends_at AS closes_at
   FROM resolved r
-  WHERE (
-      r.my_registration_id IS NOT NULL
-      OR public.fn_can_self_register_for_event_feedback(r.form_id)
-    )
-    -- Already answered => not pending. Only checkable when they hold a
-    -- registration; a self-registrable caller has none, so by definition has no
-    -- response either.
+  -- NULL is a refusal, and it carries the attendance verdict: the caller is
+  -- registered (the pre-filter proved that) but attendance WAS being taken
+  -- before this form opened and they were not marked present. Listing it anyway
+  -- would move the refusal to the submit button.
+  WHERE r.my_registration_id IS NOT NULL
+    -- Already answered => not pending.
     AND NOT EXISTS (
       SELECT 1
       FROM public.event_feedback_responses resp
       WHERE resp.form_id = r.form_id
-        AND r.my_registration_id IS NOT NULL
         AND resp.registration_id = r.my_registration_id
     )
   -- Soonest to close first: that is the one the caller loses if they wait.
@@ -325,12 +407,60 @@ AS $$
 $$;
 
 COMMENT ON FUNCTION public.fn_my_pending_event_feedback() IS
-  'Event feedback forms the CALLER may answer right now and has not answered yet, soonest-to-close first (cap 50). Self-scoped: takes no argument, and each row is admitted only by fn_my_event_feedback_registration (attendance-aware) or fn_can_self_register_for_event_feedback, both pinned to auth.uid(). needs_self_register=true means the caller holds no registration and the respond page must call fn_self_register_for_event_feedback at submit. Backs /learners/my-event-feedback.';
+  'Event feedback forms the CALLER may answer right now and has not answered yet, soonest-to-close first (cap 50). Self-scoped: takes no argument, and every row is admitted by fn_my_event_feedback_registration (attendance-aware), pinned to auth.uid(). DELIBERATELY listing only events the caller holds a live registration on: fn_can_self_register_for_event_feedback carries no attendance or invitation test, so admitting it here would ask every profile in the audience (7,664 platform-wide on an all_jkkn event) to rate events they never attended, inflate turnout at submit, and break the cross-event comparability the fixed question_keys exist to create. Self-registration is unchanged on the respond page for anyone handed the link. Backs /my-event-feedback.';
 
 REVOKE EXECUTE ON FUNCTION public.fn_my_pending_event_feedback() FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_my_pending_event_feedback() TO authenticated;
 
--- ── 3. The trigger, registered where this repo actually registers them ──────
+-- The candidate pre-filter's EXISTS matches a registration by profile_id or by
+-- the caller's learner_id. Both are single-column lookups on a table that grows
+-- with every registration on every event; neither had an index (the only ones
+-- are form_id and the partial event_id/checked_in_at from 20260907160000).
+CREATE INDEX IF NOT EXISTS idx_events_registrations_profile_event
+  ON public.events_registrations (profile_id, event_id)
+  WHERE profile_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_events_registrations_learner_event
+  ON public.events_registrations (learner_id, event_id)
+  WHERE learner_id IS NOT NULL;
+
+-- ── 3. Prove the grants actually took ───────────────────────────────────────
+-- Stating REVOKE/GRANT is not the same as landing them, and the failure is
+-- silent in both directions: Supabase's ALTER DEFAULT PRIVILEGES hands anon a
+-- direct EXECUTE on every new function separately from PUBLIC, so a missed
+-- revoke leaves a function callable with the anon key that ships in every
+-- browser bundle; and a missed grant leaves a function no signed-in user can
+-- call, which reads as "the page is broken" and never as "the grant is absent".
+-- Same standard as the sibling migration 20261205083000, which asserts its
+-- table grants with has_table_privilege.
+DO $$
+BEGIN
+  -- The cron's writer: service_role ONLY. No human may open forms.
+  IF NOT has_function_privilege('service_role',
+       'public.fn_events_open_standard_feedback(integer, integer, integer)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'fn_events_open_standard_feedback: service_role is missing EXECUTE — the routine cannot open any form';
+  END IF;
+  IF has_function_privilege('authenticated',
+       'public.fn_events_open_standard_feedback(integer, integer, integer)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'fn_events_open_standard_feedback: authenticated still holds EXECUTE — any signed-in user could mint feedback forms';
+  END IF;
+  IF has_function_privilege('anon',
+       'public.fn_events_open_standard_feedback(integer, integer, integer)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'fn_events_open_standard_feedback: anon still holds EXECUTE — callable with the public anon key';
+  END IF;
+
+  -- The attendee's read: every signed-in user, never anon.
+  IF NOT has_function_privilege('authenticated',
+       'public.fn_my_pending_event_feedback()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'fn_my_pending_event_feedback: authenticated is missing EXECUTE — /my-event-feedback would be empty for everyone';
+  END IF;
+  IF has_function_privilege('anon',
+       'public.fn_my_pending_event_feedback()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'fn_my_pending_event_feedback: anon still holds EXECUTE — callable with the public anon key';
+  END IF;
+END;
+$$;
+
+-- ── 4. The trigger, registered where this repo actually registers them ──────
 -- NOT vercel.json. That file is at 68 crons against a hard platform cap and the
 -- 2026-08 cron-cap wave moved every daily rules-based sweep onto the AI-routine
 -- dispatcher, which fires GET <triggerPath> with Authorization: Bearer

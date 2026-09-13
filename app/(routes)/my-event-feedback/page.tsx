@@ -1,6 +1,6 @@
 'use client';
 
-// /learners/my-event-feedback — "which events are waiting on me?"
+// /my-event-feedback — "which events are waiting on me?"
 //
 // THIS PAGE IS THE FEATURE, not decoration around it. The respond page at
 // /events/<id>/feedback/respond has worked for weeks and collected almost
@@ -10,14 +10,22 @@
 // hold no feedback at all.
 //
 // Every row comes from fn_my_pending_event_feedback(), which admits a form only
-// when the caller could actually submit it — gated on the same two functions the
-// write path uses (attendance-aware registration, or eligibility to self-register).
-// Listing a form the database would refuse at submit time would repeat the dead
-// end one screen later, so a row here is a promise that the Answer button works.
+// when the caller could actually submit it — gated on the same attendance-aware
+// function the write path uses. Listing a form the database would refuse at
+// submit time would repeat the dead end one screen later, so a row here is a
+// promise that the Answer button works.
+//
+// NOT UNDER /learners/. An event is attended by every kind of person the
+// platform has — a faculty member at an FDP, a team member at a staff seminar,
+// a HOD at a conference, a learner at a sports meet. The /learners/my-* prefix
+// is matched by isStudentPortalRoute(), which renders a sidebar row for
+// role_key 'student' ONLY and strips it from super admin outright, so a page
+// living there would have been invisible to most of the people it is for —
+// the same dead end this page exists to remove. It sits at the top level and
+// the sidebar treats it as always-visible, like /my-induction-sessions.
 //
 // Self-scoped by construction: the RPC takes no argument and reads auth.uid().
-// There is nothing to gate in this component, and nothing here is role-specific
-// — a Senior Learner who attended an event is asked exactly as a learner is.
+// There is nothing to gate in this component and nothing here is role-specific.
 
 import { useMemo } from 'react';
 import Link from 'next/link';
@@ -27,13 +35,11 @@ import {
   Clock,
   Loader2,
   MessageSquare,
-  UserPlus,
 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { useMyPendingEventFeedback } from '@/hooks/events/use-event-feedback';
 import type { PendingEventFeedback } from '@/types/event-feedback';
 
@@ -50,10 +56,20 @@ function closesInLabel(closesAt: string | null): string | null {
   return `${days} days left`;
 }
 
+/**
+ * "Ended 9 Sep 2026", or null when the event has not ended yet.
+ *
+ * A coordinator may open their own form BEFORE the event (the slug
+ * 'pre-event-feedback' exists in production), and the RPC's event_ended_at is
+ * then a FUTURE moment — printing "Ended 20 Oct 2026" on it is simply false.
+ * The routine's own forms are only ever opened after the event, so this guard
+ * is only ever load-bearing for a hand-built one.
+ */
 function endedOnLabel(endedAt: string | null): string | null {
   if (!endedAt) return null;
   const ended = new Date(endedAt);
   if (Number.isNaN(ended.getTime())) return null;
+  if (ended.getTime() > Date.now()) return null;
   return ended.toLocaleDateString(undefined, {
     day: 'numeric',
     month: 'short',
@@ -82,14 +98,6 @@ function PendingCard({ row }: { row: PendingEventFeedback }) {
                 <Clock className="h-3.5 w-3.5" aria-hidden="true" />
                 {closing}
               </span>
-            )}
-            {row.needs_self_register && (
-              // Said plainly rather than hidden: answering adds them to this
-              // event's participant list, and they should know before they tap.
-              <Badge variant="outline" className="gap-1 font-normal">
-                <UserPlus className="h-3 w-3" aria-hidden="true" />
-                You&apos;ll be added as an attendee when you answer
-              </Badge>
             )}
           </div>
         </div>
@@ -136,8 +144,9 @@ export default function MyEventFeedbackPage() {
           <CheckCircle2 className="mx-auto h-7 w-7 text-muted-foreground" aria-hidden="true" />
           <p className="text-sm font-medium">Nothing waiting on you</p>
           <p className="mx-auto max-w-md text-sm text-muted-foreground">
-            When an event you attended finishes, its feedback appears here for a
-            couple of weeks. Nothing is sent to you — just look in after an event.
+            When an event you were signed up for finishes, its feedback appears
+            here for a couple of weeks. Nothing is sent to you — just look in
+            after an event.
           </p>
         </CardContent>
       </Card>

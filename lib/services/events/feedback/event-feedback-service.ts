@@ -555,7 +555,7 @@ export class EventFeedbackService {
 
   /**
    * Every event the signed-in person is being asked about right now, across all
-   * events — the backing read for /learners/my-event-feedback.
+   * events — the backing read for /my-event-feedback.
    *
    * This is the half of the feature that decides whether any of it is used.
    * /events/<id>/feedback/respond has existed and worked for weeks with no
@@ -569,12 +569,24 @@ export class EventFeedbackService {
    * per row, which is a poor way to scan every form in the institution. The RPC
    * filters on the cheap predicates first and answers the ONE question this
    * page asks: what may I answer and have not.
+   *
+   * The cast names ONE function and its exact result instead of erasing the
+   * whole client with `as any`. The generated Database types do not carry
+   * fn_my_pending_event_feedback (its migration is newer than the last type
+   * regeneration), so some cast is unavoidable — but this one still type-checks
+   * the function name, the row shape and the error, and it keeps `this` bound by
+   * calling through the object rather than lifting the method off it.
    */
   static async myPendingFeedback(): Promise<PendingEventFeedback[]> {
-    const supabase = createClientSupabaseClient();
-    const { data, error } = await (supabase as any).rpc('fn_my_pending_event_feedback');
+    const supabase = createClientSupabaseClient() as unknown as {
+      rpc(fn: 'fn_my_pending_event_feedback'): PromiseLike<{
+        data: PendingEventFeedback[] | null;
+        error: { message: string; code?: string } | null;
+      }>;
+    };
+    const { data, error } = await supabase.rpc('fn_my_pending_event_feedback');
     if (error) throw error;
-    return (data as PendingEventFeedback[] | null) ?? [];
+    return data ?? [];
   }
 
   /**

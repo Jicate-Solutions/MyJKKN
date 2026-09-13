@@ -241,7 +241,7 @@ export function useCanSelfRegisterForFeedback(formId: string, enabled: boolean) 
 /**
  * Everything the signed-in person is being asked about, across every event.
  *
- * Backs /learners/my-event-feedback, the general-events equivalent of
+ * Backs /my-event-feedback, the general-events equivalent of
  * /learners/my-induction. Each row is already gated by the same functions the
  * write path uses, so anything listed here can actually be submitted.
  */

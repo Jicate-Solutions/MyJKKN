@@ -223,10 +223,16 @@ export const FEEDBACK_STATE_REASONS: Record<FeedbackFormState, string> = {
  * One row of fn_my_pending_event_feedback(): an event the signed-in person may
  * rate right now and has not rated yet.
  *
- * Every row is already gated by the same two functions the WRITE path uses, so
- * a row appearing here is a promise that submitting will succeed — listing a
- * form the database would refuse at submit time is the same dead end as having
- * no list at all, moved one screen later.
+ * Every row is already gated by the same function the WRITE path uses, so a row
+ * appearing here is a promise that submitting will succeed — listing a form the
+ * database would refuse at submit time is the same dead end as having no list at
+ * all, moved one screen later.
+ *
+ * Only events the caller holds a live registration on appear. There is no
+ * self-registration branch here on purpose: that path carries no attendance and
+ * no invitation test, so listing it would ask everyone in an event's audience to
+ * rate an event they may never have attended. It remains available on the
+ * respond page itself for anyone handed the link.
  */
 export interface PendingEventFeedback {
   form_id: string;
@@ -239,12 +245,6 @@ export interface PendingEventFeedback {
   event_ended_at: string | null;
   /** When the window shuts. Null means no end date was set. */
   closes_at: string | null;
-  /**
-   * True when the caller holds no registration on the event and got in via the
-   * self-registration path. The respond form already handles this — the row is
-   * created at SUBMIT, never on page load, so browsing does not inflate turnout.
-   */
-  needs_self_register: boolean;
 }
 
 // ── Aggregates for the coordinator's summary ─────────────────────────────────

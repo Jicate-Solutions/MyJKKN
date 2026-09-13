@@ -15,7 +15,7 @@
 //
 // SENDS NOTHING. No notification, no email, no push. It writes form / section /
 // question rows and returns counts. Attendees find the form themselves at
-// /learners/my-event-feedback, which reads fn_my_pending_event_feedback().
+// /my-event-feedback, which reads fn_my_pending_event_feedback().
 //
 // Idempotent by construction: the NOT EXISTS on event_feedback_forms means a
 // second run the same day creates nothing, so a manual trigger is safe.
