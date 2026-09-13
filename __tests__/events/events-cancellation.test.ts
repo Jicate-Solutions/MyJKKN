@@ -424,3 +424,36 @@ describe('GeneralEventService.updateStatus', () => {
     expect(updateEvent).toHaveBeenCalledWith('e1', { status: 'live' });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Appended at the END of the file deliberately: the sibling PR
+// feat/events-cancel-public-wording rewrites the middle of this file, and a
+// block added there would collide with it for no reason.
+
+describe('the reinstate path must carry the same warning the cancel path does', () => {
+  const page = readFileSync(join(process.cwd(), 'app/(routes)/events/[id]/page.tsx'), 'utf8');
+
+  it('is a confirm dialog, not a bare button with a tooltip', () => {
+    // A `title` tooltip does not exist on a phone and is attached to the very
+    // button it is warning about. Reinstating is allowed; doing it unwarned is
+    // what changed.
+    expect(page).toContain('function ReinstateEventDialog');
+    expect(page).toContain('<ReinstateEventDialog');
+  });
+
+  it('says the released rooms and the un-assigned people do not come back', () => {
+    expect(page).toMatch(/The bookings and the people do NOT come back/);
+    expect(page).toMatch(/whoever was next in line for each one has already been given/i);
+    expect(page).toMatch(/They are not re-invited/i);
+  });
+
+  it('offers a way out of the dialog that changes nothing', () => {
+    expect(page).toMatch(/Leave it cancelled/);
+  });
+
+  it('does not leave the old tooltip behind as a second, quieter warning', () => {
+    // The tooltip is what this replaces. Keeping both would mean two copies of
+    // the cascade warning drifting apart.
+    expect(page).not.toMatch(/Reinstate this event — it becomes visible and open again/);
+  });
+});
