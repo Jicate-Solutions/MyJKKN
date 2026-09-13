@@ -296,6 +296,14 @@ export async function POST(
     // event can never have been full, so it can never have queued anybody and
     // there is no offer to find. That keeps this lookup off the door of every
     // uncapped event.
+    //
+    // STATED, NOT PAPERED OVER: between the claim and the registration insert a
+    // few lines below, the claimed row has stopped counting as an offer and its
+    // registration does not exist yet, so a simultaneous stranger reads `taken`
+    // one lower than it will settle at. The window is one round trip. It is not
+    // a regression this introduces — the capacity check has always been a read
+    // followed by an unserialised insert — and closing it properly means moving
+    // capacity into the database, which is a different change from this one.
     let claimedWaitlistId: string | null = null;
     if (ev.cap_behavior === 'waitlist' && ev.max_registrations) {
       const offer = await findOutstandingOffer(svc as any, eventId, {
