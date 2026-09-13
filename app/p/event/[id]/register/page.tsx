@@ -335,7 +335,12 @@ export default async function PublicEventRegisterPage({
     // always given — never the form.
     let taken: number;
     try {
-      taken = await countTaken(svc as never, id);
+      // strictOffers=false: this page only picks which copy to show, and the
+      // registration door re-checks strictly on submit. Letting a failed OFFERS
+      // count close registration for every capped event would reintroduce the
+      // unreachable queue this whole feature exists to remove. A failed
+      // REGISTRATIONS count still throws, and that is the one that matters.
+      taken = await countTaken(svc as never, id, false);
     } catch {
       return <Empty title="Registration full" msg="This event has reached its maximum number of registrations." />;
     }

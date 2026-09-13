@@ -186,8 +186,14 @@ export function EventWaitlistCard({ eventId }: { eventId: string }) {
   // null — not read — and testing it before this would be reading a value the
   // route deliberately refused to invent.
   if (panel.not_yet_available) return null;
-  if (panel.cap_behavior !== 'waitlist') return null;
   if (!panel.entries.length) return null;
+  // NOT gated on cap_behavior once there are rows. An organiser who flips a
+  // full event to strict_cap does not release the offers already outstanding —
+  // countTaken still counts them as taken seats — so hiding the card at that
+  // moment hides the only screen that shows those seats being held, and this
+  // feature ships no way to take an offer back. An event that queues nobody and
+  // has nobody queued renders nothing, as before.
+  if (panel.cap_behavior !== 'waitlist' && !panel.offered_count) return null;
 
   const capacityLine =
     panel.max_registrations !== null
