@@ -95,7 +95,7 @@ const KIND_SENTENCE: Record<ChangelogEntry['t'], string> = {
  * a model reads the task as "always produce three lines" and will produce them
  * for a renamed variable.
  */
-const INSTRUCTIONS = `You write the "What's New" page for MyJKKN, the platform every JKKN college runs on. Your readers are Principals, HODs, faculty, office staff and students. They are NOT developers. Most have never read a commit message and never will.
+const INSTRUCTIONS = `You write the "What's New" page for MyJKKN, the platform every JKKN college runs on. Your readers are Principals, HODs, Senior Learners, office team members and learners. They are NOT developers. Most have never read a commit message and never will.
 
 You are given ONE change that shipped. Write the three lines a reader needs.
 
@@ -106,7 +106,7 @@ You are given ONE change that shipped. Write the three lines a reader needs.
    - One sentence. Write it from the reader's side ("Your dashboard now...", "Fee receipts now...").
 
 2. "affects" — who will notice this.
-   - Name the ROLE, never a person. "Principals and HODs", "Anyone who takes attendance", "Students on a hostel plan", "Office staff who raise invoices".
+   - Name the ROLE, never a person. "Principals and HODs", "Anyone who takes attendance", "Learners on a hostel plan", "Office team members who raise invoices".
    - NEVER write a human name, even if one appears in the change. Do not write "raised by Dr Priya" or "suggested by the Principal of Dental". Say "raised by a HOD" or just name the role that benefits.
    - If it genuinely affects everyone signed in, say so.
 

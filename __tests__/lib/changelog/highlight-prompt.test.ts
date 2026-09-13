@@ -131,11 +131,11 @@ describe('buildHighlightPrompt — the rules the Director set', () => {
 describe('parseHighlightResult — a draft', () => {
   it('reads the three fields', () => {
     const r = parseHighlightResult(
-      '{"headline":"Receipts now show the fee head","affects":"Office staff who raise invoices","action":"Open Billing → Receipts."}'
+      '{"headline":"Receipts now show the fee head","affects":"Office team members who raise invoices","action":"Open Billing → Receipts."}'
     );
     expect(r && !isRefusal(r) && r).toEqual({
       headline: 'Receipts now show the fee head',
-      affects: 'Office staff who raise invoices',
+      affects: 'Office team members who raise invoices',
       action: 'Open Billing → Receipts.',
     });
   });
