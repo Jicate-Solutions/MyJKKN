@@ -8,6 +8,7 @@ import {
   Gift,
   LineChart,
   Unlink,
+  UserX,
   Upload,
   ClipboardCheck,
   IndianRupee,
@@ -33,6 +34,10 @@ const consultantTabs: SectionTab[] = [
   { href: '/admission/consultants/new', icon: UserPlus, label: 'Add Consultant' },
   { href: '/admission/consultants/referrals', icon: Share2, label: 'Referrals' },
   { href: '/admission/consultants/unlinked-referrals', icon: Unlink, label: 'Unlinked Referrals' },
+  // Added 2026-09-12 alongside the sidebar entry. On mobile this bar REPLACES the
+  // sidebar, so a page listed only there is unreachable on a phone — the exact
+  // failure this bar's header records for the seven pages it once omitted.
+  { href: '/admission/consultants/attribution-orphans', icon: UserX, label: 'Attribution Orphans' },
   { href: '/admission/consultants/import', icon: Upload, label: 'Import Referrals' },
   { href: '/admission/consultants/review-worklist', icon: ClipboardCheck, label: 'Review Worklist' },
   { href: '/admission/consultants/referral-rates', icon: IndianRupee, label: 'Rates & Generate' },

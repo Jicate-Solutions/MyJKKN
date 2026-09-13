@@ -25,7 +25,10 @@ export interface ConsultantDirectoryRow {
   contact_person: string | null;
   /** Referrals in the selected intake year — live, not the stored lifetime column. */
   referrals: number;
-  /** Of those, the ones who actually took the seat (active/admitted/reserved/graduated). */
+  /** Of those, the ones who actually took the seat (active/admitted/graduated).
+   *  'reserved' is NOT counted from 2026-09-12 (rule 15, Director): a reserved
+   *  seat is held, not joined. Matches GATE 1 of fn_generate_referral_commissions
+   *  exactly, so this count and the payable population cannot drift. */
   enrolled: number;
   /** Bank account AND PAN on file — the generator's own payable test. */
   payout_ready: boolean;
