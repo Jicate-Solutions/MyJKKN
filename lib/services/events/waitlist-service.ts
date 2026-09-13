@@ -278,7 +278,12 @@ export type JoinWaitlistResult =
    * back and resubmits, must not be told they are "number 4 on the waiting
    * list" for an event they are already going to.
    */
-  | { outcome: 'already_registered'; registrationId: string | null }
+  | {
+      outcome: 'already_registered';
+      registrationId: string | null;
+      /** Their existing registration is unpaid — do not tell them they are in. */
+      paymentPending: boolean;
+    }
   /** The table is not there yet. The caller falls back to today's refusal. */
   | { outcome: 'not_available' }
   /** A genuine write failure. The caller must NOT report this as "full". */
@@ -425,6 +430,12 @@ async function findOpenRow(
   return { row: null, missingTable: false };
 }
 
+interface LiveRegistration {
+  id: string;
+  /** So an unpaid registration is not reported back as "you're all set". */
+  payment_status: string | null;
+}
+
 /**
  * This person's live registration for this form, if they already have one.
  *
@@ -437,7 +448,7 @@ async function findLiveRegistration(
   eventId: string,
   formId: string | null,
   who: WaitlistIdentity
-): Promise<string | null> {
+): Promise<LiveRegistration | null> {
   // events_registrations stores the email AS TYPED — only the waiting list
   // lower-cases it — so a single `.eq` on the normalised form would miss
   // "Abc@x.com". Both spellings are offered instead of reaching for `ilike`,
@@ -462,7 +473,7 @@ async function findLiveRegistration(
   for (const attempt of attempts) {
     let query = (service as any)
       .from('events_registrations')
-      .select('id, participant_name')
+      .select('id, participant_name, payment_status')
       .eq('event_id', eventId)
       .neq('status', LIVE_REGISTRATION_FILTER)
       .in(attempt.column, attempt.values)
@@ -470,13 +481,18 @@ async function findLiveRegistration(
     if (formId) query = query.eq('form_id', formId);
 
     const { data, error } = await query;
-    if (error || !data?.length) continue;
+    // A FAILED QUERY IS NOT "NOBODY IS REGISTERED". Swallowing it into `continue`
+    // means a transient outage queues somebody who is already registered, who is
+    // then promoted and ends up holding two seats — exactly what this function
+    // exists to prevent.
+    if (error) throw new WaitlistReadError('check for an existing registration', eventId, error);
+    if (!data?.length) continue;
 
-    const rows = data as Array<{ id: string; participant_name?: string | null }>;
+    const rows = data as Array<LiveRegistration & { participant_name?: string | null }>;
     const hit = attempt.byName
       ? rows.find((r) => normName(r.participant_name) === wantedName && wantedName !== '')
       : rows[0];
-    if (hit) return hit.id;
+    if (hit) return { id: hit.id, payment_status: hit.payment_status ?? null };
   }
 
   return null;
@@ -518,7 +534,13 @@ export async function joinWaitlist(
   // queueing for a later run, which is the opposite of what this table's own
   // comment promises.
   const live = await findLiveRegistration(service, input.eventId, input.formId, who);
-  if (live) return { outcome: 'already_registered', registrationId: live };
+  if (live) {
+    return {
+      outcome: 'already_registered',
+      registrationId: live.id,
+      paymentPending: live.payment_status === 'pending',
+    };
+  }
 
   const existing = await findOpenRow(service, input.eventId, who);
   if (existing.row) {
