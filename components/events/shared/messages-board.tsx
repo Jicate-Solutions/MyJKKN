@@ -16,6 +16,26 @@
 //      reached — so the organiser can see they have already said this.
 //
 // ---------------------------------------------------------------------------
+// SENDING THE SAME THING TWICE — on purpose, or not at all
+// ---------------------------------------------------------------------------
+// A double click is still swallowed by the content-bound token and the UNIQUE
+// on (event_id, client_token); none of that weakens here.
+//
+// What this adds is the deliberate case. A send can half-fail — the request
+// errors in the browser after it committed on the server, or the fanout lands
+// and the write-back afterwards does not — and the organiser is then left
+// unable to retry and unsure whether anyone got it. Re-typing the same words
+// used to be judged by state nobody can see: swallowed while the compose
+// binding was still held, and delivered a second time after a page reload.
+// Same keystrokes, opposite outcomes.
+//
+// So a repeat is now something the organiser states. "Send again" sits on the
+// message it repeats, opens a confirmation that names the recipient count and
+// says plainly that some people may receive it twice, and posts `resendOf`.
+// Nothing sends without that click. A compose whose text has been sent before
+// is refused by the server instead, and the refusal points here.
+//
+// ---------------------------------------------------------------------------
 // WHO DECIDES ACCESS — the server, and only the server
 // ---------------------------------------------------------------------------
 // This board does NOT gate on the host page's `canManage` prop, and that is
@@ -54,6 +74,7 @@ import {
   Loader2,
   Lock,
   Megaphone,
+  Repeat,
   Send,
   Users,
 } from 'lucide-react';
@@ -105,8 +126,28 @@ function DeniedCard() {
   );
 }
 
-function SentMessageRow({ message }: { message: EventRegistrantMessage }) {
-  const failed = !message.notification_id && message.delivered_count === 0;
+function SentMessageRow({
+  message,
+  repeatedOn,
+  resendCount,
+  onResend,
+  busy,
+}: {
+  message: EventRegistrantMessage;
+  /** When this row is itself a resend: when the message it repeats went out. */
+  repeatedOn: string | null;
+  /** How many later rows in this log name this message as the one they repeat. */
+  resendCount: number;
+  onResend: (message: EventRegistrantMessage) => void;
+  busy: boolean;
+}) {
+  // NOT "failed". notification_id NULL with delivered_count 0 is the state a row
+  // is left in when the fanout threw AND when the fanout fully succeeded and
+  // only the write-back afterwards failed. Those are indistinguishable from
+  // here, and in the second one every registrant already has the message. The
+  // old copy — "nothing was delivered" — asserted the reading that pushes an
+  // organiser straight into a duplicate blast.
+  const unconfirmed = !message.notification_id && message.delivered_count === 0;
   // The unreachable number is STORED, never derived: audience_total counts
   // registrations and recipient_count counts people, so one learner registered
   // twice would otherwise be reported as someone who heard nothing.
@@ -123,9 +164,10 @@ function SentMessageRow({ message }: { message: EventRegistrantMessage }) {
             is shown. sent_by_name is resolved server-side; an unresolvable
             sender says so rather than silently collapsing to nothing. */}
         Sent by {message.sent_by_name ?? (message.sent_by ? 'a former account' : 'an unknown sender')}.{' '}
-        {failed ? (
-          <span className="text-destructive">
-            This send did not complete — nothing was delivered. Send it again.
+        {unconfirmed ? (
+          <span className="text-amber-700">
+            We could not confirm this send finished. Some registrants may already have it and some
+            may not — check with one of them before sending it again.
           </span>
         ) : (
           <>
@@ -138,6 +180,37 @@ function SentMessageRow({ message }: { message: EventRegistrantMessage }) {
           </>
         )}
       </p>
+
+      {/* Repeats, stated on both ends, so "we told them twice" is visible in the
+          history rather than inferred from two rows that read alike. */}
+      {message.resend_of ? (
+        <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Repeat className="h-3.5 w-3.5 shrink-0" />
+          {repeatedOn
+            ? `Sent again on purpose. Repeats the message of ${repeatedOn}.`
+            : 'Sent again on purpose. It repeats an earlier message on this event.'}
+        </p>
+      ) : null}
+      {resendCount > 0 ? (
+        <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Repeat className="h-3.5 w-3.5 shrink-0" />
+          Sent again {resendCount} more {resendCount === 1 ? 'time' : 'times'} after this — some
+          registrants will have received it more than once.
+        </p>
+      ) : null}
+
+      <div className="mt-2">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={busy}
+          onClick={() => onResend(message)}
+        >
+          <Repeat className="mr-2 h-3.5 w-3.5" />
+          Send again
+        </Button>
+      </div>
     </li>
   );
 }
@@ -162,6 +235,9 @@ export function MessagesBoard({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [result, setResult] = useState<{ delivered: number; repeated: boolean } | null>(null);
+  /** The already-sent message the organiser has asked to repeat, pending confirmation. */
+  const [resendTarget, setResendTarget] = useState<EventRegistrantMessage | null>(null);
+  const [resendError, setResendError] = useState<string | null>(null);
 
   // The idempotency token is bound to the CONTENT being sent and held in a ref,
   // not in state, so a retry reads the same token synchronously rather than
@@ -177,6 +253,21 @@ export function MessagesBoard({
     );
     composeToken.current = next;
     return next.token;
+  };
+
+  // One token per message being REPEATED, minted when its confirmation opens
+  // and kept until that resend is confirmed. Same discipline as the compose
+  // token and for the same reason: a resend that errors in the browser may have
+  // committed on the server, so pressing the button again must land on the row
+  // the first attempt claimed rather than blast a third copy. Cleared only on a
+  // confirmed resend, so a LATER deliberate repeat is genuinely a new one.
+  const resendTokens = useRef<Record<string, string>>({});
+  const resendTokenFor = (messageId: string): string => {
+    const held = resendTokens.current[messageId];
+    if (held) return held;
+    const minted = mintComposeToken();
+    resendTokens.current[messageId] = minted;
+    return minted;
   };
 
   // ALWAYS asks. The host page's `canManage` is not consulted — it is wrong for
@@ -195,6 +286,26 @@ export function MessagesBoard({
     () => subject.trim().length > 0 && body.trim().length > 0 && recipients > 0,
     [subject, body, recipients]
   );
+
+  const messages = panel.data?.messages;
+
+  /**
+   * Which rows repeat which, read off the log the board already has.
+   *
+   * `sentAtById` is only used to date the message a resend repeats. The log is
+   * capped, so an original that has fallen off the end is not in the map — the
+   * row then says it repeats an earlier message without naming the date, rather
+   * than inventing one.
+   */
+  const lineage = useMemo(() => {
+    const sentAtById: Record<string, string> = {};
+    const resendCounts: Record<string, number> = {};
+    for (const m of messages ?? []) {
+      sentAtById[m.id] = m.sent_at;
+      if (m.resend_of) resendCounts[m.resend_of] = (resendCounts[m.resend_of] ?? 0) + 1;
+    }
+    return { sentAtById, resendCounts };
+  }, [messages]);
 
   if (deniedByServer) return <DeniedCard />;
 
@@ -253,6 +364,44 @@ export function MessagesBoard({
       // fresh fanout key, and deliver the same announcement twice.
       setFormError(
         error instanceof Error ? error.message : 'Could not send the message. Please try again.'
+      );
+    }
+  };
+
+  /**
+   * Send an already-sent message again, on purpose.
+   *
+   * Reached only from the confirmation dialog, which states the recipient count
+   * and warns that some people may receive it twice. There is no automatic
+   * retry anywhere in this board and no code path that reaches this without a
+   * human clicking the button in that dialog.
+   */
+  const doResend = async () => {
+    const target = resendTarget;
+    if (!target) return;
+    setResendError(null);
+    try {
+      const outcome = await send.mutateAsync({
+        subject: target.subject,
+        body: target.body,
+        clientToken: resendTokenFor(target.id),
+        resendOf: target.id,
+      });
+      setResendTarget(null);
+      setResult({
+        delivered: outcome.message.delivered_count,
+        repeated: outcome.deduplicated,
+      });
+      // Only a confirmed resend clears the binding. The next "Send again" on
+      // this message is then a new decision, with a new row of its own.
+      delete resendTokens.current[target.id];
+    } catch (error) {
+      // The dialog stays OPEN and the token is deliberately KEPT, so pressing
+      // the button again retries THIS resend rather than starting another one.
+      setResendError(
+        error instanceof Error
+          ? error.message
+          : 'Could not send that message again. Please try again.'
       );
     }
   };
@@ -361,10 +510,26 @@ export function MessagesBoard({
       {/* ── Already sent ──────────────────────────────────────────────── */}
       <div className="space-y-2">
         <h4 className="text-sm font-medium">Already sent</h4>
-        {panel.data?.messages.length ? (
+        {messages?.length ? (
           <ul className="space-y-2">
-            {panel.data.messages.map((m) => (
-              <SentMessageRow key={m.id} message={m} />
+            {messages.map((m) => (
+              <SentMessageRow
+                key={m.id}
+                message={m}
+                repeatedOn={
+                  m.resend_of && lineage.sentAtById[m.resend_of]
+                    ? formatWhen(lineage.sentAtById[m.resend_of])
+                    : null
+                }
+                resendCount={lineage.resendCounts[m.id] ?? 0}
+                busy={send.isPending}
+                onResend={(target) => {
+                  setResult(null);
+                  setFormError(null);
+                  setResendError(null);
+                  setResendTarget(target);
+                }}
+              />
             ))}
           </ul>
         ) : (
@@ -400,6 +565,85 @@ export function MessagesBoard({
                 <Send className="mr-2 h-4 w-4" />
               )}
               Send to {recipients} {recipients === 1 ? 'registrant' : 'registrants'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Deliberate resend ─────────────────────────────────────────────
+          A separate dialog rather than a reuse of the one above, because it has
+          to say a different and less comfortable thing: this goes out a second
+          time, and people who already have it will get it twice. */}
+      <Dialog
+        open={Boolean(resendTarget)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setResendTarget(null);
+            setResendError(null);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Send this again to {recipients} {recipients === 1 ? 'registrant' : 'registrants'}?
+            </DialogTitle>
+            <DialogDescription>
+              This sends the same message a second time.{' '}
+              <span className="font-medium text-foreground">
+                Anyone who already received it will receive it again.
+              </span>{' '}
+              Use this when a send may not have gone out — not to remind people.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-md border bg-muted/40 p-3">
+            <p className="text-sm font-medium">{resendTarget?.subject}</p>
+            <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
+              {resendTarget?.body}
+            </p>
+            <p className="mt-2 text-xs text-muted-foreground">
+              First sent {resendTarget ? formatWhen(resendTarget.sent_at) : ''}
+              {resendTarget && !(!resendTarget.notification_id && resendTarget.delivered_count === 0)
+                ? ` — recorded as delivered to ${resendTarget.delivered_count} of ${resendTarget.recipient_count} we could reach.`
+                : ' — that send was never confirmed.'}
+            </p>
+          </div>
+          {/* The count above is TODAY's audience, not the one the original went
+              to. Registrations may have been added or cancelled since, so the
+              two can differ — and the number that matters is who receives this
+              send, which is this one. */}
+          {resendTarget && resendTarget.recipient_count !== recipients ? (
+            <p className="flex items-start gap-2 text-xs text-amber-700">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              The first send went to {resendTarget.recipient_count}{' '}
+              {resendTarget.recipient_count === 1 ? 'registrant' : 'registrants'}. This one goes to{' '}
+              {recipients} — the registration list has changed since.
+            </p>
+          ) : null}
+          {resendError ? (
+            <p className="flex items-start gap-2 text-sm text-destructive">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              {resendError}
+            </p>
+          ) : null}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setResendTarget(null);
+                setResendError(null);
+              }}
+              disabled={send.isPending}
+            >
+              Cancel
+            </Button>
+            <Button onClick={doResend} disabled={send.isPending || recipients === 0}>
+              {send.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Repeat className="mr-2 h-4 w-4" />
+              )}
+              Send again to {recipients} {recipients === 1 ? 'registrant' : 'registrants'}
             </Button>
           </DialogFooter>
         </DialogContent>

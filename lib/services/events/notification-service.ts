@@ -56,6 +56,11 @@ export interface EventRegistrantMessage {
   /** profiles.full_name of the sender, resolved server-side. */
   sent_by_name: string | null;
   sent_at: string;
+  /**
+   * The message this one deliberately repeats, or null for a first send. Set
+   * only by the "Send again" action, never by the compose form.
+   */
+  resend_of: string | null;
 }
 
 export interface EventMessagePanel {
@@ -120,10 +125,15 @@ export class EventsNotificationService {
    * `clientToken` is minted once per composed message. Re-posting the same
    * token returns the first send rather than delivering a second time
    * (`deduplicated: true`), which is what makes a double click harmless.
+   *
+   * `resendOf` names the message this one deliberately repeats. Omit it for a
+   * first send — the server then REFUSES the request (409, code `ALREADY_SENT`)
+   * if these exact words have gone out on this event before, so a re-typed
+   * announcement cannot become a silent second blast.
    */
   static async sendRegistrantMessage(
     eventId: string,
-    input: { subject: string; body: string; clientToken: string }
+    input: { subject: string; body: string; clientToken: string; resendOf?: string | null }
   ): Promise<{ message: EventRegistrantMessage; deduplicated: boolean }> {
     const res = await fetch(`/api/events/${encodeURIComponent(eventId)}/messages`, {
       method: 'POST',
@@ -132,6 +142,7 @@ export class EventsNotificationService {
         subject: input.subject,
         body: input.body,
         client_token: input.clientToken,
+        resend_of: input.resendOf ?? null,
       }),
     });
     const payload = await readJsonOrThrow(res);

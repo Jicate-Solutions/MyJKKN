@@ -29,6 +29,11 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
+// Imported (not only re-exported at the foot of this file) because the
+// duplicate-content guard below compares composes with the same function the
+// browser mints tokens with — one definition of "the same message", not two.
+import { composeKey } from './organiser-message-compose';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 export const MODULE = 'events/registrant-messages';
 
@@ -102,11 +107,17 @@ export interface SentMessageRow {
   /** Resolved from profiles.full_name for display. Null when unknown. */
   sent_by_name?: string | null;
   sent_at: string;
+  /**
+   * Set when this row is a DELIBERATE resend of an earlier message on the same
+   * event. Null on a first send. See the resend section below for why the
+   * intent is carried on the request rather than inferred from the text.
+   */
+  resend_of: string | null;
 }
 
 /** Every column the ledger reads back, in one place so the three reads agree. */
 const SENT_COLUMNS =
-  'id, subject, body, audience_total, recipient_count, unreachable_count, delivered_count, notification_id, sent_by, sent_at';
+  'id, subject, body, audience_total, recipient_count, unreachable_count, delivered_count, notification_id, sent_by, sent_at, resend_of';
 
 // ============================================================================
 // Pure helpers (exported for unit tests — no Supabase, no DOM)
@@ -166,6 +177,13 @@ export interface MessageInput {
   subject: string;
   body: string;
   clientToken: string;
+  /**
+   * The id of the message this one deliberately repeats, or null for a first
+   * send. Present ONLY when the organiser used the "Send again" action and
+   * confirmed a dialog that stated the recipient count and warned that some
+   * people may receive it twice. It is never set by the compose form.
+   */
+  resendOf?: string | null;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -192,7 +210,9 @@ export function validateMessageInput(
   const subject = (input?.subject ?? '').trim();
   const body = (input?.body ?? '').trim();
   const clientToken = (input?.clientToken ?? '').trim();
-  const value: MessageInput = { subject, body, clientToken };
+  const resendOfRaw = (input?.resendOf ?? '') === null ? '' : String(input?.resendOf ?? '').trim();
+  const resendOf = resendOfRaw || null;
+  const value: MessageInput = { subject, body, clientToken, resendOf };
   const fail = (error: string): MessageValidation => ({ ok: false, error, value });
 
   if (!subject) return fail('Add a subject so registrants can see what this is about.');
@@ -205,6 +225,13 @@ export function validateMessageInput(
   }
   if (!UUID_RE.test(clientToken)) {
     return fail('This message could not be identified. Close the form and try again.');
+  }
+  // A malformed resend target is refused rather than dropped. Dropping it would
+  // silently downgrade a deliberate resend into a first send, which the
+  // duplicate guard below would then refuse with a confusing sentence — or,
+  // worse, let through as an unlabelled repeat.
+  if (resendOf !== null && !UUID_RE.test(resendOf)) {
+    return fail('That message could not be identified. Reload the page and try again.');
   }
   return { ok: true, error: null, value };
 }
@@ -229,13 +256,116 @@ export function fanoutKey(messageRowId: string): string {
   return `events:registrant_message:${messageRowId}`;
 }
 
+// ============================================================================
+// Deliberate resend
+// ============================================================================
+//
+// The ruling this implements: "show what was sent, allow a deliberate resend."
+//
+// The double-click guard does NOT weaken. What changes is that a SECOND send of
+// the same words is now a decision the organiser states, rather than a side
+// effect of invisible client state:
+//
+//   * The compose form never sets `resendOf`. A send whose subject and body
+//     already exist on this event under a DIFFERENT client_token is refused,
+//     and the refusal names the message it matched. Before this, re-typing the
+//     identical announcement after a page reload delivered a silent second
+//     blast; re-typing it without a reload was silently swallowed. Same
+//     keystrokes, opposite outcomes, neither of them visible.
+//   * The "Send again" action sets `resendOf` to the message being repeated,
+//     after a confirmation that states the recipient count and says plainly
+//     that some people may receive it twice. That request is never refused for
+//     duplicate content — repeating is the whole point of it.
+//
+// A resend is its own ledger row, so it gets its own fanout key and genuinely
+// delivers, and the history can say which rows are repeats of which.
+
+export interface ContentMatchRow {
+  id: string;
+  subject: string;
+  body: string;
+  client_token: string;
+  sent_at: string;
+}
+
+/**
+ * The existing message this compose would duplicate, or null.
+ *
+ * A row carrying THIS request's own client_token is not a duplicate — it is
+ * this very send, arriving twice. That case belongs to the UNIQUE constraint
+ * and its "deduplicated" answer, and routing it here instead would tell an
+ * organiser who double-clicked that they must confirm a resend they never asked
+ * for.
+ *
+ * Pure and exported so the rule is pinned by a test rather than by a comment.
+ */
+export function contentMatchIn(
+  rows: ContentMatchRow[],
+  subject: string,
+  body: string,
+  clientToken: string
+): ContentMatchRow | null {
+  const wantedKey = composeKey(subject, body);
+  const matches = rows.filter(
+    (r) => r.client_token !== clientToken && composeKey(r.subject, r.body) === wantedKey
+  );
+  if (matches.length === 0) return null;
+  // Newest first: the organiser is asked about the most recent time they said
+  // this, which is the one they are most likely to be reasoning about.
+  return matches.sort((a, b) => (a.sent_at < b.sent_at ? 1 : -1))[0];
+}
+
+/**
+ * Look for an earlier message on this event with identical subject and body.
+ *
+ * Read with the service-role client on purpose: the caller's authority has
+ * already been established, and a duplicate the reader's RLS happens not to
+ * return would be a duplicate we let through — the exact failure this guard
+ * exists to stop.
+ */
+export async function findContentDuplicate(
+  service: SupabaseClient,
+  eventId: string,
+  input: Pick<MessageInput, 'subject' | 'body' | 'clientToken'>
+): Promise<ContentMatchRow | null> {
+  const { data, error } = await service
+    .from('event_registrant_messages')
+    .select('id, subject, body, client_token, sent_at')
+    .eq('event_id', eventId)
+    .eq('subject', input.subject)
+    .order('sent_at', { ascending: false })
+    .limit(50);
+  if (error) throw error;
+  return contentMatchIn((data ?? []) as ContentMatchRow[], input.subject, input.body, input.clientToken);
+}
+
+/**
+ * How far a recorded send actually got, as the history is allowed to state it.
+ *
+ *   delivered   — the fanout reported recipients, or a notification exists.
+ *   unconfirmed — the row was claimed and the ledger never heard back.
+ *
+ * The third state a reader might expect — "failed, nothing was delivered" —
+ * deliberately does not exist, because we cannot prove it. A row sits at
+ * notification_id NULL / delivered_count 0 when the fanout threw, AND when the
+ * fanout fully succeeded and only the write-back afterwards failed. Those look
+ * identical from here and one of them means every registrant already has the
+ * message. Printing "nothing was delivered" over that second case is the exact
+ * falsehood that pushes an organiser into a duplicate blast.
+ */
+export function deliveryState(
+  row: Pick<SentMessageRow, 'notification_id' | 'delivered_count'>
+): 'delivered' | 'unconfirmed' {
+  return isUndelivered(row) ? 'unconfirmed' : 'delivered';
+}
+
 // The compose-side idempotency rule — the token is bound to the message's
 // CONTENT, not to the attempt, so a retry of a send that looked like it failed
 // lands on the same ledger row instead of blasting twice. Lives in its own
 // import-free module because the board needs it and this file must never reach
 // the client bundle (it imports the notification fanout).
+export { composeKey };
 export {
-  composeKey,
   mintComposeToken,
   tokenForCompose,
   type ComposeToken,
@@ -382,6 +512,13 @@ export interface SendResult {
  * fanout runs under an idempotency key derived from that row. A row that
  * already delivered is returned untouched; a row whose fanout failed is
  * retried, and the fanout's own key stops a retry from delivering twice.
+ *
+ * `input.resendOf`, when set, is recorded on the new row. It does not change
+ * how the send works — a resend is an ordinary send of its own row, with its
+ * own fanout key, which is exactly why it delivers. What it changes is what the
+ * history can say afterwards, and it is the flag the ROUTE checks before
+ * allowing a message whose text has been sent before. The caller is responsible
+ * for having established the organiser's intent; this function trusts it.
  */
 export async function sendRegistrantMessage(
   service: SupabaseClient,
@@ -408,6 +545,8 @@ export async function sendRegistrantMessage(
       delivered_count: 0,
       sent_by: actorId,
       client_token: input.clientToken,
+      // The organiser's stated intent, not an inference. Null on a first send.
+      resend_of: input.resendOf ?? null,
     })
     .select(SENT_COLUMNS)
     .maybeSingle();
@@ -456,15 +595,44 @@ export async function sendRegistrantMessage(
     extraColumns: { type: 'events' },
   });
 
-  const { data: updated, error: updateErr } = await service
-    .from('event_registrant_messages')
-    .update(ledgerUpdateFor(row, audience.recipientIds.length, outcome))
-    .eq('id', row.id)
-    .select(SENT_COLUMNS)
-    .maybeSingle();
-  if (updateErr) throw updateErr;
+  const ledger = ledgerUpdateFor(row, audience.recipientIds.length, outcome);
 
-  const message = (updated as SentMessageRow | null) ?? row;
+  // The write-back is retried once and then given up on WITHOUT throwing, and
+  // that is the second half of "a delivered message must never be logged as
+  // delivered to 0".
+  //
+  // By this line the fanout has already run. Throwing here would abandon the
+  // one place that knows the message reached people: the row stays at
+  // delivered_count 0 / notification_id NULL, the API answers 500, and the
+  // organiser reads "the send did not complete" about an announcement every
+  // registrant can already see — and sends it again. The counts we hold are
+  // returned either way, so the answer is true even when the row is stale, and
+  // any later retry under the same client_token heals the row through the
+  // fanout's idempotent path.
+  let updated: SentMessageRow | null = null;
+  let updateErr: unknown = null;
+  for (let attempt = 0; attempt < 2 && !updated; attempt += 1) {
+    const res = await service
+      .from('event_registrant_messages')
+      .update(ledger)
+      .eq('id', row.id)
+      .select(SENT_COLUMNS)
+      .maybeSingle();
+    updated = (res.data as SentMessageRow | null) ?? null;
+    updateErr = res.error ?? null;
+    if (!res.error) break;
+  }
+  if (!updated && updateErr) {
+    logger.error(MODULE, 'ledger write-back failed after a completed fanout', {
+      message_id: row.id,
+      delivered_count: ledger.delivered_count,
+      error: updateErr,
+    });
+  }
+
+  // Fall back to what we KNOW, not to the pre-fanout row: `row` still says
+  // delivered_count 0, which is the falsehood this whole path guards against.
+  const message = updated ?? { ...row, ...ledger };
   return {
     message: (await withSenderNames([message], service))[0],
     deduplicated: outcome.skipped === 'idempotent',

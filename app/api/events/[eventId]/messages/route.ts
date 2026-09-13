@@ -7,6 +7,10 @@ export const dynamic = 'force-dynamic';
 //   GET  → who would receive a message right now, plus what has already been
 //          sent (so the organiser can see they already said it).
 //   POST { subject, body, client_token } → send it, once.
+//   POST { …, resend_of } → send the SAME words again, on purpose. The only
+//          path by which an event's registrants can be told the same thing
+//          twice, and it exists because "your send may have half-failed and you
+//          cannot retry" is the worse failure. See the resend guard in POST.
 //
 // ---------------------------------------------------------------------------
 // Why this route exists next to app/api/events/notify
@@ -35,6 +39,7 @@ import {
 } from '@/lib/supabase/server';
 import {
   MODULE,
+  findContentDuplicate,
   getAudience,
   listSentMessages,
   sendRegistrantMessage,
@@ -190,12 +195,69 @@ export async function POST(
       subject: raw?.subject,
       body: raw?.body,
       clientToken: raw?.client_token,
+      resendOf: raw?.resend_of,
     });
     if (!parsed.ok) {
       return NextResponse.json(
         { success: false, error: parsed.error, code: 'BAD_REQUEST' },
         { status: 400 }
       );
+    }
+
+    // ── The second send is a decision, not an accident ──────────────────
+    //
+    // Without `resend_of` this POST claims to be a NEW message. If the same
+    // words already went out on this event under a different token, it is not
+    // one, and sending it would put the announcement in front of the same
+    // people twice with nobody having chosen that.
+    //
+    // The previous behaviour was worse than a plain duplicate: whether a
+    // re-typed message was swallowed or delivered depended on a token held in
+    // browser memory, so the same keystrokes sent twice after a page reload and
+    // sent nothing at all without one. This makes the outcome legible — the
+    // organiser is told which message it matched and offered the explicit
+    // "Send again" on it.
+    //
+    // A request that DOES carry `resend_of` skips this entirely: repeating is
+    // what it is for, and it has already passed a confirmation stating the
+    // recipient count and warning that some people may receive it twice.
+    if (!parsed.value.resendOf) {
+      const duplicate = await findContentDuplicate(auth.service, eventId, parsed.value);
+      if (duplicate) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              'This message has already been sent to this event\'s registrants. Nothing was sent again. If you meant to send it a second time, use "Send again" on it in the list below — it will tell you how many people receive it, and some of them will have it twice.',
+            code: 'ALREADY_SENT',
+            duplicate_of: duplicate.id,
+          },
+          { status: 409 }
+        );
+      }
+    } else {
+      // A resend must name a message that exists ON THIS EVENT. Unchecked, the
+      // id is caller-supplied and would let one event's row be recorded as a
+      // repeat of another's — a false line in the only history the organiser
+      // has. The FK alone does not constrain which event the target belongs to.
+      const { data: original, error: originalErr } = await auth.service
+        .from('event_registrant_messages')
+        .select('id')
+        .eq('id', parsed.value.resendOf)
+        .eq('event_id', eventId)
+        .maybeSingle();
+      if (originalErr) throw originalErr;
+      if (!original) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              'We could not find the message you asked to send again. Reload the page and try from the list of sent messages.',
+            code: 'RESEND_TARGET_NOT_FOUND',
+          },
+          { status: 404 }
+        );
+      }
     }
 
     // Refuse rather than record a send that reaches nobody. The panel already
