@@ -79,6 +79,8 @@ export function EventRegisterForm({
   const [name, setName] = useState(signedInName ?? '');
   const [email, setEmail] = useState(signedInEmail ?? '');
   const [phone, setPhone] = useState('');
+  /** The one-time code an organiser read out to a guest over the phone. */
+  const [claimCode, setClaimCode] = useState('');
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({});
 
   const [busy, setBusy] = useState(false);
@@ -135,6 +137,7 @@ export function EventRegisterForm({
           participant_name: name.trim(),
           participant_email: email.trim() || null,
           participant_phone: phone.trim() || null,
+          claim_code: claimCode.trim() || null,
           custom_fields: customFields,
         }),
       });
@@ -263,9 +266,35 @@ export function EventRegisterForm({
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
             {claimOnly
-              ? 'This event is no longer taking new names for the waiting list. It is open only so that somebody who has already been offered a place can take it up — send the form with the same phone number and email address the offer was made to.'
-              : 'Send this form to join the waiting list — nothing is charged for a place in the queue. If a place frees up it is offered to whoever is at the front. And if a place has already been offered to you, this is where you take it up: send the form with the same phone number and email address the offer was made to.'}
+              ? 'This event is no longer taking new names for the waiting list. It is open only so that somebody who has already been offered a place can take it up, using the code the organiser read to them.'
+              : 'Send this form to join the waiting list — nothing is charged for a place in the queue. If a place frees up it is offered to whoever is at the front, and the organiser tells them.'}
           </p>
+
+          {/* A guest has no account, so an offer reaches them by telephone and
+              the code is the only thing that proves it was them. Signed-in
+              people never need this — their offer is bound to their account —
+              so the field says plainly who it is for rather than demanding
+              something most people cannot have. */}
+          <div className="mt-3">
+            <Label htmlFor="waitlist-claim-code" className="text-xs">
+              Been offered a place over the phone? Enter the code
+            </Label>
+            <Input
+              id="waitlist-claim-code"
+              value={claimCode}
+              onChange={(e) => setClaimCode(e.target.value.toUpperCase())}
+              placeholder="e.g. 4KQ M7X"
+              autoComplete="off"
+              autoCapitalize="characters"
+              spellCheck={false}
+              className="mt-1 font-mono tracking-[0.2em]"
+            />
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Leave this empty if you are joining the waiting list for the first
+              time. Codes never contain the letter O or I, or a zero or one — if
+              you heard one of those, it was the other character.
+            </p>
+          </div>
         </div>
       )}
 
