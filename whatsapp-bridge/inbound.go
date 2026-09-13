@@ -19,6 +19,7 @@ type Inbound struct {
 	cfg   *Config
 	api   *MyJKKNClient
 	spool *Spool
+	lids  LIDResolver
 	log   *Logger
 
 	// wake nudges the drain loop as soon as something is queued, so a message
@@ -26,8 +27,8 @@ type Inbound struct {
 	wake chan struct{}
 }
 
-func NewInbound(cfg *Config, api *MyJKKNClient, spool *Spool, log *Logger) *Inbound {
-	return &Inbound{cfg: cfg, api: api, spool: spool, log: log, wake: make(chan struct{}, 1)}
+func NewInbound(cfg *Config, api *MyJKKNClient, spool *Spool, lids LIDResolver, log *Logger) *Inbound {
+	return &Inbound{cfg: cfg, api: api, spool: spool, lids: lids, log: log, wake: make(chan struct{}, 1)}
 }
 
 // Handle converts a whatsmeow event into the MyJKKN wire shape and queues it.
@@ -50,8 +51,22 @@ func (in *Inbound) Handle(evt *events.Message) {
 		return
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Never hand MyJKKN a LID as if it were a phone number: it is numeric, it
+	// would match some unrelated learner's phone, and nothing downstream could
+	// tell the difference. ResolveSenderAddress either turns it into the real
+	// number or labels it.
+	from, fromType := ResolveSenderAddress(ctx, evt.Info.MessageSource, in.lids)
+	if fromType != FromTypePhone {
+		in.log.Warnf("inbound: message %s came from a %s address (%s) that could not be resolved to a phone number — MyJKKN is told from_type=%q so it will not be matched against anyone's phone", evt.Info.ID, fromType, from, fromType)
+	}
+
 	msg := InboundMessage{
-		From:        evt.Info.Sender.User,
+		From:        from,
+		FromType:    fromType,
+		ChatJID:     evt.Info.Chat.String(),
 		SenderName:  evt.Info.PushName,
 		WAMessageID: evt.Info.ID,
 		Body:        body,
@@ -60,8 +75,6 @@ func (in *Inbound) Handle(evt *events.Message) {
 		IsGroup:     evt.Info.IsGroup,
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 	if err := in.spool.Enqueue(ctx, msg); err != nil {
 		// Losing the row here is the one genuinely unrecoverable case, so say so.
 		in.log.Alertf("COULD NOT SAVE AN INCOMING WHATSAPP MESSAGE TO DISK (%v). THIS MESSAGE IS LOST. Check that %s is writable and the disk is not full.", err, in.cfg.DBPath)

@@ -17,12 +17,21 @@ import (
 // Outbound is the poll-send-ack loop. MyJKKN runs on Vercel and the Windows box
 // sits behind campus NAT, so the traffic is one-way by design: the bridge asks
 // for work, never the other way round. No open ports, no tunnel, no static IP.
+// maxOutboundBackoff caps how far apart two polls can drift while MyJKKN is
+// unreachable. Long enough to stop hammering a dead host, short enough that a
+// campus notice goes out within minutes of MyJKKN coming back.
+const maxOutboundBackoff = 5 * time.Minute
+
 type Outbound struct {
 	cfg  *Config
 	wa   *WA
 	api  *MyJKKNClient
 	log  *Logger
 	http *http.Client
+
+	// done is closed when Run returns, so shutdown can wait for an
+	// acknowledgement that is still in flight.
+	done chan struct{}
 }
 
 func NewOutbound(cfg *Config, wa *WA, api *MyJKKNClient, log *Logger) *Outbound {
@@ -32,57 +41,109 @@ func NewOutbound(cfg *Config, wa *WA, api *MyJKKNClient, log *Logger) *Outbound 
 		api:  api,
 		log:  log,
 		http: &http.Client{Timeout: cfg.HTTPTimeout},
+		done: make(chan struct{}),
+	}
+}
+
+// Wait blocks until the poll loop has finished, or until ctx expires. It
+// reports whether the loop actually finished.
+func (o *Outbound) Wait(ctx context.Context) bool {
+	select {
+	case <-o.done:
+		return true
+	case <-ctx.Done():
+		return false
 	}
 }
 
 func (o *Outbound) Run(ctx context.Context) {
-	ticker := time.NewTicker(o.cfg.PollInterval)
-	defer ticker.Stop()
+	defer close(o.done)
 	o.log.Infof("outbound: polling %s every %s, %s between sends", o.cfg.MyJKKNURL, o.cfg.PollInterval, o.cfg.SendDelay)
+
+	// A MyJKKN outage used to mean polling a dead host at a fixed rate forever,
+	// writing one error line per tick. Consecutive failures now push the polls
+	// apart, and the first success pulls them straight back together.
+	failures := 0
+	delay := o.cfg.PollInterval
 
 	for {
 		select {
 		case <-ctx.Done():
 			o.log.Infof("outbound: stopped")
 			return
-		case <-ticker.C:
-			o.tick(ctx)
+		case <-time.After(delay):
 		}
+
+		if o.tick(ctx) {
+			failures++
+			delay = backoffDelay(o.cfg.PollInterval, failures, maxOutboundBackoff)
+			o.log.Warnf("outbound: MyJKKN has refused %d poll(s) in a row — next attempt in %s", failures, delay)
+			continue
+		}
+		if failures > 0 {
+			o.log.Infof("outbound: MyJKKN is answering again after %d failed poll(s) — back to every %s", failures, o.cfg.PollInterval)
+		}
+		failures = 0
+		delay = o.cfg.PollInterval
 	}
 }
 
-func (o *Outbound) tick(ctx context.Context) {
+// backoffDelay doubles base once per consecutive failure, capped at max.
+func backoffDelay(base time.Duration, failures int, max time.Duration) time.Duration {
+	if failures < 1 {
+		return base
+	}
+	d := base
+	for i := 1; i < failures; i++ {
+		d *= 2
+		if d >= max {
+			return max
+		}
+	}
+	if d > max {
+		return max
+	}
+	return d
+}
+
+// tick runs one poll. It reports whether MyJKKN failed to answer, which is the
+// signal for the caller to back off.
+func (o *Outbound) tick(ctx context.Context) bool {
 	// Claiming work we cannot deliver would burn MyJKKN's queue, so stay quiet
 	// until WhatsApp is actually usable.
 	if !o.wa.LoggedIn() || !o.wa.Connected() {
-		return
+		return false
 	}
 
 	messages, err := o.api.FetchPending(ctx, o.cfg.PendingLimit)
 	if err != nil {
+		if ctx.Err() != nil {
+			return false // shutting down, not an outage
+		}
 		o.reportAPIError("fetch pending", err)
-		return
+		return true
 	}
 	if len(messages) == 0 {
-		return
+		return false
 	}
 	o.log.Infof("outbound: %d message(s) to send", len(messages))
 
 	for i, msg := range messages {
 		if ctx.Err() != nil {
-			return
+			return false
 		}
 		if i > 0 {
 			// Pace the sends: a burst from a fresh number is what gets a
 			// WhatsApp account banned.
 			select {
 			case <-ctx.Done():
-				return
+				return false
 			case <-time.After(o.cfg.SendDelay):
 			}
 		}
 		o.sendOne(ctx, msg)
 	}
+	return false
 }
 
 func (o *Outbound) sendOne(ctx context.Context, msg PendingMessage) {
@@ -97,7 +158,15 @@ func (o *Outbound) sendOne(ctx context.Context, msg PendingMessage) {
 		o.log.Infof("outbound: message %s delivered to %s (wa id %s)", msg.ID, msg.To, waID)
 	}
 
-	if ackErr := o.api.Ack(ctx, ack); ackErr != nil {
+	// The ack must survive the shutdown signal. A message that reached WhatsApp
+	// a moment before SIGTERM is already on a real person's phone; if the ack
+	// is cancelled with the process context MyJKKN never hears about it,
+	// re-queues it, and that person is messaged TWICE. The send above is
+	// cancellable (we do not want to start new ones while stopping); only the
+	// bookkeeping is detached, and main waits briefly for it.
+	ackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), o.cfg.HTTPTimeout)
+	defer cancel()
+	if ackErr := o.api.Ack(ackCtx, ack); ackErr != nil {
 		// The message is already on its way to the recipient; only the
 		// bookkeeping failed. MyJKKN's own timeout logic owns it from here —
 		// re-sending on our side would risk a duplicate to a real person.

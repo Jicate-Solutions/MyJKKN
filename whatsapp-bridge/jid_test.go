@@ -76,6 +76,56 @@ func TestNormalizeToJID_Rejects(t *testing.T) {
 	}
 }
 
+// The canonical to_phone wire format is E.164 DIGITS ONLY — "919894116664", no
+// leading "+", no server suffix. A suffix arriving from an older caller (or a
+// hand-edited row) is stripped defensively rather than rejected; "@c.us" is the
+// spelling the retired whatsapp-web.js service used.
+func TestNormalizeToJID_StripsUserServerSuffixes(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+	}{
+		{"canonical digits only", "919894116664"},
+		{"s.whatsapp.net suffix", "919894116664@s.whatsapp.net"},
+		{"whatsapp-web.js c.us suffix", "919894116664@c.us"},
+		{"c.us suffix, odd casing", "919894116664@C.US"},
+		{"leading plus", "+919894116664"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := NormalizeToJID(tc.in)
+			if err != nil {
+				t.Fatalf("NormalizeToJID(%q) returned error: %v", tc.in, err)
+			}
+			if got.String() != "919894116664@s.whatsapp.net" {
+				t.Fatalf("NormalizeToJID(%q) = %q, want %q", tc.in, got.String(), "919894116664@s.whatsapp.net")
+			}
+		})
+	}
+}
+
+// Stripping a suffix must not smuggle a number past the country-code check: a
+// 10-digit number is still refused however it was spelled.
+func TestNormalizeToJID_SuffixStrippingKeepsTheCountryCodeRule(t *testing.T) {
+	for _, in := range []string{"9876543210@c.us", "9876543210@s.whatsapp.net"} {
+		if _, err := NormalizeToJID(in); err == nil {
+			t.Fatalf("NormalizeToJID(%q) must still refuse to guess a country code", in)
+		}
+	}
+}
+
+// A group JID is a real address, not a suffixed phone number, and must survive.
+func TestNormalizeToJID_GroupJIDIsUntouched(t *testing.T) {
+	const group = "120363001234567890@g.us"
+	got, err := NormalizeToJID(group)
+	if err != nil {
+		t.Fatalf("NormalizeToJID(%q) returned error: %v", group, err)
+	}
+	if got.String() != group {
+		t.Fatalf("NormalizeToJID(%q) = %q, want it unchanged", group, got.String())
+	}
+}
+
 func TestPhoneFromJID(t *testing.T) {
 	jid, err := NormalizeToJID("+91 98765 43210")
 	if err != nil {
