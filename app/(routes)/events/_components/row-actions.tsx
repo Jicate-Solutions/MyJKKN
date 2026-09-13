@@ -99,10 +99,15 @@ export function EventsRowActions({
 
   const canEdit = canEditEvent(event, viewer);
 
-  const transitions =
-    canManageHere && canEdit
-      ? (GENERAL_EVENT_STATUS_TRANSITIONS[event.status] ?? [])
-      : [];
+  // Cancelling is NOT offered here. It requires a reason (the public
+  // registration page prints it, and the database refuses the write without
+  // one), and this submenu is one click with nowhere to type — so it stays on
+  // the event console, /events/[id], which has the dialog. Every other entry in
+  // the map is a reasonless Draft <-> Active flip, which is what this menu is
+  // for. Un-cancelling (cancelled -> draft / live) still appears.
+  const transitions = (
+    canManageHere && canEdit ? (GENERAL_EVENT_STATUS_TRANSITIONS[event.status] ?? []) : []
+  ).filter((s) => s !== 'cancelled');
 
   // Default to "not yet" until the check says otherwise: while the counts are
   // unknown, the safe answer to "may I destroy this?" is no. Rendered as a
