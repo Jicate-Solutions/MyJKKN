@@ -765,13 +765,39 @@ BEGIN
   -- depend on it the DROP must fail LOUDLY rather than silently take that
   -- object with it. The GRANTs at the end of this marathon block re-issue the
   -- view's ACL, which a DROP would otherwise discard.
+  --
+  -- ORDER MATTERS: the replacement column list is computed and PROVED non-empty
+  -- BEFORE the DROP. Dropping first and discovering afterwards that `events`
+  -- reports no columns would leave a live anon-facing relation deleted with its
+  -- GRANTs gone and nothing to roll back to if this file is executed statement
+  -- by statement rather than in one transaction.
   IF EXISTS (
     SELECT 1 FROM information_schema.columns
      WHERE table_schema = 'public' AND table_name = 'marathon_events'
        AND column_name IN ('cancellation_reason', 'cancelled_at', 'cancelled_by')
   ) THEN
+    SELECT string_agg(format('e.%I', column_name), ', ' ORDER BY ordinal_position)
+      INTO v_cols
+      FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'events'
+       AND column_name NOT IN ('event_number', 'event_number_year', 'event_number_seq',
+                               'cancellation_reason', 'cancelled_at', 'cancelled_by');
+
+    IF v_cols IS NULL THEN
+      RAISE EXCEPTION 'marathon_events carries a cancellation column but public.events reports none — refusing to drop a live anon view with nothing to rebuild it from';
+    END IF;
+
     RAISE WARNING 'marathon_events published a cancellation column to anon — dropping and rebuilding it without one';
     DROP VIEW public.marathon_events;
+
+    EXECUTE format(
+      'CREATE OR REPLACE VIEW public.marathon_events AS SELECT %s FROM public.events e WHERE e.event_type = ''marathon''',
+      v_cols
+    );
+    -- Re-issued HERE, not only at the end of this block: a DROP discards the
+    -- ACL, and if anything between here and the GRANT section fails the view
+    -- would otherwise sit unreadable by the site it exists to serve.
+    GRANT SELECT ON public.marathon_events TO anon, authenticated;
   END IF;
 
   SELECT string_agg(format('e.%I', column_name), ', ' ORDER BY ordinal_position)
