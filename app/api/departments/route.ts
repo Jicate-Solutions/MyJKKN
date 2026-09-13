@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse , connection } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/client';
 import { withAuth } from '@/lib/auth/with-auth';
+import { withReferenceListCache } from '@/lib/http/cache-control';
 
 
 /**
@@ -41,7 +42,7 @@ export const GET = withAuth(async (request) => {
         name: dept.department_name
       })) || [];
 
-    return NextResponse.json(transformedDepartments);
+    return withReferenceListCache(NextResponse.json(transformedDepartments));
   } catch (error) {
     console.error('[DEPARTMENTS_GET] Error fetching departments:', error);
     return NextResponse.json(

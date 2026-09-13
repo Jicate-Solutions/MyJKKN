@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { CoeRestClient, CoeApiError } from '@/lib/services/coe/coe-rest-client';
 import { resolveBosBoardScope, resolveCoeInstitutionCode, resolveCoeInstitutionById, hasAnyBosPermission, isBosReadAllObserver, BOS_LOOKUP_VIEW_KEYS } from '@/lib/utils/bos/bos-access';
+import { withReferenceListCache } from '@/lib/http/cache-control';
 
 interface CoeBoard {
   id: string;
@@ -117,7 +118,9 @@ export async function GET(request: NextRequest) {
     };
     const boards = extractBoards(raw);
 
-    return NextResponse.json({ data: boards, count: boards.length });
+    return withReferenceListCache(
+      NextResponse.json({ data: boards, count: boards.length })
+    );
   } catch (error) {
     console.error('[GET /api/bos/boards]', error);
     return NextResponse.json({ error: 'Failed to fetch boards' }, { status: 500 });

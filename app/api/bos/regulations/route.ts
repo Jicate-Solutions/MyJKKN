@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { withReferenceListCache } from '@/lib/http/cache-control';
 
 export async function GET(request: NextRequest) {
   try {
@@ -61,7 +62,9 @@ export async function GET(request: NextRequest) {
       return true;
     });
 
-    return NextResponse.json({ data: formatted, count: formatted.length });
+    return withReferenceListCache(
+      NextResponse.json({ data: formatted, count: formatted.length })
+    );
   } catch (error) {
     console.error('[GET /api/bos/regulations]', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
