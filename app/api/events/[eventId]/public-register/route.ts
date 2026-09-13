@@ -30,6 +30,8 @@ import {
   type FormWindowLike,
 } from '@/types/tournament';
 import {
+  MODULE,
+  WaitlistReadError,
   attachRegistration,
   claimOffer,
   countTaken,
@@ -39,6 +41,7 @@ import {
   queuedMessage,
   releaseOffer,
 } from '@/lib/services/events/waitlist-service';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 /**
  * Event fees resolve the host institution's 'tuition' account, the same slot
@@ -329,16 +332,42 @@ export async function POST(
     // has, so it must stay reachable.
     let claimedWaitlistId: string | null = null;
     if (ev.max_registrations) {
-      const offer = await findOutstandingOffer(svc as any, eventId, {
-        profileId: selfProfileId,
-        learnerId: selfLearnerId,
-        email: contact.email,
-        phone: contact.phone,
-        name: dto.participant_name.trim(),
-      });
-      if (offer && (await claimOffer(svc as any, offer.id))) {
-        claimedWaitlistId = offer.id;
-        claimedForRelease = offer.id;
+      const offer = await findOutstandingOffer(
+        svc as any,
+        eventId,
+        {
+          profileId: selfProfileId,
+          learnerId: selfLearnerId,
+          email: contact.email,
+          phone: contact.phone,
+          name: dto.participant_name.trim(),
+        },
+        formRow.id
+      );
+      if (offer) {
+        if (await claimOffer(svc as any, offer.id)) {
+          claimedWaitlistId = offer.id;
+          claimedForRelease = offer.id;
+        } else {
+          // LOST THE COMPARE-AND-SWAP, AND THIS MUST NOT FALL THROUGH.
+          //
+          // Somebody else — almost always this same person in a second tab, or
+          // a double-tapped button — is already turning this offer into a
+          // registration. Carrying on would read `taken` one lower (the row has
+          // left 'offered' and its registration has not committed yet), pass the
+          // capacity check, and write a SECOND registration for one held place.
+          // On a paid form that is a second Razorpay order: one person, one
+          // seat, charged twice. It is also how the just-promoted person got
+          // re-queued at the back, because by now no 'offered' row matches them.
+          return NextResponse.json(
+            {
+              error:
+                'Your place is being taken up right now — another submission for this offer is still going through. Refresh this page in a moment to see your registration.',
+              claim_in_progress: true,
+            },
+            { status: 409 }
+          );
+        }
       }
     }
 
@@ -372,11 +401,20 @@ export async function POST(
         // on the waiting list" for an event they are registered for would be
         // both wrong and alarming.
         if (queued.outcome === 'already_registered') {
+          // paid_required mirrors the registration that actually exists. Saying
+          // `false` for an unpaid one tells somebody they are in when their
+          // payment never landed, and gives them no way back to it.
           return NextResponse.json(
             {
               registration_id: queued.registrationId,
-              paid_required: false,
+              paid_required: queued.paymentPending,
               already_registered: true,
+              ...(queued.paymentPending
+                ? {
+                    warning:
+                      'You already have a registration for this form, but its payment has not been confirmed. Contact the organiser rather than registering again.',
+                  }
+                : {}),
             },
             { status: 200 }
           );
@@ -464,8 +502,22 @@ export async function POST(
     // by fn_event_waitlist_taken, and the organiser's card stops showing a
     // phantom "Offered N days ago" that never clears.
     if (claimedWaitlistId) {
-      await attachRegistration(svc as any, claimedWaitlistId, reg.id);
+      // CLEARED FIRST, ATTACHED SECOND, AND THE ATTACH CANNOT THROW OUT.
+      //
+      // The registration row now exists. If attachRegistration then failed —
+      // a timeout, a dropped connection — the outer catch would have released
+      // the claim back to 'offered' while a real registration stood, counting
+      // the seat twice and inviting the person to resubmit and claim the same
+      // offer into a second registration. A 'registered' row whose
+      // registration_id is still null is strictly the safer of the two states:
+      // the place is accounted for exactly once and only the back-reference is
+      // missing.
       claimedForRelease = null;
+      try {
+        await attachRegistration(svc as any, claimedWaitlistId, reg.id);
+      } catch {
+        /* the seat is correct either way; the link is a convenience */
+      }
     }
 
     // ---- payment ----
@@ -526,9 +578,18 @@ export async function POST(
     if (claimedForRelease && svc) {
       await releaseOffer(svc as any, claimedForRelease).catch(() => undefined);
     }
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Failed to register' },
-      { status: 500 }
-    );
+    // NO DATABASE TEXT TO A STRANGER. This is an unauthenticated public door,
+    // and the reads behind it now throw rather than guessing — so a raw message
+    // here would publish table names and grant detail ("permission denied for
+    // table event_registration_waitlist" tells a caller the table exists, its
+    // name, and that a grant refused them). WaitlistReadError already carries a
+    // boring public sentence and keeps the database's words in `detail`, which
+    // is logged and never returned.
+    if (err instanceof WaitlistReadError) {
+      logger.error(MODULE, err.detail, err);
+      return NextResponse.json({ error: err.message }, { status: 500 });
+    }
+    logger.error(MODULE, 'public registration failed', err);
+    return NextResponse.json({ error: 'Failed to register' }, { status: 500 });
   }
 }
