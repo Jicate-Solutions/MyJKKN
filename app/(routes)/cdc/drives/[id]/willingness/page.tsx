@@ -19,6 +19,9 @@
  *
  * Behavior matrix:
  *   - drive not willingness_open  → "drive not currently open" message
+ *   - willingness window not yet started / already ended (the drive's optional
+ *     willingness_window_open_at / _close_at dates) → same closed treatment,
+ *     but the copy names the date rather than the status
  *   - learner not eligible        → friendly explainer, no submit buttons
  *   - no existing willingness     → show "I'm in" + "I decline"
  *   - existing status='willing'   → show "You're in" + "Withdraw"
@@ -58,6 +61,24 @@ import type { CdcDriveWillingness } from '@/types/cdc';
 import { CDC_DRIVE_STATUS_LABELS } from '@/types/cdc';
 
 const API_BASE = '/api/cdc/drives';
+
+/**
+ * A willingness-window bound, for a learner to read. Falls back to vaguer
+ * wording rather than printing "Invalid Date" when the drive has no bound set
+ * (which is legitimate — a NULL bound means no limit on that side).
+ */
+function formatWindowMoment(iso: string | null): string {
+  if (!iso) return 'an unspecified time';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return 'an unspecified time';
+  return d.toLocaleString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
 
 function useLearnerWillingnessSnapshot(driveId: string) {
   return useQuery({
@@ -128,8 +149,16 @@ export default function CdcDriveWillingnessPage({
     );
   }
 
-  const { drive, eligibility, recruiter, drive_type, willingness, is_eligible, is_window_open } =
-    snapshot;
+  const {
+    drive,
+    eligibility,
+    recruiter,
+    drive_type,
+    willingness,
+    is_eligible,
+    is_window_open,
+    window_state,
+  } = snapshot;
 
   async function handleDeclare(intent: 'willing' | 'decline') {
     setSubmitError(null);
@@ -184,7 +213,11 @@ export default function CdcDriveWillingnessPage({
                   ) : null}
                 </div>
                 <Badge variant={is_window_open ? 'default' : 'secondary'}>
-                  {CDC_DRIVE_STATUS_LABELS[drive.status]}
+                  {window_state === 'closed'
+                    ? 'Willingness Closed'
+                    : window_state === 'not_yet_open'
+                      ? 'Willingness Not Yet Open'
+                      : CDC_DRIVE_STATUS_LABELS[drive.status]}
                 </Badge>
               </div>
             </CardHeader>
@@ -310,10 +343,23 @@ export default function CdcDriveWillingnessPage({
               {!is_window_open ? (
                 <Alert>
                   <Info className="h-4 w-4" />
-                  <AlertTitle>This drive is not open for willingness right now.</AlertTitle>
+                  <AlertTitle>
+                    {window_state === 'closed'
+                      ? 'The window for responding has closed.'
+                      : window_state === 'not_yet_open'
+                        ? 'This drive is not accepting responses yet.'
+                        : 'This drive is not open for willingness right now.'}
+                  </AlertTitle>
                   <AlertDescription>
-                    Current status: {CDC_DRIVE_STATUS_LABELS[drive.status]}. You cannot declare
-                    or change your response.
+                    {window_state === 'closed'
+                      ? 'Responses closed on ' +
+                        formatWindowMoment(drive.willingness_window_close_at) +
+                        '. Contact the Career Development Centre if you still want to take part.'
+                      : window_state === 'not_yet_open'
+                        ? 'You can respond from ' +
+                          formatWindowMoment(drive.willingness_window_open_at) +
+                          '.'
+                        : `Current status: ${CDC_DRIVE_STATUS_LABELS[drive.status]}. You cannot declare or change your response.`}
                   </AlertDescription>
                 </Alert>
               ) : null}
