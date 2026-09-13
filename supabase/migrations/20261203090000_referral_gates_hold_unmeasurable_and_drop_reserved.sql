@@ -3,6 +3,23 @@
 -- REVERSE two behaviours currently live in fn_generate_referral_commissions.
 -- FILE ONLY / NOT APPLIED — the operator applies it at merge.
 --
+-- DEPLOY ORDER — APPLY THIS FILE BEFORE THE PAGE DEPLOYS.
+-- -------------------------------------------------------
+-- /admission/consultants/referral-rates reads held_no_register and
+-- held_no_register_gross with `?? 0`. If the page deploys before this migration
+-- is applied, the new Stat renders 0, the explanation block disappears, and the
+-- OLD gates keep paying the 110 referrals this file holds. It degrades SILENTLY
+-- — there is no error and no empty state to notice. Apply this file AND
+-- 20261203092000_worklist_shows_no_register_holds.sql first, then deploy.
+--
+-- KEEP IN LOCKSTEP WITH
+--   supabase/migrations/20261203092000_worklist_shows_no_register_holds.sql
+-- GATE 3 below and that file's bucket E must stay the SAME predicate, and
+-- GATE 2 and its bucket D likewise. If they drift, the review worklist lists
+-- people this generator does not hold, or hides people it does — which is the
+-- defect that file was written to repair. That file carries the mirror of this
+-- note.
+--
 -- THIS IS A REVERSAL, AND IT OVERRULES A REASONED DECISION. SAY SO PLAINLY.
 -- -----------------------------------------------------------------------
 -- 20261017010000_referral_attendance_clearances.sql argued at length, from
@@ -85,11 +102,28 @@ BEGIN
   -- Which sections anyone is marking at all. A learner in a section absent from
   -- this list cannot be judged — and from 2026-09-12 (rule 12) that is a HOLD,
   -- not a pass. See held_no_register below.
+  --
+  -- "MARKED" REQUIRES A ROW THAT CARRIES LEARNERS, not merely a row.
+  -- attendance_data is JSONB NOT NULL DEFAULT '{}' (setup/01_tables.sql:765), so
+  -- the earlier test — any student_attendance row for the section — let ONE EMPTY
+  -- ROW make a section count as a kept register. That is MONEY-NEUTRAL: gates 2
+  -- and 3 are exact complements, so such a learner was held either way, only
+  -- under the wrong name. But it charged a COLLEGE failure to the LEARNER, and
+  -- the learner-vs-college split is the one distinction the Director asked to be
+  -- able to see, so it is tightened rather than merely documented.
+  --
+  -- The old `AND section_id IS NOT NULL` guard was a no-op and is dropped:
+  -- student_attendance.section_id is `UUID NOT NULL` (setup/01_tables.sql:763).
+  --
+  -- This predicate is mirrored inline, expression for expression, in buckets D
+  -- and E of 20261203092000_worklist_shows_no_register_holds.sql.
   CREATE TEMP TABLE _marked ON COMMIT DROP AS
-  SELECT DISTINCT section_id
-    FROM public.student_attendance
-   WHERE attendance_date >= make_date(p_year, 7, 1)
-     AND section_id IS NOT NULL;
+  SELECT DISTINCT sa.section_id
+    FROM public.student_attendance sa
+   WHERE sa.attendance_date >= make_date(p_year, 7, 1)
+     AND EXISTS (SELECT 1 FROM jsonb_each(sa.attendance_data) AS per(k, v)
+                  WHERE jsonb_typeof(v->'students') = 'array'
+                    AND jsonb_array_length(v->'students') > 0);
   CREATE INDEX ON _marked (section_id);
 
   CREATE TEMP TABLE _gen ON COMMIT DROP AS
@@ -119,6 +153,10 @@ BEGIN
          -- consultant's doing — but no money leaves on evidence we never
          -- collected. Released by the SAME clearance table as gate 2, which is
          -- why that check appears in both branches.
+         -- MIRRORED by bucket E of 20261203092000_worklist_shows_no_register_
+         -- holds.sql, which is the screen that lets an admin release these. Keep
+         -- the two predicates identical — 15 of the 110 held here have NO
+         -- section at all and can never be freed by marking a register.
          (
            (lp.section_id IS NULL
             OR NOT EXISTS (SELECT 1 FROM _marked m WHERE m.section_id = lp.section_id))

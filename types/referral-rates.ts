@@ -69,7 +69,19 @@ export interface GenerateCommissionsResult {
   held_walkin: number;
   /** What the held population would be worth at the current rate. */
   held_gross: number;
-  /** candidates − held_walkin. This is what a real run actually writes. */
+  /** What a real run actually writes: enrolled AND held by none of the three
+   *  holds — walk-in, attendance, no-register.
+   *
+   *  This was documented as "candidates − held_walkin", which was ALREADY wrong
+   *  before rule 12 (the enrolment and attendance gates shipped 2026-09-01 and
+   *  both subtract from it) and is wronger now. Corrected 2026-09-13.
+   *
+   *  The six fields from here down KEEP THEIR NAMES but CHANGE THEIR MEANING as
+   *  of rule 12: each now also excludes held_no_register, so each is smaller than
+   *  the same key returned by the shipped function. Only referral-rate-service.ts
+   *  reads them, and it feeds only the referral-rates page, which is updated in
+   *  the same change — so nothing breaks. That is why it is safe; it is NOT safe
+   *  because the meanings held still. */
   eligible: number;
   payable_now: number;
   blocked_no_bank: number;

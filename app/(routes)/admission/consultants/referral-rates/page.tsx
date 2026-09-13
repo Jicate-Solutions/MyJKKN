@@ -260,13 +260,15 @@ export default function ReferralRatesPage() {
                       </p>
                       <p className="text-muted-foreground">
                         This is not evidence the learner left, and it is not the agency&apos;s doing. Their section
-                        has no attendance register yet, or they have not been placed in a section. Marking the
-                        register releases them — the next run picks them up on the first session they are marked
-                        present. An admin can also release one at a time on the{' '}
+                        has no attendance register yet, or they have not been placed in a section. Where there IS
+                        a section, marking the register is the real fix — the next run picks them up on the first
+                        session they are marked present, with no release needed. Where there is no section there is
+                        nothing to mark, so an admin must release those one at a time under{' '}
+                        <strong>No register kept</strong> on the{' '}
                         <Link href="/admission/consultants/review-worklist" className="text-primary underline">
                           Review Worklist
                         </Link>
-                        , the same clearance that releases a learner not seen in session.
+                        .
                       </p>
                     </div>
                   )}
