@@ -91,3 +91,86 @@ export async function checkByowDeptAccess(
 export function byowAccessHttpStatus(result: ByowAccessResult): number {
   return result.reason === 'unauthenticated' ? 401 : 403;
 }
+
+// ---------------------------------------------------------------------------
+// Institution-scope gate (added 2026-09-13 with the campus-bridge repoint)
+// ---------------------------------------------------------------------------
+
+export interface ByowInstitutionAccessResult extends ByowAccessResult {
+  /** The caller's own institution, for stamping on the outbox row. */
+  institutionId?: string | null;
+}
+
+/**
+ * Gate for BYOW routes that no longer name a department.
+ *
+ * The campus bridge is ONE shared JKKN number, so a send no longer resolves a
+ * per-department connection and callers may pass `department_id: 'any'` (the
+ * admission lead page does exactly that). The department gate above cannot run
+ * without a department, and dropping the check outright would reopen the hole
+ * PR #2064 closed — so this grants EXACTLY the cross-department tier that
+ * `checkByowDeptAccess` already grants unconditionally:
+ *
+ *   - super_admin (profiles.is_super_admin OR role = 'super_admin'), OR
+ *   - holder of the `admission` custom role (institution_scope 'all').
+ *
+ * A department-scoped user who names no department is refused; naming their own
+ * department still passes through `checkByowDeptAccess` as before. This is
+ * strictly narrower than the old `'any'` path, never wider.
+ */
+export async function checkByowInstitutionAccess(
+  userId: string | undefined | null
+): Promise<ByowInstitutionAccessResult> {
+  if (!userId) return { ok: false, reason: 'unauthenticated' };
+
+  const db = serviceClient();
+
+  const { data: profile } = await db
+    .from('profiles')
+    .select('institution_id, role, is_super_admin')
+    .eq('id', userId)
+    .maybeSingle();
+
+  if (!profile) return { ok: false, reason: 'no_profile' };
+
+  const institutionId = (profile.institution_id as string | null) ?? null;
+
+  if (profile.is_super_admin === true || profile.role === 'super_admin') {
+    return { ok: true, institutionId };
+  }
+
+  const { data: roles } = await db
+    .from('user_roles')
+    .select('custom_roles!inner(role_key)')
+    .eq('user_id', userId);
+
+  const hasAdmission = (roles ?? []).some((r) => {
+    const cr = (r as { custom_roles?: unknown }).custom_roles;
+    const key = Array.isArray(cr)
+      ? (cr[0] as { role_key?: string } | undefined)?.role_key
+      : (cr as { role_key?: string } | null)?.role_key;
+    return key === 'admission';
+  });
+
+  return hasAdmission
+    ? { ok: true, institutionId }
+    : { ok: false, reason: 'forbidden', institutionId };
+}
+
+/**
+ * The caller's own institution. NOT a gate — call only after a gate has passed.
+ * Used to stamp `wa_bridge_outbox.institution_id` on sends that passed the
+ * department gate (which does not itself resolve an institution).
+ */
+export async function getByowSenderInstitution(
+  userId: string | undefined | null
+): Promise<string | null> {
+  if (!userId) return null;
+  const db = serviceClient();
+  const { data } = await db
+    .from('profiles')
+    .select('institution_id')
+    .eq('id', userId)
+    .maybeSingle();
+  return (data?.institution_id as string | null) ?? null;
+}
