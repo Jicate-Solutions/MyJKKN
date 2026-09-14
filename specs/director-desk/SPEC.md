@@ -180,13 +180,15 @@ every function definition in `supabase/`, keeps the `SECURITY DEFINER` ones whos
 (following one level of `can-manage` helper), and **fails if any of those keys is handable**.
 
 The result is the maintained artifact **`specs/director-desk/role-writing-functions.json`**.
-The 2026-08-05 sweep found three authorising keys:
+The 2026-08-05 sweep found three authorising keys; the 2026-09-14 sweep found two more, walled by migration `20261212110000` (the spine's body verbatim plus those two lines):
 
 | Key | Function | What it grants |
 |---|---|---|
 | `organizations.leadership.manage` | `fn_set_college_leadership` | `principal` / `vice_principal`, permanently |
 | `admission.counselors.create` | `assign_counselor_role` | `counselor` — `institution_scope='all'`, so a **cluster-wide** role |
 | `staff.create` | `mirror_staff_role_to_user_roles` | any role the team-member record names (already walled by wall 2) |
+| `audit.external_auditor.manage` | `fn_extend_institution_access`, `revoke_all_user_institution_access` | extends or strips a person's `user_institution_access` — access that outlives the handover (added 2026-09-14) |
+| `courses.applications.decide` | `fn_course_approve_application` | approving an application mints the participant's role (added 2026-09-14) |
 
 Every other role-writing function is a trigger or is gated on a `role_key` (e.g.
 `fn_induction_can_manage_coordinators` requires `role_key = 'induction_lead'`), and a handover
