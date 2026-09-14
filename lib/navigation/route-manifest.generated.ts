@@ -877,12 +877,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
-            "path": "/admission/consultants/attribution-orphans",
-            "label": "Attribution Orphans",
-            "iconName": "Users",
-            "children": []
-          },
-          {
             "path": "/admission/consultants/commissions",
             "label": "Commissions",
             "iconName": "Users",
@@ -3761,12 +3755,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
-            "path": "/foundation/onemark/results",
-            "label": "Results",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
             "path": "/foundation/onemark/review",
             "label": "Review",
             "iconName": "FileText",
@@ -4768,14 +4756,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/hr/workload",
         "label": "Workload",
         "iconName": "FileText",
-        "children": [
-          {
-            "path": "/hr/workload/settings",
-            "label": "Settings",
-            "iconName": "Settings",
-            "children": []
-          }
-        ]
+        "children": []
       }
     ]
   },
@@ -5751,12 +5732,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
   {
     "path": "/my-desk",
     "label": "My Desk",
-    "iconName": "FileText",
-    "children": []
-  },
-  {
-    "path": "/my-event-feedback",
-    "label": "My Event Feedback",
     "iconName": "FileText",
     "children": []
   },
@@ -7509,14 +7484,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "path": "/whats-new",
     "label": "Whats New",
     "iconName": "FileText",
-    "children": [
-      {
-        "path": "/whats-new/highlights",
-        "label": "Highlights",
-        "iconName": "FileText",
-        "children": []
-      }
-    ]
+    "children": []
   },
   {
     "path": "/work-pulse",
