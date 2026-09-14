@@ -1,14 +1,15 @@
 // app/(routes)/meetings/series/_components/series-tab-bar.tsx
 //
-// The two-tab strip shared by the recurring-series screens: the series
-// themselves (piece 1) and the scheduling rules they are read against (piece 2).
+// The tab strip shared by the recurring-series screens: the series themselves
+// (piece 1), the scheduling rules they are read against (piece 2), and the
+// proposed month those two produce (piece 4a).
 //
 // Lives in _components rather than in page.tsx because Next's App Router treats
 // a page file's exports as route config — a component exported from page.tsx is
 // the kind of thing that compiles today and breaks on an upgrade.
 
 import Link from 'next/link';
-import { Repeat, SlidersHorizontal } from 'lucide-react';
+import { CalendarRange, Repeat, SlidersHorizontal } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const TABS = [
@@ -19,9 +20,15 @@ const TABS = [
     href: '/meetings/series/rules',
     icon: SlidersHorizontal,
   },
+  {
+    key: 'slate',
+    label: 'Proposed month',
+    href: '/meetings/slate',
+    icon: CalendarRange,
+  },
 ] as const;
 
-export function SeriesTabBar({ active }: { active: 'series' | 'rules' }) {
+export function SeriesTabBar({ active }: { active: 'series' | 'rules' | 'slate' }) {
   return (
     <nav
       aria-label="Recurring series sections"
