@@ -57698,24 +57698,14 @@ GRANT EXECUTE ON FUNCTION public.fn_hr_leave_pending_days(uuid, uuid, uuid) TO a
 -- header there: row contract + the module page each branch mirrors).
 -- ============================================================================
 CREATE OR REPLACE FUNCTION public.fn_my_desk_waiting()
-RETURNS TABLE (
-  source        text,
-  item_id       uuid,
-  title         text,
-  detail        text,
-  amount        numeric,
-  waiting_since timestamptz,
-  age_days      integer,
-  href          text
-)
-LANGUAGE plpgsql
-STABLE
-SECURITY DEFINER
-SET search_path = public
-AS $$
+ RETURNS TABLE(source text, item_id uuid, title text, detail text, amount numeric, waiting_since timestamp with time zone, age_days integer, href text)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
 #variable_conflict use_column
 DECLARE
-  v_uid                uuid := auth.uid();
+  v_uid                uuid := (SELECT auth.uid());
   v_is_super           boolean;
   v_is_admin           boolean;
   v_has_leave_perm     boolean;
@@ -57833,6 +57823,10 @@ BEGIN
   --    evaluated once above instead of per row. The step is read through
   --    fn_leave_step_approvers exactly as the rule does, so a legacy single
   --    approver step and a multi-approver / ladder step resolve identically.
+  --
+  --    The scope test (institution/department/rank) CANNOT be hoisted -- it is
+  --    per applicant -- so it is a CASE at the very end, entered only for rows
+  --    that already matched a role and an organisation.
   leave AS (
     SELECT
       'leave'::text                                        AS source,
@@ -57858,15 +57852,20 @@ BEGIN
       END AS step
     ) s
     CROSS JOIN LATERAL (
-      -- One pass over the step's approver entries: am I named, and which of
-      -- the step's roles do I actively hold (fn_leave_step_admits: exact
-      -- role_key, cr.is_active).
+      -- One pass over the step's approver entries: am I named, which of the
+      -- step's roles do I actively hold (fn_leave_step_admits: exact role_key,
+      -- cr.is_active), and -- for the scope test below -- ONE of those role
+      -- keys, since every role I hold on this step shares the step.
       SELECT
         COALESCE(bool_or(e.approver_user_id = v_uid), false)           AS pinned_to_me,
         string_agg(DISTINCT e.approver_role, '/')
           FILTER (WHERE e.approver_role IS NOT NULL
                     AND e.approver_role IN (SELECT role_key FROM my_roles WHERE is_active))
-                                                                        AS my_step_roles
+                                                                        AS my_step_roles,
+        min(e.approver_role)
+          FILTER (WHERE e.approver_role IS NOT NULL
+                    AND e.approver_role IN (SELECT role_key FROM my_roles WHERE is_active))
+                                                                        AS scope_role
       FROM public.fn_leave_step_approvers(s.step) e
     ) m
     WHERE a.status IN ('pending', 'escalated')
@@ -57883,6 +57882,12 @@ BEGIN
             (v_has_leave_perm AND a.hr_organization_id = ANY (v_org_ids))
             OR a.hr_organization_id = ANY (v_designated_org_ids)
           )
+          -- CASE, not AND: keeps the per-row DEFINER call off every row that
+          -- failed the cheap tests above.
+          AND CASE
+                WHEN v_is_super THEN true
+                ELSE public.fn_hr_leave_scope_admits(a.employee_id, m.scope_role)
+              END
         )
       )
   ),
@@ -57953,6 +57958,12 @@ BEGIN
       -- two oldest rows have no job linked, so the page that starts onboarding
       -- cannot be reached from them at all. Three states, three sentences.
       CASE
+        -- ADDED 2026-09-12, first WHEN so it wins: an offer HAS been issued and
+        -- the wait is now on the person, not on us. The three package_fixed
+        -- sentences below are unchanged and still the only thing a
+        -- package_fixed row can read.
+        WHEN c.status = 'offer_issued'
+          THEN 'offer issued — waiting for them to join'
         WHEN jsonb_typeof(c.role_specific_details) = 'object'
              AND (c.role_specific_details->>'onboarding_started_at') IS NOT NULL
           THEN 'salary agreed — onboarding started, not finished'
@@ -57965,10 +57976,18 @@ BEGIN
       -- The agreed figure lives on a package row, not on the candidate.
       NULL::numeric                                        AS amount,
       -- submitted_at, not updated_at: a BEFORE UPDATE trigger resets the latter.
-      c.submitted_at                                       AS waiting_since,
+      -- COALESCE added 2026-09-12: once an offer has gone out the clock the desk
+      -- shows must restart from THAT day. Without this the queue kept reading
+      -- "162 days" and climbing after HR acted, with only one sentence of detail
+      -- changed, which reads as "nothing happened" and defeats the queue. Rows
+      -- that reached offer_issued before the control existed have a NULL stamp
+      -- (no backfill — there is no such moment to record), so they keep their
+      -- submitted_at age exactly as before. age_days stays floored at 0.
+      COALESCE(c.offer_issued_at, c.submitted_at)          AS waiting_since,
       -- Point at the page that CAN act. The job workspace gates "Start
-      -- Onboarding" on exactly this status; the candidate page renders no
-      -- control for it. The link to the job is a soft JSONB value with no
+      -- Onboarding" on exactly this status. As of 2026-09-12 BOTH pages carry the
+      -- Issue Offer control, so neither href dead-ends any more. The link to the
+      -- job is a soft JSONB value with no
       -- foreign key, so the uuid shape is required before a path is built —
       -- a junk value falls back rather than producing a broken URL, and a
       -- missing key yields NULL (NULL ~ pattern is NULL, not true).
@@ -57988,7 +58007,10 @@ BEGIN
     FROM public.hr_recruitment_candidates c
     WHERE v_has_recruit_edit
       AND v_has_recruit_view
-      AND c.status = 'package_fixed'
+      -- WIDENED 2026-09-12: both post-package statuses. 'package_fixed' alone
+      -- meant that issuing an offer removed the hire from every desk at the
+      -- exact moment someone finally acted on them.
+      AND c.status IN ('package_fixed', 'offer_issued')
       -- The SECOND half of workspace-candidates-tab's isPostApproval. Today it
       -- can never fire — onboard-to-staff writes staff_record_id and
       -- status='joined' in ONE update, so 'package_fixed' + staff_record_id is
@@ -58023,10 +58045,10 @@ BEGIN
   ORDER BY x.waiting_since ASC NULLS LAST, x.source, x.item_id
   LIMIT 500;
 END;
-$$;
+$function$;
 
 COMMENT ON FUNCTION public.fn_my_desk_waiting() IS
-  'Everything waiting on auth.uid() right now, computed live from the module queues (never from notifications). Returns TABLE(source text, item_id uuid, title text, detail text, amount numeric, waiting_since timestamptz, age_days integer, href text), oldest first, capped at 500. source ∈ recruitment | refund | leave | meeting_trigger | grievance | offer; each branch mirrors its module page''s own queue rule (see the migration header of 20261018030000, which supersedes 20261018020000; leave follows fn_leave_step_admits as of 20260831140000, minus its super-admin may-act clause). offer = hr_recruitment_candidates at status package_fixed (salary agreed, nobody has started onboarding; the UI heading is "Hires to bring on board" — the source string stays ''offer'' because it is the applied row contract, and status offer_issued has never been used in production) — no approver is derivable at that status, so the gate mirrored is the module''s own management key hr.recruitment.edit AND hr.recruitment.view, plus BOTH halves of workspace-candidates-tab''s isPostApproval (status AND no role_specific_details.staff_record_id), scoped by fn_my_hr_organization_ids() and NOT by institution_id (role_has_institution_access(NULL) is unconditionally true, so institution scoping would WIDEN the two NULL-institution rows to every college rather than drop them); href is the only per-row one in this function and points at /hr/recruitment/approvals/<job_id> when role_specific_details->>''job_id'' is uuid-shaped (the job workspace gates "Start Onboarding" on this status), else /hr/recruitment/candidates/<id>, which currently carries no control for it — a known product gap. user_has_permission() carries a super-admin bypass, so super admins see these as they do every other branch. Zero rows for a missing identity; never raises on a malformed approval_chain.';
+  'Everything waiting on auth.uid() right now, computed live from the module queues (never from notifications). Returns TABLE(source text, item_id uuid, title text, detail text, amount numeric, waiting_since timestamptz, age_days integer, href text), oldest first, capped at 500. source ∈ recruitment | refund | leave | meeting_trigger | grievance | offer; each branch mirrors its module page''s own queue rule (see the migration header of 20261018030000, which supersedes 20261018020000; leave follows fn_leave_step_admits as of 20260831140000, minus its super-admin may-act clause, PLUS the per-applicant fn_hr_leave_scope_admits test added by 20260908170000 — this replace is built on THAT body, not on 20261018030000, so the scope test is preserved rather than reverted). offer = hr_recruitment_candidates at status package_fixed OR offer_issued (a hire who is not on board yet; the UI heading is "Hires to bring on board" — the source string stays ''offer'' because it is the applied row contract; widened from package_fixed-only on 2026-09-12 by 20261202090000, because the Issue Offer control added in the same pull request moves a row to offer_issued and a package_fixed-only branch would have made the hire vanish from every desk at the moment someone finally acted; detail names which status a row is in, and waiting_since is COALESCE(offer_issued_at, submitted_at) so an issued offer''s age restarts from the day it was issued instead of climbing from submission — rows that reached offer_issued before the control existed have a NULL stamp and keep their submitted_at age) — no approver is derivable at either status, so the gate mirrored is the module''s own management key hr.recruitment.edit AND hr.recruitment.view, plus BOTH halves of workspace-candidates-tab''s isPostApproval (status AND no role_specific_details.staff_record_id), scoped by fn_my_hr_organization_ids() and NOT by institution_id (role_has_institution_access(NULL) is unconditionally true, so institution scoping would WIDEN the two NULL-institution rows to every college rather than drop them); href is the only per-row one in this function and points at /hr/recruitment/approvals/<job_id> when role_specific_details->>''job_id'' is uuid-shaped (the job workspace gates "Start Onboarding" on this status), else /hr/recruitment/candidates/<id>; as of 2026-09-12 BOTH of those pages carry the Issue Offer control, so neither href dead-ends any more. user_has_permission() carries a super-admin bypass, so super admins see these as they do every other branch. Zero rows for a missing identity; never raises on a malformed approval_chain.';
 
 -- Lock from anon. Supabase's default privileges grant EXECUTE to anon
 -- directly, separate from PUBLIC, so both must be revoked (CLAUDE.md rule).
@@ -64409,6 +64431,12 @@ BEGIN
       -- two oldest rows have no job linked, so the page that starts onboarding
       -- cannot be reached from them at all. Three states, three sentences.
       CASE
+        -- ADDED 2026-09-12, first WHEN so it wins: an offer HAS been issued and
+        -- the wait is now on the person, not on us. The three package_fixed
+        -- sentences below are unchanged and still the only thing a
+        -- package_fixed row can read.
+        WHEN c.status = 'offer_issued'
+          THEN 'offer issued — waiting for them to join'
         WHEN jsonb_typeof(c.role_specific_details) = 'object'
              AND (c.role_specific_details->>'onboarding_started_at') IS NOT NULL
           THEN 'salary agreed — onboarding started, not finished'
@@ -64421,10 +64449,18 @@ BEGIN
       -- The agreed figure lives on a package row, not on the candidate.
       NULL::numeric                                        AS amount,
       -- submitted_at, not updated_at: a BEFORE UPDATE trigger resets the latter.
-      c.submitted_at                                       AS waiting_since,
+      -- COALESCE added 2026-09-12: once an offer has gone out the clock the desk
+      -- shows must restart from THAT day. Without this the queue kept reading
+      -- "162 days" and climbing after HR acted, with only one sentence of detail
+      -- changed, which reads as "nothing happened" and defeats the queue. Rows
+      -- that reached offer_issued before the control existed have a NULL stamp
+      -- (no backfill — there is no such moment to record), so they keep their
+      -- submitted_at age exactly as before. age_days stays floored at 0.
+      COALESCE(c.offer_issued_at, c.submitted_at)          AS waiting_since,
       -- Point at the page that CAN act. The job workspace gates "Start
-      -- Onboarding" on exactly this status; the candidate page renders no
-      -- control for it. The link to the job is a soft JSONB value with no
+      -- Onboarding" on exactly this status. As of 2026-09-12 BOTH pages carry the
+      -- Issue Offer control, so neither href dead-ends any more. The link to the
+      -- job is a soft JSONB value with no
       -- foreign key, so the uuid shape is required before a path is built —
       -- a junk value falls back rather than producing a broken URL, and a
       -- missing key yields NULL (NULL ~ pattern is NULL, not true).
@@ -64444,7 +64480,10 @@ BEGIN
     FROM public.hr_recruitment_candidates c
     WHERE v_has_recruit_edit
       AND v_has_recruit_view
-      AND c.status = 'package_fixed'
+      -- WIDENED 2026-09-12: both post-package statuses. 'package_fixed' alone
+      -- meant that issuing an offer removed the hire from every desk at the
+      -- exact moment someone finally acted on them.
+      AND c.status IN ('package_fixed', 'offer_issued')
       -- The SECOND half of workspace-candidates-tab's isPostApproval. Today it
       -- can never fire — onboard-to-staff writes staff_record_id and
       -- status='joined' in ONE update, so 'package_fixed' + staff_record_id is
@@ -65926,3 +65965,117 @@ $function$;
 
 REVOKE ALL ON FUNCTION public.hr_leave_approval_queue() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.hr_leave_approval_queue() TO authenticated, service_role;
+
+-- =====================================================================================
+-- WhatsApp campus bridge RPCs  (2026-09-13)
+-- Source of truth: supabase/migrations/20261211090000_wa_bridge_outbox.sql
+-- Both are SECURITY DEFINER and service_role ONLY — a signed-in user holding
+-- EXECUTE could strand a message in `sending` (never delivered, no error anywhere)
+-- or forge a delivery receipt. The REVOKE names `authenticated` explicitly because
+-- Supabase's default privileges give it its own grant, separate from PUBLIC.
+-- =====================================================================================
+CREATE OR REPLACE FUNCTION public.fn_wa_bridge_claim_pending(p_limit integer)
+RETURNS TABLE (
+  id         uuid,
+  to_phone   text,
+  body       text,
+  type       text,
+  media_url  text
+)
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_limit integer := LEAST(GREATEST(COALESCE(p_limit, 20), 1), 50);
+BEGIN
+  -- ONE statement. The sub-select locks the rows it picked and the enclosing
+  -- UPDATE flips them in the same statement, so there is no window in which a
+  -- second concurrent call can see them as pending. SKIP LOCKED makes that
+  -- second call step over them and take the next batch instead of blocking.
+  RETURN QUERY
+  UPDATE public.wa_bridge_outbox o
+     SET status     = 'sending',
+         updated_at = now()
+   WHERE o.id IN (
+           SELECT c.id
+             FROM public.wa_bridge_outbox c
+            WHERE c.status = 'pending'
+            ORDER BY c.created_at
+            LIMIT v_limit
+            FOR UPDATE SKIP LOCKED
+         )
+  RETURNING o.id, o.to_phone, o.body, o.type, o.media_url;
+END;
+$$;
+
+COMMENT ON FUNCTION public.fn_wa_bridge_claim_pending(integer) IS
+  'Claims up to p_limit pending outbox rows for the on-campus bridge and returns them, flipping them to sending in the same statement. FOR UPDATE SKIP LOCKED so two overlapping polls cannot claim the same row. service_role only — this is bridge machinery, not a user action.';
+
+REVOKE EXECUTE ON FUNCTION public.fn_wa_bridge_claim_pending(integer) FROM anon, PUBLIC, authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_wa_bridge_claim_pending(integer) TO service_role;
+
+-- ---------------------------------------------------------------------------
+-- 5. Ack RPC — record the outcome, and decide whether to retry
+-- ---------------------------------------------------------------------------
+-- The retry decision is made HERE and not in TypeScript, because it depends on
+-- the row's current attempts and must be read-and-written atomically. Two acks
+-- racing (the bridge retried its own ack) would otherwise both read attempts=1
+-- and both write attempts=2.
+--
+-- Only a row currently in `sending` is acted on. That is what makes a repeated
+-- ack harmless: the second one matches nothing, returns no row, and the API
+-- reports "already acknowledged" instead of incrementing attempts twice.
+CREATE OR REPLACE FUNCTION public.fn_wa_bridge_ack(
+  p_id            uuid,
+  p_status        text,
+  p_wa_message_id text DEFAULT NULL,
+  p_error         text DEFAULT NULL,
+  p_max_attempts  integer DEFAULT 3
+)
+RETURNS TABLE (
+  id       uuid,
+  status   text,
+  attempts integer
+)
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF p_status NOT IN ('sent', 'failed') THEN
+    RAISE EXCEPTION 'fn_wa_bridge_ack: status must be sent or failed, got %', p_status;
+  END IF;
+
+  RETURN QUERY
+  UPDATE public.wa_bridge_outbox o
+     SET attempts      = o.attempts + 1,
+         -- The cap is compared against the POST-increment count, so
+         -- p_max_attempts = 3 means the message is attempted three times and
+         -- then abandoned — not four.
+         status        = CASE
+                           WHEN p_status = 'sent' THEN 'sent'
+                           WHEN o.attempts + 1 >= p_max_attempts THEN 'failed'
+                           ELSE 'pending'
+                         END,
+         wa_message_id = COALESCE(p_wa_message_id, o.wa_message_id),
+         -- A successful send clears the error left by an earlier attempt, so
+         -- the row does not read as failed-and-sent at the same time.
+         error         = CASE WHEN p_status = 'sent' THEN NULL ELSE p_error END,
+         sent_at       = CASE WHEN p_status = 'sent' THEN now() ELSE o.sent_at END,
+         updated_at    = now()
+   WHERE o.id = p_id
+     AND o.status = 'sending'
+  RETURNING o.id, o.status, o.attempts;
+END;
+$$;
+
+COMMENT ON FUNCTION public.fn_wa_bridge_ack(uuid, text, text, text, integer) IS
+  'Records the bridge''s outcome for one claimed outbox row. Acts only on a row still in `sending`, so a retried ack matches nothing and returns no row instead of double-counting the attempt. A failure below the attempt cap returns the row to pending; at the cap it stays failed. service_role only.';
+
+REVOKE EXECUTE ON FUNCTION public.fn_wa_bridge_ack(uuid, text, text, text, integer) FROM anon, PUBLIC, authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_wa_bridge_ack(uuid, text, text, text, integer) TO service_role;
+
+-- ---------------------------------------------------------------------------

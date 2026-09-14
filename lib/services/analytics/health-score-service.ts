@@ -4,6 +4,33 @@
 // Created: 2026-02-06
 // Purpose: Retrieve and compute institution health scores
 // ============================================
+//
+// WHO SEES WHICH INSTITUTION'S HEALTH SCORE
+//   super admin                        -> every institution
+//   principal, HOD, admin, accounts    -> only their own institution
+//   anyone else                        -> none
+//
+// WHERE THE SCOPE COMES FROM
+//   EngagementService.getUserAccessScope() is the analytics module's one scope
+//   source, and it is unchanged here. It gives a super admin global access and
+//   a principal their institution. It gives an HOD a department, and admin or
+//   accounts no scope at all; a health score belongs to an institution, so for
+//   those three roles the institution is the one on their own profile.
+//
+// WHY IT IS ENFORCED IN CODE
+//   Every read here uses the service-role client, which bypasses row-level
+//   security. So the list and detail paths check twice, as Engagement does:
+//     1. a gate: checkAccess() refuses an institution outside the scope before
+//        any health score row is read (the routes answer 403, never an empty
+//        200);
+//     2. a filter: the viewer's institutions are added to every health score
+//        query, so even an allowed request only returns rows inside the scope.
+//
+//   Before this, an institution_id in the query string or the path was read as
+//   asked for anyone the routes let in, and the list with no id was filtered
+//   only for a principal, so an HOD, admin or accounts user got every
+//   institution.
+// ============================================
 
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { EngagementService } from './engagement-service';
@@ -15,16 +42,94 @@ import type {
   DormantStatus,
 } from '@/types/usage-analytics';
 
+/** Roles that see the health score of their own institution only. */
+const OWN_INSTITUTION_ROLES = ['principal', 'hod', 'admin', 'accounts'];
+
+/** The plain message for an institution outside the viewer's scope. */
+export const HEALTH_SCORE_SCOPE_REASON =
+  "You do not have access to this institution's health score. You can only view the health score of your own institution.";
+
+/** The plain message when the viewer has no institution to view at all. */
+export const NO_HEALTH_SCORE_SCOPE_REASON =
+  'You do not have access to institution health scores. They are shown to super admins, and to principals, HODs, admins and accounts team members for their own institution.';
+
+/**
+ * The gate's answer. One flat shape (not a union) because this repo compiles
+ * without strictNullChecks, where `if (!access.allowed)` would not narrow.
+ */
+export interface HealthScoreAccess {
+  allowed: boolean;
+  /** The institutions the viewer may read; null means every institution (super admin). */
+  institutionIds: string[] | null;
+  /** The HTTP status to answer a refusal with; 200 when allowed. */
+  status: 200 | 403;
+  /** A plain message for a refusal; empty when allowed. */
+  reason: string;
+}
+
 export class HealthScoreService {
   /**
-   * Get health scores for all institutions (super admin) or a specific institution
+   * The institutions this viewer may read health scores for: null for every
+   * institution (super admin), otherwise a list, which may be empty.
+   */
+  static async getViewerInstitutionIds(userId: string): Promise<string[] | null> {
+    const scope = await EngagementService.getUserAccessScope(userId);
+    if (scope.type === 'global') return null;
+    if (scope.type === 'institution') return scope.institutionIds ?? [];
+
+    // getUserAccessScope() resolves no institution for an HOD (a department)
+    // or for admin and accounts (no scope), so use the one on their profile.
+    const supabase = await createServiceRoleClient();
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role, institution_id')
+      .eq('id', userId)
+      .single();
+
+    if (profile && OWN_INSTITUTION_ROLES.includes(profile.role) && profile.institution_id) {
+      return [profile.institution_id];
+    }
+    return [];
+  }
+
+  /**
+   * The gate: may this viewer see health scores for this institution (or, with
+   * no id, for the institutions in their scope)? Refuses before any health
+   * score row is read.
+   */
+  static async checkAccess(
+    userId: string,
+    institutionId?: string
+  ): Promise<HealthScoreAccess> {
+    const institutionIds = await this.getViewerInstitutionIds(userId);
+
+    if (institutionIds === null) {
+      return { allowed: true, institutionIds: null, status: 200, reason: '' };
+    }
+    if (institutionIds.length === 0) {
+      return { allowed: false, institutionIds, status: 403, reason: NO_HEALTH_SCORE_SCOPE_REASON };
+    }
+    if (institutionId && !institutionIds.includes(institutionId)) {
+      return { allowed: false, institutionIds, status: 403, reason: HEALTH_SCORE_SCOPE_REASON };
+    }
+    return { allowed: true, institutionIds, status: 200, reason: '' };
+  }
+
+  /**
+   * Get health scores for every institution (super admin) or the viewer's own
+   * institution, optionally narrowed to one institution inside that scope
    */
   static async getHealthScores(
     userId: string,
     institutionId?: string,
     scoreDate?: string
   ): Promise<InstitutionHealthScore[]> {
-    const accessScope = await EngagementService.getUserAccessScope(userId);
+    // Gate: an institution outside the viewer's scope reads nothing.
+    const access = await this.checkAccess(userId, institutionId);
+    if (!access.allowed) {
+      return [];
+    }
+
     const supabase = await createServiceRoleClient();
 
     const targetDate = scoreDate || new Date().toISOString().split('T')[0];
@@ -35,11 +140,12 @@ export class HealthScoreService {
       .eq('score_date', targetDate)
       .order('health_score', { ascending: false });
 
-    // Apply access scope
     if (institutionId) {
       query = query.eq('institution_id', institutionId);
-    } else if (accessScope.type === 'institution' && accessScope.institutionIds?.length) {
-      query = query.in('institution_id', accessScope.institutionIds);
+    }
+    // Filter: every query is held to the viewer's institutions (none for super admin).
+    if (access.institutionIds !== null) {
+      query = query.in('institution_id', access.institutionIds);
     }
 
     const { data, error } = await query;
@@ -74,6 +180,12 @@ export class HealthScoreService {
     current: InstitutionHealthScore | null;
     history: InstitutionHealthScore[];
   }> {
+    // Gate: an institution outside the viewer's scope reads nothing.
+    const access = await this.checkAccess(userId, institutionId);
+    if (!access.allowed) {
+      return { current: null, history: [] };
+    }
+
     const supabase = await createServiceRoleClient();
 
     const today = new Date().toISOString().split('T')[0];
@@ -81,13 +193,20 @@ export class HealthScoreService {
       .toISOString()
       .split('T')[0];
 
-    const { data } = await supabase
+    let query = supabase
       .from('institution_health_scores')
       .select('*')
       .eq('institution_id', institutionId)
       .gte('score_date', from)
       .lte('score_date', today)
       .order('score_date', { ascending: true });
+
+    // Filter: held to the viewer's institutions as well (none for super admin).
+    if (access.institutionIds !== null) {
+      query = query.in('institution_id', access.institutionIds);
+    }
+
+    const { data } = await query;
 
     const history = data || [];
 

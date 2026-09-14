@@ -73,7 +73,7 @@ export default function LeaveOndutyApplyPage() {
         }
 
         if (!profile?.learner_id) {
-          setError('No learner profile found. Please contact administrator.');
+          setError('No learner profile is linked to your account. Please ask your administrator to link it.');
           setIsLoading(false);
           return;
         }
@@ -95,13 +95,13 @@ export default function LeaveOndutyApplyPage() {
         }
 
         if (!learner.section_id) {
-          setError('You are not assigned to any section. Please contact administrator.');
+          setError('You have not been added to a section yet. Please ask your administrator to add you.');
           setIsLoading(false);
           return;
         }
 
         if (!learner.semester_id) {
-          setError('You are not assigned to any semester. Please contact administrator.');
+          setError('You have not been added to a semester yet. Please ask your administrator to add you.');
           setIsLoading(false);
           return;
         }

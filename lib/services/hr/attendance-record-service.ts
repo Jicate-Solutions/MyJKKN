@@ -24,6 +24,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { assertInstitutionInHrScope } from '@/lib/hr/scope-gate';
 
 import type {
   AttendanceException,
@@ -176,6 +177,11 @@ export class AttendanceRecordService {
   ): Promise<AttendancePeriodState | null> {
     const [year, mon] = month.split('-');
 
+    // The hr_scope_gate policy asks role_has_institution_access(institution_id);
+    // asked here first so an out-of-scope institution is refused rather than
+    // answered with "no period" — which the badge would report as never closed.
+    await assertInstitutionInHrScope(supabase, institutionId, "this institution's attendance months");
+
     const { data, error } = await supabase
       .from('hr_attendance_periods')
       .select('id, status, locked_at, reopened_at')
@@ -200,6 +206,9 @@ export class AttendanceRecordService {
     supabase: SupabaseClient,
     institutionId: string,
   ): Promise<MonthKey[]> {
+    // Same institution question as getPeriod, for the same reason.
+    await assertInstitutionInHrScope(supabase, institutionId, "this institution's attendance months");
+
     const { data, error } = await supabase
       .from('hr_attendance_periods')
       .select('period_year, period_month')

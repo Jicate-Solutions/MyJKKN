@@ -31,6 +31,7 @@ import {
   EVENT_LOGISTICS_TABS,
   visibleLogisticsTabs,
 } from '@/components/events/shared/event-logistics';
+import { EVENT_TOOL_KEYS } from '@/types/events-presets';
 
 const keys = (tabs: { key: string }[]) => tabs.map((t) => t.key);
 
@@ -64,12 +65,12 @@ describe('enabled_tools', () => {
     );
   });
 
-  it('shows exactly the selected tools, plus Registrations', () => {
+  it('shows exactly the selected tools, plus the always-on ones', () => {
     const tabs = visibleLogisticsTabs({
       eventType: 'lecture',
       enabledTools: ['budget', 'certificates'],
     });
-    expect(keys(tabs).sort()).toEqual(['budget', 'certificates', 'registrations']);
+    expect(keys(tabs).sort()).toEqual(['budget', 'certificates', 'messages', 'registrations']);
   });
 
   it('keeps Registrations even when the selection omits it', () => {
@@ -82,7 +83,56 @@ describe('enabled_tools', () => {
       eventType: 'lecture',
       enabledTools: ['budget', 'not-a-real-tool'],
     });
-    expect(keys(tabs).sort()).toEqual(['budget', 'registrations']);
+    expect(keys(tabs).sort()).toEqual(['budget', 'messages', 'registrations']);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// Messages must be REACHABLE, not merely registered
+// ───────────────────────────────────────────────────────────────────────────
+// `enabled_tools` is written once by the create wizard and never edited: the
+// edit dialog merges `config` without touching it, and EVENT_TOOL_KEYS does not
+// list `messages`, so no picker anywhere can add it. An opt-in tab would
+// therefore be permanently invisible on every event that chose its tools, with
+// no operator route to turn it on — built, wired, unreachable.
+
+describe('Messages reachability', () => {
+  it('shows Messages on an event whose tool selection predates the tab', () => {
+    // A real saved selection from before this tab existed: it cannot name
+    // `messages`, because `messages` did not exist when it was written.
+    const tabs = visibleLogisticsTabs({
+      eventType: 'lecture',
+      enabledTools: ['sponsors', 'budget', 'committees', 'volunteers', 'certificates'],
+    });
+    expect(keys(tabs)).toContain('messages');
+  });
+
+  it('shows Messages for every event type, with or without a selection', () => {
+    for (const eventType of ['lecture', 'cultural', 'sports_tournament', 'marathon', 'induction']) {
+      expect(keys(visibleLogisticsTabs({ eventType }))).toContain('messages');
+      expect(keys(visibleLogisticsTabs({ eventType, enabledTools: ['kit'] }))).toContain('messages');
+    }
+  });
+
+  it('keeps Messages for a viewer who cannot manage the event', () => {
+    // The in-charge and an ordinary admin BOTH arrive here with canManage=false
+    // on /events/[id] (canEditEvent recognises neither), and both are allowed to
+    // send by fn_can_manage_event_messages. Hiding the tab on canManage would
+    // lock out the people the feature exists for; the board asks the server and
+    // renders an explicit denial when the answer is really no.
+    const tabs = visibleLogisticsTabs({
+      eventType: 'cultural',
+      canManage: false,
+      hideSensitiveWithoutManage: true,
+    });
+    expect(keys(tabs)).toContain('messages');
+  });
+
+  it('is not listed as a pickable tool, which is why it is always on', () => {
+    // If this ever starts failing because `messages` was added to
+    // EVENT_TOOL_KEYS, revisit ALWAYS_ON_TAB_KEYS — but note that opting in
+    // would still leave every EXISTING event's saved selection without it.
+    expect([...EVENT_TOOL_KEYS]).not.toContain('messages');
   });
 });
 
@@ -126,6 +176,7 @@ describe('sensitive tabs', () => {
       canManage: false,
       hideSensitiveWithoutManage: true,
     });
-    expect(keys(tabs).sort()).toEqual(['kit', 'registrations']);
+    // budget is sensitive and dropped; messages and registrations are always on.
+    expect(keys(tabs).sort()).toEqual(['kit', 'messages', 'registrations']);
   });
 });

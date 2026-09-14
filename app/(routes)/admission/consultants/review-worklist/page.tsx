@@ -2,17 +2,23 @@
 
 // Referral Review Worklist.
 //
-// Three populations of agency credits that were found by audit and had nowhere
+// Five populations of agency credits that were found by audit and had nowhere
 // to live in the UI. This screen exists to be LOOKED at before any referral rate
 // is switched on, because the day a rate exists these rows stop being curiosities
 // and become money.
 //
-// It was read-only until 2026-08-17. It now carries ONE action, on the first
-// bucket only: releasing a walk-in credit into the payment run. The Director ruled
-// that those credits stay out of the run until someone confirms each is genuine,
-// and the generator now enforces that — so this screen is where the confirming
-// happens. There is still no approve button, no rate field and no payment: a
-// release records a decision, and money continues to need its own screens.
+// It was read-only until 2026-08-17. It now carries TWO releases: a walk-in credit
+// (bucket A), and an attendance hold (buckets D and E, which share one RPC). The
+// Director ruled that those credits stay out of the run until someone confirms
+// each is genuine, and the generator now enforces that — so this screen is where
+// the confirming happens. There is still no approve button, no rate field and no
+// payment: a release records a decision, and money continues to need its own
+// screens.
+//
+// Bucket E arrived 2026-09-12 with rule 12, and it is not decoration: the
+// generator now holds referrals whose section nobody marks, and 15 of the 110
+// held on the day the rule was measured have NO SECTION AT ALL. For those there
+// is no register anyone could mark, so this screen is their only release route.
 //
 // The first bucket is deliberately framed as a data-capture question. Someone can
 // walk in AND have been sent by an agency; the two facts are not in conflict. What
@@ -268,6 +274,10 @@ export default function ReferralReviewWorklistPage() {
                 Not yet seen in session
                 <CountChip n={counts?.attendance_held} />
               </TabsTrigger>
+              <TabsTrigger value="noregister">
+                No register kept
+                <CountChip n={counts?.no_register_held} />
+              </TabsTrigger>
             </TabsList>
 
             {/* A — walk-in credited */}
@@ -386,10 +396,11 @@ export default function ReferralReviewWorklistPage() {
                       since July. They are held out of the payment run until someone releases each.
                     </span>
                     <span className="block text-muted-foreground">
-                      Only sessions that are actually being marked appear here. A learner whose sessions
-                      nobody marks is never held and never listed — an empty register says nothing
-                      about the learner, and holding them would measure whose attendance is being
-                      taken rather than who is turning up.
+                      Only sessions that are actually being marked appear here — the register exists
+                      and has never recorded this learner, so this is a question about the learner.
+                      Referrals whose sessions nobody marks are held too, since 12 September 2026,
+                      but they are a different question and are listed under{' '}
+                      <strong>No register kept</strong>.
                     </span>
                   </CardDescription>
                 </CardHeader>
@@ -401,6 +412,47 @@ export default function ReferralReviewWorklistPage() {
                     onRelease={(r) => { setReleasingAtt(r); setNote(''); }}
                     releaseKey="learner"
                     empty={`Every agency-referred learner with a marked session has been seen in ${yearLabel(year)}.`}
+                  />
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* E — held because nobody keeps a register for them at all. The
+                college's gap, not the learner's. Held since 2026-09-12 (rule 12).
+                This tab is the ONLY release route for the learners who have no
+                section: there is no register for anyone to mark on their behalf. */}
+            <TabsContent value="noregister">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Lock className="h-5 w-5 text-muted-foreground" />
+                    Enrolled, but nobody keeps a register for them
+                  </CardTitle>
+                  <CardDescription className="space-y-2">
+                    <span className="block">
+                      These learners took the seat and an agency is credited, but their section has
+                      no attendance register at all since July — or they have not been placed in a
+                      section yet. They are held out of the payment run because we have no evidence
+                      either way, not because anything suggests they left.
+                    </span>
+                    <span className="block text-muted-foreground">
+                      This is the college&apos;s gap, not the learner&apos;s and not the
+                      agency&apos;s. For a learner who <strong>has</strong> a section, marking the
+                      register is the real fix — the next run picks them up on the first session
+                      they are marked present, with no release needed here. For a learner with{' '}
+                      <strong>no section</strong>, there is nothing to mark, so releasing here is
+                      the only route.
+                    </span>
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <RowTable
+                    rows={data?.no_register_held}
+                    isLoading={isLoading}
+                    showLifecycle
+                    onRelease={(r) => { setReleasingAtt(r); setNote(''); }}
+                    releaseKey="learner"
+                    empty={`Every agency-referred learner in ${yearLabel(year)} sits in a section someone is marking.`}
                   />
                 </CardContent>
               </Card>
@@ -482,10 +534,28 @@ export default function ReferralReviewWorklistPage() {
                 </DialogTitle>
                 <DialogDescription asChild>
                   <div className="space-y-2 text-sm">
-                    <p>
-                      <strong>{releasingAtt?.learner_name || 'This learner'}</strong> has not been
-                      recorded present in session since July, though their sessions are being marked.
-                    </p>
+                    {/* Two buckets share this dialog and this RPC, but they ask
+                        different questions. Bucket E rows carry has_section;
+                        bucket D rows do not carry the key at all. */}
+                    {releasingAtt?.has_section === undefined ? (
+                      <p>
+                        <strong>{releasingAtt?.learner_name || 'This learner'}</strong> has not been
+                        recorded present in session since July, though their sessions are being marked.
+                      </p>
+                    ) : releasingAtt?.has_section ? (
+                      <p>
+                        Nobody has marked attendance for{' '}
+                        <strong>{releasingAtt?.learner_name || 'this learner'}</strong>&apos;s section
+                        since July, so there is no evidence either way. Marking the register is the
+                        real fix and needs no release — use this only if that is not going to happen.
+                      </p>
+                    ) : (
+                      <p>
+                        <strong>{releasingAtt?.learner_name || 'This learner'}</strong> has not been
+                        placed in a section, so there is no register anyone can mark for them. A
+                        release here is the only route — or put them in a section first.
+                      </p>
+                    )}
                     <p>
                       Release only if you know they are genuinely attending — a transfer, a late
                       join, or a register that simply missed them. Once released, the referral is

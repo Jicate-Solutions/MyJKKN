@@ -73,6 +73,7 @@ import {
   PhoneCall,
   Target,
   Megaphone,
+  PenLine,
   Workflow,
   MessagesSquare,
   Radio,
@@ -305,6 +306,15 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // with no mapping is silently super-admin-only. The page scopes its own
   // CONTENT by role.
   '/whats-new': 'view_profile',
+  // The weekly highlights queue — where a person writes up and approves the few
+  // changes that get a plain-English write-up above the plain list. Gated on its
+  // own key rather than left unmapped: an unmapped route is silently
+  // super-admin-only in the sidebar (the default-deny above), which is the exact
+  // bug that once hid /whats-new itself, and it would also make the gate
+  // invisible to Role Management. No role holds this key today, so it resolves
+  // to super admins until one is granted it — the difference is that granting it
+  // is now a Role Management decision instead of a code change.
+  '/whats-new/highlights': 'whats_new.highlights.manage',
 
   // Bug Reports (Student Self-Service)
   '/my-bug-reports': 'learners.bug_reports.view',
@@ -1041,6 +1051,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/consultants/commissions': 'admission.consultants.commissions.view',
   '/admission/consultants/referral-rates': 'admission.consultants.commissions.view',
   '/admission/consultants/unlinked-referrals': 'admission.consultants.commissions.view',
+  // Added 2026-09-12 — the mirror image of Unlinked Referrals: credits that name
+  // an agency but no learner. Read-only; same commission read permission as the
+  // rest of the module, matching its RPC.
+  '/admission/consultants/attribution-orphans': 'admission.consultants.commissions.view',
   '/admission/consultants/import': 'admission.consultants.commissions.view',
   '/admission/consultants/payouts': 'admission.consultants.commissions.view',
   // Added 2026-08-17 — which agencies cannot be paid at all, ordered by the
@@ -2002,6 +2016,24 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          // Write highlights — the approval screen behind the weekly strip on
+          // What's New. Gated on whats_new.highlights.manage, so it is invisible
+          // to everyone except a super admin until Role Management grants that
+          // key; the page and the API refuse the same key server-side.
+          //
+          // A SIBLING ROW, NOT A SUBMENU OF WHAT'S NEW, and that is load-bearing:
+          // the filter above short-circuits on `menu.submenus.length > 0` and
+          // then shows a parent ONLY when one of its submenus is permitted. Hang
+          // this under What's New and What's New itself — open to everyone signed
+          // in by the Director's decision of 2026-09-05 — would disappear for
+          // every reader who cannot write highlights, which is all of them.
+          href: '/whats-new/highlights',
+          label: 'Write highlights',
+          active: pathname === '/whats-new/highlights',
+          icon: PenLine,
+          submenus: []
+        },
+        {
           // Store Kits self view (PR-K2) — entitled vs collected vs owed.
           // Hidden until ims.kits.my.view is granted to student/staff roles.
           href: '/my-kit',
@@ -2529,6 +2561,15 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admission/consultants/unlinked-referrals',
               label: 'Unlinked Referrals',
               active: pathname === '/admission/consultants/unlinked-referrals'
+            },
+            {
+              // Added 2026-09-12 — sits next to Unlinked Referrals because it is
+              // the same cleanup from the other end: there the learner is known
+              // and the agency is not, here the agency is known and the learner
+              // is not.
+              href: '/admission/consultants/attribution-orphans',
+              label: 'Attribution Orphans',
+              active: pathname === '/admission/consultants/attribution-orphans'
             },
             {
               href: '/admission/consultants/import',
@@ -3633,6 +3674,29 @@ export function GetPages(pathname: string): MenuGroup[] {
       groupLabel: 'Events',
       menus: [
         {
+          // Event feedback the attendee owes — the general-events equivalent of
+          // /learners/my-induction. Its absence IS why 54 of 55 events collected
+          // nothing: /events/[id]/feedback/respond had no entry point at all, so
+          // the only way in was somebody pasting the link.
+          //
+          // NOT under /learners/my-*. That prefix is matched by
+          // isStudentPortalRoute(), which renders the row for role_key
+          // 'student' ONLY and strips it from super admin outright — a faculty
+          // member or HOD who attends an FDP would have been left in exactly
+          // the dead end this entry exists to remove. An event is attended by
+          // every kind of person the platform has, so the route sits at the top
+          // level and the filter below treats it like /my-induction-sessions:
+          // ALWAYS VISIBLE, no MENU_PERMISSIONS entry, self-scoped by its RPC
+          // (fn_my_pending_event_feedback reads auth.uid() and takes no
+          // argument), so anyone with nothing to answer sees an empty state
+          // rather than a refusal.
+          href: '/my-event-feedback',
+          label: 'Event Feedback',
+          active: pathname.startsWith('/my-event-feedback'),
+          icon: MessageSquare,
+          submenus: []
+        },
+        {
           href: '/events',
           label: 'Events',
           active: pathname === '/events' || pathname.startsWith('/events/'),
@@ -4279,6 +4343,18 @@ export function GetRoleBasedPages(
           // 2026-07-03: presenter couldn't discover his own feedback + live-pulse
           // page). Always visible, same pattern as /guide.
           if (menu.href === '/my-induction-sessions') return true;
+
+          // "Event Feedback" is SELF-SCOPED the same way: its RPC
+          // (fn_my_pending_event_feedback) takes no argument, reads auth.uid()
+          // and returns only forms the caller may actually submit, so a person
+          // with nothing to answer sees an empty state. It deliberately has no
+          // MENU_PERMISSIONS entry, and the default-deny below would otherwise
+          // hide it from every non-super-admin — which is the whole population
+          // it is for. Events are attended by learners, faculty, team members,
+          // HODs and principals alike, so this row must not be gated on a role
+          // or on a permission nobody holds. Always visible, same pattern as
+          // /guide and /my-induction-sessions.
+          if (menu.href === '/my-event-feedback') return true;
 
           // Check if menu requires super admin
           if ((menu as any).requiresSuperAdmin) {

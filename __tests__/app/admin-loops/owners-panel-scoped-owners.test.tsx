@@ -59,15 +59,15 @@ const SCF: OwnerPanelRow = {
 };
 
 const INSTITUTIONS: InstitutionOption[] = [
-  { id: 'i-arts', name: 'JKKN College of Arts and Science (Aided)' },
-  { id: 'i-self', name: 'JKKN College of Arts and Science (Self)' },
-  { id: 'i-edu', name: 'JKKN College of Education' },
-  { id: 'i-eng', name: 'JKKN College of Engineering and Technology' },
-  { id: 'i-nur', name: 'JKKN College of Nursing and Research' },
-  { id: 'i-pha', name: 'JKKN College of Pharmacy' },
-  { id: 'i-den', name: 'JKKN Dental College and Hospital' },
-  { id: 'i-mat', name: 'JKKN Matric Higher Secondary School' },
-  { id: 'i-nat', name: 'Nattraja Vidhyalya CBSE' },
+  { id: 'i-arts', name: 'JKKN College of Arts and Science (Aided)', entity_type: 'institution' },
+  { id: 'i-self', name: 'JKKN College of Arts and Science (Self)', entity_type: 'institution' },
+  { id: 'i-edu', name: 'JKKN College of Education', entity_type: 'institution' },
+  { id: 'i-eng', name: 'JKKN College of Engineering and Technology', entity_type: 'institution' },
+  { id: 'i-nur', name: 'JKKN College of Nursing and Research', entity_type: 'institution' },
+  { id: 'i-pha', name: 'JKKN College of Pharmacy', entity_type: 'institution' },
+  { id: 'i-den', name: 'JKKN Dental College and Hospital', entity_type: 'institution' },
+  { id: 'i-mat', name: 'JKKN Matric Higher Secondary School', entity_type: 'school' },
+  { id: 'i-nat', name: 'Nattraja Vidhyalya CBSE', entity_type: 'school' },
 ];
 
 const PRINCIPALS: Array<[string, string]> = [
@@ -216,5 +216,27 @@ describe('OwnersPanel — per-college owners', () => {
     expect(toastSuccess).not.toHaveBeenCalled();
     // Draft is kept (still dirty), saved value is not.
     expect(input).toHaveValue('x@jkkn.ac.in');
+  });
+
+  it('warns beside a scope row whose owner has no active account or cannot read risk data; says nothing beside a reachable one', () => {
+    const scopes: ScopedOwnerRow[] = [
+      { ...SCOPES[0], owner_status: 'ok' },
+      { ...SCOPES[1], owner_status: 'owner_no_profile' },
+      { ...SCOPES[2], owner_status: 'owner_cannot_read' },
+      { ...SCOPES[3] }, // unknown (e.g. just saved through the panel) — no warning
+    ];
+    render(<OwnersPanel rows={[ATTENDANCE]} scopes={scopes} institutions={INSTITUTIONS} />);
+    const block = screen.getByTestId('scoped-owners-attendance-intervention');
+    const key = (s: ScopedOwnerRow) => `owner-status-${s.loop_key}:${s.institution_id}`;
+    expect(within(block).queryByTestId(key(scopes[0]))).toBeNull();
+    expect(within(block).getByTestId(key(scopes[1]))).toHaveTextContent(
+      'No active account for this email — alerts will not reach them'
+    );
+    expect(within(block).getByTestId(key(scopes[2]))).toHaveTextContent(
+      'This account cannot read risk data — alerts will not reach them'
+    );
+    expect(within(block).queryByTestId(key(scopes[3]))).toBeNull();
+    // Read-only: the warning adds no button and changes no input.
+    expect(within(block).getAllByRole('button')).toHaveLength(scopes.length + 1);
   });
 });
