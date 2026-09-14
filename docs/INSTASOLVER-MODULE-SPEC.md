@@ -1,3 +1,12 @@
+> **SUPERSEDED 2026-09-14 — read [`specs/instasolver-2026-09-14.md`](../specs/instasolver-2026-09-14.md) first.**
+> The Director reversed this spec's two central choices by phone interview. Broken things go to **Campus Walk**
+> (`project_tasks` under CAMPUS-OPS), not into `grievance_tickets` behind an `issue_type` tag — nothing reads that
+> column, so every broken fan would have been counted as a learner grievance in the NAAC and UGC exports.
+> Purchases go to **Procurement**, not to a `requirement_requests` island; only the approval tiers survive, as
+> `procurement_approval_thresholds`. The substrate migration is `20261212110000_instasolver_substrate_v2.sql`;
+> `20261103000000` is superseded and must not be applied. Everything below is kept for its persona matrix and
+> historical reasoning — treat its DDL plan and table names as void.
+
 # Insta Solver — Core Module Spec (Strategic / Chain Output)
 
 **Status:** SPEC LOCKED via /myjkkn-chain → /interviewcodebase · ready for /myjkkn-module DDL phase

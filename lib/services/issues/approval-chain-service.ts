@@ -1,25 +1,39 @@
 // lib/services/issues/approval-chain-service.ts
 // ============================================================================
-// Insta Solver core module — ApprovalChainService.
+// InstaSolver — ApprovalChainService (purchase lane, I5).
 //
-// Builds + advances the approval chain for requirement_requests. Pattern
-// cloned from `lib/services/hr/leave-service.ts buildApprovalChain` —
-// snapshot-at-apply-time semantics so later threshold edits don't disturb
-// in-flight rows.
+// A purchase raised through InstaSolver clears a tiered approval before it
+// becomes a Procurement purchase request. This service builds that chain and
+// advances it. Snapshot-at-build-time semantics, cloned from
+// `lib/services/hr/leave-service.ts buildApprovalChain` — a later threshold
+// edit does not disturb a chain already in flight.
 //
-// Default seed budget bands (autonomous decision per R2.3, super_admin-
-// editable via /admin/issues/approval-thresholds):
+// Seed budget bands (super_admin-editable rows in
+// procurement_approval_thresholds):
 //   - HOD          ≤ ₹10,000
-//   - Principal    ≤ ₹50,000
+//   - Principal    ₹10,001 – ₹50,000
 //   - super_admin  > ₹50,000
 //
-// Stored as JSONB in requirement_requests.approval_chain — array of
-// ApprovalChainStep with {step_order, approver_role, approver_user_id,
-// status, decided_at, decided_by, comment, ...}.
+// REWRITTEN 2026-09-14 (specs/instasolver-2026-09-14.md). Two changes:
 //
-// Strategic spec:    docs/INSTASOLVER-MODULE-SPEC.md
-// Implementation:    specs/instasolver-core-module-spec.md
-// Pattern source:    lib/services/hr/leave-service.ts (buildApprovalChain)
+//   1. The tier table is now `procurement_approval_thresholds`, not
+//      `requirement_approval_thresholds`. Identical columns; only the module
+//      it belongs to changed (I3/I5 send purchases to Procurement).
+//
+//   2. advanceChain / getCurrentApprover / isChainComplete no longer read and
+//      write a row themselves. They used to SELECT and UPDATE
+//      `requirement_requests.approval_chain` — a table this rewrite drops and
+//      that was never created in production. `procurement_purchase_requests`
+//      has no approval_chain column to point them at instead, and adding one
+//      to a live Procurement table is not this lane's to make. So the three
+//      are now pure functions over the chain array: the Procurement caller
+//      reads the chain, passes it in, and persists what comes back, in
+//      whichever column that module decides to hold it. Same names, same
+//      order of operations, no hidden I/O.
+//
+// Spec:      specs/instasolver-2026-09-14.md
+// Migration: supabase/migrations/20261212110000_instasolver_substrate_v2.sql
+// Pattern source: lib/services/hr/leave-service.ts (buildApprovalChain)
 // ============================================================================
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
@@ -32,19 +46,18 @@ export class ApprovalChainService {
   private static supabase = createClientSupabaseClient();
 
   // --------------------------------------------------------------------------
-  // Build (snapshot at requirement create-time)
+  // Build (snapshot at request create-time)
   // --------------------------------------------------------------------------
 
   /**
-   * Build the chain by reading `requirement_approval_thresholds` rows for the
+   * Build the chain by reading `procurement_approval_thresholds` rows for the
    * given institution + budget band. Returns the chain ordered by step_order.
    * Per-institution rows take precedence; falls back to platform-wide
    * (institution_id IS NULL) rows.
    *
-   * The chain is APPEND-ONLY at this stage — every threshold band whose
-   * (min_amount, max_amount) range intersects the budget is included as a
-   * step. For typical budgets this resolves to a single step (HOD only at
-   * ≤₹10k); for >₹50k it stacks: HOD → Principal → super_admin.
+   * Every threshold band whose (min_amount, max_amount) range covers the
+   * budget becomes a step. With the seeded bands that is a single step for
+   * typical amounts (HOD only at ≤ ₹10k), because the bands do not overlap.
    */
   static async buildApprovalChain(
     input: BuildChainInput
@@ -54,7 +67,7 @@ export class ApprovalChainService {
     // Per-institution rows preferred; fall back to platform-wide
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: instRows, error: instErr } = await (this.supabase as any)
-      .from('requirement_approval_thresholds')
+      .from('procurement_approval_thresholds')
       .select(
         'approval_authority, min_amount, max_amount, escalate_after_days, fallback_role, is_active'
       )
@@ -74,7 +87,7 @@ export class ApprovalChainService {
     if (rows.length === 0) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data: platRows, error: platErr } = await (this.supabase as any)
-        .from('requirement_approval_thresholds')
+        .from('procurement_approval_thresholds')
         .select(
           'approval_authority, min_amount, max_amount, escalate_after_days, fallback_role, is_active'
         )
@@ -96,7 +109,7 @@ export class ApprovalChainService {
     return matched.map((r, i) => ({
       step_order: i + 1,
       approver_role: r.approval_authority,
-      approver_user_id: null, // resolved at advance time by role lookup
+      approver_user_id: null, // resolved at decide time by role lookup
       status: 'pending',
       min_amount: r.min_amount,
       max_amount: r.max_amount,
@@ -113,42 +126,34 @@ export class ApprovalChainService {
   // --------------------------------------------------------------------------
 
   /**
-   * Mark the current pending step as approved/rejected and persist the
-   * updated chain. If 'approve' AND another pending step exists, the
-   * requirement stays in its current status (the next-step approver picks it
-   * up). If 'approve' AND this was the final step, the caller (typically
-   * RequirementService.approveRequirement) is responsible for transitioning
-   * status to 'approved'/'budgeted'. If 'reject', the caller transitions to
-   * 'rejected'.
+   * Mark the current pending step as approved/rejected and return the updated
+   * chain. The caller persists it.
    *
-   * NOTE: This method ONLY mutates the chain JSONB on the row. The status
-   * transition is the caller's responsibility — keeps the two concerns
-   * separable for audit clarity.
+   * If 'approve' AND another pending step exists, the request stays in its
+   * current status (the next-step approver picks it up). If 'approve' AND this
+   * was the final step, the caller transitions the request to approved. If
+   * 'reject', the caller transitions it to rejected and every later pending
+   * step is marked 'skipped' here for audit clarity.
+   *
+   * Returns the input unchanged when the chain is already fully decided.
+   * The input array is never mutated.
    */
-  static async advanceChain(
-    requirementId: string,
+  static advanceChain(
+    chain: ApprovalChainStep[],
     actorUserId: string,
     action: 'approve' | 'reject',
     comment?: string
-  ): Promise<void> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: row, error: readErr } = await (this.supabase as any)
-      .from('requirement_requests')
-      .select('approval_chain')
-      .eq('id', requirementId)
-      .single();
-    if (readErr) throw readErr;
-
-    const chain = ((row?.approval_chain ?? []) as ApprovalChainStep[]).slice();
-    const idx = chain.findIndex((s) => s.status === 'pending');
+  ): ApprovalChainStep[] {
+    const next = (chain ?? []).slice();
+    const idx = next.findIndex((s) => s.status === 'pending');
     if (idx === -1) {
       // No pending step — chain already terminal. No-op.
-      return;
+      return next;
     }
 
     const now = new Date().toISOString();
-    chain[idx] = {
-      ...chain[idx],
+    next[idx] = {
+      ...next[idx],
       status: action === 'approve' ? 'approved' : 'rejected',
       decided_at: now,
       decided_by: actorUserId,
@@ -157,19 +162,14 @@ export class ApprovalChainService {
 
     // On reject, mark all later pending steps as 'skipped' for clarity
     if (action === 'reject') {
-      for (let i = idx + 1; i < chain.length; i++) {
-        if (chain[i].status === 'pending') {
-          chain[i] = { ...chain[i], status: 'skipped' };
+      for (let i = idx + 1; i < next.length; i++) {
+        if (next[i].status === 'pending') {
+          next[i] = { ...next[i], status: 'skipped' };
         }
       }
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error: writeErr } = await (this.supabase as any)
-      .from('requirement_requests')
-      .update({ approval_chain: chain })
-      .eq('id', requirementId);
-    if (writeErr) throw writeErr;
+    return next;
   }
 
   // --------------------------------------------------------------------------
@@ -181,19 +181,10 @@ export class ApprovalChainService {
    * null if the chain is fully decided. Used by the UI to surface "awaiting
    * approval from <role>" badges.
    */
-  static async getCurrentApprover(
-    requirementId: string
-  ): Promise<{ step_order: number; approver_role: string; approver_user_id: string | null } | null> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: row, error } = await (this.supabase as any)
-      .from('requirement_requests')
-      .select('approval_chain')
-      .eq('id', requirementId)
-      .single();
-    if (error) throw error;
-
-    const chain = (row?.approval_chain ?? []) as ApprovalChainStep[];
-    const pending = chain.find((s) => s.status === 'pending');
+  static getCurrentApprover(
+    chain: ApprovalChainStep[]
+  ): { step_order: number; approver_role: string; approver_user_id: string | null } | null {
+    const pending = (chain ?? []).find((s) => s.status === 'pending');
     if (!pending) return null;
 
     return {
@@ -204,11 +195,10 @@ export class ApprovalChainService {
   }
 
   /**
-   * Convenience: returns true when every chain step has a non-pending status
-   * (chain is fully decided one way or another).
+   * Convenience: true when every chain step has a non-pending status
+   * (the chain is fully decided one way or another).
    */
-  static async isChainComplete(requirementId: string): Promise<boolean> {
-    const current = await this.getCurrentApprover(requirementId);
-    return current === null;
+  static isChainComplete(chain: ApprovalChainStep[]): boolean {
+    return this.getCurrentApprover(chain) === null;
   }
 }

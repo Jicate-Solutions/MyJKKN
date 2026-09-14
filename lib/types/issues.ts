@@ -1,30 +1,34 @@
 // lib/types/issues.ts
 // ============================================================================
-// Insta Solver core module — types for the unified `/issues` surface.
+// InstaSolver — types for the complaint lane and the purchase approval chain.
 //
-// Wave B.1 substrate (PR-instasolver-substrate). Mirrors the production DDL
-// from `supabase/migrations/<date>_instasolver_substrate.sql` (sibling agent
-// scope). This file re-exports the existing `lib/types/grievance.ts` shape
-// where it covers the same column set, and ADDS:
+// REWRITTEN 2026-09-14 (specs/instasolver-2026-09-14.md). The original version
+// of this file typed a `requirement_requests` island — its own categories,
+// votes and status machine — and an `issue_type` discriminator on
+// grievance_tickets. Neither ever reached production, and both were reversed:
 //
-//   - `IssueType`             discriminator on grievance_tickets
-//   - `RequirementStatus`     state machine for requirement_requests
-//   - `VoteState`             state machine for requirement votes
-//   - extended `RaisedByType` (adds 'faculty' | 'admin')
-//   - `IssueTicket`           = grievance_tickets row + new B.1 columns
-//   - `RequirementRequest`    = full requirement_requests row
-//   - `RequirementVote`       = requirement_votes row
-//   - `RequirementCategory`   = clones GrievanceCategory shape
-//   - `ApprovalChainStep`     = snapshot pattern (cloned from leave-service.ts)
-//   - input types for create/update/vote/approve flows
+//   - I4: broken things go to Campus Walk (project_tasks under CAMPUS-OPS),
+//     never into grievance_tickets. Nothing reads `issue_type`, so a
+//     discriminator could not have kept them out of the NAAC and UGC counts.
+//   - I3/I5: purchases go to Procurement. The approval TIERS survive, as
+//     `procurement_approval_thresholds`; the request itself becomes a
+//     procurement_purchase_requests row.
 //
-// Strategic spec:    docs/INSTASOLVER-MODULE-SPEC.md
-// Implementation:    specs/instasolver-core-module-spec.md
-// Pattern source:    lib/types/grievance.ts (clone)
+// What remains here is what still has a table behind it:
+//   - `RaisedByType`        who may file (I1: everyone with a login)
+//   - `IssueTicket` / `IssueTicketDetail` / `IssueAttachment`
+//                           projections over grievance_tickets
+//   - `ApprovalChainStep` / `BuildChainInput`
+//                           the purchase approval chain, built from
+//                           procurement_approval_thresholds
+//   - create/update input types for the complaint lane
+//
+// Spec:      specs/instasolver-2026-09-14.md
+// Migration: supabase/migrations/20261212110000_instasolver_substrate_v2.sql
+// Pattern source: lib/types/grievance.ts
 // ============================================================================
 
 import type {
-  GrievanceCategory,
   GrievancePriority,
   GrievanceStatus,
   RaisedByType as GrievanceRaisedByType,
@@ -32,87 +36,37 @@ import type {
 } from '@/lib/types/grievance';
 
 // ----------------------------------------------------------------------------
-// Re-export the underlying grievance enum primitives so callers under
-// /issues/* can import everything from `@/lib/types/issues` without reaching
-// into grievance.ts directly.
+// Re-export the underlying grievance enum primitives so InstaSolver callers can
+// import everything from `@/lib/types/issues` without reaching into
+// grievance.ts directly.
 // ----------------------------------------------------------------------------
 export type { GrievancePriority, GrievanceStatus, SlaStatus };
 
-// ----------------------------------------------------------------------------
-// Issue discriminator + extended raised-by audience matrix
-// ----------------------------------------------------------------------------
-
 /**
- * `issue_type` discriminator on grievance_tickets. Set at creation:
- *   - 'grievance'         standard complaint
- *   - 'requirement_link'  ticket auto-created from a manual grievance→requirement promotion
- */
-export type IssueType = 'grievance' | 'requirement_link';
-
-/**
- * Audience matrix per Persona Matrix in INSTASOLVER-MODULE-SPEC.md §Persona Matrix.
- * Extends the production `raised_by_type_enum` with 'faculty' + 'admin' (B.1
- * additive ALTER TYPE migration).
+ * Who may raise an InstaSolver item. I1 locks this to everyone with a login —
+ * learners, teaching and non-teaching staff, and parents — which is wider than
+ * the Learners Council route allowed.
+ *
+ * The production column is plain `text`, not a pg_enum, so widening this union
+ * needs no migration.
  */
 export type RaisedByType = GrievanceRaisedByType | 'faculty' | 'admin';
 
-/** Convenience: who is allowed to vote on Requirements. */
-export type VoterType = Exclude<RaisedByType, 'alumni'>;
-
 // ----------------------------------------------------------------------------
-// Requirement state machines
+// Purchase approval chain — snapshot pattern cloned from leave-service.ts
 // ----------------------------------------------------------------------------
 
 /**
- * Requirement lifecycle. Locked Q-scope state machine:
+ * One step in a purchase approval chain (I5).
  *
- *   submitted
- *     ↓
- *   under_review
- *     ↓
- *   voting_open  ──►  voting_closed
- *                       ↓ (quorum met + approved by chain)
- *                     approved
- *                       ↓
- *                     budgeted
- *                       ↓
- *                     in_progress
- *                       ↓
- *                     fulfilled
+ * The chain is built at request time from `procurement_approval_thresholds`
+ * (frozen-snapshot semantics, so a later threshold edit does not disturb an
+ * in-flight request) and then persisted by the Procurement caller alongside
+ * its purchase request.
  *
- *   rejected   = terminal (any state can transition to rejected)
- *   withdrawn  = terminal (filer-initiated OR auto on quorum miss)
- */
-export type RequirementStatus =
-  | 'submitted'
-  | 'under_review'
-  | 'voting_open'
-  | 'voting_closed'
-  | 'approved'
-  | 'budgeted'
-  | 'in_progress'
-  | 'fulfilled'
-  | 'rejected'
-  | 'withdrawn';
-
-/** Vote-window state. Voting opens, closes, or is cancelled by withdrawal. */
-export type VoteState = 'active' | 'closed' | 'cancelled';
-
-/** Two-option ballot for a Requirement. */
-export type VoteChoice = 'yes' | 'no';
-
-// ----------------------------------------------------------------------------
-// Approval chain snapshot — pattern cloned from leave-service.ts
-// ----------------------------------------------------------------------------
-
-/**
- * One step in the approval chain stored as JSONB on requirement_requests.
- * The chain is built at apply-time (frozen-snapshot pattern) from
- * `requirement_approval_thresholds` rows — so later threshold edits don't
- * disturb in-flight requirements.
- *
- * `approver_user_id` is null on insert and resolved at approve-time by role
- * lookup (mirrors LeaveApprovalStep semantics in lib/services/hr/leave-service.ts).
+ * `approver_user_id` is null when the chain is built and resolved at decide
+ * time by role lookup — mirroring LeaveApprovalStep in
+ * lib/services/hr/leave-service.ts.
  */
 export interface ApprovalChainStep {
   step_order: number;
@@ -128,16 +82,23 @@ export interface ApprovalChainStep {
   comment?: string | null;
 }
 
+/** Inputs to ApprovalChainService.buildApprovalChain. */
+export interface BuildChainInput {
+  estimated_budget: number;
+  institution_id: string;
+}
+
 // ----------------------------------------------------------------------------
-// Issue ticket (grievance_tickets row, with B.1 additions)
+// Complaint ticket (grievance_tickets projections)
 // ----------------------------------------------------------------------------
 
 /**
- * List-shape projection over grievance_tickets. Mirrors GrievanceTicket but
- * adds:
- *   - issue_type          B.1 discriminator
- *   - requirement_id      back-reference to a Requirement (when issue_type='requirement_link')
- *   - migrated_from_subdomain / legacy_external_id (Insta Solver migration markers)
+ * List-shape projection over grievance_tickets, plus the two InstaSolver
+ * cutover markers added by 20261212110000 (I9).
+ *
+ * There is deliberately no `issue_type` and no `requirement_id`: this table
+ * holds complaints and nothing else, which is what keeps the accreditation
+ * counts honest.
  */
 export interface IssueTicket {
   id: string;
@@ -147,8 +108,6 @@ export interface IssueTicket {
   subject: string;
   priority: GrievancePriority | null;
   status: GrievanceStatus | null;
-  issue_type: IssueType;
-  requirement_id: string | null;
   raised_by_type: RaisedByType;
   raised_by_name: string | null;
   sla_deadline: string;
@@ -189,7 +148,6 @@ export interface IssueTicketDetail extends IssueTicket {
 
 /**
  * Single attachment entry stored in `grievance_tickets.attachments` jsonb.
- * Shape locked by R1.1 (max 5 files × 10MB, MIME whitelist).
  */
 export interface IssueAttachment {
   storage_path: string; // e.g. 'issues/attachments/<ticket_id>/<filename>'
@@ -201,119 +159,16 @@ export interface IssueAttachment {
 }
 
 // ----------------------------------------------------------------------------
-// Requirement category (clone of GrievanceCategory)
-// ----------------------------------------------------------------------------
-
-/**
- * Per-institution requirement category. Mirrors `requirement_categories`
- * (DDL: `LIKE public.grievance_categories INCLUDING ALL`).
- *
- * Includes `allow_anonymous` from the B.1 ALTER on grievance_categories.
- */
-export interface RequirementCategory extends GrievanceCategory {
-  // requirement_categories inherits the same column set; no additions in B.1.
-  // Re-declared as an interface to give the type a distinct name for callers.
-  allow_anonymous?: boolean;
-}
-
-// ----------------------------------------------------------------------------
-// Requirement request (full row per DDL plan)
-// ----------------------------------------------------------------------------
-
-/**
- * Full shape of a requirement_requests row. See INSTASOLVER-MODULE-SPEC.md
- * §DDL Plan — Phase B.1 for the canonical column list.
- */
-export interface RequirementRequest {
-  id: string;
-  request_number: string; // REQ-YYYY-NNNN
-  category_id: string;
-  institution_id: string;
-  subject: string;
-  description: string;
-  estimated_budget: number | null;
-  raised_by_type: RaisedByType;
-  raised_by_id: string | null;
-  raised_by_name: string | null;
-  status: RequirementStatus;
-  voting_opens_at: string | null;
-  voting_closes_at: string | null;
-  vote_count_yes: number;
-  vote_count_no: number;
-  approved_at: string | null;
-  approved_by: string | null;
-  budgeted_amount: number | null;
-  budgeted_at: string | null;
-  budgeted_by: string | null;
-  fulfilled_at: string | null;
-  rejection_reason: string | null;
-  approval_chain: ApprovalChainStep[] | null;
-  metadata: Record<string, unknown> | null;
-  created_at: string | null;
-  updated_at: string | null;
-}
-
-/** Light projection used by list views (omits long text fields + chain). */
-export interface RequirementRequestSummary {
-  id: string;
-  request_number: string;
-  category_id: string;
-  institution_id: string;
-  subject: string;
-  estimated_budget: number | null;
-  raised_by_type: RaisedByType;
-  raised_by_name: string | null;
-  status: RequirementStatus;
-  voting_opens_at: string | null;
-  voting_closes_at: string | null;
-  vote_count_yes: number;
-  vote_count_no: number;
-  budgeted_amount: number | null;
-  created_at: string | null;
-}
-
-// ----------------------------------------------------------------------------
-// Requirement vote
-// ----------------------------------------------------------------------------
-
-/**
- * One ballot. Privacy lock (R2.1): voter_id is captured for unique-constraint
- * enforcement and never exposed via VotingService.getTally(). The only
- * service method that returns voter_id is VotingService.getMyVote(self).
- */
-export interface RequirementVote {
-  id: string;
-  requirement_id: string;
-  voter_id: string;
-  vote: VoteChoice;
-  created_at: string | null;
-}
-
-/** Public-shape tally — never includes voter identities. */
-export interface RequirementTally {
-  yes: number;
-  no: number;
-}
-
-/** Eligibility resolver result. */
-export interface VoterEligibility {
-  eligible: boolean;
-  reason: string | null;
-}
-
-// ----------------------------------------------------------------------------
 // Input types — service-layer create/update payloads
 // ----------------------------------------------------------------------------
 
-/** Create-issue input (subset of grievance_tickets columns + B.1 additions). */
+/** Create-complaint input (subset of grievance_tickets columns). */
 export interface CreateIssueInput {
   institution_id: string;
   category_id: string;
   subject: string;
   description: string;
   priority?: GrievancePriority;
-  issue_type?: IssueType; // defaults to 'grievance'
-  requirement_id?: string | null;
   raised_by_type: RaisedByType;
   raised_by_id?: string | null;
   raised_by_name?: string | null;
@@ -337,54 +192,11 @@ export interface UpdateIssueStatusInput {
   resolved_by?: string;
 }
 
-/** Create-requirement input. */
-export interface CreateRequirementInput {
-  institution_id: string;
-  category_id: string;
-  subject: string;
-  description: string;
-  estimated_budget?: number | null;
-  raised_by_type: RaisedByType;
-  raised_by_id?: string | null;
-  raised_by_name?: string | null;
-  metadata?: Record<string, unknown>;
-}
-
-/** Cast-vote input. */
-export interface CastVoteInput {
-  requirement_id: string;
-  voter_id: string;
-  vote: VoteChoice;
-}
-
-/** Approve-requirement input. Callable only by the current chain step's actor. */
-export interface ApproveRequirementInput {
-  requirement_id: string;
-  approver_id: string;
-  budgeted_amount?: number;
-  comment?: string;
-}
-
-/** Reject-requirement input. */
-export interface RejectRequirementInput {
-  requirement_id: string;
-  approver_id: string;
-  reason: string;
-}
-
-/** Build-chain input. Inputs to approval-chain-service.buildApprovalChain. */
-export interface BuildChainInput {
-  requirement_id: string;
-  estimated_budget: number;
-  institution_id: string;
-}
-
 // ----------------------------------------------------------------------------
 // List-query parameters
 // ----------------------------------------------------------------------------
 
 export interface ListIssuesParams {
-  issueType?: IssueType;
   page?: number;
   limit?: number;
   status?: GrievanceStatus;
@@ -392,12 +204,4 @@ export interface ListIssuesParams {
   institutionId?: string;
   isEmergency?: boolean;
   isIccOnly?: boolean;
-}
-
-export interface ListRequirementsParams {
-  page?: number;
-  limit?: number;
-  status?: RequirementStatus;
-  institutionId?: string;
-  categoryId?: string;
 }

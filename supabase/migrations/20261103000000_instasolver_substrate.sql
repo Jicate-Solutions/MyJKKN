@@ -1,3 +1,20 @@
+-- SUPERSEDED BY 20261212110000_instasolver_substrate_v2.sql — do not apply.
+--
+-- This file was never applied to production and never will be. Its premise was
+-- reversed by the Director on 2026-09-14 (specs/instasolver-2026-09-14.md):
+-- `issue_type` on grievance_tickets has no reader, so tagging broken-thing
+-- reports instead of separating them would have counted every one of them as a
+-- student grievance in the NAAC and UGC exports; and the requirement_requests
+-- island duplicates the Procurement module. Broken things now go to Campus Walk
+-- (I4) and purchases to Procurement (I3/I5).
+--
+-- The file is KEPT rather than deleted for one mechanical reason:
+-- __tests__/ci/check-migration-rename-applied.test.ts:493 reads this exact path
+-- to assert that the rename guard passes the real PR #3263 rename. Deleting it
+-- fails that test. It is inert as long as nobody applies it — and applying it
+-- would now be caught anyway: the verification block of the v2 migration raises
+-- if grievance_tickets carries issue_type or requirement_id.
+--
 -- RENAME-SAFE: 20260504 -> 20261103000000 — the source version never applied, established from the repository because production is unreachable from this lane. types/supabase.ts is generated from the live database and contains NEITHER grievance_tickets.issue_type, requirement_id, migrated_from_subdomain or legacy_external_id (the four columns section 2 adds) NOR any of the eight tables sections 5-12 create — `requirement_requests` appears 0 times in that file. The objects this migration creates are therefore absent from production, which is the only honest test. The collision that caused it: 20260504_ai_pulse_rls_hardening.sql parses to the SAME version string `20260504`, and supabase_migrations.schema_migrations keys on version ALONE, so one recorded as applied and this one never executed. Renumbering the OTHER file was rejected — this session owns only this file, and ai_pulse_rls_hardening is the one that DID run. Re-applying this file is additive by construction: no DROP TABLE, no removed columns, every DDL guarded by IF NOT EXISTS / DO $$ blocks.
 -- =====================================================================
 -- Migration: instasolver_substrate (B.1 — Insta Solver core module)
@@ -72,6 +89,31 @@
 -- =====================================================================
 
 BEGIN;
+
+-- ---------------------------------------------------------------------
+-- ABORT GUARD — this file is superseded and must never execute.
+--
+-- The header explains why. This block is what makes "do not apply"
+-- enforceable rather than advisory: `supabase db push` applies pending
+-- migrations in VERSION order, so 20261103000000 would run BEFORE
+-- 20261212110000 and its objects would land before the replacement's
+-- verification block could object. Each migration is its own transaction,
+-- so the replacement failing afterwards would not roll this one back.
+--
+-- Raising here, inside this file's own transaction, means nothing in it is
+-- applied and the operator is told exactly which file to run instead —
+-- loudly, at the first statement, instead of silently and too late.
+--
+-- If you are deliberately resurrecting this premise, delete this block and
+-- read specs/instasolver-2026-09-14.md first: `issue_type` still has no
+-- reader, so every broken-thing row would still be counted as a learner
+-- grievance in the NAAC and UGC exports.
+-- ---------------------------------------------------------------------
+DO $superseded$
+BEGIN
+  RAISE EXCEPTION
+    'ABORTED: 20261103000000_instasolver_substrate.sql is SUPERSEDED and must not be applied. Apply 20261212110000_instasolver_substrate_v2.sql instead. Reason: specs/instasolver-2026-09-14.md reversed this file''s premise on 2026-09-14 — nothing reads grievance_tickets.issue_type, so it cannot keep non-complaints out of the NAAC and UGC counts, and requirement_requests duplicates the Procurement module.';
+END $superseded$;
 
 -- ---------------------------------------------------------------------
 -- 1. ENUM: requirement_status
