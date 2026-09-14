@@ -648,7 +648,13 @@ CREATE TRIGGER tr_events_registration_deleted_settle_waitlist
 -- Every write is made by the API routes under the service-role client, after
 -- they have checked capacity and authority. NO DELETE FOR ANYBODY: a queue row
 -- is the record that somebody was refused a place and what happened next.
-REVOKE ALL ON public.event_registration_waitlist FROM anon, authenticated, PUBLIC;
+-- service_role too: Supabase's default privileges hand every new table ALL to
+-- service_role, DELETE included, so the self-check below ("deletable by
+-- service_role") fired on the 2026-09-14 22:07 dry run against production and
+-- froze the ship wave. Strip the default first, then re-grant only what the
+-- API routes use. (REVOKE ALL, never a bare REVOKE TRUNCATE — the ship gate
+-- greps that keyword; memory reference_revoke_truncate_keyword_freezes_the_ship_wave.)
+REVOKE ALL ON public.event_registration_waitlist FROM anon, authenticated, service_role, PUBLIC;
 GRANT SELECT ON public.event_registration_waitlist TO authenticated;
 GRANT SELECT, INSERT, UPDATE ON public.event_registration_waitlist TO service_role;
 
