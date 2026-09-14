@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
@@ -181,7 +181,8 @@ function calculateReadTimeSeconds(body: string): number {
 }
 
 // ─── The actual modal with read-time + scroll enforcement ───
-function AcknowledgmentModal({
+// Exported for the component test only; the app renders it through the gate.
+export function AcknowledgmentModal({
   current,
   isOverdue,
   timeLeft,
@@ -204,6 +205,13 @@ function AcknowledgmentModal({
 }) {
   const [readTimeLeft, setReadTimeLeft] = useState<number>(-1);
   const [hasScrolledToBottom, setHasScrolledToBottom] = useState(false);
+  // Whether the notice is taller than its scroll box. Held in STATE, not read
+  // off contentRef during render: the ref is null on the first render, so a
+  // render-time read evaluated to `false` and nothing re-rendered afterwards
+  // for a long notice — the button then showed "Read carefully (-1s)" (the
+  // -1 sentinel, never started) instead of the scroll cue. Seen live on
+  // every long mandatory notice on a phone, 2026-09-14.
+  const [needsScroll, setNeedsScroll] = useState(false);
   const [timerStarted, setTimerStarted] = useState(false);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [answerStatus, setAnswerStatus] = useState<'pending' | 'correct' | 'wrong'>('pending');
@@ -211,23 +219,30 @@ function AcknowledgmentModal({
   const requiredReadTime = calculateReadTimeSeconds(current.body);
   const verificationQ: VerificationQuestion | undefined = current.metadata?.verification_question;
 
-  // Reset state when notification changes
-  useEffect(() => {
+  // Reset state when notification changes. A layout effect like the scroll
+  // check below, so the two keep their declaration order (reset, then
+  // measure) — a passive effect here would run after the measurement and
+  // undo it on mount.
+  useLayoutEffect(() => {
     setReadTimeLeft(-1);
     setHasScrolledToBottom(false);
+    setNeedsScroll(false);
     setTimerStarted(false);
     setSelectedAnswer(null);
     setAnswerStatus('pending');
   }, [current.notification_id]);
 
-  // Check if content needs scrolling
-  useEffect(() => {
+  // Check if content needs scrolling. useLayoutEffect: it reads layout
+  // (scrollHeight) and decides the label, so measure before the first paint —
+  // no frame ever shows the wrong branch.
+  useLayoutEffect(() => {
     const el = contentRef.current;
     if (!el) return;
 
     // If content fits without scrolling, mark as scrolled and start timer immediately
-    const needsScroll = el.scrollHeight > el.clientHeight + 20;
-    if (!needsScroll) {
+    const tallerThanBox = el.scrollHeight > el.clientHeight + 20;
+    setNeedsScroll(tallerThanBox);
+    if (!tallerThanBox) {
       setHasScrolledToBottom(true);
       if (!timerStarted) {
         setTimerStarted(true);
@@ -277,9 +292,6 @@ function AcknowledgmentModal({
   const timerDone = readTimeLeft === 0;
   const quizPassed = verificationQ ? answerStatus === 'correct' : true;
   const canAcknowledge = timerDone && hasScrolledToBottom && quizPassed;
-  const needsScroll = contentRef.current
-    ? contentRef.current.scrollHeight > contentRef.current.clientHeight + 20
-    : false;
   const disabledLabel = !canAcknowledge;
 
   // Check answer handler
