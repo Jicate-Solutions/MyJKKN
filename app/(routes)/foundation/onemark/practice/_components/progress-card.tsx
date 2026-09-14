@@ -16,6 +16,13 @@
 // "coming soon". The report's field names are read tolerantly (snake_case and
 // camelCase both) because the jsonb shape is Lane A's to settle.
 //
+// ONE REPORT PER SUBJECT. Lane A's route requires `?exam=<uuid>` (it answers
+// 400 `exam must be a uuid` without it — the combined practice run #3431 found
+// this card asking with no exam and therefore never rendering). The report is
+// per exam definition, and the practice home already knows the learner's
+// subjects, so the card takes them, reads the first ready one by default and
+// offers a picker when there is more than one.
+//
 // ORDER IS THE ONE THING TOLERANCE CANNOT COVER. Newest-first and oldest-first
 // carry identical field names, so a tolerant reader that assumed one would
 // render a WRONG "last time" and a backwards trend rather than nothing. The
@@ -24,6 +31,7 @@
 
 import { useEffect, useState } from 'react';
 import { TrendingUp } from 'lucide-react';
+import type { OneMarkSubject } from '@/lib/services/onemark/vault-service';
 
 interface LearnerReport {
   /** NEWEST FIRST, always — see `readLearnerReport`. */
@@ -108,15 +116,36 @@ function Trend({ sittings }: { sittings: LearnerReport['sittings'] }) {
   );
 }
 
-export function ProgressCard({ learnerId }: { learnerId: string }) {
+type ProgressSubject = Pick<OneMarkSubject, 'examDefinitionId' | 'name' | 'poolReady' | 'questionCount'>;
+
+/** The subject the card opens on: the first one a learner can actually sit,
+ *  else the first listed. Null when the learner has no subjects at all. */
+export function defaultProgressSubject(subjects: ProgressSubject[]): ProgressSubject | null {
+  return subjects.find((s) => s.poolReady && s.questionCount > 0) ?? subjects[0] ?? null;
+}
+
+export function ProgressCard({
+  learnerId,
+  subjects,
+}: {
+  learnerId: string;
+  subjects: ProgressSubject[];
+}) {
   const [report, setReport] = useState<LearnerReport | null>(null);
+  const [chosenExamId, setChosenExamId] = useState<string | null>(null);
+  const examId =
+    (chosenExamId && subjects.some((s) => s.examDefinitionId === chosenExamId)
+      ? chosenExamId
+      : defaultProgressSubject(subjects)?.examDefinitionId) ?? null;
 
   useEffect(() => {
     let cancelled = false;
+    setReport(null);
+    if (!examId) return;
     (async () => {
       try {
         const res = await fetch(
-          `/api/foundation/onemark/results/learner/${encodeURIComponent(learnerId)}`,
+          `/api/foundation/onemark/results/learner/${encodeURIComponent(learnerId)}?exam=${encodeURIComponent(examId)}`,
           { headers: { 'Content-Type': 'application/json' } },
         );
         if (!res.ok) return;
@@ -129,9 +158,9 @@ export function ProgressCard({ learnerId }: { learnerId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [learnerId]);
+  }, [learnerId, examId]);
 
-  if (!report) return null;
+  if (!report || !examId) return null;
 
   // Only when the order was established from timestamps — otherwise sittings[0]
   // is just "the first one Lane A happened to send".
@@ -145,9 +174,30 @@ export function ProgressCard({ learnerId }: { learnerId: string }) {
 
   return (
     <section>
-      <div className="mb-3 flex items-center gap-2">
-        <TrendingUp className="h-4 w-4 text-muted-foreground" />
-        <h2 className="text-lg font-semibold text-foreground">My progress</h2>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <TrendingUp className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-lg font-semibold text-foreground">My progress</h2>
+        </div>
+        {subjects.length > 1 && (
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label="Subject">
+            {subjects.map((s) => (
+              <button
+                key={s.examDefinitionId}
+                type="button"
+                aria-pressed={s.examDefinitionId === examId}
+                onClick={() => setChosenExamId(s.examDefinitionId)}
+                className={
+                  s.examDefinitionId === examId
+                    ? 'rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground'
+                    : 'rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground hover:text-foreground'
+                }
+              >
+                {s.name}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       <div className="rounded-2xl bg-card p-5">
         {report.ordered && report.sittings.length > 0 && (
