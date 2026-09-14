@@ -1,14 +1,18 @@
 /**
  * B2A — Service Request (STUB).
  *
- * The handoff names a `requirement_requests` table that does not exist in
- * production as of 2026-05-16. Service-request and requirement modules in
- * VALID_MODULES were added for the Instasolver substrate work that hasn't
- * shipped its DDL yet. This route returns a stub so the module key remains
- * answerable in the API surface, with a clear reason.
+ * This route was stubbed pending an InstaSolver table that will now never
+ * exist. The 2026-09-14 decisions (specs/instasolver-2026-09-14.md) split the
+ * old subdomain's three lanes across modules that already had a home:
+ * complaints stay in grievance_tickets, broken things go to Campus Walk
+ * project_tasks (I4), and purchases go to Procurement (I3/I5). There is no
+ * `requirement_requests` table and no plan for one.
  *
- * To unstub: create `requirement_requests` table (or whatever name the
- * Instasolver track lands on) and swap this for a standard list query.
+ * The stub is kept so the `service_request` module key stays answerable in the
+ * API surface with an honest reason rather than 404ing.
+ *
+ * To unstub: decide which of the three lanes this key should serve and swap
+ * this for a list query against that module's own table.
  */
 
 export const dynamic = 'force-dynamic';
@@ -51,7 +55,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       data: [],
       meta: { page, limit, total: 0, totalPages: 0 },
       _stub: true,
-      _stub_reason: 'Instasolver service_request schema not yet shipped. Target table: requirement_requests.',
+      _stub_reason: 'InstaSolver has no service_request table. Complaints live in grievance_tickets, broken things in Campus Walk project_tasks, purchases in Procurement (specs/instasolver-2026-09-14.md).',
     },
     { headers: { ...corsHeaders, 'Cache-Control': 'no-store' } }
   );
