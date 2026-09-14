@@ -69,8 +69,19 @@ export interface CreateWalkTaskInput {
   kind: WalkKind;
   /** D6 urgent lane — exposed wire, gas smell, broken stair. */
   isUnsafe?: boolean;
-  /** Storage path in the private `campus-walk` bucket. */
-  photoStoragePath: string;
+  /**
+   * Storage path in the private `campus-walk` bucket.
+   *
+   * Optional since the InstaSolver front door (app/api/instasolver/broken)
+   * landed: someone reporting a broken fan from a corridor may have no usable
+   * photo, and losing the report over a missing image is the worse outcome.
+   * Campus Walk's own capture screen still always sends one — its route
+   * rejects a photoless observation before it ever reaches here — so no
+   * existing caller's behaviour changes. When neither this nor `photos` is
+   * supplied the task is created with no attachment rows and
+   * `metadata.photo_storage_path` is null.
+   */
+  photoStoragePath?: string;
   photoMimeType?: string;
   photoSizeBytes?: number;
   /**
@@ -102,6 +113,98 @@ export interface CreateWalkTaskInput {
   institutionId?: string | null;
   /** Who filed it. Stored for audit; NOT surfaced on the ticket — D10 shows "Management walk". */
   raisedByProfileId?: string | null;
+  /**
+   * Extra audit keys merged into the task's `metadata` jsonb — e.g. which
+   * front door a report arrived through, and who reported it. Merged FIRST, so
+   * it can NEVER clobber the routing/audit keys this service writes itself.
+   * `metadata.source` in particular is always 'campus-walk' and no caller can
+   * override it.
+   *
+   * That is deliberate (decision I4, 2026-09-14): an InstaSolver report IS a
+   * campus-walk lane task — one list — so it must stay visible to every
+   * consumer that filters `metadata->>source = 'campus-walk'`, namely the fix
+   * screen and API, the review screen and API, the chase ladder and the
+   * photo-retention cron. The door it arrived through is recorded separately
+   * as `metadata.front_door`, which only the D9 coverage board reads (see
+   * `isWalkedObservation` in lib/campus-walk/scoreboard.ts).
+   *
+   * RESERVED KEYS ARE STRIPPED, never merged — see RESERVED_METADATA_KEYS.
+   * These are written and rewritten by this lane's own machinery, so a caller
+   * setting one would either be silently overwritten or would forge lane
+   * state. The sharp one is `fix`: a caller passing
+   * `fix: { approval: { state: 'approved' } }` would otherwise manufacture a
+   * verified closure on the D9 fixing board at filing time, crediting a
+   * department for work nobody did.
+   *
+   * Protected: `source`, `fix`, `occurrence_count`, `cancelled_at`, `blocked`,
+   * `sla`, `urgent_alert`, `photos_purged`, `photos_purged_at`,
+   * `photos_purged_object_count`.
+   */
+  extraMetadata?: Record<string, unknown>;
+  /**
+   * How hard this task's D6 urgent alert may push, when `isUnsafe` is set.
+   * Omitted — which every Campus Walk caller does — is today's behaviour
+   * exactly: WhatsApp to the accountable owner, plus the Director copy the
+   * 2026-09-04 ruling requires.
+   *
+   * InstaSolver narrows both (2026-09-14). D6 was decided for the Director's
+   * OWN observations, where the walker is one trained person; a learner
+   * ticking "this is dangerous" paging phones is a NEW decision the Director
+   * has not made. Until he rules, an InstaSolver report pages the EAO only,
+   * under a per-college daily cap, and he gets the in-app bell rather than a
+   * phone call.
+   */
+  urgentPaging?: {
+    /** false -> send no WhatsApp at all. In-app notifications still fire. */
+    whatsApp: boolean;
+    /** false -> do not copy the Director's phone. */
+    directorCopy: boolean;
+    /** Recorded on the outcome, so a suppressed page is never read as a sent one. */
+    suppressedReason?: string | null;
+  };
+}
+
+/**
+ * Keys `extraMetadata` may not set. Every one of them is written by this
+ * service, by the fixer route, by the review route, by the chase ladder or by
+ * the retention cron — see `extraMetadata`'s docstring for why `fix` in
+ * particular is load-bearing.
+ */
+const RESERVED_METADATA_KEYS = new Set([
+  'source',
+  'fix',
+  'occurrence_count',
+  'cancelled_at',
+  'blocked',
+  'sla',
+  'urgent_alert',
+  'photos_purged',
+  'photos_purged_at',
+  'photos_purged_object_count'
+]);
+
+/** `extraMetadata` with every reserved key removed, loudly. */
+function sanitiseExtraMetadata(
+  extra: Record<string, unknown> | undefined
+): Record<string, unknown> {
+  if (!extra) return {};
+  const out: Record<string, unknown> = {};
+  const rejected: string[] = [];
+  for (const [key, value] of Object.entries(extra)) {
+    if (RESERVED_METADATA_KEYS.has(key)) {
+      rejected.push(key);
+      continue;
+    }
+    out[key] = value;
+  }
+  if (rejected.length > 0) {
+    // Loud, because a caller trying to set `fix` is either a bug or an attempt
+    // to forge a closure, and both deserve to be findable in the logs.
+    console.warn(
+      `[campus-walk] extraMetadata dropped reserved key(s): ${rejected.join(', ')}`
+    );
+  }
+  return out;
 }
 
 /**
@@ -406,6 +509,18 @@ export interface CreateWalkTaskResult {
    * unsafe condition that paged nobody must not look like one that did.
    */
   urgentAlert?: UrgentAlertOutcome;
+  /**
+   * YYYY-MM-DD the routing settled on (kind/unsafe -> DUE_IN_DAYS). Returned
+   * so a front door can tell the reporter when the fix is due without
+   * re-reading the row it just created. Optional: existing callers ignore it.
+   */
+  dueDate?: string;
+  /**
+   * profiles.id of whoever ended up Accountable after the EAO fallback and
+   * any leave reassignment. Returned for the same reason as `dueDate` — a
+   * front door needs a name to show. Null when nobody could be resolved.
+   */
+  accountableProfileId?: string | null;
 }
 
 /**
@@ -453,22 +568,28 @@ export async function createWalkTask(
     const leaveOriginalProfileId = routing.leaveOriginalProfileId;
     const leaveOriginalStaffId = routing.leaveOriginalStaffId;
 
+    // A report with no photo at all is legal since InstaSolver (see
+    // `photoStoragePath`): an empty list simply means the attachment loop
+    // below inserts nothing. Campus Walk's own route still guarantees at
+    // least one photo, so its behaviour through here is unchanged.
     const photoList: WalkPhoto[] =
       input.photos && input.photos.length > 0
         ? input.photos.slice(0, 3)
-        : [
-            {
-              storagePath: input.photoStoragePath,
-              mimeType: input.photoMimeType,
-              sizeBytes: input.photoSizeBytes
-            }
-          ];
+        : input.photoStoragePath
+          ? [
+              {
+                storagePath: input.photoStoragePath,
+                mimeType: input.photoMimeType,
+                sizeBytes: input.photoSizeBytes
+              }
+            ]
+          : [];
     if (input.photos && input.photos.length > 3) {
       console.warn(
         `[campus-walk] ${input.photos.length} photos supplied, capping at 3 (primary + next 2 kept)`
       );
     }
-    const primaryPhotoPath = photoList[0]?.storagePath ?? input.photoStoragePath;
+    const primaryPhotoPath = photoList[0]?.storagePath ?? input.photoStoragePath ?? null;
     const nowIso = new Date().toISOString();
 
     // D8's block/unblock shape (app/api/campus-walk/fix/route.ts) is the
@@ -481,6 +602,13 @@ export async function createWalkTask(
     // enforces that set on this direct write, but matching it keeps any UI
     // that maps reason_code -> label from hitting an unknown value.
     const metadata: Record<string, unknown> = {
+      // Caller-supplied audit keys first, so they can never clobber the
+      // routing/audit fields written below — `source` included. Every task
+      // this service creates is a campus-walk lane task, whichever front door
+      // it arrived through; the door goes in `front_door`, not here. Reserved
+      // keys are stripped rather than overwritten, so a caller cannot forge
+      // `fix`/`urgent_alert`/retention state at filing time.
+      ...sanitiseExtraMetadata(input.extraMetadata),
       source: 'campus-walk',
       kind: input.kind,
       unsafe: Boolean(input.isUnsafe),
@@ -490,8 +618,18 @@ export async function createWalkTask(
       geo: input.geo ?? null,
       institution_id: input.institutionId ?? null,
       raised_by_profile_id: input.raisedByProfileId ?? null,
-      // D10: the ticket presents as a Management walk, not a personal name.
-      attribution: 'Management walk',
+      // D10: the ticket presents as HOW it arrived, never as WHO sent it.
+      //
+      // 'Management walk' was hardcoded when this lane had one door, and it
+      // became a lie the moment InstaSolver opened a second: a fixer reading
+      // "Management walk" on a learner's report believes the Director
+      // personally stood in that corridor, which changes how urgently they
+      // treat it and what they say about it afterwards. Both strings name a
+      // channel, not a person, so D10 is intact either way.
+      attribution:
+        (input.extraMetadata?.front_door ?? null) === 'instasolver'
+          ? 'Reported via InstaSolver'
+          : 'Management walk',
       accountable_routed_to_eao_no_owner: routedToEaoNoOwner,
       reassigned_from_profile_id: onApprovedLeave ? leaveOriginalProfileId : null
     };
@@ -554,7 +692,15 @@ export async function createWalkTask(
         dueDate,
         category: input.category ?? null,
         locationHint: input.geo ? `${input.geo.lat}, ${input.geo.lng}` : null,
-        accountableProfileId
+        accountableProfileId,
+        // Omitted by every Campus Walk caller -> unchanged behaviour.
+        whatsAppAllowed: input.urgentPaging?.whatsApp,
+        copyDirector: input.urgentPaging?.directorCopy,
+        pageSuppressedReason: input.urgentPaging?.suppressedReason ?? null,
+        hasPhoto: photoList.length > 0,
+        // The channel the fixer will see on the ticket, so the phone message
+        // and the screen agree with each other.
+        attribution: metadata.attribution as string
       });
       metadata.urgent_alert = urgentAlert;
       const { error: alertMetaError } = await db
@@ -681,7 +827,9 @@ export async function createWalkTask(
       taskId: task.id as string,
       attachmentId,
       attachmentIds,
-      urgentAlert
+      urgentAlert,
+      dueDate,
+      accountableProfileId
     };
   } catch (e: any) {
     console.error('[campus-walk] createWalkTask threw:', e?.message ?? e);
