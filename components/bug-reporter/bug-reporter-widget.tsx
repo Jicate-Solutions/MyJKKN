@@ -1003,7 +1003,7 @@ export function BugReporterWidget() {
               // `modal-open:hidden` variant (tailwind.config.ts) takes it off
               // screen only for MODAL sheets — e.g. the More drawer — where it
               // is inert anyway and would otherwise paint over the drawer.
-              className='fixed bottom-nav-safe-2 right-4 lg:bottom-4 z-[95] modal-open:hidden bg-red-600 hover:bg-red-700 rounded-full w-12 h-12 p-0 shadow-lg hover:shadow-xl transition-all duration-200 bug-reporter-widget'
+              className='fixed bottom-nav-safe-2 right-4 lg:bottom-4 z-[95] modal-open:hidden submenu-open:hidden bg-red-600 hover:bg-red-700 rounded-full w-12 h-12 p-0 shadow-lg hover:shadow-xl transition-all duration-200 bug-reporter-widget'
               variant='outline'
             >
               {isCapturingScreenshot ? (
