@@ -76,6 +76,40 @@ describe('ProgressCard ↔ learner-report API contract', () => {
     expect(screen.getByText('Electrostatics')).toBeInTheDocument();
   });
 
+  it("reads Lane A's PARSED shape — taken_at / max_score / vault.active — not only the raw guesses", async () => {
+    // results-service.ts `parseLearnerReport` (PR #3338) normalises every sitting
+    // to { attempt_id, mode, score, max_score, taken_at, status } and the vault
+    // to { active, mastered, next_due_at }. A reader that knew only
+    // `submitted_at` would find no timestamp, drop the ordered views, and the
+    // card's whole promise (trend + "last time") would stay hidden against the
+    // route it now calls correctly.
+    const LANE_A_PARSED = {
+      student: { id: LEARNER_ID, name: 'Priya', roll_no: null, cohort_label: 'Class 12' },
+      exam: { id: PHYSICS_EXAM, key: 'physics', name: 'Physics' },
+      progress: { attempted: 10, correct: 6, accuracy: 60 },
+      topics: [],
+      vault: { active: 3, mastered: 1, next_due_at: null },
+      sittings: [
+        { attempt_id: 'a1', mode: 'practice', score: 4, max_score: 5, taken_at: '2026-09-13T09:00:00Z', status: 'submitted' },
+        { attempt_id: 'a2', mode: 'practice', score: 2, max_score: 5, taken_at: '2026-09-12T09:00:00Z', status: 'submitted' },
+      ],
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(JSON.stringify({ report: LANE_A_PARSED }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      ),
+    );
+    render(<ProgressCard learnerId={LEARNER_ID} subjects={SUBJECTS} />);
+    await screen.findByText('My progress');
+    expect(screen.getByText('4 of 5 last time')).toBeInTheDocument();
+    expect(screen.getByText('Your last 2 sittings.', { exact: false })).toBeInTheDocument();
+    expect(screen.getByText('3 questions')).toBeInTheDocument();
+  });
+
   it('renders nothing when the API refuses the request (the #3431 symptom, kept honest)', async () => {
     // A card that somehow asked without an exam must still degrade to nothing.
     vi.stubGlobal(

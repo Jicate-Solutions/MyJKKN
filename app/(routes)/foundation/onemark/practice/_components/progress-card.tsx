@@ -58,6 +58,13 @@ function stamp(v: string | null): number | null {
   return Number.isFinite(t) ? t : null;
 }
 
+/** A non-empty string, else null — Lane A's parsed sitting spells its
+ *  timestamp `taken_at` (results-service.ts `LearnerSitting`); the raw RPC
+ *  and older fixtures said `submitted_at`. Both are read. */
+function str(v: unknown): string | null {
+  return typeof v === 'string' && v.length > 0 ? v : null;
+}
+
 /** Lane A's jsonb, read defensively. Anything missing simply does not render. */
 export function readLearnerReport(raw: any): LearnerReport | null {
   if (!raw || typeof raw !== 'object') return null;
@@ -65,8 +72,8 @@ export function readLearnerReport(raw: any): LearnerReport | null {
   const parsed = (Array.isArray(sittingsRaw) ? sittingsRaw : [])
     .map((s: any) => ({
       score: num(s?.score),
-      total: num(s?.total ?? s?.question_count ?? s?.questionCount),
-      submittedAt: typeof s?.submitted_at === 'string' ? s.submitted_at : typeof s?.submittedAt === 'string' ? s.submittedAt : null,
+      total: num(s?.total ?? s?.max_score ?? s?.maxScore ?? s?.question_count ?? s?.questionCount),
+      submittedAt: str(s?.taken_at) ?? str(s?.takenAt) ?? str(s?.submitted_at) ?? str(s?.submittedAt),
     }))
     .filter((s: any) => s.score !== null);
   // ORDER IS NOT ASSUMED. Lane A has not merged, and "newest first" is a
