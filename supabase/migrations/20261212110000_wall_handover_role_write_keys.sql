@@ -211,3 +211,11 @@ AS $$
     ELSE false
   END;
 $$;
+
+-- Grants: the same posture the function already has in production (read back
+-- 2026-09-14: authenticated, service_role, owner — no anon, no PUBLIC). Stated
+-- explicitly so the CI anon-lock guard can see it. Every caller
+-- (fn_handover_grants_key, user_has_permission, fn_my_handover_permissions) is
+-- SECURITY DEFINER, so an anon RLS evaluation never reaches this function directly.
+REVOKE EXECUTE ON FUNCTION public.fn_handover_key_is_blocked(text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_handover_key_is_blocked(text) TO authenticated, service_role;
