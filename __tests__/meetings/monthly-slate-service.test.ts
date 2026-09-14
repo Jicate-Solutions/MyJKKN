@@ -27,6 +27,7 @@ import {
   isMonthKey,
   monthDateRange,
   type PersonSchedule,
+  defaultPersonSchedule,
 } from '@/lib/services/meetings/monthly-slate-service';
 
 const ALICE = 'p-alice';
@@ -203,19 +204,28 @@ describe('buildSlateAvailability — grouped per duration', () => {
     expect(out[0].freeStarts).toEqual(['2026-11-02T05:30:00.000Z']);
   });
 
-  it('never offers a start the EAO already rejected', () => {
+  it('does NOT subtract a rejected start globally — that rule was overruled', () => {
+    // Director's ruling, 2026-09-14: turning a time down for ONE college must
+    // not take it away from the others. "Not good for Pharmacy" is not "bad
+    // for everyone". Availability here is per PERSON and cannot express a
+    // per-COLLEGE exclusion, so this layer deliberately leaves rejections
+    // alone; the engine's per-institution loop applies them when the Reject
+    // button lands (piece 4b).
+    //
+    // This test previously asserted the OPPOSITE. It is kept, inverted, rather
+    // than deleted, so that re-introducing the global filter fails loudly
+    // instead of quietly shrinking every college's options.
     const out = buildSlateAvailability({
       profileIds: [ALICE],
       durations: [60],
       schedules: new Map([[ALICE, workday()]]),
       busyByProfile: new Map(),
-      rejectedStarts: new Set(['2026-11-02T04:30:00.000Z']),
       ...NOV,
       now: NOW,
+      rejectedStarts: new Set(['2026-11-02T04:30:00.000Z']),
     });
 
-    expect(out[0].freeStarts).not.toContain('2026-11-02T04:30:00.000Z');
-    expect(out[0].freeStarts).toHaveLength(4);
+    expect(out[0].freeStarts).toContain('2026-11-02T04:30:00.000Z');
   });
 });
 
@@ -323,5 +333,33 @@ describe('buildSlateAvailability — fail closed', () => {
     });
 
     expect(out[0].freeStarts).toEqual([]);
+  });
+});
+
+// ============================================================================
+// The Director's ruling on assumed hours (2026-09-14)
+// ============================================================================
+
+describe('defaultPersonSchedule — what we assume when hours are unrecorded', () => {
+  it('is 09:00 to 16:30', () => {
+    // 9 * 60 = 540; 16 * 60 + 30 = 990. Re-derived here rather than imported,
+    // so changing the constant fails this test instead of silently agreeing
+    // with itself.
+    const s = defaultPersonSchedule();
+    expect(s.windows.every((w) => w.startMinute === 540)).toBe(true);
+    expect(s.windows.every((w) => w.endMinute === 990)).toBe(true);
+  });
+
+  it('is Monday to FRIDAY — never Saturday or Sunday', () => {
+    // An earlier draft assumed Mon-Sat. The Director corrected it. A six-day
+    // week would quietly propose institutional meetings on Saturdays.
+    const days = defaultPersonSchedule().windows.map((w) => w.weekday).sort();
+    expect(days).toEqual([1, 2, 3, 4, 5]);
+    expect(days).not.toContain(6); // Saturday
+    expect(days).not.toContain(0); // Sunday
+  });
+
+  it('carries no date overrides — it is an assumption, not a record', () => {
+    expect(defaultPersonSchedule().overrides).toEqual([]);
   });
 });

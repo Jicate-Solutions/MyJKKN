@@ -68,8 +68,18 @@ export const CAMPUS_TZ = 'Asia/Kolkata';
 const SLOT_GRID_MIN = 15;
 
 /** A fallback working day for someone who has recorded no schedule at all. */
+// Director's ruling, 2026-09-14: when we do not KNOW someone's hours, assume
+// 09:00-16:30, Monday to Friday. Saturday is deliberately excluded — an earlier
+// draft assumed a six-day week and he corrected it.
+//
+// This is the one place the system proposes a meeting on no stated evidence.
+// It exists because almost nobody has recorded hours yet, and the strict
+// alternative (treat unknown as unavailable) would report nearly every meeting
+// as unschedulable — a month that looks broken rather than careful. A person
+// whose schedule load ERRORED is a different case entirely and still fails
+// closed: unknown-because-unrecorded is not unknown-because-the-query-failed.
 const DEFAULT_WORK_DAY_START_MIN = 9 * 60; // 09:00
-const DEFAULT_WORK_DAY_END_MIN = 17 * 60; // 17:00
+const DEFAULT_WORK_DAY_END_MIN = 16 * 60 + 30; // 16:30
 
 // ============================================================================
 // MONTH ARITHMETIC
@@ -192,7 +202,19 @@ export interface BuildAvailabilityInput {
 export function buildSlateAvailability(input: BuildAvailabilityInput): SlateAvailability[] {
   const out: SlateAvailability[] = [];
   const unknown = input.unknownProfileIds ?? new Set<string>();
-  const rejected = input.rejectedStarts ?? new Set<string>();
+  // NOTE: input.rejectedStarts is accepted but deliberately NOT applied here.
+  //
+  // Subtracting it from availability removes the time from EVERY college for
+  // that month, and the Director ruled on 2026-09-14 that turning a time down
+  // for one college must not take it away from the others — "not good for
+  // Pharmacy" is not "bad for everyone". Availability is per PERSON, so this
+  // layer cannot express a per-COLLEGE exclusion; that belongs in the engine's
+  // per-institution loop and lands with the Reject button (piece 4b).
+  //
+  // Applying the global rule in the meantime would silently shrink the
+  // available times with no way for anyone to see why, so it is left unapplied
+  // rather than applied wrongly. Nothing is affected today: zero rejections
+  // exist, because nothing can create one until 4b.
 
   for (const profileId of input.profileIds) {
     const schedule = input.schedules.get(profileId);
@@ -231,7 +253,7 @@ export function buildSlateAvailability(input: BuildAvailabilityInput): SlateAvai
       out.push({
         profileId,
         durationMin,
-        freeStarts: rejected.size === 0 ? freeStarts : freeStarts.filter((s) => !rejected.has(s)),
+        freeStarts,
       });
     }
   }
@@ -369,6 +391,26 @@ async function loadConfig(supabase: SupabaseClient, month: string): Promise<Load
  * default working day (they have said nothing, and every staff member is
  * nominally available in office hours), the latter is unknown and fails closed.
  */
+/**
+ * The schedule assumed for someone who has never recorded their hours.
+ *
+ * Exported so the Director's ruling is pinned by a test rather than buried in a
+ * loader that needs a database to reach. 09:00-16:30, Monday to FRIDAY — an
+ * earlier draft assumed a six-day week and he corrected it on 2026-09-14.
+ */
+export function defaultPersonSchedule(): PersonSchedule {
+  return {
+    timezone: CAMPUS_TZ,
+    // 1..5 = Monday..Friday. Deliberately NOT 6 (Saturday) or 0 (Sunday).
+    windows: [1, 2, 3, 4, 5].map((weekday) => ({
+      weekday,
+      startMinute: DEFAULT_WORK_DAY_START_MIN,
+      endMinute: DEFAULT_WORK_DAY_END_MIN,
+    })),
+    overrides: [],
+  };
+}
+
 async function loadSchedules(
   supabase: SupabaseClient,
   profileIds: string[],
@@ -379,15 +421,7 @@ async function loadSchedules(
   const unknown = new Set<string>();
   if (profileIds.length === 0) return { schedules, unknown };
 
-  const defaultSchedule = (): PersonSchedule => ({
-    timezone: CAMPUS_TZ,
-    windows: [1, 2, 3, 4, 5, 6].map((weekday) => ({
-      weekday,
-      startMinute: DEFAULT_WORK_DAY_START_MIN,
-      endMinute: DEFAULT_WORK_DAY_END_MIN,
-    })),
-    overrides: [],
-  });
+  const defaultSchedule = defaultPersonSchedule;
 
   const { data: scheduleRows, error: scheduleErr } = await supabase
     .from('meeting_host_schedules')
@@ -553,6 +587,58 @@ export interface StoredSlate {
   generatedAt: string;
   approvedAt: string | null;
   items: SlateItem[];
+}
+
+/**
+ * Whose calendar this month belongs to.
+ *
+ * Director's ruling, 2026-09-14: ONE shared draft per month, on his calendar —
+ * not one per person who opens the screen. Two delegates preparing the same
+ * month must see and edit the SAME draft, because two drafts can be approved
+ * independently and that double-books everyone invited.
+ *
+ * So the slate is keyed to the HOST OF THE SERIES, never to the signed-in user.
+ * A delegate reaches it through the existing meeting_host_delegates policy, and
+ * `meeting_slates` is UNIQUE (host_profile_id, month), which is what makes the
+ * draft shared rather than merely shareable.
+ *
+ * Multiple hosts is a real ambiguity, not something to guess at: a month can
+ * only be proposed against one calendar at a time, and silently picking one
+ * would put meetings on the wrong person's diary. It says so instead.
+ */
+export type SlateHostResult =
+  | { ok: true; hostProfileId: string; error?: undefined }
+  | { ok: false; hostProfileId?: undefined; error: string };
+
+export async function resolveSlateHostProfileId(
+  supabase: SupabaseClient,
+): Promise<SlateHostResult> {
+  const { data, error } = await supabase
+    .from('meeting_recurring_series')
+    .select('host_profile_id')
+    .eq('is_active', true);
+  if (error) return { ok: false, error: error.message };
+
+  const hosts = [
+    ...new Set(((data ?? []) as any[]).map((r) => r.host_profile_id).filter(Boolean)),
+  ] as string[];
+
+  if (hosts.length === 0) {
+    return {
+      ok: false,
+      error:
+        'No recurring series are set up yet, so there is no month to propose. Add them on the Recurring Series screen first.',
+    };
+  }
+  if (hosts.length > 1) {
+    return {
+      ok: false,
+      error:
+        `These recurring series belong to ${hosts.length} different people's calendars. ` +
+        'A month can only be proposed for one calendar at a time — set the same host on every series, or ask for a host picker.',
+    };
+  }
+  return { ok: true, hostProfileId: hosts[0] };
 }
 
 const SLATE_ITEM_COLUMNS =

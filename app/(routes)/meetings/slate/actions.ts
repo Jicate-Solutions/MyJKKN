@@ -24,6 +24,7 @@ import {
   generateMonthlySlate,
   isMonthKey,
   loadStoredSlate,
+  resolveSlateHostProfileId,
   type StoredSlate,
 } from '@/lib/services/meetings/monthly-slate-service';
 import { labelInstitutions } from '@/lib/utils/institutions/institution-labels';
@@ -64,8 +65,15 @@ export async function loadSlateContext(month?: string): Promise<ActionResult<Sla
     } = await supabase.auth.getUser();
     if (!user) return { success: false, error: 'You are not signed in.' };
 
+    // The month belongs to the SERIES HOST's calendar, not to whoever opened
+    // this page — Director's ruling 2026-09-14, one shared draft per month.
+    // With no series configured this returns an error; that is not a failure
+    // here, it just means there is no slate yet and the empty state shows.
+    const host = await resolveSlateHostProfileId(supabase);
+    const hostProfileId = host.ok ? host.hostProfileId : null;
+
     const [slate, institutionsRes, seriesCountRes] = await Promise.all([
-      loadStoredSlate(supabase, user.id, chosen),
+      hostProfileId ? loadStoredSlate(supabase, hostProfileId, chosen) : Promise.resolve(null),
       supabase
         .from('institutions')
         .select('id, name, display_name')
@@ -111,9 +119,16 @@ export async function generateSlate(month: string): Promise<ActionResult<StoredS
     } = await supabase.auth.getUser();
     if (!user) return { success: false, error: 'You are not signed in.' };
 
+    // One shared draft per month, keyed to the series host's calendar — NOT to
+    // the signed-in user. Two delegates preparing the same month must land on
+    // the SAME draft; two drafts can each be approved and that double-books
+    // everyone invited. `actorProfileId` still records who pressed the button.
+    const host = await resolveSlateHostProfileId(supabase);
+    if (!host.ok) return { success: false, error: host.error };
+
     const slate = await generateMonthlySlate(supabase, {
       month,
-      hostProfileId: user.id,
+      hostProfileId: host.hostProfileId,
       actorProfileId: user.id,
     });
 
