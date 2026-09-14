@@ -27,7 +27,7 @@ const CounsellingCodeCell = ({ row }: { row: Row<Institution> }) => {
   return canView ? (
     <Link
       href={`/organizations/institutions/${institution.id}`}
-      className='flex items-center hover:text-primary font-medium'
+      className='flex items-center min-h-[44px] hover:text-primary font-medium'
     >
       <Building2 className='mr-2 h-4 w-4' />
       {institution.counselling_code}
@@ -80,7 +80,7 @@ export const columns: ColumnDef<Institution>[] = [
       return (
         <Link
           href={`/organizations/institutions/${row.original.id}`}
-          className='font-medium hover:text-primary hover:underline'
+          className='inline-flex items-center min-h-[44px] font-medium hover:text-primary hover:underline'
         >
           {row.original.name}
         </Link>

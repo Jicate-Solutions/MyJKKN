@@ -321,6 +321,12 @@ export function OneMarkRunner({
         </p>
       )}
 
+      {!sitting.resumed && (sitting.expiredClosed?.length ?? 0) > 0 && (
+        <p className="mb-4 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+          Your earlier timed sitting ran out of time and was submitted as it stood. This is a fresh one.
+        </p>
+      )}
+
       {sitting.mode === 'vault_review' &&
         typeof sitting.requested === 'number' &&
         total < sitting.requested && (

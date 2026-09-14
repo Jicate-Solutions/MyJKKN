@@ -2699,18 +2699,18 @@ export default function AttendanceMarkPage() {
             </Card>
           ) : (
             <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4'>
-              {filteredStudents.map((student) => (
+              {filteredStudents.map((learner) => (
                 <Card
-                  key={student.id}
+                  key={learner.id}
                   className={cn(
                     'border-0 shadow-lg transition-all duration-200 hover:shadow-xl hover:-translate-y-1 cursor-pointer',
-                    attendanceData[student.id] === 'Present'
+                    attendanceData[learner.id] === 'Present'
                       ? 'bg-gradient-to-br from-green-50 to-emerald-50 border-l-4 border-l-green-500 dark:from-green-900/20 dark:to-emerald-900/20'
                       : 'bg-gradient-to-br from-red-50 to-rose-50 border-l-4 border-l-red-500 dark:from-red-900/20 dark:to-rose-900/20'
                   )}
                   onClick={() =>
                     !existingAttendance || isEditMode
-                      ? toggleAttendance(student.id)
+                      ? toggleAttendance(learner.id)
                       : null
                   }
                 >
@@ -2720,24 +2720,25 @@ export default function AttendanceMarkPage() {
                       <div className='relative'>
                         <Avatar className='h-16 w-16 ring-4 ring-white shadow-lg'>
                           <AvatarImage
-                            src={student.avatar_url}
-                            alt={`${student.first_name} ${student.last_name}`}
+                            src={learner.avatar_url}
+                            alt={learner.student_name || 'Unknown Learner'}
                           />
                           <AvatarFallback className='bg-gradient-to-br from-blue-500 to-purple-600 text-white font-semibold text-lg'>
-                            {student.first_name?.[0]?.toUpperCase()}
-                            {student.last_name?.[0]?.toUpperCase()}
+                            {/* Updated: 2026-09-12 (BUG-003176) - A learner with no name on file
+                                gets a visible '?' instead of an empty circle. */}
+                            {`${learner.first_name?.[0] ?? ''}${learner.last_name?.[0] ?? ''}`.toUpperCase() || '?'}
                           </AvatarFallback>
                         </Avatar>
                         {/* Status Indicator */}
                         <div
                           className={cn(
                             'absolute -bottom-1 -right-1 h-6 w-6 rounded-full border-2 border-white flex items-center justify-center shadow-md',
-                            attendanceData[student.id] === 'Present'
+                            attendanceData[learner.id] === 'Present'
                               ? 'bg-green-500'
                               : 'bg-red-500'
                           )}
                         >
-                          {attendanceData[student.id] === 'Present' ? (
+                          {attendanceData[learner.id] === 'Present' ? (
                             <Check className='h-3 w-3 text-white' />
                           ) : (
                             <X className='h-3 w-3 text-white' />
@@ -2749,12 +2750,12 @@ export default function AttendanceMarkPage() {
                       <div className='w-full'>
                         <div className='flex items-center justify-center gap-2'>
                           <h3 className='font-semibold text-gray-900 dark:text-gray-100 text-sm leading-tight'>
-                            {student.first_name} {student.last_name}
+                            {learner.student_name || 'Unknown Learner'}
                           </h3>
-                          {/* Updated: 2026-01-29 - Show leave indicator if student has approved leave */}
-                          {approvedLeaveMap.has(student.id) && (
+                          {/* Updated: 2026-01-29 - Show leave indicator if learner has approved leave */}
+                          {approvedLeaveMap.has(learner.id) && (
                             <StudentLeaveIndicatorCompact
-                              leaveInfo={approvedLeaveMap.get(student.id)!}
+                              leaveInfo={approvedLeaveMap.get(learner.id)!}
                             />
                           )}
                           {/* Updated: 2026-08-08 - fn_attendance_roster now returns
@@ -2763,7 +2764,7 @@ export default function AttendanceMarkPage() {
                               behaviour for another. lifecycle_status already rides
                               along on the roster row. */}
                           {isProvisionalAttendanceStatus(
-                            student.lifecycle_status
+                            learner.lifecycle_status
                           ) && <ProvisionalLearnerIndicatorCompact />}
                           {/* Updated: 2026-09-07 - Open this learner's own
                               attendance history. stopPropagation matters: the
@@ -2777,24 +2778,24 @@ export default function AttendanceMarkPage() {
                             className='shrink-0 rounded p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/40 dark:hover:text-blue-300 transition-colors'
                             onClick={(e) => {
                               e.stopPropagation();
-                              setHistoryLearner(student);
+                              setHistoryLearner(learner);
                             }}
                           >
                             <History className='h-3.5 w-3.5' />
                           </button>
                         </div>
                         <p className='text-xs text-gray-600 dark:text-gray-400 mt-1 font-medium'>
-                          Roll: {student.roll_number || 'N/A'}
+                          Roll: {learner.roll_number || 'N/A'}
                         </p>
                         {/* Updated: 2025-10-08 - Show section badge for multi-section slots */}
                         {contextData?.slot_sections &&
                           contextData.slot_sections.length > 1 &&
-                          student.section_name && (
+                          learner.section_name && (
                             <Badge
                               variant='outline'
                               className='text-xs mt-1 bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-700'
                             >
-                              {student.section_name}
+                              {learner.section_name}
                             </Badge>
                           )}
                       </div>
@@ -2802,14 +2803,14 @@ export default function AttendanceMarkPage() {
                       {/* Attendance Status */}
                       <Button
                         variant={
-                          attendanceData[student.id] === 'Present'
+                          attendanceData[learner.id] === 'Present'
                             ? 'default'
                             : 'destructive'
                         }
                         size='sm'
                         className={cn(
                           'w-full h-8 text-xs font-medium transition-all duration-200',
-                          attendanceData[student.id] === 'Present'
+                          attendanceData[learner.id] === 'Present'
                             ? 'bg-green-600 hover:bg-green-700 shadow-lg shadow-green-200'
                             : 'bg-red-600 hover:bg-red-700 shadow-lg shadow-red-200',
                           existingAttendance &&
@@ -2819,12 +2820,12 @@ export default function AttendanceMarkPage() {
                         onClick={(e) => {
                           e.stopPropagation();
                           if (!existingAttendance || isEditMode) {
-                            toggleAttendance(student.id);
+                            toggleAttendance(learner.id);
                           }
                         }}
                         disabled={existingAttendance && !isEditMode}
                       >
-                        {attendanceData[student.id] === 'Present' ? (
+                        {attendanceData[learner.id] === 'Present' ? (
                           <>
                             <UserCheck className='h-3 w-3 mr-1' />
                             Present
