@@ -17,21 +17,28 @@
 // reachable from the page, the client component and the tests.
 //
 // ── WHAT IS ACTUALLY IN THE DATABASE TODAY (verified 2026-09-14) ────────────
-// types/supabase.ts is generated from the live database, so it is the only
-// honest statement of what exists. Against jicate/main it says:
-//   grievance_tickets.is_anonymous       PRESENT
-//   grievance_tickets.anonymous_token    PRESENT
-//   grievance_categories.allow_anonymous ABSENT
-//   fn_track_issue_by_token()            ABSENT
+//   grievance_tickets.is_anonymous       PRESENT — ALREADY LIVE
+//   grievance_tickets.anonymous_token    PRESENT — ALREADY LIVE
+//   grievance_categories.allow_anonymous ABSENT  — pending
+//   fn_track_issue_by_token()            ABSENT  — pending
 //   fn_get_policy()                      PRESENT
-// The last two are written by supabase/migrations/20261103000000_instasolver_
-// substrate.sql, which is committed to main and whose own header records that
-// it has never applied (a version-string collision with
-// 20260504_ai_pulse_rls_hardening.sql meant it was recorded as done without
-// ever running). So every read below that touches the two absent objects is
-// written to survive their absence and to say so in words, rather than to
-// throw or to render a blank screen.
+//
+// The two live columns were added by
+// supabase/migrations/20260417000001_compliance_unification_substrate.sql
+// (lines 282-314), which HAS applied — so an anonymous filing can be WRITTEN
+// today. Only the two ABSENT objects are still pending, and they are written by
+// supabase/migrations/20261213100000_instasolver_substrate_v2.sql, which is
+// PR #3751's migration and not yet merged. (The earlier
+// 20261103000000_instasolver_substrate.sql is superseded by that v2 file and is
+// not the citation to follow.)
+//
+// So the split matters: writing an anonymous ticket works now; reading it back
+// by its code, and knowing WHICH categories permit it, do not. Every read below
+// that touches the two absent objects is written to survive their absence and
+// to say so in words, rather than to throw or to render a blank screen.
 // ============================================================================
+
+import type { RaisedByType } from '@/lib/types/grievance';
 
 /** Stamped as `metadata.source` on every ticket this lane creates. */
 export const INSTASOLVER_SOURCE = 'instasolver';
@@ -82,13 +89,20 @@ export function validateSubject(value: string): string | null {
  * change what the board writes, which is not this lane's job. This lane passes
  * its own answer in through the `raisedByType` option instead.
  *
- * The enum as generated from the live database is:
- *   super_admin | administrator | faculty | student | test | accounts |
- *   guest | driver | staff
- * 'parent' is not in it. It is still mapped, because the column is plain text
- * and a parent portal login is decision I1's fourth persona; if such a role
- * value ever reaches this function the answer should be the right one rather
- * than a silent fallback to learner.
+ * The ANSWER SET IS NOT FREE. `RaisedByType` in lib/types/grievance.ts is
+ * exactly `learner | parent | staff | alumni`, imported above rather than
+ * retyped so it cannot drift, and no row in grievance_tickets has ever carried
+ * any other value. A live CHECK constraint on the column cannot be ruled out
+ * from here, so a Senior Learner is recorded as `staff` — the value the column
+ * is known to accept — and NOT as `faculty`, which would be a value this
+ * platform has never written. The persona distinction that matters for a
+ * complaint is filer-versus-team-member, and `staff` carries it.
+ *
+ * `parent` is kept because it IS in the union and decision I1 names parents as
+ * a persona; today no parent login can reach this lane (the parent portal is a
+ * separate auth domain — proxy.ts handleParentPortal, a parent_session JWT, and
+ * /parent/* only), so this branch is the correct answer waiting for the route
+ * rather than a live path.
  */
 const TEAM_MEMBER_ROLES = new Set([
   'staff',
@@ -99,15 +113,18 @@ const TEAM_MEMBER_ROLES = new Set([
   'driver',
   'hod',
   'principal',
+  // Senior Learners. Same answer as every other team-member role, deliberately
+  // — see the note above on why `faculty` is not written to this column.
+  'faculty',
+  'teacher',
+  'professor',
+  'instructor',
 ]);
 
-const SENIOR_LEARNER_ROLES = new Set(['faculty', 'teacher', 'professor', 'instructor']);
-
-export function mapRoleToRaisedByType(role: string | null | undefined): string {
+export function mapRoleToRaisedByType(role: string | null | undefined): RaisedByType {
   const r = (role ?? '').trim().toLowerCase();
   if (r === 'parent') return 'parent';
   if (r === 'alumni') return 'alumni';
-  if (SENIOR_LEARNER_ROLES.has(r)) return 'faculty';
   if (TEAM_MEMBER_ROLES.has(r)) return 'staff';
   return 'learner';
 }
@@ -153,6 +170,26 @@ export interface ComplaintCategory {
 }
 
 /**
+ * Why this is discriminated rather than a bare array.
+ *
+ * An empty list and a failed read are DIFFERENT facts and the person needs
+ * different sentences for them: "your college has not set any up" is a thing to
+ * phone the helpdesk about, "we could not load them" is a thing to retry. The
+ * earlier shape returned `[]` for both, so a transient outage rendered as a
+ * settled configuration statement.
+ *
+ * `reason?: never` on the success arm is not decoration. tsconfig.json sets
+ * `strictNullChecks: false` for the Next 16 migration, and WITHOUT it TypeScript
+ * will not narrow a union by a BOOLEAN discriminant — `result.ok ? … : result
+ * .reason` is a TS2339 even inside the false arm (checked, not guessed). The
+ * optional-never keeps `ok` as the readable discriminant every call site already
+ * wants while letting the compiler see the property.
+ */
+export type ComplaintCategoriesResult =
+  | { ok: true; categories: ComplaintCategory[]; anonymousColumnPresent: boolean; reason?: never }
+  | { ok: false; reason: 'empty' | 'error' };
+
+/**
  * The two calls these helpers make, and nothing else, so they can be handed
  * either the caller's session client, the service-role client, or a stub in a
  * test. Written with METHOD syntax deliberately: method signatures are
@@ -173,11 +210,18 @@ interface MinimalQueryClient {
  * is no platform-wide category to include — the list is exactly this person's
  * institution. Asked for once here so the page, the client and the API all
  * agree on the same rule rather than each deciding for itself.
+ *
+ * CALL IT WITH THE SERVICE-ROLE CLIENT. The page and the API route must agree
+ * on the list, and they cannot if one reads under RLS and the other does not:
+ * an RLS policy that hides categories from a student would render an empty form
+ * and then accept nothing. The list is not a secret — it is the set of things
+ * the college invites complaints about — so reading it elevated costs no
+ * confidentiality, and it buys page-and-API agreement.
  */
 export async function readComplaintCategories(
   client: MinimalQueryClient,
   institutionId: string
-): Promise<{ categories: ComplaintCategory[]; anonymousColumnPresent: boolean }> {
+): Promise<ComplaintCategoriesResult> {
   const withColumn = await client
     .from('grievance_categories')
     .select('id, name, allow_anonymous')
@@ -187,7 +231,9 @@ export async function readComplaintCategories(
 
   if (!withColumn.error) {
     const rows = (withColumn.data ?? []) as Array<{ id: string; name: string; allow_anonymous: boolean | null }>;
+    if (rows.length === 0) return { ok: false, reason: 'empty' };
     return {
+      ok: true,
       anonymousColumnPresent: true,
       categories: rows.map((c) => ({ id: c.id, name: c.name, allow_anonymous: c.allow_anonymous === true })),
     };
@@ -195,7 +241,7 @@ export async function readComplaintCategories(
 
   if (withColumn.error?.code !== UNDEFINED_COLUMN) {
     console.error('[instasolver/complaint] category read failed:', withColumn.error?.message);
-    return { categories: [], anonymousColumnPresent: false };
+    return { ok: false, reason: 'error' };
   }
 
   // The column is not there yet. Read the list without it and mark every
@@ -209,14 +255,46 @@ export async function readComplaintCategories(
 
   if (plain.error) {
     console.error('[instasolver/complaint] category read failed:', plain.error.message);
-    return { categories: [], anonymousColumnPresent: false };
+    return { ok: false, reason: 'error' };
   }
 
   const rows = (plain.data ?? []) as Array<{ id: string; name: string }>;
+  if (rows.length === 0) return { ok: false, reason: 'empty' };
   return {
+    ok: true,
     anonymousColumnPresent: false,
     categories: rows.map((c) => ({ id: c.id, name: c.name, allow_anonymous: false })),
   };
+}
+
+/**
+ * What the no-name checkbox should be after a category has been chosen.
+ *
+ * Pure, and in this module rather than in the component, because the rule is a
+ * PROMISE and a promise that is quietly withdrawn is worse than one never made.
+ * The earlier form unmounted the checkbox when the chosen category did not
+ * permit anonymous filing, which left `anonymous` true in state, silently
+ * ignored at submit time: the person believed they had filed without a name and
+ * had not. This function makes the retraction a value the component must
+ * render.
+ */
+export interface AnonymousChoice {
+  /** Whether the no-name option can be honoured for the chosen category. */
+  allowed: boolean;
+  /** What the checkbox must now be set to. */
+  anonymous: boolean;
+  /** True when a tick the person had already made has just been taken away. */
+  retracted: boolean;
+}
+
+export function resolveAnonymousChoice(input: {
+  anonymousAvailable: boolean;
+  category: ComplaintCategory | null;
+  ticked: boolean;
+}): AnonymousChoice {
+  const allowed = input.anonymousAvailable && input.category?.allow_anonymous === true;
+  if (allowed) return { allowed: true, anonymous: input.ticked, retracted: false };
+  return { allowed: false, anonymous: false, retracted: input.ticked };
 }
 
 /**
@@ -232,6 +310,8 @@ export async function readComplaintCategories(
  *
  * Accepts the two shapes an admin could plausibly save the row in: a bare id
  * string, or an object carrying `profile_id` / `id`.
+ *
+ * A UUID-SHAPED ANSWER IS NOT ENOUGH — see {@link confirmProfileExists}.
  */
 export async function resolveSuperiorRouteProfileId(
   client: MinimalQueryClient
@@ -265,4 +345,47 @@ export async function resolveSuperiorRouteProfileId(
   if (typeof candidate !== 'string') return null;
   const id = candidate.trim();
   return UUID_RE.test(id) ? id : null;
+}
+
+/**
+ * Confirms the profile a policy names is actually there.
+ *
+ * WHY THE UUID SHAPE IS NOT SUFFICIENT. grievance_tickets.assigned_to carries a
+ * foreign key to profiles. A policy row still naming somebody who has left, or
+ * naming a profile in another institution that has since been removed, is
+ * perfectly UUID-shaped and raises SQLSTATE 23503 at INSERT — which fails the
+ * WHOLE insert. The complaint is then lost as a 400, and it is lost precisely
+ * in the I8 case: the complaint about the filer's own head of department, the
+ * one thing this lane exists to get right. Checking first turns a stale policy
+ * value into the unassigned-plus-notice branch, which the work-item generator
+ * hands to the institution's Director.
+ *
+ * MUST be given the SERVICE-ROLE client: the target is deliberately somebody
+ * senior and possibly outside the filer's institution, so a session-client read
+ * would return nothing under RLS and this would report "missing" for a profile
+ * that is present.
+ *
+ * Returns false on any error, for the same fail-closed reason as the policy
+ * read: an unassigned ticket is recoverable, a lost one is not.
+ */
+export async function confirmProfileExists(
+  client: MinimalQueryClient,
+  profileId: string
+): Promise<boolean> {
+  try {
+    const { data, error } = await client
+      .from('profiles')
+      .select('id')
+      .eq('id', profileId)
+      .maybeSingle();
+
+    if (error) {
+      console.error('[instasolver/complaint] superior-route profile check failed:', error.message);
+      return false;
+    }
+    return Boolean(data);
+  } catch (err) {
+    console.error('[instasolver/complaint] superior-route profile check threw:', err);
+    return false;
+  }
 }

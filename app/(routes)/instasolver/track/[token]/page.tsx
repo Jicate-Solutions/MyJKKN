@@ -10,14 +10,32 @@
 // raised_by_* column. It is granted to service_role and REVOKED from anon, so
 // it is called here with the elevated client and never from the browser.
 //
+// ── WHO CAN OPEN THIS URL ───────────────────────────────────────────────────
+// Behind the proxy.ts login gate; tokens are 192-bit; the per-IP rate-limit
+// contract in fn_track_issue_by_token's COMMENT applies to unauthenticated-
+// public callers, which this route is not. Verified rather than assumed:
+// proxy.ts (Next 16's middleware) lists no public path for /instasolver/track,
+// and a live probe of the deployed URL answers 307 to /auth/login. So there is
+// no anonymous code-guessing surface here to rate-limit; whoever reaches this
+// page has already authenticated as somebody.
+//
 // ── THE FUNCTION IS NOT IN THE DATABASE YET ─────────────────────────────────
-// It is written by supabase/migrations/20261103000000_instasolver_substrate.sql,
-// which is committed to main and has never applied (a version-string collision
-// meant it was recorded as done without running) — types/supabase.ts, generated
-// from the live database, contains no fn_track_issue_by_token. So the missing
-// -function case is a REAL state this page will be opened in, not a theoretical
-// one, and it gets its own sentence on screen rather than a blank page or a
-// redirect (rule #27).
+// The two ticket columns an anonymous filing writes — grievance_tickets
+// .is_anonymous and .anonymous_token — are ALREADY LIVE, added by
+// supabase/migrations/20260417000001_compliance_unification_substrate.sql
+// (lines 282-314), which has applied. Only two objects are still PENDING:
+// grievance_categories.allow_anonymous and fn_track_issue_by_token(), both
+// written by supabase/migrations/20261213100000_instasolver_substrate_v2.sql —
+// PR #3751's migration, not yet merged. types/supabase.ts, generated from the
+// live database, contains no fn_track_issue_by_token.
+//
+// So a complaint CAN be filed anonymously today and its code CANNOT yet be
+// looked up. The missing-function case is therefore a real state this page will
+// be opened in, not a theoretical one, and it gets its own sentence on screen
+// rather than a blank page or a redirect (rule #27) — and, critically, a
+// sentence DIFFERENT from the one shown for any other failure, because
+// "tracking is not switched on yet" and "the lookup just failed" are different
+// facts and only one of them is worth waiting for.
 
 import { AlertCircle, CheckCircle2, Clock, SearchX } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -45,7 +63,10 @@ interface TrackedIssue {
 type LookupOutcome =
   | { kind: 'found'; issue: TrackedIssue }
   | { kind: 'not-found' }
-  | { kind: 'not-ready' };
+  /** The lookup function is not in the database yet — a state worth waiting for. */
+  | { kind: 'not-ready' }
+  /** Anything else went wrong. Retryable, and not a claim about the migration. */
+  | { kind: 'error' };
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
@@ -113,15 +134,19 @@ async function lookup(token: string): Promise<LookupOutcome> {
     result = await rpc('fn_track_issue_by_token', { p_token: token });
   } catch (err) {
     console.error('[instasolver/track] lookup threw:', err);
-    return { kind: 'not-ready' };
+    return { kind: 'error' };
   }
 
   if (result.error) {
+    // ONLY the two missing-function codes may claim the migration is pending.
+    // Every other failure — a network blip, a permission change, a timeout —
+    // used to borrow that sentence and tell the person to wait for a database
+    // update that had in fact already landed.
     if (MISSING_FUNCTION_CODES.has(result.error.code ?? '')) {
       return { kind: 'not-ready' };
     }
     console.error('[instasolver/track] lookup failed:', result.error.message);
-    return { kind: 'not-ready' };
+    return { kind: 'error' };
   }
 
   const rows = Array.isArray(result.data) ? result.data : result.data ? [result.data] : [];
@@ -136,7 +161,25 @@ export default async function TrackIssuePage({
   params: Promise<{ token: string }>;
 }) {
   const { token } = await params;
-  const outcome = await lookup(decodeURIComponent(token ?? ''));
+
+  // NO decodeURIComponent. Next.js has already decoded the dynamic segment, so
+  // a second decode is both wrong (a literal % in a code would be eaten) and
+  // dangerous: `/instasolver/track/%` is not a valid escape sequence, so
+  // decodeURIComponent threw a URIError outside the try below and the framework
+  // answered 500 on a URL a person can reach by mistyping.
+  const outcome = token ? await lookup(token) : ({ kind: 'not-found' } as const);
+
+  if (outcome.kind === 'error') {
+    return (
+      <Shell>
+        <Notice
+          icon={<AlertCircle className="h-5 w-5 text-amber-600" />}
+          title="We couldn't check right now — try again in a minute. Your complaint is safe"
+          detail="Nothing has happened to your complaint. This page could not reach the record just now; the code stays valid."
+        />
+      </Shell>
+    );
+  }
 
   if (outcome.kind === 'not-ready') {
     return (

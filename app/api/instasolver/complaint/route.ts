@@ -43,12 +43,19 @@ import { LCIssueService } from '@/lib/services/learners-council/issue-service';
 import { validateGrievanceDescription } from '@/lib/validations/grievance-ticket';
 import {
   INSTASOLVER_SOURCE,
+  confirmProfileExists,
   mapRoleToRaisedByType,
   mintAnonymousToken,
   readComplaintCategories,
   resolveSuperiorRouteProfileId,
   validateSubject,
 } from '@/lib/instasolver/complaint';
+
+/**
+ * How LCIssueService spells a raw database failure. Anything else it throws is
+ * a BUG-01 refusal written for the person filing.
+ */
+const RAW_CREATE_FAILURE_PREFIX = 'Failed to create issue:';
 
 function fail(error: string, status: number, extra?: Record<string, unknown>) {
   return NextResponse.json({ success: false, error, ...extra }, { status });
@@ -128,7 +135,17 @@ export async function POST(request: NextRequest) {
   // ── The category must be this person's own institution's ──────────────────
   // grievance_categories.institution_id is NOT NULL in the live schema, so
   // there are no platform-wide categories to admit alongside them.
-  const { categories, anonymousColumnPresent } = await readComplaintCategories(admin, institutionId);
+  const categoryResult = await readComplaintCategories(admin, institutionId);
+
+  // An empty list and a failed read are different answers and get different
+  // sentences — the first is a configuration fact, the second is a retry.
+  if (!categoryResult.ok) {
+    return categoryResult.reason === 'empty'
+      ? fail('Your college has not set up any complaint types yet — contact the IT helpdesk.', 422)
+      : fail("We couldn't load the complaint types right now — try again in a minute.", 503);
+  }
+
+  const { categories, anonymousColumnPresent } = categoryResult;
   const category = categories.find((c) => c.id === categoryId);
 
   if (!category) {
@@ -162,10 +179,28 @@ export async function POST(request: NextRequest) {
   const extraMetadata: Record<string, unknown> = {};
 
   if (aboutSuperior) {
-    assignedTo = await resolveSuperiorRouteProfileId(supabase);
-    if (assignedTo) {
+    const routeTo = await resolveSuperiorRouteProfileId(supabase);
+
+    // A UUID-shaped policy value is not proof the profile still exists, and
+    // grievance_tickets.assigned_to carries a foreign key to profiles: a stale
+    // value raises SQLSTATE 23503 and fails the WHOLE insert, losing the
+    // complaint as a 400 — in exactly the I8 case this lane exists to protect.
+    // Checked with the elevated client because the target is deliberately
+    // somebody senior and possibly outside the filer's institution, so a
+    // session read would see nothing and report a present profile as missing.
+    const routeToExists = routeTo ? await confirmProfileExists(admin, routeTo) : false;
+
+    if (routeTo && routeToExists) {
+      assignedTo = routeTo;
       extraMetadata.routing = 'superior_bypass';
     } else {
+      if (routeTo && !routeToExists) {
+        console.error(
+          '[instasolver/complaint] superior-route policy names a profile that is not in profiles:',
+          routeTo
+        );
+        extraMetadata.route_policy_profile_missing = true;
+      }
       // Fails closed as UNASSIGNED, which the work-item generator hands to the
       // institution's Director — never back to the person it is about.
       extraMetadata.route_pending_policy = true;
@@ -195,9 +230,22 @@ export async function POST(request: NextRequest) {
       }
     );
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Your complaint could not be filed.';
-    console.error('[instasolver/complaint] create failed:', message);
-    return fail(message, 400);
+    console.error('[instasolver/complaint] create failed:', err);
+
+    // BUG-01 kept: describeCheckConstraintViolation's refusals are written FOR
+    // the person and are safe to show — the description rule is the one a filer
+    // can act on. Everything else arrives from LCIssueService as
+    // `Failed to create issue: <raw postgres message>`, which names columns,
+    // constraints and sometimes values, and must never reach a browser.
+    const raw = err instanceof Error ? err.message : '';
+    const isRawDatabaseError = raw === '' || raw.startsWith(RAW_CREATE_FAILURE_PREFIX);
+
+    return fail(
+      isRawDatabaseError
+        ? "We couldn't save your complaint. Nothing was filed. Try again, or contact the IT helpdesk."
+        : raw,
+      400
+    );
   }
 
   const ticketNumber = ticket?.ticket_number ?? null;

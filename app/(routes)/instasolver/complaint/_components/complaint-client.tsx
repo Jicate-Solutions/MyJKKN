@@ -9,9 +9,11 @@
  *
  * Two checkboxes carry the two decisions that make this different from the
  * Learners Council board:
- *   I7  "File without my name" — shown ONLY for a complaint type that permits
- *       it, because offering concealment and then refusing it at submit time
- *       is worse than never offering it.
+ *   I7  "File without my name" — offered only where it can be honoured, and
+ *       when it cannot, SHOWN DISABLED with the reason in words. It used to be
+ *       unmounted instead, which left a tick the person had made sitting in
+ *       state and silently ignored at submit time: they believed they had filed
+ *       without a name and they had not. The retraction is now explicit.
  *   I8  "This is about my HOD or manager" — sends it past them.
  *
  * The description rule is mirrored from the database through
@@ -43,6 +45,7 @@ import {
 import {
   SUBJECT_MAX_LENGTH,
   characterCount,
+  resolveAnonymousChoice,
   validateSubject,
   type ComplaintCategory,
 } from '@/lib/instasolver/complaint';
@@ -51,6 +54,12 @@ interface ComplaintClientProps {
   categories: ComplaintCategory[];
   /** False while the per-type anonymous setting is not in the database yet. */
   anonymousAvailable: boolean;
+  /**
+   * Why there is no list to choose from, when there is none. An empty list and
+   * a failed read need different sentences — one is a thing to phone the
+   * helpdesk about, the other a thing to retry.
+   */
+  loadFailure: 'empty' | 'error' | null;
 }
 
 interface Filed {
@@ -60,13 +69,22 @@ interface Filed {
   notice: string | null;
 }
 
-export function ComplaintClient({ categories, anonymousAvailable }: ComplaintClientProps) {
+/** The sentence shown whenever the chosen type cannot be filed without a name. */
+const NAME_REQUIRED_SENTENCE =
+  'This category cannot be filed without a name — your name will be attached.';
+
+export function ComplaintClient({
+  categories,
+  anonymousAvailable,
+  loadFailure,
+}: ComplaintClientProps) {
   const { toast } = useToast();
 
   const [categoryId, setCategoryId] = useState<string>('');
   const [subject, setSubject] = useState('');
   const [description, setDescription] = useState('');
   const [anonymous, setAnonymous] = useState(false);
+  const [anonymousRetracted, setAnonymousRetracted] = useState(false);
   const [aboutSuperior, setAboutSuperior] = useState(false);
   const [touched, setTouched] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -78,9 +96,22 @@ export function ComplaintClient({ categories, anonymousAvailable }: ComplaintCli
     [categories, categoryId]
   );
 
-  // The no-name option appears only where it can actually be honoured.
-  const canFileWithoutName = anonymousAvailable && chosen?.allow_anonymous === true;
+  const canFileWithoutName =
+    resolveAnonymousChoice({ anonymousAvailable, category: chosen, ticked: false }).allowed;
   const effectiveAnonymous = anonymous && canFileWithoutName;
+
+  /**
+   * Changing the type can withdraw the no-name promise. When it does, the tick
+   * is cleared HERE — so state and screen agree — and the withdrawal is put on
+   * screen rather than discovered at submit time.
+   */
+  function handleCategoryChange(nextId: string) {
+    setCategoryId(nextId);
+    const next = categories.find((c) => c.id === nextId) ?? null;
+    const choice = resolveAnonymousChoice({ anonymousAvailable, category: next, ticked: anonymous });
+    setAnonymous(choice.anonymous);
+    setAnonymousRetracted(choice.retracted);
+  }
 
   const subjectError = validateSubject(subject);
   const descriptionError = validateGrievanceDescription(description);
@@ -200,8 +231,8 @@ export function ComplaintClient({ categories, anonymousAvailable }: ComplaintCli
                 ) : null}
               </div>
               <p className="text-xs text-muted-foreground">
-                Your name is not attached to this complaint. Nobody can look it up for you, so if
-                you lose the code it cannot be recovered.
+                Your name is not shown on the complaint. Nobody can look it up for you, so if you
+                lose the code it cannot be recovered.
               </p>
             </div>
           ) : null}
@@ -215,6 +246,7 @@ export function ComplaintClient({ categories, anonymousAvailable }: ComplaintCli
               setSubject('');
               setDescription('');
               setAnonymous(false);
+              setAnonymousRetracted(false);
               setAboutSuperior(false);
               setTouched(false);
             }}
@@ -230,19 +262,27 @@ export function ComplaintClient({ categories, anonymousAvailable }: ComplaintCli
   return (
     <Card className="mt-4">
       <CardContent className="space-y-6 py-6">
-        {categories.length === 0 ? (
+        {loadFailure === 'empty' ? (
           <div className="flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50 p-3 dark:bg-amber-950/30">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
             <p className="text-sm">
-              Your college has not set up any complaint types yet, so there is nothing to file
-              against. Contact the IT helpdesk.
+              Your college has not set up any complaint types yet — contact the IT helpdesk.
+            </p>
+          </div>
+        ) : null}
+
+        {loadFailure === 'error' ? (
+          <div className="flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50 p-3 dark:bg-amber-950/30">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+            <p className="text-sm">
+              We couldn&apos;t load the complaint types right now — try again in a minute.
             </p>
           </div>
         ) : null}
 
         <div className="space-y-2">
           <Label htmlFor="complaint-category">What is this about?</Label>
-          <Select value={categoryId} onValueChange={setCategoryId}>
+          <Select value={categoryId} onValueChange={handleCategoryChange}>
             <SelectTrigger id="complaint-category" className="w-full">
               <SelectValue placeholder="Choose one" />
             </SelectTrigger>
@@ -293,23 +333,43 @@ export function ComplaintClient({ categories, anonymousAvailable }: ComplaintCli
           ) : null}
         </div>
 
-        {canFileWithoutName ? (
-          <div className="flex items-start gap-3 rounded-md border p-3">
-            <Checkbox
-              id="complaint-anonymous"
-              checked={anonymous}
-              onCheckedChange={(v) => setAnonymous(v === true)}
-            />
-            <div className="space-y-1">
-              <Label htmlFor="complaint-anonymous" className="font-medium">
-                File without my name
-              </Label>
+        {/* Mounted whether or not it can be used, so a withdrawn promise is
+            visible instead of vanishing off the screen. */}
+        <div className="flex items-start gap-3 rounded-md border p-3">
+          <Checkbox
+            id="complaint-anonymous"
+            checked={anonymous}
+            disabled={!canFileWithoutName}
+            onCheckedChange={(v) => {
+              setAnonymous(v === true);
+              setAnonymousRetracted(false);
+            }}
+          />
+          <div className="space-y-1">
+            <Label
+              htmlFor="complaint-anonymous"
+              className={canFileWithoutName ? 'font-medium' : 'font-medium text-muted-foreground'}
+            >
+              File without my name
+            </Label>
+            {canFileWithoutName ? (
               <p className="text-sm text-muted-foreground">
-                You&apos;ll get a private code to check progress. Nobody sees who filed.
+                You&apos;ll get a private code to check progress. Your name is not shown on the
+                complaint.
               </p>
-            </div>
+            ) : (
+              <p className="text-sm text-amber-700 dark:text-amber-400">
+                {!anonymousAvailable
+                  ? 'Filing without a name opens once the database update lands. Until then your name will be attached.'
+                  : !chosen
+                    ? 'Choose what this is about first — some complaint types can be filed without a name.'
+                    : anonymousRetracted
+                      ? `You had asked to file without your name. ${NAME_REQUIRED_SENTENCE}`
+                      : NAME_REQUIRED_SENTENCE}
+              </p>
+            )}
           </div>
-        ) : null}
+        </div>
 
         <div className="flex items-start gap-3 rounded-md border p-3">
           <Checkbox
@@ -322,7 +382,8 @@ export function ComplaintClient({ categories, anonymousAvailable }: ComplaintCli
               This is about my HOD or manager
             </Label>
             <p className="text-sm text-muted-foreground">
-              It will skip them and go to senior management.
+              It will skip them and go to senior management — or to central review if that route is
+              not set up yet.
             </p>
           </div>
         </div>
@@ -346,7 +407,7 @@ export function ComplaintClient({ categories, anonymousAvailable }: ComplaintCli
           {effectiveAnonymous ? (
             <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <ShieldCheck className="h-4 w-4" />
-              No name attached
+              Name not shown
             </span>
           ) : null}
         </div>

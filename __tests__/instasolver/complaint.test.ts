@@ -7,9 +7,11 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import {
   SUBJECT_MAX_LENGTH,
+  confirmProfileExists,
   mapRoleToRaisedByType,
   mintAnonymousToken,
   readComplaintCategories,
+  resolveAnonymousChoice,
   resolveSuperiorRouteProfileId,
   validateSubject,
 } from '@/lib/instasolver/complaint';
@@ -37,10 +39,27 @@ describe('raised_by_type mapping', () => {
     expect(mapRoleToRaisedByType('parent')).toBe('parent');
   });
 
-  it('records a Senior Learner under their own persona, not as a learner', () => {
+  it('never writes a value outside the column’s own union', () => {
+    // RaisedByType is learner | parent | staff | alumni and no row has ever
+    // carried anything else. A Senior Learner is therefore recorded as a team
+    // member — NOT as 'faculty', which would be a value this platform has never
+    // written and which a live CHECK constraint cannot be ruled out for.
+    const allowed = new Set(['learner', 'parent', 'staff', 'alumni']);
+    for (const role of [
+      'faculty', 'teacher', 'professor', 'instructor', 'student', 'staff',
+      'administrator', 'super_admin', 'accounts', 'driver', 'guest', 'test',
+      'parent', 'alumni', 'nonsense', '', null, undefined,
+    ]) {
+      expect(allowed.has(mapRoleToRaisedByType(role))).toBe(true);
+    }
+  });
+
+  it('records a Senior Learner as a team member, not as a learner', () => {
     // The Learners Council board's own mapping answers 'learner' here, which is
     // the gap this lane's mapping closes.
-    expect(mapRoleToRaisedByType('faculty')).toBe('faculty');
+    for (const role of ['faculty', 'teacher', 'professor', 'instructor']) {
+      expect(mapRoleToRaisedByType(role)).toBe('staff');
+    }
   });
 
   it('records every team-member role as one persona', () => {
@@ -57,7 +76,7 @@ describe('raised_by_type mapping', () => {
   });
 
   it('is not confused by case or stray spacing', () => {
-    expect(mapRoleToRaisedByType(`  ${'faculty'.toUpperCase()} `)).toBe('faculty');
+    expect(mapRoleToRaisedByType(`  ${'faculty'.toUpperCase()} `)).toBe('staff');
   });
 });
 
@@ -83,10 +102,12 @@ describe('anonymous filing when the per-category rule is missing', () => {
       { data: [{ id: 'c1', name: 'Hostel' }], error: null },
     ]);
 
-    const { categories, anonymousColumnPresent } = await readComplaintCategories(client, 'inst-1');
+    const result = await readComplaintCategories(client, 'inst-1');
 
-    expect(anonymousColumnPresent).toBe(false);
-    expect(categories).toEqual([{ id: 'c1', name: 'Hostel', allow_anonymous: false }]);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.anonymousColumnPresent).toBe(false);
+    expect(result.categories).toEqual([{ id: 'c1', name: 'Hostel', allow_anonymous: false }]);
   });
 
   it('carries the rule through when the column is there', async () => {
@@ -101,10 +122,89 @@ describe('anonymous filing when the per-category rule is missing', () => {
       },
     ]);
 
-    const { categories, anonymousColumnPresent } = await readComplaintCategories(client, 'inst-1');
+    const result = await readComplaintCategories(client, 'inst-1');
 
-    expect(anonymousColumnPresent).toBe(true);
-    expect(categories.map((c) => c.allow_anonymous)).toEqual([true, false, false]);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.anonymousColumnPresent).toBe(true);
+    expect(result.categories.map((c) => c.allow_anonymous)).toEqual([true, false, false]);
+  });
+});
+
+describe('an empty list and a failed read are different answers', () => {
+  it('says empty when the college has set none up', async () => {
+    const result = await readComplaintCategories(queryClient([{ data: [], error: null }]), 'inst-1');
+    expect(result).toEqual({ ok: false, reason: 'empty' });
+  });
+
+  it('says empty, not error, when the column is absent AND the list is bare', async () => {
+    const result = await readComplaintCategories(
+      queryClient([
+        { data: null, error: { code: '42703', message: 'column does not exist' } },
+        { data: [], error: null },
+      ]),
+      'inst-1'
+    );
+    expect(result).toEqual({ ok: false, reason: 'empty' });
+  });
+
+  it('says error when the read fails — never an empty list, which reads as a settled fact', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const result = await readComplaintCategories(
+      queryClient([{ data: null, error: { code: '57014', message: 'canceling statement' } }]),
+      'inst-1'
+    );
+    expect(result).toEqual({ ok: false, reason: 'error' });
+  });
+
+  it('says error when the fallback read fails too', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const result = await readComplaintCategories(
+      queryClient([
+        { data: null, error: { code: '42703', message: 'column does not exist' } },
+        { data: null, error: { code: '42501', message: 'permission denied' } },
+      ]),
+      'inst-1'
+    );
+    expect(result).toEqual({ ok: false, reason: 'error' });
+  });
+});
+
+describe('the no-name promise is never withdrawn in silence', () => {
+  const anon = { id: 'c1', name: 'Harassment', allow_anonymous: true };
+  const named = { id: 'c2', name: 'Fees', allow_anonymous: false };
+
+  it('honours the tick on a type that permits it', () => {
+    expect(
+      resolveAnonymousChoice({ anonymousAvailable: true, category: anon, ticked: true })
+    ).toEqual({ allowed: true, anonymous: true, retracted: false });
+  });
+
+  it('reports the retraction when the new type does not permit it', () => {
+    // This is the bug: the tick used to stay true in state while the checkbox
+    // unmounted, so the filing went out with the person's name on it and they
+    // were never told.
+    expect(
+      resolveAnonymousChoice({ anonymousAvailable: true, category: named, ticked: true })
+    ).toEqual({ allowed: false, anonymous: false, retracted: true });
+  });
+
+  it('does not cry retraction when nothing was ticked', () => {
+    expect(
+      resolveAnonymousChoice({ anonymousAvailable: true, category: named, ticked: false })
+    ).toEqual({ allowed: false, anonymous: false, retracted: false });
+  });
+
+  it('refuses the option before a type has been chosen', () => {
+    expect(
+      resolveAnonymousChoice({ anonymousAvailable: true, category: null, ticked: false }).allowed
+    ).toBe(false);
+  });
+
+  it('refuses the option entirely while the column is absent, even on a permitting type', () => {
+    expect(
+      resolveAnonymousChoice({ anonymousAvailable: false, category: anon, ticked: true })
+    ).toEqual({ allowed: false, anonymous: false, retracted: true });
   });
 });
 
@@ -157,5 +257,55 @@ describe('subject bounds', () => {
 
   it('refuses a title beyond the maximum', () => {
     expect(validateSubject('a'.repeat(SUBJECT_MAX_LENGTH + 1))).not.toBeNull();
+  });
+});
+
+describe('a stale I8 policy value must not lose the complaint', () => {
+  const uuid = '583f39e2-8334-4028-ba72-e4aadfdf7483';
+
+  /** A `from()` chain that resolves on maybeSingle(). */
+  function profileClient(response: { data?: unknown; error?: unknown }) {
+    const chain: Record<string, unknown> = {};
+    const step = () => chain;
+    chain.select = step;
+    chain.eq = step;
+    chain.maybeSingle = () => Promise.resolve(response as { data: unknown; error: unknown });
+    return {
+      from: () => chain as never,
+      rpc: () => Promise.resolve({ data: null, error: null }),
+    };
+  }
+
+  it('confirms a profile that is there', async () => {
+    await expect(
+      confirmProfileExists(profileClient({ data: { id: uuid }, error: null }), uuid)
+    ).resolves.toBe(true);
+  });
+
+  it('reports a deleted or cross-institution id as absent', async () => {
+    // grievance_tickets.assigned_to has a foreign key to profiles, so writing
+    // this id would raise 23503 and fail the whole insert — losing the one
+    // complaint this lane most needs to keep.
+    await expect(
+      confirmProfileExists(profileClient({ data: null, error: null }), uuid)
+    ).resolves.toBe(false);
+  });
+
+  it('fails closed when the check itself errors', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(
+      confirmProfileExists(profileClient({ data: null, error: { message: 'boom' } }), uuid)
+    ).resolves.toBe(false);
+  });
+
+  it('fails closed when the check throws', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const thrower = {
+      from: () => {
+        throw new Error('socket closed');
+      },
+      rpc: () => Promise.resolve({ data: null, error: null }),
+    };
+    await expect(confirmProfileExists(thrower, uuid)).resolves.toBe(false);
   });
 });

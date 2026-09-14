@@ -10,16 +10,21 @@
 // because without a college there is nowhere to send the complaint. The API
 // route re-checks both; this page is the fast version of the same answer.
 //
-// Until the menu entry ships in its own change, this path is not in
-// MENU_PERMISSIONS, which leaves it reachable only to super admins. That is
-// the safe direction to be unfinished in.
+// WHO CAN REACH THIS URL TODAY — checked, not assumed. Until the menu entry
+// ships in its own change (PR #3743) this path is not in MENU_PERMISSIONS, and
+// an UNMAPPED path is OPEN, not closed: lib/auth/route-matcher.ts:313 returns
+// true when it finds no config for a path. So every authenticated staff-flow
+// role can open this page right now — which is decision I1's intent anyway, so
+// the gap is safe rather than merely unfinished. It is written down here
+// because the opposite ("unmapped means super-admin only") is the natural
+// assumption and it is wrong.
 
 import { AlertCircle } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { PageHeader } from '@/components/page-header';
 import { Card, CardContent } from '@/components/ui/card';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { readComplaintCategories } from '@/lib/instasolver/complaint';
 import { ComplaintClient } from './_components/complaint-client';
 
@@ -79,10 +84,16 @@ export default async function InstaSolverComplaintPage() {
     );
   }
 
-  // Read with the caller's own session — the category list is not a secret and
-  // this page needs nothing the person cannot already see.
-  const { categories, anonymousColumnPresent } = await readComplaintCategories(
-    supabase,
+  // Read with the SERVICE-ROLE client, the same way app/api/instasolver/
+  // complaint/route.ts reads it. The page and the API have to agree on this
+  // list: if the page read it under RLS and the API read it elevated, an RLS
+  // policy that hid a category would render a form missing an option the API
+  // would happily have accepted — or, worse, an empty form on a college that
+  // has categories. The list is not a secret (it is the set of things the
+  // college invites complaints about), so reading it elevated costs no
+  // confidentiality. Read-only, in a server component.
+  const categoryResult = await readComplaintCategories(
+    createServiceRoleClient(),
     profile.institution_id
   );
 
@@ -96,8 +107,9 @@ export default async function InstaSolverComplaintPage() {
         />
       </div>
       <ComplaintClient
-        categories={categories}
-        anonymousAvailable={anonymousColumnPresent}
+        categories={categoryResult.ok ? categoryResult.categories : []}
+        anonymousAvailable={categoryResult.ok ? categoryResult.anonymousColumnPresent : false}
+        loadFailure={categoryResult.ok ? null : categoryResult.reason}
       />
     </ContentLayout>
   );
