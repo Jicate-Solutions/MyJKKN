@@ -353,13 +353,15 @@ describe('parseLearnerReport', () => {
  * ------------------------------------------------------------------ */
 
 describe('try-out defect 2 — the learner report reads the live RPC shape', () => {
-  const STUDENT = '08f23565-4f0f-4fe8-b2e2-43a892afdb85';
+  const LEARNER_ID = '08f23565-4f0f-4fe8-b2e2-43a892afdb85';
+const LEARNER_NAME = 'Test Learner';
+const LEARNER_GRADE = '12';
   /** Exactly what production returned on 2026-09-12 before the fix. */
   const liveBefore = {
-    student_id: STUDENT,
+    student_id: LEARNER_ID,
     exam_definition_id: EXAM,
     progress: {
-      student_id: STUDENT,
+      student_id: LEARNER_ID,
       exam_definition_id: EXAM,
       current_mastery_avg: null,
       current_topics: [],
@@ -372,9 +374,9 @@ describe('try-out defect 2 — the learner report reads the live RPC shape', () 
     ],
   };
 
-  it('takes the ids from the bare scalars when there is no student / exam object', () => {
+  it('takes the ids from the bare scalars when there is no learner / exam object', () => {
     const r = parseLearnerReport(liveBefore);
-    expect(r.student.id).toBe(STUDENT);
+    expect(r.student.id).toBe(LEARNER_ID);
     expect(r.exam.id).toBe(EXAM);
   });
 
@@ -386,15 +388,15 @@ describe('try-out defect 2 — the learner report reads the live RPC shape', () 
   });
 
   it('reads the name and class from the fp_students spellings the route now supplies', () => {
-    const r = parseLearnerReport({ ...liveBefore, student: { id: STUDENT, full_name: 'Test Student', grade: '12' } });
-    expect(r.student.name).toBe('Test Student');
+    const r = parseLearnerReport({ ...liveBefore, student: { id: LEARNER_ID, full_name: LEARNER_NAME, grade: LEARNER_GRADE } });
+    expect(r.student.name).toBe(LEARNER_NAME);
     expect(r.student.cohort_label).toBe('Class 12');
   });
 
   it('reads the 20261212090000 payload: counts merged into progress, topics labelled by display_name, exam by display_name', () => {
     const r = parseLearnerReport({
       ...liveBefore,
-      student: { id: STUDENT, full_name: 'Test Student', grade: '12' },
+      student: { id: LEARNER_ID, full_name: LEARNER_NAME, grade: LEARNER_GRADE },
       exam: { id: EXAM, config_key: 'tn_hsc_physics', display_name: 'TN State Board — HSC Physics (Class 12)' },
       progress: { ...liveBefore.progress, attempted: 5, correct: 2, skipped: 1 },
       topics: [{ topic_id: '2fad3ea2', label: 'Unit 1: Electrostatics', total: 5, correct: 2, skipped: 1 }],

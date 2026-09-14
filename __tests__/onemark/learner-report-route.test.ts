@@ -10,7 +10,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
 let currentUser: { id: string } | null = { id: 'user-1' };
-let studentRow: Record<string, unknown> | null = null;
+let learnerRow: Record<string, unknown> | null = null;
 let selectedColumns = '';
 let rpcResult: { data: unknown; error: unknown } = { data: null, error: null };
 
@@ -28,7 +28,7 @@ vi.mock('@/lib/supabase/server', () => ({
           if (table === 'fp_students') selectedColumns = cols;
           return {
             eq: () => ({
-              maybeSingle: () => Promise.resolve({ data: studentRow, error: null }),
+              maybeSingle: () => Promise.resolve({ data: learnerRow, error: null }),
             }),
           };
         },
@@ -39,26 +39,28 @@ vi.mock('@/lib/supabase/server', () => ({
 
 import { GET } from '@/app/api/foundation/onemark/results/learner/[studentId]/route';
 
-const STUDENT = '08f23565-4f0f-4fe8-b2e2-43a892afdb85';
+const LEARNER_ID = '08f23565-4f0f-4fe8-b2e2-43a892afdb85';
+const LEARNER_NAME = 'Test Learner';
+const LEARNER_GRADE = '12';
 const EXAM = 'b72a99f1-eca9-4531-92df-29831e1ef6ef';
 
 /** What production's fn_onemark_learner_report returned on 2026-09-12. */
 const liveRpcPayload = {
-  student_id: STUDENT,
+  student_id: LEARNER_ID,
   exam_definition_id: EXAM,
-  progress: { student_id: STUDENT, exam_definition_id: EXAM, current_mastery_avg: null, current_topics: [] },
+  progress: { student_id: LEARNER_ID, exam_definition_id: EXAM, current_mastery_avg: null, current_topics: [] },
   vault: { active: 2, mastered: 0, due_now: 2, next_due_at: null },
   sittings: [{ attempt_id: 'a3', mode: 'timed', status: 'submitted', score: 2, out_of: 5 }],
 };
 
-function call(studentId = STUDENT, exam = EXAM) {
+function call(studentId = LEARNER_ID, exam = EXAM) {
   const req = new NextRequest(`http://x/api/foundation/onemark/results/learner/${studentId}?exam=${exam}`);
   return GET(req, { params: Promise.resolve({ studentId }) });
 }
 
 beforeEach(() => {
   currentUser = { id: 'user-1' };
-  studentRow = { id: STUDENT, full_name: 'Test Student', grade: '12' };
+  learnerRow = { id: LEARNER_ID, full_name: LEARNER_NAME, grade: LEARNER_GRADE };
   selectedColumns = '';
   rpcResult = { data: liveRpcPayload, error: null };
 });
@@ -68,8 +70,8 @@ describe('learner report route — defect 2 half A, the header has a name', () =
     const res = await call();
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.report.student.name).toBe('Test Student');
-    expect(body.report.student.id).toBe(STUDENT);
+    expect(body.report.student.name).toBe(LEARNER_NAME);
+    expect(body.report.student.id).toBe(LEARNER_ID);
     expect(body.report.student.cohort_label).toBe('Class 12');
     expect(body.report.exam.id).toBe(EXAM);
   });
@@ -79,11 +81,11 @@ describe('learner report route — defect 2 half A, the header has a name', () =
     expect(selectedColumns).toContain('full_name');
   });
 
-  it('lets an RPC that does send a student object win, and passes its counts through', async () => {
+  it('lets an RPC that does send a learner object win, and passes its counts through', async () => {
     rpcResult = {
       data: {
         ...liveRpcPayload,
-        student: { id: STUDENT, full_name: 'Test Student', grade: '12' },
+        student: { id: LEARNER_ID, full_name: LEARNER_NAME, grade: LEARNER_GRADE },
         exam: { id: EXAM, config_key: 'tn_hsc_physics', display_name: 'HSC Physics' },
         progress: { ...liveRpcPayload.progress, attempted: 5, correct: 2, skipped: 1 },
         topics: [{ topic_id: 't1', label: 'Unit 1: Electrostatics', total: 5, correct: 2 }],
@@ -91,21 +93,21 @@ describe('learner report route — defect 2 half A, the header has a name', () =
       error: null,
     };
     const body = await (await call()).json();
-    expect(body.report.student.name).toBe('Test Student');
+    expect(body.report.student.name).toBe(LEARNER_NAME);
     expect(body.report.exam.name).toBe('HSC Physics');
     expect(body.report.progress).toEqual({ attempted: 5, correct: 2, accuracy: 40 });
     expect(body.report.topics[0].label).toBe('Unit 1: Electrostatics');
   });
 
   it('still refuses a learner the session cannot see — the name read is the access check, not a bypass', async () => {
-    studentRow = null;
+    learnerRow = null;
     const res = await call();
     expect(res.status).toBe(403);
   });
 
   it('still rejects a missing exam id before touching the database', async () => {
-    const req = new NextRequest(`http://x/api/foundation/onemark/results/learner/${STUDENT}`);
-    const res = await GET(req, { params: Promise.resolve({ studentId: STUDENT }) });
+    const req = new NextRequest(`http://x/api/foundation/onemark/results/learner/${LEARNER_ID}`);
+    const res = await GET(req, { params: Promise.resolve({ studentId: LEARNER_ID }) });
     expect(res.status).toBe(400);
     expect(selectedColumns).toBe('');
   });
