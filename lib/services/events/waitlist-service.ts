@@ -25,7 +25,7 @@
 //               database trigger is what makes that single-use: it refuses any
 //               exit from 'offered' that does not present the matching code,
 //               and it consumes the code in the statement that does.
-//   5. LAPSE.   48 hours with no claim → the next settle marks the row
+//   5. LAPSE.   24 hours with no claim → the next settle marks the row
 //               'expired' and offers the place to whoever is next.
 //
 // REGISTRATION FIRST, CLAIM SECOND — the order matters. While the registration

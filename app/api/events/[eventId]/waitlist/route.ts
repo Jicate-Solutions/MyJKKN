@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 // Nobody is added, promoted or removed from here, on purpose: people join the
 // queue through the public registration door, a freed place is offered by the
 // database, a held place is taken up through that same door or lapses after
-// 48 hours. Opening this view is one of the moments the queue is settled and
+// 24 hours. Opening this view is one of the moments the queue is settled and
 // pending offers are announced.
 //
 // Failure is explicit (house rule #27): a denial returns { success:false,

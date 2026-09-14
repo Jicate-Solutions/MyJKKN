@@ -192,7 +192,7 @@ export function EventWaitlistCard({ eventId }: { eventId: string }) {
         {panel.offered_count > 0 && (
           <p className="rounded-md bg-muted/60 p-3 text-xs text-muted-foreground">
             A held place counts as taken until that person sends the registration form
-            while signed in, or until the hold lapses 48 hours after it was made — then
+            while signed in, or until the hold lapses 24 hours after it was made — then
             the place is offered to the next person automatically. They are told in
             MyJKKN; nobody has to phone anybody.
           </p>

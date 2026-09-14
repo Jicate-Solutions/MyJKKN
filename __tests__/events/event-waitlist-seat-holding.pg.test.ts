@@ -168,7 +168,7 @@ async function sqlstate(sql: string, params: unknown[] = []): Promise<string | n
  * which correctly refuses to alter a live offer's deadline. Superuser-only and
  * test-only: session_replication_role = replica silences user triggers for the
  * statement. This is the one place the suite goes around the trigger, and it
- * does so to simulate 48 hours passing, not to change what the trigger allows.
+ * does so to simulate 24 hours passing, not to change what the trigger allows.
  */
 async function lapse(waitlistId: string) {
   await client.query(`SET session_replication_role = replica`);
@@ -286,7 +286,7 @@ describe('the table only holds signed-in people, born waiting', () => {
 });
 
 describe('a freed place is offered to the head of the queue, and held', () => {
-  it('cancelling A promotes C only, mints a code, sets a 48h deadline, and the place counts as taken', async () => {
+  it('cancelling A promotes C only, mints a code, sets a 24h deadline, and the place counts as taken', async () => {
     expect(await taken()).toBe(2);
 
     await q(`UPDATE public.events_registrations SET status = 'cancelled' WHERE id = $1`, [ids.regA]);
@@ -304,7 +304,7 @@ describe('a freed place is offered to the head of the queue, and held', () => {
          FROM public.event_registration_waitlist WHERE id = $1`,
       [c.id]
     );
-    expect(Number(hours[0].h)).toBeCloseTo(48, 3);
+    expect(Number(hours[0].h)).toBeCloseTo(24, 3);
 
     // One registration left (B) plus one held place (C's offer) = 2 = full.
     expect(await taken()).toBe(2);
@@ -524,7 +524,7 @@ describe('CONCURRENCY: two claimants for one held place — exactly one wins', (
 });
 
 describe('THE HOLD LAPSES: an unclaimed offer expires and the place moves on', () => {
-  it('after 48h a late claim is refused, the place stops counting, and settle offers it to the next person', async () => {
+  it('after 24h a late claim is refused, the place stops counting, and settle offers it to the next person', async () => {
     // Free a place so E (the last waiter) is offered it.
     await q(`UPDATE public.events_registrations SET status = 'cancelled' WHERE id = $1`, [ids.regB]);
     const e = await row(ids.personE);

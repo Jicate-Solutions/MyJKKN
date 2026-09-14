@@ -193,7 +193,7 @@ export function EventRegisterForm({
         <p className="mt-1 text-sm text-muted-foreground">{queued.message}</p>
         <p className="mt-3 text-xs text-muted-foreground">
           If a place frees up it is offered to whoever is at the front of the queue and
-          held for them for 48 hours. You will be told in MyJKKN — then come back to this
+          held for them for 24 hours. You will be told in MyJKKN — then come back to this
           page, signed in, and send the form again to take the place up.
         </p>
       </div>
@@ -226,7 +226,7 @@ export function EventRegisterForm({
           <p className="mt-1 text-xs text-muted-foreground">
             {claimOnly
               ? 'Registration has otherwise closed. Send this form to take the place up before the hold lapses.'
-              : 'Send this form to join the waiting list. If a place frees up it is offered to whoever is at the front and held for them for 48 hours — or, if a place is already being held for you, sending this takes it up.'}
+              : 'Send this form to join the waiting list. If a place frees up it is offered to whoever is at the front and held for them for 24 hours — or, if a place is already being held for you, sending this takes it up.'}
           </p>
         </div>
       )}

@@ -21,7 +21,7 @@
 --   * when a place frees, the head of the queue is OFFERED it and the place is
 --     HELD for them (an outstanding offer counts as taken);
 --   * they take it up through the ordinary registration door;
---   * the hold LAPSES after 48 hours if they do not, and the place is offered
+--   * the hold LAPSES after 24 hours if they do not, and the place is offered
 --     to the next person.
 --
 -- FOR SIGNED-IN REGISTRANTS ONLY. `profile_id` is NOT NULL: a row cannot exist
@@ -51,7 +51,7 @@
 --     waiting ──(place frees: fn_event_waitlist_settle)──▶ offered
 --     waiting ──(registered through the ordinary door)───▶ registered
 --     offered ──(presents the matching code, in time)────▶ registered
---     offered ──(48h pass, settle sweeps it)─────────────▶ expired
+--     offered ──(24h pass, settle sweeps it)─────────────▶ expired
 --     registered, expired: terminal.
 --
 -- Every other transition is refused. While a row is 'offered' its code and its
@@ -152,7 +152,7 @@ COMMENT ON COLUMN public.event_registration_waitlist.claim_code IS
 COMMENT ON COLUMN public.event_registration_waitlist.claim_code_presented IS
   'Write-only. A claim writes the code it holds here; the trigger compares it with claim_code and nulls it on every write, so it is always NULL at rest.';
 COMMENT ON COLUMN public.event_registration_waitlist.offer_expires_at IS
-  'When the hold lapses: offered_at + 48 hours, set by the trigger, immutable. Past it the offer neither holds a place nor can be taken up; fn_event_waitlist_settle marks it expired and offers the place to the next person.';
+  'When the hold lapses: offered_at + 24 hours (Director's ruling, 2026-09-14), set by the trigger, immutable. Past it the offer neither holds a place nor can be taken up; fn_event_waitlist_settle marks it expired and offers the place to the next person.';
 
 CREATE INDEX idx_event_registration_waitlist_queue
   ON public.event_registration_waitlist (event_id, queue_seq);
@@ -360,7 +360,7 @@ BEGIN
 
     NEW.claim_code       := v_candidate;
     NEW.offered_at       := now();
-    NEW.offer_expires_at := now() + interval '48 hours';
+    NEW.offer_expires_at := now() + interval '24 hours';
     NEW.registration_id  := NULL;
     NEW.notified_at      := NULL;
   END IF;
@@ -402,7 +402,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.fn_event_registration_waitlist_guard() IS
-  'The waiting-list state machine. waiting→offered (mints the claim token, sets the 48h deadline), waiting→registered (with registration_id), offered→registered ONLY when claim_code_presented equals the stored claim_code and the deadline has not passed (the code is consumed in that statement), offered→expired only past the deadline. Everything else — including nulling or altering the code of an outstanding offer — is refused with 42501. claim_code_presented is nulled on every write.';
+  'The waiting-list state machine. waiting→offered (mints the claim token, sets the 24h deadline), waiting→registered (with registration_id), offered→registered ONLY when claim_code_presented equals the stored claim_code and the deadline has not passed (the code is consumed in that statement), offered→expired only past the deadline. Everything else — including nulling or altering the code of an outstanding offer — is refused with 42501. claim_code_presented is nulled on every write.';
 
 CREATE TRIGGER tr_event_registration_waitlist_guard
   BEFORE INSERT OR UPDATE ON public.event_registration_waitlist
@@ -466,7 +466,7 @@ GRANT  EXECUTE ON FUNCTION public.fn_event_waitlist_taken(uuid) TO service_role;
 -- cannot offer one free place to two people. Offers ONE row per free place, in
 -- queue order, and refuses to offer at all on a draft/cancelled/completed event
 -- or after the registration window has shut — an offer nobody can take would
--- hold its seat for the whole 48 hours for nothing. Expiring stale offers is
+-- hold its seat for the whole 24 hours for nothing. Expiring stale offers is
 -- always done, whatever the event's state.
 --
 -- Does NOT notify. Announcing the offer is the application's job through the
