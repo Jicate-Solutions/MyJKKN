@@ -181,6 +181,15 @@ export class AttendancePeriodService {
    * there is no way round it — resolving every request first is compulsory, and
    * the RPC takes no override argument. The caller should surface the message
    * verbatim: it names the count.
+   *
+   * THAT COUNT SPANS TWO TABLES. Comp off is a booking in hr_leave_applications
+   * AND a claim in hr_comp_off_credits, and until 2026-09-08 only the first was
+   * counted here while the console counted neither — Nursing's August read "1
+   * outstanding" on screen and refused to close over 8. Both now count both.
+   *
+   * Send exactly these three arguments. A 5-argument force overload existed
+   * until 2026-09-08 and PostgREST could not choose between them, which broke
+   * every close; adding an argument to this call would resurrect the ambiguity.
    */
   static async lock(
     supabase: SupabaseClient,

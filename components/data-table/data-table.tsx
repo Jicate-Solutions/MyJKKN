@@ -14,6 +14,7 @@ import {
   type ColumnDef,
   type ColumnResizeMode
 } from '@tanstack/react-table';
+import { useRouter } from 'next/navigation';
 import { useEffect, useCallback, useMemo, useRef, useState } from 'react';
 
 import {
@@ -51,6 +52,7 @@ import {
   createSortingState
 } from './utils/table-state-handlers';
 import { createKeyboardNavigationHandler } from './utils/keyboard-navigation';
+import { getRowNavigationProps } from './utils/row-navigation';
 import { createConditionalStateHook } from './utils/conditional-state';
 import {
   initializeColumnSizes,
@@ -108,6 +110,19 @@ interface DataTableProps<TData extends ExportableData, TValue> {
   // rendered (but hidden) so TanStack Table's pagination state is shared.
   renderMobileRow?: (item: TData) => React.ReactNode;
 
+  // Optional: make the whole row open a destination, the way a phone list
+  // behaves. Return the href for a row, or null for a row with nowhere to go.
+  //
+  // OMIT IT and nothing changes — the row renders the exact props it rendered
+  // before this prop existed (no `cursor-pointer`, no click handler beyond the
+  // pre-existing `enableClickRowSelect` one, no key handler). Every table that
+  // does not pass `rowHref` is therefore untouched.
+  //
+  // Taps that start on a link, button, tick box or menu still belong to that
+  // control; modified clicks (cmd/ctrl/shift/alt/middle) are left to the
+  // browser so open-in-new-tab keeps working on the real <a> in the row.
+  rowHref?: (row: TData) => string | null;
+
   // Data fetching function
   fetchDataFn:
     | ((params: DataFetchParams) => Promise<DataFetchResult<TData>>)
@@ -149,6 +164,13 @@ interface DataTableProps<TData extends ExportableData, TValue> {
   // ID field in TData for tracking selected items
   idField: keyof TData;
 
+  // Columns hidden on FIRST load, as { columnId: false }. Omit and every column
+  // shows, which is what every existing table expects — this only gives a wide
+  // table (the salary register carries 27) a readable opening state. After the
+  // first change the choice lives in the URL like any other table state, so a
+  // shared link still carries what the sender was looking at.
+  initialColumnVisibility?: Record<string, boolean>;
+
   // Custom page size options
   pageSizeOptions?: number[];
 
@@ -172,11 +194,14 @@ export function DataTable<TData extends ExportableData, TValue>({
   fetchAllItemsFn,
   exportConfig,
   idField = 'id' as keyof TData,
+  initialColumnVisibility,
   pageSizeOptions,
   renderToolbarContent,
   renderMobileRow,
+  rowHref,
   refetchKey = 0
 }: DataTableProps<TData, TValue>) {
+  const router = useRouter();
   // Load table configuration with any overrides
   const tableConfig = useTableConfig(config);
 
@@ -207,7 +232,7 @@ export function DataTable<TData extends ExportableData, TValue>({
   );
   const [columnVisibility, setColumnVisibility] = useConditionalUrlState<
     Record<string, boolean>
-  >('columnVisibility', {});
+  >('columnVisibility', initialColumnVisibility ?? {});
   const [columnFilters, setColumnFilters] = useConditionalUrlState<
     Array<{ id: string; value: unknown }>
   >('columnFilters', []);
@@ -1160,44 +1185,55 @@ export function DataTable<TData extends ExportableData, TValue>({
               ))
             ) : table.getRowModel().rows?.length ? (
               // Data rows
-              table.getRowModel().rows.map((row, rowIndex) => (
-                <TableRow
-                  key={row.id}
-                  id={`row-${rowIndex}`}
-                  data-row-index={rowIndex}
-                  data-state={row.getIsSelected() ? 'selected' : undefined}
-                  tabIndex={0}
-                  aria-selected={row.getIsSelected()}
-                  onClick={
-                    tableConfig.enableClickRowSelect
-                      ? () => row.toggleSelected()
-                      : undefined
-                  }
-                  onFocus={(e) => {
-                    // Add a data attribute to the currently focused row
-                    for (const el of document.querySelectorAll(
-                      '[data-focused="true"]'
-                    )) {
-                      el.removeAttribute('data-focused');
-                    }
-                    e.currentTarget.setAttribute('data-focused', 'true');
-                  }}
-                >
-                  {row.getVisibleCells().map((cell, cellIndex) => (
-                    <TableCell
-                      className='px-4 py-2 truncate max-w-0 text-left'
-                      key={cell.id}
-                      id={`cell-${rowIndex}-${cellIndex}`}
-                      data-cell-index={cellIndex}
-                    >
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext()
-                      )}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
+              table.getRowModel().rows.map((row, rowIndex) => {
+                // No `rowHref` -> `{ onClick: toggleSelected }` or `{}`, i.e.
+                // exactly the props this row carried before row navigation
+                // existed. Only a table that opts in gets the rest.
+                const rowNavProps = getRowNavigationProps({
+                  href: rowHref ? rowHref(row.original) : null,
+                  navigate: (href) => router.push(href),
+                  onSelect: tableConfig.enableClickRowSelect
+                    ? () => row.toggleSelected()
+                    : undefined
+                });
+
+                return (
+                  <TableRow
+                    key={row.id}
+                    id={`row-${rowIndex}`}
+                    data-row-index={rowIndex}
+                    data-state={row.getIsSelected() ? 'selected' : undefined}
+                    tabIndex={0}
+                    aria-selected={row.getIsSelected()}
+                    className={rowNavProps.className}
+                    onClick={rowNavProps.onClick}
+                    onKeyDown={rowNavProps.onKeyDown}
+                    onFocus={(e) => {
+                      // Add a data attribute to the currently focused row
+                      for (const el of document.querySelectorAll(
+                        '[data-focused="true"]'
+                      )) {
+                        el.removeAttribute('data-focused');
+                      }
+                      e.currentTarget.setAttribute('data-focused', 'true');
+                    }}
+                  >
+                    {row.getVisibleCells().map((cell, cellIndex) => (
+                      <TableCell
+                        className='px-4 py-2 truncate max-w-0 text-left'
+                        key={cell.id}
+                        id={`cell-${rowIndex}-${cellIndex}`}
+                        data-cell-index={cellIndex}
+                      >
+                        {flexRender(
+                          cell.column.columnDef.cell,
+                          cell.getContext()
+                        )}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                );
+              })
             ) : (
               // No results
               <TableRow>

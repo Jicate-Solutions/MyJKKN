@@ -171,19 +171,18 @@ export class HousekeepingTypeService {
     }
   }
 
-  /** Active types whose category set includes this room's category. */
-  static async listBookableTypesForRoom(roomId: string): Promise<CleaningTypeWithDetail[]> {
+  /**
+   * Active types whose category set includes the resident's BILLED category.
+   *
+   * 2026-11-28: this used to resolve the category from the SEATED room. A
+   * category may now seat its learners in another category's rooms
+   * (hostel_category_room_sources), so a Premium resident can sleep in a Deluxe
+   * room — and the benefit has to follow what they paid for, not where the bed
+   * is. fn_cl_housekeeping_book reads the same axis, so this list and the RPC
+   * still agree.
+   */
+  static async listBookableTypesForCategory(categoryId: string): Promise<CleaningTypeWithDetail[]> {
     try {
-      const { data: room, error: roomErr } = await this.supabase
-        .from('hostel_rooms')
-        .select('category_id')
-        .eq('id', roomId)
-        .maybeSingle();
-      if (roomErr) {
-        logger.error(LOG, 'Failed to read room category', roomErr);
-        throw roomErr;
-      }
-      const categoryId = (room as { category_id: string | null } | null)?.category_id;
       // No category => nothing is bookable. Fails closed, matching the RPC.
       if (!categoryId) return [];
 
@@ -208,7 +207,7 @@ export class HousekeepingTypeService {
           expected_cost_inr: 0,
         }));
     } catch (error) {
-      logger.error(LOG, `Unexpected error in listBookableTypesForRoom: ${getErrorMessage(error)}`, error);
+      logger.error(LOG, `Unexpected error in listBookableTypesForCategory: ${getErrorMessage(error)}`, error);
       throw error;
     }
   }

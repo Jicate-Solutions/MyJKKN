@@ -4,6 +4,7 @@
 // ============================================
 
 import { z } from 'zod';
+import { CERTIFICATE_TEMPLATE_KEYS, type CertificateTemplateKey } from '@/lib/certificates/registry';
 
 // ---------- Enums ----------
 
@@ -114,6 +115,11 @@ export interface ServiceType {
   degree_ids: string[] | null;
   department_ids: string[] | null;
   program_ids: string[] | null;
+  /**
+   * Certificate templates (lib/certificates/registry.ts keys) office staff may
+   * generate once a request of this type is approved. Empty = none.
+   */
+  certificate_template_keys: CertificateTemplateKey[];
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -267,6 +273,7 @@ export interface CreateServiceTypeDto {
   degree_ids?: string[];
   department_ids?: string[];
   program_ids?: string[];
+  certificate_template_keys?: CertificateTemplateKey[];
   fields: CreateServiceTypeFieldDto[];
   approval_steps: CreateApprovalStepDto[];
 }
@@ -416,6 +423,9 @@ export const createServiceTypeSchema = z.object({
   degree_ids: z.array(z.string().uuid()).optional().nullable(),
   department_ids: z.array(z.string().uuid()).optional().nullable(),
   program_ids: z.array(z.string().uuid()).optional().nullable(),
+  certificate_template_keys: z
+    .array(z.enum(CERTIFICATE_TEMPLATE_KEYS as [CertificateTemplateKey, ...CertificateTemplateKey[]]))
+    .default([]),
   fields: z.array(serviceTypeFieldSchema).min(1, 'At least one field required'),
   approval_steps: z.array(approvalStepSchema).min(1, 'At least one approval step required'),
 }).refine((data) => {

@@ -29,6 +29,7 @@ import {
 import type { IsoDayOfWeek } from '@/types/hr-shift-timings';
 import type {
   AssignWorkPatternResult,
+  HRWorkPatternDayHours,
   HRWorkPatternInsert,
   HRWorkPatternUpdate,
   SetWorkPatternDaysResult,
@@ -152,6 +153,8 @@ export function useSetWorkPatternDays() {
       workingDays: IsoDayOfWeek[];
       effectiveFrom: string;
       notes?: string | null;
+      /** Omit to carry existing hours forward; `[]` clears them. */
+      dayHours?: HRWorkPatternDayHours[];
     }): Promise<SetWorkPatternDaysOutcome> => {
       const result = await WorkPatternService.setDays(supabase, params);
 

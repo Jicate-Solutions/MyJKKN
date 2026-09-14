@@ -386,7 +386,13 @@ export class LearnerHosteliteService {
         profileId
           ? supabase
               .from('hostel_gate_passes')
-              .select('id, pass_number, status, out_time, in_time, purpose, created_at')
+              // Columns only. This asked for `in_time` and `purpose`, and
+              // neither has ever existed on this table — the select failed
+              // with 42703 inside the Promise.all, so this whole bundle was
+              // broken, not just its gate-pass slice.
+              .select(
+                'id, pass_number, status, planned_out_at, out_time, actual_return, destination, created_at',
+              )
               .eq('learner_id', profileId)
               .order('created_at', { ascending: false })
               .limit(5)
@@ -650,12 +656,24 @@ export class LearnerHosteliteService {
   // annotated with readiness flags and a human-readable missing_items list so
   // the admin can see at a glance why each student isn't placed yet.
   // ~231 rows today; loaded in full and filtered client-side.
-  static async listUnallocated(institutionId?: string): Promise<UnallocatedCandidate[]> {
+  /**
+   * @param institutionIds a SET of colleges, for a caller whose scope is not a
+   *   single institution — a block-scoped warden reaches the colleges their
+   *   assigned blocks serve, which is always more than one. Applied on top of
+   *   institutionId (both are ANDed server-side), so pass one or the other.
+   */
+  static async listUnallocated(
+    institutionId?: string,
+    institutionIds?: string[],
+  ): Promise<UnallocatedCandidate[]> {
     try {
       const supabase = createClientSupabaseClient();
       const { data, error } = await (supabase as any).rpc(
         'fn_hostel_unallocated_candidates',
-        { p_institution_id: institutionId ?? null },
+        {
+          p_institution_id: institutionId ?? null,
+          p_institution_ids: institutionIds?.length ? institutionIds : null,
+        },
       );
       if (error) {
         logger.error('campus-living/learner-hostelite', 'listUnallocated failed', error);

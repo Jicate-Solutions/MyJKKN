@@ -453,11 +453,10 @@ export class DataEntryService {
   ): Promise<Array<{ id: string; name: string }>> {
     const { data, error } = await supabase
       .from('institutions')
-      // Only institutions that are IN the HR module. The !inner embed is the
-      // intended row-drop here, not the usual silent-loss hazard: an excluded
-      // institution must not be offered as a choice.
-      .select('id, name, hr_organizations!inner(included_in_hr)')
-      .eq('hr_organizations.included_in_hr', true)
+      // Every institution, hr_organizations.included_in_hr or not. Recruitment
+      // is group-wide — that flag gates the HR module proper (leave, payroll,
+      // attendance) and no recruitment table carries its RLS gate.
+      .select('id, name')
       .order('name');
     if (error) throw new Error(`Failed to list institutions: ${error.message}`);
     return data ?? [];

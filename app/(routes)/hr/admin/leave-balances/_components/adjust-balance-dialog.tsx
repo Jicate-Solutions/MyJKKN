@@ -46,6 +46,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { LeaveMonthlyLedger } from '@/components/hr/leave-monthly-ledger';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useAdjustLeaveBalance } from '@/hooks/hr/use-hr-leave-types';
 import { getErrorMessage } from '@/lib/utils';
 import type {
@@ -114,21 +115,28 @@ function AdjustForm({
 }) {
   const { staff, leaveType, cell } = target;
 
-  // SUPER ADMIN ONLY, for both levers and for the month-wise editor.
+  // SUPER ADMIN, OR A HOLDER OF hr.leave.balance.adjust (2026-09-08).
   //
-  // Previously used days needed hr.leave.policies.write and entitlement needed
-  // hr.leave.balance.manage. Both RPCs now check is_super_admin() instead
-  // (20260906130000 / 20260906130100), so deriving the UI from those keys would
-  // show controls the server refuses. Gate on isSuperAdmin, never on a key.
-  // Mirrors the SERVER's check exactly. public.is_super_admin() reads ONLY
-  // profiles.is_super_admin -- it does NOT accept role = 'super_admin', unlike
-  // the `is_super_admin === true || role === 'super_admin'` pattern used
-  // elsewhere in this app. The two agree in the data today (15 profiles each,
-  // no divergence), but widening here would offer controls the RPC then refuses.
+  // 20260906130000 had made every lever super-admin only, and this gate read
+  // `isSuperAdmin` alone. 20260908200000 gave them back to the HR Head through a
+  // NEW, narrow key rather than by reopening hr.leave.policies.write or
+  // hr.leave.balance.manage — those reach seven roles and through user_roles and
+  // Director handovers besides, which is exactly why they were abandoned here.
+  //
+  // MIRRORS THE SERVER'S CHECK EXACTLY, which is the only rule that matters on
+  // this screen: both RPCs now test
+  //   is_super_admin() OR user_has_permission('hr.leave.balance.adjust')
+  // so anything else shown here would be a control the server refuses.
+  //
+  // profiles.is_super_admin, NOT role === 'super_admin': public.is_super_admin()
+  // reads only that column and does not accept the role string, unlike the
+  // pattern used elsewhere in this app.
   const { profile, isLoading: permsLoading } = useAuth();
-  const isSuperAdmin = profile?.is_super_admin === true;
-  const canSetUsed = isSuperAdmin;
-  const canSetEntitlement = isSuperAdmin;
+  const { canAccess } = usePermissions();
+  const canAdjust =
+    profile?.is_super_admin === true || canAccess('hr.leave.balance', 'adjust');
+  const canSetUsed = canAdjust;
+  const canSetEntitlement = canAdjust;
 
   const mutation = useAdjustLeaveBalance();
 

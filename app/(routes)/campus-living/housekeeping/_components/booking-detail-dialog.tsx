@@ -11,22 +11,37 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { Loader2, Star } from 'lucide-react';
-import { useBookingDetail } from '@/hooks/campus-living/use-housekeeping-bookings';
+import { CalendarClock, Loader2, Star } from 'lucide-react';
+import {
+  useBookingDetail,
+  useDeleteBookingPhoto,
+} from '@/hooks/campus-living/use-housekeeping-bookings';
+import { RESCHEDULE_REASON_LABEL } from '@/lib/services/campus-living/housekeeping-rules';
 import { formatCurrency } from '@/lib/utils';
 import { STATUS_LABEL, STATUS_TONE, bookingDateLabel, hhmm } from './booking-status';
+import { PhotoPhaseGallery } from './photo-phase-gallery';
 import type { BookingBoardRow, PhotoPhase } from '@/types/campus-living/housekeeping';
 
 interface Props {
   booking: BookingBoardRow | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** campus_living.housekeeping.execute — the key hk_photos_delete gates on. */
+  canExecute?: boolean;
+  /** Bumped when a photo is removed, so the table's counts move with it. */
+  onChanged?: () => void;
 }
 
-const PHASE_LABEL: Record<PhotoPhase, string> = { before: 'Before', after: 'After' };
 
-export function BookingDetailDialog({ booking, open, onOpenChange }: Props) {
+export function BookingDetailDialog({
+  booking,
+  open,
+  onOpenChange,
+  canExecute = false,
+  onChanged,
+}: Props) {
   const { data, isLoading } = useBookingDetail(open ? booking?.id : undefined);
+  const deletePhoto = useDeleteBookingPhoto();
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -192,35 +207,85 @@ export function BookingDetailDialog({ booking, open, onOpenChange }: Props) {
               {/* Photos. Streamed through our own origin — Drive rejects
                   cross-origin hotlinks even for anyone:reader files, and these
                   are not link-shared at all. */}
-              <section className='space-y-2'>
-                <h3 className='text-sm font-semibold'>Photos</h3>
+              <section className='space-y-3'>
+                <h3 className='text-sm font-semibold'>
+                  Photos
+                  {data.photos.length > 0 && (
+                    <span className='ml-1 font-normal text-muted-foreground'>
+                      ({data.photos.length})
+                    </span>
+                  )}
+                </h3>
                 {data.photos.length === 0 ? (
                   <p className='text-sm text-muted-foreground'>
                     No photos uploaded for this cleaning.
                   </p>
                 ) : (
-                  <div className='grid grid-cols-2 gap-3 sm:grid-cols-3'>
-                    {data.photos.map((p) => (
-                      <figure key={p.id} className='space-y-1'>
-                        {/* Plain <img>, not next/image: the source is an
-                            AUTHENTICATED proxy route. next/image would fetch it
-                            through Next's optimizer server-side, without the
-                            viewer's cookies, and every photo would 401. Same
-                            reason as rate-cleaning-card.tsx on the learner side. */}
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={`/api/campus-living/housekeeping/photos/${p.id}/image`}
-                          alt={`${PHASE_LABEL[p.phase]} cleaning photo`}
-                          className='aspect-video w-full rounded-md border bg-muted object-cover'
-                        />
-                        <figcaption className='text-xs text-muted-foreground'>
-                          {PHASE_LABEL[p.phase]} · {formatStamp(p.uploaded_at)}
-                        </figcaption>
-                      </figure>
-                    ))}
-                  </div>
+                  // Grouped per phase: "three before, one after" is what is
+                  // actually being checked here, and a flat grid makes that a
+                  // counting exercise.
+                  (['before', 'after'] as PhotoPhase[]).map((ph) => (
+                    <PhotoPhaseGallery
+                      key={ph}
+                      phase={ph}
+                      photos={data.photos.filter((p) => p.phase === ph)}
+                      canDelete={canExecute}
+                      deletingId={deletePhoto.isPending ? deletePhoto.variables?.photoId : null}
+                      onDelete={(photoId) => {
+                        if (!booking) return;
+                        deletePhoto.mutate(
+                          { photoId, bookingId: booking.id },
+                          { onSuccess: () => onChanged?.() },
+                        );
+                      }}
+                      formatStamp={formatStamp}
+                    />
+                  ))
                 )}
               </section>
+
+              {/* Every move this booking has made. Absent for most bookings, so
+                  the whole section only appears once there is something to say. */}
+              {data.reschedules.length > 0 && (
+                <>
+                  <Separator />
+                  <section className='space-y-2'>
+                    <h3 className='flex items-center gap-2 text-sm font-semibold'>
+                      <CalendarClock className='h-4 w-4' />
+                      Changes to this booking
+                    </h3>
+                    <ul className='space-y-2'>
+                      {data.reschedules.map((r) => (
+                        <li key={r.id} className='rounded-md border p-3'>
+                          <p className='text-sm'>
+                            <span className='text-muted-foreground line-through'>
+                              {bookingDateLabel(r.from_date)} {hhmm(r.from_slot_start)}
+                            </span>
+                            {' → '}
+                            <span className='font-medium'>
+                              {bookingDateLabel(r.to_date)} {hhmm(r.to_slot_start)}–
+                              {hhmm(r.to_slot_end)}
+                            </span>
+                          </p>
+                          <p className='mt-1 text-sm'>{RESCHEDULE_REASON_LABEL[r.reason_code]}</p>
+                          {r.reason_note && (
+                            <p className='mt-1 text-sm text-muted-foreground'>{r.reason_note}</p>
+                          )}
+                          {r.from_cleaner_name !== r.to_cleaner_name && (
+                            <p className='mt-1 text-xs text-muted-foreground'>
+                              Cleaner: {r.from_cleaner_name ?? 'none'} →{' '}
+                              {r.to_cleaner_name ?? 'none'}
+                            </p>
+                          )}
+                          <p className='mt-1 text-xs text-muted-foreground'>
+                            {r.rescheduled_by_name ?? 'A warden'} · {formatStamp(r.created_at)}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                </>
+              )}
 
               <Separator />
 

@@ -33,7 +33,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useApplication } from '@/hooks/hr/use-recruitment';
 import { useAlumniSignalBulk } from '@/hooks/hr/use-alumni-signal-bulk';
-import { useHrInstitutionsWithAccess } from '@/hooks/hr/use-hr-institutions';
+import { useRecruitmentInstitutions } from '@/hooks/hr/use-recruitment-institutions';
 import { AlumniSignalLine } from '../../_components/alumni-signal-line';
 import {
   JOB_APPLICATION_STATUS_LABELS,
@@ -124,7 +124,7 @@ export default function ApplicationDetailPage() {
     ? alumniMap?.[application.email.toLowerCase().trim()] ?? null
     : null;
 
-  const { institutions } = useHrInstitutionsWithAccess();
+  const { institutions } = useRecruitmentInstitutions();
   const institutionName = useMemo(
     () => institutions.find((i) => i.id === application?.institution_id)?.name,
     [institutions, application?.institution_id],

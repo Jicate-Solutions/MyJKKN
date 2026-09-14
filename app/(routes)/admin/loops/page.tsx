@@ -47,6 +47,16 @@ import {
   WaitingOnDirectorPanel,
   loadWaitingOnDirector,
 } from './_components/waiting-on-director';
+import {
+  CounselorBriefingPanel,
+  loadCounselorBriefingSummary,
+} from './_components/counselor-briefing-panel';
+import {
+  classifyLoopOwnerProfiles,
+  escapeLikePattern,
+  type LoopOwnerProfileCandidate,
+  type LoopOwnerStatus,
+} from '@/lib/services/loops/loop-owner-fallback';
 import { staleThresholdMs, isAlarmStatus } from '@/lib/ai-routines/loop-governance';
 import { getRoutineById } from '@/lib/ai-routines/registry';
 import type {
@@ -434,6 +444,11 @@ export default async function LoopControlTowerPage({
   // graduations + charter drafts). Tower view only; every source swallows to
   // empty, same contract as the reads above.
   const waitingItems = view === 'tower' ? await loadWaitingOnDirector(admin) : [];
+
+  // Counselor briefing effect — the counter-metric the Director ruled he sees
+  // HERE (2026-09-13). Tower view only; a failed read is rendered as such.
+  const counselorBriefing =
+    view === 'tower' ? await loadCounselorBriefingSummary(admin) : null;
 
   // ── Live config, read from the SAME tables /admin/ai-routines edits, so the
   // two pages can't drift. Best-effort: any read failure falls back to each
@@ -1057,7 +1072,12 @@ export default async function LoopControlTowerPage({
   // contract: before that migration applies the table is missing, the read
   // errors, and the panel simply shows no per-college block — never a 500.
   type ScopeRead = { loop_key: string; institution_id: string; owner_email: string };
-  type InstitutionRead = { id: string; name: string | null; is_active: boolean | null };
+  type InstitutionRead = {
+    id: string;
+    name: string | null;
+    is_active: boolean | null;
+    entity_type: string;
+  };
   const [scopeReads, institutionReads] = await Promise.all([
     admin
       .from('loop_owner_scopes')
@@ -1068,7 +1088,7 @@ export default async function LoopControlTowerPage({
       ),
     admin
       .from('institutions')
-      .select('id,name,is_active')
+      .select('id,name,is_active,entity_type')
       .order('name', { ascending: true })
       .then(
         (r) => (r.data ?? []) as InstitutionRead[],
@@ -1078,17 +1098,52 @@ export default async function LoopControlTowerPage({
   const institutionNameById = new Map(
     institutionReads.map((i) => [i.id, i.name ?? i.id] as const)
   );
+  // Per-scope owner status (fix round 2, 2026-09-13): can an alert REACH the
+  // address? Same lookup and rule as the notification route — active,
+  // non-pre-registered profiles matched case-insensitively (LIKE metacharacters
+  // escaped), then classifyLoopOwnerProfiles — so the panel warns beside the
+  // row exactly when the route would record a miss. One read per distinct
+  // address (ten today). A failed read leaves the status unknown: no warning,
+  // never a 500.
+  const ownerEmails = Array.from(
+    new Set(scopeReads.map((s) => s.owner_email.trim()).filter((e) => e !== ''))
+  );
+  const candidatesByEmail = new Map<string, LoopOwnerProfileCandidate[] | null>(
+    await Promise.all(
+      ownerEmails.map((email) =>
+        admin
+          .from('profiles')
+          .select('id, role, institution_id, is_super_admin')
+          .ilike('email', escapeLikePattern(email))
+          .eq('is_active', true)
+          .not('is_pre_registered', 'is', true)
+          .order('created_at', { ascending: true })
+          .limit(2)
+          .then(
+            (r) =>
+              [email, r.error ? null : ((r.data ?? []) as LoopOwnerProfileCandidate[])] as const,
+            () => [email, null] as const
+          )
+      )
+    )
+  );
+  const ownerStatusFor = (s: ScopeRead): LoopOwnerStatus | undefined => {
+    const candidates = candidatesByEmail.get(s.owner_email.trim());
+    if (candidates == null) return undefined;
+    return classifyLoopOwnerProfiles(candidates, s.institution_id).status;
+  };
   const scopedOwners: ScopedOwnerRow[] = scopeReads.map((s) => ({
     loop_key: s.loop_key,
     institution_id: s.institution_id,
     institution_name: institutionNameById.get(s.institution_id) ?? s.institution_id,
     owner_email: s.owner_email,
+    owner_status: ownerStatusFor(s),
   }));
   // Only active institutions are offered by the add control; an existing
   // scope on an inactive one still renders (by name) so it can be removed.
   const institutionOptions: InstitutionOption[] = institutionReads
     .filter((i) => i.is_active !== false)
-    .map((i) => ({ id: i.id, name: i.name ?? i.id }));
+    .map((i) => ({ id: i.id, name: i.name ?? i.id, entity_type: i.entity_type }));
 
   // ── Proven-green thresholds (spec 2026-08-13) ─────────────────────────────
   // Two Director-adjustable policy rows (seeded by 20260813033300); in-code
@@ -1705,6 +1760,11 @@ export default async function LoopControlTowerPage({
             <LoopTower stats={towerStats} registry={registry} latestAuditByKey={latestAuditByKey} latestSimByKey={latestSimByKey} conflicts={conflicts} />
           </div>
           <LoopControlTower tiers={tiers} summary={summary} asOf={asOf} />
+          {counselorBriefing && (
+            <div className="mt-6">
+              <CounselorBriefingPanel summary={counselorBriefing} />
+            </div>
+          )}
           <div className="mt-6">
             <OwnersPanel
               rows={ownersPanelRows}

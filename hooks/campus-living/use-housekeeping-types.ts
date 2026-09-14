@@ -14,8 +14,8 @@ export const housekeepingTypeKeys = {
   // The catalogue is global, so the list has no institution dimension.
   list: () => ['housekeeping-types', 'list'] as const,
   detail: (typeId: string) => ['housekeeping-types', 'detail', typeId] as const,
-  bookable: (roomId?: string) =>
-    ['housekeeping-types', 'bookable', roomId ?? 'none'] as const,
+  bookable: (categoryId?: string) =>
+    ['housekeeping-types', 'bookable', categoryId ?? 'none'] as const,
 };
 
 export function useHousekeepingTypes() {
@@ -25,11 +25,13 @@ export function useHousekeepingTypes() {
   });
 }
 
-export function useBookableTypes(roomId?: string) {
+/** Pass the resident's BILLED hostel category, not the seated room — a Premium
+ *  resident may be seated in a Deluxe room and keeps Premium benefits. */
+export function useBookableTypes(categoryId?: string) {
   return useQuery({
-    queryKey: housekeepingTypeKeys.bookable(roomId),
-    queryFn: () => HousekeepingTypeService.listBookableTypesForRoom(roomId as string),
-    enabled: Boolean(roomId),
+    queryKey: housekeepingTypeKeys.bookable(categoryId),
+    queryFn: () => HousekeepingTypeService.listBookableTypesForCategory(categoryId as string),
+    enabled: Boolean(categoryId),
   });
 }
 

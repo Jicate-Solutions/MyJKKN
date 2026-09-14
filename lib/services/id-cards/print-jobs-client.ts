@@ -18,8 +18,12 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { IdCardTemplate } from '@/types/id-cards';
+import { purposeOfLayout, type TemplatePurpose } from '@/lib/id-cards/template-purpose';
 
-export type IdCardTemplateOption = Pick<IdCardTemplate, 'id' | 'name' | 'active'>;
+export type IdCardTemplateOption = Pick<IdCardTemplate, 'id' | 'name' | 'active' | 'institution_id'> & {
+  /** Learners / Senior Learners / Administrators … (front_layout_json.purpose). */
+  purpose: TemplatePurpose;
+};
 
 export const LAST_TEMPLATE_STORAGE_KEY = 'idcards.lastTemplateId';
 
@@ -50,12 +54,14 @@ export async function fetchIdCardTemplates(): Promise<IdCardTemplateOption[]> {
   // id_card_templates is not yet present in the generated Database types
   // (types/supabase.ts) — cast for this one query. RLS still applies.
   const { data, error } = await (supabase.from('id_card_templates' as never) as any)
-    .select('id, name, active')
+    .select('id, name, active, institution_id, front_layout_json')
     .order('active', { ascending: false })
     .order('name', { ascending: true });
 
   if (error) throw error;
-  return (data ?? []) as IdCardTemplateOption[];
+  return ((data ?? []) as Array<IdCardTemplateOption & { front_layout_json?: unknown }>).map(
+    ({ front_layout_json, ...row }) => ({ ...row, purpose: purposeOfLayout(front_layout_json) })
+  );
 }
 
 /**

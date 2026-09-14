@@ -2,12 +2,13 @@ export const dynamic = 'force-dynamic';
 
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { NextResponse, connection } from 'next/server';
+import { NextResponse, after, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
 import { LeaveService } from '@/lib/services/hr/leave-service';
 import { recomputeForShortTimeOff } from '@/lib/hr/attendance/recompute-day';
 import { StaffNotificationService } from '@/lib/services/staff/notification-service';
+import { HrDecisionEmailService } from '@/lib/services/hr/decision-email-service';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 
 async function getClient() {
@@ -53,8 +54,9 @@ export async function POST(
     await recomputeForShortTimeOff(updated);
 
 
-    // Dispatch leave_rejected notification to the requester — fire-and-forget
-    void (async () => {
+    // after(), not a floating promise: the platform may freeze the function the
+    // moment the response is sent, and after() is kept alive until it finishes.
+    after(async () => {
       try {
         const serviceSupabase = createServiceRoleClient();
 
@@ -77,7 +79,11 @@ export async function POST(
       } catch (notifyErr) {
         console.warn('[hr/leave/reject] leave_rejected notification failed:', notifyErr);
       }
-    })();
+    });
+
+    // The rejection queued the applicant's email (hr_decision_emails, by
+    // trigger). Send it now rather than at the next 5-minute cron.
+    after(() => HrDecisionEmailService.flush({ leaveApplicationId: id }));
 
     return NextResponse.json({ data: updated });
   } catch (err) {

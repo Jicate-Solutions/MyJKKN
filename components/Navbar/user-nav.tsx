@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { LogOut, Sun, Moon, Monitor, Download, Star } from 'lucide-react';
+import { LogOut, Sun, Moon, Monitor, Download, Star, QrCode } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useAuth } from '@/hooks/use-auth';
 import { AuthService } from '@/lib/auth/auth-service';
@@ -20,6 +20,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
+import { JkknQrDialog } from '@/components/identity/jkkn-qr-dialog';
+import { useMyJkknId } from '@/hooks/use-my-jkkn-id';
 import { UserRoleAssignment } from '@/types/auth';
 
 export function UserNav() {
@@ -47,6 +49,22 @@ export function UserNav() {
   // so we still show *something* sensible.
   const [legacyRoleName, setLegacyRoleName] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
+
+  // "My QR" beside the profile identity — the desktop counterpart of the
+  // mobile bottom-nav QR handle. Same shared cache entry, same dialog the
+  // Users detail page opens; this only adds a way to reach it.
+  const { data: myJkknId } = useMyJkknId(profile?.id);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [qrOpen, setQrOpen] = useState(false);
+
+  // Radix keeps its own focus/overlay state machine per layer: opening the
+  // dialog inside the menu's close pass leaves pointer-events trapped on
+  // <body>. Let the menu finish unmounting first (project convention —
+  // .claude/skills/radix-dialog-race-fix).
+  const openMyQr = () => {
+    setMenuOpen(false);
+    setTimeout(() => setQrOpen(true), 0);
+  };
 
   // Prevent hydration mismatch for theme
   useEffect(() => {
@@ -102,7 +120,8 @@ export function UserNav() {
     : profile.email[0].toUpperCase();
 
   return (
-    <DropdownMenu>
+    <>
+    <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
       <DropdownMenuTrigger asChild>
         <Button variant='ghost' className='relative h-10 w-10 rounded-full'>
           <Avatar className='h-10 w-10'>
@@ -119,7 +138,8 @@ export function UserNav() {
 
       <DropdownMenuContent className='w-72' align='end' forceMount>
         <DropdownMenuLabel className='font-normal'>
-          <div className='flex flex-col space-y-2'>
+          <div className='flex items-start gap-2'>
+          <div className='flex min-w-0 flex-1 flex-col space-y-2'>
             <p className='text-sm font-medium leading-none'>
               {profile.full_name || 'User'}
             </p>
@@ -164,6 +184,24 @@ export function UserNav() {
                 Loading…
               </Badge>
             ) : null}
+          </div>
+
+            {/* My JKKN ID QR — sits beside the identity block, exactly where a
+                person looks for "who am I". Hidden until a number exists. */}
+            {myJkknId && (
+              <button
+                type='button'
+                onClick={openMyQr}
+                aria-label={`Show my JKKN ID QR code (${myJkknId})`}
+                title='My JKKN ID QR'
+                className='flex shrink-0 flex-col items-center gap-1 rounded-md border border-border px-2 py-1.5 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+              >
+                <QrCode className='h-5 w-5 text-primary' />
+                <span className='font-mono text-[10px] tracking-wide text-muted-foreground'>
+                  {myJkknId}
+                </span>
+              </button>
+            )}
           </div>
         </DropdownMenuLabel>
 
@@ -235,5 +273,15 @@ export function UserNav() {
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+
+    {myJkknId && (
+      <JkknQrDialog
+        open={qrOpen}
+        onOpenChange={setQrOpen}
+        jkknId={myJkknId}
+        personName={profile.full_name ?? undefined}
+      />
+    )}
+    </>
   );
 }

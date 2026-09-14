@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { EngagementService } from '@/lib/services/analytics/engagement-service';
+import { ENGAGEMENT_INSTITUTION_STAFF_ROLES } from '@/lib/services/analytics/engagement-scope';
 import type { SectionComparisonRequest } from '@/types/analytics';
 
 /**
@@ -36,8 +37,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
     }
 
-    // Allow access for admins, HODs, and principals
-    const allowedRoles = ['principal', 'hod', 'admin'];
+    // Allow access for principals, HODs, and admin, counsellor and accounts
+    // staff (by their stored role names), the same viewers as the rest of the
+    // Engagement page except faculty, whose scope is sections, not a semester.
+    // The scope gate below holds each role to its own scope.
+    const allowedRoles: string[] = ['principal', 'hod', ...ENGAGEMENT_INSTITUTION_STAFF_ROLES];
 
     if (!profile.is_super_admin && !allowedRoles.includes(profile.role)) {
       return NextResponse.json(
@@ -66,6 +70,13 @@ export async function GET(request: NextRequest) {
         { error: 'Invalid semester ID format' },
         { status: 400 }
       );
+    }
+
+    // Refuse a semester outside the viewer's scope with a plain 403, never an
+    // empty list (the service checks again and filters).
+    const access = await EngagementService.checkAccess(user.id, 'semester', semesterId);
+    if (!access.allowed) {
+      return NextResponse.json({ error: access.reason }, { status: access.status });
     }
 
     // Build request object

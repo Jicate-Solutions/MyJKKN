@@ -50,11 +50,28 @@ export default function HousekeepingCleanersPage() {
   // they serve, and 4 of the 6 blocks house several colleges at once.
   const { data: cleaners = [], isLoading } = useHousekeepingCleaners(showInactive);
 
-  const { data: blocksResult } = useAllReachableBlocks();
+  const { data: blocksResult, isLoading: blocksLoading } = useAllReachableBlocks();
   const blockNameById = useMemo(() => {
     const list = ((blocksResult as any)?.data ?? []) as Array<{ id: string; name: string }>;
     return new Map(list.map((b) => [b.id, b.name]));
   }, [blocksResult]);
+
+  /**
+   * The Blocks cell names the blocks instead of counting them — "3" told nobody
+   * which three, and the names were reachable only by hovering for a title
+   * tooltip, which does not exist on touch.
+   *
+   * NAME, never `code`: hostel_blocks.code is NOT unique — all three boys blocks
+   * are 'BH' today, so codes would render three identical badges.
+   *
+   * Sorted by name so the same three blocks always read in the same order
+   * (hostel_cleaner_blocks has no ordering of its own).
+   */
+  const blockNamesFor = (blockIds: string[]) =>
+    blockIds
+      .map((id) => blockNameById.get(id) ?? null)
+      .filter((n): n is string => n !== null)
+      .sort((a, b) => a.localeCompare(b));
 
   return (
     <ContentLayout title='Cleaners'>
@@ -141,10 +158,38 @@ export default function HousekeepingCleanersPage() {
                         <TableCell>
                           {c.block_ids.length === 0 ? (
                             <Badge variant='destructive'>None</Badge>
+                          ) : blocksLoading ? (
+                            // The directory is still in flight. Show the count
+                            // rather than a row of "Unknown block" badges that
+                            // resolve a moment later.
+                            <span className='text-muted-foreground'>{c.block_ids.length}</span>
                           ) : (
-                            <span title={c.block_ids.map((id) => blockNameById.get(id) ?? id).join(', ')}>
-                              {c.block_ids.length}
-                            </span>
+                            (() => {
+                              const names = blockNamesFor(c.block_ids);
+                              // A block the viewer cannot read is real: hostel_blocks
+                              // is RLS'd by block scope, so a cleaner may serve a
+                              // block this user is not granted. Say so rather than
+                              // dropping it silently or printing its uuid.
+                              const hidden = c.block_ids.length - names.length;
+                              return (
+                                <div className='flex flex-wrap items-center gap-1'>
+                                  {names.map((name) => (
+                                    <Badge key={name} variant='secondary' className='font-normal'>
+                                      {name}
+                                    </Badge>
+                                  ))}
+                                  {hidden > 0 && (
+                                    <Badge
+                                      variant='outline'
+                                      className='font-normal text-muted-foreground'
+                                      title='Blocks outside your access'
+                                    >
+                                      +{hidden} not visible
+                                    </Badge>
+                                  )}
+                                </div>
+                              );
+                            })()
                           )}
                         </TableCell>
                         <TableCell>

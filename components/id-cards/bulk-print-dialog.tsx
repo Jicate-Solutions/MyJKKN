@@ -31,8 +31,11 @@ import {
   enqueuePrintJob,
   resolveProfileIdsForLearners
 } from '@/lib/services/id-cards/print-jobs-client';
+import { resolveLearnerInstitutions } from '@/lib/services/id-cards/card-preview-client';
+import { pickTemplateForInstitution } from '@/lib/services/id-cards/institution-template';
 import {
   emptyTemplateMessage,
+  PurposeSelect,
   TemplateSelect,
   useIdCardTemplates
 } from './print-card-button';
@@ -85,6 +88,8 @@ export function BulkPrintDialog({
   const [phase, setPhase] = useState<'confirm' | 'running' | 'done'>('confirm');
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [results, setResults] = useState<BulkPrintResults>(EMPTY_RESULTS);
+  // Purpose chosen for this batch ('' = each institution's default learner template).
+  const [purposeKey, setPurposeKey] = useState('');
 
   const { templates, selectedTemplateId, selectTemplate, inactiveOnly } =
     useIdCardTemplates(open);
@@ -106,12 +111,15 @@ export function BulkPrintDialog({
     setPhase('running');
     setProgress({ current: 0, total: learners.length });
 
-    // ONE batched account lookup for all selected learners.
+    // ONE batched account lookup (+ institution lookup) for all selected learners.
     let profileMap: Map<string, string>;
+    let institutionMap: Map<string, { institutionId: string; institutionName: string | null }>;
     try {
-      profileMap = await resolveProfileIdsForLearners(
-        learners.map((l) => l.learnerId)
-      );
+      const ids = learners.map((l) => l.learnerId);
+      [profileMap, institutionMap] = await Promise.all([
+        resolveProfileIdsForLearners(ids),
+        resolveLearnerInstitutions(ids).catch(() => new Map())
+      ]);
     } catch (err) {
       console.error('[id-cards] Bulk account lookup failed:', err);
       toast.error('Failed to look up learner accounts. Please try again.');
@@ -127,12 +135,24 @@ export function BulkPrintDialog({
     };
 
     let done = 0;
+    let fallbackUsed = 0;
     for (const learner of learners) {
       const profileId = profileMap.get(learner.learnerId);
+      // Each learner queues on THEIR institution's active template; the
+      // picker's template is only the fallback.
+      const choice = pickTemplateForInstitution(
+        templates ?? [],
+        institutionMap.get(learner.learnerId)?.institutionId ?? null,
+        selectedTemplateId,
+        { audience: 'learner', purposeKey }
+      );
       if (!profileId) {
         summary.skippedNoAccount.push(learner.name);
+      } else if (!choice) {
+        summary.failed.push({ name: learner.name, message: 'no template for this institution' });
       } else {
-        const outcome = await enqueuePrintJob(profileId, selectedTemplateId);
+        if (choice.usedFallback) fallbackUsed += 1;
+        const outcome = await enqueuePrintJob(profileId, choice.template.id);
         if (outcome.status === 'queued') {
           summary.queued.push(learner.name);
         } else if (outcome.status === 'already_queued') {
@@ -157,6 +177,9 @@ export function BulkPrintDialog({
       toast(
         `${summary.alreadyQueued.length} already in the print queue`
       );
+    }
+    if (fallbackUsed > 0) {
+      toast(`${fallbackUsed} used the fallback template (no active template for their institution)`);
     }
     if (summary.failed.length > 0) {
       toast.error(
@@ -185,14 +208,22 @@ export function BulkPrintDialog({
               <DialogDescription>
                 {phase === 'running'
                   ? 'Please wait while the print jobs are queued. Do not close this dialog.'
-                  : 'Each learner below will get one print job in the ID-card queue.'}
+                  : 'Each learner queues on their own institution’s template; the template below is the fallback.'}
               </DialogDescription>
             </DialogHeader>
 
             {phase === 'confirm' && (
               <div className="space-y-3">
                 <div className="space-y-1.5">
-                  <p className="text-sm font-medium">Template</p>
+                  <p className="text-sm font-medium">Purpose</p>
+                  <PurposeSelect
+                    templates={templates}
+                    audience="learner"
+                    value={purposeKey}
+                    onChange={setPurposeKey}
+                    className="h-9 w-full"
+                  />
+                  <p className="text-sm font-medium">Fallback template</p>
                   <TemplateSelect
                     templates={templates}
                     value={selectedTemplateId}

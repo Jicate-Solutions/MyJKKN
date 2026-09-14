@@ -247,6 +247,51 @@ export function useDecideApplication() {
   });
 }
 
+/**
+ * Take an APPROVED decision back.
+ *
+ * Same invalidation set as useDecideApplication, and for the same reasons in
+ * reverse: the balance is handed back, a comp-off credit is released, the
+ * attendance day is re-judged and the queue row changes status. Nothing in this
+ * app self-refreshes (staleTime 5 min, focus refetch off), so a key left out here
+ * is a screen quoting a number that stopped being true.
+ */
+export function useRevokeApplication() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      applicationId,
+      reason,
+    }: {
+      applicationId: string;
+      reason: string;
+    }) => {
+      const res = await fetch(`${BASE}/applications/${applicationId}/revoke`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload.error || 'Revoke failed');
+      // The warning rides along with a SUCCESSFUL revoke: the decision stuck, but
+      // one or more attendance days could not be re-judged. The caller shows it.
+      return payload as { data: HRLeaveApplication; warning?: string };
+    },
+    onSuccess: ({ data }) => {
+      qc.invalidateQueries({ queryKey: ['hr-leave-applications'] });
+      qc.invalidateQueries({ queryKey: ['hr-leave-application', data.id] });
+      qc.invalidateQueries({ queryKey: ['hr-leave-balance', data.employee_id] });
+      qc.invalidateQueries({ queryKey: ['hr-leave-calendar'] });
+      qc.invalidateQueries({ queryKey: ['hr-attendance-time-off'] });
+      qc.invalidateQueries({ queryKey: ['hr-attendance-records'] });
+      qc.invalidateQueries({ queryKey: ['hr-leave-approval-flows'] });
+      invalidateAttendanceViews(qc);
+      invalidateAllowanceViews(qc);
+      invalidateCompOffViews(qc);
+    },
+  });
+}
+
 export function useCancelApplication() {
   const qc = useQueryClient();
   return useMutation({

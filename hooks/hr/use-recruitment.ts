@@ -1269,7 +1269,11 @@ export function useRoleUsers(roleKey: string, search: string, enabled: boolean) 
   });
 }
 
-/** Active HR organizations (flow builder org selector). */
+/**
+ * Every HR organization the caller can read, including institutions excluded
+ * from the HR module. Recruitment is group-wide and exempt from that gate —
+ * see the route handler for why.
+ */
 export function useHrOrganizations() {
   return useQuery({
     queryKey: ['hr-organizations-list'],

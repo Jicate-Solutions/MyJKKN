@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { isBosChairmanRow } from '@/types/bos';
 
 export interface BosAccessScope {
@@ -364,6 +364,16 @@ export interface BosBoardScope extends BosAccessScope {
    * /api/bos/courses-master GET for the fan-out pattern.
    */
   institutionsOf: Set<string>;
+  /**
+   * Departments this user HEADS — departments.head_of_department_id = me,
+   * plus (when profile.role === 'hod') the profile's / staff row's own
+   * department. Drives the HOD scope on /bos/po-pso: an HOD maintains the
+   * PO/PSO sets of programmes whose programs.department_id is in this set.
+   * Empty for super-admin (own path) and for everyone who heads nothing.
+   */
+  hodDepartmentIds: Set<string>;
+  /** True when hodDepartmentIds is non-empty. */
+  isHod: boolean;
 }
 
 /**
@@ -405,6 +415,8 @@ export async function resolveBosBoardScope(userId: string): Promise<BosBoardScop
     boardsOf: new Set<string>(),
     chairmanForBoards: new Set<string>(),
     institutionsOf: new Set<string>(),
+    hodDepartmentIds: new Set<string>(),
+    isHod: false,
   };
 
   // Super-admin: short-circuit. No need to resolve staff_id or memberships
@@ -415,6 +427,11 @@ export async function resolveBosBoardScope(userId: string): Promise<BosBoardScop
 
   const supabase = await createClient();
   const isPrincipal = baseScope.role === 'principal';
+
+  // HOD scope — resolved independently of board membership (an HOD need not
+  // sit on any composition to maintain their department's PO/PSO sets).
+  const hodDepartmentIds = await resolveHodDepartmentIds(userId, baseScope.role);
+  const hodExtension = { hodDepartmentIds, isHod: hodDepartmentIds.size > 0 };
 
   // Find this user's staff record. Pre-registered users may have no staff row;
   // they fall through to "no memberships" which compositionScopeFilter maps to
@@ -432,7 +449,7 @@ export async function resolveBosBoardScope(userId: string): Promise<BosBoardScop
   const staffId = (staffRow?.id as string | undefined) ?? null;
 
   if (!staffId) {
-    return { ...baseScope, ...emptyExtension, isPrincipal };
+    return { ...baseScope, ...emptyExtension, ...hodExtension, isPrincipal };
   }
 
   // Embedded inner-join filter: only active members of active compositions.
@@ -506,7 +523,44 @@ export async function resolveBosBoardScope(userId: string): Promise<BosBoardScop
     boardsOf,
     chairmanForBoards,
     institutionsOf,
+    ...hodExtension,
   };
+}
+
+/**
+ * Departments the user heads. Union of:
+ *   - departments.head_of_department_id = userId (HR-maintained pointer,
+ *     20260507000001), and
+ *   - when profile.role === 'hod': profiles.department_id and the staff
+ *     row's department_id (the attendance module's HOD convention).
+ * Service-role for the departments lookup — the row filter is the caller's
+ * own id, so nothing beyond the user's own headship is exposed.
+ */
+async function resolveHodDepartmentIds(
+  userId: string,
+  role: string | null
+): Promise<Set<string>> {
+  const ids = new Set<string>();
+  const db = createServiceRoleClient();
+
+  const { data: headed } = await db
+    .from('departments')
+    .select('id')
+    .eq('head_of_department_id', userId);
+  for (const row of (headed ?? []) as { id: string }[]) ids.add(row.id);
+
+  if ((role ?? '').toLowerCase() === 'hod') {
+    const [{ data: profile }, { data: staff }] = await Promise.all([
+      db.from('profiles').select('department_id').eq('id', userId).maybeSingle(),
+      db.from('staff').select('department_id').eq('profile_id', userId).maybeSingle(),
+    ]);
+    const p = (profile as { department_id?: string | null } | null)?.department_id;
+    const s = (staff as { department_id?: string | null } | null)?.department_id;
+    if (p) ids.add(p);
+    if (s) ids.add(s);
+  }
+
+  return ids;
 }
 
 /**

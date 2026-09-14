@@ -17,6 +17,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import * as Sentry from '@sentry/nextjs';
 import { resend } from '@/lib/resend';
+import { normalizeMetaToken } from '@/lib/meta/graph-api-client';
 import { randomUUID } from 'node:crypto';
 
 const GRAPH_VERSION = 'v25.0';
@@ -332,7 +333,7 @@ export async function GET(request: Request) {
   const checkedAt = new Date().toISOString();
 
   try {
-    const token = process.env.META_PAGE_ACCESS_TOKEN;
+    const token = normalizeMetaToken(process.env.META_PAGE_ACCESS_TOKEN, 'META_PAGE_ACCESS_TOKEN');
     const appSecret = process.env.META_APP_SECRET;
 
     if (!token || !appSecret) {

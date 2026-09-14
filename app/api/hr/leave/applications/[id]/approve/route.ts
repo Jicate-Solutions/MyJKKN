@@ -2,12 +2,13 @@ export const dynamic = 'force-dynamic';
 
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { NextResponse, connection } from 'next/server';
+import { NextResponse, after, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
 import { LeaveService } from '@/lib/services/hr/leave-service';
 import { recomputeForShortTimeOff } from '@/lib/hr/attendance/recompute-day';
 import { StaffNotificationService } from '@/lib/services/staff/notification-service';
+import { HrDecisionEmailService } from '@/lib/services/hr/decision-email-service';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 
 async function getClient() {
@@ -50,41 +51,52 @@ export async function POST(
     await recomputeForShortTimeOff(updated);
 
 
-    // Dispatch leave_approved notification to the requester — fire-and-forget
-    void (async () => {
-      try {
-        const serviceSupabase = createServiceRoleClient();
+    // Only the FINAL step grants the leave. A review step leaves the request
+    // pending and forwards it, so it neither tells the applicant "approved" (it
+    // used to) nor emails them.
+    //
+    // after(), not a floating promise: the platform may freeze the function the
+    // moment the response is sent, and after() is kept alive until it finishes.
+    if (updated.status === 'approved') {
+      after(async () => {
+        try {
+          const serviceSupabase = createServiceRoleClient();
 
-        // Resolve leave type name
-        const { data: leaveType } = await serviceSupabase
-          .from('hr_leave_types')
-          .select('leave_type_name')
-          .eq('id', updated.leave_type_id)
-          .maybeSingle();
-        const leaveTypeName: string =
-          (leaveType as { leave_type_name?: string } | null)?.leave_type_name ?? 'Leave';
+          // Resolve leave type name
+          const { data: leaveType } = await serviceSupabase
+            .from('hr_leave_types')
+            .select('leave_type_name')
+            .eq('id', updated.leave_type_id)
+            .maybeSingle();
+          const leaveTypeName: string =
+            (leaveType as { leave_type_name?: string } | null)?.leave_type_name ?? 'Leave';
 
-        // Resolve approver display name
-        const { data: approverProfile } = await serviceSupabase
-          .from('profiles')
-          .select('full_name')
-          .eq('id', user.id)
-          .maybeSingle();
-        const approverName: string | undefined =
-          (approverProfile as { full_name?: string } | null)?.full_name;
+          // Resolve approver display name
+          const { data: approverProfile } = await serviceSupabase
+            .from('profiles')
+            .select('full_name')
+            .eq('id', user.id)
+            .maybeSingle();
+          const approverName: string | undefined =
+            (approverProfile as { full_name?: string } | null)?.full_name;
 
-        await StaffNotificationService.notifyLeaveApproved(
-          serviceSupabase,
-          id,
-          updated.applied_by,
-          leaveTypeName,
-          `${updated.start_date} → ${updated.end_date}`,
-          approverName
-        );
-      } catch (notifyErr) {
-        console.warn('[hr/leave/approve] leave_approved notification failed:', notifyErr);
-      }
-    })();
+          await StaffNotificationService.notifyLeaveApproved(
+            serviceSupabase,
+            id,
+            updated.applied_by,
+            leaveTypeName,
+            `${updated.start_date} → ${updated.end_date}`,
+            approverName
+          );
+        } catch (notifyErr) {
+          console.warn('[hr/leave/approve] leave_approved notification failed:', notifyErr);
+        }
+      });
+
+      // The approval queued the applicant's email (hr_decision_emails, by
+      // trigger). Send it now rather than at the next 5-minute cron.
+      after(() => HrDecisionEmailService.flush({ leaveApplicationId: id }));
+    }
 
     return NextResponse.json({ data: updated });
   } catch (err) {

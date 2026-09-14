@@ -30,7 +30,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { RichTextDisplay } from '@/components/ui/rich-text-editor';
 import { useJob } from '@/hooks/hr/use-recruitment';
 import { ApplicationsSection } from './applications-section';
-import { useHrInstitutionsWithAccess } from '@/hooks/hr/use-hr-institutions';
+import { useRecruitmentInstitutions } from '@/hooks/hr/use-recruitment-institutions';
 import { useDepartments } from '@/hooks/organization/use-departments';
 import {
   JOB_STATUS_LABELS,
@@ -256,7 +256,7 @@ function JobDetailSkeleton() {
 
 export function JobDetailView({ id }: { id: string }) {
   const { data: job, isLoading, error } = useJob(id);
-  const { institutions } = useHrInstitutionsWithAccess();
+  const { institutions } = useRecruitmentInstitutions();
   const { data: deptResp } = useDepartments({ isActive: true, limit: 1000 });
 
   const institutionName = useMemo(

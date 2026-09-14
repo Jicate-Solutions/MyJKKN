@@ -74,11 +74,20 @@ export default function MarkAttendancePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const blockParam = searchParams.get('block');
+  // The attendance dashboard can be viewed on any past day, and its per-block
+  // "Mark / Update" buttons hand the day over here. Without this the link
+  // silently opened TODAY's roll call while the operator believed they were
+  // correcting an earlier date. Validated shape only; anything else falls back.
+  const dateParam = searchParams.get('date');
+  const seededDate =
+    dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)
+      ? dateParam
+      : new Date().toISOString().split('T')[0];
 
   // 'all' = every block; previously defaulted to the literal '1' which is not
   // a block UUID, so untouched submits failed and the select matched nothing.
   const [selectedBlock, setSelectedBlock] = useState(blockParam ?? 'all');
-  const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().split('T')[0]);
+  const [attendanceDate, setAttendanceDate] = useState(seededDate);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFloor, setSelectedFloor] = useState('all');
   const [selectedCategory, setSelectedCategory] = useState('all');

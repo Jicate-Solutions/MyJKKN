@@ -20,9 +20,8 @@
  * `applied_by` into `chain_names.people`.
  */
 
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, RotateCcw } from 'lucide-react';
 
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -85,8 +84,7 @@ export function LeaveRequestDetail({
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm font-semibold">{leaveTypeName ?? 'Leave request'}</span>
-        <StatusBadge status={app.status} />
-        {app.is_emergency && <Badge variant="outline">Emergency</Badge>}
+        <StatusBadge status={app.status} revoked={app.revoked_at !== null} />
       </div>
 
       <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
@@ -106,7 +104,11 @@ export function LeaveRequestDetail({
         </Field>
         {filedBySomeoneElse && <Field label="Applied by">{appliedByName}</Field>}
         <Field label="Applied on">{fmtStamp(app.created_at)}</Field>
-        {app.final_decided_at && <Field label="Decided">{fmtStamp(app.final_decided_at)}</Field>}
+        {app.revoked_at ? (
+          <Field label="Revoked">{fmtStamp(app.revoked_at)}</Field>
+        ) : (
+          app.final_decided_at && <Field label="Decided">{fmtStamp(app.final_decided_at)}</Field>
+        )}
       </dl>
 
       <div>
@@ -114,12 +116,35 @@ export function LeaveRequestDetail({
         <p className="whitespace-pre-wrap text-sm">{app.reason || '—'}</p>
       </div>
 
-      <LeaveDocumentList
-        documents={app.documents}
-        outstanding={(app.documents?.length ?? 0) === 0 && !!app.is_emergency}
-      />
+      <LeaveDocumentList documents={app.documents} />
 
-      {app.rejection_reason && (
+      {/*
+        A REVOCATION IS NOT A REJECTION, and this is the screen the applicant
+        reads. Both store status='rejected' and both fill rejection_reason, so a
+        single red "Rejection reason" box told somebody whose approved leave had
+        just been taken back that it had been refused all along — which is not
+        what happened and does not explain why the leave they were granted is
+        gone. revoked_at is the discriminator; the row's own status cannot be.
+      */}
+      {app.revoked_at ? (
+        <div className="rounded-md border border-amber-600/40 bg-amber-600/5 p-3">
+          <p className="mb-1 flex items-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+            <RotateCcw className="h-3.5 w-3.5" />
+            This approval was revoked
+            {app.revoked_by
+              ? ` by ${app.chain_names?.people?.[app.revoked_by] ?? app.revoked_by}`
+              : ''}
+            {` on ${fmtStamp(app.revoked_at)}`}
+          </p>
+          <p className="whitespace-pre-wrap text-sm">
+            {app.revoke_reason || app.rejection_reason || 'No reason given'}
+          </p>
+          <p className="mt-2 text-xs text-muted-foreground">
+            The request was approved and has been taken back, so it no longer counts as
+            leave. The balance it used has been returned.
+          </p>
+        </div>
+      ) : app.rejection_reason ? (
         <div className="rounded-md border border-red-600/30 bg-red-600/5 p-3">
           <p className="mb-1 flex items-center gap-1.5 text-xs font-medium text-red-700 dark:text-red-400">
             <AlertCircle className="h-3.5 w-3.5" />
@@ -127,7 +152,7 @@ export function LeaveRequestDetail({
           </p>
           <p className="whitespace-pre-wrap text-sm">{app.rejection_reason}</p>
         </div>
-      )}
+      ) : null}
 
       <Separator />
 

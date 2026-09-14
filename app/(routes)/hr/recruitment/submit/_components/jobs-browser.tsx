@@ -5,7 +5,7 @@ import { Search, Building2, SlidersHorizontal, Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useJobs } from '@/hooks/hr/use-recruitment';
-import { useHrInstitutionsWithAccess } from '@/hooks/hr/use-hr-institutions';
+import { useRecruitmentInstitutions } from '@/hooks/hr/use-recruitment-institutions';
 import type { HRRecruitmentJob, RoleCategory } from '@/types/hr-recruitment';
 import { ROLE_CATEGORY_LABELS } from '@/types/hr-recruitment';
 import { JobCard } from './job-card';
@@ -19,7 +19,7 @@ export function JobsBrowser({ onSelectJob }: JobsBrowserProps) {
   const [institutionId, setInstitutionId] = useState('__all__');
   const [roleCategory, setRoleCategory] = useState('__all__');
 
-  const { institutions } = useHrInstitutionsWithAccess();
+  const { institutions } = useRecruitmentInstitutions();
 
   const { data, isLoading, error } = useJobs({
     status: 'open',

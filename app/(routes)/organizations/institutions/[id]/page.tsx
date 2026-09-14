@@ -27,6 +27,13 @@ import {
   ENTITY_TYPES
 } from '@/lib/constants/institutions';
 import { usePermissions } from '@/hooks/use-permissions';
+import { PermissionError } from '@/components/errors/permission-error';
+import {
+  classifyInstitutionLoadError,
+  INSTITUTION_ABSENT_OR_DENIED_MESSAGE,
+  INSTITUTION_DENIED_MESSAGE,
+  INSTITUTION_VIEW_PERMISSION
+} from '../_lib/institution-load-failure';
 
 interface InstitutionDetailsPageProps {
   params: Promise<{ id: string }>;
@@ -56,11 +63,29 @@ export default function InstitutionDetailsPage({
     );
   }
 
-  if (error) {
+  // Why the load failed decides what the reader is told. "Institution not
+  // found" used to be the answer to every empty result, including the one a
+  // reader without access gets — which reads as a broken page and hides the
+  // real problem (CLAUDE.md #27). See `_lib/institution-load-failure.ts` for
+  // what can and cannot be told apart from the browser.
+  const failure = error ? classifyInstitutionLoadError(error) : null;
+
+  if (failure === 'not_permitted') {
+    return (
+      <ContentLayout title='Institution Details'>
+        <PermissionError
+          message={INSTITUTION_DENIED_MESSAGE}
+          requiredPermission={INSTITUTION_VIEW_PERMISSION}
+        />
+      </ContentLayout>
+    );
+  }
+
+  if (failure === 'unknown') {
     return (
       <ContentLayout title='Institution Details'>
         <div className='text-center py-8'>
-          <p className='text-destructive mb-4'>{error.message}</p>
+          <p className='text-destructive mb-4'>{error?.message}</p>
           <Button variant='outline' asChild>
             <Link href='/organizations/institutions'>Back to Institutions</Link>
           </Button>
@@ -69,11 +94,16 @@ export default function InstitutionDetailsPage({
     );
   }
 
-  if (!data) {
+  // Either an empty result (`absent_or_not_permitted`) or no error and no data.
+  // Both mean "no row came back", and neither proves the institution is gone —
+  // so say both possibilities rather than assert the wrong one.
+  if (failure || !data) {
     return (
       <ContentLayout title='Institution Details'>
-        <div className='text-center py-8'>
-          <p className='text-destructive mb-4'>Institution not found</p>
+        <div className='mx-auto max-w-lg text-center py-8'>
+          <p className='mb-4 text-muted-foreground'>
+            {INSTITUTION_ABSENT_OR_DENIED_MESSAGE}
+          </p>
           <Button variant='outline' asChild>
             <Link href='/organizations/institutions'>Back to Institutions</Link>
           </Button>

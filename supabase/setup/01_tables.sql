@@ -818,8 +818,19 @@ CREATE TABLE IF NOT EXISTS public.timetables (
     usage_count INTEGER DEFAULT 0,
     created_from_template_id UUID,
     -- Updated: 2026-03-22 - Added cycle-based timetable support
-    num_cycles INTEGER DEFAULT NULL CHECK (num_cycles IS NULL OR (num_cycles >= 1 AND num_cycles <= 52))
+    num_cycles INTEGER DEFAULT NULL CHECK (num_cycles IS NULL OR (num_cycles >= 1 AND num_cycles <= 52)),
+    -- Updated: 2026-09-11 - Declared section scope. For a semester-level row
+    -- (section_id NULL) this IS the uniqueness scope: two semester-level
+    -- timetables for one semester clash only when their dates overlap AND these
+    -- sets intersect. That is what lets three parallel section groups in one
+    -- semester (A..H, ADD 4A..H, TROIZ A..H) each hold their own timetable on
+    -- identical dates. NULL means "not declared"; callers then fall back to the
+    -- union of the slots' own section_ids.
+    section_ids UUID[]
 );
+
+CREATE INDEX IF NOT EXISTS idx_timetables_section_ids
+    ON public.timetables USING gin (section_ids);
 
 -- Timetable Slot Continuity
 CREATE TABLE IF NOT EXISTS public.timetable_slot_continuity (
@@ -1479,6 +1490,7 @@ CREATE TABLE IF NOT EXISTS public.bug_reports (
         WHEN page_url ~ '/my-bug-reports/' THEN 'my-bug-reports'
         WHEN page_url ~ '/notifications/' THEN 'notifications'
         WHEN page_url ~ '/okr/' THEN 'okr'
+        WHEN page_url ~ '/online-meetings/' THEN 'online-meetings'
         WHEN page_url ~ '/organizations?/' THEN 'organizations'
         WHEN page_url ~ '/profile/' THEN 'profile'
         WHEN page_url ~ '/resource-management/' THEN 'resource-management'
@@ -1491,6 +1503,14 @@ CREATE TABLE IF NOT EXISTS public.bug_reports (
         WHEN page_url ~ '/users/' THEN 'users'
         WHEN page_url ~ '/vac/' THEN 'vac'
         WHEN page_url ~ '/work-pulse/' THEN 'work-pulse'
+        -- Added: 2026-09-06 (20260906213000) — the seven modules the classifier never learned, appended last
+        WHEN page_url ~ '/ai-pulse/' THEN 'ai-pulse'
+        WHEN page_url ~ '/bos/' THEN 'bos'
+        WHEN page_url ~ '/ims/' THEN 'ims'
+        WHEN page_url ~ '/meetings/' THEN 'meetings'
+        WHEN page_url ~ '/procurement/' THEN 'procurement'
+        WHEN page_url ~ '/projects/' THEN 'projects'
+        WHEN page_url ~ '/courses/' THEN 'courses'  -- Added: 2026-09-06 (20260906213000); last so /organizations/courses/ stays organizations
         ELSE 'other'
       END
     ) STORED,
@@ -1527,6 +1547,7 @@ CREATE TABLE IF NOT EXISTS public.bug_reports (
         WHEN page_url ~ '/my-bug-reports/' THEN substring(page_url FROM '/my-bug-reports/([^/?#]+)')
         WHEN page_url ~ '/notifications/' THEN substring(page_url FROM '/notifications/([^/?#]+)')
         WHEN page_url ~ '/okr/' THEN substring(page_url FROM '/okr/([^/?#]+)')
+        WHEN page_url ~ '/online-meetings/' THEN substring(page_url FROM '/online-meetings/([^/?#]+)')
         WHEN page_url ~ '/organizations?/' THEN substring(page_url FROM '/organizations?/([^/?#]+)')
         WHEN page_url ~ '/profile/' THEN substring(page_url FROM '/profile/([^/?#]+)')
         WHEN page_url ~ '/resource-management/' THEN substring(page_url FROM '/resource-management/([^/?#]+)')
@@ -1539,6 +1560,13 @@ CREATE TABLE IF NOT EXISTS public.bug_reports (
         WHEN page_url ~ '/users/' THEN substring(page_url FROM '/users/([^/?#]+)')
         WHEN page_url ~ '/vac/' THEN substring(page_url FROM '/vac/([^/?#]+)')
         WHEN page_url ~ '/work-pulse/' THEN substring(page_url FROM '/work-pulse/([^/?#]+)')
+        WHEN page_url ~ '/ai-pulse/' THEN substring(page_url FROM '/ai-pulse/([^/?#]+)')
+        WHEN page_url ~ '/bos/' THEN substring(page_url FROM '/bos/([^/?#]+)')
+        WHEN page_url ~ '/ims/' THEN substring(page_url FROM '/ims/([^/?#]+)')
+        WHEN page_url ~ '/meetings/' THEN substring(page_url FROM '/meetings/([^/?#]+)')
+        WHEN page_url ~ '/procurement/' THEN substring(page_url FROM '/procurement/([^/?#]+)')
+        WHEN page_url ~ '/projects/' THEN substring(page_url FROM '/projects/([^/?#]+)')
+        WHEN page_url ~ '/courses/' THEN substring(page_url FROM '/courses/([^/?#]+)')
         ELSE NULL
       END
     ) STORED,
@@ -4305,6 +4333,14 @@ CREATE TABLE IF NOT EXISTS public.hr_recruitment_candidates (
   rejection_reason        text,
   expected_joining_date   date,
   actual_joining_date     date,
+  -- Updated: 2026-09-12 (20261202090000_fn_my_desk_waiting_offer_issued.sql) —
+  -- record WHEN the offer went out and WHO sent it. Nullable, NOT backfilled:
+  -- rows that reached 'offer_issued' before the Issue Offer control existed have
+  -- no such moment to record. fn_my_desk_waiting's offer branch reads
+  -- COALESCE(offer_issued_at, submitted_at) as waiting_since, so an issued
+  -- offer's age on the desk restarts from the day it was issued.
+  offer_issued_at         timestamptz,
+  offer_issued_by         uuid REFERENCES public.profiles(id),
   submitted_by            uuid NOT NULL REFERENCES public.profiles(id),
   submitted_at            timestamptz NOT NULL DEFAULT now(),
   created_at              timestamptz NOT NULL DEFAULT now(),
@@ -8645,6 +8681,32 @@ COMMENT ON COLUMN public.hr_comp_off_credits.documents IS
   'Supporting documents (LeaveDocument[] shape, Google Drive-backed) attached when the credit was claimed. Empty array for hr_grant/attendance sources.';
 
 -- =============================================================================
+-- Mirrored from supabase/migrations/20260911160000_hr_comp_off_claim_work_location.sql
+-- (columns + CHECKs; the require-on-insert trigger is in 02_functions.sql /
+-- 04_triggers.sql). Required on NEW claims only -- older rows keep NULL.
+-- =============================================================================
+
+ALTER TABLE public.hr_comp_off_credits
+  ADD COLUMN IF NOT EXISTS work_location text,
+  ADD COLUMN IF NOT EXISTS work_place    text;
+
+ALTER TABLE public.hr_comp_off_credits
+  ADD CONSTRAINT hr_comp_off_credits_work_location_check
+    CHECK (work_location IS NULL OR work_location IN ('inside_campus', 'outside_campus')),
+  ADD CONSTRAINT hr_comp_off_credits_outside_needs_place
+    CHECK (work_location IS DISTINCT FROM 'outside_campus'
+           OR NULLIF(btrim(work_place), '') IS NOT NULL),
+  ADD CONSTRAINT hr_comp_off_credits_place_only_outside
+    CHECK (work_place IS NULL OR work_location = 'outside_campus'),
+  ADD CONSTRAINT hr_comp_off_credits_work_place_length
+    CHECK (work_place IS NULL OR char_length(work_place) <= 200);
+
+COMMENT ON COLUMN public.hr_comp_off_credits.work_location IS
+  'Where the claimed day was worked: inside_campus | outside_campus. Required on new source=claim rows (trg_hcoc_require_work_location); NULL on claims filed before 2026-09-11 and on hr_grant/attendance credits.';
+COMMENT ON COLUMN public.hr_comp_off_credits.work_place IS
+  'Where, in words, when work_location = outside_campus (required then, NULL otherwise).';
+
+-- =============================================================================
 -- Mirrored from supabase/migrations/20260827170000_hr_attendance_regularizations_staff_rewire.sql
 -- (FK half; the SELECT/INSERT policies are mirrored in 03_policies.sql)
 -- =============================================================================
@@ -9499,6 +9561,64 @@ CREATE INDEX idx_hk_feedback_learner     ON public.hostel_cleaning_feedback (lea
 ALTER TABLE public.hostel_cleaning_feedback ENABLE ROW LEVEL SECURITY;
 
 -- ==========================================================================
+-- 10. hostel_cleaning_booking_reschedules  (one row per move)
+--     Updated: 2026-09-09 — see supabase/migrations/20260909160010_housekeeping_reschedule_schema.sql
+--
+--     Never updated. A booking pushed twice has two reasons and the learner
+--     is shown both, which is why this is a table and not columns on the
+--     booking. The cleaner NAMES are snapshots for the same reason
+--     bookings.cleaner_name is one: learners must never need SELECT on
+--     hostel_cleaners, which holds staff phone numbers.
+-- ==========================================================================
+CREATE TABLE public.hostel_cleaning_booking_reschedules (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  booking_id        uuid NOT NULL REFERENCES public.hostel_cleaning_bookings(id) ON DELETE CASCADE,
+  institution_id    uuid NOT NULL REFERENCES public.institutions(id),
+
+  from_date         date NOT NULL,
+  from_slot_start   time NOT NULL,
+  from_slot_end     time NOT NULL,
+  to_date           date NOT NULL,
+  to_slot_start     time NOT NULL,
+  to_slot_end       time NOT NULL,
+
+  from_cleaner_id   uuid REFERENCES public.hostel_cleaners(id),
+  from_cleaner_name text,
+  to_cleaner_id     uuid REFERENCES public.hostel_cleaners(id),
+  to_cleaner_name   text,
+
+  reason_code       text NOT NULL CHECK (reason_code IN (
+                      'cleaner_unavailable',
+                      'cleaner_on_leave',
+                      'slot_full',
+                      'learner_requested',
+                      'emergency',
+                      'other')),
+  reason_note       text,
+
+  rescheduled_by    uuid NOT NULL REFERENCES public.profiles(id),
+  created_at        timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT ck_hk_reschedule_note_for_other
+    CHECK (reason_code <> 'other'
+           OR nullif(btrim(COALESCE(reason_note, '')), '') IS NOT NULL),
+  CONSTRAINT ck_hk_reschedule_slot_moved
+    CHECK ((to_date, to_slot_start) IS DISTINCT FROM (from_date, from_slot_start))
+);
+
+CREATE INDEX idx_hk_reschedules_booking      ON public.hostel_cleaning_booking_reschedules (booking_id, created_at);
+
+CREATE INDEX idx_hk_reschedules_institution  ON public.hostel_cleaning_booking_reschedules (institution_id);
+
+CREATE INDEX idx_hk_reschedules_by           ON public.hostel_cleaning_booking_reschedules (rescheduled_by);
+
+CREATE INDEX idx_hk_reschedules_from_cleaner ON public.hostel_cleaning_booking_reschedules (from_cleaner_id);
+
+CREATE INDEX idx_hk_reschedules_to_cleaner   ON public.hostel_cleaning_booking_reschedules (to_cleaner_id);
+
+ALTER TABLE public.hostel_cleaning_booking_reschedules ENABLE ROW LEVEL SECURITY;
+
+-- ==========================================================================
 -- ANON LOCK
 --
 -- Supabase ships `ALTER DEFAULT PRIVILEGES ... GRANT ALL ON TABLES TO anon`,
@@ -9517,6 +9637,8 @@ ALTER TABLE public.hostel_cleaning_feedback ENABLE ROW LEVEL SECURITY;
 --              _cancel), and no policy exists for them either.
 --   feedback — no UPDATE/DELETE: a rating is a record of what someone said at
 --              the time, not an editable field.
+--   reschedules — SELECT only: rows are written by fn_cl_housekeeping_reschedule
+--              alone, and the table has no write policy either.
 -- ==========================================================================
 REVOKE ALL ON TABLE public.hostel_cleaning_types            FROM anon, PUBLIC;
 REVOKE ALL ON TABLE public.hostel_cleaning_type_expenses    FROM anon, PUBLIC;
@@ -9527,6 +9649,7 @@ REVOKE ALL ON TABLE public.hostel_cleaning_availability     FROM anon, PUBLIC;
 REVOKE ALL ON TABLE public.hostel_cleaning_bookings         FROM anon, PUBLIC;
 REVOKE ALL ON TABLE public.hostel_cleaning_booking_photos   FROM anon, PUBLIC;
 REVOKE ALL ON TABLE public.hostel_cleaning_feedback         FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.hostel_cleaning_booking_reschedules FROM anon, PUBLIC;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.hostel_cleaning_types            TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.hostel_cleaning_type_expenses    TO authenticated;
@@ -9537,6 +9660,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.hostel_cleaning_availabilit
 GRANT SELECT, UPDATE                 ON TABLE public.hostel_cleaning_bookings         TO authenticated;
 GRANT SELECT, INSERT, DELETE         ON TABLE public.hostel_cleaning_booking_photos   TO authenticated;
 GRANT SELECT, INSERT                 ON TABLE public.hostel_cleaning_feedback         TO authenticated;
+GRANT SELECT                         ON TABLE public.hostel_cleaning_booking_reschedules TO authenticated;
 
 -- ============================================================================
 -- Events · institutional event number + target classes + two empty catalogues
@@ -9662,3 +9786,350 @@ REVOKE ALL ON public.event_impact_categories FROM anon, PUBLIC;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.event_impact_categories TO authenticated;
 ALTER TABLE public.event_impact_categories ENABLE ROW LEVEL SECURITY;
 
+
+
+-- ---------------------------------------------------------------------------
+-- Mirrored from supabase/migrations/20260908170000_leave_approval_org_scope.sql
+-- ---------------------------------------------------------------------------
+-- How far an approver role sees in the leave queue, and -- because the levels
+-- are ordered -- who outranks whom. A department-scoped approver (hod) never
+-- sees an applicant holding a role with a broader level, which is what keeps
+-- the Principal's own leave request out of every HOD queue. A role absent here
+-- defaults to 'institution'.
+
+CREATE TABLE IF NOT EXISTS public.hr_leave_approver_scopes (
+  role_key    text PRIMARY KEY
+                REFERENCES public.custom_roles(role_key) ON DELETE CASCADE,
+  scope_level text NOT NULL
+                CHECK (scope_level IN ('department', 'institution', 'group')),
+  notes       text,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+
+REVOKE ALL ON public.hr_leave_approver_scopes FROM anon, PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_leave_approver_scopes TO authenticated;
+ALTER TABLE public.hr_leave_approver_scopes ENABLE ROW LEVEL SECURITY;
+
+
+-- ===== 20261128000000_hostel_category_room_sources =====
+-- No institution_id: hostel_categories itself has none. Categories are global
+-- and scoped by gender ('type'), and every pool query still filters rooms by
+-- fn_room_serves_institution(), so tenancy is enforced on the ROOM, not here.
+
+CREATE TABLE IF NOT EXISTS public.hostel_category_room_sources (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  category_id         uuid NOT NULL REFERENCES public.hostel_categories(id) ON DELETE CASCADE,
+  source_category_id  uuid NOT NULL REFERENCES public.hostel_categories(id) ON DELETE CASCADE,
+  sort_order          integer NOT NULL DEFAULT 0,
+  is_active           boolean NOT NULL DEFAULT true,
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  updated_at          timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hcrs_not_self CHECK (category_id <> source_category_id),
+  CONSTRAINT hcrs_unique_pair UNIQUE (category_id, source_category_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_hcrs_category_active
+  ON public.hostel_category_room_sources (category_id) WHERE is_active;
+CREATE INDEX IF NOT EXISTS idx_hcrs_source
+  ON public.hostel_category_room_sources (source_category_id);
+
+ALTER TABLE public.hostel_category_room_sources ENABLE ROW LEVEL SECURITY;
+
+DROP TRIGGER IF EXISTS trg_hcrs_updated_at ON public.hostel_category_room_sources;
+CREATE TRIGGER trg_hcrs_updated_at
+  BEFORE UPDATE ON public.hostel_category_room_sources
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+COMMENT ON TABLE public.hostel_category_room_sources IS
+  'Extra room categories a category may seat its learners in. The learner keeps the '
+  'billing category and its benefits; only the physical room comes from elsewhere. '
+  'Read it through fn_cl_category_room_sources(), never directly — that function '
+  'also yields the native source (COALESCE(room_source_category_id, id)).';
+
+-- ============================================================================
+-- hr_decision_emails — outbox of approved/rejected emails to the applicant
+-- (migration 20260911200000_hr_decision_email_outbox.sql). Policies in
+-- 03_policies.sql, enqueue triggers in 04_triggers.sql, functions in
+-- 02_functions.sql. Sent by lib/services/hr/decision-email-service.ts.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.hr_decision_emails (
+  id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  leave_application_id uuid REFERENCES public.hr_leave_applications(id) ON DELETE CASCADE,
+  comp_off_credit_id   uuid REFERENCES public.hr_comp_off_credits(id) ON DELETE CASCADE,
+  employee_id          uuid NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
+  decision             text NOT NULL CHECK (decision IN ('approved', 'rejected')),
+  to_email             text,
+  status               text NOT NULL DEFAULT 'pending'
+                         CHECK (status IN ('pending', 'sent', 'failed', 'skipped')),
+  attempts             smallint NOT NULL DEFAULT 0,
+  next_attempt_at      timestamptz NOT NULL DEFAULT now(),
+  last_error           text,
+  resend_id            text,
+  created_at           timestamptz NOT NULL DEFAULT now(),
+  sent_at              timestamptz,
+  CONSTRAINT hr_decision_emails_one_record
+    CHECK (num_nonnulls(leave_application_id, comp_off_credit_id) = 1),
+  CONSTRAINT hr_decision_emails_pending_has_address
+    CHECK (status <> 'pending' OR to_email IS NOT NULL)
+);
+
+ALTER TABLE public.hr_decision_emails ENABLE ROW LEVEL SECURITY;
+
+CREATE UNIQUE INDEX IF NOT EXISTS hr_decision_emails_leave_uq
+  ON public.hr_decision_emails (leave_application_id, decision)
+  WHERE leave_application_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS hr_decision_emails_comp_off_uq
+  ON public.hr_decision_emails (comp_off_credit_id, decision)
+  WHERE comp_off_credit_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS hr_decision_emails_employee_idx
+  ON public.hr_decision_emails (employee_id);
+CREATE INDEX IF NOT EXISTS hr_decision_emails_due_idx
+  ON public.hr_decision_emails (next_attempt_at)
+  WHERE status = 'pending';
+
+
+-- =====================================================================================
+-- Mirrored from supabase/migrations/20260912100000_hr_leave_revoke_approved_decision.sql  (2026-09-12)
+-- Revoking an APPROVED leave / short-time-off / comp-off-claim decision.
+-- A revocation stores status='rejected'; revoked_at is what tells the two apart.
+-- =====================================================================================
+-- -------------------------------------------------------------------------------------
+-- 1. Audit columns
+--
+-- The status stays 'rejected' — inside the existing CHECK, understood by every trigger,
+-- report and filter already written. `revoked_at IS NOT NULL` is the ONE fact that
+-- separates "approved, then taken back" from "refused on day one", which are materially
+-- different things to the applicant and must not render identically.
+-- -------------------------------------------------------------------------------------
+ALTER TABLE public.hr_leave_applications
+  ADD COLUMN IF NOT EXISTS revoked_at    timestamptz,
+  ADD COLUMN IF NOT EXISTS revoked_by    uuid REFERENCES public.profiles(id),
+  ADD COLUMN IF NOT EXISTS revoke_reason text;
+
+ALTER TABLE public.hr_comp_off_credits
+  ADD COLUMN IF NOT EXISTS revoked_at    timestamptz,
+  ADD COLUMN IF NOT EXISTS revoked_by    uuid REFERENCES public.profiles(id),
+  ADD COLUMN IF NOT EXISTS revoke_reason text;
+
+COMMENT ON COLUMN public.hr_leave_applications.revoked_at IS
+  'Set when an APPROVED request was taken back. status is ''rejected''; this is what tells a revocation apart from an ordinary rejection.';
+COMMENT ON COLUMN public.hr_comp_off_credits.revoked_at IS
+  'Set when an APPROVED credit claim was taken back. status is ''rejected''.';
+
+ALTER TABLE public.hr_decision_emails
+  DROP CONSTRAINT IF EXISTS hr_decision_emails_decision_check;
+ALTER TABLE public.hr_decision_emails
+  ADD CONSTRAINT hr_decision_emails_decision_check
+  CHECK (decision = ANY (ARRAY['approved'::text, 'rejected'::text, 'revoked'::text]));
+
+-- =====================================================================================
+-- WhatsApp campus bridge — outbox / inbound / heartbeat  (2026-09-13)
+-- Source of truth: supabase/migrations/20261211090000_wa_bridge_outbox.sql
+--
+-- The bridge is a Go process on a Windows box behind campus NAT, so it POLLS us
+-- rather than being called. `type` is EXACTLY ('text','media') — the sender lane
+-- writes 'media', and a list of image/document/video/audio would fail every media
+-- send at the INSERT. The body cap is 4096 CHARACTERS, never bytes: a Tamil
+-- character is three bytes in UTF-8 and a byte cap silently refuses a Tamil parent
+-- at a third of the length it allows an English one.
+-- =====================================================================================
+CREATE TABLE IF NOT EXISTS public.wa_bridge_outbox (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  to_phone        TEXT NOT NULL,
+  body            TEXT,
+  type            TEXT NOT NULL DEFAULT 'text',
+  media_url       TEXT,
+
+  -- pending  → waiting to be claimed by a poll
+  -- sending  → claimed by a poll, outcome not yet acknowledged
+  -- sent     → the bridge acknowledged delivery to WhatsApp
+  -- failed   → the bridge acknowledged failure and the row is out of attempts
+  status          TEXT NOT NULL DEFAULT 'pending',
+
+  attempts        INTEGER NOT NULL DEFAULT 0,
+  wa_message_id   TEXT,
+  error           TEXT,
+
+  lead_id         UUID,
+  institution_id  UUID,
+  created_by      UUID,
+
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  sent_at         TIMESTAMPTZ,
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  -- The rows this table points at. Bare UUIDs with no FK would let a deleted
+  -- lead, institution or member of staff leave an id here that resolves to
+  -- nothing — and a message queued against a lead that no longer exists is a
+  -- message nobody can explain. ON DELETE SET NULL everywhere: the MESSAGE
+  -- record is the thing worth keeping, and losing its link is survivable where
+  -- losing the row (CASCADE) or blocking the delete (RESTRICT) is not.
+  CONSTRAINT wa_bridge_outbox_lead_fk
+    FOREIGN KEY (lead_id) REFERENCES public.admission_leads(id) ON DELETE SET NULL,
+  CONSTRAINT wa_bridge_outbox_institution_fk
+    FOREIGN KEY (institution_id) REFERENCES public.institutions(id) ON DELETE SET NULL,
+  CONSTRAINT wa_bridge_outbox_created_by_fk
+    FOREIGN KEY (created_by) REFERENCES public.profiles(id) ON DELETE SET NULL,
+
+  CONSTRAINT wa_bridge_outbox_status_chk
+    CHECK (status IN ('pending', 'sending', 'sent', 'failed')),
+
+  -- EXACTLY 'text' and 'media', and getting this list right is a contract, not
+  -- a preference. The sender lane writes type='media' for every image, document
+  -- and audio send; a constraint listing image/document/video/audio instead
+  -- would reject 'media' and fail 100% of media sends at the INSERT, before any
+  -- of this queue's machinery ever ran. The bridge takes a URL and lets
+  -- WhatsApp decide how to render it, so four names would be four names for one
+  -- behaviour.
+  CONSTRAINT wa_bridge_outbox_type_chk
+    CHECK (type IN ('text', 'media')),
+
+  -- Canonical E.164, DIGITS ONLY — no '+', no separators, no '@s.whatsapp.net'.
+  -- Enforced in the column rather than only in TypeScript because this table has
+  -- more than one writer, and a number the bridge cannot dial would otherwise be
+  -- claimed, fail three times and land in `failed`, where it reads as "WhatsApp
+  -- refused it" instead of "we wrote a bad number".
+  CONSTRAINT wa_bridge_outbox_to_phone_chk
+    CHECK (to_phone ~ '^[1-9][0-9]{7,14}$'),
+
+  -- Binds the payload to the type. Without this a row with type='text' and
+  -- body NULL is claimable: the bridge is handed a text message with nothing in
+  -- it, and the failure surfaces on a Windows box rather than at the INSERT that
+  -- caused it. A media row must carry a URL; its body is the optional caption.
+  CONSTRAINT wa_bridge_outbox_payload_chk
+    CHECK (
+      (type = 'text'
+        AND body IS NOT NULL AND btrim(body) <> ''
+        AND media_url IS NULL)
+      OR
+      (type = 'media'
+        AND media_url IS NOT NULL AND btrim(media_url) <> '')
+    ),
+
+  -- 4096 CHARACTERS, which is what WhatsApp itself counts. char_length() counts
+  -- characters; octet_length() would count bytes, and a byte cap refuses a Tamil
+  -- message at roughly a third of the length it refuses an English one, because
+  -- a Tamil character is three bytes in UTF-8. JKKN's families write in Tamil.
+  CONSTRAINT wa_bridge_outbox_body_len_chk
+    CHECK (body IS NULL OR char_length(body) <= 4096)
+);
+
+COMMENT ON TABLE public.wa_bridge_outbox IS
+  'Work queue the on-campus WhatsApp bridge polls. One row per message MyJKKN wants sent. The bridge claims rows (status pending → sending) and posts the outcome back; nothing in MyJKKN ever calls the bridge directly, because it sits behind campus NAT.';
+COMMENT ON COLUMN public.wa_bridge_outbox.status IS
+  'pending = unclaimed. sending = claimed by a poll, outcome unknown. sent = the bridge confirmed WhatsApp accepted it. failed = the bridge reported failure and attempts is exhausted. A failure with attempts still under the cap returns to pending rather than staying failed.';
+COMMENT ON COLUMN public.wa_bridge_outbox.attempts IS
+  'Acknowledged attempts, incremented by the ack, not by the claim. A row claimed by a poll that then died is left in sending and is NOT counted — see the stale-claim note on fn_wa_bridge_claim_pending.';
+COMMENT ON COLUMN public.wa_bridge_outbox.institution_id IS
+  'The institution this message belongs to, used by RLS. NULL means platform-wide and is readable ONLY by a super admin or an admin — the SELECT policy requires institution_id IS NOT NULL before it consults role_has_institution_access(), because that function returns TRUE for a NULL argument and would otherwise show every platform-wide message to everyone holding admission.settings.whatsapp.view. The bridge does not read through RLS at all.';
+
+-- The pending poll is the only hot query: status = 'pending' ORDER BY created_at.
+CREATE INDEX IF NOT EXISTS idx_wa_bridge_outbox_status_created
+  ON public.wa_bridge_outbox (status, created_at);
+
+-- ---------------------------------------------------------------------------
+-- 2. Inbound — what the bridge heard
+-- ---------------------------------------------------------------------------
+-- A SEPARATE table rather than wa_personal_message_logs. That table is keyed to
+-- a wa_personal_connections row (department_id, connection_id, both NOT NULL in
+-- practice for every reader of it), and the bridge has no connection row and no
+-- department — it is one campus device, not a department's BYOW session.
+-- Writing bridge traffic into it would either need invented department ids or
+-- NULLs that the existing inbox UI does not expect.
+CREATE TABLE IF NOT EXISTS public.wa_bridge_inbound (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  -- The bridge's own WhatsApp message id. UNIQUE, and it is the whole reason
+  -- this table can be retried into: the bridge re-posts anything it is not sure
+  -- we received, so a duplicate must collapse onto the first row instead of
+  -- creating a second record of one message a person sent once.
+  wa_message_id   TEXT NOT NULL,
+
+  from_phone      TEXT NOT NULL,
+  sender_name     TEXT,
+  body            TEXT,
+  type            TEXT NOT NULL DEFAULT 'text',
+  is_group        BOOLEAN NOT NULL DEFAULT false,
+
+  -- Resolved at write time by matching from_phone against admission_leads.
+  -- NULL means EITHER the number belongs to nobody we know OR it belongs to
+  -- more than one person — match_status is what tells those apart.
+  lead_id         UUID,
+
+  -- ⚠️ SIBLINGS SHARE A PARENT'S PHONE AT JKKN. Two admission leads carrying one
+  -- number is ordinary data, and picking one of them would file a parent's reply
+  -- against the wrong child's admission record with nothing anywhere recording
+  -- that a guess was made. So more than one candidate attaches to NONE of them:
+  --   matched    -> exactly one lead carries this number; lead_id is set
+  --   unmatched  -> no lead carries it; the message is kept anyway
+  --   ambiguous  -> several do; lead_id is NULL and a person decides
+  match_status          TEXT    NOT NULL DEFAULT 'unmatched',
+  match_candidate_count INTEGER NOT NULL DEFAULT 0,
+
+  received_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  CONSTRAINT uq_wa_bridge_inbound_wa_message_id UNIQUE (wa_message_id),
+
+  CONSTRAINT wa_bridge_inbound_lead_fk
+    FOREIGN KEY (lead_id) REFERENCES public.admission_leads(id) ON DELETE SET NULL,
+
+  CONSTRAINT wa_bridge_inbound_match_status_chk
+    CHECK (match_status IN ('matched', 'unmatched', 'ambiguous')),
+  CONSTRAINT wa_bridge_inbound_candidates_chk
+    CHECK (match_candidate_count >= 0),
+
+  -- One-directional on purpose. An ambiguous message must NEVER carry a lead —
+  -- that is the whole point of the state. The reverse ('matched' implies a
+  -- lead_id) is deliberately NOT asserted, because ON DELETE SET NULL above can
+  -- legitimately empty lead_id later, and a two-way CHECK would then block the
+  -- deletion of any lead that had ever replied.
+  CONSTRAINT wa_bridge_inbound_ambiguous_has_no_lead_chk
+    CHECK (match_status <> 'ambiguous' OR lead_id IS NULL)
+);
+
+COMMENT ON TABLE public.wa_bridge_inbound IS
+  'Messages the on-campus WhatsApp bridge received, one row per WhatsApp message. Separate from wa_personal_message_logs because the bridge has no wa_personal_connections row and no department. UNIQUE on wa_message_id so the bridge''s retries cannot double-record one message.';
+
+CREATE INDEX IF NOT EXISTS idx_wa_bridge_inbound_lead
+  ON public.wa_bridge_inbound (lead_id, received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wa_bridge_inbound_received
+  ON public.wa_bridge_inbound (received_at DESC);
+
+-- The human-resolution queue: everything a person still has to file. Partial,
+-- because in steady state nearly every row is 'matched' and none of those
+-- belong in this list.
+CREATE INDEX IF NOT EXISTS idx_wa_bridge_inbound_needs_attention
+  ON public.wa_bridge_inbound (match_status, received_at DESC)
+  WHERE match_status <> 'matched';
+
+COMMENT ON COLUMN public.wa_bridge_inbound.match_status IS
+  'matched = exactly one admission lead carries this number. unmatched = none does. ambiguous = several do (siblings sharing a parent''s phone is normal at JKKN) and the message was deliberately attached to NONE of them, for a person to file. The two non-matched states need different actions, which is why they are not one "unresolved".';
+COMMENT ON COLUMN public.wa_bridge_inbound.match_candidate_count IS
+  'How many admission leads carry this number. 0 or 1 for matched/unmatched; more than 1 for ambiguous. Recorded so the person resolving it knows how many records they are choosing between before opening anything.';
+
+-- ---------------------------------------------------------------------------
+-- 3. Heartbeat — is the bridge alive, and is it still logged in
+-- ---------------------------------------------------------------------------
+-- ONE row, enforced by the primary key rather than by convention: the id is a
+-- fixed literal and a CHECK refuses any other value, so a second bridge cannot
+-- quietly append a second row that half the readers then miss. If a second
+-- campus device is ever added this table has to change shape, which is the
+-- correct amount of friction for that decision.
+CREATE TABLE IF NOT EXISTS public.wa_bridge_status (
+  id                TEXT PRIMARY KEY DEFAULT 'bridge',
+  connected         BOOLEAN NOT NULL DEFAULT false,
+  logged_in         BOOLEAN NOT NULL DEFAULT false,
+  phone_number      TEXT,
+  version           TEXT,
+  last_heartbeat_at TIMESTAMPTZ,
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  CONSTRAINT wa_bridge_status_singleton_chk CHECK (id = 'bridge')
+);
+
+COMMENT ON TABLE public.wa_bridge_status IS
+  'Single-row heartbeat for the on-campus WhatsApp bridge. connected = the process is running and talking to us; logged_in = its WhatsApp session is still authenticated. The two differ, and the difference is the whole value: a bridge that is running but logged out looks healthy from the outside while sending nothing.';
+
+-- ---------------------------------------------------------------------------

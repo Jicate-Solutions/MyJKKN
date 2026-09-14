@@ -179,6 +179,39 @@ export class StaffNotificationService {
   }
 
   /**
+   * leave_revoked → notify the applicant that an APPROVED request was taken back.
+   *
+   * Deliberately not notifyLeaveRejected with different words: the applicant had
+   * an approved leave and has now lost it, usually after planning around it. The
+   * wording has to say that, and a distinct event_type lets a later digest or
+   * filter tell the two apart.
+   */
+  static async notifyLeaveRevoked(
+    supabase: SupabaseClient,
+    applicationId: string,
+    applicantUserId: string,
+    leaveTypeName: string,
+    dateRange: string,
+    reason: string,
+    revokedByName?: string
+  ): Promise<number> {
+    const by = revokedByName ? ` by ${revokedByName}` : '';
+    return this.dispatch(supabase, {
+      title: 'Approved Leave Revoked',
+      message: `Your ${leaveTypeName} for ${dateRange} was approved and has now been revoked${by}. Reason: ${reason}`,
+      userIds: [applicantUserId],
+      eventType: 'leave_revoked',
+      url: `/hr/leave/${applicationId}`,
+      metadata: {
+        reference_id: applicationId,
+        leave_type: leaveTypeName,
+        revoke_reason: reason,
+        revoked_by: revokedByName,
+      },
+    });
+  }
+
+  /**
    * schedule_assigned → notify the staff member assigned to a new shift/class.
    */
   static async notifyScheduleAssigned(
