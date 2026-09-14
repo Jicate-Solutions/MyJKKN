@@ -6,8 +6,9 @@
  * 7 inputs x 2 thresholds (amber, red) = up to 14 policy rows in platform_policies.
  * Policy keys: hr_recruitment.threshold_amber_{input_key}, hr_recruitment.threshold_red_{input_key}
  *
- * Validation: amber must be > red for each input (amber = "warning zone" is a higher %,
- * red = "critical" is a lower %).
+ * Validation is direction-aware (see threshold-direction.ts): for a
+ * lower-is-worse input amber > red; for a higher-is-worse input (SFR, projected
+ * intake, attrition pipeline) red > amber and values may exceed 100.
  */
 
 import { useEffect, useState, useMemo } from 'react';
@@ -33,13 +34,15 @@ import {
   useUpdateThresholds,
 } from '@/hooks/hr/recruitment-need/use-recruitment-admin';
 import type { SignalInputKey } from '@/types/hr-recruitment-need';
+import {
+  THRESHOLD_DIRECTION,
+  validateThresholdRows,
+} from '@/lib/services/hr/recruitment-need/threshold-direction';
 
 const ADMIN_ROLES = [SYSTEM_ROLES.SUPER_ADMIN, SYSTEM_ROLES.ADMINISTRATOR];
 
-// 'workload' is deliberately absent. Its bands run the other way (more hours
-// than expected is worse, so red 120 > amber 100) and are set PER INSTITUTION
-// on /hr/workload/settings. Listing it here failed this page's amber > red and
-// 0-100 rules on the seeded values, which disabled Save for every input.
+// 'workload' is deliberately absent: its bands are set PER INSTITUTION on
+// /hr/workload/settings.
 const INPUT_KEYS: SignalInputKey[] = [
   'sanctioned_gap',
   'sfr',
@@ -94,22 +97,9 @@ export default function ThresholdsAdminPage() {
     setDirty(false);
   }, [policies]);
 
-  // Validation: amber > red for each input
-  const validationErrors = useMemo(() => {
-    const errors: Record<string, string> = {};
-    rows.forEach((row) => {
-      if (row.amber <= row.red) {
-        errors[row.input_key] = 'Amber must be greater than Red';
-      }
-      if (row.amber < 0 || row.amber > 100) {
-        errors[`${row.input_key}_amber`] = 'Must be 0-100';
-      }
-      if (row.red < 0 || row.red > 100) {
-        errors[`${row.input_key}_red`] = 'Must be 0-100';
-      }
-    });
-    return errors;
-  }, [rows]);
+  // Validation: direction-aware per input (amber > red for lower-is-worse,
+  // red > amber for higher-is-worse)
+  const validationErrors = useMemo(() => validateThresholdRows(rows), [rows]);
 
   const hasErrors = Object.keys(validationErrors).length > 0;
 
@@ -156,9 +146,10 @@ export default function ThresholdsAdminPage() {
           </div>
 
           <p className="text-sm text-muted-foreground">
-            Set amber (warning) and red (critical) thresholds for each signal input.
-            When an input&apos;s percentage-of-norm falls below these thresholds, it
-            triggers the corresponding status. Amber must be higher than red.
+            Set amber (warning) and red (critical) thresholds for each signal input,
+            as a percentage of norm. Amber fires first: for a &quot;lower is worse&quot;
+            input amber must be higher than red; for a &quot;higher is worse&quot; input
+            red must be higher than amber.
             Faculty Workload limits are set per institution on{' '}
             <Link href="/hr/workload/settings" className="underline">Workload Settings</Link>.
           </p>
@@ -200,12 +191,16 @@ export default function ThresholdsAdminPage() {
                         <TableRow key={row.input_key}>
                           <TableCell className="font-medium text-sm">
                             {INPUT_LABELS[row.input_key]}
+                            <div className="text-[11px] font-normal text-muted-foreground">
+                              {THRESHOLD_DIRECTION[row.input_key] === 'higher-is-worse'
+                                ? 'higher is worse'
+                                : 'lower is worse'}
+                            </div>
                           </TableCell>
                           <TableCell className="text-right">
                             <Input
                               type="number"
                               min={0}
-                              max={100}
                               step={1}
                               className="w-20 h-8 text-right ml-auto"
                               value={row.amber}
@@ -218,7 +213,6 @@ export default function ThresholdsAdminPage() {
                             <Input
                               type="number"
                               min={0}
-                              max={100}
                               step={1}
                               className="w-20 h-8 text-right ml-auto"
                               value={row.red}
@@ -246,7 +240,8 @@ export default function ThresholdsAdminPage() {
                   <div className="mt-4 flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
                     <AlertTriangle className="h-4 w-4" />
                     <span>
-                      Fix validation errors before saving. Amber must be greater than Red for each input.
+                      Fix validation errors before saving:{' '}
+                      {Array.from(new Set(Object.values(validationErrors))).join('; ')}.
                     </span>
                   </div>
                 )}
