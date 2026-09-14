@@ -1701,6 +1701,15 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/meetings/series': 'meetings.series.view',
   '/meetings/series/rules': 'meetings.series.view',
 
+  // Unmatched meeting notes — notes that arrived from Fireflies carrying no
+  // identifier MyJKKN recognises, waiting for a human to say which meeting they
+  // belong to. Gated on .manage rather than .view: reaching this screen means
+  // reading the contents of meetings you may not have been in, which is the
+  // unavoidable cost of being the person who identifies them. The same key is
+  // what the RLS policy on meeting_notes admits to an unmatched row and what
+  // fn_link_meeting_note() checks before it writes.
+  '/meetings/notes/unmatched': 'meetings.series.manage',
+
   // Online Meetings — dynamic team meetings with the AI Pulse engagement layer
   // and external-guest support. Separate module from /meetings above; see the
   // sidebar entry for why. The guest surface is /join/[token], which is public
@@ -3541,6 +3550,12 @@ export function GetPages(pathname: string): MenuGroup[] {
             // reachability gate reports the rules screen as unreachable otherwise.
             { href: '/meetings/series/rules', label: 'Scheduling Rules', active: pathname.startsWith('/meetings/series/rules') },
             { href: '/meetings/inbox', label: 'Inbox', active: pathname.startsWith('/meetings/inbox') },
+            // Listed here for the same reason as /meetings/series/rules above:
+            // /meetings has no nav-config.ts, so nothing renders a tier-N+1 chip
+            // and the reachability gate would report this page as unreachable.
+            // It is not decoration — a queue nobody can navigate to is a queue
+            // nobody drains, and these notes sit unread until somebody links them.
+            { href: '/meetings/notes/unmatched', label: 'Unmatched Notes', active: pathname.startsWith('/meetings/notes/unmatched') },
             { href: '/meetings/routing-forms', label: 'Routing Forms', active: pathname.startsWith('/meetings/routing-forms') },
             { href: '/meetings/workflows', label: 'Workflows', active: pathname.startsWith('/meetings/workflows') },
             { href: '/meetings/polls', label: 'Polls', active: pathname.startsWith('/meetings/polls') },
