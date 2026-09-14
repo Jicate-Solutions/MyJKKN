@@ -150,3 +150,9 @@ BEGIN
   RETURN v_result;
 END;
 $function$;
+
+-- Lock the rewritten RPC from the public anon key (CI guard: check-secdef-anon-revoke).
+-- A CREATE OR REPLACE keeps the old grants, but the guard treats every SECURITY DEFINER
+-- body in a migration as new and wants the lock stated in the same file.
+REVOKE EXECUTE ON FUNCTION public.fn_onemark_learner_report(uuid, uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_onemark_learner_report(uuid, uuid) TO authenticated;
