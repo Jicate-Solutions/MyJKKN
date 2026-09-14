@@ -4,6 +4,7 @@ import {
   activeMetricsForBody,
   buildDigestPreview,
   computeOwnerDigest,
+  ownersWithoutConfig,
   isDigestDue,
   metricsWithEvidence,
   nextSubmissionDeadline,
@@ -490,5 +491,143 @@ describe('buildDigestPreview — the exact words, readable before anyone arms it
     const preview = buildDigestPreview(big);
     expect(preview.gapCount).toBe(30);
     expect(preview.body).toContain('...and 10 more.');
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('catalogueSize — the denominator the reader is never told', () => {
+  it('reports how many active metrics the body actually has in the catalogue', () => {
+    const digest = computeOwnerDigest({
+      config: config(),
+      owners: [owner({ id: 'o1' })],
+      metrics: METRICS,
+      evidence: [],
+      submissions: [],
+      now: NOW,
+    });
+    expect(digest.catalogueSize).toBe(3);
+  });
+
+  it('counts the catalogue, not the owner — inactive metrics are excluded', () => {
+    const digest = computeOwnerDigest({
+      config: config(),
+      owners: [owner({ id: 'o1' })],
+      metrics: [...METRICS, metric('9.9.9', { is_active: false })],
+      evidence: [],
+      submissions: [],
+      now: NOW,
+    });
+    expect(digest.catalogueSize).toBe(3);
+  });
+
+  it("counts only this body's metrics", () => {
+    const digest = computeOwnerDigest({
+      config: config(),
+      owners: [owner({ id: 'o1' })],
+      metrics: [...METRICS, metric('P1', { metric_type: 'PCI' })],
+      evidence: [],
+      submissions: [],
+      now: NOW,
+    });
+    expect(digest.catalogueSize).toBe(3);
+  });
+
+  it('a thin catalogue is reported as thin, not as a nearly-finished job', () => {
+    // The live shape that motivated this: PCI holds 2 active metrics, so a
+    // body owner is told "2 awaiting evidence" for a regulator whose real
+    // requirements are nothing like two items long.
+    const digest = computeOwnerDigest({
+      config: config({ body_code: 'PCI' }),
+      owners: [owner({ id: 'o1', body_code: 'PCI' })],
+      metrics: [metric('P1', { metric_type: 'PCI' }), metric('P2', { metric_type: 'PCI' })],
+      evidence: [],
+      submissions: [],
+      now: NOW,
+    });
+    expect(digest.catalogueSize).toBe(2);
+    expect(digest.gaps).toHaveLength(2);
+    expect(buildDigestPreview(digest).body).toContain(
+      "measured against the 2 PCI metric(s) currently in this platform's framework catalogue",
+    );
+  });
+
+  it('states the basis even when the catalogue is well populated', () => {
+    // A caveat that appears only on thin bodies teaches its reader that its
+    // absence is an all-clear.
+    const digest = computeOwnerDigest({
+      config: config(),
+      owners: [owner({ id: 'o1' })],
+      metrics: METRICS,
+      evidence: [],
+      submissions: [],
+      now: NOW,
+    });
+    const body = buildDigestPreview(digest).body;
+    expect(body).toContain("currently in this platform's framework catalogue");
+    expect(body).toContain("not the same thing as NAAC's full published requirements");
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('ownersWithoutConfig — the owner the route cannot see', () => {
+  it('reports a confirmed owner with no config row', () => {
+    const result = ownersWithoutConfig([owner({ id: 'o1' })], []);
+    expect(result).toEqual([{ userId: ALICE, institutionId: INST, bodyCode: 'NAAC' }]);
+  });
+
+  it('says nothing about an owner a config already covers', () => {
+    expect(ownersWithoutConfig([owner({ id: 'o1' })], [config()])).toEqual([]);
+  });
+
+  it('ignores a declined owner — that is a refusal by decision, not a hole', () => {
+    expect(ownersWithoutConfig([owner({ id: 'o2', assignment_status: 'declined', owner_user_id: BOB })], [])).toEqual([]);
+  });
+
+  it('reports a pending owner — since 2026-09-08 assignment is ownership, so pending is owed a digest too', () => {
+    const result = ownersWithoutConfig([owner({ id: 'o1', assignment_status: 'pending' })], []);
+    expect(result).toEqual([{ userId: ALICE, institutionId: INST, bodyCode: 'NAAC' }]);
+  });
+
+  it('counts one unreachable person per body, not one per metric they own', () => {
+    const rows = [
+      owner({ id: 'o1', metric_code: '1.1.1' }),
+      owner({ id: 'o2', metric_code: '1.1.2' }),
+      owner({ id: 'o3', metric_code: '3.1.1' }),
+    ];
+    expect(ownersWithoutConfig(rows, [])).toHaveLength(1);
+  });
+
+  it('separates the same person at a different institution', () => {
+    const rows = [owner({ id: 'o1' }), owner({ id: 'o2', institution_id: OTHER_INST })];
+    expect(ownersWithoutConfig(rows, [config()])).toEqual([
+      { userId: ALICE, institutionId: OTHER_INST, bodyCode: 'NAAC' },
+    ]);
+  });
+
+  it('separates the same person on a different body', () => {
+    const rows = [owner({ id: 'o1' }), owner({ id: 'o2', body_code: 'NIRF' })];
+    expect(ownersWithoutConfig(rows, [config()])).toEqual([
+      { userId: ALICE, institutionId: INST, bodyCode: 'NIRF' },
+    ]);
+  });
+
+  it('a config for somebody else does not cover this owner', () => {
+    expect(ownersWithoutConfig([owner({ id: 'o1' })], [config({ user_id: BOB })])).toHaveLength(1);
+  });
+
+  it('the live shape today: 14 pending owners with no config are 14 unreachable people', () => {
+    // Every one of the 14 recorded 2026-08-13 is still pending. Before #3381
+    // that meant "not yet consented, so not owed a digest" and this report was
+    // empty. Assignment is ownership now, so all 14 are owed one and none can
+    // be reached — the hole is open today, and this is the only thing that
+    // says so.
+    const rows = Array.from({ length: 14 }, (_, i) =>
+      owner({ id: `o${i}`, assignment_status: 'pending', owner_user_id: `u-${i}` }),
+    );
+    expect(ownersWithoutConfig(rows, [])).toHaveLength(14);
+
+    const oneDeclined = [...rows];
+    oneDeclined[0] = owner({ id: 'o0', assignment_status: 'declined', owner_user_id: 'u-0' });
+    expect(ownersWithoutConfig(oneDeclined, [])).toHaveLength(13);
   });
 });
