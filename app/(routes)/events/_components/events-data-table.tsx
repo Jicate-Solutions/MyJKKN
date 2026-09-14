@@ -55,6 +55,7 @@ import {
   eventVenueValue,
   formatEventType,
   isEventOpen,
+  matchesEventStatusFilter,
 } from './event-display';
 
 const ALL = 'all';
@@ -162,8 +163,7 @@ export function EventsDataTable() {
         rows = rows.filter((e) => (e.event_type as string) === typeFilter);
       }
       if (statusFilter !== ALL) {
-        const wantOpen = statusFilter === 'active';
-        rows = rows.filter((e) => isEventOpen(e) === wantOpen);
+        rows = rows.filter((e) => matchesEventStatusFilter(e, statusFilter));
       }
       if (params.search) {
         const q = params.search.toLowerCase();
@@ -233,6 +233,9 @@ export function EventsDataTable() {
           <SelectItem value={ALL}>All statuses</SelectItem>
           <SelectItem value="active">Active</SelectItem>
           <SelectItem value="draft">Draft</SelectItem>
+          {/* Its own bucket: a cancelled event wears a "Cancelled" badge, so
+              listing it under Draft made the list contradict the badge. */}
+          <SelectItem value="cancelled">Cancelled</SelectItem>
         </SelectContent>
       </Select>
     </div>

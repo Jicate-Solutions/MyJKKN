@@ -44,8 +44,12 @@ const META = {
 };
 
 const RECENT = [
-  { h: 'aaa1111', d: '2026-09-02', t: 'fixed', m: 'billing', s: 'A receipt total ignored the discount', a: 'Boobalan' },
+  // `l` is the screen the change happened on. Present on the first entry,
+  // absent on the other two — which is the real distribution: roughly a quarter
+  // of entries carry one and the rest fall back to their module.
+  { h: 'aaa1111', d: '2026-09-02', t: 'fixed', m: 'billing', s: 'A receipt total ignored the discount', a: 'Boobalan', l: '/billing/receipts/adjustments' },
   { h: 'bbb2222', d: '2026-09-02', t: 'new', m: 'hr', s: 'Bulk import for employee records', a: 'Janani' },
+  // platform has no href of its own, so this one can link nowhere at all.
   { h: 'ccc3333', d: '2026-09-01', t: 'new', m: 'platform', s: 'Sign-in remembers your last screen', a: 'Boobalan' },
 ];
 
@@ -267,5 +271,67 @@ describe("WhatsNewView — a failed archive must not take the page with it", () 
 
     await waitFor(() => expect(screen.getByText('An older billing fix')).toBeInTheDocument());
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+});
+
+describe('WhatsNewView — every entry is a way in', () => {
+  /**
+   * The Director's complaint, 2026-09-13: "a normal user by reading what is
+   * there in the what's new page will not be able to see where that change has
+   * happened unless if there is some link to be clickable which takes him
+   * directly to the page." Before this the whole list rendered ONE link, and
+   * only once the reader had already filtered to a module.
+   *
+   * The three states below are the feature. The third — no link at all — is the
+   * one worth pinning: a dead `#` would take focus, take a tap, and teach the
+   * reader that the links on this page do not work.
+   */
+  beforeEach(() => {
+    permissionsMock.current = { permissions: {}, isSuperAdmin: true, isLoading: false };
+  });
+
+  it('sends an entry with its own screen straight to that screen', async () => {
+    render(<WhatsNewView />);
+    await waitFor(() =>
+      expect(screen.getByText('A receipt total ignored the discount')).toBeInTheDocument()
+    );
+
+    // Named after its own change, so sixty of these are distinguishable in a
+    // screen reader's link list rather than sixty identical "Open this page".
+    const link = screen.getByRole('link', {
+      name: /Open this page: A receipt total ignored the discount/i,
+    });
+    expect(link).toHaveAttribute('href', '/billing/receipts/adjustments');
+  });
+
+  it('falls back to the module when the change has no single screen', async () => {
+    render(<WhatsNewView />);
+    await waitFor(() =>
+      expect(screen.getByText('Bulk import for employee records')).toBeInTheDocument()
+    );
+
+    // Worded differently on purpose: "Open HR" promises the area, "Open this
+    // page" promises the screen. A reader can tell which before spending a tap.
+    const link = screen.getByRole('link', {
+      name: /Open HR: Bulk import for employee records/i,
+    });
+    expect(link).toHaveAttribute('href', '/hr');
+  });
+
+  it('renders no link at all when neither the entry nor its module has one', async () => {
+    render(<WhatsNewView />);
+    await waitFor(() =>
+      expect(screen.getByText('Sign-in remembers your last screen')).toBeInTheDocument()
+    );
+
+    expect(
+      screen.queryByRole('link', { name: /Sign-in remembers your last screen/i })
+    ).not.toBeInTheDocument();
+    // And specifically not a dead anchor pointing at itself.
+    const dead = screen.queryAllByRole('link').filter((a) => {
+      const href = a.getAttribute('href');
+      return href === '#' || href === '' || href === null;
+    });
+    expect(dead).toEqual([]);
   });
 });

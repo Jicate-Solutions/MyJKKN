@@ -17,7 +17,8 @@
 // ============================================================================
 
 import { useRouter } from 'next/navigation';
-import { useState, useTransition } from 'react';
+import { useMemo, useState, useTransition } from 'react';
+import { institutionLabelById } from '@/lib/utils/institutions/institution-labels';
 import type { ClusterInstitutionOption, ClusterPreset } from './types';
 
 export function ClusterPicker({
@@ -33,6 +34,14 @@ export function ClusterPicker({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [draft, setDraft] = useState<Set<string>>(() => new Set(appliedIds));
+
+  // Two LIVE colleges — CAS Aided and CAS Self — carry the SAME display_name,
+  // so `display_name || name` rendered this checkbox grid with two identical
+  // rows. A cluster's members are the thing the aggregate below is summed
+  // over; a tick you cannot attribute to a college is not a choice. The helper
+  // keeps display_name wherever it is unique and falls back to `name` (which
+  // says "(Aided)" / "(Self)") only for the pair that collides.
+  const labelById = useMemo(() => institutionLabelById(institutions), [institutions]);
 
   // Canonical ordering (the institutions list is name-sorted server-side) so
   // the same member set always produces the same URL — stable bookmarks.
@@ -118,7 +127,7 @@ export function ClusterPicker({
               className="h-3.5 w-3.5 flex-none accent-emerald-600"
             />
             <span className="truncate" title={i.name}>
-              {i.display_name || i.name}
+              {labelById.get(i.id) ?? i.name}
             </span>
           </label>
         ))}

@@ -1,0 +1,20 @@
+# Build output
+dist/
+
+# `go build` with no -o drops the compiled binary here, named after the package
+# directory. It is 18 MB and must never reach the repo.
+/whatsapp-bridge
+/whatsapp-bridge.exe
+
+# Runtime state — the WhatsApp session lives here. Never commit it: anyone
+# holding this file can send WhatsApp messages as JKKN.
+*.db
+*.db-shm
+*.db-wal
+
+# Rotating logs
+logs/
+
+# Operator's local settings (contains BRIDGE_SECRET)
+start-bridge.bat
+.env

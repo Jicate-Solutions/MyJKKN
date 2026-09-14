@@ -98,7 +98,7 @@ export function TemplateRowActions({ template }: TemplateRowActionsProps) {
 
   const handleExport = () => {
     setDropdownOpen(false);
-    toast.success('Export functionality coming soon');
+    toast.success('Exporting templates is not available yet.');
   };
 
   return (
