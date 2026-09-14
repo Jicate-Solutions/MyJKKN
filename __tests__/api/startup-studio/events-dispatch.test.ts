@@ -225,7 +225,7 @@ describe('the allow header advertises the real methods', () => {
     expect(allowHeader(matched!.entry)).toBe('GET, PATCH, DELETE, OPTIONS');
   });
 
-  it('lists both venue staff methods plus OPTIONS', () => {
+  it('lists both venue team-member methods plus OPTIONS', () => {
     const matched = matchRoute(['venues', VENUE_ID, 'staff']);
     expect(allowHeader(matched!.entry)).toBe('POST, DELETE, OPTIONS');
   });
