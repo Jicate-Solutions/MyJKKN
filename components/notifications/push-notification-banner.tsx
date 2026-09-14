@@ -69,10 +69,10 @@ export function PushNotificationBanner() {
   };
 
   return (
-    <div className="w-full bg-gradient-to-r from-green-600 to-green-700 text-white px-4 py-2.5 flex items-center justify-between gap-4 shadow-sm z-50">
+    <div className="w-full bg-gradient-to-r from-green-700 to-green-800 text-white px-4 py-2.5 flex items-center justify-between gap-4 shadow-sm z-50">
       <div className="flex items-center gap-3 min-w-0 ml-4">
         <Bell className="h-4 w-4 flex-shrink-0 animate-[ring_1s_ease-in-out_infinite]" />
-        <p className="text-sm font-medium truncate">
+        <p className="text-sm font-medium line-clamp-3">
           {isDenied
             ? 'Push notifications are blocked. Please enable them in your browser settings (click the lock icon in the address bar).'
             : 'Enable push notifications to receive important updates, alerts, and announcements instantly.'}
@@ -86,7 +86,7 @@ export function PushNotificationBanner() {
             variant="secondary"
             onClick={handleEnable}
             disabled={isLoading}
-            className="h-7 text-xs font-semibold bg-white text-green-700 hover:bg-green-50"
+            className="h-11 md:h-7 text-xs font-semibold bg-white text-green-700 hover:bg-green-50"
           >
             <Bell className="mr-1.5 h-3.5 w-3.5" />
             Enable Now
@@ -94,7 +94,7 @@ export function PushNotificationBanner() {
         )}
         <button
           onClick={handleSnooze}
-          className="text-white/80 hover:text-white p-1 rounded-sm hover:bg-white/10 transition-colors"
+          className="text-white/80 hover:text-white p-3.5 -mr-3.5 md:p-1 md:mr-0 rounded-sm hover:bg-white/10 transition-colors"
           aria-label="Dismiss for now"
           title="Remind me later (4 hours)"
         >
