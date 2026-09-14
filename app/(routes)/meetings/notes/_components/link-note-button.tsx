@@ -1,6 +1,6 @@
 'use client';
 
-// app/(routes)/meetings/notes/unmatched/_components/link-note-button.tsx
+// app/(routes)/meetings/notes/_components/link-note-button.tsx
 //
 // The "link to meeting" picker.
 //

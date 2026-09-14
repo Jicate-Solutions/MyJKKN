@@ -1708,7 +1708,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // unavoidable cost of being the person who identifies them. The same key is
   // what the RLS policy on meeting_notes admits to an unmatched row and what
   // fn_link_meeting_note() checks before it writes.
-  '/meetings/notes/unmatched': 'meetings.series.manage',
+  '/meetings/notes': 'meetings.series.manage',
 
   // Online Meetings — dynamic team meetings with the AI Pulse engagement layer
   // and external-guest support. Separate module from /meetings above; see the
@@ -3555,7 +3555,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             // and the reachability gate would report this page as unreachable.
             // It is not decoration — a queue nobody can navigate to is a queue
             // nobody drains, and these notes sit unread until somebody links them.
-            { href: '/meetings/notes/unmatched', label: 'Unmatched Notes', active: pathname.startsWith('/meetings/notes/unmatched') },
+            { href: '/meetings/notes', label: 'Unmatched Notes', active: pathname.startsWith('/meetings/notes') },
             { href: '/meetings/routing-forms', label: 'Routing Forms', active: pathname.startsWith('/meetings/routing-forms') },
             { href: '/meetings/workflows', label: 'Workflows', active: pathname.startsWith('/meetings/workflows') },
             { href: '/meetings/polls', label: 'Polls', active: pathname.startsWith('/meetings/polls') },

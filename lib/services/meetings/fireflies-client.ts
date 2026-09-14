@@ -62,9 +62,22 @@ export type FirefliesFailureReason =
   /** Fireflies answered with something this client cannot read. */
   | 'unreadable';
 
+/**
+ * The arms carry each other's fields as `?: undefined` on purpose.
+ *
+ * Without them TypeScript does not narrow this union through a `!result.ok`
+ * guard, and every `result.reason` / `result.message` on the failure path is a
+ * TS2339 — which is exactly what the PR-scoped TypeCheck gate reported (five
+ * errors across the ingest route and the unmatched screen).
+ *
+ * Worth knowing WHY that was not caught earlier: `next.config.ts` sets
+ * `typescript.ignoreBuildErrors: true`, so the production build compiled this
+ * file happily. The type gate exists precisely because of that mask — a green
+ * build is not evidence the types are sound in this repo.
+ */
 export type FirefliesResult<T> =
-  | { ok: true; data: T }
-  | { ok: false; reason: FirefliesFailureReason; message: string };
+  | { ok: true; data: T; reason?: undefined; message?: undefined }
+  | { ok: false; data?: undefined; reason: FirefliesFailureReason; message: string };
 
 /** True when a key is present. Cheap; safe to call from a route guard. */
 export function isFirefliesConfigured(): boolean {

@@ -1,6 +1,6 @@
 'use server';
 
-// app/(routes)/meetings/notes/unmatched/actions.ts
+// app/(routes)/meetings/notes/actions.ts
 //
 // The one write a human makes in this feature: attaching an UNMATCHED meeting
 // note to the meeting it belongs to.
@@ -31,7 +31,7 @@ export interface LinkNoteResult {
   error?: string;
 }
 
-const UNMATCHED_PATH = '/meetings/notes/unmatched';
+const UNMATCHED_PATH = '/meetings/notes';
 
 export async function linkMeetingNote(input: {
   noteId: string;
