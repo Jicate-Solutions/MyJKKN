@@ -112,9 +112,20 @@ done
 # space separated); the flag and the file are merged. Approve from the phone with:
 #   echo 3273 >> ~/.config/obsidian/.ship-wave/approve-held
 # A HELD PR that merges is removed from the file automatically; the file is never a standing permission.
-if [ -s "$STATE/approve-held" ]; then
-  APPROVE_HELD="$APPROVE_HELD $(tr ',\n' '  ' < "$STATE/approve-held")"; APPROVE_HELD="${APPROVE_HELD# }"
-fi
+# 2026-09-14 (W12 loop, wave bug b): the file was read ONCE, here, at launch. In a --goal run the Director's
+# approvals typed during round 1 (08:35: #3692) were refused by rounds 2-6 as "not in this run's ready-HELD
+# list" and had to wait for the next xx:23 wave. The flag is remembered separately and the file is merged
+# again at the top of every round (read_approve_held, called from run_once) — a number typed between rounds
+# now rides the next round of the SAME run. Semantics are unchanged otherwise: a HELD PR that merges is still
+# removed from the file, and the file is still never a standing permission.
+APPROVE_HELD_FLAG="$APPROVE_HELD"
+read_approve_held() {
+  APPROVE_HELD="$APPROVE_HELD_FLAG"
+  if [ -s "$STATE/approve-held" ]; then
+    APPROVE_HELD="$APPROVE_HELD $(tr ',\n' '  ' < "$STATE/approve-held")"; APPROVE_HELD="${APPROVE_HELD# }"
+  fi
+}
+read_approve_held
 
 vtok() {
   # The CLI token is short-lived (auth.json carries expiresAt + refreshToken) and only the CLI refreshes it.
@@ -871,6 +882,7 @@ if [ -n "${IF_CHANGED:-}" ] && [ "$MODE" = "go" ] && unchanged_since_last_run; t
 run_once() {
   local ts; ts=$(date '+%Y%m%d-%H%M%S')
   local run="$STATE/run-$ts"; mkdir -p "$run"
+  read_approve_held   # wave bug b: approvals typed since the last round count in THIS round, not the next wave
   # Redirect ONCE per process. In a --goal loop this used to re-exec every round, stacking a live
   # tee per round; each new tee truncated $RECEIPT while the older ones kept flushing their copy,
   # so the receipt held the same header N times and no round's real output survived
