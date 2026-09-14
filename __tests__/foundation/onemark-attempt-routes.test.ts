@@ -1590,3 +1590,111 @@ describe('persistServedSet', () => {
     expect(updates.filter((u) => u.table === 'fp_attempts')).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Defect 3 (Wave 3 try-out, 2026-09-12) — a TIMED sitting resumes.
+// Director ruling 2026-09-14: the next Timed tap reopens the abandoned
+// sitting with its clock where it was — not a new attempt, not auto-abandon.
+// ---------------------------------------------------------------------------
+
+describe('defect 3 — an abandoned TIMED sitting resumes on the next Timed tap', () => {
+  const minute = 60 * 1000;
+  const timedMinutes = OneMarkPolicyDefaults[OneMarkPolicyKeys.TIMED_DEFAULT_MINUTES];
+
+  function openTimed(startedAgoMs: number, status: 'in_progress' | 'submitted' = 'in_progress') {
+    return {
+      id: ATTEMPT_ID,
+      student_id: 'learner-1',
+      assessment_id: POOL_ID,
+      mode: 'timed',
+      status,
+      started_at: new Date(Date.now() - startedAgoMs).toISOString(),
+      submitted_at: status === 'submitted' ? new Date().toISOString() : null,
+      score: status === 'submitted' ? 3 : null,
+      session_id: 'sess-timed',
+    };
+  }
+
+  it('reopens the open timed attempt — same id, resumed:true, clock from its own started_at', async () => {
+    attemptRow = openTimed(5 * minute);
+    servedColumn = 'present';
+    servedColumnIds = [ITEM_ID];
+    responseRows = [{ item_id: ITEM_ID, chosen: 'A', is_correct: null, skipped: false }];
+
+    const res = await startSitting(post({ mode: 'timed', examDefinitionId: EXAM_ID }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.resumed).toBe(true);
+    expect(body.attemptId).toBe(ATTEMPT_ID);
+    expect(body.sessionId).toBe('sess-timed');
+    // No second row, nothing closed.
+    expect(insertedAttempts).toHaveLength(0);
+    expect(rpcCalls.some((c) => c.fn === 'fn_onemark_finalize_attempt')).toBe(false);
+    expect(body.expiredClosed).toEqual([]);
+    // The served set comes back, and what was answered is on the record.
+    expect(body.questions.map((q: any) => q.id)).toEqual([ITEM_ID]);
+    expect(body.alreadyAnswered).toEqual([ITEM_ID]);
+    // The clock is where it was: started_at + the timed budget, not "now".
+    const started = new Date(attemptRow!.started_at as string).getTime();
+    expect(new Date(body.deadlineAt).getTime()).toBe(started + timedMinutes * minute);
+    expect(new Date(body.deadlineAt).getTime() - Date.now()).toBeLessThan((timedMinutes - 4) * minute);
+    // The stored served set is left exactly as it was.
+    expect(body.servedSetStored).toBe('unchanged');
+    expect(updates.filter((u) => u.table === 'fp_attempts')).toHaveLength(0);
+  });
+
+  it('closes an open timed attempt whose clock has run out — blanks as skips, then finalize — and opens a fresh one', async () => {
+    attemptRow = openTimed((timedMinutes + 10) * minute);
+    servedColumn = 'present';
+    servedColumnIds = [ITEM_ID, OTHER_ITEM_ID];
+    responseRows = [{ item_id: ITEM_ID, chosen: 'A', is_correct: null, skipped: false }];
+
+    const res = await startSitting(post({ mode: 'timed', examDefinitionId: EXAM_ID }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    // Not reopened on a dead clock.
+    expect(body.resumed).toBe(false);
+    expect(body.expiredClosed).toEqual([ATTEMPT_ID]);
+    expect(insertedAttempts).toHaveLength(1);
+    expect(insertedAttempts[0].mode).toBe('timed');
+    // The unanswered served question went in as a SKIP (decision 18); the
+    // answered one was not touched; then the RPC submitted it.
+    const skips = rpcCalls.filter((c) => c.fn === 'fn_onemark_record_response');
+    expect(skips.map((c) => c.args.p_item_id)).toEqual([OTHER_ITEM_ID]);
+    expect(skips.every((c) => c.args.p_skipped === true && c.args.p_attempt_id === ATTEMPT_ID)).toBe(true);
+    const finals = rpcCalls.filter((c) => c.fn === 'fn_onemark_finalize_attempt');
+    expect(finals.map((c) => c.args.p_attempt_id)).toEqual([ATTEMPT_ID]);
+    // The fresh sitting runs on the NEW row's clock, not the dead one's.
+    expect(body.attemptId).toBe(insertedAttempts[0].id);
+    const freshStart = new Date(insertedAttempts[0].started_at as string).getTime();
+    expect(new Date(body.deadlineAt).getTime()).toBe(freshStart + timedMinutes * minute);
+    const deadStart = new Date(attemptRow!.started_at as string).getTime();
+    expect(new Date(body.deadlineAt).getTime()).not.toBe(deadStart + timedMinutes * minute);
+  });
+
+  it('never resumes a SUBMITTED timed attempt — a new sitting opens and nothing is finalized', async () => {
+    attemptRow = openTimed(5 * minute, 'submitted');
+    servedColumn = 'present';
+    servedColumnIds = [ITEM_ID];
+
+    const res = await startSitting(post({ mode: 'timed', examDefinitionId: EXAM_ID }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.resumed).toBe(false);
+    expect(body.expiredClosed).toEqual([]);
+    expect(insertedAttempts).toHaveLength(1);
+    expect(rpcCalls.some((c) => c.fn === 'fn_onemark_finalize_attempt')).toBe(false);
+    expect(rpcCalls.some((c) => c.fn === 'fn_onemark_record_response')).toBe(false);
+  });
+
+  it('leaves an open PRACTICE attempt alone — the ruling is about the timed clock', async () => {
+    attemptRow = { ...openTimed(5 * minute), mode: 'practice' };
+    servedColumn = 'present';
+    servedColumnIds = [ITEM_ID];
+
+    const body = await (await startSitting(post({ mode: 'practice', examDefinitionId: EXAM_ID }))).json();
+    expect(body.resumed).toBe(false);
+    expect(insertedAttempts).toHaveLength(1);
+    expect(rpcCalls.some((c) => c.fn === 'fn_onemark_finalize_attempt')).toBe(false);
+  });
+});
