@@ -1,16 +1,26 @@
 'use client';
 
 /**
- * What's New — this week's highlights.
+ * What's New — the most recent highlights.
  *
  * The few changes someone read, wrote up in plain English, and approved. It
  * sits above the plain list because the plain list answers "what changed" and
  * this answers the two questions the Director actually asked for: what it means
  * for me, and what I can now do.
  *
- * IT IS ABSENT, NOT EMPTY, when there is nothing to show. A week nobody wrote
- * up renders no heading, no card and no "no highlights yet" placeholder — the
- * page then looks exactly as it does today, which is the whole compatibility
+ * NOT "THIS WEEK", AND THAT IS THE POINT. This said "Worth knowing this week"
+ * and rendered only write-ups whose change landed in the current week, while
+ * the writer worked through a MONTH of backlog. On 2026-09-14 that meant 199
+ * approved write-ups existed and 6 could be displayed; the other 193 were
+ * unreachable by construction. The route now serves the most recent ten
+ * whichever week they fall in, so a thin week fills from the days before it —
+ * which is why nothing on this card says "week" any more. Putting a week label
+ * back would make the heading lie about what is under it.
+ *
+ * IT IS ABSENT, NOT EMPTY, when there is nothing to show. A reader scoped to
+ * nothing, and a platform with no approved write-ups at all, render no heading,
+ * no card and no "no highlights yet" placeholder — the page then looks exactly
+ * as it did before this strip existed, which is the whole compatibility
  * requirement. Same for a failed fetch: the plain list below is the thing
  * people came for and it is unaffected, so a highlights failure says nothing
  * rather than pushing an error card above working content. (The sibling
@@ -138,18 +148,21 @@ export function HighlightsStrip({ modules }: HighlightsStripProps) {
     };
   }, []);
 
-  // Absent, not empty — while loading, on failure, and for a week nobody wrote up.
+  // Absent, not empty — while loading, on failure, and when there is nothing
+  // approved this reader may see.
   if (!items || items.length === 0) return null;
 
   return (
     <section aria-labelledby="whats-new-highlights" className="space-y-3">
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
         <h2 id="whats-new-highlights" className="text-base font-semibold text-foreground">
-          Worth knowing this week
+          Worth knowing
         </h2>
         <p className="text-xs text-muted-foreground">
-          {items.length === 1 ? 'One change' : `${items.length} changes`} that affect how you work —
-          everything else is in the list below.
+          {items.length === 1
+            ? 'The most recent change that affects how you work'
+            : `The ${items.length} most recent changes that affect how you work`}{' '}
+          — everything else is in the list below.
         </p>
       </div>
 

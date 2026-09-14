@@ -19,9 +19,9 @@
  * would be silently ineffective if it were dropped.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { weekStart } from '@/lib/changelog/highlights';
+import { weekStart, WRITEUP_BACKLOG_FLOOR } from '@/lib/changelog/highlights';
 
-/** A date inside the current IST week — the window the route computes for itself. */
+/** A date inside the current IST week — the window the QUEUE computes for itself. */
 const IST_TODAY = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 const THIS_WEEK = weekStart(IST_TODAY);
 
@@ -124,7 +124,10 @@ describe("What's New highlights — the strip", () => {
     client = makeClient({ visible: ['billing'] });
     const body = await (await get(URL_STRIP)).json();
     expect(body.highlights.map((h: any) => h.sha)).toEqual(['b1']);
-    expect(body.weekFrom).toBe(THIS_WEEK);
+    // The strip is no longer week-bound: it reads from the backlog floor and
+    // says so. `weekFrom` stayed on the QUEUE, which is still a week — see
+    // highlights-strip-backlog.test.ts for why the reader's window moved.
+    expect(body.from).toBe(WRITEUP_BACKLOG_FLOOR);
   });
 
   it('withholds an UNAPPROVED draft even when the table hands it over', async () => {
@@ -180,6 +183,7 @@ describe("What's New highlights — the approver's queue", () => {
   it('offers candidates, each carrying the sentence that explains the pick', async () => {
     client = makeClient({ visible: ['billing', 'administration'], canManage: true });
     const body = await (await get(URL_QUEUE)).json();
+    expect(body.weekFrom).toBe(THIS_WEEK);
     expect(body.candidates.length).toBeGreaterThan(0);
     for (const c of body.candidates) {
       expect(typeof c.reason).toBe('string');
