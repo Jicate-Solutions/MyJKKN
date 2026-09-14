@@ -156,6 +156,23 @@ CREATE POLICY "procurement_approval_thresholds_manage" ON public.procurement_app
 USING ((SELECT is_super_admin()))
 WITH CHECK ((SELECT is_super_admin()));
 
+-- ANON LOCK — required by scripts/ci/check-table-anon-revoke.mjs, and required
+-- on the merits. Supabase ships `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT
+-- ALL ON TABLES TO anon, authenticated, service_role`, so this table is born
+-- with SELECT/INSERT/UPDATE/DELETE granted to the anon key embedded in every
+-- page of https://www.jkkn.ai unless the grant is taken back here. The RLS above
+-- is not a substitute: the grant is the door, the policy is the lock on the rows
+-- behind it. These rows say who may approve spending and up to what amount.
+--
+-- `authenticated` keeps all four verbs deliberately. The RLS policies, not the
+-- grants, are what separate reader from writer on this table: every signed-in
+-- user's chain builder SELECTs these bands, and the manage policy already
+-- restricts INSERT/UPDATE/DELETE to is_super_admin(). Granting SELECT alone
+-- would lock the super_admin out of the table its own policy is written for.
+REVOKE ALL ON TABLE public.procurement_approval_thresholds FROM anon, PUBLIC;
+GRANT  SELECT, INSERT, UPDATE, DELETE ON TABLE public.procurement_approval_thresholds TO authenticated;
+GRANT  ALL ON TABLE public.procurement_approval_thresholds TO service_role;
+
 -- ---------------------------------------------------------------------
 -- 3b. SEED the three platform-wide tiers (I5)
 --

@@ -1,5 +1,7 @@
 -- SUPERSEDED BY 20261213100000_instasolver_substrate_v2.sql — do not apply.
 --
+-- ci:allow-anon-table this file is superseded and inert — its first executable statement is a RAISE EXCEPTION that aborts the whole transaction (see the DO $superseded$ block below), so none of the eight relations it declares can ever be created and none of them can ever be reachable by anon. The marker exists only because editing this file to add that abort block pulls its pre-existing CREATE TABLE statements into check-table-anon-revoke.mjs's diff scope; they are unchanged from what has been sitting on main since 2026-11-03 and unreachable either way. The replacement, 20261213100000_instasolver_substrate_v2.sql, creates exactly one table and locks anon on it explicitly.
+--
 -- This file was never applied to production and never will be. Its premise was
 -- reversed by the Director on 2026-09-14 (specs/instasolver-2026-09-14.md):
 -- `issue_type` on grievance_tickets has no reader, so tagging broken-thing
