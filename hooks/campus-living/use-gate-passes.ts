@@ -1,165 +1,87 @@
 'use client';
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { GatePassService } from '@/lib/services/campus-living/gate-pass-service';
-import { usePermissions } from '@/hooks/use-permissions';
+import {
+  GatePassService,
+  type LeaveTypeRules,
+} from '@/lib/services/campus-living/gate-pass-service';
+import { campusLivingDashboardKeys } from '@/hooks/campus-living/use-campus-living-dashboard';
+import { activityFeedKeys } from '@/hooks/campus-living/use-activity-feed';
+import { hostelAccessLogKeys } from '@/hooks/campus-living/use-hostel-access-log';
+import type { GateScanResponse } from '@/app/api/campus-living/gate-passes/scan/route';
 import type {
   CreateHostelGatePassDTO,
+  GatePassRequestDTO,
   GatePassStatus,
 } from '@/types/campus-living';
 
-// Filter type matching the service signature
 interface GatePassFilters {
-  status?: GatePassStatus;
+  status?: GatePassStatus | GatePassStatus[];
   learner_id?: string;
+  leave_type_id?: string;
   date?: string;
 }
 
-// Query key factory
 export const gatePassKeys = {
   all: ['gate-passes'] as const,
   list: (filters: Record<string, unknown>) => ['gate-passes', 'list', filters] as const,
   detail: (id: string) => ['gate-passes', 'detail', id] as const,
   myPasses: (learnerId: string) => ['gate-passes', 'my-passes', learnerId] as const,
-  activePasses: (learnerId: string) => ['gate-passes', 'active', learnerId] as const,
-  pending: (institutionId: string | undefined) => ['gate-passes', 'pending', institutionId] as const,
-  overdue: (institutionId: string | undefined) => ['gate-passes', 'overdue', institutionId] as const,
-  childPasses: (parentUserId: string) => ['gate-passes', 'child-passes', parentUserId] as const,
+  pending: (institutionIds: string[]) => ['gate-passes', 'pending', institutionIds] as const,
 };
 
-// --- Query hooks ---
+/**
+ * Nothing in this app self-refreshes. A gate-pass decision changes the campus
+ * living dashboard's counters and the activity feed as well as the queue it
+ * was taken from, so every mutation below invalidates all three — invalidating
+ * only `gatePassKeys.all` leaves the dashboard showing yesterday's numbers
+ * until a hard reload.
+ */
+function invalidateGatePassSurfaces(qc: ReturnType<typeof useQueryClient>, id?: string) {
+  qc.invalidateQueries({ queryKey: gatePassKeys.all });
+  if (id) qc.invalidateQueries({ queryKey: gatePassKeys.detail(id) });
+  qc.invalidateQueries({ queryKey: campusLivingDashboardKeys.all });
+  qc.invalidateQueries({ queryKey: activityFeedKeys.all });
+  qc.invalidateQueries({ queryKey: hostelAccessLogKeys.all });
+}
 
-export function useGatePasses(institutionId: string | undefined, filters?: GatePassFilters) {
-  const { isSuperAdmin } = usePermissions();
+// ─── Queries ────────────────────────────────────────────────────────
+
+/**
+ * The warden queue.
+ *
+ * Takes the institution IDs the caller can actually see (from
+ * `useInstitutionsWithAccess`), NOT a single id plus an isSuperAdmin escape
+ * hatch — branching on isSuperAdmin to drop the filter silently strips access
+ * from secondary roles carrying scope='all'. RLS gates the rows either way.
+ */
+export function useGatePasses(institutionIds: string[], filters?: GatePassFilters) {
   return useQuery({
-    queryKey: gatePassKeys.list({ institutionId, ...filters }),
-    queryFn: () => GatePassService.getGatePasses(isSuperAdmin ? undefined : institutionId, filters),
-    enabled: isSuperAdmin || !!institutionId,
+    queryKey: gatePassKeys.list({ institutionIds, ...filters }),
+    queryFn: () => GatePassService.getGatePasses(institutionIds, filters),
+    enabled: institutionIds.length > 0,
   });
 }
 
-export function useGatePass(id: string) {
+export function usePendingGatePassRequests(institutionIds: string[]) {
+  return useQuery({
+    queryKey: gatePassKeys.pending(institutionIds),
+    queryFn: () => GatePassService.getPendingRequests(institutionIds),
+    enabled: institutionIds.length > 0,
+  });
+}
+
+/** Everything /campus-living/gate-passes/[id] renders, in one call. */
+export function useGatePassDetail(id: string) {
   return useQuery({
     queryKey: gatePassKeys.detail(id),
-    queryFn: () => GatePassService.getGatePass(id),
+    queryFn: () => GatePassService.getGatePassDetail(id),
     enabled: !!id,
   });
 }
 
-// --- Mutation hooks ---
-
-export function useIssueGatePass() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: CreateHostelGatePassDTO) => GatePassService.generateGatePass(payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: gatePassKeys.all });
-      toast.success('Gate pass issued');
-    },
-    onError: (error: Error) => {
-      toast.error(`Failed to issue gate pass: ${error.message}`);
-    },
-  });
-}
-
-export function useRecordExit() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, securityId }: { id: string; securityId: string }) =>
-      GatePassService.recordExit(id, securityId),
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: gatePassKeys.all });
-      queryClient.invalidateQueries({ queryKey: gatePassKeys.detail(variables.id) });
-      toast.success('Exit recorded');
-    },
-    onError: (error: Error) => {
-      toast.error(`Failed to record exit: ${error.message}`);
-    },
-  });
-}
-
-export function useReturnGatePass() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, securityId }: { id: string; securityId: string }) =>
-      GatePassService.recordReturn(id, securityId),
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: gatePassKeys.all });
-      queryClient.invalidateQueries({ queryKey: gatePassKeys.detail(variables.id) });
-      toast.success('Gate pass returned');
-    },
-    onError: (error: Error) => {
-      toast.error(`Failed to return gate pass: ${error.message}`);
-    },
-  });
-}
-
-export function useUpdateGatePass() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: Partial<CreateHostelGatePassDTO> }) =>
-      GatePassService.updateGatePass(id, payload),
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: gatePassKeys.all });
-      queryClient.invalidateQueries({ queryKey: gatePassKeys.detail(variables.id) });
-      toast.success('Gate pass updated');
-    },
-    onError: (error: Error) => {
-      toast.error(`Failed to update gate pass: ${error.message}`);
-    },
-  });
-}
-
-export function useDeleteGatePass() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) => GatePassService.deleteGatePass(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: gatePassKeys.all });
-      toast.success('Gate pass deleted');
-    },
-    onError: (error: Error) => {
-      toast.error(`Failed to delete gate pass: ${error.message}`);
-    },
-  });
-}
-
-// --- Overdue & active hooks ---
-
-export function useOverduePasses(institutionId: string | undefined) {
-  const { isSuperAdmin } = usePermissions();
-  return useQuery({
-    queryKey: gatePassKeys.overdue(institutionId),
-    queryFn: () => GatePassService.getOverduePasses(isSuperAdmin ? undefined : institutionId),
-    enabled: isSuperAdmin || !!institutionId,
-  });
-}
-
-export function useMarkOverdue() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (institutionId: string) => GatePassService.markOverdue(institutionId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: gatePassKeys.all });
-      toast.success('Overdue passes updated');
-    },
-    onError: (error: Error) => {
-      toast.error(`Failed to mark overdue: ${error.message}`);
-    },
-  });
-}
-
-export function useActivePassesForLearner(learnerId: string) {
-  return useQuery({
-    queryKey: gatePassKeys.activePasses(learnerId),
-    queryFn: () => GatePassService.getActivePassesForLearner(learnerId),
-    enabled: !!learnerId,
-  });
-}
-
-// --- Request workflow hooks ---
-
+/** A learner's own passes. Accepts either id space — the service resolves it. */
 export function useMyGatePasses(learnerId: string) {
   return useQuery({
     queryKey: gatePassKeys.myPasses(learnerId),
@@ -168,33 +90,39 @@ export function useMyGatePasses(learnerId: string) {
   });
 }
 
-export function usePendingGatePassRequests(institutionId: string | undefined) {
-  const { isSuperAdmin } = usePermissions();
-  return useQuery({
-    queryKey: gatePassKeys.pending(institutionId),
-    queryFn: () => GatePassService.getPendingRequests(isSuperAdmin ? undefined : institutionId),
-    enabled: isSuperAdmin || !!institutionId,
-  });
-}
+// No useOverduePasses / useMarkOverdue. Marking passes overdue is the hourly
+// cron's job (app/api/cron/campus-living/gate-pass-overdue), and READING them
+// is just `useGatePasses(ids, { status: 'overdue' })` — a dedicated hook would
+// be a second way to ask the same question.
 
+// ─── Mutations ──────────────────────────────────────────────────────
+
+/** A learner applies. `rules` come from the leave type they picked. */
 export function useRequestGatePass() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: {
-      institution_id: string;
-      learner_id: string;
-      pass_type: string;
-      expected_return: string;
-      destination: string;
-      reason: string;
-    }) => GatePassService.requestGatePass(payload),
+    mutationFn: ({ payload, rules }: { payload: GatePassRequestDTO; rules: LeaveTypeRules }) =>
+      GatePassService.requestGatePass(payload, rules),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: gatePassKeys.all });
-      toast.success('Gate pass request submitted');
+      invalidateGatePassSurfaces(queryClient);
+      toast.success('Gate pass request submitted', {
+        description: 'Your warden will review it and you will see the decision here.',
+      });
     },
-    onError: (error: Error) => {
-      toast.error(`Failed to submit request: ${error.message}`);
+    onError: (error: Error) => toast.error(error.message),
+  });
+}
+
+/** A warden issues a pass directly — the walk-in and emergency lane. */
+export function useIssueGatePass() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: CreateHostelGatePassDTO) => GatePassService.generateGatePass(payload),
+    onSuccess: () => {
+      invalidateGatePassSurfaces(queryClient);
+      toast.success('Gate pass issued');
     },
+    onError: (error: Error) => toast.error(error.message),
   });
 }
 
@@ -204,13 +132,10 @@ export function useApproveGatePass() {
     mutationFn: ({ id, approverId }: { id: string; approverId: string }) =>
       GatePassService.approveGatePass(id, approverId),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: gatePassKeys.all });
-      queryClient.invalidateQueries({ queryKey: gatePassKeys.detail(variables.id) });
-      toast.success('Gate pass approved and issued');
+      invalidateGatePassSurfaces(queryClient, variables.id);
+      toast.success('Gate pass approved');
     },
-    onError: (error: Error) => {
-      toast.error(`Failed to approve: ${error.message}`);
-    },
+    onError: (error: Error) => toast.error(error.message),
   });
 }
 
@@ -220,23 +145,23 @@ export function useRejectGatePass() {
     mutationFn: ({ id, rejectedBy, reason }: { id: string; rejectedBy: string; reason: string }) =>
       GatePassService.rejectGatePass(id, rejectedBy, reason),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: gatePassKeys.all });
-      queryClient.invalidateQueries({ queryKey: gatePassKeys.detail(variables.id) });
+      invalidateGatePassSurfaces(queryClient, variables.id);
       toast.success('Gate pass request rejected');
     },
-    onError: (error: Error) => {
-      toast.error(`Failed to reject: ${error.message}`);
-    },
+    onError: (error: Error) => toast.error(error.message),
   });
 }
 
-// --- Parent workflow hooks ---
-
-export function useChildGatePasses(parentUserId: string) {
-  return useQuery({
-    queryKey: gatePassKeys.childPasses(parentUserId),
-    queryFn: () => GatePassService.getChildGatePasses(parentUserId),
-    enabled: !!parentUserId,
+export function useRecordParentCall() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, userId, number }: { id: string; userId: string; number: string }) =>
+      GatePassService.recordParentCall(id, userId, number),
+    onSuccess: (_data, variables) => {
+      invalidateGatePassSurfaces(queryClient, variables.id);
+      toast.success('Parent call recorded');
+    },
+    onError: (error: Error) => toast.error(error.message),
   });
 }
 
@@ -245,42 +170,57 @@ export function useCancelGatePass() {
   return useMutation({
     mutationFn: ({ id, cancelledBy, reason }: { id: string; cancelledBy: string; reason: string }) =>
       GatePassService.cancelGatePass(id, cancelledBy, reason),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: gatePassKeys.all });
+    onSuccess: (_data, variables) => {
+      invalidateGatePassSurfaces(queryClient, variables.id);
       toast.success('Gate pass cancelled');
     },
-    onError: (error: Error) => {
-      toast.error(`Failed to cancel: ${error.message}`);
-    },
+    onError: (error: Error) => toast.error(error.message),
   });
 }
 
-export function useConfirmReachedHome() {
+/** Manual return, from the detail page. The gate uses {@link useGateScan}. */
+export function useReturnGatePass() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, parentUserId }: { id: string; parentUserId: string }) =>
-      GatePassService.confirmReachedHome(id, parentUserId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: gatePassKeys.all });
-      toast.success('Confirmed: Child reached home safely');
+    mutationFn: ({ id, securityId }: { id: string; securityId: string }) =>
+      GatePassService.recordReturn(id, securityId),
+    onSuccess: (_data, variables) => {
+      invalidateGatePassSurfaces(queryClient, variables.id);
+      toast.success('Return recorded');
     },
-    onError: (error: Error) => {
-      toast.error(`Failed to confirm: ${error.message}`);
-    },
+    onError: (error: Error) => toast.error(error.message),
   });
 }
 
-export function useConfirmLeftHome() {
+/**
+ * One scan at the gate: decided and recorded server-side in a single request.
+ *
+ * No optimistic update and no toast on success — the scan screen's own verdict
+ * panel IS the feedback, and a toast stacked on top of a full-screen colour
+ * band is noise to somebody working a gate one-handed at night. Failures do
+ * toast, because those are the ones the panel cannot express.
+ */
+export function useGateScan() {
   const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, parentUserId }: { id: string; parentUserId: string }) =>
-      GatePassService.confirmLeftHome(id, parentUserId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: gatePassKeys.all });
-      toast.success('Confirmed: Child left home heading to campus');
+  return useMutation<GateScanResponse, Error, { code: string; deviceId?: string; gateId?: string }>({
+    mutationFn: async (input) => {
+      const res = await fetch('/api/campus-living/gate-passes/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          (payload as { error?: string }).error ?? 'The scan could not be completed. Try again.',
+        );
+      }
+      return payload as GateScanResponse;
     },
-    onError: (error: Error) => {
-      toast.error(`Failed to confirm: ${error.message}`);
+    onSuccess: (data) => {
+      // Only a scan that actually wrote something changes any cached list.
+      if (data.recorded) invalidateGatePassSurfaces(queryClient);
     },
+    onError: (error) => toast.error(error.message),
   });
 }

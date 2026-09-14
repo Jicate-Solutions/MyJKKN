@@ -15,6 +15,8 @@ import { INDUCTION_ACTIVE_STATUS } from '@/types/events';
 import { SessionsSection } from './_components/sessions-section';
 import { EventCoordinatorsSection } from './_components/event-coordinators-section';
 import { EventFeedbackLinkCard } from '@/components/events/feedback/event-feedback-link-card';
+import { EventTasksCard } from '@/components/events/shared/event-tasks-card';
+import { EventReviewCommentsCard } from '@/components/events/shared/event-review-comments-card';
 import { FeedbackVolunteersSection } from './_components/feedback-volunteers-section';
 import { FeedbackByCollegeSection } from './_components/feedback-by-college-section';
 import { SessionFeedbackSection } from './_components/session-feedback-section';
@@ -281,6 +283,13 @@ export default function InductionDetailPage() {
             separately and neither replaces the other. */}
         <EventFeedbackLinkCard eventId={id} />
 
+        {/* Pending Tasks — outstanding work on this induction. Editable by a
+            super admin and by this induction's appointed coordinators, who live
+            in induction_event_coordinators rather than events.config->incharges;
+            20261112010000_event_tasks_all_event_types.sql taught the write rule
+            about that table so the card matches EventCoordinatorsSection above. */}
+        <EventTasksCard eventId={id} />
+
         {/* KPI strip — cohort at a glance */}
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <StatCard icon={Users} label="Enrolled freshers" value={enrolled} />
@@ -379,6 +388,11 @@ export default function InductionDetailPage() {
 
         {/* Self-improving loop playbook + adoption-verdict (counterfactual) control */}
         <LoopPlaybookSection institutionId={event?.institution_id ?? null} academicYearId={academicYearId} />
+
+        {/* Review comments — the reviewing authority's remarks on this induction
+            and the coordinator's replies. Gates itself; renders nothing for
+            anyone outside the review circle, freshers included. */}
+        <EventReviewCommentsCard eventId={id} />
       </div>
 
       {/* Preview-before-enroll confirm gate — shows exactly who will be enrolled

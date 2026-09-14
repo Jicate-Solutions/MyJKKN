@@ -9,6 +9,7 @@
 import { revalidateTag } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import { cacheTags } from '@/lib/cache';
+import { RECEIPT_EMAIL_NOT_AVAILABLE } from '@/lib/services/billing/email-not-available';
 import type { CreateReceiptDto, UpdateReceiptDto } from '@/types/billing-schedule';
 
 interface ActionResult<T = unknown> {
@@ -184,55 +185,17 @@ export async function updateReceipt(
 // for and requires a reason, unlike a hard delete.
 
 /**
- * Send receipt via email
+ * Send receipt via email — NOT BUILT.
+ *
+ * This returned `success: true` over a TODO, so the receipt page showed a
+ * success message while nothing was sent. It now always fails with
+ * a message pointing staff to Download. No button calls it any more; it stays
+ * because an exported server action is a live endpoint, and an old caller must
+ * get an honest answer. Real emailing needs an email service decision first.
  */
 export async function sendReceipt(
-  id: string,
-  email: string
+  _id: string,
+  _email: string
 ): Promise<ActionResult> {
-  try {
-    const supabase = await createClient();
-
-    const {
-      data: { user }
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      return { success: false, error: 'Not authenticated' };
-    }
-
-    // Get receipt details
-    const { data: receipt, error: fetchError } = await supabase
-      .from('billing_receipts')
-      .select(
-        `
-        *,
-        student:learners_profiles(id, first_name, last_name, college_email)
-      `
-      )
-      .eq('id', id)
-      .single();
-
-    if (fetchError || !receipt) {
-      return {
-        success: false,
-        error: 'Receipt not found'
-      };
-    }
-
-    // TODO: Implement actual email sending
-    console.log('[sendReceipt] Sending receipt to:', email);
-    console.log('[sendReceipt] Receipt:', receipt.receipt_number);
-
-    return {
-      success: true,
-      data: { message: 'Email functionality pending implementation' }
-    };
-  } catch (error) {
-    console.error('[sendReceipt] Unexpected error:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to send receipt'
-    };
-  }
+  return { success: false, error: RECEIPT_EMAIL_NOT_AVAILABLE };
 }

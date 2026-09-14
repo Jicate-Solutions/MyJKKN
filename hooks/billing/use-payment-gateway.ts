@@ -87,6 +87,16 @@ export function usePaymentStatus(transactionId: string | null, enabled: boolean 
       if (query.state.data?.status && ['success', 'failed', 'cancelled', 'refunded'].includes(query.state.data.status)) {
         return false;
       }
+      // Stop once the endpoint itself is failing. This condition keys off
+      // `data`, which stays undefined while every request errors, so a
+      // persistently failing status check used to poll forever: 4 requests
+      // (1 + `retry`) every 3 seconds for as long as the tab stayed open. That
+      // is what the learner-403 bug looked like from the network panel.
+      // Give up after a couple of failed rounds and let the render show the
+      // pending state instead of hammering the route.
+      if (query.state.status === 'error' && query.state.errorUpdateCount >= 2) {
+        return false;
+      }
       // Refetch every 3 seconds for pending payments
       return 3000;
     },

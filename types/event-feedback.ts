@@ -217,6 +217,36 @@ export const FEEDBACK_STATE_REASONS: Record<FeedbackFormState, string> = {
   expired: 'This feedback form has closed.',
 };
 
+// ── The attendee's own queue ─────────────────────────────────────────────────
+
+/**
+ * One row of fn_my_pending_event_feedback(): an event the signed-in person may
+ * rate right now and has not rated yet.
+ *
+ * Every row is already gated by the same function the WRITE path uses, so a row
+ * appearing here is a promise that submitting will succeed — listing a form the
+ * database would refuse at submit time is the same dead end as having no list at
+ * all, moved one screen later.
+ *
+ * Only events the caller holds a live registration on appear. There is no
+ * self-registration branch here on purpose: that path carries no attendance and
+ * no invitation test, so listing it would ask everyone in an event's audience to
+ * rate an event they may never have attended. It remains available on the
+ * respond page itself for anyone handed the link.
+ */
+export interface PendingEventFeedback {
+  form_id: string;
+  form_name: string;
+  form_slug: string;
+  event_id: string;
+  event_name: string;
+  event_type: string;
+  /** The later of the event's two stored end moments; null when it never said. */
+  event_ended_at: string | null;
+  /** When the window shuts. Null means no end date was set. */
+  closes_at: string | null;
+}
+
 // ── Aggregates for the coordinator's summary ─────────────────────────────────
 
 /** Per-question rollup shown on the responses tab. */

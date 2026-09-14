@@ -9,6 +9,11 @@ import type {
   UpgradeRoomOption,
   RoomUpgradeResult,
 } from '@/types/campus-living/category-upgrade';
+import type {
+  AdminUpgradeContext,
+  AdminUpgradeBillResult,
+  AdminCategoryOnlyResult,
+} from '@/types/campus-living/upgrade-admin';
 
 // Office-side category upgrades. RPCs aren't in the generated Database type, so
 // we use the same loose-rpc cast as CategoryUpgradeService. Permission +
@@ -94,5 +99,67 @@ export class AdminCategoryUpgradeService {
     });
     if (error) throw new Error(error.message || 'Upgrade failed');
     return data as RoomUpgradeResult;
+  }
+
+  // ── Office-side actions added 2026-09-09 (migration 20260909210000) ──────
+  // All three take a learners_profiles.id / allocation id — never a profiles.id.
+
+  /**
+   * Entitled / assigned / occupied category + upgrade-bill position for one
+   * allocation. Gated on campus_living.upgrades.manage rather than the audit
+   * RPC, which needs campus_living.allocations.audit — a key no role holds.
+   */
+  static async getUpgradeContext(allocationId: string): Promise<AdminUpgradeContext> {
+    const { data, error } = await this.rpc('fn_cl_admin_upgrade_context', {
+      p_allocation_id: allocationId,
+    });
+    if (error) throw new Error(error.message || 'Failed to load upgrade context');
+    return data as AdminUpgradeContext;
+  }
+
+  /**
+   * Upgrade the category and bill for it WITHOUT moving the learner to another
+   * bed — for a resident already living in the room when the target category
+   * has no free bed. `fn_cl_admin_upgrade_room` cannot do this: it validates
+   * the bed against _cl_room_options and refuses.
+   */
+  static async upgradeCategoryOnly(
+    learnerId: string,
+    categoryId: string,
+  ): Promise<AdminCategoryOnlyResult> {
+    const { data, error } = await this.rpc('fn_cl_admin_upgrade_category_only', {
+      p_learner_id: learnerId,
+      p_category_id: categoryId,
+    });
+    if (error) throw new Error(error.message || 'Category upgrade failed');
+    return data as AdminCategoryOnlyResult;
+  }
+
+  /**
+   * Raise the upgrade bill for a learner who ALREADY holds a category above
+   * their fee band.
+   *
+   * `dryRun` defaults to TRUE and callers must opt out deliberately: the
+   * underlying _cl_apply_upgrade_fee_bill ACCUMULATES onto an existing live
+   * bill instead of refusing, so a stray second call doubles the charge rather
+   * than erroring. The RPC also refuses outright when a live bill exists unless
+   * `allowAdditional` is set.
+   */
+  static async generateUpgradeBill(
+    learnerId: string,
+    opts?: {
+      fromCategoryId?: string | null;
+      dryRun?: boolean;
+      allowAdditional?: boolean;
+    },
+  ): Promise<AdminUpgradeBillResult> {
+    const { data, error } = await this.rpc('fn_cl_admin_generate_upgrade_bill', {
+      p_learner_id: learnerId,
+      p_from_category_id: opts?.fromCategoryId ?? null,
+      p_dry_run: opts?.dryRun ?? true,
+      p_allow_additional: opts?.allowAdditional ?? false,
+    });
+    if (error) throw new Error(error.message || 'Could not generate the upgrade bill');
+    return data as AdminUpgradeBillResult;
   }
 }

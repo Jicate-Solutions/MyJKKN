@@ -276,7 +276,10 @@ describe('computeOwnerDigest — the gap arithmetic', () => {
     expect(digest.metricsWithEvidenceCount).toBe(1);
   });
 
-  it('never addresses a person who has not accepted the assignment', () => {
+  // REVERSED 2026-09-08: assignment IS ownership. A 'pending' row used to be
+  // skipped entirely, which is how 14 owners received nothing for 25 days while
+  // the click protected nothing — no RLS policy reads assignment_status.
+  it('addresses an owner who has not opened it yet — assignment is ownership', () => {
     const digest = computeOwnerDigest({
       config: config(),
       owners: [owner({ id: 'o1', assignment_status: 'pending' })],
@@ -285,9 +288,11 @@ describe('computeOwnerDigest — the gap arithmetic', () => {
       submissions: [],
       now: NOW,
     });
-    expect(digest.gaps).toHaveLength(0);
+    expect(digest.gaps).toHaveLength(3);
+    expect(digest.ownedMetricCount).toBe(3);
+    // Still counted, but as "has not opened it", not as a permission.
     expect(digest.awaitingAcknowledgementCount).toBe(3);
-    expect(shouldSendDigest(digest)).toBe(false);
+    expect(shouldSendDigest(digest)).toBe(true);
   });
 
   it('never addresses a person who declined, and counts the refusal', () => {
@@ -437,7 +442,7 @@ describe('buildDigestPreview — the exact words, readable before anyone arms it
     expect(buildDigestPreview(overdue).body).toContain('overdue');
   });
 
-  it('mentions unaccepted assignments separately from the counted work', () => {
+  it('counts an unopened assignment with the rest and never mentions accepting', () => {
     const mixed = computeOwnerDigest({
       config: config(),
       owners: [
@@ -450,8 +455,26 @@ describe('buildDigestPreview — the exact words, readable before anyone arms it
       now: NOW,
     });
     const preview = buildDigestPreview(mixed);
-    expect(preview.gapCount).toBe(2);
-    expect(preview.body).toContain('not yet accepted');
+    // 3, not 2: the pending metric-level owner is now counted like any other.
+    expect(preview.gapCount).toBe(3);
+    expect(preview.body).not.toContain('not yet accepted');
+    expect(preview.body).not.toContain('accept');
+  });
+
+  it('frames a body with no evidence at all as a starting point, not a backlog', () => {
+    const fresh = computeOwnerDigest({
+      config: config(),
+      owners: [owner({ id: 'o1' })],
+      metrics: METRICS,
+      evidence: [],
+      submissions: [],
+      now: NOW,
+    });
+    const preview = buildDigestPreview(fresh);
+    expect(preview.subject).toContain('nothing on file yet');
+    expect(preview.body).toContain('the first job is deciding what to collect');
+    // The accusatory "0 already have evidence on file" line must not appear.
+    expect(preview.body).not.toContain('0 already have evidence on file');
   });
 
   it('truncates a very long list instead of printing all 107 metrics', () => {

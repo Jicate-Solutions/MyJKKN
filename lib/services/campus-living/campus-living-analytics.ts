@@ -47,12 +47,13 @@ export class CampusLivingAnalytics {
       const occByBlock = new Map<string, number>();
       if (blockIds.length > 0) {
         const [roomsRes, occRes] = await Promise.all([
-          supabase.from('hostel_rooms').select('block_id, capacity').in('block_id', blockIds),
+          // effective_capacity: block capacity must include temporary extra beds.
+          supabase.from('hostel_rooms').select('block_id, effective_capacity').in('block_id', blockIds),
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (supabase as any).from('v_hostel_room_occupancy').select('block_id, active_residents').in('block_id', blockIds),
         ]);
-        for (const r of (roomsRes.data ?? []) as Array<{ block_id: string; capacity: number | null }>) {
-          capByBlock.set(r.block_id, (capByBlock.get(r.block_id) ?? 0) + Number(r.capacity ?? 0));
+        for (const r of (roomsRes.data ?? []) as Array<{ block_id: string; effective_capacity: number | null }>) {
+          capByBlock.set(r.block_id, (capByBlock.get(r.block_id) ?? 0) + Number(r.effective_capacity ?? 0));
         }
         for (const o of (occRes.data ?? []) as Array<{ block_id: string; active_residents: number | null }>) {
           occByBlock.set(o.block_id, (occByBlock.get(o.block_id) ?? 0) + Number(o.active_residents ?? 0));

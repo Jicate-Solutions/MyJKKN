@@ -2,8 +2,12 @@
 /**
  * Receipt Actions Client Component
  *
- * Interactive action buttons for receipt operations (send, download, request
+ * Interactive action buttons for receipt operations (download, print, request
  * cancellation). Uses server actions with optimistic UI updates.
+ *
+ * 2026-09-11: "Send Email" showed a success message but nothing was ever
+ * emailed. The button now says emailing is not available yet and offers
+ * Download instead.
  *
  * 2026-08-25: the Delete button was REMOVED in favour of "Request
  * cancellation". Two reasons. It was gated only on `!isStudentView` and never
@@ -21,7 +25,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   Download,
-  Send,
+  Mail,
   Edit,
   Ban,
   ArrowLeft,
@@ -30,8 +34,12 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import toast from 'react-hot-toast';
-import { sendReceipt } from '../../../_actions/receipt-actions';
 import { BillingReceiptService } from '@/lib/services/billing/receipts/billing-receipt-service';
+import {
+  EMAIL_NOT_AVAILABLE_LABEL,
+  RECEIPT_EMAIL_NOT_AVAILABLE
+} from '@/lib/services/billing/email-not-available';
+import { showEmailNotAvailable } from '@/components/billing/email-not-available-toast';
 import { RequestReceiptCancellationDialog } from '@/components/billing/request-receipt-cancellation-dialog';
 import { usePendingCancellations } from '@/hooks/billing/use-receipt-cancellations';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -47,8 +55,7 @@ export function ReceiptActionsClient({
   isStudentView = false
 }: ReceiptActionsClientProps) {
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
-  const [sendLoading, setSendLoading] = useState(false);
+  const [isPending] = useTransition();
   const [downloadLoading, setDownloadLoading] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
 
@@ -62,25 +69,6 @@ export function ReceiptActionsClient({
     canRequestCancel ? [receipt.id] : []
   );
   const hasPendingCancellation = !!pendingCancellations[receipt.id];
-
-  const handleSendReceipt = async () => {
-    if (!receipt.student?.college_email) {
-      toast.error('No email address available for this student');
-      return;
-    }
-
-    setSendLoading(true);
-    startTransition(async () => {
-      const result = await sendReceipt(receipt.id, receipt.student.college_email);
-      setSendLoading(false);
-
-      if (result.success) {
-        toast.success('Receipt sent successfully');
-      } else {
-        toast.error(result.error || 'Failed to send receipt');
-      }
-    });
-  };
 
   const handleDownloadPDF = async () => {
     setDownloadLoading(true);
@@ -132,11 +120,11 @@ export function ReceiptActionsClient({
           <Button
             variant='outline'
             size='sm'
-            onClick={handleSendReceipt}
-            disabled={isPending || sendLoading}
+            onClick={() => showEmailNotAvailable('receipt', handleDownloadPDF)}
+            title={RECEIPT_EMAIL_NOT_AVAILABLE}
           >
-            <Send className='mr-2 h-4 w-4' />
-            {sendLoading ? 'Sending...' : 'Send Email'}
+            <Mail className='mr-2 h-4 w-4' />
+            {EMAIL_NOT_AVAILABLE_LABEL}
           </Button>
         )}
 

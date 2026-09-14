@@ -28,8 +28,10 @@ import path from 'node:path';
  *     a wrong sort produces a list that merely looks odd, never an error;
  *   • the recent/archive split, which is now a date predicate in that same query
  *     rather than two files that could overlap;
- *   • the sync job's upsert. UNIQUE(sha) below makes an idempotent re-sync
- *     POSSIBLE; whether the job actually says ON CONFLICT (sha) DO UPDATE, and
+ *   • the sync job's upsert. UNIQUE (app_key, sha), added by the follow-up
+ *     re-key migration, makes an idempotent
+ *     re-sync POSSIBLE; whether the job actually says ON CONFLICT (app_key, sha)
+ *     DO UPDATE, whether its prune is scoped to its own app_key, and
  *     whether it leaves `hidden` out of the SET list, is asserted at the bottom
  *     only for a job written in SQL — and no sync job existed when this was
  *     written.
@@ -45,6 +47,22 @@ const raw =
   migrationFiles.length === 1
     ? readFileSync(path.join(MIGRATIONS, migrationFiles[0]), 'utf8')
     : '';
+
+/**
+ * The follow-up migration that re-keyed the table.
+ *
+ * Separate from `raw` because the migration above has been APPLIED to
+ * production and must never be edited again: its CREATE TABLE still reads
+ * `sha text NOT NULL UNIQUE`, and that is the correct historical record. The
+ * schema an application actually meets is the two files composed, so the key
+ * assertions below read this one. Matched by content, like the base migration,
+ * so a renumber does not break them.
+ */
+const keyFiles = readdirSync(MIGRATIONS).filter((f) =>
+  f.includes('changelog_entries_key_by_app_and_sha')
+);
+const keyRaw =
+  keyFiles.length === 1 ? readFileSync(path.join(MIGRATIONS, keyFiles[0]), 'utf8') : '';
 
 /**
  * The migration with `--` comments removed.
@@ -194,11 +212,39 @@ describe('reads are for signed-in users only', () => {
 });
 
 describe('re-sync safety', () => {
-  it('a commit can only ever have one row', () => {
+  it('a commit can only ever have one row — keyed by app AND hash', () => {
     // The no-duplicate half of "a re-sync must not duplicate what it already
-    // wrote". UNIQUE(sha) is what makes the job's upsert land on ON CONFLICT
+    // wrote": a unique key is what makes the job's upsert land on ON CONFLICT
     // instead of inserting a second copy of every entry on every run.
-    expect(tableBody('changelog_entries')).toMatch(/sha\s+text\s+NOT NULL\s+UNIQUE/i);
+    //
+    // The key is the PAIR, not the hash alone. A short hash identifies a commit
+    // inside one repository and nowhere else, so a bare UNIQUE (sha) means the
+    // first entry a second application syncs silently overwrites whichever
+    // MyJKKN entry happens to share its twelve characters — no error, no trace.
+    expect(keyFiles, 'the re-key migration is missing').toHaveLength(1);
+    expect(keyRaw).toMatch(
+      /ADD\s+CONSTRAINT\s+\w+\s+UNIQUE\s*\(\s*app_key\s*,\s*sha\s*\)/i
+    );
+  });
+
+  it('and the OLD single-column key is dropped, which is the whole point', () => {
+    // Adding the pair constraint is only half the fix. Postgres is perfectly
+    // happy to hold both, and while UNIQUE(sha) survives, the exact collision
+    // this exists to remove is still enforced — a second application's entry
+    // would still be rejected or, through ON CONFLICT, overwrite ours. The
+    // schema would meanwhile LOOK correct, because the pair assertion above
+    // passes either way.
+    expect(keyRaw).toMatch(
+      /DROP\s+CONSTRAINT\s+IF\s+EXISTS\s+changelog_entries_sha_key/i
+    );
+  });
+
+  it('every entry says which application it came from', () => {
+    // NOT NULL with a DEFAULT so the MyJKKN sync need not name itself on each of
+    // its several thousand rows, while no row can ever be app-less.
+    expect(keyRaw).toMatch(
+      /ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS\s+app_key\s+text\s+NOT NULL\s+DEFAULT\s+'myjkkn'/i
+    );
   });
 
   it('nothing short of the service role can change `hidden`', () => {
@@ -302,6 +348,33 @@ describe('a re-sync must never un-hide an entry someone took down', () => {
       for (const [, body] of sets) {
         if (/\bhidden(_reason)?\b/i.test(body)) {
           offenders.push(`${file}: DO UPDATE SET assigns hidden — a re-sync would un-hide takedowns`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it.skipIf(sqlWriters.length === 0)('scopes its prune to its own app_key', () => {
+    // The sync deletes "every entry the rules no longer produce", which it works
+    // out by comparing the table against the list it just built from ONE
+    // repository's history. Unscoped, that sentence means "delete every entry I
+    // did not just write" — so the first MyJKKN sync after any second
+    // application starts writing wipes that application's entire changelog,
+    // inside the same transaction that reports success.
+    //
+    // This is the failure the (app_key, sha) key exists to make impossible, and
+    // the key alone does not prevent it: uniqueness stops a collision, not a
+    // DELETE. The WHERE clause is the other half.
+    const offenders: string[] = [];
+    for (const { file, text } of sqlWriters) {
+      for (const [stmt] of text.matchAll(
+        /DELETE\s+FROM[^;]*changelog_entries[\s\S]*?(?=;|`)/gi
+      )) {
+        if (!/\bapp_key\s*=/i.test(stmt)) {
+          offenders.push(
+            `${file}: DELETE FROM changelog_entries is not scoped by app_key — ` +
+              `it would remove another application's entries`
+          );
         }
       }
     }

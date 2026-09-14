@@ -220,6 +220,21 @@ export interface Timetable {
   timetable_type: 'section' | 'semester';
   semester_id: string;
   section_id?: string;
+  /**
+   * Updated: 2026-09-11 - The sections this timetable covers, declared on the
+   * row rather than inferred from the slots.
+   *
+   * For a SEMESTER-level row (section_id undefined) this IS the uniqueness
+   * scope: two semester-level timetables for one semester clash only when their
+   * dates overlap AND these sets intersect. That is what lets three parallel
+   * section groups in a single semester each hold their own timetable on
+   * identical dates. For a SECTION-level row it just mirrors section_id.
+   *
+   * Undefined means "not declared" — callers fall back to the union of the
+   * slots' own section_ids. The slots stay authoritative for which slot applies
+   * to whom; this is the scope, not the schedule.
+   */
+  section_ids?: string[];
   timetable_name: string;
   version: number;
   is_active: boolean;
@@ -267,9 +282,13 @@ export interface Timetable {
     section_name: string;
   };
   // Updated: 2025-10-09 - Added available_sections for semester-level timetables
+  // Updated: 2026-09-11 - Still the whole semester (the edit form needs it to
+  // offer a widening choice); `in_scope` says which of them section_ids covers.
   available_sections?: Array<{
     id: string;
     section_name: string;
+    student_count?: number;
+    in_scope?: boolean;
   }>;
   slots?: any[];
   timetable_format: 'regular' | 'batch' | 'cycle';
@@ -299,6 +318,10 @@ export interface CreateTimetableDto {
   department_id: string;
   semester_id: string;
   section_id?: string;
+  /** Declared section scope — see Timetable.section_ids. Required by the UI for
+   *  timetable_type='semester'; ignored for section-level rows, which derive it
+   *  from section_id. */
+  section_ids?: string[];
   timetable_name: string;
   timetable_type: 'section' | 'semester';
   is_active?: boolean;

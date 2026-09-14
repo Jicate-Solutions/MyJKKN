@@ -243,6 +243,7 @@ const NAV_EXCLUDE = new Set<string>([
   '/campus-living/allocations/new',
   '/campus-living/blocks/new',
   '/campus-living/gate-passes/new', // "Issue gate pass" form (button-invoked from /campus-living/gate-passes — added by PR #766 BUG-003897)
+  '/campus-living/gate-passes/request', // Learner's "Request Gate Pass" form (button-invoked from the My Hostel Requests tab)
   '/campus-living/leave/new',
   '/campus-living/maintenance/new',
   '/campus-living/mess/caterers/new',

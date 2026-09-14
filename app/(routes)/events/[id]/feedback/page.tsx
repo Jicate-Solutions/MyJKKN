@@ -10,14 +10,22 @@
 // consoles link HERE instead, so `/events/<id>/feedback` is the single address
 // for an event's feedback whatever kind of event it is.
 //
-// Access is not gated client-side. The DB authority is
-// fn_can_manage_event_feedback() behind the event_feedback_*_manage policies,
-// and every write goes through them — so a non-coordinator's save surfaces as
-// an error toast rather than a silent no-op, and a coordinator is never bounced
-// off the page while a permission hook is still resolving. This mirrors the
-// sibling event detail page's stated decision.
+// This is the COORDINATOR's address. Whoever is not one is sent to
+// /feedback/respond, where the same event's questions are answerable rather
+// than editable — a student following a link here wants to give feedback, not
+// to rewrite the questionnaire.
+//
+// The authority asked is fn_can_manage_event_feedback(), the very function
+// behind the event_feedback_*_manage policies, NOT the page's own
+// canEditEvent(): that one knows the creator, the super admin and
+// same-institution rows, but not the appointed in-charge in
+// events.config->'incharges', and gating on it would hide the builder from the
+// coordinator it exists for. RLS remains the gate — this only decides which of
+// the two surfaces to show, and nothing is rendered while the answer is still
+// undecided, so a coordinator is never bounced off their own console.
 
-import { useParams } from 'next/navigation';
+import { useEffect } from 'react';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Loader2 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -28,13 +36,24 @@ import {
   useGeneralEvent,
   DEDICATED_EVENT_CONSOLES,
 } from '@/hooks/events/use-general-events';
+import { useCanManageEventFeedback } from '@/hooks/events/use-event-feedback';
 import { EventFeedbackPanel } from '@/components/events/feedback/event-feedback-panel';
 
 export default function EventFeedbackPage() {
   const params = useParams();
+  const router = useRouter();
   const id = String(params?.id ?? '');
 
   const { data: event, isLoading, isError } = useGeneralEvent(id);
+  const { data: canManage } = useCanManageEventFeedback(id);
+
+  // replace(), not push(): the console is not somewhere an attendee should be
+  // able to go Back to.
+  useEffect(() => {
+    if (id && canManage === false) {
+      router.replace(`/events/${id}/feedback/respond`);
+    }
+  }, [id, canManage, router]);
 
   // Where "Back" goes: a specialised event returns to ITS console, everything
   // else to the general detail page. The event is the same row either way; only
@@ -44,7 +63,9 @@ export default function EventFeedbackPage() {
     : undefined;
   const eventHref = dedicatedConsole ? dedicatedConsole(id) : `/events/${id}`;
 
-  if (isLoading) {
+  // `canManage === undefined` is undecided, and `false` is a redirect already in
+  // flight — the builder must not paint in either case.
+  if (isLoading || canManage !== true) {
     return (
       <ContentLayout title="Feedback">
         <div className="flex h-64 items-center justify-center">

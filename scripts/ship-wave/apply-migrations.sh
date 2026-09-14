@@ -44,7 +44,7 @@ in_history() {  # $1 = version → 0 recorded in prod history · 1 not recorded 
 }
 
 apply_one() {  # $1 = version → 0 applied · 3 skipped (in history) · 4 DRY_RUN stop · 1 failed (wave already frozen)
-  local v="$1" path base file n err r
+  local v="$1" path base file n err r allow_spent=""
   # 1. the file comes from production main — never the local checkout, which is ~1600 commits behind
   path=$(git -C "$WT" ls-tree -r --name-only jicate/main -- supabase/migrations | grep "^supabase/migrations/${v}_")
   n=$(printf '%s' "$path" | grep -c .)
@@ -66,6 +66,7 @@ apply_one() {  # $1 = version → 0 applied · 3 skipped (in history) · 4 DRY_R
       say "  $v: destructive statement ALLOWED by the Director after review (allow-destructive) — applying"
       type -t ledger_record >/dev/null 2>&1 && ledger_record resolved "destructive migration $v applied on an explicit allow" "allow-destructive"
       grep -vx "$v" "$STATE/allow-destructive" > "$STATE/allow-destructive.new"; mv "$STATE/allow-destructive.new" "$STATE/allow-destructive"
+      allow_spent=1
     else
       freeze "migration $v: destructive statement in $base — a human applies this one after review"; return 1
     fi
@@ -73,7 +74,18 @@ apply_one() {  # $1 = version → 0 applied · 3 skipped (in history) · 4 DRY_R
   # 4. dry-run inside a rolled-back transaction: catches a missing dependency without persisting anything
   { echo "BEGIN;"; cat "$file"; echo "ROLLBACK;"; } > "$file.dry"
   r=$(mgmt_sql "$file.dry"); err=$(resp_error "$r")
-  if [ -n "$err" ]; then freeze "migration $v: DRY-RUN failed — $err"; return 1; fi
+  if [ -n "$err" ]; then
+    # Director 2026-09-09: the dry-run runs inside BEGIN…ROLLBACK, so a failure here changed NOTHING.
+    # Spending his one-shot allow on it cost ten hours on 2026-09-08 — the 2BP01 bug was fixed and
+    # merged by 16:54, but the fixed migration then sat unapplied until 22:47 because the approval had
+    # already been consumed by the attempt that failed. Hand it back. An APPLY failure (step 5) may
+    # have changed data, so that one still asks him fresh.
+    if [ -n "$allow_spent" ]; then
+      grep -qx "$v" "$STATE/allow-destructive" 2>/dev/null || echo "$v" >> "$STATE/allow-destructive"
+      say "  $v: dry-run rolled back and changed nothing — the Director's allow is handed back for the next attempt"
+    fi
+    freeze "migration $v: DRY-RUN failed — $err"; return 1
+  fi
   say "  $v dry-run clean (BEGIN…ROLLBACK)"
   if [ -n "${DRY_RUN:-}" ]; then say "  $v DRY_RUN=1 — stopping before the real apply"; return 4; fi
   # 5. apply, atomically

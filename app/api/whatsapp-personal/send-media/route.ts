@@ -1,10 +1,28 @@
 export const dynamic = 'force-dynamic';
 
+// POST /api/whatsapp-personal/send-media
+//
+// 2026-09-13 — repointed onto the campus bridge outbox. The raw fetch to the
+// Railway host is gone; the media URL rides on the outbox row and the bridge
+// fetches and sends it. A 200 with `queued: true` means ACCEPTED, not DELIVERED.
+
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { WhatsAppPersonalConnectionService } from '@/lib/services/whatsapp/whatsapp-personal-connection-service';
 import { WhatsAppPersonalMessageService } from '@/lib/services/whatsapp/whatsapp-personal-message-service';
-import { checkByowDeptAccess, byowAccessHttpStatus } from '@/lib/whatsapp/byow-authz';
+import {
+  personalSendMediaAPI,
+  resolveHistoryAnchor,
+  normalizeToE164,
+  ByowDisabledError,
+  ByowPolicyUnreadableError,
+  BridgeRecipientError,
+} from '@/lib/whatsapp/personal-api-client';
+import {
+  checkByowDeptAccess,
+  checkByowInstitutionAccess,
+  getByowSenderInstitution,
+  byowAccessHttpStatus,
+} from '@/lib/whatsapp/byow-authz';
 
 export async function POST(request: NextRequest) {
   await connection();
@@ -19,76 +37,90 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'to and media_url required' }, { status: 400 });
   }
 
-  let whatsappConnection = (department_id && department_id !== 'any')
-    ? await WhatsAppPersonalConnectionService.getConnection(department_id)
-    : null;
-  if (!whatsappConnection || whatsappConnection.status !== 'ready') {
-    whatsappConnection = await WhatsAppPersonalConnectionService.getAnyReadyConnection();
+  // AUTHORIZATION — see the note in ../send/route.ts. Named department keeps the
+  // PR #2064 gate; no department falls back to the cross-department tier.
+  const deptId =
+    typeof department_id === 'string' && department_id !== 'any' && department_id.length > 0
+      ? department_id
+      : null;
+
+  let institutionId: string | null;
+  if (deptId) {
+    const access = await checkByowDeptAccess(user.id, deptId);
+    if (!access.ok) {
+      return NextResponse.json(
+        { error: 'You do not have access to this department’s WhatsApp' },
+        { status: byowAccessHttpStatus(access) }
+      );
+    }
+    institutionId = await getByowSenderInstitution(user.id);
+  } else {
+    const access = await checkByowInstitutionAccess(user.id);
+    if (!access.ok) {
+      return NextResponse.json(
+        { error: 'You do not have access to the shared JKKN WhatsApp number' },
+        { status: byowAccessHttpStatus(access) }
+      );
+    }
+    institutionId = access.institutionId ?? null;
   }
-  if (!whatsappConnection || whatsappConnection.status !== 'ready') {
-    return NextResponse.json({ error: 'Personal WhatsApp not connected' }, { status: 503 });
-  }
 
-  // Gate on the RESOLVED connection's department (the 'any' fallback can route a
-  // media send through a department the caller never named).
-  const access = await checkByowDeptAccess(user.id, whatsappConnection.department_id);
-  if (!access.ok) {
-    return NextResponse.json(
-      { error: 'You do not have access to this department’s WhatsApp connection' },
-      { status: byowAccessHttpStatus(access) }
-    );
-  }
-
-  const logEntry = await WhatsAppPersonalMessageService.logMessage({
-    department_id: whatsappConnection.department_id,
-    connection_id: whatsappConnection.id,
-    recipient_type: 'individual',
-    recipient_phone: to,
-    recipient_name: recipient_name || undefined,
-    message_content: caption || `[${media_type || 'media'}]`,
-    lead_id: lead_id || undefined,
-    sent_by: user.id,
-    status: 'pending',
-  });
-
-  const clientId = whatsappConnection.client_id || `dept-${whatsappConnection.department_id}`;
-  const serviceUrl = whatsappConnection.service_url || process.env.WHATSAPP_PERSONAL_SERVICE_URL || '';
-  const apiKey = process.env.WHATSAPP_PERSONAL_API_KEY || '';
-
-  let result: { success: boolean; messageId?: string; error?: string };
+  let toE164: string;
   try {
-    const res = await fetch(
-      `${serviceUrl}/send-media?department_id=${encodeURIComponent(clientId)}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-API-Key': apiKey,
-        },
-        body: JSON.stringify({
-          to,
-          mediaUrl: media_url,
-          caption: caption || undefined,
-          mediaType: media_type || 'image',
-        }),
-      }
-    );
+    toE164 = normalizeToE164(to);
+  } catch (err) {
+    const msg = err instanceof BridgeRecipientError ? err.message : 'Invalid recipient';
+    return NextResponse.json({ error: msg }, { status: 400 });
+  }
 
-    result = await res.json();
+  // Caller's own scope only — see ../send/route.ts.
+  const logAnchor = await resolveHistoryAnchor(deptId, user.id);
+  const logEntry = logAnchor
+    ? await WhatsAppPersonalMessageService.logMessage({
+        department_id: logAnchor.department_id,
+        connection_id: logAnchor.id,
+        recipient_type: 'individual',
+        recipient_phone: toE164,
+        recipient_name: recipient_name || undefined,
+        message_content: caption || `[${media_type || 'media'}]`,
+        lead_id: lead_id || undefined,
+        sent_by: user.id,
+        status: 'pending',
+      })
+    : null;
+
+  try {
+    const result = await personalSendMediaAPI(toE164, media_url, caption || undefined, {
+      leadId: lead_id || null,
+      institutionId,
+      createdBy: user.id,
+    });
+
+    // Stays 'pending' until the bridge reports delivery.
+    return NextResponse.json({
+      success: true,
+      queued: true,
+      id: result.id,
+      bridge_connected: result.bridgeConnected ?? false,
+      log_id: logEntry?.id ?? null,
+      logged: Boolean(logEntry),
+    });
   } catch (error) {
-    result = { success: false, error: error instanceof Error ? error.message : 'Send media failed' };
+    const msg = error instanceof Error ? error.message : 'Queue failed';
+    if (logEntry) {
+      await WhatsAppPersonalMessageService.updateStatus(logEntry.id, 'failed', {
+        error_message: msg,
+      });
+    }
+    // A rejected media `type` (BridgeOutboxTypeRejectedError) falls through to
+    // 500, but its MESSAGE names the constraint and the contract, so the "every
+    // media send fails" case is diagnosable from the response alone.
+    const status =
+      error instanceof ByowDisabledError || error instanceof ByowPolicyUnreadableError
+        ? 503
+        : error instanceof BridgeRecipientError
+          ? 400
+          : 500;
+    return NextResponse.json({ success: false, queued: false, error: msg }, { status });
   }
-
-  if (logEntry) {
-    await WhatsAppPersonalMessageService.updateStatus(
-      logEntry.id,
-      result.success ? 'sent' : 'failed',
-      {
-        whatsapp_message_id: result.messageId,
-        error_message: result.error,
-      }
-    );
-  }
-
-  return NextResponse.json(result);
 }

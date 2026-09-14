@@ -1,10 +1,15 @@
 'use client';
 
+import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { CalendarClock, Check, Clock, User } from 'lucide-react';
-import { canLearnerCancel } from '@/lib/services/campus-living/housekeeping-rules';
+import { CalendarClock, Check, Clock, History, User } from 'lucide-react';
+import { useBookingReschedules } from '@/hooks/campus-living/use-housekeeping-bookings';
+import {
+  RESCHEDULE_REASON_LABEL,
+  canLearnerCancel,
+} from '@/lib/services/campus-living/housekeeping-rules';
 import {
   BOOKING_STEPS,
   LEARNER_STATUS_HINT,
@@ -33,6 +38,14 @@ interface Props {
 export function CurrentBookingCard({ booking, today, cancelling, onCancel }: Props) {
   const step = stepIndex(booking.status);
   const cancellable = canLearnerCancel(booking.status);
+
+  // Why the time changed matters more to the learner than the fact that it did:
+  // they planned around the old slot. The newest move is always on screen; the
+  // earlier ones are one tap away, because a booking pushed twice has two
+  // reasons and overwriting the first would hide half the story.
+  const { data: reschedules = [] } = useBookingReschedules(booking.id);
+  const [showAllMoves, setShowAllMoves] = useState(false);
+  const latestMove = reschedules.length > 0 ? reschedules[reschedules.length - 1] : null;
 
   return (
     <Card className='border-primary'>
@@ -70,6 +83,53 @@ export function CurrentBookingCard({ booking, today, cancelling, onCancel }: Pro
             )}
           </p>
         </div>
+
+        {latestMove && (
+          <div className='space-y-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-900/60 dark:bg-amber-950/30'>
+            <p className='flex items-start gap-2'>
+              <History className='mt-0.5 h-4 w-4 shrink-0' />
+              <span>
+                <span className='font-medium'>
+                  Moved from {relativeDayLabel(latestMove.from_date, today)},{' '}
+                  {hhmm(latestMove.from_slot_start)}
+                </span>
+                <span className='block text-muted-foreground'>
+                  {RESCHEDULE_REASON_LABEL[latestMove.reason_code]}
+                  {latestMove.reason_note ? ` — ${latestMove.reason_note}` : ''}
+                </span>
+              </span>
+            </p>
+
+            {reschedules.length > 1 && (
+              <button
+                type='button'
+                className='text-xs font-medium underline underline-offset-2'
+                onClick={() => setShowAllMoves((v) => !v)}
+              >
+                {showAllMoves
+                  ? 'Hide earlier changes'
+                  : `View all ${reschedules.length} changes`}
+              </button>
+            )}
+
+            {showAllMoves && (
+              <ol className='space-y-2 border-t pt-2'>
+                {reschedules.map((r) => (
+                  <li key={r.id} className='text-xs'>
+                    <span className='font-medium'>
+                      {relativeDayLabel(r.from_date, today)} {hhmm(r.from_slot_start)} →{' '}
+                      {relativeDayLabel(r.to_date, today)} {hhmm(r.to_slot_start)}
+                    </span>
+                    <span className='block text-muted-foreground'>
+                      {RESCHEDULE_REASON_LABEL[r.reason_code]}
+                      {r.reason_note ? ` — ${r.reason_note}` : ''}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+        )}
 
         {/* Progress strip. Cancelled leaves the track, so it shows no dots. */}
         {step >= 0 && (

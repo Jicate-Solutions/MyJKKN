@@ -51,6 +51,7 @@ import {
   readReportedSnapshot,
   type SubmissionMetadata,
 } from '@/lib/services/accreditation/reported-figures';
+import { measureCoverage } from '@/lib/services/accreditation/coverage-measure';
 
 type SubmissionType = 'NAAC_AQAR_2024_25' | 'NAAC_SSR_2027';
 
@@ -141,10 +142,10 @@ function useEvidenceCountsByMetric(institutionId: string | 'cluster') {
       }
       const { data, error } = await q;
       if (error) throw error;
-      return (data ?? []).reduce<Record<string, number>>((acc, row: any) => {
+      return (data ?? []).reduce((acc: Record<string, number>, row: any) => {
         acc[row.metric_code] = (acc[row.metric_code] ?? 0) + 1;
         return acc;
-      }, {});
+      }, {} as Record<string, number>);
     },
     staleTime: 2 * 60 * 1000,
   });
@@ -205,6 +206,16 @@ export default function NAACDCFExportPage() {
     (s, n) => s + n,
     0,
   );
+  // Coverage is metrics ANSWERED over metrics ASKED, not rows over metrics.
+  // This page used to print totalEvidence / totalMetrics with no clamp at all,
+  // so the cluster view read 378% (261 NAAC evidence rows over 69 metrics) and
+  // froze that figure into `coverage_snapshot` on every recorded submission.
+  // Counted off `metrics` rather than off the evidence keys so the numerator
+  // can only ever name a metric the active catalogue holds.
+  const coverage = measureCoverage(
+    totalMetrics,
+    (metrics ?? []).filter((m) => (evidenceCounts?.[m.metric_code] ?? 0) > 0).length,
+  );
 
   const handleExport = async () => {
     if (!institutionId) {
@@ -243,7 +254,12 @@ export default function NAACDCFExportPage() {
         ['IQAC code', selectedInstitution?.iqac_code ?? '—'],
         ['Exported at', new Date().toISOString()],
         ['Metrics seeded', totalMetrics],
+        ['Metrics with evidence', coverage.metricsWithEvidence],
         ['Evidence rows captured', totalEvidence],
+        // Stated on the cover because the workbook outlives this screen: a
+        // reader holding only the file needs to know the percentage counts
+        // metrics answered, not rows filed.
+        ['Coverage (metrics with evidence / metrics seeded)', `${coverage.coveragePct}%`],
         [''],
         ['Note: calculated values show "auto-fill pending" — the MyJKKN'],
         ['substrate captures evidence rows; weighted NAAC scoring lands'],
@@ -265,8 +281,7 @@ export default function NAACDCFExportPage() {
       const sb = createClientSupabaseClient() as any;
       const periodLabel =
         submissionType === 'NAAC_AQAR_2024_25' ? '2024-25' : '2027';
-      const coveragePct =
-        totalMetrics === 0 ? 0 : Math.round((totalEvidence / totalMetrics) * 100);
+      const coveragePct = coverage.coveragePct;
       const submissionMetadata: SubmissionMetadata = {
         filename,
         metrics_seeded: totalMetrics,
@@ -455,9 +470,7 @@ export default function NAACDCFExportPage() {
                 value={
                   mLoading || eLoading
                     ? '—'
-                    : totalMetrics === 0
-                    ? '0%'
-                    : `${Math.round((totalEvidence / totalMetrics) * 100)}%`
+                    : `${coverage.coveragePct}% (${coverage.metricsWithEvidence} of ${coverage.catalogueSize} metrics)`
                 }
               />
             </div>

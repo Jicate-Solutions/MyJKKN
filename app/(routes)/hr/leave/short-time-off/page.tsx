@@ -109,7 +109,7 @@ export default function ShortTimeOffPage() {
             emptyMessage="No short time off requests yet. Use Apply to submit one."
           >
             {rows.map((a) => (
-              <RequestRow key={a.id} status={a.status}>
+              <RequestRow key={a.id} status={a.status} revoked={a.revoked_at !== null}>
                 <TableCell className="pl-4 font-medium">
                   {a.hr_leave_types?.leave_type_name ?? '—'}
                 </TableCell>
@@ -119,7 +119,7 @@ export default function ShortTimeOffPage() {
                 <TableCell className="text-right tabular-nums">
                   {hoursBetween(a.start_time, a.end_time)}
                 </TableCell>
-                <TableCell><StatusBadge status={a.status} /></TableCell>
+                <TableCell><StatusBadge status={a.status} revoked={a.revoked_at !== null} /></TableCell>
                 <TableCell className="text-right">
                   {isCancellable(a.status) && (
                     <CancelRequestAction

@@ -102,13 +102,11 @@ export function RecruitmentMaintenanceClient() {
   const orgsQuery = useQuery({
     queryKey: ['recruitment-maintenance', 'orgs'],
     queryFn: async (): Promise<OrgRow[]> => {
-      // Builder cast before .select(): the extra chained filter tips
-      // supabase-js's generics into TS2589 here. Result shape restated so the
-      // cast loses nothing.
+      // Every org, included_in_hr or not — recruitment is group-wide, so a
+      // backfill must be able to reach candidates of an institution that sits
+      // outside the HR module proper.
       const { data, error } = (await (supabase.from('hr_organizations') as any)
         .select('id, name')
-        // Excluded institutions are not part of the HR module.
-        .eq('included_in_hr', true)
         .order('name', { ascending: true })) as {
         data: OrgRow[] | null;
         error: { message: string } | null;

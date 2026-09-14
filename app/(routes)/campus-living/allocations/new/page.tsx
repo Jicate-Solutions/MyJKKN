@@ -520,8 +520,14 @@ export default function NewAllocationPage() {
                       required
                     >
                       <option value="">Select Bed</option>
+                      {/* 'E'-numbered beds are temporary extras added on top of
+                          the sanctioned capacity — say so, so whoever allocates
+                          knows what they are putting the learner on. */}
                       {beds?.map((b) => (
-                        <option key={b.id} value={b.id}>Bed {b.bed_number} ({b.bed_type})</option>
+                        <option key={b.id} value={b.id}>
+                          Bed {b.bed_number} (
+                          {b.bed_number?.startsWith('E') ? 'extra bed' : b.bed_type})
+                        </option>
                       ))}
                     </select>
                   </div>

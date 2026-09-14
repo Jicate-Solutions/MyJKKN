@@ -134,6 +134,14 @@ export const MODULES: Module[] = [
   // Productivity / activity insights tool — sits next to OKR & Work Pulse.
   { slug: 'ai-pulse', label: 'AI Pulse', icon: 'Sparkles', section: 'AI Pulse', hasNavConfig: false },
 
+  // ── Online Meetings ───────────────────────────────────────────────────
+  // Dynamic team meetings with the AI Pulse engagement layer (join tracking,
+  // live polls, quiz, attendance report) and — unlike AI Pulse — support for
+  // external guests who have no MyJKKN account. Sits in the Meetings section
+  // beside the booking module rather than under AI Pulse: it shares that
+  // module's subject, not its data model.
+  { slug: 'online-meetings', label: 'Online Meetings', icon: 'Video', section: 'Meetings', hasNavConfig: false },
+
   // ── Learning & Courses ────────────────────────────────────────────────
   // Wave 2 (PR pending) merged 'Value Added Courses' into 'Learning & Courses'.
   { slug: 'learn', label: 'Learning', icon: 'BookOpen', section: 'Learning & Courses', hasNavConfig: false },

@@ -34,8 +34,11 @@ export function RateCleaningCard({ booking, allocation, learnerId, isOverdue }: 
   const { data: photos = [] } = useBookingPhotos(booking.id);
   const { data: feedback = [] } = useBookingFeedback(booking.id);
 
-  const before = photos.find((p) => p.phase === 'before');
-  const after = photos.find((p) => p.phase === 'after');
+  // ALL of each phase, not the first of each: a cleaning can carry several
+  // before and after photos, and a learner rating against 1 of 4 is rating
+  // something they were never shown.
+  const beforePhotos = photos.filter((p) => p.phase === 'before');
+  const afterPhotos = photos.filter((p) => p.phase === 'after');
 
   // ux_hk_feedback_one_per_learner is UNIQUE (booking_id, learner_id): a second
   // submit is a 23505, not an update. So the form must not be offered once this
@@ -76,33 +79,37 @@ export function RateCleaningCard({ booking, allocation, learnerId, isOverdue }: 
 
         {/* Photos through the authenticated proxy — drive_url is not
             link-shared and would render broken. */}
-        {(before || after) && (
+        {(beforePhotos.length > 0 || afterPhotos.length > 0) && (
           <div className='flex gap-3'>
-            {before && (
-              <figure className='flex-1'>
-                {/* Plain <img>, not next/image: the source is an AUTHENTICATED
-                    proxy route. next/image would fetch it through Next's
-                    optimizer server-side, without the viewer's cookies, and
-                    every photo would 401. */}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={`/api/campus-living/housekeeping/photos/${before.id}/image`}
-                  alt='Room before cleaning'
-                  className='h-32 w-full rounded-md object-cover'
-                />
-                <figcaption className='mt-1 text-xs text-muted-foreground'>Before</figcaption>
-              </figure>
-            )}
-            {after && (
-              <figure className='flex-1'>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={`/api/campus-living/housekeeping/photos/${after.id}/image`}
-                  alt='Room after cleaning'
-                  className='h-32 w-full rounded-md object-cover'
-                />
-                <figcaption className='mt-1 text-xs text-muted-foreground'>After</figcaption>
-              </figure>
+            {([
+              { label: 'Before', alt: 'Room before cleaning', list: beforePhotos },
+              { label: 'After', alt: 'Room after cleaning', list: afterPhotos },
+            ] as const).map(({ label, alt, list }) =>
+              list.length === 0 ? null : (
+                <div key={label} className='flex-1 space-y-1'>
+                  <div className={list.length > 1 ? 'grid grid-cols-2 gap-1' : ''}>
+                    {list.map((p) => (
+                      /* Plain <img>, not next/image: the source is an
+                         AUTHENTICATED proxy route. next/image would fetch it
+                         through Next's optimizer server-side, without the
+                         viewer's cookies, and every photo would 401. */
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img
+                        key={p.id}
+                        src={`/api/campus-living/housekeeping/photos/${p.id}/image`}
+                        alt={alt}
+                        className={`w-full rounded-md object-cover ${
+                          list.length > 1 ? 'h-20' : 'h-32'
+                        }`}
+                      />
+                    ))}
+                  </div>
+                  <p className='text-xs text-muted-foreground'>
+                    {label}
+                    {list.length > 1 && ` (${list.length})`}
+                  </p>
+                </div>
+              ),
             )}
           </div>
         )}

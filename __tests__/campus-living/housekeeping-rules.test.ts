@@ -8,6 +8,10 @@ import {
   bookingErrorMessage,
   holdMessage,
   typeQuota,
+  canReschedule,
+  rescheduleNeedsNote,
+  RESCHEDULE_REASON_CODES,
+  RESCHEDULE_REASON_LABEL,
 } from '@/lib/services/campus-living/housekeeping-rules';
 
 // quotaWindowStart mirrors the CASE inside fn_cl_housekeeping_book. The SQL's
@@ -222,5 +226,41 @@ describe('typeQuota — the window is SYMMETRIC about the date being booked', ()
     });
     expect(q.remainingToday).toBe(1);
     expect(q.nextAvailableDate).toBeNull();
+  });
+});
+
+// canReschedule mirrors the status gate in fn_cl_housekeeping_reschedule. If
+// these disagree the dialog offers a move the RPC then refuses.
+describe('canReschedule — must mirror fn_cl_housekeeping_reschedule', () => {
+  it('allows a booking nobody has started yet', () => {
+    expect(canReschedule('booked')).toBe(true);
+    expect(canReschedule('assigned')).toBe(true);
+  });
+
+  it('refuses once the cleaning is under way or done', () => {
+    expect(canReschedule('in_progress')).toBe(false);
+    expect(canReschedule('awaiting_feedback')).toBe(false);
+    expect(canReschedule('completed')).toBe(false);
+    expect(canReschedule('cancelled')).toBe(false);
+  });
+});
+
+describe('reschedule reasons', () => {
+  it('every reason code carries learner-facing copy', () => {
+    for (const code of RESCHEDULE_REASON_CODES) {
+      expect(RESCHEDULE_REASON_LABEL[code]).toBeTruthy();
+    }
+  });
+
+  it('only "other" demands a note, matching the ck_hk_reschedule_note_for_other CHECK', () => {
+    expect(rescheduleNeedsNote('other')).toBe(true);
+    expect(rescheduleNeedsNote('cleaner_unavailable')).toBe(false);
+    expect(rescheduleNeedsNote('learner_requested')).toBe(false);
+  });
+
+  it('the RPC refusals all have copy, so no learner sees a raw error_code', () => {
+    for (const code of ['not_reschedulable', 'date_in_past', 'invalid_reason', 'reason_note_required', 'slot_unchanged']) {
+      expect(bookingErrorMessage(code, 'FALLBACK')).not.toBe('FALLBACK');
+    }
   });
 });

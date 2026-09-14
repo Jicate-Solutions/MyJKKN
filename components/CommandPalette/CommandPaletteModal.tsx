@@ -15,9 +15,11 @@ import { trackSearchAnalytics } from '@/lib/navigation/search-analytics';
 import { useContextualSuggestions } from './ContextualSuggestions';
 import { findRestrictedPages, RestrictedPageItem } from './RequestAccess';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useRecordSearch } from '@/hooks/use-record-search';
+import { groupRecordHits, RECORD_ENTITIES, type RecordHit } from '@/lib/navigation/record-search';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
-import { Search, Star, Clock, Zap, TrendingUp, ArrowRight, FileText, Compass, Lock } from 'lucide-react';
+import { Search, Star, Clock, Zap, TrendingUp, ArrowRight, FileText, Compass, Lock, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { SearchResult, RecentPage } from '@/lib/navigation/types';
 
@@ -31,6 +33,15 @@ interface CommandPaletteModalProps {
 export function CommandPaletteModal({ isOpen, onClose, onNavigate, onPermissionsLoaded }: CommandPaletteModalProps) {
   const [query, setQuery] = useState('');
   const { search, searchablePages, recentPages, frequentPages, isLoading } = usePageSearch();
+  // Record search runs in the database (permission- and institution-scoped there),
+  // unlike page search which is a client-side fuzzy match over the route manifest.
+  // Gated on isOpen so a closed palette never issues requests.
+  const {
+    hits: recordHits,
+    isFetching: recordsFetching,
+    isError: recordsError,
+    isDebouncing: recordsDebouncing,
+  } = useRecordSearch(query, isOpen);
   const { isFavorite } = usePageFavorites();
   const isMobile = useIsMobile();
   const pathname = usePathname();
@@ -55,11 +66,14 @@ export function CommandPaletteModal({ isOpen, onClose, onNavigate, onPermissions
 
   // Perform search
   const searchResults = query.trim().length >= 2 ? search(query) : { pages: [], actions: [] };
-  const hasResults = searchResults.pages.length > 0 || searchResults.actions.length > 0;
+  const recordGroups = groupRecordHits(recordHits);
+  const hasPageResults = searchResults.pages.length > 0 || searchResults.actions.length > 0;
+  const recordsPending = recordsFetching || recordsDebouncing;
+  const hasResults = hasPageResults || recordHits.length > 0;
   const showEmptyState = !query.trim() || query.trim().length < 2;
 
   // Find restricted pages matching the query (Phase 9)
-  const restrictedPages = !showEmptyState && !hasResults
+  const restrictedPages = !showEmptyState && !hasPageResults
     ? findRestrictedPages(query, accessiblePaths, 3)
     : !showEmptyState
     ? findRestrictedPages(query, accessiblePaths, 2)
@@ -253,6 +267,49 @@ export function CommandPaletteModal({ isOpen, onClose, onNavigate, onPermissions
                   </Command.Group>
                 )}
 
+                {/* Record results — learners, staff, leads, courses.
+                    Server-scoped: every row here already passed the entity's
+                    permission key and role_has_institution_access() in the RPC. */}
+                {recordGroups.map(({ entity, meta, hits }) => {
+                  const GroupIcon = ICON_MAP[meta.iconName] || FileText;
+                  return (
+                    <Command.Group
+                      key={`records-${entity}`}
+                      heading={
+                        <span className="flex items-center gap-1.5 text-xs uppercase tracking-wider">
+                          <GroupIcon className="h-3 w-3" /> {meta.label}
+                        </span>
+                      }
+                    >
+                      {hits.map((hit) => (
+                        <RecordResultItem
+                          key={`${entity}-${hit.recordId}`}
+                          hit={hit}
+                          onSelect={onNavigate}
+                        />
+                      ))}
+                    </Command.Group>
+                  );
+                })}
+
+                {/* Records still loading — page results are already on screen,
+                    so this is a quiet inline note rather than a blocking spinner. */}
+                {recordsPending && recordHits.length === 0 && (
+                  <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Searching learners, team members, leads and courses…
+                  </div>
+                )}
+
+                {/* The record lookup failed. Say so — a silent empty section
+                    would read as "no such learner", which is a different and
+                    much more misleading answer. */}
+                {recordsError && (
+                  <div className="px-3 py-2 text-xs text-muted-foreground">
+                    Could not search records just now. Page results are still shown.
+                  </div>
+                )}
+
                 {/* Restricted pages the user can't access */}
                 {restrictedPages.length > 0 && (
                   <Command.Group heading={
@@ -271,9 +328,9 @@ export function CommandPaletteModal({ isOpen, onClose, onNavigate, onPermissions
                 )}
 
                 {/* No results */}
-                {!hasResults && restrictedPages.length === 0 && (
+                {!hasResults && !recordsPending && restrictedPages.length === 0 && (
                   <Command.Empty className="py-6 text-center text-sm text-muted-foreground">
-                    <p>No pages found for &quot;{query}&quot;</p>
+                    <p>No pages or records found for &quot;{query}&quot;</p>
                     <p className="text-xs mt-1 opacity-70">Try different keywords or check permissions</p>
                   </Command.Empty>
                 )}
@@ -298,7 +355,9 @@ export function CommandPaletteModal({ isOpen, onClose, onNavigate, onPermissions
               </span>
             </div>
             <span className="hidden sm:inline opacity-70">
-              {query ? `${searchResults.pages.length + searchResults.actions.length} results` : 'Type to search'}
+              {query
+                ? `${searchResults.pages.length + searchResults.actions.length + recordHits.length} results`
+                : 'Type to search'}
             </span>
           </div>
         </Command>
@@ -364,6 +423,52 @@ function SearchResultItem({
           {shortcut}
         </kbd>
       )}
+      <ArrowRight className="h-3 w-3 text-muted-foreground opacity-0 group-aria-selected:opacity-100 shrink-0" />
+    </Command.Item>
+  );
+}
+
+function RecordResultItem({
+  hit,
+  onSelect,
+}: {
+  hit: RecordHit;
+  onSelect: (path: string) => void;
+}) {
+  const meta = RECORD_ENTITIES[hit.entity];
+  const IconComponent = ICON_MAP[meta.iconName] || FileText;
+  const href = meta.href(hit.recordId);
+
+  return (
+    <Command.Item
+      // cmdk needs a unique value per item; the href doubles as a stable key.
+      // (shouldFilter is false on the root Command, so this value is never
+      // matched against the query — the database already did the matching.)
+      value={`record-${hit.entity}-${hit.recordId}`}
+      onSelect={() => onSelect(href)}
+      className={cn(
+        'flex items-center gap-3 rounded-lg px-3 py-2.5 cursor-pointer',
+        'aria-selected:bg-accent aria-selected:text-accent-foreground',
+        'data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground',
+        'hover:bg-accent/50 transition-colors'
+      )}
+    >
+      <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted/60 dark:bg-gray-800">
+        <IconComponent className="h-4 w-4 text-muted-foreground" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium truncate">{hit.title}</span>
+          {hit.subtitle && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground shrink-0 font-mono">
+              {hit.subtitle}
+            </span>
+          )}
+        </div>
+        {hit.institutionName && (
+          <p className="text-xs text-muted-foreground truncate mt-0.5">{hit.institutionName}</p>
+        )}
+      </div>
       <ArrowRight className="h-3 w-3 text-muted-foreground opacity-0 group-aria-selected:opacity-100 shrink-0" />
     </Command.Item>
   );
