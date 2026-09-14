@@ -16,6 +16,11 @@ import { SyllabusBrowser } from './_components/syllabus-browser';
 
 export const dynamic = 'force-dynamic';
 
+// JKKN terminology: the learner-facing label is "learning pathway", not
+// "syllabus" (the route segment stays — URLs are contracts). Same mechanism
+// as learners/class-feedback → "Learning Studio Feedback".
+export const navMeta = { label: 'My Learning Pathway' };
+
 export default async function MySyllabusPage() {
   const supabase = await createClient();
   const {
