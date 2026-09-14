@@ -1,6 +1,7 @@
 'use client';
 
 import { DataTable } from '@/components/data-table/data-table';
+import { admissionApplicationRowHref } from '@/components/data-table/utils/list-row-hrefs';
 import { columns, APPLICATION_STAGES } from './columns';
 import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
@@ -195,6 +196,7 @@ export function ApplicationsDataTable() {
           headers: []
         }}
         idField="id"
+        rowHref={admissionApplicationRowHref}
         config={{
           enableUrlState: true,
           enableDateFilter: false,

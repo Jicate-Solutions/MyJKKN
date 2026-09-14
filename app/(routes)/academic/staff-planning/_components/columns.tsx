@@ -43,7 +43,7 @@ export const getColumns = (adaptLabel?: (label: string) => string): ColumnDef<St
       return (
         <Link
           href={`/academic/staff-planning/${staffPlan.id}`}
-          className='font-medium hover:text-primary hover:underline'
+          className='inline-flex items-center min-h-[44px] font-medium hover:text-primary hover:underline'
         >
           {staffPlan.institution?.name || '-'}
         </Link>

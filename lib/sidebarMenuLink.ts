@@ -62,6 +62,7 @@ import {
   CircleDot,
   TrendingUp,
   Wrench,
+  LifeBuoy,
   FileBarChart2,
   History,
   Sparkles,
@@ -288,6 +289,22 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // AI Assistant
   '/ai-query': 'ai_query.view', // AI Query System access
+
+  // ======================================================================
+  // InstaSolver — the ONE front door for "something is wrong here".
+  // Spec: specs/instasolver-2026-09-14.md (decisions I1 / I2 / I3).
+  //
+  // ONE key across all four routes, because the chooser and the three lanes
+  // behind it are one journey, not four permissions. instasolver.view is
+  // granted to EVERY role by migration 20261212120000 (decision I1:
+  // "everyone with a login can file"), so the row is near the top for
+  // everyone. Each destination re-checks its OWN key server-side — holding
+  // instasolver.view lets you ASK, never bypasses the lane that answers.
+  // ======================================================================
+  '/instasolver': 'instasolver.view',
+  '/instasolver/broken': 'instasolver.view',
+  '/instasolver/complaint': 'instasolver.view',
+  '/instasolver/track/[token]': 'instasolver.view',
 
   // Profile
   '/profile': 'view_profile', // All users should be able to view their own profile
@@ -2022,6 +2039,24 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Dashboard',
           active: pathname === '/',
           icon: Home,
+          submenus: []
+        },
+        {
+          // InstaSolver — spec specs/instasolver-2026-09-14.md.
+          // Immediately after Dashboard on purpose: decision I1 gives every
+          // login instasolver.view, so this is the one row the whole
+          // institution shares, and reporting a broken tap should never be a
+          // scavenger hunt down the sidebar.
+          //
+          // NO SUBMENUS, deliberately. Decision I3 is "one button whose first
+          // screen asks what kind" — the chooser page IS the submenu. Hanging
+          // the three lanes here would also break the sidebar filter: a parent
+          // with submenus renders only when one of its children is permitted,
+          // and the lanes carry their own destination keys.
+          href: '/instasolver',
+          label: 'InstaSolver',
+          active: pathname === '/instasolver' || pathname.startsWith('/instasolver/'),
+          icon: LifeBuoy,
           submenus: []
         },
         {

@@ -1965,6 +1965,23 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
+    // InstaSolver — the ONE front door for "something is wrong here".
+    // Spec: specs/instasolver-2026-09-14.md, decision I1 ("everyone with a
+    // login can file") and I3 ("one button; the first screen asks what kind").
+    //
+    // Deliberately a SINGLE key. InstaSolver owns no data of its own — it is a
+    // chooser that hands the filer to the lane which already owns the work
+    // (broken things -> Campus Walk's task engine, complaints -> the grievance
+    // spine, purchases -> Procurement). Each destination keeps its own keys and
+    // its own server-side gate, so a second InstaSolver key would grant nothing
+    // the destination does not re-check.
+    name: 'InstaSolver',
+    key: 'instasolver',
+    permissions: [
+      { key: 'instasolver.view', label: 'InstaSolver — raise an issue' }
+    ]
+  },
+  {
     // Permission keys mirror MENU_PERMISSIONS entries in lib/sidebarMenuLink.ts
     // for every /solutions/* route on production (jicate/main). Scope is
     // read/view today — write actions are guarded at the service layer.

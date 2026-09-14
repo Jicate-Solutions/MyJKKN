@@ -61,7 +61,10 @@ export const columns: ColumnDef<StudentBill>[] = [
           <User className='h-4 w-4 text-muted-foreground' />
           <div>
             <div className='font-medium hover:text-primary hover:underline'>
-              <Link href={`/billing/schedule/students/${bill.student_id}`}>
+              <Link
+                href={`/billing/schedule/students/${bill.student_id}`}
+                className='inline-flex items-center min-h-[44px]'
+              >
                 {`${bill.student?.first_name || ''} ${
                   bill.student?.last_name || ''
                 }`.trim()}

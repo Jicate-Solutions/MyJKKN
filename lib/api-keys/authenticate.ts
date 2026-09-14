@@ -15,8 +15,21 @@ export const VALID_MODULES = [
   'vac', 'maturity-assessment', 'process-excellence', 'notifications',
   'resource-management', 'bug-reports', 'stakeholder-nps', 'audit-trail',
   'morning-brief',
-  // ── Instasolver substrate (B.1) — service_request split from grievance + new requirement
-  'service_request', 'requirement',
+  // ── InstaSolver — service_request split from grievance.
+  //
+  // 'requirement' was RETIRED here on 2026-09-14. The requirement track never
+  // had a table and now never will: the Director's locked decisions
+  // (specs/instasolver-2026-09-14.md) send purchases to Procurement and broken
+  // things to Campus Walk, and this PR deletes the route and the MCP tool. A
+  // module key that resolves to a deleted endpoint is worse than no module key.
+  //
+  // No key migration is needed and none is done. normalizeField() below FILTERS
+  // a key's permission arrays against this list rather than rejecting the key,
+  // so an already-issued key scoped to ['grievance','requirement'] keeps
+  // authenticating and simply loses the dead scope. Removing the entry is what
+  // retires it — everywhere, at once, including the /api/b2a/manifest listing
+  // and any admin UI that offers modules to grant.
+  'service_request',
   // ── External AI door (2026-07-16) — ₹0 Max-lane access for trusted first-party
   // callers (the centralized bug reporter). See app/api/b2a/ai/run.
   'ai',
