@@ -284,6 +284,172 @@ function readPageFiles(ref) {
 
 const SUBJECT_RE = /^(feat|fix|perf|security)(?:\(([^)]+)\))?(!?):\s*(.+)$/;
 const PR_RE = /\s*\(#(\d+)\)\s*$/;
+
+/* ───────────────────────── WAS THIS CHANGE UNDONE? ────────────────────────
+ *
+ * Director ruling 6 (2026-09-13): "If a change is later undone, its write-up
+ * comes down automatically. Nobody should be told to go try something that no
+ * longer exists."
+ *
+ * The first attempt at this (PR #3710) matched revert SUBJECTS, and
+ * specs/whats-new/KNOWN-GAP-revert-detection.md records why it could never
+ * fire: `Revert "feat(x): …"` does not match SUBJECT_RE above, so a revert was
+ * counted as nonUserFacing and dropped before any row was written — nine real
+ * revert commits in this repository's history, not one of them survivable. And
+ * even had one survived, the subject STORED on the row has had its
+ * `type(scope):` prefix stripped and its first letter upper-cased a few dozen
+ * lines below, so it could never equal the raw quoted subject a revert carries.
+ *
+ * So the match moved to the only machine-guaranteed signal there is: the sha.
+ * `git revert` — and GitHub's own Revert button — writes `This reverts commit
+ * <40-hex>` into the commit BODY, and that sha is exactly the key
+ * changelog_entries is keyed by. Nothing is compared as text any more, which
+ * also disposes of the false-retraction risk the Director cared most about:
+ * because the prefix is stripped on the way in, `feat(events): send a reminder`
+ * and `fix(billing): send a reminder` store as the SAME string, and a
+ * subject-matched revert of one would have taken down the other's write-up.
+ *
+ * The revert COMMIT still does not become a changelog entry — nobody wants
+ * `Revert "feat(x): …"` listed as news. What it does is stamp `rv` onto the
+ * entry it undid, which the sync writes to changelog_entries.reverted_by_sha
+ * and the highlight cron reads.
+ */
+
+/**
+ * The sha a commit body says it reverts, or null.
+ *
+ * Anchored to the start of a line: the phrase appears verbatim in commit
+ * bodies that DISCUSS a revert ("… we had to undo this; this reverts commit
+ * abc when it lands"), and a mid-sentence match would retract a live change.
+ * Git writes the line at column zero, always, and so does GitHub.
+ *
+ * Seven hex characters is git's own minimum abbreviation, so short forms are
+ * accepted; the caller resolves them against the shas it actually holds and
+ * ignores any that are ambiguous.
+ */
+const REVERTS_BODY_RE = /^This reverts commit ([0-9a-f]{7,40})\b/im;
+
+export function revertedShaFromBody(body) {
+  if (typeof body !== 'string' || body === '') return null;
+  const m = REVERTS_BODY_RE.exec(body);
+  return m ? m[1].toLowerCase() : null;
+}
+
+/**
+ * One layer of `Revert "<original subject>"`, with the squash-merge pull-request
+ * marker optionally sitting OUTSIDE the quotes (GitHub appends it).
+ *
+ * Greedy inside the quotes so the LAST closing quote closes the revert — an
+ * original subject that itself contains a quote character still peels.
+ */
+const REVERT_SUBJECT_RE = /^Revert\s+"(.*)"\s*(?:\(#\d+\))?\s*$/;
+const PR_SUFFIX_RE = /\s*\(#\d+\)\s*$/;
+
+/**
+ * The subject a revert commit quotes, or null.
+ *
+ * WHY THIS EXISTS ALONGSIDE THE BODY READER. Measured against this repository on
+ * 2026-09-14: five commits carry a `Revert "…"` subject and only TWO of them
+ * still carry `This reverts commit <sha>` in the body — GitHub's squash-merge
+ * keeps the subject and throws the body away. A body-only detector would
+ * therefore have seen 2 of 5 reverts, which is a detector the page could not be
+ * trusted to.
+ *
+ * ONE LAYER, AND DELIBERATELY NO PARITY RULE. PR #3710 counted quote depth so
+ * that `Revert "Revert "X""` (a RE-LAND: X is back) was not read as an undo.
+ * That counting is not needed here and is not done here: peeling one layer of
+ * a re-land yields the subject of the REVERT commit, the caller resolves that
+ * to the revert's own sha, and resolveNetReverts then works out that X is live
+ * because the thing that undid it was itself undone. The graph subsumes the
+ * parity trick and is also right for the shape parity gets wrong — a re-land
+ * written as a fresh `git revert` of the revert commit, which is what actually
+ * happened here (#744 reverted #728; #749 re-landed it).
+ *
+ * The caller must resolve this to a SHA and must refuse an ambiguous match:
+ * nothing downstream compares stored subjects, which is the defect
+ * specs/whats-new/KNOWN-GAP-revert-detection.md records.
+ */
+export function revertedSubject(subject) {
+  if (typeof subject !== 'string') return null;
+  const m = REVERT_SUBJECT_RE.exec(subject.trim());
+  if (!m) return null;
+  const inner = m[1].trim();
+  return inner === '' ? null : inner;
+}
+
+/** A raw git subject in the one form both sides of a revert can be compared in:
+ *  the quoted copy may carry the original's `(#1234)` or may not, depending on
+ *  whether the revert was taken before or after the squash-merge renamed it. */
+export function revertMatchKey(subject) {
+  return String(subject ?? '').trim().replace(PR_SUFFIX_RE, '').trim();
+}
+
+/**
+ * Which commits are undone RIGHT NOW, and by what.
+ *
+ * `edges` is reverter-sha → reverted-sha for every revert commit in the
+ * history, user-facing or not. The answer is NOT "X was reverted at some
+ * point" — it is "X is reverted as of today", which is the only question the
+ * page's reader has.
+ *
+ * THE RE-LAND IS THE WHOLE DIFFICULTY. `Revert "Revert "X""` means X is BACK,
+ * and a detector that stops at one level reads it as an undo and takes down the
+ * write-up for a feature that has just returned. PR #3710 handled that by
+ * counting quote depth in the subject; counting is not needed here, because the
+ * bodies give a real graph: the re-land reverts the REVERT, so X is undone only
+ * if some commit reverting it is not itself undone. That generalises past the
+ * parity trick — it is also right when the re-land is a fresh `git revert` of
+ * the revert commit rather than a nested quoted subject, which is what actually
+ * happened in this repository (#744 reverted #728, #749 re-landed it by hand).
+ *
+ * A hand-written undo ("fix: put the old behaviour back") carries no body line
+ * and is invisible here. The Director was shown that gap and accepted it; a
+ * missed takedown leaves a stale card, while a false one silently deletes a
+ * correct write-up with nothing on the page to say it happened.
+ *
+ * @param {Map<string, string>} edges reverter sha → the sha it reverts
+ * @returns {Map<string, string>} reverted sha → the sha of the revert in force
+ */
+export function resolveNetReverts(edges) {
+  const revertersOf = new Map();
+  for (const [reverter, reverted] of edges) {
+    if (reverter === reverted) continue; // a commit cannot revert itself
+    const list = revertersOf.get(reverted);
+    if (list) list.push(reverter);
+    else revertersOf.set(reverted, [reverter]);
+  }
+
+  const settled = new Map();
+  const walking = new Set();
+  /** Is `sha`'s effect currently absent from the branch? */
+  const isUndone = (sha) => {
+    if (settled.has(sha)) return settled.get(sha);
+    // A cycle cannot happen in a real history (a commit can only revert an
+    // ancestor) but a corrupt or hand-edited body could fabricate one, and a
+    // cron must not recurse forever on it. Treating the unknown case as "not
+    // undone" keeps the write-up up, which is the safe direction.
+    if (walking.has(sha)) return false;
+    walking.add(sha);
+    let undone = false;
+    for (const r of revertersOf.get(sha) ?? []) {
+      if (!isUndone(r)) { undone = true; break; }
+    }
+    walking.delete(sha);
+    settled.set(sha, undone);
+    return undone;
+  };
+
+  const out = new Map();
+  for (const [reverted, reverters] of revertersOf) {
+    if (!isUndone(reverted)) continue;
+    // Which revert is the one holding it down. `edges` is built in git log
+    // order (newest first), so the first still-standing reverter is the most
+    // recent one — the commit a reader would be pointed at.
+    const inForce = reverters.find((r) => !isUndone(r));
+    if (inForce) out.set(reverted, inForce);
+  }
+  return out;
+}
 /**
  * Read git history and produce the changelog payload.
  *
@@ -313,7 +479,7 @@ export function collectChangelog({ ref = REF } = {}) {
   let gitFailed = false;
   try {
     raw = execSync(
-      `git log ${ref} --format=${RS}%H${US}%an${US}%ae${US}%cd${US}%s${US} ${GIT_DATE_FORMAT} --name-only`,
+      `git log ${ref} --format=${RS}%H${US}%an${US}%ae${US}%cd${US}%s${US}%b${US} ${GIT_DATE_FORMAT} --name-only`,
       { maxBuffer: 512 * 1024 * 1024, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], env: GIT_ENV }
     );
   } catch {
@@ -327,7 +493,7 @@ export function collectChangelog({ ref = REF } = {}) {
       // change here is invisible on every machine where the first path works
       // and only appears on the one where it does not.
       raw = execSync(
-        `git log HEAD --format=${RS}%H${US}%an${US}%ae${US}%cd${US}%s${US} ${GIT_DATE_FORMAT} --name-only`,
+        `git log HEAD --format=${RS}%H${US}%an${US}%ae${US}%cd${US}%s${US}%b${US} ${GIT_DATE_FORMAT} --name-only`,
         { maxBuffer: 512 * 1024 * 1024, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], env: GIT_ENV }
       );
     } catch {
@@ -353,6 +519,36 @@ export function collectChangelog({ ref = REF } = {}) {
   const pageStillExists = (f) => pageFiles.has(f);
   const links = { precise: 0, dropped: 0, treeRead: pageFiles.size };
 
+  /**
+   * The revert graph, collected from EVERY commit — including the ones that
+   * never become entries.
+   *
+   * That inclusiveness is the point. A revert commit is not user-facing news
+   * and is dropped a few lines below, but the commit it undid usually IS an
+   * entry, and a re-land is usually not an entry either. Building the graph
+   * before any filtering is what lets the answer be "is X undone today"
+   * rather than "did something once claim to undo X".
+   */
+  const revertEdges = new Map(); // reverter sha → the sha it reverts
+  /** Every sha seen, so a short `This reverts commit abc1234` can be resolved. */
+  const allShas = [];
+  /** sha → the entry object built for it, so `rv` can be stamped after the walk. */
+  const entryBySha = new Map();
+  /**
+   * RAW git subject → the shas that carry it, and each sha's position in the
+   * log (newest first). Raw, not stored: the stored subject has had its
+   * `type(scope):` prefix stripped and its first letter upper-cased, and
+   * comparing THAT against a revert's quoted copy is blocker 2 of
+   * specs/whats-new/KNOWN-GAP-revert-detection.md. Here nothing is compared
+   * after the fact — a subject is resolved to a sha ONCE, at read time, against
+   * the same git output it came from.
+   */
+  const shasBySubject = new Map();
+  const positionOf = new Map();
+  /** Reverts whose body was thrown away by a squash-merge: [reverter sha, quoted subject]. */
+  const subjectReverts = [];
+  let position = 0;
+
   for (const rec of raw.split(RS)) {
     const line = rec.replace(/^\n/, '');
     if (!line.trim()) continue;
@@ -371,8 +567,36 @@ export function collectChangelog({ ref = REF } = {}) {
     const date = (committedAt ?? '').slice(0, 10);
     const at = (committedAt ?? '').includes('T') ? committedAt : null;
     const subject = parts[4];
-    // Everything after the last separator is the --name-only file list.
-    const files = (parts[5] ?? '').split('\n').map((f) => f.trim()).filter(Boolean);
+    // The commit BODY. Read for exactly one thing — `This reverts commit <sha>`
+    // — and then discarded; nothing from it is ever stored or displayed.
+    const body = parts[5] ?? '';
+    // Everything after the last separator is the --name-only file list. Index 6
+    // since the body joined the format: leave this at 5 and every entry's module
+    // is recovered from the body text instead of from its changed files, which
+    // is valid JavaScript and entirely wrong data.
+    const files = (parts[6] ?? '').split('\n').map((f) => f.trim()).filter(Boolean);
+
+    // BEFORE the user-facing filter, deliberately. A revert commit fails
+    // SUBJECT_RE and is dropped two lines below — that is correct, it is not
+    // news — but its edge is the whole signal, and collecting it after the
+    // `continue` is exactly the dead code this change exists to remove.
+    if (sha) {
+      allShas.push(sha);
+      positionOf.set(sha, position++);
+      if (subject) {
+        const key = revertMatchKey(subject);
+        const bucket = shasBySubject.get(key);
+        if (bucket) bucket.push(sha);
+        else shasBySubject.set(key, [sha]);
+      }
+      const reverted = revertedShaFromBody(body);
+      if (reverted) revertEdges.set(sha, reverted);
+      else {
+        const quoted = revertedSubject(subject ?? '');
+        if (quoted) subjectReverts.push([sha, revertMatchKey(quoted)]);
+      }
+    }
+
     if (!subject) continue;
 
     const m = subject.match(SUBJECT_RE);
@@ -436,7 +660,7 @@ export function collectChangelog({ ref = REF } = {}) {
     if (link.href) links.precise += 1;
     if (link.dropped) links.dropped += 1;
 
-    entries.push({
+    const entry = {
       // 12, not 7. This is the natural key the database upserts on, so a prefix
     // collision is not cosmetic: two colliding shas in one batch raise 21000 and
     // roll back every future sync, and across batches the second silently
@@ -459,7 +683,63 @@ export function collectChangelog({ ref = REF } = {}) {
       ...(link.href ? { l: link.href } : {}),
       ...(prMatch ? { p: Number(prMatch[1]) } : {}),
       ...(breaking ? { b: 1 } : {}),
-    });
+    };
+    entries.push(entry);
+    // Keyed by the FULL sha, not the stored 12, because that is what a body's
+    // `This reverts commit …` line carries.
+    entryBySha.set(sha, entry);
+  }
+
+  /*
+   * RULING 6, the seam that #3710 never reached: stamp the entries whose change
+   * is not on the branch any more.
+   *
+   * Everything above this point is per-commit; this is the one question that
+   * cannot be answered until the whole history has been read, because a revert
+   * can be re-landed by a commit that comes AFTER it.
+   *
+   * `rv` is absent — not null — for the ordinary entry, the same shape `l`, `p`
+   * and `b` use: the sync turns absence into a NULL column and the page tests
+   * for presence.
+   */
+  /*
+   * The squash-merged reverts, resolved to shas now that every subject is known.
+   *
+   * REFUSED rather than guessed when the quoted subject names more than one
+   * commit, or names none, or names a commit that is not OLDER than the revert.
+   * A revert can only undo an ancestor, so a later commit carrying the same
+   * subject is a re-application, and matching it would take down the write-up
+   * for the change that is live — the exact failure the Director ranked worst.
+   */
+  for (const [reverter, key] of subjectReverts) {
+    const hits = (shasBySubject.get(key) ?? []).filter(
+      (s) => s !== reverter && positionOf.get(s) > positionOf.get(reverter)
+    );
+    if (hits.length !== 1) continue;
+    revertEdges.set(reverter, hits[0]);
+  }
+
+  let reverted = 0;
+  if (revertEdges.size > 0) {
+    // Resolve any abbreviated sha in a body against the shas actually read. An
+    // abbreviation that matches two commits is DROPPED rather than guessed —
+    // retracting the wrong write-up is the failure the Director ranked worst.
+    const resolveShaPrefix = (p) => {
+      if (entryBySha.has(p) || p.length === 40) return p;
+      const hits = allShas.filter((s) => s.startsWith(p));
+      return hits.length === 1 ? hits[0] : p;
+    };
+    const edges = new Map();
+    for (const [reverter, target] of revertEdges) edges.set(reverter, resolveShaPrefix(target));
+
+    for (const [undoneSha, bySha] of resolveNetReverts(edges)) {
+      const e = entryBySha.get(undoneSha);
+      // A revert of something that is not an entry — a chore, a doc, a commit
+      // older than this app's start date — is simply nothing to take down.
+      if (!e) continue;
+      e.rv = bySha.slice(0, 12);
+      reverted += 1;
+    }
   }
 
   // Newest first. git log's ordering is topological, not strictly chronological,
@@ -481,6 +761,10 @@ export function collectChangelog({ ref = REF } = {}) {
     skipped,
     recovered,
     links,
+    // How many entries carry `rv` — a change that is no longer on the branch.
+    // Reported so a run that suddenly stamps hundreds is visible as a fault
+    // rather than as a very busy afternoon of takedowns.
+    reverted,
   };
 }
 
@@ -507,6 +791,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
     console.log(`  skipped: ${skipped.nonUserFacing} non-user-facing, ${skipped.internal} internal-scope`);
     console.log(`           ${skipped.engineering} build-toolchain, ${skipped.contentFree} content-free titles`);
     console.log(`  module recovered from changed files: ${recovered}`);
+  console.log(`  entries whose change was reverted and is not on the branch: ${out.reverted}`);
     console.log(`  deep links: ${links.precise} entries open their own screen, ` +
       `${entries.length - links.precise} fall back to their module` +
       (links.dropped ? `, ${links.dropped} lost a link to a page that no longer exists` : ''));

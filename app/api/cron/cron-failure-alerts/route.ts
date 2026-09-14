@@ -11,8 +11,29 @@
 //
 // WHAT THIS DOES
 // Hourly: ask cron_run_log which jobs' most recent runs are a streak of N
-// consecutive non-successes, and if any are, raise ONE bell notification to
-// the super admins. Silence when healthy.
+// consecutive non-successes, AND which declared jobs have simply stopped
+// running, and if any are, raise ONE bell notification to the super admins.
+// Silence when healthy.
+//
+// ── A JOB THAT STOPS RAISES NO STREAK (added 2026-09-14)
+// Measured at 14:05 on 2026-09-14: cron_run_log held 16 runs for
+// `whats-new-highlight-drafts`, ALL ok = true, the latest at 08:13 — six hours
+// earlier on a `13,43 * * * *` schedule, so roughly a dozen fires did not
+// happen. fn_cron_failure_streaks counts consecutive FAILURES, and sixteen
+// successes followed by silence is a streak of zero. Nothing tripped, and
+// nothing could: there was no failure to count. That is the Instagram shape the
+// Director was shown — three pipeline jobs failing June to September while the
+// dashboards read healthy — except worse, because there is nothing to fail.
+//
+// So this route now asks a second question of the same table, through the same
+// delivery path: fn_cron_last_runs gives each job's most recent run, and
+// lib/cron/absence.ts compares that against a DECLARED cadence
+// (platform_ops.cron_expected_interval_minutes, read off vercel.json). No
+// second alerting system, no new schedule, no second notification — absences
+// join the streaks in the one card that already goes to every super admin. The
+// cadence is declared rather than inferred for reasons measured in that file's
+// header: a broken job's own history normalises its breakage, and a bursty
+// weekly schedule looks dead between bursts.
 //
 // WHY A STREAK AND NOT "ANY FAILURE"
 // A cron that fails once and recovers is noise; an alarm that fires on noise
@@ -40,6 +61,10 @@
 //     its own death would be turtles all the way down. The honest fix is to put
 //     it on the dispatcher (which loop-watchdog already watches) once it has
 //     proven itself; that is a follow-up, not this PR.
+//   * The absence scan cannot see THIS cron stopping either, and for a sharper
+//     reason than the one above: if it stops, nothing runs to notice. Declaring
+//     it in the cadence map would only ever report its own absence while it was
+//     still alive to do so, which is never.
 //   * A job is only visible once its route opts into withCronRun. This PR wires
 //     the dispatcher, the AI Pulse notify cron that started all this, and this
 //     detector; the remaining static crons are a one-line change each.
@@ -57,10 +82,23 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
 import { withCronRun, isCronAuthorized } from '@/lib/cron/run-log';
+import {
+  findAbsentJobs,
+  parseExpectedIntervals,
+  describeAbsence,
+  type AbsentJob,
+  type CronLastRun,
+} from '@/lib/cron/absence';
 
 const JOB_KEY = 'cron-failure-alerts';
 const POLICY_KEY = 'platform_ops.cron_failure_alert_streak';
+/** job_key → how many minutes may pass between runs before it is called absent. */
+const CADENCE_POLICY_KEY = 'platform_ops.cron_expected_interval_minutes';
 const DEFAULT_MIN_STREAK = 3;
+
+/** How far back fn_cron_last_runs looks. 14 days = the table's retention window,
+ *  so a weekly job's last run is still findable. */
+const ABSENCE_LOOKBACK_HOURS = 336;
 
 /** Cards live 3 days: long enough to survive a weekend, short enough that a
  *  fortnight of daily restatements cannot bury the bell. */
@@ -84,9 +122,15 @@ interface FailureStreak {
  * of its current streak — both stable for the life of that streak — so the
  * fingerprint only moves when a job joins, leaves, or breaks anew.
  */
-function streakFingerprint(streaks: FailureStreak[]): string {
-  return streaks
-    .map((s) => `${s.job_key}@${s.streak_started_at}`)
+function streakFingerprint(streaks: FailureStreak[], absent: AbsentJob[]): string {
+  return [
+    ...streaks.map((s) => `${s.job_key}@${s.streak_started_at}`),
+    // last_run_at, NOT silent_minutes. The silence grows every hour, so keying
+    // on its length would page hourly for ever about one stopped job; the
+    // moment it last ran is fixed for the whole life of that silence, so one
+    // stop raises one card (plus the daily restatement the IST day adds).
+    ...absent.map((a) => `${a.job_key}@absent:${a.last_run_at}`),
+  ]
     .sort()
     .join('|');
 }
@@ -128,8 +172,47 @@ async function handler(request: NextRequest): Promise<NextResponse> {
   }
 
   const streaks = (streakRows ?? []) as FailureStreak[];
-  if (streaks.length === 0) {
-    return NextResponse.json({ ok: true, job: JOB_KEY, min_streak: minStreak, flagged: 0, notified: 0 });
+
+  // ── THE SECOND QUESTION: which declared jobs have simply stopped? ──────────
+  //
+  // A failure here must NOT silence the streak alarm, so it is caught and
+  // reported alongside rather than returned early: half an alarm beats none.
+  let absent: AbsentJob[] = [];
+  let absenceError: string | null = null;
+  try {
+    const { data: cadenceRaw } = await admin.rpc('fn_get_policy', {
+      p_key: CADENCE_POLICY_KEY,
+      p_scope_id: null,
+    });
+    const expected = parseExpectedIntervals(cadenceRaw);
+    if (expected.size > 0) {
+      const { data: lastRows, error: lastErr } = await admin.rpc('fn_cron_last_runs', {
+        p_lookback_hours: ABSENCE_LOOKBACK_HOURS,
+      });
+      if (lastErr) throw new Error(lastErr.message);
+      absent = findAbsentJobs({
+        lastRuns: (lastRows ?? []) as CronLastRun[],
+        expected,
+        now: new Date(),
+      });
+    }
+  } catch (e) {
+    absenceError = e instanceof Error ? e.message : String(e);
+    console.error(`[cron:${JOB_KEY}] absence scan failed:`, e);
+  }
+
+  const findings = [...streaks.map(describe), ...absent.map(describeAbsence)];
+
+  if (findings.length === 0) {
+    return NextResponse.json({
+      ok: true,
+      job: JOB_KEY,
+      min_streak: minStreak,
+      flagged: 0,
+      absent: 0,
+      absence_error: absenceError,
+      notified: 0,
+    });
   }
 
   if (dryRun) {
@@ -139,7 +222,9 @@ async function handler(request: NextRequest): Promise<NextResponse> {
       dry_run: true,
       min_streak: minStreak,
       flagged: streaks.length,
-      findings: streaks.map(describe),
+      absent: absent.length,
+      absence_error: absenceError,
+      findings,
       notified: 0,
     });
   }
@@ -159,7 +244,8 @@ async function handler(request: NextRequest): Promise<NextResponse> {
         job: JOB_KEY,
         error: `super-admin lookup failed: ${supersErr?.message ?? 'no recipients'}`,
         flagged: streaks.length,
-        findings: streaks.map(describe),
+        absent: absent.length,
+        findings,
       },
       { status: 500 },
     );
@@ -167,10 +253,20 @@ async function handler(request: NextRequest): Promise<NextResponse> {
 
   const userIds = (supers as { id: string }[]).map((s) => s.id);
   const istDay = new Date(Date.now() + 19_800_000).toISOString().slice(0, 10);
-  const findings = streaks.map(describe);
+
+  // The title names what is actually wrong. "Failing repeatedly" above a list of
+  // jobs that have STOPPED would send a reader looking for errors there are
+  // none of — the fault is the absence of runs, not their outcome.
+  const total = streaks.length + absent.length;
+  const what =
+    streaks.length === 0
+      ? 'stopped running'
+      : absent.length === 0
+        ? 'failing repeatedly'
+        : 'failing or stopped';
 
   const outcome = await fanoutNotification(admin, {
-    title: `🔴 ${streaks.length} scheduled job${streaks.length === 1 ? '' : 's'} failing repeatedly`,
+    title: `🔴 ${total} scheduled job${total === 1 ? '' : 's'} ${what}`,
     body:
       findings.slice(0, 8).join(' · ') +
       (findings.length > 8 ? ` · …and ${findings.length - 8} more` : ''),
@@ -179,7 +275,7 @@ async function handler(request: NextRequest): Promise<NextResponse> {
     category: 'platform-ops',
     kind: 'work_item',
     url: '/admin/loops',
-    idempotencyKey: `cron-failure:${istDay}:${streakFingerprint(streaks)}`.slice(0, 200),
+    idempotencyKey: `cron-failure:${istDay}:${streakFingerprint(streaks, absent)}`.slice(0, 200),
     source: `${JOB_KEY}-cron`,
     metadata: {
       min_streak: minStreak,
@@ -188,6 +284,12 @@ async function handler(request: NextRequest): Promise<NextResponse> {
         streak_length: s.streak_length,
         streak_started_at: s.streak_started_at,
         last_status_code: s.last_status_code,
+      })),
+      stopped: absent.map((a) => ({
+        job_key: a.job_key,
+        last_run_at: a.last_run_at,
+        silent_minutes: a.silent_minutes,
+        expected_interval_minutes: a.expected_interval_minutes,
       })),
     },
     // Honoured by the bell's live-notification filter. Without an expiry every
@@ -200,6 +302,8 @@ async function handler(request: NextRequest): Promise<NextResponse> {
     job: JOB_KEY,
     min_streak: minStreak,
     flagged: streaks.length,
+    absent: absent.length,
+    absence_error: absenceError,
     findings,
     notified: outcome.notified,
     skipped: outcome.skipped ?? null,
