@@ -7,8 +7,11 @@
 //                                              signed-in reader. NOT week-bound
 //                                              — see "THE WINDOW" below.
 //   GET  /api/whats-new/highlights?queue=1   → the approver's queue: this week's
-//                                              candidates, each with the sentence
-//                                              saying why it was picked, merged
+//                                              candidates PLUS every write-up
+//                                              the strip is currently
+//                                              rendering (`live`), each with the
+//                                              sentence saying why it was picked,
+//                                              merged
 //                                              with whatever has been written so
 //                                              far. Needs the manage permission.
 //   PUT  /api/whats-new/highlights           → save, approve or skip ONE
@@ -28,8 +31,14 @@
 //
 // The strip now reads from the same floor the writer does and takes the most
 // recent STRIP_CAP approved write-ups, whichever weeks they fall in. A thin
-// week fills from the days before it instead of rendering nothing. The queue is
-// untouched and stays weekly: it is a person's workload, not a reader's page.
+// week fills from the days before it instead of rendering nothing.
+//
+// The queue's SELECTION stays weekly — it is a person's workload, not a
+// reader's page — but its REVIEW does not, because it cannot. A write-up with
+// no card in the queue has no Edit and no set-back-to-draft, and that is the
+// only way to withdraw text the writer published unreviewed. So the queue runs
+// the strip's own walk and carries every row it returns; see "the approver's
+// queue" below.
 //
 // WHY THIS IS A SEPARATE ROUTE FROM /api/whats-new. That route's `?part=` payload
 // shapes are a contract two suites assert on (__tests__/lib/changelog/
@@ -396,10 +405,36 @@ export async function GET(request: Request) {
     }
 
     // ── the approver's queue ──────────────────────────────────────────────
-    // Still a week. This is one person's workload for the week, not a reader's
-    // page, and widening it would hand them the whole backlog at once.
+    // SELECTION is still a week. This is one person's workload, not a reader's
+    // page, and offering a month of unwritten changes at once would make the
+    // queue unreadable.
+    //
+    // REVIEW is not. Every write-up the strip can render must have a row here,
+    // or it has no Edit, no set-back-to-draft, no Live badge and no place to
+    // show that readers flagged it. Before the strip reached the backlog that
+    // held BY CONSTRUCTION — everything renderable was in the current week —
+    // and widening the reader's window alone would have quietly ended it. The
+    // writer publishes UNREVIEWED twice an hour (ruling 1, 2026-09-13) and this
+    // screen is the withdrawal path for that text, so the property is now BUILT
+    // rather than inherited: the queue reads exactly what the strip renders and
+    // carries every one of those rows, whichever week they fall in.
     const from = weekStart(istToday());
-    const entries = await readWeekEntries(supabase, from, visible);
+    const weekEntries = await readWeekEntries(supabase, from, visible);
+    // The same walk, with the same arguments, the reader's strip just made —
+    // so this is what is on the page, not a second guess at it.
+    const onStrip = await readStripEntries(supabase, visible);
+
+    // This week's entries, plus any entry on the strip that this week does not
+    // already hold. Deduplicated on (app_key, sha), the key both tables join on.
+    const entries = [...weekEntries];
+    const seenEntry = new Set(weekEntries.map((e) => `${e.app_key}:${e.sha}`));
+    for (const { entry } of onStrip) {
+      const key = `${entry.app_key}:${entry.sha}`;
+      if (seenEntry.has(key)) continue;
+      seenEntry.add(key);
+      entries.push(entry);
+    }
+
     const highlights = await readHighlights(
       supabase,
       entries.map((e) => e.sha)
@@ -441,16 +476,56 @@ export async function GET(request: Request) {
     const decided = new Set(
       highlights.filter((h) => h.status === 'skipped').map((h) => h.sha)
     );
-    const candidates: HighlightCandidate[] = selectHighlights(entries.map(toEntry), modules, {
+    const candidates: HighlightCandidate[] = selectHighlights(weekEntries.map(toEntry), modules, {
       from,
       alreadyDecided: decided,
     });
 
+    /**
+     * The rows the strip is rendering that selection did not offer — the whole
+     * of the gap described above.
+     *
+     * Two ways a card lands here, and both are real: the change is older than
+     * this week (the ordinary case now the writer works a month of backlog),
+     * or it is in this week but fell outside WEEKLY_CAP when selection sliced
+     * by score. The second one predates this change; the union closes both,
+     * because the test is "is it on the page", never "how did it get there".
+     *
+     * Nothing is re-derived here. The sentence saying why it was picked, and
+     * the "who it affects" line, are read back off the saved row rather than
+     * recomputed from the module — a live write-up already has a person's (or
+     * a model's) words and guessing new ones would put a second answer on the
+     * screen. `score` is 0 because these are not competing for a slot: they
+     * already have one, on the reader's page.
+     */
+    const offered = new Set(candidates.map((c) => c.entry.h));
+    const live = onStrip
+      .filter(({ entry }) => !offered.has(entry.sha))
+      .map(({ entry, highlight }) => ({
+        sha: entry.sha,
+        date: entry.entry_date,
+        kind: entry.kind,
+        module_key: entry.module_key,
+        module_label: modules[entry.module_key]?.label ?? entry.module_key,
+        subject: entry.subject,
+        pr_number: entry.pr_number ?? null,
+        breaking: entry.breaking === true,
+        score: 0,
+        reason: highlight.selection_reason ?? 'On What’s New now.',
+        suggestedAffects: highlight.affects ?? '',
+      }));
+
     return NextResponse.json(
       {
         weekFrom: from,
-        // Everything already written this week, so the screen can show work in
-        // progress and let an approved one be edited or withdrawn.
+        // What is ACTUALLY on the reader's page, counted by the same walk that
+        // builds it. The screen used to count approved rows in `saved`, which
+        // was this week's rows only — it would now say 6 while 10 were live.
+        liveCount: onStrip.length,
+        // Every write-up behind a card on this screen — this week's, and the
+        // older ones the strip is rendering — so work in progress shows, an
+        // approved one can be edited or set back to draft, and the Live badge
+        // has a row to read.
         saved: highlights.map((h) => ({
           sha: h.sha,
           headline: h.headline,
@@ -466,6 +541,11 @@ export async function GET(request: Request) {
           // reader of the queue to guess whether the number is missing or nil.
           reports: reportCounts[h.sha] ?? 0,
         })),
+        // Already on What's New, and not offered by this week's selection. The
+        // screen renders these in the same list and with the same controls:
+        // "renderable ⇒ reviewable" is the point, so a separate read-only
+        // section would be the bug wearing a heading.
+        live,
         candidates: candidates.map((c) => ({
           sha: c.entry.h,
           date: c.entry.d,
