@@ -150,7 +150,7 @@ export default function ThresholdsAdminPage() {
             as a percentage of norm. Amber fires first: for a &quot;lower is worse&quot;
             input amber must be higher than red; for a &quot;higher is worse&quot; input
             red must be higher than amber.
-            Faculty Workload limits are set per institution on{' '}
+            Senior Learner workload limits are set per institution on{' '}
             <Link href="/hr/workload/settings" className="underline">Workload Settings</Link>.
           </p>
 

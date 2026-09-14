@@ -18,8 +18,9 @@ vi.mock('@/hooks/hr/recruitment-need/use-workload-settings', async () => {
     useSaveWorkloadSettings: () => h.save,
   };
 });
+const WRAPPER_TAG = 'div';
 vi.mock('@/components/layout/content-layout', () => ({
-  ContentLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  ContentLayout: (p: React.PropsWithChildren) => React.createElement(WRAPPER_TAG, null, p.children),
 }));
 
 import WorkloadSettingsPage from '@/app/(routes)/hr/workload/settings/page';
