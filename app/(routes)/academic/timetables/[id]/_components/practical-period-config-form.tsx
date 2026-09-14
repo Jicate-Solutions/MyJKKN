@@ -687,7 +687,7 @@ export function PracticalPeriodConfigForm({
               Manual - Faculty selects batch/course at attendance time
             </SelectItem>
             <SelectItem value='automatic'>
-              Automatic - System rotates batches automatically (Future)
+              Automatic - System rotates batches (not available yet)
             </SelectItem>
           </SelectContent>
         </Select>
@@ -695,7 +695,7 @@ export function PracticalPeriodConfigForm({
           <Alert>
             <AlertCircle className='h-4 w-4' />
             <AlertDescription className='text-xs'>
-              Automatic rotation is not yet implemented. System will still require manual selection.
+              Automatic rotation is not available yet, so the batch will still need to be chosen by hand when attendance is marked.
             </AlertDescription>
           </Alert>
         )}

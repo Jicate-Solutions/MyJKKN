@@ -2364,6 +2364,37 @@ CREATE TRIGGER trg_hcoc_block_locked_period
   FOR EACH ROW EXECUTE FUNCTION public.hr_trig_block_comp_off_claim_in_locked_period();
 
 -- =============================================================================
+-- Mirrored from supabase/migrations/20260911160000_hr_comp_off_claim_work_location.sql
+-- INSERT only: an UPDATE of a claim filed before the field existed must still
+-- be approvable.
+-- =============================================================================
+
+DROP TRIGGER IF EXISTS trg_hcoc_require_work_location ON public.hr_comp_off_credits;
+CREATE TRIGGER trg_hcoc_require_work_location
+  BEFORE INSERT ON public.hr_comp_off_credits
+  FOR EACH ROW EXECUTE FUNCTION public.hr_trig_comp_off_require_work_location();
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260911180000_hr_comp_off_auto_reject_expired_claims.sql
+-- An expired pending claim cannot be approved (it is auto-rejected nightly).
+-- =============================================================================
+
+DROP TRIGGER IF EXISTS trg_hcoc_block_expired_approval ON public.hr_comp_off_credits;
+CREATE TRIGGER trg_hcoc_block_expired_approval
+  BEFORE UPDATE OF status ON public.hr_comp_off_credits
+  FOR EACH ROW EXECUTE FUNCTION public.hr_trig_comp_off_block_expired_approval();
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260911190000_hr_comp_off_claim_biometric_check.sql
+-- An inside-campus claim with no punch (or no upload yet) cannot be approved.
+-- =============================================================================
+
+DROP TRIGGER IF EXISTS trg_hcoc_require_biometric ON public.hr_comp_off_credits;
+CREATE TRIGGER trg_hcoc_require_biometric
+  BEFORE UPDATE OF status ON public.hr_comp_off_credits
+  FOR EACH ROW EXECUTE FUNCTION public.hr_trig_comp_off_require_biometric();
+
+-- =============================================================================
 -- Mirrored from supabase/migrations/20260827220000_hr_population_respects_included_in_hr.sql (triggers)
 -- =============================================================================
 
@@ -2664,3 +2695,74 @@ CREATE TRIGGER trg_event_target_classes_scope
   BEFORE INSERT OR UPDATE ON public.event_target_classes
   FOR EACH ROW EXECUTE FUNCTION public.fn_event_target_class_scope();
 
+
+-- hr_decision_emails (20260911200000): queue the applicant email on a final
+-- decision. "zz" so they run after the balance / attendance AFTER triggers.
+DROP TRIGGER IF EXISTS trg_hla_zz_decision_email ON public.hr_leave_applications;
+CREATE TRIGGER trg_hla_zz_decision_email
+  AFTER UPDATE OF status ON public.hr_leave_applications
+  FOR EACH ROW
+  WHEN (OLD.status IN ('pending', 'escalated') AND NEW.status IN ('approved', 'rejected'))
+  EXECUTE FUNCTION public.hr_trig_enqueue_decision_email();
+
+DROP TRIGGER IF EXISTS trg_hcoc_zz_decision_email ON public.hr_comp_off_credits;
+CREATE TRIGGER trg_hcoc_zz_decision_email
+  AFTER UPDATE OF status ON public.hr_comp_off_credits
+  FOR EACH ROW
+  WHEN (NEW.source = 'claim' AND OLD.status = 'pending' AND NEW.status IN ('approved', 'rejected'))
+  EXECUTE FUNCTION public.hr_trig_enqueue_decision_email();
+
+
+-- =====================================================================================
+-- Mirrored from supabase/migrations/20260912100000_hr_leave_revoke_approved_decision.sql  (2026-09-12)
+-- Revoking an APPROVED leave / short-time-off / comp-off-claim decision.
+-- A revocation stores status='rejected'; revoked_at is what tells the two apart.
+-- =====================================================================================
+DROP TRIGGER IF EXISTS trg_hla_revoke_gate ON public.hr_leave_applications;
+CREATE TRIGGER trg_hla_revoke_gate
+  BEFORE UPDATE ON public.hr_leave_applications
+  FOR EACH ROW
+  WHEN (OLD.status = 'approved' AND NEW.status = 'rejected')
+  EXECUTE FUNCTION public.hr_trig_leave_revoke_gate();
+
+DROP TRIGGER IF EXISTS trg_hcoc_revoke_gate ON public.hr_comp_off_credits;
+CREATE TRIGGER trg_hcoc_revoke_gate
+  BEFORE UPDATE ON public.hr_comp_off_credits
+  FOR EACH ROW
+  WHEN (OLD.status = 'approved' AND NEW.status = 'rejected')
+  EXECUTE FUNCTION public.hr_trig_comp_off_revoke_gate();
+
+-- Supabase grants EXECUTE to anon/authenticated on every new function, TRIGGER
+-- functions included, which publishes them at /rest/v1/rpc/<name>. Postgres
+-- refuses a direct call ("trigger functions can only be called as triggers",
+-- 0A000) so this is not exploitable, but a SECURITY DEFINER function with a
+-- public grant it does not need is exactly the drift the security advisor exists
+-- to catch. The triggers themselves run as the table owner and need no grant.
+REVOKE ALL ON FUNCTION public.hr_trig_leave_revoke_gate() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.hr_trig_comp_off_revoke_gate() FROM PUBLIC, anon, authenticated;
+
+-- Re-created with the revocation arm: approved -> rejected now enqueues an email too.
+DROP TRIGGER IF EXISTS trg_hla_zz_decision_email ON public.hr_leave_applications;
+CREATE TRIGGER trg_hla_zz_decision_email
+  AFTER UPDATE OF status ON public.hr_leave_applications
+  FOR EACH ROW
+  WHEN (
+    (OLD.status::text = ANY (ARRAY['pending'::text, 'escalated'::text])
+     AND NEW.status::text = ANY (ARRAY['approved'::text, 'rejected'::text]))
+    OR (OLD.status::text = 'approved' AND NEW.status::text = 'rejected')
+  )
+  EXECUTE FUNCTION public.hr_trig_enqueue_decision_email();
+
+DROP TRIGGER IF EXISTS trg_hcoc_zz_decision_email ON public.hr_comp_off_credits;
+CREATE TRIGGER trg_hcoc_zz_decision_email
+  AFTER UPDATE OF status ON public.hr_comp_off_credits
+  FOR EACH ROW
+  WHEN (
+    NEW.source::text = 'claim'
+    AND (
+      (OLD.status::text = 'pending'
+       AND NEW.status::text = ANY (ARRAY['approved'::text, 'rejected'::text]))
+      OR (OLD.status::text = 'approved' AND NEW.status::text = 'rejected')
+    )
+  )
+  EXECUTE FUNCTION public.hr_trig_enqueue_decision_email();

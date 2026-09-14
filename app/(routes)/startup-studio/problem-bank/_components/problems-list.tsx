@@ -25,7 +25,11 @@ import {
 } from 'lucide-react';
 import { useProblems } from '@/hooks/startup-studio';
 import { ApiError } from '@/lib/api/client';
-import { PROBLEM_THEMES, type ProblemTheme } from '@/types/startup-studio';
+import {
+  PROBLEM_THEMES,
+  type ProblemTheme,
+  type SSProblemBank,
+} from '@/types/startup-studio';
 
 // Built from the enum itself — see PROBLEM_THEMES. The previous hardcoded
 // list offered four themes the database has never had (fintech, logistics,
@@ -108,6 +112,16 @@ function describeLoadError(error: unknown): {
   };
 }
 
+interface ProblemListResponse {
+  data: SSProblemBank[];
+  metadata: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
 export function ProblemsList() {
   const [search, setSearch] = useState('');
   const [themeFilter, setThemeFilter] = useState('all');
@@ -118,13 +132,16 @@ export function ProblemsList() {
   if (statusFilter !== 'all') filters.status = statusFilter;
 
   const { data: problemsRaw, isLoading, error } = useProblems(filters);
-  const problems = problemsRaw as any;
+  // The list route is paginated, so lib/api/client.ts strips `success` and
+  // hands back { data, metadata } — never a bare array. The previous
+  // `as any` cast is what let `severity` (the column is severity_rating)
+  // ship blank to every user for weeks: a misspelt field on `any` is not an
+  // error, it is `undefined`, and `undefined ?? '-'` renders a dash.
+  const problems = problemsRaw as ProblemListResponse | undefined;
 
-  const problemsList = Array.isArray(problems)
-    ? problems
-    : problems?.data ?? [];
+  const problemsList: SSProblemBank[] = problems?.data ?? [];
 
-  const filteredProblems = problemsList.filter((p: any) =>
+  const filteredProblems = problemsList.filter((p) =>
     p.title?.toLowerCase().includes(search.toLowerCase())
   );
 
@@ -227,7 +244,7 @@ export function ProblemsList() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredProblems.map((problem: any) => (
+                {filteredProblems.map((problem) => (
                   <TableRow
                     key={problem.id}
                     className="cursor-pointer hover:bg-muted/50"
@@ -272,7 +289,18 @@ export function ProblemsList() {
                       </span>
                     </TableCell>
                     <TableCell className="text-right">
-                      {problem.attempts_count ?? problem.attempts?.length ?? 0}
+                      {/* This cell has never had a number to show. The list
+                          query is `*, submitted_by_user:profiles(...)` —
+                          see PROBLEM_SELECT in problem-bank-service.ts — so
+                          it carries no attempts at all, and the two fields
+                          read here (attempts_count, attempts) are not
+                          columns on ss_problem_bank. Every row therefore
+                          rendered a hardcoded 0, and would keep rendering 0
+                          after people started attempting problems. A dash
+                          says "not loaded on this screen"; a 0 says "nobody
+                          tried", and only one of those is true. Showing the
+                          real count means adding it to the list query. */}
+                      <span className="text-muted-foreground">—</span>
                     </TableCell>
                     <TableCell>
                       <Link href={`/startup-studio/problem-bank/${problem.id}`}>

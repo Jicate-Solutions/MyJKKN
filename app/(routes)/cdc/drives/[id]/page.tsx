@@ -19,6 +19,8 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Building2, Calendar, MapPin, Users, ArrowRight, XCircle } from 'lucide-react';
 import { useCdcDrive, useTransitionCdcDrive } from '@/hooks/cdc/use-cdc-drives';
+import { useCdcDriveEligibility } from '@/hooks/cdc/use-cdc-drive-eligibility';
+import { DriveEligibilityCard } from './_components/eligibility-card';
 import type { CdcDriveStatus } from '@/types/cdc';
 import { CDC_DRIVE_STATE_GRAPH, CDC_DRIVE_STATUS_LABELS } from '@/types/cdc';
 
@@ -48,6 +50,7 @@ function CdcDriveDetailContent({
 }) {
   const { id } = use(params);
   const { data, isLoading, error } = useCdcDrive(id);
+  const { data: eligibilityData } = useCdcDriveEligibility(id);
   const transition = useTransitionCdcDrive();
 
   const [transitionReason, setTransitionReason] = useState('');
@@ -89,6 +92,11 @@ function CdcDriveDetailContent({
       }
     });
   }
+
+  // The server refuses willingness_open without eligibility criteria (see
+  // CdcDriveService.transitionDrive). Mirror that here so the button explains
+  // itself instead of failing after the click.
+  const hasEligibility = (eligibilityData?.data?.program_ids?.length ?? 0) > 0;
 
   async function handleTransition(toStatus: CdcDriveStatus) {
     setTransitionError(null);
@@ -197,6 +205,10 @@ function CdcDriveDetailContent({
               ) : null}
             </CardContent>
           </Card>
+
+          {/* Eligibility criteria — the record the notification and the learner
+              willingness page both read. */}
+          <DriveEligibilityCard driveId={id} canEdit />
 
           {/* State transition history */}
           <Card>
@@ -322,22 +334,33 @@ function CdcDriveDetailContent({
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {Array.from(allowedNext).map((nextStatus) => (
-                    <Button
-                      key={nextStatus}
-                      onClick={() => setPendingStatus(nextStatus)}
-                      variant={nextStatus === 'cancelled' ? 'destructive' : 'default'}
-                      size="sm"
-                      className="w-full justify-start"
-                    >
-                      {nextStatus === 'cancelled' ? (
-                        <XCircle className="h-4 w-4 mr-2" />
-                      ) : (
-                        <ArrowRight className="h-4 w-4 mr-2" />
-                      )}
-                      {CDC_DRIVE_STATUS_LABELS[nextStatus]}
-                    </Button>
-                  ))}
+                  {Array.from(allowedNext).map((nextStatus) => {
+                    const blocked = nextStatus === 'willingness_open' && !hasEligibility;
+                    return (
+                      <div key={nextStatus} className="space-y-1">
+                        <Button
+                          onClick={() => setPendingStatus(nextStatus)}
+                          variant={nextStatus === 'cancelled' ? 'destructive' : 'default'}
+                          size="sm"
+                          className="w-full justify-start"
+                          disabled={blocked}
+                        >
+                          {nextStatus === 'cancelled' ? (
+                            <XCircle className="h-4 w-4 mr-2" />
+                          ) : (
+                            <ArrowRight className="h-4 w-4 mr-2" />
+                          )}
+                          {CDC_DRIVE_STATUS_LABELS[nextStatus]}
+                        </Button>
+                        {blocked ? (
+                          <p className="text-xs text-muted-foreground">
+                            Set the eligibility criteria first — without them no learner is
+                            notified and none can declare interest.
+                          </p>
+                        ) : null}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </CardContent>

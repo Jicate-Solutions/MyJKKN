@@ -22,7 +22,7 @@
 
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
@@ -92,6 +92,32 @@ const todayIso = () => new Date().toISOString().slice(0, 10);
 // ---------------------------------------------------------------------------
 
 /** The viewer's own assignment rows. Scoped by owner_user_id, then again by RLS. */
+/**
+ * Stamp `first_seen_at` the first time an owner opens this page.
+ *
+ * This REPLACED the Accept button as the "does this person know?" signal
+ * (Director, 2026-09-08). Assignment is now ownership: nobody is asked to agree,
+ * nothing waits on a click, and reminders flow from the moment a name is set.
+ * What was still worth knowing is whether the message reached the person — and
+ * their own visit answers that without asking them anything.
+ *
+ * Deliberately fire-and-forget. A failure here must never block the page: the
+ * reader came to see their gaps, and "we could not record that you looked" is
+ * not their problem. The RPC is write-once and scoped to the caller's own rows,
+ * so a retry on the next visit costs nothing and can overwrite nothing.
+ */
+function useMarkSeen(userId: string | undefined, ready: boolean) {
+  const marked = useRef(false);
+  useEffect(() => {
+    if (!userId || !ready || marked.current) return;
+    marked.current = true;
+    const sb = createClientSupabaseClient() as any;
+    void sb.rpc('fn_accreditation_mark_owner_seen').then(({ error }: { error: unknown }) => {
+      if (error) console.warn('[my-gaps] could not record first view:', error);
+    });
+  }, [userId, ready]);
+}
+
 function useMyAssignments(userId: string | undefined) {
   return useQuery({
     queryKey: ['accreditation', 'my-gaps', 'assignments', userId],
@@ -479,6 +505,10 @@ export default function MyAccreditationGapsPage() {
 
   const { data: assignments, isLoading: assignmentsLoading, error: assignmentsError } =
     useMyAssignments(userId);
+
+  // Only once the assignments are actually in hand — stamping on mount would
+  // record a visit by someone who may turn out to own nothing at all.
+  useMarkSeen(userId, !assignmentsLoading && (assignments?.length ?? 0) > 0);
   const { data: metrics, isLoading: metricsLoading } = useMetricCatalog();
   const { data: submissions } = useSubmissions();
   const { data: registry } = useSourceRegistry();

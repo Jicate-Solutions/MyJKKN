@@ -165,6 +165,13 @@ export interface BuildChainInput {
  * existing "no approval flow is configured" error, which names the exact screen
  * to fix it on. Never invent an approver here; an empty chain that silently
  * self-approves is the failure this whole module is built to avoid.
+ *
+ * MIRRORED BY fn_hr_leave_build_chain() IN POSTGRES (and toChainStep() by
+ * fn_hr_leave_chain_step), which the flow editor's "re-route pending requests"
+ * runs to rebuild chains that were frozen under an older version of the flow.
+ * Two builders of one shape that disagree would write a chain the preview never
+ * showed, so WHEN ONE CHANGES, CHANGE THE OTHER — same rule as
+ * readApprovers() vs fn_leave_step_approvers().
  */
 export function buildChain({ flow, rungsAbove = [] }: BuildChainInput): LeaveApprovalStep[] {
   const escalate = flow.escalate_after_hours ?? 48;
@@ -350,6 +357,36 @@ export function applyDecision(
         }
       : next,
     satisfied,
+  };
+}
+
+/**
+ * Take an approval back on the step that granted it (2026-09-12).
+ *
+ * NOT applyDecision. That one drops any earlier decision by the same person
+ * (`d.by !== decision.by`) so a double-click cannot satisfy an 'all' quorum —
+ * correct there, and exactly wrong here: it would erase the approval from the
+ * chain and leave a request that reads 'rejected' with nothing to explain how it
+ * was ever granted. The revocation is APPENDED, and every existing decision is
+ * kept.
+ *
+ * There is no `satisfied` to return: a revocation is terminal for the request,
+ * never a step the chain advances past.
+ */
+export function applyRevocation(
+  step: LeaveApprovalStep,
+  decision: { by: string; at: string; comment: string | null }
+): LeaveApprovalStep {
+  return {
+    ...step,
+    decisions: [
+      ...(step.decisions ?? []),
+      { by: decision.by, at: decision.at, decision: 'revoked', comment: decision.comment },
+    ],
+    status: 'revoked',
+    revoked_by: decision.by,
+    revoked_at: decision.at,
+    revoke_reason: decision.comment,
   };
 }
 

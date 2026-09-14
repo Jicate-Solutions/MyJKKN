@@ -35,7 +35,16 @@ interface State {
   meta: ChangelogMeta | null;
   recent: ChangelogEntry[] | null;
   archive: ChangelogEntry[] | null;
+  /** Fatal: the page has nothing to show. */
   error: string | null;
+  /**
+   * NOT fatal: the last 90 days are on screen and only the older half failed.
+   *
+   * Separate from `error` because the view early-returns on `error` — so
+   * reusing it for an archive failure threw away a page that had loaded
+   * perfectly, to report that a second, optional fetch had not.
+   */
+  archiveError: string | null;
 }
 
 /**
@@ -58,11 +67,12 @@ async function getPart(part: 'meta' | 'recent' | 'archive', before?: string) {
 
 export function useChangelog() {
   const { permissions, isSuperAdmin, isLoading: permsLoading } = usePermissions();
-  const [{ meta, recent, archive, error }, set] = useState<State>({
+  const [{ meta, recent, archive, error, archiveError }, set] = useState<State>({
     meta: null,
     recent: null,
     archive: null,
     error: null,
+    archiveError: null,
   });
   const [wantArchive, setWantArchive] = useState(false);
   // A ref, not state: this only guards against a second fetch, and nothing needs
@@ -112,9 +122,27 @@ export function useChangelog() {
     // clicks through just after would see one day listed twice.
     getPart('archive', meta?.recentFrom)
       .then((a) => set((s) => ({ ...s, archive: a })))
-      .catch(() =>
-        set((s) => ({ ...s, error: 'Earlier changes could not be loaded. Please refresh.' }))
-      );
+      .catch(() => {
+        // Three things, and each one is the fix for a separate half of the bug.
+        //
+        // `archiveError` rather than `error`: the view early-returns on `error`,
+        // so writing it here replaced a working page — the 90 days already
+        // rendered, the filters, the reader's scroll position — with a card
+        // saying the OLDER entries had failed. The part that worked was thrown
+        // away to report the part that did not.
+        //
+        // Releasing the in-flight latch and clearing `wantArchive`: without
+        // both, a retry was impossible. The latch stayed set forever, and the
+        // effect keys on `wantArchive` — leaving it true means a second click
+        // changes no dependency and re-runs nothing. The advice was "Please
+        // refresh", which re-fetches the half that had already succeeded.
+        archiveInFlight.current = false;
+        setWantArchive(false);
+        set((s) => ({
+          ...s,
+          archiveError: 'Earlier changes could not be loaded.',
+        }));
+      });
     // `meta?.recentFrom` is a dependency, not an oversight: the effect reads it.
     // Re-running is harmless — archiveInFlight guards against a second fetch.
   }, [wantArchive, archive, meta?.recentFrom]);
@@ -122,7 +150,7 @@ export function useChangelog() {
   // Derived rather than stored. The reader has asked for the archive and it has
   // not arrived: that IS the loading state, so a separate flag could only ever
   // disagree with it.
-  const loadingArchive = wantArchive && !archive && !error;
+  const loadingArchive = wantArchive && !archive && !error && !archiveError;
 
   /** Module slugs this viewer may read about. */
   const visibleModules = useMemo(() => {
@@ -153,8 +181,16 @@ export function useChangelog() {
     visibleModules,
     isLoading: permsLoading || !recent || !visibleModules,
     error,
+    /** The older half failed; everything else on the page is still good. */
+    archiveError,
     hasArchive: !!meta && meta.archiveCount > 0 && !archive,
     loadingArchive,
-    loadArchive: () => setWantArchive(true),
+    // Clearing archiveError is what makes this a retry rather than a no-op:
+    // the catch above set wantArchive back to false, so setting it true here
+    // changes the effect's dependency and runs the fetch again.
+    loadArchive: () => {
+      set((s) => ({ ...s, archiveError: null }));
+      setWantArchive(true);
+    },
   };
 }

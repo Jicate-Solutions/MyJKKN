@@ -604,6 +604,7 @@ export type StaffEventType =
   | 'leave_submitted'       // Staff submits leave → notify approver(s)
   | 'leave_approved'        // Approver approves → notify requester
   | 'leave_rejected'        // Approver rejects  → notify requester
+  | 'leave_revoked'         // An APPROVED decision is taken back → notify requester
   | 'schedule_assigned'     // Staff assigned to a new shift/class → notify them
   | 'onboarding_step_pending'; // Onboarding step assigned → notify staff member
 

@@ -25,7 +25,25 @@
 //                           axis entirely; it never satisfies, and never
 //                           overrides, institution-level ownership.
 //
-// WHY ONLY 'confirmed' OWNERS GET A DIGEST
+// WHY EVERY OWNER EXCEPT A DECLINED ONE GETS A DIGEST
+//
+// REVERSED 2026-09-08 by Director decision. The paragraph below is kept because
+// its reasoning is still right about one thing and wrong about another, and the
+// distinction is the whole point:
+//
+//   RIGHT: mailing somebody a list of duties is a real imposition, so declining
+//          must stay easy and a declined owner is never mailed again.
+//   WRONG: treating the Accept click as the gate. It conflated "do you consent"
+//          with "do you know". In a hierarchy the first is not ours to ask — the
+//          IQAC assigns — and the second is not answered by a button nobody
+//          presses. 14 owners sat pending for 25 days and heard nothing, while
+//          the click protected nothing: no policy reads assignment_status.
+//
+// What replaced it: assignment IS ownership, and `first_seen_at` records whether
+// the person has actually opened their page. That distinguishes "knows" from
+// "does not know" without asking anyone to agree to anything.
+//
+// The superseded reasoning:
 //   Director decision 8: IQAC assigns, the named person CONFIRMS — accountability
 //   is accepted, not imposed. Mailing somebody a list of duties they have not
 //   accepted is the imposition that decision exists to prevent. So 'pending' and
@@ -437,14 +455,24 @@ export function computeOwnerDigest(input: ComputeOwnerDigestInput): OwnerDigest 
   for (const [code, owner] of resolved) {
     if (owner.ownerUserId !== config.user_id) continue;
 
-    if (owner.status === 'pending') {
-      awaitingAcknowledgementCount++;
-      continue;
-    }
+    // ASSIGNMENT IS OWNERSHIP — Director, 2026-09-08.
+    //
+    // A 'pending' row used to `continue` here, so an owner who had not clicked
+    // Accept received nothing. That gate produced 14 owners and 0 digests over
+    // 25 days while blocking nothing else: ZERO RLS policies reference
+    // assignment_status, so a pending owner already had exactly the access a
+    // confirmed one has. The click gated only the message that would have told
+    // them they had been named.
+    //
+    // 'declined' still skips. That is a person saying the work is not theirs,
+    // and it is the answer we most want to keep easy to give.
     if (owner.status === 'declined') {
       declinedCount++;
       continue;
     }
+    // Still counted, still reported — it now means "has not opened it yet",
+    // which is a fact about the message, not a permission.
+    if (owner.status === 'pending') awaitingAcknowledgementCount++;
 
     ownedMetricCount++;
     if (evidenced.has(code)) {
@@ -522,17 +550,35 @@ function deadlineLine(deadline: NextDeadline | null): string | null {
  * human can read every word before anybody switches the transport on.
  */
 export function buildDigestPreview(digest: OwnerDigest): DigestPreview {
-  const subject = `${digest.bodyCode}: ${digest.gaps.length} metric(s) awaiting evidence from you`;
+  // NOTHING ON FILE YET is a different message from a backlog — Director, 2026-09-08.
+  //
+  // Five awarding bodies (AICTE, DCI, INC, PCI, QS) have ZERO evidence rows in
+  // production. Their owners would otherwise open a first message reading
+  // "0 already have evidence on file. 69 do not." — which reads as an accusation
+  // for a gap that existed long before they were named, and it is the first
+  // thing they would ever hear from this system.
+  //
+  // Same facts, stated as the beginning of the work rather than a debt.
+  const nothingOnFile = digest.metricsWithEvidenceCount === 0;
 
-  const lines: string[] = [
-    `You are the accepted owner of ${digest.ownedMetricCount} ${digest.bodyCode} metric(s) at this institution.`,
-    `${digest.metricsWithEvidenceCount} already have evidence on file. ${digest.gaps.length} do not.`,
-  ];
+  const subject = nothingOnFile
+    ? `${digest.bodyCode}: nothing on file yet — ${digest.gaps.length} metric(s) to start from`
+    : `${digest.bodyCode}: ${digest.gaps.length} metric(s) awaiting evidence from you`;
+
+  const lines: string[] = nothingOnFile
+    ? [
+        `You own ${digest.ownedMetricCount} ${digest.bodyCode} metric(s) at this institution.`,
+        'Nothing has been recorded against any of them yet, so the first job is deciding what to collect rather than catching up on anything.',
+      ]
+    : [
+        `You own ${digest.ownedMetricCount} ${digest.bodyCode} metric(s) at this institution.`,
+        `${digest.metricsWithEvidenceCount} already have evidence on file. ${digest.gaps.length} do not.`,
+      ];
 
   const deadline = deadlineLine(digest.nextDeadline);
   if (deadline) lines.push(deadline);
 
-  lines.push('', 'Still needing evidence:');
+  lines.push('', nothingOnFile ? 'The metrics to start from:' : 'Still needing evidence:');
   for (const gap of digest.gaps.slice(0, MAX_LISTED_GAPS)) {
     const via = gap.source === 'inherited' ? ' (via your body-wide ownership)' : '';
     lines.push(`  - ${gap.metricCode} ${gap.metricName}${via}`);
@@ -541,13 +587,15 @@ export function buildDigestPreview(digest: OwnerDigest): DigestPreview {
     lines.push(`  ...and ${digest.gaps.length - MAX_LISTED_GAPS} more.`);
   }
 
-  if (digest.awaitingAcknowledgementCount > 0) {
-    lines.push(
-      '',
-      `${digest.awaitingAcknowledgementCount} further metric(s) are assigned to you but not yet accepted. ` +
-        'They are not counted above until you accept them.',
-    );
-  }
+  // The "not yet accepted" paragraph was REMOVED on 2026-09-08. It said two
+  // things that stopped being true when assignment became ownership: those
+  // metrics are no longer "further" (they are counted above), and there is no
+  // longer an acceptance to withhold. It was also addressed to the reader about
+  // their own failure to open a message they are, at that moment, reading.
+  //
+  // `awaitingAcknowledgementCount` survives on the digest object — it now means
+  // "has not opened their page yet", which is a useful fact for the IQAC officer
+  // on the owners screen, and no business of this message.
 
   return {
     to: digest.email,

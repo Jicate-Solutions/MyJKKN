@@ -78,18 +78,115 @@ function titleRow(
   cell.value = text;
   cell.font = { bold: true, size };
   cell.alignment = { horizontal: 'center', vertical: 'middle' };
+  // Room around the titles. At the default 15 they sat flush against the header
+  // band, so the sheet opened with three lines of bold text stacked together.
+  ws.getRow(rowNumber).height = size >= 14 ? 26 : 22;
 }
 
 function styleHeaderRow(row: ExcelJS.Row): void {
   row.font = { bold: true };
   row.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+  // Taller than the default 15: these headers wrap to two lines ("Business
+  // Working Days"), and at default height the second line was clipped.
+  row.height = 30;
   row.eachCell((cell) => {
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEFEFEF' } };
     cell.border = {
-      top: { style: 'thin' }, left: { style: 'thin' },
-      bottom: { style: 'thin' }, right: { style: 'thin' },
+      top: { style: 'thin', color: { argb: 'FF9E9E9E' } },
+      left: { style: 'thin', color: { argb: 'FF9E9E9E' } },
+      bottom: { style: 'medium', color: { argb: 'FF9E9E9E' } },
+      right: { style: 'thin', color: { argb: 'FF9E9E9E' } },
     };
   });
+}
+
+/** Hairline grey — visible as a grid, quiet enough not to fight the figures. */
+const GRID: Partial<ExcelJS.Border> = { style: 'thin', color: { argb: 'FFD4D4D4' } };
+
+/**
+ * Rule every data cell, band alternate rows, and give the sheet room to breathe.
+ *
+ * WHY THIS EXISTS. Only the header row was ruled, so the body was a borderless
+ * field of numbers 25 columns wide — following one person across it meant
+ * tracking a straight line by eye, which on a finance document is where
+ * transcription errors come from. The banding does the same job as a ruler laid
+ * under the row.
+ *
+ * Cosmetic only, and deliberately so: it sets borders, fills, heights and print
+ * options, and touches no cell VALUE. The workbook's shape is a contract with
+ * the process downstream of it (see the file header) and the tests pin exact
+ * cells, so nothing here may move a figure.
+ */
+function finishSheet(
+  ws: ExcelJS.Worksheet,
+  opts: {
+    headerRow: number;
+    firstDataRow: number;
+    /** Inclusive. Pass a number BELOW firstDataRow for an empty sheet. */
+    lastRow: number;
+    lastCol: number;
+    /** Rows that close the sheet — ruled above, and never banded. */
+    totalRow?: number;
+  },
+): void {
+  const { headerRow, firstDataRow, lastRow, lastCol, totalRow } = opts;
+
+  for (let r = firstDataRow; r <= lastRow; r++) {
+    const row = ws.getRow(r);
+    // 18 against a default of 15. Enough that a ruled grid reads as a table
+    // rather than as lines pressed together.
+    row.height = 18;
+    const banded = (r - firstDataRow) % 2 === 1 && r !== totalRow;
+    for (let c = 1; c <= lastCol; c++) {
+      const cell = row.getCell(c);
+      cell.border = { top: GRID, left: GRID, bottom: GRID, right: GRID };
+      if (banded) {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFAFAFA' } };
+      }
+      // Set only when the cell has no alignment of its own — the money, day and
+      // wrap-text alignments are applied by the callers and must survive.
+      if (!cell.alignment) cell.alignment = { vertical: 'middle' };
+      else if (cell.alignment.vertical === undefined) {
+        cell.alignment = { ...cell.alignment, vertical: 'middle' };
+      }
+    }
+  }
+
+  if (totalRow) {
+    for (let c = 1; c <= lastCol; c++) {
+      const cell = ws.getRow(totalRow).getCell(c);
+      cell.border = {
+        ...cell.border,
+        top: { style: 'medium', color: { argb: 'FF9E9E9E' } },
+      };
+    }
+  }
+
+  // Sort and filter without selecting the range by hand — the first thing
+  // anyone does with a 25-column register is narrow it.
+  if (lastRow >= firstDataRow) {
+    ws.autoFilter = {
+      from: { row: headerRow, column: 1 },
+      to: { row: totalRow ? totalRow - 1 : lastRow, column: lastCol },
+    };
+  }
+
+  /*
+   * PRINT SETUP. A 25-column register printed at default settings spills across
+   * four pages with no headers on three of them. Landscape, scaled to one page
+   * wide, with the title and header rows repeated on every sheet.
+   */
+  ws.pageSetup = {
+    orientation: 'landscape',
+    fitToPage: true,
+    fitToWidth: 1,
+    fitToHeight: 0,
+    horizontalCentered: true,
+    margins: {
+      left: 0.3, right: 0.3, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2,
+    },
+    printTitlesRow: `1:${headerRow}`,
+  } as ExcelJS.PageSetup;
 }
 
 export interface SalaryRegisterWorkbookInput {
@@ -213,7 +310,13 @@ export async function buildSalaryRegisterWorkbook(
     }
   }
 
-  reg.views = [{ state: 'frozen', ySplit: 3 }];
+  reg.views = [{ state: 'frozen', xSplit: 3, ySplit: 3 }];
+  finishSheet(reg, {
+    headerRow: 3,
+    firstDataRow,
+    lastRow: lastDataRow,
+    lastCol: REGISTER_HEADERS.length,
+  });
 
   // ── Sheet 2: BANK STATEMENT ──────────────────────────────────────────────
   const bank = wb.addWorksheet('BANK STATEMENT');
@@ -251,6 +354,13 @@ export async function buildSalaryRegisterWorkbook(
   }
 
   bank.views = [{ state: 'frozen', ySplit: 3 }];
+  finishSheet(bank, {
+    headerRow: 3,
+    firstDataRow,
+    lastRow: firstDataRow + included.length,
+    lastCol: 4,
+    totalRow: included.length > 0 ? firstDataRow + included.length : undefined,
+  });
 
   // ── Sheet 3: By Paying Institution ───────────────────────────────────────
   // THE POINT OF GROUPING BY WORK LOCATION. One Main Office register lists all
@@ -317,6 +427,13 @@ export async function buildSalaryRegisterWorkbook(
     }
 
     split.views = [{ state: 'frozen', ySplit: 3 }];
+    finishSheet(split, {
+      headerRow: 3,
+      firstDataRow,
+      lastRow: totalRow,
+      lastCol: 6,
+      totalRow,
+    });
   }
 
   // ── Sheet 4: Excluded Staff (only when there are any) ─────────────────────
@@ -340,7 +457,7 @@ export async function buildSalaryRegisterWorkbook(
     styleHeaderRow(ex.getRow(3));
 
     excluded.forEach((l, i) => {
-      ex.addRow([
+      const row = ex.addRow([
         i + 1,
         l.employee_code ?? '',
         l.staff_name,
@@ -348,9 +465,18 @@ export async function buildSalaryRegisterWorkbook(
         l.department_name ?? '',
         l.exclusion_reason ? EXCLUSION_LABELS[l.exclusion_reason] : 'Unknown',
       ]);
+      // The reason is a sentence, not a code, and it is the column anyone opens
+      // this sheet for.
+      row.getCell(6).alignment = { wrapText: true, vertical: 'middle' };
     });
 
     ex.views = [{ state: 'frozen', ySplit: 3 }];
+    finishSheet(ex, {
+      headerRow: 3,
+      firstDataRow,
+      lastRow: firstDataRow + excluded.length - 1,
+      lastCol: 6,
+    });
   }
 
   const out = await wb.xlsx.writeBuffer();

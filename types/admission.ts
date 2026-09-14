@@ -215,6 +215,13 @@ export interface AdmissionLead {
   last_contact_at: string | null;
   next_followup_at: string | null;
   last_activity_at: string | null;
+  // When this enquiry was first contacted. Written by
+  // fn_admission_leads_touch_from_log (migration 20260503180100) the first time
+  // a call/WhatsApp/activity row lands, and never overwritten after that. NULL
+  // means nobody has contacted the enquirer yet. Optional to match the other
+  // trigger-maintained denormalized columns below (first_gate_entry_at et al.)
+  // so existing literals that predate the column still type-check.
+  first_touch_at?: string | null;
 
   // Communication
   preferred_channel: string | null;

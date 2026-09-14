@@ -30,8 +30,16 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Loader2 } from 'lucide-react';
-import { useHostelCategories } from '@/hooks/campus-living/use-hostel-categories';
+import {
+  useHostelCategories,
+  useActiveHostelCategories,
+} from '@/hooks/campus-living/use-hostel-categories';
+import {
+  useCategoryRoomSourcesFor,
+  useSetCategoryRoomSources,
+} from '@/hooks/campus-living/use-hostel-category-room-sources';
 import { toast } from 'react-hot-toast';
 import type { HostelCategory } from '@/types/hostel-categories';
 import {
@@ -87,6 +95,16 @@ export function HostelCategoryFormDialog({
   const { createHostelCategory, updateHostelCategory } = useHostelCategories();
   const [submitting, setSubmitting] = useState(false);
 
+  // Extra room categories this one may seat learners in. The learner keeps THIS
+  // category's name, fee and benefits; only the physical room comes from the
+  // other pool. Editable once the category exists, so create mode omits it.
+  const { hostelCategories: allCategories } = useActiveHostelCategories();
+  const { data: savedSources } = useCategoryRoomSourcesFor(
+    mode === 'edit' ? category?.id : undefined,
+  );
+  const setRoomSources = useSetCategoryRoomSources();
+  const [roomSourceIds, setRoomSourceIds] = useState<string[]>([]);
+
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -137,6 +155,13 @@ export function HostelCategoryFormDialog({
     }
   }, [open, mode, category, form]);
 
+  useEffect(() => {
+    if (!open) return;
+    setRoomSourceIds(
+      mode === 'edit' ? (savedSources ?? []).map((s) => s.source_category_id) : [],
+    );
+  }, [open, mode, savedSources]);
+
   const onSubmit = async (data: FormValues) => {
     try {
       setSubmitting(true);
@@ -152,6 +177,10 @@ export function HostelCategoryFormDialog({
         toast.success('Hostel category created');
       } else if (category) {
         await updateHostelCategory(category.id, payload);
+        await setRoomSources.mutateAsync({
+          categoryId: category.id,
+          sourceCategoryIds: roomSourceIds,
+        });
         toast.success('Hostel category updated');
       }
       onOpenChange(false);
@@ -390,6 +419,54 @@ export function HostelCategoryFormDialog({
                 </FormItem>
               )}
             />
+
+            {mode === 'edit' && category && (
+              <div className='space-y-2 rounded-lg border p-3'>
+                <div className='space-y-0.5'>
+                  <p className='text-sm font-medium'>Also allow rooms from</p>
+                  <p className='text-xs text-muted-foreground'>
+                    Learners in this category may also be seated in these categories&apos; rooms.
+                    They keep this category, its fee and its benefits — only the room differs.
+                    Useful when this category runs out of beds.
+                  </p>
+                </div>
+                {(() => {
+                  const nativeSource = category.room_source_category_id ?? category.id;
+                  const choices = allCategories.filter(
+                    (c) => c.type === category.type && c.id !== category.id && c.id !== nativeSource,
+                  );
+                  if (choices.length === 0) {
+                    return (
+                      <p className='text-xs text-muted-foreground'>
+                        No other {category.type} categories to draw rooms from.
+                      </p>
+                    );
+                  }
+                  return (
+                    <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
+                      {choices.map((c) => (
+                        <label
+                          key={c.id}
+                          className='flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 text-sm'
+                        >
+                          <Checkbox
+                            checked={roomSourceIds.includes(c.id)}
+                            onCheckedChange={(checked) =>
+                              setRoomSourceIds((prev) =>
+                                checked === true
+                                  ? [...prev, c.id]
+                                  : prev.filter((id) => id !== c.id),
+                              )
+                            }
+                          />
+                          <span className='truncate'>{c.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
 
             <div className='flex flex-col-reverse sm:flex-row justify-end gap-3 pt-4'>
               <Button

@@ -41,12 +41,20 @@ export function AttendanceStaffFilter({
   onSelect,
   onReset,
   selfName,
+  hasOwnRecord = true,
 }: {
   /** null = viewing your own record. */
   selected: SelectedStaff | null;
   onSelect: (staff: SelectedStaff) => void;
   onReset: () => void;
   selfName: string;
+  /**
+   * False when the viewer has no attendance record of their own — no staff
+   * record linked, or an employment category excluded from HR. They can still
+   * view others, so the two self-referential affordances below must not offer
+   * a "me" that does not exist.
+   */
+  hasOwnRecord?: boolean;
 }) {
   const [institutionId, setInstitutionId] = useState('');
   const [open, setOpen] = useState(false);
@@ -86,7 +94,13 @@ export function AttendanceStaffFilter({
             >
               <span className="flex items-center gap-2 truncate">
                 <UserRound className="h-4 w-4 shrink-0 text-muted-foreground" />
-                <span className="truncate">{selected ? selected.name : `${selfName} (me)`}</span>
+                <span className="truncate">
+                  {selected
+                    ? selected.name
+                    : hasOwnRecord
+                      ? `${selfName} (me)`
+                      : 'Select a team member'}
+                </span>
               </span>
               <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
             </Button>
@@ -142,7 +156,7 @@ export function AttendanceStaffFilter({
         </Popover>
       </div>
 
-      {selected && (
+      {selected && hasOwnRecord && (
         <Button variant="ghost" onClick={onReset}>
           Back to my record
         </Button>

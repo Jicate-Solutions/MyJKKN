@@ -22,7 +22,7 @@
 // at the 150px default is arbitrary, not designed.
 
 import type { ColumnDef } from '@tanstack/react-table';
-import { Clock, FileText } from 'lucide-react';
+import { FileText } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -45,7 +45,7 @@ export type ApprovalColumnActions = ApprovalRowActionHandlers & {
   onViewDocuments: (row: HRLeaveApprovalQueueRow) => void;
 };
 
-const fmtDate = (d: string | null) =>
+export const fmtDate = (d: string | null) =>
   d ? new Date(`${d}T00:00:00`).toLocaleDateString('en-GB') : '—';
 
 /** 'HH:MM:SS' -> 'HH:MM'. The column is `time without time zone`. */
@@ -142,6 +142,22 @@ const institutionColumn: ColumnDef<HRLeaveApprovalQueueRow> = {
   minSize: 140,
 };
 
+/**
+ * The applicant's department. A HOD only ever sees their own, so this reads as
+ * confirmation there; it earns its place for a Principal, whose list is now the
+ * whole institution. Null for staff whose record carries no department — the
+ * same rows a HOD is deliberately not shown.
+ */
+const departmentColumn: ColumnDef<HRLeaveApprovalQueueRow> = {
+  accessorKey: 'department_name',
+  header: ({ column }) => <DataTableColumnHeader column={column} title="Department" />,
+  cell: ({ row }) => (
+    <span className="text-muted-foreground">{row.original.department_name ?? '—'}</span>
+  ),
+  size: 200,
+  minSize: 140,
+};
+
 /** Who decided it, resolved by the RPC — profiles is unreadable client-side. */
 const decidedByColumn: ColumnDef<HRLeaveApprovalQueueRow> = {
   accessorKey: 'final_approver_name',
@@ -149,12 +165,17 @@ const decidedByColumn: ColumnDef<HRLeaveApprovalQueueRow> = {
   cell: ({ row }) => {
     const r = row.original;
     if (!r.final_approver_id) return <span className="text-muted-foreground">—</span>;
+    // On a revoked row final_approver_id is the REVOKER — the service rewrites it
+    // with the decision. Saying so stops "Decided by" reading as "approved by".
     return (
       <div className="min-w-0">
-        <span className="block truncate">{r.final_approver_name ?? 'Unknown'}</span>
-        {r.final_decided_at && (
+        <span className="block truncate">
+          {(r.revoked_at ? r.revoked_by_name : null) ?? r.final_approver_name ?? 'Unknown'}
+        </span>
+        {(r.revoked_at ?? r.final_decided_at) && (
           <span className="block truncate text-xs text-muted-foreground">
-            {new Date(r.final_decided_at).toLocaleDateString('en-GB')}
+            {r.revoked_at ? 'Revoked ' : ''}
+            {new Date((r.revoked_at ?? r.final_decided_at) as string).toLocaleDateString('en-GB')}
           </span>
         )}
       </div>
@@ -169,7 +190,7 @@ const statusColumn: ColumnDef<HRLeaveApprovalQueueRow> = {
   header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
   cell: ({ row }) => (
     <div className="flex flex-wrap items-center gap-1">
-      <StatusBadge status={row.original.status} />
+      <StatusBadge status={row.original.status} revoked={row.original.revoked_at !== null} />
       {/* WHERE IN THE CHAIN, not just pending-or-not. A multi-step request
           reads as "pending" for its whole life; without this an approver cannot
           tell a request nobody has touched from one the HOD has already
@@ -181,9 +202,6 @@ const statusColumn: ColumnDef<HRLeaveApprovalQueueRow> = {
             {stageLabel(row.original)}
           </Badge>
         )}
-      {row.original.is_emergency && (
-        <Badge variant="outline" className="border-red-300 text-red-700">Emergency</Badge>
-      )}
       {/* Moved out of the actions cell — see the note at the top of this file. */}
       {row.original.is_own && (
         <Badge variant="outline" className="border-amber-300 text-amber-800">Yours</Badge>
@@ -244,18 +262,11 @@ const documentColumn = (a: ApprovalColumnActions): ColumnDef<HRLeaveApprovalQueu
     const r = row.original;
     const count = r.documents?.length ?? 0;
 
+    // No "Awaiting" state any more: the Emergency deferral that produced it was
+    // removed 2026-09-12, and a type that requires a document now blocks submit
+    // until one is attached, so an empty cell simply means none was needed.
     if (count === 0) {
-      return r.is_emergency ? (
-        <span
-          className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-400"
-          title="Filed as an emergency with no document attached. It is due within 48 hours of the request."
-        >
-          <Clock className="h-4 w-4" />
-          <span className="text-xs">Awaiting</span>
-        </span>
-      ) : (
-        <span className="text-muted-foreground">—</span>
-      );
+      return <span className="text-muted-foreground">—</span>;
     }
 
     return (
@@ -306,6 +317,7 @@ export function getLeaveApprovalColumns(
     selectColumn,
     staffColumn(a),
     institutionColumn,
+    departmentColumn,
     {
       accessorKey: 'leave_type_name',
       header: ({ column }) => <DataTableColumnHeader column={column} title="Leave" />,
@@ -375,6 +387,7 @@ export function getShortTimeOffColumns(
     selectColumn,
     staffColumn(a),
     institutionColumn,
+    departmentColumn,
     {
       accessorKey: 'leave_type_name',
       header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,

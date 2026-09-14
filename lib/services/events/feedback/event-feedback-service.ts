@@ -24,6 +24,7 @@ import type {
   FeedbackQuestionType,
   FormFieldCondition,
   FormFieldOption,
+  PendingEventFeedback,
 } from '@/types/event-feedback';
 import {
   CHOICE_QUESTION_TYPES,
@@ -109,6 +110,31 @@ function formatAnswer(value: unknown): string {
 }
 
 export class EventFeedbackService {
+  // ─── Authority ──────────────────────────────────────────────
+
+  /**
+   * May the signed-in user WRITE this event's feedback forms?
+   *
+   * Delegates to the same SECURITY DEFINER function the event_feedback_*_manage
+   * policies call, so the UI can never disagree with RLS about who is a
+   * coordinator. It exists only to decide what to SHOW: the database still
+   * refuses every write from a caller this returns false for, and still allows
+   * every write from one it returns true for.
+   *
+   * The page's own canEditEvent() is NOT a substitute — it knows the creator,
+   * the super admin and same-institution rows, but not the appointed in-charge
+   * in events.config->'incharges', who is precisely the person the builder is
+   * for.
+   */
+  static async canManage(eventId: string): Promise<boolean> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await (supabase as any).rpc('fn_can_manage_event_feedback', {
+      p_event_id: eventId,
+    });
+    if (error) throw error;
+    return data === true;
+  }
+
   // ─── Forms ──────────────────────────────────────────────────
 
   /** Every feedback form on the event, in display order, with question + response counts. */
@@ -525,6 +551,87 @@ export class EventFeedbackService {
       .maybeSingle();
     if (error) throw error;
     return (data as EventFeedbackResponse | null) ?? null;
+  }
+
+  /**
+   * Every event the signed-in person is being asked about right now, across all
+   * events — the backing read for /my-event-feedback.
+   *
+   * This is the half of the feature that decides whether any of it is used.
+   * /events/<id>/feedback/respond has existed and worked for weeks with no
+   * navigation entry and no list, so it is reachable only by someone pasting the
+   * link — which is why 54 of 55 events hold no feedback at all.
+   *
+   * One RPC rather than a PostgREST select for two reasons. The forms table's
+   * SELECT policy admits forms the caller MANAGES as well as ones they may
+   * answer, so a plain listing would hand a coordinator their own event back as
+   * something to rate; and the policy evaluates three SECURITY DEFINER functions
+   * per row, which is a poor way to scan every form in the institution. The RPC
+   * filters on the cheap predicates first and answers the ONE question this
+   * page asks: what may I answer and have not.
+   *
+   * The cast names ONE function and its exact result instead of erasing the
+   * whole client with `as any`. The generated Database types do not carry
+   * fn_my_pending_event_feedback (its migration is newer than the last type
+   * regeneration), so some cast is unavoidable — but this one still type-checks
+   * the function name, the row shape and the error, and it keeps `this` bound by
+   * calling through the object rather than lifting the method off it.
+   */
+  static async myPendingFeedback(): Promise<PendingEventFeedback[]> {
+    const supabase = createClientSupabaseClient() as unknown as {
+      rpc(fn: 'fn_my_pending_event_feedback'): PromiseLike<{
+        data: PendingEventFeedback[] | null;
+        error: { message: string; code?: string } | null;
+      }>;
+    };
+    const { data, error } = await supabase.rpc('fn_my_pending_event_feedback');
+    if (error) throw error;
+    return data ?? [];
+  }
+
+  /**
+   * Would self-registration succeed for the caller on this form? Read-only.
+   *
+   * Asked when myRegistrationId() came back null. An event run WITHOUT
+   * collecting registrations has no participant rows at all, and since a
+   * response keys on events_registrations.id that used to mean nobody could ever
+   * rate it. This distinguishes "you are not on the list, but you may join" from
+   * "this form is not for you".
+   *
+   * Deliberately NOT the writing twin: calling that on page load would mint a
+   * registration for everyone who merely opened the form and closed it, which
+   * would corrupt the event's turnout figure.
+   */
+  static async canSelfRegister(formId: string): Promise<boolean> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await (supabase as any).rpc(
+      'fn_can_self_register_for_event_feedback',
+      { p_form_id: formId }
+    );
+    if (error) throw error;
+    return data === true;
+  }
+
+  /**
+   * Create the caller's own registration on the event behind this form, and
+   * return its id — or the id they already had.
+   *
+   * Called at SUBMIT, not on page load, so the participant list only gains
+   * people who actually answered. Idempotent in the database, so a double tap
+   * cannot produce two participants.
+   *
+   * Returns null when the database refuses (closed form, wrong audience, draft
+   * event, or attendance was taken before the form opened). The caller must
+   * treat null as "you may not answer" rather than retrying.
+   */
+  static async selfRegister(formId: string): Promise<string | null> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await (supabase as any).rpc(
+      'fn_self_register_for_event_feedback',
+      { p_form_id: formId }
+    );
+    if (error) throw error;
+    return (data as string | null) ?? null;
   }
 
   /**

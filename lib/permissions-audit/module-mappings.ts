@@ -215,6 +215,7 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/internships', 'System'],
   ['/work-pulse', 'Work Pulse'],
   ['/ai-pulse', 'AI Pulse'],
+  ['/online-meetings', 'Online Meetings'],
   ['/my-bug-reports', 'Bug Reports'],
   ['/bug-leaderboard', 'Bug Reports'],
   // /admission/inbox/* — sub-prefixes BEFORE /admission catch-all (κ 2026-05-30).

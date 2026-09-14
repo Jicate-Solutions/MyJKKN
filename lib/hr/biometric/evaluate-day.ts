@@ -274,6 +274,61 @@ export function evaluateDay({ inTime, outTime, timing, permissions }: EvaluateDa
       exceptionReason: `Unreadable punch time (in="${inTime}", out="${outTime}").`,
     };
   }
+  // MOVED ABOVE THE WINDOW CHECKS (2026-09-08): a reversed punch pair is
+  // unjudgeable whichever mode the day is in, and the duration branch below
+  // subtracts the two.
+  if (outMin < inMin) {
+    return {
+      ...base,
+      verdict: 'EXCEPTION',
+      dayCalc: null,
+      exceptionReason: `OUT (${outTime}) is earlier than IN (${inTime}).`,
+    };
+  }
+
+  // A DURATION DAY OWES MINUTES, NOT A WINDOW. The visiting consultant who owes
+  // one hour on a Wednesday may work it at any point, so the only question is
+  // whether the punch pair spans enough of the day. It returns before the
+  // window checks below deliberately: a duration row carries no windows at all
+  // and would otherwise be rejected as an incomplete rule.
+  //
+  // Binary by design — PRESENT or ABSENT, never HALF_DAY. This is the same rule
+  // a single-session day already follows: there is no half to fall short of.
+  //
+  // Short time off does not apply. A permission reinstates the missing minutes
+  // of a REQUIRED WINDOW, and a duration day has no window to be missing from;
+  // someone who owes an hour and works 20 minutes has not worked the hour.
+  if (timing.attendance_mode === 'duration') {
+    const required = timing.required_minutes ?? 0;
+    if (required <= 0) {
+      return {
+        ...base,
+        verdict: 'EXCEPTION',
+        dayCalc: null,
+        exceptionReason: 'This date is set to a duration rule but carries no required minutes.',
+      };
+    }
+
+    const worked = outMin - inMin;
+    const met = worked >= required;
+
+    return {
+      ...base,
+      verdict: met ? 'PRESENT' : 'ABSENT',
+      dayCalc: met ? 'FULL' : 'NONE',
+      // The lone session's outcome, in the shape a single-session day already
+      // reports: one half decided, the other explicitly absent from the rule.
+      firstHalfAttended: met,
+      secondHalfAttended: null,
+      // Zero, never null: the day WAS evaluated, and lateness is meaningless
+      // when the start time is not part of the rule.
+      lateMinutes: 0,
+      exceptionReason: met
+        ? null
+        : `Worked ${worked} min of the ${required} min required on this day.`,
+    };
+  }
+
   // A WORKING DAY MAY HAVE ONE HALF (2026-09-04): a 09:00–14:00 Saturday with
   // no afternoon. Each half is all-or-nothing; a day with neither, or with a
   // half-filled half, is a missing RULE and stays an exception.
@@ -287,14 +342,6 @@ export function evaluateDay({ inTime, outTime, timing, permissions }: EvaluateDa
       verdict: 'EXCEPTION',
       dayCalc: null,
       exceptionReason: 'The shift timing for this date is a working day but has incomplete windows.',
-    };
-  }
-  if (outMin < inMin) {
-    return {
-      ...base,
-      verdict: 'EXCEPTION',
-      dayCalc: null,
-      exceptionReason: `OUT (${outTime}) is earlier than IN (${inTime}).`,
     };
   }
 

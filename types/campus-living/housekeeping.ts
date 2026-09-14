@@ -127,8 +127,57 @@ export interface BookingBoardRow extends CleaningBooking {
   block_name: string | null;
   has_before_photo: boolean;
   has_after_photo: boolean;
+  /** A phase holds as many photos as were uploaded — the table shows the count. */
+  before_photo_count: number;
+  after_photo_count: number;
   feedback_count: number;
   average_rating: number | null;
+}
+
+/**
+ * Why a warden moved a booking. Mirrors the reason_code CHECK on
+ * hostel_cleaning_booking_reschedules and the same list inside
+ * fn_cl_housekeeping_reschedule — all three must move together.
+ */
+export type RescheduleReasonCode =
+  | 'cleaner_unavailable'
+  | 'cleaner_on_leave'
+  | 'slot_full'
+  | 'learner_requested'
+  | 'emergency'
+  | 'other';
+
+/**
+ * One move of one booking. Never updated — a booking pushed twice has two of
+ * these, and the learner is shown both.
+ *
+ * The cleaner NAMES are snapshots for the same reason
+ * CleaningBooking.cleaner_name is one: learners must never need SELECT on
+ * hostel_cleaners, which holds staff phone numbers.
+ */
+export interface BookingReschedule {
+  id: string;
+  booking_id: string;
+  institution_id: string;
+  from_date: string;
+  from_slot_start: string;
+  from_slot_end: string;
+  to_date: string;
+  to_slot_start: string;
+  to_slot_end: string;
+  from_cleaner_id: string | null;
+  from_cleaner_name: string | null;
+  to_cleaner_id: string | null;
+  to_cleaner_name: string | null;
+  reason_code: RescheduleReasonCode;
+  reason_note: string | null;
+  rescheduled_by: string;
+  created_at: string;
+}
+
+/** A move with the warden who made it resolved to a name. */
+export interface BookingRescheduleWithActor extends BookingReschedule {
+  rescheduled_by_name: string | null;
 }
 
 export interface BookingPhoto {
@@ -202,6 +251,8 @@ export interface BookingDetail {
   } | null;
   photos: BookingPhoto[];
   feedback: CleaningFeedbackWithLearner[];
+  /** Every move this booking has made, oldest first. Empty for most bookings. */
+  reschedules: BookingRescheduleWithActor[];
 }
 
 /**
@@ -254,6 +305,17 @@ export type AssignResult =
   | { success: true; status: BookingStatus; cleaner_name?: string }
   | { success: false; error_code: string };
 
+export type RescheduleResult =
+  | {
+      success: true;
+      status: BookingStatus;
+      booking_date: string;
+      slot_start: string;
+      slot_end: string;
+      cleaner_name: string | null;
+    }
+  | { success: false; error_code: string };
+
 /**
  * Narrowing helper for the RPC result unions.
  *
@@ -303,6 +365,20 @@ export interface CreateCleanerDto {
 }
 
 export type UpdateCleanerDto = Partial<CreateCleanerDto>;
+
+export interface RescheduleBookingDto {
+  bookingId: string;
+  /** The new date, YYYY-MM-DD. */
+  date: string;
+  /** The new slot's start, HH:MM. slot_end is derived from the type's duration. */
+  slotStart: string;
+  reasonCode: RescheduleReasonCode;
+  reasonNote?: string | null;
+  /** Pick a different cleaner. Omit to keep whoever is already on the booking. */
+  cleanerId?: string | null;
+  /** Leave the booking with no cleaner, returning it to 'booked'. */
+  clearCleaner?: boolean;
+}
 
 export interface UpsertAvailabilityDto {
   block_id: string;

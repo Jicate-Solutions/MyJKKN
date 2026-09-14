@@ -130,6 +130,11 @@ const config: ModuleNavConfig = {
       label: 'Attendance',
       icon: 'UserCheck',
       href: '/campus-living/attendance',
+      // NOTE: '/campus-living/analytics/attendance' is deliberately NOT listed
+      // here even though this group links to it. findActiveGroup picks the
+      // LONGEST matching matchPath, so adding it would beat the Analytics
+      // group's own '/campus-living/analytics' and replace the Analytics chip
+      // bar with this one — stranding anyone browsing Analytics.
       matchPaths: [
         '/campus-living/attendance',
         '/campus-living/leave',
@@ -160,6 +165,15 @@ const config: ModuleNavConfig = {
           icon: 'History',
           href: '/campus-living/attendance/history',
           matchPaths: ['/campus-living/attendance/history'],
+        },
+        {
+          // The analytics dashboard lives under /campus-living/analytics with
+          // its siblings, but people look for it here, in the module whose data
+          // it describes. Same href, listed in both groups.
+          label: 'Analytics',
+          icon: 'BarChart3',
+          href: '/campus-living/analytics/attendance',
+          matchPaths: ['/campus-living/analytics/attendance'],
         },
         {
           label: 'Leave',

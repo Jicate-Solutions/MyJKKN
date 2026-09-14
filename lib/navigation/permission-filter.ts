@@ -1,6 +1,49 @@
 import type { PageEntry } from './types';
 
 /**
+ * Declared once so the sidebar rule and the route-guard rule below can never
+ * drift to different spellings of the same path.
+ */
+const SOI_MEMBERS_PATH = '/startup-studio/school-of-influence/admin/members';
+
+/**
+ * Every permission key the DATABASE accepts for the batch roster screen, so the
+ * gate a person meets is never narrower than the write it fronts.
+ *
+ * Read straight off `fn_cohort_can_set_status`
+ * (supabase/migrations/20261115043000_cohort_status_change_control.sql) and
+ * `fn_soi_can_manage_batch` (20260808140000):
+ *
+ *   cohort.manage                         → fn_soi_can_manage_batch, and the
+ *                                           remove-a-member path on this screen
+ *   cohort.edit                           → branch 1, mirroring cohorts_update_permission
+ *   cohort.school_of_influence.manage     → fn_soi_can_manage_batch, SoI-scoped arm
+ *   cohort.school_of_influence.edit       → branch 2, mirroring cohorts_soi_scoped_update
+ *
+ * The two paths the database ALSO admits are not keys and cannot be listed
+ * here: an appointed coordinator and a batch member both hold nothing. They
+ * reach the screen through the subtree's fallbackCheck
+ * (hasSchoolOfInfluenceAccess → fn_soi_has_programme_access), which
+ * RoutePermissionGuard runs when this rule says no.
+ *
+ * Every key here is `false` in all 104 production roles as of 2026-09-07 except
+ * `cohort.manage`/`cohort.edit` on `soi_programme_coordinator`, which is
+ * assigned to nobody — so this widens nothing today. It is here so the sentence
+ * above stays true when a role is edited in Role Management, which is a live
+ * value, not a deployment.
+ */
+const SOI_MEMBERS_KEYS = [
+  'cohort.manage',
+  'cohort.edit',
+  'cohort.school_of_influence.manage',
+  'cohort.school_of_influence.edit',
+] as const;
+
+function admitsSoiMembers(permissions: Record<string, boolean>): boolean {
+  return SOI_MEMBERS_KEYS.some((key) => permissions[key] === true);
+}
+
+/**
  * Roles the database `is_admin()` treats as admin:
  *   is_super_admin = true  OR  role IN ('admin','super_admin','administrator').
  * The nav/route guard must NOT be stricter than the data layer — these roles pass
@@ -11,8 +54,32 @@ import type { PageEntry } from './types';
  * student/faculty (not in this set) is unaffected and cannot be over-opened.
  */
 export const ADMIN_BYPASS_ROLES = ['admin', 'super_admin', 'administrator'];
+
+/**
+ * The same mirror, exported, so a feature panel gating itself on permission keys
+ * is not stricter than the RLS policies behind it.
+ *
+ * Every standardised policy in this repo opens with `is_super_admin() OR
+ * is_admin() OR (user_has_permission(...) AND role_has_institution_access(...))`.
+ * A component that checks only `isSuperAdmin || can(key)` therefore refuses users
+ * the database would serve — an `administrator` gets an access-denied panel over
+ * rows they can read. `usePermissions()` cannot close this on its own, because
+ * `user_has_permission()` bypasses ONLY `is_super_admin = true` and knows nothing
+ * about the admin roles.
+ *
+ * Reads `profiles.role`, matching `is_admin()` exactly — it too looks at that one
+ * column and not at `user_roles` — so this grants nothing the database does not
+ * already grant.
+ */
+export function hasDbAdminBypass(
+  userRole: string | null | undefined,
+  isSuperAdmin: boolean
+): boolean {
+  return isSuperAdmin || (!!userRole && ADMIN_BYPASS_ROLES.includes(userRole));
+}
+
 function hasAdminBypass(userRole: string, isSuperAdmin: boolean): boolean {
-  return isSuperAdmin || ADMIN_BYPASS_ROLES.includes(userRole);
+  return hasDbAdminBypass(userRole, isSuperAdmin);
 }
 
 /**
@@ -115,6 +182,12 @@ export function filterByPermissions(
                 permissions['improvement.area_role.assign']);
     }
 
+    // School of Influence batch roster — the same union as isPageAccessible
+    // below. See SOI_MEMBERS_KEYS for where each key comes from.
+    if (page.path === SOI_MEMBERS_PATH) {
+      return admitsSoiMembers(permissions);
+    }
+
     // A sentinel is not a key. Anyone entitled to a `super_admin`-marked route
     // has already returned true at the admin bypass above; reaching here means
     // the caller is not an admin, so the answer is no — regardless of what the
@@ -161,6 +234,21 @@ export function isPageAccessible(
     return !!(permissions['improvement.ideas.view'] ||
               permissions['improvement.board.manage'] ||
               permissions['improvement.area_role.assign']);
+  }
+  // School of Influence batch roster — this screen carries the batch stage
+  // control (BatchStatusCard), whose authority is fn_cohort_can_set_status.
+  // MENU_PERMISSIONS declares the route on 'cohort.manage' ALONE, so a holder of
+  // any of the other three keys the database accepts was refused here and shown
+  // PermissionError — while the database would have let them make the change.
+  // The gate a person meets must not be narrower than the gate the write
+  // enforces, or the control is unreachable by someone the platform says may use
+  // it. SOI_MEMBERS_KEYS lists all four and says where each comes from.
+  //
+  // This opens the PAGE, not every action on it: the remove-a-member path is
+  // fn_soi_remove_member's own predicate and still refuses server-side for
+  // somebody holding only an '.edit' key.
+  if (pagePath === SOI_MEMBERS_PATH) {
+    return admitsSoiMembers(permissions);
   }
   // Same sentinel wall as filterByPermissions, in the same position (last, so it
   // narrows only the generic lookup). Both functions are route guards and they

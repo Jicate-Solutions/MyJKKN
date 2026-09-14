@@ -3,14 +3,47 @@
  *
  * Weekly (Monday) silence-detection core for connected Instagram accounts.
  *
- * Reads ig_accounts rows where last_post_at is older than the configured
- * threshold (default 30 days, tunable via platform_policies key
- * `ig.alert_dormant_after_days`) and dispatches one in-app notification
- * per silent account per weekly run to the account's connected_by user (when
- * present) plus all super admins.
+ * Reads ig_accounts rows in status `active` OR `dormant`, derives each
+ * account's true last-post time from `ig_posts` (falling back to the
+ * denormalised `ig_accounts.last_post_at` column only when an account has no
+ * post rows at all), and dispatches one in-app notification per
+ * genuinely-silent account per weekly run to the account's connected_by user
+ * (when present) plus all super admins.
  *
- * Cadence (2026-07-16): the Vercel cron fires WEEKLY on Monday (`23 7 * * 1`),
- * not daily. Concentrating every still-silent account's alert onto the same
+ * 2026-09-09 — why the scope is no longer `.eq('status', 'active')`:
+ *   The metrics poller flips an account to `dormant` at
+ *   `ig.dormancy_threshold_days` (live value 14) while this detector alerts at
+ *   `ig.alert_dormant_after_days` (live value 30). An account therefore LEFT
+ *   the old scope at day 14 and could never re-enter it to reach the day-30
+ *   alarm — a 16-day trapdoor. Measured on production 2026-09-09: zero active
+ *   accounts had a `last_post_at` older than 30 days (the oldest was 12 days),
+ *   so the old `last_post_at.lt.<threshold>` disjunct was empirically inert
+ *   and 100% of alerts came from the NULL disjunct. All 12 genuinely silent
+ *   Graph-connected department accounts (40–586 days silent; jkkneducation
+ *   586d, jkkn_physicianassistant 431d, jkkn_ece 187d, …) were `dormant` and
+ *   therefore invisible to this cron.
+ *
+ * 2026-09-09 — why a NULL last-post no longer means "silent":
+ *   The old code deliberately treated a NULL `last_post_at` as alertable. But
+ *   `metrics_source='business_discovery'` accounts NEVER get that column
+ *   written, so 4 accounts with zero `ig_posts` rows were being told they
+ *   "have gone quiet for more than 30 days" when nothing whatsoever is known
+ *   about them. Unknown is now its own terminal state (`status: 'unknown'`)
+ *   and never alerts.
+ *
+ *   The two changes above MUST ship together. Including dormant while still
+ *   treating NULL as silent would have false-alarmed 4 recently-posting
+ *   accounts (jkkn_textile 5d, jkkn_english 15d, jkkn_bba 19d,
+ *   jkkn_microbiology 28d) that the old status filter was accidentally hiding.
+ *
+ * `disconnected` (2 accounts) stays out of scope: an account nobody is
+ * connected to is not silent, it is unplugged.
+ *
+ * Cadence (2026-07-16; mechanism corrected 2026-09-09): the cron fires WEEKLY
+ * on Monday — no longer from vercel.json (retired 2026-08-13 under the 100-cron
+ * cap) but from the AI-routine dispatcher, routine id `ig-silence-detect`,
+ * minute_of_day 773 = Mon 07:23 UTC = Mon 12:53 IST (migration
+ * 20260825010000_move_daily_weekly_crons_to_dispatcher.sql). Concentrating every still-silent account's alert onto the same
  * Monday lets the inbox roll them into ONE "N departments are silent" digest
  * instead of scattering them across the week as each account's own re-alert
  * window elapses. The per-account `ig.silence_realert_days` throttle (default
@@ -62,7 +95,19 @@ export interface SilenceAccountResult {
   institution_id: string;
   last_post_at: string | null;
   days_silent: number | null;
-  status: 'alerted' | 'suppressed' | 'deduplicated' | 'no_recipients' | 'error';
+  /**
+   * `unknown` (added 2026-09-09) = neither ig_posts nor the last_post_at
+   * column knows when this account last posted. Unknown is NOT silent and is
+   * never alerted on; it is surfaced so the data gap is visible rather than
+   * silently swallowed.
+   */
+  status:
+    | 'alerted'
+    | 'suppressed'
+    | 'deduplicated'
+    | 'no_recipients'
+    | 'unknown'
+    | 'error';
   /** YYYY-MM-DD of the most recent prior silence alert (suppressed rows). */
   last_alerted_on?: string;
   notified?: number;
@@ -73,7 +118,26 @@ export interface SilenceAccountResult {
 export interface RunSilenceDetectResult {
   threshold_days: number;
   realert_days: number;
+  /**
+   * Every ig_accounts row read this run (status active or dormant). Added
+   * 2026-09-09 when the query-time recency prefilter was removed — without it
+   * `candidates` alone no longer explains how many rows were examined.
+   */
+  in_scope: number;
+  /**
+   * MEANING CHANGED 2026-09-09. Was "rows returned by the prefiltered query";
+   * is now "rows that passed the silence guard", i.e. accounts with a known
+   * last-post older than threshold_days. This is the number a reader expects
+   * from the word "candidates", and it keeps the invariant
+   * `in_scope === candidates + unknown + recent` checkable from the JSON.
+   * `candidates` itself decomposes into
+   * alerted + suppressed + deduplicated + failed + (no_recipients rows).
+   */
   candidates: number;
+  /** In scope but no last-post date known anywhere — never alerted on. */
+  unknown: number;
+  /** In scope and posted within threshold_days — healthy, skipped silently. */
+  recent: number;
   alerted: number;
   /** Still-silent accounts skipped because their last alert is < realert_days old. */
   suppressed: number;
@@ -121,6 +185,8 @@ async function resolveSuperAdminIds(supabase: SupabaseClient): Promise<string[]>
 }
 
 interface SilentRow {
+  /** ig_accounts.id (uuid) — the join key for ig_posts.account_id. */
+  id: string;
   ig_user_id: string;
   username: string;
   institution_id: string;
@@ -228,7 +294,77 @@ async function fetchLastAlertDays(
 }
 
 /**
- * Run silence detection across all active accounts. Per-account failures
+ * Derive each in-scope account's TRUE last-post timestamp from `ig_posts`.
+ *
+ * `ig_accounts.last_post_at` is a denormalised column the metrics poller
+ * writes, and `metrics_source='business_discovery'` accounts never get it at
+ * all: on production 2026-09-09 it was NULL for 39 of 44 dormant and 10 of 25
+ * active accounts, while `ig_posts` knew the real answer for 26 of those. Two
+ * other production files already prefer `ig_posts` for this — notably
+ * `app/api/cron/instagram-monthly-audit/route.ts`, whose aggregateMetrics
+ * reads `posted_at` directly — so this is the house source of truth, not a new
+ * one.
+ *
+ * Returns Map<ig_accounts.id, newest posted_at ISO string>.
+ *
+ * FAILS CLOSED, unlike `fetchLastAlertDays` above, and deliberately so. That
+ * helper may degrade toward alerting; this one cannot be allowed to. A missing
+ * entry here makes an account `unknown`, and unknown never alerts — so a
+ * partial read would mute exactly the accounts it dropped. Worse, the page
+ * order is newest-first, so a truncated read sheds the OLDEST posts, i.e.
+ * precisely the long-silent accounts this cron exists to find. Truncation is
+ * therefore maximally adversarial here. Both a read error and page-cap
+ * exhaustion throw; the route turns that into a loud 502. (1,021 ig_posts rows
+ * today against a 10,000-row cap, so this is a latent guard rather than a live
+ * constraint — but a silence detector whose own read path can go silent is
+ * exactly the failure class this PR exists to remove.)
+ */
+async function fetchLastPostAt(
+  supabase: SupabaseClient,
+  accountIds: string[]
+): Promise<Map<string, string>> {
+  const lastPostAt = new Map<string, string>();
+  if (accountIds.length === 0) return lastPostAt;
+
+  const PAGE_SIZE = 1000;
+  const PAGE_CAP = 10;
+  type PostRow = { account_id?: string | null; posted_at?: string | null };
+
+  for (let page = 0; page < PAGE_CAP; page++) {
+    const { data: pageData, error } = await supabase
+      .from('ig_posts')
+      .select('account_id, posted_at')
+      .in('account_id', accountIds)
+      .order('posted_at', { ascending: false })
+      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+
+    // Mirrors the `ig_accounts read failed` throw in runSilenceDetect: a read
+    // this cron depends on must never degrade into "alert nobody".
+    if (error) throw new Error(`ig_posts read failed: ${error.message}`);
+
+    const rows = (pageData ?? []) as PostRow[];
+    for (const row of rows) {
+      const accountId = row.account_id;
+      const postedAt = row.posted_at;
+      if (!accountId || !postedAt) continue;
+      const postedMs = Date.parse(postedAt);
+      if (!Number.isFinite(postedMs)) continue;
+      const prev = lastPostAt.get(accountId);
+      if (!prev || postedMs > Date.parse(prev)) lastPostAt.set(accountId, postedAt);
+    }
+    // A short page is the only proof the history was read to the end.
+    if (rows.length < PAGE_SIZE) return lastPostAt;
+  }
+
+  throw new Error(
+    `ig_posts read hit the ${PAGE_CAP * PAGE_SIZE}-row page cap — refusing to run on a truncated post history (newest-first truncation drops the oldest posts, i.e. exactly the silent accounts this cron must find)`
+  );
+}
+
+/**
+ * Run silence detection across all active AND dormant accounts, judging each
+ * one's silence against ig_posts rather than the denormalised
+ * `ig_accounts.last_post_at` column. Per-account failures
  * are isolated — one bad fanout never aborts the loop.
  *
  * @param supabase a service-role Supabase client.
@@ -249,24 +385,29 @@ export async function runSilenceDetect(
     DEFAULT_REALERT_DAYS,
     0
   );
-  const thresholdIso = new Date(
-    Date.now() - thresholdDays * 24 * 60 * 60 * 1000
-  ).toISOString();
+  const thresholdMs = Date.now() - thresholdDays * 24 * 60 * 60 * 1000;
 
-  // Silent = status active AND no recent post. We deliberately INCLUDE
-  // accounts whose last_post_at IS NULL (never posted / never polled) so
-  // they don't escape detection — the metrics poller writes last_post_at
-  // on first poll, so a NULL means an account that should be alerted on.
-  const { data: silentRaw, error: selectErr } = await supabase
+  // Scope = active OR dormant (see the file header for the 14-vs-30-day
+  // trapdoor that `.eq('status','active')` created). Recency is deliberately
+  // NOT decided here any more: the old `.or(last_post_at.is.null,
+  // last_post_at.lt.<threshold>)` prefilter read a denormalised column that is
+  // NULL for the majority of accounts, which is what inverted the audience.
+  // Silence is now judged in JS against ig_posts, below.
+  const { data: inScopeRaw, error: selectErr } = await supabase
     .from('ig_accounts')
-    .select('ig_user_id, username, institution_id, last_post_at, connected_by')
-    .eq('status', 'active')
-    .or(`last_post_at.is.null,last_post_at.lt.${thresholdIso}`);
+    .select('id, ig_user_id, username, institution_id, last_post_at, connected_by')
+    .in('status', ['active', 'dormant']);
 
   if (selectErr) {
     throw new Error(`ig_accounts read failed: ${selectErr.message}`);
   }
-  const silent: SilentRow[] = (silentRaw ?? []) as SilentRow[];
+  const inScope: SilentRow[] = (inScopeRaw ?? []) as SilentRow[];
+  const postMap = await fetchLastPostAt(
+    supabase,
+    inScope
+      .map((r) => r.id)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0)
+  );
 
   const adminIds = await resolveSuperAdminIds(supabase);
   // first super-admin is the canonical created_by for service-role cron
@@ -275,6 +416,9 @@ export async function runSilenceDetect(
   const lastAlertDays = await fetchLastAlertDays(supabase, realertDays);
 
   const results: SilenceAccountResult[] = [];
+  let candidates = 0;
+  let unknown = 0;
+  let recent = 0;
   let alerted = 0;
   let suppressed = 0;
   // NOTE: with cadence suppression active, 'deduplicated' only counts
@@ -283,16 +427,42 @@ export async function runSilenceDetect(
   let deduplicated = 0;
   let failed = 0;
 
-  for (const row of silent) {
+  for (const row of inScope) {
     const ig_user_id = row.ig_user_id;
     const username = row.username || '';
-    const last = row.last_post_at;
-    const daysSilent =
-      last == null
-        ? null
-        : Math.floor(
-            (Date.now() - new Date(last).getTime()) / (24 * 60 * 60 * 1000)
-          );
+    // ig_posts is the source of truth; the denormalised column is only a
+    // fallback for accounts that have no post rows at all.
+    const last = postMap.get(row.id) ?? row.last_post_at ?? null;
+    const lastMs = last === null ? NaN : Date.parse(last);
+
+    // Guard 1 — unknown is not silent. 4 business-discovery accounts
+    // (jkkn_bcom, jkkn_humanphysiology, jkkn_pharmacology,
+    // jkkn_scienceandhumanities) have zero ig_posts rows AND a NULL column;
+    // the old code told their recipients the account "has gone quiet for more
+    // than 30 days" on no evidence at all. Report the gap, never alert on it.
+    if (last === null || !Number.isFinite(lastMs)) {
+      unknown++;
+      results.push({
+        ig_user_id,
+        username,
+        institution_id: row.institution_id,
+        last_post_at: null,
+        days_silent: null,
+        status: 'unknown',
+      });
+      continue;
+    }
+
+    // Guard 2 — posted inside the threshold. Healthy accounts are counted but
+    // get no result row: at 21 of 69 in scope they would be pure JSON noise,
+    // whereas the `unknown` rows above are an actionable data gap.
+    if (lastMs >= thresholdMs) {
+      recent++;
+      continue;
+    }
+
+    candidates++;
+    const daysSilent = Math.floor((Date.now() - lastMs) / (24 * 60 * 60 * 1000));
 
     // Re-alert cadence: still-silent accounts alerted within the last
     // realert_days are skipped before any notification write. First-time
@@ -303,9 +473,9 @@ export async function runSilenceDetect(
     // String-coerce the lookup key — map keys are always strings; a numeric
     // ig_user_id column type must not silently no-op the suppression.
     const lastAlertedOn = lastAlertDays.get(String(ig_user_id));
-    const lastPostDay = last ? String(last).slice(0, 10) : null;
-    const freshEpisode =
-      lastAlertedOn !== undefined && lastPostDay !== null && lastPostDay > lastAlertedOn;
+    // `last` is guaranteed non-null past guard 1.
+    const lastPostDay = String(last).slice(0, 10);
+    const freshEpisode = lastAlertedOn !== undefined && lastPostDay > lastAlertedOn;
     if (
       realertDays > 0 &&
       lastAlertedOn &&
@@ -350,9 +520,9 @@ export async function runSilenceDetect(
     // entry (keyed on metadata.event = 'ig_silence_alert'), so each occurrence
     // must name its own account or the expanded rollup is 35 identical lines.
     const title = `Instagram @${username || ig_user_id} is silent`;
-    const lastClause = last
-      ? `Last post was ${daysSilent} day${daysSilent === 1 ? '' : 's'} ago`
-      : 'No post has been recorded yet';
+    // The former 'No post has been recorded yet' branch is gone: guard 1 now
+    // routes those accounts to `unknown` instead of asserting silence.
+    const lastClause = `Last post was ${daysSilent} day${daysSilent === 1 ? '' : 's'} ago`;
     const body =
       `@${username || ig_user_id} has gone quiet for more than ${thresholdDays} days. ` +
       `${lastClause}. Open the Instagram admin to review whether the account is still owned and posting.`;
@@ -435,7 +605,10 @@ export async function runSilenceDetect(
   return {
     threshold_days: thresholdDays,
     realert_days: realertDays,
-    candidates: silent.length,
+    in_scope: inScope.length,
+    candidates,
+    unknown,
+    recent,
     alerted,
     suppressed,
     deduplicated,

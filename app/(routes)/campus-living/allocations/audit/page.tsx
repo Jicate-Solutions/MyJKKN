@@ -3,7 +3,14 @@
 // Allocation Audit — read-only. Answers "was every allocated learner placed
 // correctly?" against the two gates the auto-allocator applies: the fee band
 // resolved from their admission-year academic bill, and the physical-room
-// rules covering the room they actually occupy. No actions, by design.
+// rules covering the room they actually occupy.
+//
+// Read-only EXCEPT one repair: "Generate upgrade bills" for learners the audit
+// finds holding a category above their fee band with no live bill. That case
+// had no tool anywhere -- both upgrade paths price current -> target, which is
+// zero when the learner already holds the category -- so the report was the
+// only place that knew, and could do nothing about it. Every other fix still
+// goes through Allocations, Category Upgrades or the eligibility settings.
 
 import { Suspense, useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';
@@ -22,7 +29,9 @@ import {
 } from '@/components/ui/select';
 import { DataTable } from '@/components/data-table/data-table';
 import { PermissionGuard } from '@/components/auth/permission-guard';
-import { Loader2, Info, ShieldQuestion, ArrowLeft, FileDown, RefreshCw } from 'lucide-react';
+import { usePermissions } from '@/hooks/use-permissions';
+import { BulkUpgradeBillsDialog } from './_components/bulk-upgrade-bills-dialog';
+import { Loader2, Info, ShieldQuestion, ArrowLeft, FileDown, RefreshCw, ReceiptText } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { format } from 'date-fns';
 
@@ -242,6 +251,26 @@ function AllocationAuditInner() {
 
   const columns = useMemo(() => getAuditColumns(setDetail), []);
 
+  // ── The one repair this page offers ──────────────────────────────────────
+  // Gated on upgrades.manage, NOT on the allocations.audit key that gates the
+  // page: reaching this screen means you can see the problem, not that you may
+  // charge someone for it.
+  const { isSuperAdmin, permissions } = usePermissions();
+  const canBill = isSuperAdmin || !!permissions?.['campus_living.upgrades.manage'];
+  const [bulkOpen, setBulkOpen] = useState(false);
+
+  // Above band with nothing live to show for it. Read off the CURRENT filter so
+  // the button always acts on exactly the list being looked at.
+  const billableRows = useMemo(
+    () =>
+      filterRows('').filter(
+        (r) =>
+          r.band_verdict === 'above_band' &&
+          (r.upgrade_bill_state === 'none' || r.upgrade_bill_state === 'cancelled_only'),
+      ),
+    [filterRows],
+  );
+
   // Active filters in words, for the PDF's scope block. The id-keyed filters
   // are resolved back to names off the loaded rows — the panel stores ids, and
   // a report that stamped a raw uuid as its scope would be unreadable.
@@ -386,6 +415,12 @@ function AllocationAuditInner() {
               />
               {isReauditing ? 'Re-auditing…' : 'Re-audit'}
             </Button>
+            {canBill && billableRows.length > 0 && (
+              <Button variant="outline" size="sm" onClick={() => setBulkOpen(true)}>
+                <ReceiptText className="mr-2 h-4 w-4" />
+                Generate upgrade bills ({billableRows.length})
+              </Button>
+            )}
             <Button
               className="flex-1 sm:flex-none"
               onClick={downloadPdf}
@@ -411,8 +446,10 @@ function AllocationAuditInner() {
         <Alert>
           <Info className="h-4 w-4" />
           <AlertDescription>
-            This page is read-only — it reports, it does not repair. Fixes go through
-            Allocations, Category Upgrades or the Category-Eligibility settings.
+            This page reports; it repairs one thing only — raising the upgrade
+            bill for a learner who already holds a category above their fee band.
+            Every other fix goes through Allocations, Category Upgrades or the
+            Category-Eligibility settings.
           </AlertDescription>
         </Alert>
 
@@ -549,6 +586,15 @@ function AllocationAuditInner() {
       </div>
 
       <AuditDetailDrawer row={detail} onClose={() => setDetail(null)} />
+
+      {/* Remounted per open so a previous run's preview never carries over. */}
+      <BulkUpgradeBillsDialog
+        key={bulkOpen ? 'bulk-open' : 'bulk-closed'}
+        open={bulkOpen}
+        onOpenChange={setBulkOpen}
+        rows={billableRows}
+        onCommitted={() => reaudit()}
+      />
     </ContentLayout>
   );
 }

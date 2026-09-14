@@ -6,10 +6,13 @@
 // Sheets:
 //   1. Instructions       - field reference + how to use
 //   2. Resources          - the data sheet users fill in
-//   3. Reference: Categories
-//   4. Reference: Subcategories (with parent linkage)
-//   5. Reference: Institutions
-//   6. Reference: Departments (with institution linkage)
+//   3. Ref - Categories
+//   4. Ref - Subcategories (with parent linkage)
+//   5. Ref - Institutions
+//   6. Ref - Departments (with institution linkage)
+//
+// Sheet names must avoid the characters Excel forbids (: \ / ? * [ ]) — see
+// TEMPLATE_SHEET_NAMES below.
 //
 // Why all reference sheets are embedded: users typing names is the failure
 // mode (typos, case mismatch, missing rows). Embedding the exact valid names
@@ -56,6 +59,26 @@ const TEMPLATE_HEADERS = [
   'warranty_expiry_date'
 ] as const;
 
+/**
+ * Worksheet names used in the generated workbook, in sheet order.
+ *
+ * Excel rejects a sheet name that contains any of `: \ / ? * [ ]` or that runs
+ * past 31 characters, and SheetJS throws when such a name is appended — which
+ * aborts the entire download. Every value here must stay within those rules;
+ * `__tests__/resource-management/download-resource-template.test.ts` guards it.
+ *
+ * `resources` is load-bearing: the import API looks up that exact sheet name
+ * (app/api/resource-management/resources/import/route.ts). Do not rename it.
+ */
+export const TEMPLATE_SHEET_NAMES = {
+  instructions: 'Instructions',
+  resources: 'Resources',
+  categories: 'Ref - Categories',
+  subcategories: 'Ref - Subcategories',
+  institutions: 'Ref - Institutions',
+  departments: 'Ref - Departments'
+} as const;
+
 const COLUMN_WIDTHS = [
   30, // name
   40, // description
@@ -87,21 +110,21 @@ const INSTRUCTIONS: (string | undefined)[][] = [
   [],
   ['HOW TO USE'],
   ['1. Open the "Resources" sheet and fill one row per resource.'],
-  ['2. For name-based fields (institution, department, categories), copy values exactly from the Reference sheets below.'],
+  ['2. For name-based fields (institution, department, categories), copy values exactly from the "Ref - ..." sheets in this workbook.'],
   ['3. Save the file as .xlsx and upload it via the "Bulk Upload" button on the Resources page.'],
   ['4. Any row that fails validation is rejected with a row-level error message; valid rows are inserted.'],
   [],
   ['REQUIRED FIELDS'],
   ['• name                    — Resource name. Max 200 chars. Must be unique within the same institution + location.'],
-  ['• parent_category_name    — Must match a value in "Reference: Categories" exactly.'],
-  ['• institution_name        — Must match a value in "Reference: Institutions" exactly.'],
+  [`• parent_category_name    — Must match a value in "${TEMPLATE_SHEET_NAMES.categories}" exactly.`],
+  [`• institution_name        — Must match a value in "${TEMPLATE_SHEET_NAMES.institutions}" exactly.`],
   ['• status                  — One of: available, occupied, maintenance, out_of_order, retired, inactive'],
   ['• booking_type            — One of: reservation, walk_in, both'],
   [],
   ['OPTIONAL FIELDS'],
   ['• description             — Free text.'],
-  ['• subcategory_name        — Must match a value in "Reference: Subcategories" AND belong to the chosen parent category.'],
-  ['• department_name         — Must match a value in "Reference: Departments" AND belong to the chosen institution.'],
+  [`• subcategory_name        — Must match a value in "${TEMPLATE_SHEET_NAMES.subcategories}" AND belong to the chosen parent category.`],
+  [`• department_name         — Must match a value in "${TEMPLATE_SHEET_NAMES.departments}" AND belong to the chosen institution.`],
   ['• initial_stock_quantity  — Whole number ≥ 0. Defaults to 1 if blank.'],
   ['• building_number         — Max 50 chars.'],
   ['• block_number            — Max 50 chars.'],
@@ -135,9 +158,9 @@ const INSTRUCTIONS: (string | undefined)[][] = [
 const SAMPLE_ROW = {
   name: 'Lecture Hall A101',
   description: 'Large lecture hall with projector',
-  parent_category_name: '[Pick from Reference: Categories]',
-  subcategory_name: '[Pick from Reference: Subcategories]',
-  institution_name: '[Pick from Reference: Institutions]',
+  parent_category_name: `[Pick from ${TEMPLATE_SHEET_NAMES.categories}]`,
+  subcategory_name: `[Pick from ${TEMPLATE_SHEET_NAMES.subcategories}]`,
+  institution_name: `[Pick from ${TEMPLATE_SHEET_NAMES.institutions}]`,
   department_name: '',
   status: 'available',
   booking_type: 'reservation',
@@ -182,7 +205,11 @@ export default function DownloadResourceTemplate() {
       // ── Sheet 1: Instructions ────────────────────────────────────────────
       const instructionsWs = XLSX.utils.aoa_to_sheet(INSTRUCTIONS);
       instructionsWs['!cols'] = [{ wch: 95 }];
-      XLSX.utils.book_append_sheet(wb, instructionsWs, 'Instructions');
+      XLSX.utils.book_append_sheet(
+        wb,
+        instructionsWs,
+        TEMPLATE_SHEET_NAMES.instructions
+      );
 
       // ── Sheet 2: Resources (the data sheet) ──────────────────────────────
       const dataAoa: (string | number)[][] = [
@@ -210,18 +237,26 @@ export default function DownloadResourceTemplate() {
         }
       ];
 
-      XLSX.utils.book_append_sheet(wb, resourcesWs, 'Resources');
+      XLSX.utils.book_append_sheet(
+        wb,
+        resourcesWs,
+        TEMPLATE_SHEET_NAMES.resources
+      );
 
-      // ── Sheet 3: Reference: Categories ───────────────────────────────────
+      // ── Sheet 3: Ref - Categories ────────────────────────────────────────
       const categoriesAoa = [
         ['Parent Category Name'],
         ...parentCategories.map((c: any) => [c.name])
       ];
       const categoriesWs = XLSX.utils.aoa_to_sheet(categoriesAoa);
       categoriesWs['!cols'] = [{ wch: 35 }];
-      XLSX.utils.book_append_sheet(wb, categoriesWs, 'Reference: Categories');
+      XLSX.utils.book_append_sheet(
+        wb,
+        categoriesWs,
+        TEMPLATE_SHEET_NAMES.categories
+      );
 
-      // ── Sheet 4: Reference: Subcategories ────────────────────────────────
+      // ── Sheet 4: Ref - Subcategories ─────────────────────────────────────
       const parentNameById = new Map(
         parentCategories.map((c: any) => [c.id, c.name])
       );
@@ -237,10 +272,10 @@ export default function DownloadResourceTemplate() {
       XLSX.utils.book_append_sheet(
         wb,
         subcategoriesWs,
-        'Reference: Subcategories'
+        TEMPLATE_SHEET_NAMES.subcategories
       );
 
-      // ── Sheet 5: Reference: Institutions ─────────────────────────────────
+      // ── Sheet 5: Ref - Institutions ──────────────────────────────────────
       const institutionsAoa = [
         ['Institution Name', 'Entity Type'],
         ...institutions.map((i: any) => [i.name, i.entity_type ?? 'institution'])
@@ -250,10 +285,10 @@ export default function DownloadResourceTemplate() {
       XLSX.utils.book_append_sheet(
         wb,
         institutionsWs,
-        'Reference: Institutions'
+        TEMPLATE_SHEET_NAMES.institutions
       );
 
-      // ── Sheet 6: Reference: Departments ──────────────────────────────────
+      // ── Sheet 6: Ref - Departments ───────────────────────────────────────
       const institutionNameById = new Map(
         institutions.map((i: any) => [i.id, i.name])
       );
@@ -269,7 +304,7 @@ export default function DownloadResourceTemplate() {
       XLSX.utils.book_append_sheet(
         wb,
         departmentsWs,
-        'Reference: Departments'
+        TEMPLATE_SHEET_NAMES.departments
       );
 
       // ── Write file ────────────────────────────────────────────────────────

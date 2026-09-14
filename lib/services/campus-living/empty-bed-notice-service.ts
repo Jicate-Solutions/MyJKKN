@@ -194,7 +194,10 @@ interface OccupancyRow {
   block_id: string | null;
   capacity: number | null;
   active_residents: number | null;
-  beds_available: number | null;
+  // Sanctioned free beds only. The nudge quotes a fee saving derived from
+  // per_bed x capacity, so it must never count a temporary extra bed as a
+  // vacancy -- that would promise a discount that does not exist.
+  beds_available_sanctioned: number | null;
 }
 
 /**
@@ -274,14 +277,14 @@ export async function runEmptyBedNotices(
   // ── Occupancy, from the canonical view. ───────────────────────────────────
   const { data: occRows, error: occErr } = await supabase
     .from('v_hostel_room_occupancy')
-    .select('room_id, room_number, block_id, capacity, active_residents, beds_available')
+    .select('room_id, room_number, block_id, capacity, active_residents, beds_available_sanctioned')
     .in('room_id', roomIds);
   if (occErr) {
     logger.error(LOG, 'occupancy read failed', { error: occErr.message });
     throw new Error(`v_hostel_room_occupancy read failed: ${occErr.message}`);
   }
   const underFilled = ((occRows ?? []) as OccupancyRow[]).filter(
-    (r) => (r.beds_available ?? 0) > 0 && (r.capacity ?? 0) > 0,
+    (r) => (r.beds_available_sanctioned ?? 0) > 0 && (r.capacity ?? 0) > 0,
   );
   if (underFilled.length === 0) {
     return emptyResult({
@@ -385,7 +388,7 @@ export async function runEmptyBedNotices(
 
     const capacity = room.capacity ?? 0;
     const activeResidents = room.active_residents ?? 0;
-    const emptyBeds = room.beds_available ?? 0;
+    const emptyBeds = room.beds_available_sanctioned ?? 0;
 
     // Fee maths: the SAME context priced twice, once at today's headcount and
     // once at a full room. computeFeeBreakdown is the formula; nothing about

@@ -9,18 +9,22 @@ import {
   useMyBookings,
 } from '@/hooks/campus-living/use-housekeeping-bookings';
 import { useBookableTypes } from '@/hooks/campus-living/use-housekeeping-types';
+import { useMyHostelSummary } from '@/hooks/campus-living/use-my-hostel';
 
 /**
  * My Hostel entry card for room cleaning.
  *
- * Renders NOTHING unless the resident's room category actually has a bookable
+ * Renders NOTHING unless the resident's category actually has a bookable
  * cleaning type. This is the one idea worth keeping from the old module: never
  * advertise a feature the next page would refuse. Eligibility is decided by the
- * SEATED room's category, the same axis fn_cl_housekeeping_book uses.
+ * resident's BILLED category, the same axis fn_cl_housekeeping_book uses since
+ * 2026-11-28 — a Premium resident seated in a Deluxe room keeps Premium
+ * benefits, so the seated room is the wrong axis to ask.
  */
 export function RoomCleaningEntryCard() {
   const { data: allocation } = useMyAllocation();
-  const { data: types = [], isLoading } = useBookableTypes(allocation?.room_id);
+  const { data: summary } = useMyHostelSummary();
+  const { data: types = [], isLoading } = useBookableTypes(summary?.hostelCategory?.id);
   const { data: bookings = [] } = useMyBookings(allocation?.room_id);
 
   if (isLoading || !allocation || types.length === 0) return null;

@@ -43,13 +43,16 @@ export class HostelBlockService {
     const m = new Map<string, { capacity: number; occupancy: number; rooms: number }>();
     if (blockIds.length === 0) return m;
     const [roomsRes, occRes] = await Promise.all([
-      supabase.from('hostel_rooms').select('block_id, capacity').in('block_id', blockIds),
+      // effective_capacity, not capacity: a block's bed count must include the
+      // temporary extra beds, or a room carrying one reports fewer beds than it
+      // can actually hold. capacity stays the fee figure and is not summed here.
+      supabase.from('hostel_rooms').select('block_id, effective_capacity').in('block_id', blockIds),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (supabase as any).from('v_hostel_room_occupancy').select('block_id, active_residents').in('block_id', blockIds),
     ]);
-    for (const r of (roomsRes.data ?? []) as Array<{ block_id: string; capacity: number | null }>) {
+    for (const r of (roomsRes.data ?? []) as Array<{ block_id: string; effective_capacity: number | null }>) {
       const e = m.get(r.block_id) ?? { capacity: 0, occupancy: 0, rooms: 0 };
-      e.capacity += Number(r.capacity ?? 0);
+      e.capacity += Number(r.effective_capacity ?? 0);
       e.rooms += 1;
       m.set(r.block_id, e);
     }
@@ -174,6 +177,7 @@ export class HostelBlockService {
         id: string;
         floor?: number | null;
         capacity?: number | null;
+        effective_capacity?: number | null;
         room_purpose?: string | null;
         room_type?: string | null;
         ac_status?: string | null;
@@ -193,7 +197,7 @@ export class HostelBlockService {
 
       for (const room of rooms) {
         const isStudent = !room.room_purpose || room.room_purpose === 'student';
-        blkTotalBeds += Number(room.capacity ?? 0);
+        blkTotalBeds += Number(room.effective_capacity ?? room.capacity ?? 0);
         blkOccupiedBeds += occupiedByRoom.get(room.id) ?? 0;
         if (isStudent) blkStudentRooms += 1; else blkSpecialRooms += 1;
         if (room.room_type) blkTypeMap[room.room_type] = (blkTypeMap[room.room_type] ?? 0) + 1;
@@ -251,7 +255,7 @@ export class HostelBlockService {
           byType: {}, byAC: {}, byCategory: {},
         };
         g.rooms += 1;
-        g.capacity += Number(room.capacity ?? 0);
+        g.capacity += Number(room.effective_capacity ?? room.capacity ?? 0);
         g.occupied += occupiedByRoom.get(room.id) ?? 0;
         const isStudent = !room.room_purpose || room.room_purpose === 'student';
         if (isStudent) g.studentRooms += 1; else g.specialRooms += 1;
@@ -267,7 +271,7 @@ export class HostelBlockService {
           const fc = floorCatMap.get(floor) ?? new Map<string, CategoryOccupancy>();
           const row = fc.get(catKey) ?? newCatRow(catKey);
           row.rooms += 1;
-          row.beds += Number(room.capacity ?? 0);
+          row.beds += Number(room.effective_capacity ?? room.capacity ?? 0);
           row.occupied += occupiedByRoom.get(room.id) ?? 0;
           const st = statusByRoom.get(room.id) ?? 'available';
           if (st === 'full') row.full += 1;
@@ -633,6 +637,29 @@ export class HostelBlockService {
       is_primary: Boolean(r.is_primary),
       institution_name: (r.institution?.name as string) ?? null,
     }));
+  }
+
+  // The colleges served by a set of blocks — the institution scope of a
+  // block-scoped warden.
+  //
+  // A warden's own profile institution is NOT this set. Every warden's profile
+  // sits in JKKN Main Office, which owns no block and no learner, so scoping
+  // them by profile institution matches zero rows. Their real reach is the
+  // colleges their assigned blocks serve, which is what this returns.
+  static async getInstitutionIdsForBlocks(blockIds: string[]): Promise<string[]> {
+    if (blockIds.length === 0) return [];
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase
+      .from('hostel_block_institutions')
+      .select('institution_id')
+      .in('block_id', blockIds);
+    if (error) {
+      logger.error('campus-living/blocks', 'Failed to fetch institutions for blocks', error);
+      throw error;
+    }
+    return Array.from(
+      new Set((data ?? []).map((r) => r.institution_id as string).filter(Boolean)),
+    );
   }
 
   // Add a college to a block. The block's FIRST college is made primary so a

@@ -29,6 +29,7 @@ import { connection } from 'next/server';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { discoverAccounts, getAccountProfile } from '@/lib/instagram/api-client';
 import { getExtraIgPortfolios } from '@/lib/instagram/extra-portfolios';
+import { normalizeMetaToken } from '@/lib/meta/graph-api-client';
 
 const GRAPH_API = 'https://graph.facebook.com/v25.0';
 const GRAPH_VERSION = 'v25.0';
@@ -136,10 +137,11 @@ export async function GET(request: NextRequest) {
     // Proven token fallback chain (same as meta-facebook-poll cron):
     // both MESSENGER_PAGE_ACCESS_TOKEN and META_PAGE_ACCESS_TOKEN are
     // verified present in prod, bound to JKKN Institutions App 437028995095541.
-    const accessToken =
+    const accessToken = normalizeMetaToken(
       process.env.META_IG_SYSTEM_USER_TOKEN ||
-      process.env.MESSENGER_PAGE_ACCESS_TOKEN ||
-      process.env.META_PAGE_ACCESS_TOKEN;
+        process.env.MESSENGER_PAGE_ACCESS_TOKEN ||
+        process.env.META_PAGE_ACCESS_TOKEN
+    );
     if (!accessToken) {
       return NextResponse.json(
         {
