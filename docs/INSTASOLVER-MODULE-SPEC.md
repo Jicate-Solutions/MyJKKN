@@ -4,7 +4,7 @@
 > column, so every broken fan would have been counted as a learner grievance in the NAAC and UGC exports.
 > Purchases go to **Procurement**, not to a `requirement_requests` island; only the approval tiers survive, as
 > `procurement_approval_thresholds`. The substrate migration is `20261213100000_instasolver_substrate_v2.sql`;
-> `20261103000000` is superseded and must not be applied. Everything below is kept for its persona matrix and
+> `20261103000000` is superseded and is now an empty no-op file. Everything below is kept for its persona matrix and
 > historical reasoning — treat its DDL plan and table names as void.
 
 # Insta Solver — Core Module Spec (Strategic / Chain Output)

@@ -12,7 +12,7 @@
 -- reversed by the Director on 2026-09-14 (specs/instasolver-2026-09-14.md):
 -- `issue_type` on grievance_tickets has no reader, so tagging broken-thing
 -- reports instead of separating them would have counted every one of them as a
--- student grievance in the NAAC and UGC exports; and the requirement_requests
+-- learner grievance in the NAAC and UGC exports; and the requirement_requests
 -- island duplicates the Procurement module. Broken things now go to Campus Walk
 -- (I4) and purchases to Procurement (I3/I5).
 --

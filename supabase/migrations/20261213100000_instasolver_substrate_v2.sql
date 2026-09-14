@@ -21,7 +21,7 @@
 --      (lib/services/grievance/grievance-service.ts) and the HOD metrics SQL
 --      (20260722200000_hod_metrics_add_overdue_ages.sql) all COUNT(*) the
 --      whole table. Every broken ceiling fan would therefore have been
---      counted as a student grievance in the NAAC and UGC exports —
+--      counted as a learner grievance in the NAAC and UGC exports —
 --      automatically, because 20260422_grievance_evidence_emission_trigger.sql
 --      writes quality_evidence_mappings rows on ticket closure. Four test
 --      tickets had already produced 8 such rows.
@@ -75,11 +75,32 @@
 --   - every DDL guarded by IF NOT EXISTS / DO $$ blocks; safe to re-run
 --   - pgcrypto lives in the extensions schema on this project, so
 --     SECURITY DEFINER functions carry `extensions` in search_path
---   - one transaction (BEGIN → COMMIT): any single bad statement means
---     none of it applies
+--
+-- THIS FILE OPENS NO TRANSACTION OF ITS OWN. THAT IS DELIBERATE — DO NOT ADD
+-- `BEGIN;` / `COMMIT;` BACK.
+--
+-- It is still applied atomically: every applier wraps it. scripts/ship-wave/
+-- apply-migrations.sh runs each file twice — once as `BEGIN; <file>; ROLLBACK;`
+-- for a dry run, then as `BEGIN; <file>; COMMIT;` to apply — and
+-- `supabase db push` wraps each file the same way.
+--
+-- An earlier revision of this file carried its own BEGIN/COMMIT, and that
+-- silently destroys the dry run. Proven in psql 16.14 on these exact bytes:
+-- the inner `BEGIN;` warns "there is already a transaction in progress" and is
+-- ignored, the inner `COMMIT;` commits the APPLIER's transaction, and the
+-- applier's trailing `ROLLBACK;` then warns "there is no transaction in
+-- progress" and rolls back nothing. The rehearsal reports clean having already
+-- applied every statement in the file, permanently, with no way to take it
+-- back. Not a style preference — a self-nullifying safety net.
 -- =====================================================================
 
-BEGIN;
+-- Inside the applier's transaction, so LOCAL is the right scope and it is
+-- released at COMMIT/ROLLBACK. Section 2 takes ACCESS EXCLUSIVE on
+-- grievance_tickets to add two columns; without a timeout that ALTER queues
+-- behind any long-running reader and every subsequent query on the table
+-- queues behind the ALTER, which is how a two-column migration stalls the
+-- grievance module. Fail in 5 seconds and retry instead.
+SET LOCAL lock_timeout = '5s';
 
 -- ---------------------------------------------------------------------
 -- 1. ALTER grievance_categories — add allow_anonymous
@@ -219,7 +240,15 @@ GRANT  ALL ON TABLE public.procurement_approval_thresholds TO service_role;
 -- matched no tier, and produced an EMPTY approval chain — which read as
 -- "approved by nobody" all the way through. The lower bound of each upper band
 -- is therefore one paisa above the ceiling below it, not one rupee. Every
--- non-negative amount now lands in exactly one band, and the two boundary
+-- non-negative amount ROUNDED TO 2 DP lands in exactly one of these three
+-- bands. Two caveats, both deliberate. (a) 2 dp is the resolution that matters
+-- because these columns ARE numeric(12,2); the service rounds the requested
+-- amount to 2 dp before matching, so a sub-paise input like 50000.005 cannot
+-- fall between two contiguous bands. (b) "exactly one" holds for THESE bands
+-- because they do not overlap. A per-institution override that widens one band
+-- into its neighbour's range makes both match, and the chain then STACKS both
+-- approvers in ascending order — which is the safe direction, since widening a
+-- band can only add an approver, never remove one. The two boundary
 -- amounts are covered by a unit test
 -- (__tests__/services/issues/approval-chain-service.test.ts).
 -- ---------------------------------------------------------------------
@@ -240,15 +269,49 @@ WHERE NOT EXISTS (
 -- ---------------------------------------------------------------------
 -- 4. RLS — recreate grievance_tickets policies WITH the ICC fix
 --
--- KEPT VERBATIM from 20261103000000 section 14. Two defects in the live
--- policy are corrected here and nothing else is changed.
+-- READ THIS AGAINST PRODUCTION, NOT AGAINST 20261103000000.
 --
--- The existing grievance_tickets_select policy (PR #608, migration
--- 20260423_unification_crud_retrofit.sql) gates non-super-admins through
--- user_has_permission + role_has_institution_access. We REPLACE it with a
--- version that adds the ICC clause: ICC-only tickets are visible to
--- ICC-role members + super_admin only; non-ICC-only tickets still flow
--- through the existing permission gate.
+-- An earlier draft of this comment described these policies as "correcting two
+-- defects". That was written against the never-applied v1 file and it was
+-- WRONG about production. The live policy, read back from the database on
+-- 2026-07-31 and recorded verbatim at rls_initplan_wrap_sweep.sql:2058, is:
+--
+--   grievance_tickets_select USING (
+--     is_super_admin() OR is_admin()
+--     OR raised_by_id  = auth.uid()
+--     OR assigned_to   = auth.uid()
+--     OR filed_by      = auth.uid()
+--     OR (user_has_permission('grievance.tickets.view')
+--         AND role_has_institution_access(institution_id)))
+--
+-- Every branch is at TOP LEVEL and there is NO is_icc_only branch at all.
+-- Three consequences, stated plainly because each one is the opposite of what
+-- the earlier comment claimed:
+--
+--   1. THE raised_by_id "HOIST" IS A NO-OP. raised_by_id is already top level
+--      live. No complainant has ever lost sight of her own case in production;
+--      that was only true of the v1 file, which never ran. Keeping the clause
+--      at top level here preserves live behaviour exactly.
+--
+--   2. THE ICC BRANCH IS A NEW ACCESS PATH, NOT A LEAK CLOSURE. Production has
+--      no is_icc_only branch, so no icc_member reads anything today by virtue
+--      of that role. Adding `is_icc_only = true AND role_has_institution_access
+--      AND EXISTS(icc_member)` GRANTS read to that college's committee. It
+--      closes nothing, because there was nothing open.
+--
+--   3. assigned_to, filed_by AND user_has_permission('grievance.tickets.view')
+--      ARE DEMOTED. They move from top level into the `is_icc_only = false`
+--      branch. On an ICC-only row the assignee, the proxy filer, and every
+--      holder of grievance.tickets.view therefore LOSE read unless they are
+--      also an institution-scoped icc_member. That is a REMOVAL of access from
+--      three sets of people, not a tightening of a leak.
+--
+-- The behaviour is intended and is kept: an ICC complaint should be readable by
+-- that college's committee and the complainant, and by nobody else — which is
+-- the confidentiality rule stated as an access rule. It is safe to ship now
+-- because production holds ZERO rows with is_icc_only = true, so the demotion
+-- removes access from nobody today; it constrains who gains it tomorrow. Each
+-- demotion is listed as its own risk line in the pull request.
 --
 -- ICC role check uses the existing role registry shape
 -- (custom_roles.role_key='icc_member' joined via user_roles), matching the
@@ -268,19 +331,19 @@ DROP POLICY IF EXISTS "grievance_tickets_select" ON public.grievance_tickets;
 CREATE POLICY "grievance_tickets_select" ON public.grievance_tickets FOR SELECT
 USING (
   (SELECT is_super_admin()) OR (SELECT is_admin())
-  -- (2) The complainant always sees her own case.
-  -- This clause used to sit INSIDE the `is_icc_only = false` branch, so the
-  -- moment a complaint was flagged confidential the woman who raised it lost
-  -- sight of it entirely — she could file and then never learn what happened.
-  -- Hoisted here so it holds for EVERY row, ICC-only included.
+  -- (2) The complainant always sees her own case. UNCHANGED FROM PRODUCTION —
+  -- this clause is already top level live, so this line is a no-op restatement,
+  -- kept deliberately so the rewrite cannot lose it.
   -- Anonymous rows are unaffected: raised_by_id IS NULL there, and
   -- NULL = (SELECT auth.uid()) evaluates to NULL, never TRUE. Their access path is
   -- fn_track_issue_by_token() below.
   OR raised_by_id = (SELECT auth.uid())
-  -- (1) ICC-only tickets: that college's committee, and no other.
-  -- role_has_institution_access(institution_id) was MISSING here while the
-  -- ordinary branch below has always carried it, so a single icc_member role
-  -- read confidential complaints from all 8 colleges.
+  -- (1) ICC-only tickets: that college's committee, and no other. NEW ACCESS
+  -- PATH — production has no is_icc_only branch, so this GRANTS read to
+  -- institution-scoped icc_members on confidential rows. It is scoped with
+  -- role_has_institution_access from the outset so the grant never crosses a
+  -- college boundary; it is not repairing an existing cross-college leak,
+  -- because the branch it would have leaked through does not exist live.
   OR (
     is_icc_only = true
     AND role_has_institution_access(institution_id)
@@ -292,15 +355,20 @@ USING (
         AND cr.role_key = 'icc_member'
     )
   )
-  -- Non-ICC-only tickets: existing institution + permission gate.
-  -- filed_by and assigned_to stay INSIDE this branch deliberately. Hoisting
-  -- them alongside raised_by_id was considered and rejected: both columns are
-  -- writable on an existing row, so a hoisted filed_by would let a complainant
-  -- editing her own open ICC ticket hand a third party read access to it, and
-  -- a hoisted assigned_to would put a confidential complaint in front of a
-  -- handler who is not on that college's committee. For an ICC-only row the
-  -- assignee must therefore also be an icc_member of that institution — which
-  -- is the confidentiality rule, stated as an access rule.
+  -- Non-ICC-only tickets: the three branches production carries at TOP LEVEL,
+  -- DEMOTED into this `is_icc_only = false` arm. This is the access removal
+  -- named as consequence 3 above, and it is deliberate:
+  --   * assigned_to — a handler who is not on that college's committee should
+  --     not read a confidential complaint merely because it was assigned to
+  --     them. For an ICC-only row the assignee must ALSO be an icc_member of
+  --     that institution.
+  --   * filed_by — this column is writable on an existing row, so leaving it
+  --     at top level would let a complainant editing her own open ICC ticket
+  --     hand a third party read access to it.
+  --   * user_has_permission('grievance.tickets.view') — the whole point of an
+  --     ICC-only flag is that the ordinary view permission stops being enough.
+  -- Nobody loses access on the day this applies: production holds zero
+  -- is_icc_only = true rows.
   OR (
     is_icc_only = false
     AND (
@@ -319,7 +387,11 @@ USING (
 DROP POLICY IF EXISTS "grievance_tickets_insert" ON public.grievance_tickets;
 CREATE POLICY "grievance_tickets_insert" ON public.grievance_tickets FOR INSERT
 WITH CHECK (
-  auth.role() = 'authenticated'
+  -- Wrapped, matching the LIVE policy text at rls_initplan_wrap_sweep.sql:2058
+  -- (`( SELECT auth.role() AS role) = 'authenticated'`). An earlier draft of
+  -- this file recreated it BARE, which would have silently undone the
+  -- 2026-07-31 initplan sweep for this table's insert path.
+  (SELECT auth.role()) = 'authenticated'
   -- Filers can mark a ticket is_icc_only at filing time (sensitive
   -- categories like SH/harassment auto-flag this via service layer).
   -- ICC restriction enforced on SELECT/UPDATE/DELETE, not INSERT —
@@ -330,15 +402,16 @@ DROP POLICY IF EXISTS "grievance_tickets_update" ON public.grievance_tickets;
 CREATE POLICY "grievance_tickets_update" ON public.grievance_tickets FOR UPDATE
 USING (
   (SELECT is_super_admin()) OR (SELECT is_admin())
-  -- (2) The complainant can still act on her own case while it is open —
-  -- correct it, add to it, withdraw it — whether or not it is confidential.
-  -- Hoisted out of the `is_icc_only = false` branch for the same reason as
-  -- the SELECT policy. The status guard is kept, so this never lets her edit
-  -- a case the committee has already taken up.
+  -- (2) The complainant can still act on her own case while it is open.
+  -- UNCHANGED FROM PRODUCTION, which carries exactly
+  -- `(raised_by_id = auth.uid() AND status = 'open')` at top level. What she
+  -- may actually change on that row is NOT enforced by RLS and never was —
+  -- see section 5, which adds a BEFORE UPDATE trigger for it.
   OR (raised_by_id = (SELECT auth.uid()) AND status IN ('open'))
   -- (1) ICC-only tickets: that college's committee only (super_admin handled
-  -- by the first branch as break-glass). role_has_institution_access was
-  -- missing here too.
+  -- by the first branch as break-glass). NEW ACCESS PATH, exactly as in the
+  -- SELECT policy — production has no is_icc_only branch, so this grants
+  -- update to institution-scoped icc_members rather than repairing a leak.
   OR (
     is_icc_only = true
     AND role_has_institution_access(institution_id)
@@ -350,7 +423,13 @@ USING (
         AND cr.role_key = 'icc_member'
     )
   )
-  -- Non-ICC-only: existing rules
+  -- Non-ICC-only: the branches production carries at TOP LEVEL, DEMOTED here.
+  -- On an ICC-only row the assignee and every holder of
+  -- grievance.tickets.edit therefore LOSE update unless they are also an
+  -- institution-scoped icc_member. Same intent and same justification as the
+  -- SELECT demotion above, and same reason it is safe to ship today: zero
+  -- is_icc_only = true rows exist in production. Listed as its own risk line
+  -- in the pull request.
   OR (
     is_icc_only = false
     AND (
@@ -394,10 +473,155 @@ USING (
   (SELECT is_super_admin()) OR (SELECT is_admin())
   -- Tickets should be withdrawn (status=withdrawn), not deleted.
   -- Delete is reserved for super-admin/admin cleanup of test/spam data.
-  -- No is_icc_only branch and no identity branch exist here, so the two
-  -- defects fixed in the SELECT and UPDATE policies above have no equivalent
+  -- No is_icc_only branch and no identity branch exist here, so the ICC
+  -- changes made to the SELECT and UPDATE policies above have no equivalent
   -- in this one. Left byte-for-byte unchanged, deliberately.
 );
+
+-- ---------------------------------------------------------------------
+-- 4b. WHAT THE RAISER MAY ACTUALLY CHANGE — fn_grievance_raiser_update_guard
+--
+-- RLS says WHO may update a row. It does not say WHICH COLUMNS, and on this
+-- table that gap is load-bearing. The live UPDATE policy (and the recreated one
+-- above, unchanged in this respect) lets the raiser update her own row while
+-- status = 'open', with a WITH CHECK of bare `raised_by_id = auth.uid()`. No
+-- column guard anywhere. So today, in production, a complainant can:
+--
+--   * set is_icc_only = true on her own open ticket. With the ICC branch added
+--     above, that instantly strips read AND update from the assignee, the proxy
+--     filer and every holder of grievance.tickets.view, leaving only
+--     institution-scoped icc_members and super_admin. A complainant can lock
+--     the handling staff out of her own case.
+--
+--   * set status = 'resolved' herself. That fires the closure trigger in
+--     20260422_grievance_evidence_emission_trigger.sql, which writes
+--     quality_evidence_mappings rows — NAAC 7.7.1 and the UGC grievance
+--     return. A self-closed complaint becomes accreditation evidence with no
+--     staff member ever having looked at it. This whole migration exists
+--     because those counts have to be honest; leaving this open would
+--     contradict its own reason for existing.
+--
+--   * reassign it (assigned_to), re-file it under someone else (filed_by),
+--     move it to another college (institution_id) or another category
+--     (category_id).
+--
+-- Both are PRE-EXISTING live, not introduced here. They are fixed here because
+-- this PR recreates the policy whose gap they live in.
+--
+-- Two objects, on purpose. The decision is a PURE FUNCTION over (old, new,
+-- actor_is_privileged) so it can be unit-tested in the verification block
+-- below: `SET ROLE` and `set_config('request.jwt.claims', …)` are not
+-- available in a migration, so a trigger that reads auth.uid() cannot be
+-- exercised here, but a pure function taking the actor's privilege as an
+-- argument can be. The trigger is the thin wrapper that resolves the actor and
+-- calls it.
+--
+-- Not SECURITY DEFINER: it needs no privilege of its own, it only compares two
+-- row versions. Nothing is revoked — a trigger function is not callable as an
+-- RPC by virtue of being a trigger, and the helper is harmless to call.
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_grievance_raiser_change_allowed(
+  p_old                  public.grievance_tickets,
+  p_new                  public.grievance_tickets,
+  p_actor_is_privileged  boolean
+)
+RETURNS text
+LANGUAGE plpgsql
+IMMUTABLE
+SET search_path = public, pg_temp
+AS $raiser_guard$
+DECLARE
+  v_allowed_status text[] := ARRAY['open', 'withdrawn'];
+BEGIN
+  -- Privileged actors (super_admin / admin / icc_member) are not constrained
+  -- here at all; RLS already decided they may write this row.
+  IF p_actor_is_privileged THEN
+    RETURN NULL;
+  END IF;
+
+  -- Columns the raiser may never touch on her own ticket.
+  IF coalesce(p_new.is_icc_only, false) IS DISTINCT FROM coalesce(p_old.is_icc_only, false) THEN
+    RETURN 'is_icc_only';
+  END IF;
+  IF p_new.assigned_to IS DISTINCT FROM p_old.assigned_to THEN
+    RETURN 'assigned_to';
+  END IF;
+  IF p_new.filed_by IS DISTINCT FROM p_old.filed_by THEN
+    RETURN 'filed_by';
+  END IF;
+  IF p_new.institution_id IS DISTINCT FROM p_old.institution_id THEN
+    RETURN 'institution_id';
+  END IF;
+  IF p_new.category_id IS DISTINCT FROM p_old.category_id THEN
+    RETURN 'category_id';
+  END IF;
+  IF p_new.raised_by_id IS DISTINCT FROM p_old.raised_by_id THEN
+    RETURN 'raised_by_id';
+  END IF;
+
+  -- Status: she may leave it alone or withdraw. She may not resolve or close
+  -- her own complaint, because that is what emits accreditation evidence.
+  IF p_new.status IS DISTINCT FROM p_old.status
+     AND NOT (p_new.status = ANY (v_allowed_status)) THEN
+    RETURN 'status';
+  END IF;
+
+  -- Anything else (description, subject, attachments, the timestamps the app
+  -- maintains) is hers to edit.
+  RETURN NULL;
+END;
+$raiser_guard$;
+
+COMMENT ON FUNCTION public.fn_grievance_raiser_change_allowed(public.grievance_tickets, public.grievance_tickets, boolean) IS
+  'Returns NULL when the proposed change is allowed, or the NAME of the first forbidden column when it is not. Pure and IMMUTABLE so it is unit-testable without a session identity — the trigger fn_grievance_raiser_update_guard resolves the actor and calls this. A non-privileged raiser may edit her own open ticket''s free text and withdraw it; she may not change is_icc_only, assigned_to, filed_by, institution_id, category_id or raised_by_id, and may not set status to anything but open or withdrawn (resolving it would emit NAAC/UGC evidence for a complaint no staff member ever handled).';
+
+CREATE OR REPLACE FUNCTION public.fn_grievance_raiser_update_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public, pg_temp
+AS $raiser_trigger$
+DECLARE
+  v_actor       uuid := auth.uid();
+  v_privileged  boolean;
+  v_blocked     text;
+BEGIN
+  -- Only the raiser acting on her own row is constrained. Staff writes are
+  -- governed by RLS and by the app.
+  IF v_actor IS NULL OR OLD.raised_by_id IS NULL OR OLD.raised_by_id <> v_actor THEN
+    RETURN NEW;
+  END IF;
+
+  v_privileged := coalesce(public.is_super_admin(), false)
+               OR coalesce(public.is_admin(), false)
+               OR EXISTS (
+                    SELECT 1
+                    FROM public.user_roles ur
+                    JOIN public.custom_roles cr ON ur.role_id = cr.id
+                    WHERE ur.user_id = v_actor
+                      AND cr.role_key = 'icc_member'
+                  );
+
+  v_blocked := public.fn_grievance_raiser_change_allowed(OLD, NEW, v_privileged);
+
+  IF v_blocked IS NOT NULL THEN
+    RAISE EXCEPTION
+      'grievance_tickets.% cannot be changed by the person who raised the ticket (ticket %). Allowed edits: the complaint text, and status -> withdrawn. Changing is_icc_only would lock the handling staff out of the case; changing status to resolved or closed would emit NAAC/UGC accreditation evidence for a complaint nobody handled.',
+      v_blocked, OLD.id
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  RETURN NEW;
+END;
+$raiser_trigger$;
+
+COMMENT ON FUNCTION public.fn_grievance_raiser_update_guard() IS
+  'BEFORE UPDATE on grievance_tickets. Constrains ONLY the person who raised the ticket, and only when she is not super_admin / admin / icc_member. Delegates the decision to fn_grievance_raiser_change_allowed() so the rule is unit-testable. Closes a pre-existing gap: RLS says who may update a row, never which columns, and the raiser branch of grievance_tickets_update carries a bare raised_by_id check.';
+
+DROP TRIGGER IF EXISTS trg_grievance_raiser_update_guard ON public.grievance_tickets;
+CREATE TRIGGER trg_grievance_raiser_update_guard
+  BEFORE UPDATE ON public.grievance_tickets
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_grievance_raiser_update_guard();
 
 -- ---------------------------------------------------------------------
 -- 5. ANONYMOUS FILER'S TRACKING CODE (I7)
@@ -461,16 +685,26 @@ AS $fn_track$
   WHERE gt.is_anonymous = true
     AND gt.anonymous_token IS NOT NULL
     AND gt.anonymous_token = p_token
-    -- The service mints the code as 'anon_' || crypto.randomUUID() — 41
-    -- characters, 122 bits. The shape guard stops a blank or truncated value
-    -- being probed at all; it is not the entropy defence, the UUID is.
+    -- TOKEN SHAPES THE GUARD ACCEPTS, as of 2026-09-14:
+    --   * the only minter in the tree today is
+    --     lib/services/grievance/grievance-service.ts:120, which mints
+    --     'anon_' || crypto.randomUUID() — 41 characters, 122 bits of entropy.
+    --   * a longer 32-character, 64-symbol token (192 bits) is planned for the
+    --     InstaSolver complaint lane. NOT PRESENT IN THIS TREE — no
+    --     lib/instasolver/complaint.ts exists on this branch or on jicate/main,
+    --     so nothing mints one yet. The `LIKE 'anon\_%'` + length >= 20 guard
+    --     below is written to accept both, so the minter can land without
+    --     touching this function.
+    -- Until that minter ships, every live token is the 122-bit one. The shape
+    -- guard stops a blank or truncated value being probed at all; it is not the
+    -- entropy defence, the UUID is.
     AND p_token LIKE 'anon\_%'
     AND length(coalesce(p_token, '')) >= 20
   LIMIT 1;
 $fn_track$;
 
 COMMENT ON FUNCTION public.fn_track_issue_by_token(text) IS
-  'Status lookup for an anonymously filed InstaSolver complaint, keyed on anonymous_token (I7). Returns at most one row and only filer-facing fields (number, subject, status, the four progress timestamps, and the resolution message written for her) — never committee notes, attachments, handler identity or any raised_by_* column. SECURITY DEFINER because the filer is unauthenticated and has no RLS identity. NOT granted to anon: the /track/<token> route must call this with a service-role client. Rate limiting is the caller's job, not this function's. Callers on unauthenticated-public routes must enforce issues.anonymous_track.rate_limit_per_hour; callers behind the platform login gate may rely on that gate plus token entropy (the token is 192 bits, and the shape guard rejects a blank or truncated value before any lookup).';
+  'Status lookup for an anonymously filed InstaSolver complaint, keyed on anonymous_token (I7). Returns at most one row and only filer-facing fields (number, subject, status, the four progress timestamps, and the resolution message written for her) — never committee notes, attachments, handler identity or any raised_by_* column. SECURITY DEFINER because the filer is unauthenticated and has no RLS identity. NOT granted to anon: the /track/<token> route must call this with a service-role client. Rate limiting is the caller''s job, not this function''s. Callers on unauthenticated-public routes must enforce issues.anonymous_track.rate_limit_per_hour; callers behind the platform login gate may rely on that gate plus token entropy. Entropy today is 122 bits (every live token is grievance-service''s ''anon_'' || crypto.randomUUID()); the guard also accepts the planned 32-character 64-symbol 192-bit token, which nothing in the tree mints yet. The shape guard rejects a blank or truncated value before any lookup.';
 
 -- GRANT POSTURE — deliberately service_role, NOT anon.
 --
@@ -524,8 +758,8 @@ VALUES
 
   ('instasolver.purchase.vote_threshold_amount',
    'global', NULL,
-   to_jsonb(50001),
-   'Rupee amount at or above which an InstaSolver purchase request goes to a vote before its approval chain runs (I6). Seeded just above the principal tier's ₹50,000 ceiling — the Director''s stated default of "only for big-ticket items" until he sets a different amount. Below this amount the tiered approval in procurement_approval_thresholds runs on its own.',
+   to_jsonb(50000.01),
+   'Rupee amount at or above which an InstaSolver purchase request goes to a vote before its approval chain runs (I6). Seeded at ₹50,000.01 — one paisa above the principal tier''s ₹50,000 ceiling, so it means exactly the spec''s "> ₹50,000" and lines up with where the super_admin band starts — the Director''s stated default of "only for big-ticket items" until he sets a different amount. Below this amount the tiered approval in procurement_approval_thresholds runs on its own.',
    'number')
 ON CONFLICT (policy_key, scope_type, COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'::uuid)) DO NOTHING;
 
@@ -779,4 +1013,116 @@ BEGIN
   RAISE NOTICE 'instasolver_substrate_v2: verification passed';
 END $$;
 
-COMMIT;
+-- ---------------------------------------------------------------------
+-- 8b. UNIT TEST for the raiser guard's decision function.
+--
+-- Runs at apply time, inside the applier's transaction, and RAISES if the rule
+-- is wrong — so a broken guard cannot reach production quietly. The rule is
+-- tested through the pure function rather than the trigger because a migration
+-- has no session identity to impersonate: SET ROLE and
+-- set_config('request.jwt.claims', …) are not available here, which is exactly
+-- why the decision was factored out of the trigger in the first place.
+--
+-- Two synthetic rows, never inserted. Composite-typed local variables, so this
+-- touches no table and leaves nothing behind.
+-- ---------------------------------------------------------------------
+DO $guard_test$
+DECLARE
+  v_old public.grievance_tickets;
+  v_new public.grievance_tickets;
+  v_got text;
+  v_fail text[] := ARRAY[]::text[];
+  v_fn   text   := 'fn_grievance_raiser_change_allowed';
+BEGIN
+  v_old.id             := '00000000-0000-0000-0000-0000000000aa'::uuid;
+  v_old.raised_by_id   := '00000000-0000-0000-0000-0000000000bb'::uuid;
+  v_old.status         := 'open';
+  v_old.is_icc_only    := false;
+  v_old.description    := 'the tap on the second floor leaks';
+
+  -- 1. Editing her own complaint text is allowed.
+  v_new := v_old;
+  v_new.description := 'the tap on the second floor leaks badly now';
+  v_got := public.fn_grievance_raiser_change_allowed(v_old, v_new, false);
+  IF v_got IS NOT NULL THEN
+    v_fail := v_fail || format('editing description should be allowed, got %L', v_got);
+  END IF;
+
+  -- 2. Withdrawing her own complaint is allowed.
+  v_new := v_old;
+  v_new.status := 'withdrawn';
+  v_got := public.fn_grievance_raiser_change_allowed(v_old, v_new, false);
+  IF v_got IS NOT NULL THEN
+    v_fail := v_fail || format('status -> withdrawn should be allowed, got %L', v_got);
+  END IF;
+
+  -- 3. Resolving her own complaint is BLOCKED — this is the one that would
+  --    emit NAAC/UGC evidence for a complaint nobody handled.
+  v_new := v_old;
+  v_new.status := 'resolved';
+  v_got := public.fn_grievance_raiser_change_allowed(v_old, v_new, false);
+  IF v_got IS DISTINCT FROM 'status' THEN
+    v_fail := v_fail || format('status -> resolved must be blocked on status, got %L', v_got);
+  END IF;
+
+  -- 4. Closing it is blocked for the same reason.
+  v_new := v_old;
+  v_new.status := 'closed';
+  v_got := public.fn_grievance_raiser_change_allowed(v_old, v_new, false);
+  IF v_got IS DISTINCT FROM 'status' THEN
+    v_fail := v_fail || format('status -> closed must be blocked on status, got %L', v_got);
+  END IF;
+
+  -- 5. Flipping is_icc_only is BLOCKED — this is the one that locks the
+  --    handling staff out of her case.
+  v_new := v_old;
+  v_new.is_icc_only := true;
+  v_got := public.fn_grievance_raiser_change_allowed(v_old, v_new, false);
+  IF v_got IS DISTINCT FROM 'is_icc_only' THEN
+    v_fail := v_fail || format('is_icc_only flip must be blocked, got %L', v_got);
+  END IF;
+
+  -- 6. Reassignment, re-filing, moving college or category: all blocked.
+  v_new := v_old; v_new.assigned_to := '00000000-0000-0000-0000-0000000000cc'::uuid;
+  v_got := public.fn_grievance_raiser_change_allowed(v_old, v_new, false);
+  IF v_got IS DISTINCT FROM 'assigned_to' THEN
+    v_fail := v_fail || format('assigned_to change must be blocked, got %L', v_got);
+  END IF;
+
+  v_new := v_old; v_new.filed_by := '00000000-0000-0000-0000-0000000000cc'::uuid;
+  v_got := public.fn_grievance_raiser_change_allowed(v_old, v_new, false);
+  IF v_got IS DISTINCT FROM 'filed_by' THEN
+    v_fail := v_fail || format('filed_by change must be blocked, got %L', v_got);
+  END IF;
+
+  v_new := v_old; v_new.institution_id := '00000000-0000-0000-0000-0000000000dd'::uuid;
+  v_got := public.fn_grievance_raiser_change_allowed(v_old, v_new, false);
+  IF v_got IS DISTINCT FROM 'institution_id' THEN
+    v_fail := v_fail || format('institution_id change must be blocked, got %L', v_got);
+  END IF;
+
+  v_new := v_old; v_new.category_id := '00000000-0000-0000-0000-0000000000ee'::uuid;
+  v_got := public.fn_grievance_raiser_change_allowed(v_old, v_new, false);
+  IF v_got IS DISTINCT FROM 'category_id' THEN
+    v_fail := v_fail || format('category_id change must be blocked, got %L', v_got);
+  END IF;
+
+  -- 7. A PRIVILEGED actor is not constrained by this function at all — the
+  --    committee must be able to resolve and to flag confidentiality.
+  v_new := v_old;
+  v_new.status := 'resolved';
+  v_new.is_icc_only := true;
+  v_got := public.fn_grievance_raiser_change_allowed(v_old, v_new, true);
+  IF v_got IS NOT NULL THEN
+    v_fail := v_fail || format('privileged actor must be unconstrained, got %L', v_got);
+  END IF;
+
+  IF array_length(v_fail, 1) IS NOT NULL THEN
+    RAISE EXCEPTION 'instasolver_substrate_v2 verification failed: % rule(s) wrong in %: %',
+      array_length(v_fail, 1), v_fn, array_to_string(v_fail, ' | ');
+  END IF;
+
+  RAISE NOTICE 'instasolver_substrate_v2: raiser-guard unit test passed (10 cases)';
+END $guard_test$;
+
+-- No COMMIT here, deliberately. See the SAFETY POSTURE note in the header.

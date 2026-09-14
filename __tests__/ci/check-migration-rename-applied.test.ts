@@ -12,6 +12,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -506,12 +507,16 @@ describe('the real files on main, not reductions of them', () => {
     // 20260504 -> 20261103000000 rename and its not-applied verdict) is history
     // and cannot change.
     const sql = read('__tests__/ci/fixtures/instasolver-substrate-20261103000000.sql');
-    // Guard the guard. If the fixture is ever truncated or swapped for a
-    // reduction, the assertions below would go green on nothing. It must still
-    // carry the objects the verdict is computed from.
-    expect(sql.length).toBeGreaterThan(40_000);
-    expect(sql).toContain('CREATE TABLE IF NOT EXISTS public.requirement_requests');
-    expect(sql).toContain('fn_generate_unresolved_grievance_items');
+    // Guard the guard — with an identity check, not a size floor. This fixture
+    // is frozen history: it is the body as it stood on jicate/main at the commit
+    // that superseded it, and there is exactly one correct set of bytes. A
+    // length assertion would pass on a truncation that kept 40 KB, or on a
+    // reduction that happened to be long enough. The hash passes on nothing but
+    // the real thing. If this fails, the fixture was edited — restore it rather
+    // than updating the hash, unless you are deliberately re-freezing it.
+    expect(createHash('sha256').update(sql, 'utf8').digest('hex')).toBe(
+      '3a3cf1cf1bd3f3fef715710e5591687d974a6f75b8d91603e658933a6cf6edaa'
+    );
     const r = run({
       renames: [{
         from: 'supabase/migrations/20260504_instasolver_substrate.sql',
