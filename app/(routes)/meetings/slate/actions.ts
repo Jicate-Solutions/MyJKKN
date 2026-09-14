@@ -30,7 +30,14 @@ import { labelInstitutions } from '@/lib/utils/institutions/institution-labels';
 
 import type { ActionResult, InstitutionOption } from '../series/actions';
 
-export type { StoredSlate };
+// NOTE: StoredSlate is deliberately NOT re-exported from this file.
+// A `'use server'` module may only export async functions. `export type { X }`
+// is a RE-EXPORT of a binding from another module, and Turbopack emits it into
+// the generated server-actions manifest as a runtime export — which then does
+// not exist, because it is a type. That is exactly the build failure this line
+// caused. A locally-declared `export interface` (below, and throughout
+// ../series/actions.ts) is erased properly and is fine.
+// Consumers import StoredSlate from @/lib/services/meetings/monthly-slate-service.
 
 export interface SlateContext {
   month: string;
