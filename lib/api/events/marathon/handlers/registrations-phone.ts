@@ -32,8 +32,6 @@ export async function GET(
         status,
         institution_name,
         department,
-        organization,
-        city,
         source,
         created_at,
         event_categories (
