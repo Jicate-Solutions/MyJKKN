@@ -438,10 +438,74 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // ── Tell whoever REPORTED it, when a front door recorded them (fail soft) ─
+  // The InstaSolver form tells the reporter they will hear back. Nothing in
+  // this lane kept that promise: the fixer was told, the Director could see
+  // the board, and the learner who photographed the exposed wire was never
+  // told it had been dealt with. A promise nothing keeps teaches people to
+  // stop reporting, which costs more than the form earns.
+  //
+  // APPROVE only — that is the D4 verified closure, the moment the thing is
+  // actually fixed AND checked. A `changes_requested` round trip is internal;
+  // telling the reporter would leak how a named department's fix is going.
+  //
+  // D10 holds in both directions: the reporter is told nothing about WHO fixed
+  // it, `createdBy` is the recipient themselves so no other name can surface
+  // as "From:", and nobody but the reporter is told that they reported it.
+  //
+  // The idempotency key makes the database the arbiter: a task reopened and
+  // re-approved, or two reviewers racing, still sends exactly one notice.
+  let reporterNotified: boolean | null = null;
+  if (decision === 'approve') {
+    const reporterProfileId =
+      typeof metadata.reporter_id === 'string' && metadata.reporter_id
+        ? metadata.reporter_id
+        : null;
+
+    // Not self: approving your own report should not ping you about it.
+    if (reporterProfileId && reporterProfileId !== user.id) {
+      try {
+        const shortTitle = String(task.title ?? 'your report').slice(0, 100);
+        await createBellNotification(admin, {
+          recipientIds: [reporterProfileId],
+          createdBy: reporterProfileId,
+          title: 'Your report was fixed',
+          body: `Your report “${shortTitle}” was fixed and verified. Thank you for telling us.`,
+          url: '/instasolver/broken',
+          category: 'instasolver:reported-fixed',
+          metadata: {
+            task_id: taskId,
+            source: 'campus-walk',
+            front_door: metadata.front_door ?? null,
+          },
+          idempotencyKey: `instasolver-fixed:${taskId}`,
+        });
+        // A NULL return is not a failure. createBellNotification returns null
+        // when the partial unique index on `idempotency_key` rejected the
+        // insert — which means this reporter has ALREADY been told, which is
+        // exactly the outcome wanted. Only a throw means nobody was told.
+        // Treating null as failure would log an error and report
+        // `reporter_notified: false` on every re-approval of a reopened task,
+        // sending someone to chase a notification that was correctly
+        // suppressed.
+        reporterNotified = true;
+      } catch (e: any) {
+        console.error('[campus-walk/review] reporter notification failed:', e?.message ?? e);
+        reporterNotified = false;
+      }
+      if (reporterNotified === false) {
+        console.error(
+          `[campus-walk/review] closure recorded but reporter not notified (task ${taskId})`
+        );
+      }
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     decision,
     task_id: taskId,
+    reporter_notified: reporterNotified,
     status_key: decision === 'approve' ? 'done' : RETURN_STATUS,
     approval_state: targetState,
     completed_at: decision === 'approve' ? nowIso : null,

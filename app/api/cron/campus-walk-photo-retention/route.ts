@@ -310,7 +310,16 @@ export async function GET(request: NextRequest) {
               // whether/when the purge ran" per this file's own header) —
               // photos_purged_object_count now reflects what was actually
               // removed (excludes anything kept under Ruling 1).
-              photos_purged: true,
+              //
+              // TRUE only when at least one object was actually deleted. A
+              // task with NO photo at all — legal since the InstaSolver front
+              // door, where the photo is optional — reaches this line with
+              // `pathsToRemove` empty, and stamping `photos_purged: true` on it
+              // asserts a deletion that never happened. Anything later auditing
+              // "was this evidence destroyed, and when" would read a fabricated
+              // yes. `photo_retention.last_evaluated_at` below still records
+              // that this run considered the task, which is the honest claim.
+              photos_purged: pathsToRemove.length > 0,
               photos_purged_at: evaluatedAt,
               photos_purged_object_count: pathsToRemove.length,
               // The auditable, rerun-safe record: what this run decided and

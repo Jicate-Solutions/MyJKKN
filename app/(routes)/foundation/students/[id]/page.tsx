@@ -6,13 +6,15 @@
 // recompute mastery and (re)generate revision plans. A denial renders an
 // explicit 403 (PermissionError) — never a silent redirect (CLAUDE.md #27).
 
+import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { ShieldCheck, ShieldAlert } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, LineChart } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
 import { PermissionError } from '@/components/errors/permission-error';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
-import { useStudent } from '@/hooks/foundation/use-foundation';
+import { Button } from '@/components/ui/button';
+import { useStudent, useStudentExams } from '@/hooks/foundation/use-foundation';
 import { FoundationHeader, HeaderStat } from '../../_components/foundation-header';
 import { StudentDiagnostic } from '../../_components/student-diagnostic';
 
@@ -27,6 +29,19 @@ export default function FoundationStudentPage() {
   const { data: student, isLoading: studentLoading } = useStudent(
     !isLoading && canView ? studentId : null,
   );
+
+  // Wave 3 Lane N — the one link from this profile to the OneMark learner
+  // report (Lane A, PR #3338). Same query key StudentDiagnostic already runs
+  // on this page, so React Query serves it from cache rather than refetching.
+  // The report is per subject, so the href names one: without ?exam= the
+  // report screen can only say it needs one.
+  const { data: enrolledExams } = useStudentExams(
+    !isLoading && canView ? studentId : null,
+  );
+  const reportExamId = enrolledExams?.[0]?.id;
+  const learnerReportHref = reportExamId
+    ? `/foundation/onemark/results/learner/${studentId}?exam=${reportExamId}`
+    : `/foundation/onemark/results/learner/${studentId}`;
 
   if (isLoading) {
     return (
@@ -91,6 +106,12 @@ export default function FoundationStudentPage() {
                   </div>
                 )}
               </div>
+              <Button asChild variant="outline" size="sm">
+                <Link href={learnerReportHref}>
+                  <LineChart className="mr-2 h-4 w-4" aria-hidden />
+                  OneMark learner report
+                </Link>
+              </Button>
             </div>
           ) : undefined
         }

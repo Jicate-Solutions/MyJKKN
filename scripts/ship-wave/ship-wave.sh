@@ -29,6 +29,11 @@
 #   • trigger is manual ("W12"); `--goal` loops rounds until open PRs == 0 or GOAL_ROUNDS (6) — a goal loop
 #   • a goal run fires ONE production build at its end for everything it merged (Director 2026-09-06 — Vercel minutes)
 #   • HELD approvals arrive as numbers the Director replies with in the fleet tab → `--approve-held`
+#   • a BROKEN deploy pipeline (last production build ERROR) hard-stops every run — nothing merged could go live. The way
+#     out is a fix-forward PR, and the wave could not merge its own fix (2026-09-14 12:23: #3745 sat green while the
+#     wave refused). `go --fix-deploy <n>` (Director 2026-09-14) merges THAT ONE PR when it is open, non-draft, on main
+#     and green (advisory reds excepted), fires the hook, waits for the verdict; READY → the run continues, anything
+#     else → freeze. One number, one shot, never a standing permission.
 #
 # USAGE   ship-wave.sh                 # plan (dry run) — sweep + report, changes nothing
 #         ship-wave.sh go              # one round: dispatch helpers + merge LOW + deploy + sweep
@@ -102,7 +107,9 @@ while [[ $# -gt 0 ]]; do
       [ "$(printf '%s' "$FREEZE_MSG" | LC_ALL=C tr '\t\r\n\v\f' '     ' | LC_ALL=C sed -e 's/^ *//' -e 's/ *$//')" != "$FREEZE_KEPT_HARD_MSG" ] \
         || { echo "--freeze: that text is reserved for the wave"; exit 2; }
       shift;;
-    --if-changed) IF_CHANGED=1;;   # standing run: skip when no PR / approval / freeze changed since the last run (≤12h)
+    --if-changed) IF_CHANGED=1;;
+    --fix-deploy) FIX_DEPLOY="${2:-}"; shift   # Director 2026-09-14 12:2x: merge ONE named green PR and rebuild even though the last build is ERROR
+      [[ "$FIX_DEPLOY" =~ ^[0-9]+$ ]] || { echo "--fix-deploy needs one PR number"; exit 2; };;   # standing run: skip when no PR / approval / freeze changed since the last run (≤12h)
     *) echo "unknown arg: $1"; exit 2;;
   esac; shift
 done
@@ -112,9 +119,20 @@ done
 # space separated); the flag and the file are merged. Approve from the phone with:
 #   echo 3273 >> ~/.config/obsidian/.ship-wave/approve-held
 # A HELD PR that merges is removed from the file automatically; the file is never a standing permission.
-if [ -s "$STATE/approve-held" ]; then
-  APPROVE_HELD="$APPROVE_HELD $(tr ',\n' '  ' < "$STATE/approve-held")"; APPROVE_HELD="${APPROVE_HELD# }"
-fi
+# 2026-09-14 (W12 loop, wave bug b): the file was read ONCE, here, at launch. In a --goal run the Director's
+# approvals typed during round 1 (08:35: #3692) were refused by rounds 2-6 as "not in this run's ready-HELD
+# list" and had to wait for the next xx:23 wave. The flag is remembered separately and the file is merged
+# again at the top of every round (read_approve_held, called from run_once) — a number typed between rounds
+# now rides the next round of the SAME run. Semantics are unchanged otherwise: a HELD PR that merges is still
+# removed from the file, and the file is still never a standing permission.
+APPROVE_HELD_FLAG="$APPROVE_HELD"
+read_approve_held() {
+  APPROVE_HELD="$APPROVE_HELD_FLAG"
+  if [ -s "$STATE/approve-held" ]; then
+    APPROVE_HELD="$APPROVE_HELD $(tr ',\n' '  ' < "$STATE/approve-held")"; APPROVE_HELD="${APPROVE_HELD# }"
+  fi
+}
+read_approve_held
 
 vtok() {
   # The CLI token is short-lived (auth.json carries expiresAt + refreshToken) and only the CLI refreshes it.
@@ -868,9 +886,37 @@ Could you rebase onto \`jicate/main\` and resolve it? The ship wave will pick th
 # here is still free.
 if [ -n "${IF_CHANGED:-}" ] && [ "$MODE" = "go" ] && unchanged_since_last_run; then exit 0; fi
 
+# ── fix-forward for a broken deploy pipeline (Director 2026-09-14) ─────────────
+# $1 = PR number, $2 = Vercel token. Prints the final "STATE errorCode uid" line on success (return 0);
+# on any refusal or a non-READY verdict says why, freezes when a build was fired, and returns 1.
+fix_deploy_now() {
+  local n="$1" tok="$2" st reds
+  st=$(gh pr view "$n" --repo "$REPO" --json state,mergeStateStatus,isDraft,baseRefName -q '"\(.state) \(.mergeStateStatus) \(.isDraft) \(.baseRefName)"' 2>/dev/null)
+  reds=$(gh pr view "$n" --repo "$REPO" --json statusCheckRollup -q '.statusCheckRollup[]? | select((.conclusion // "" | ascii_upcase) as $c | $c=="FAILURE" or $c=="TIMED_OUT" or $c=="ACTION_REQUIRED" or $c=="STARTUP_FAILURE" or $c=="ERROR") | (.name // .context // "?")' 2>/dev/null \
+    | { if [ -s "$STATE/advisory-checks" ]; then grep -vxF -f "$STATE/advisory-checks"; else cat; fi; } | grep -c .)
+  case "$st" in "OPEN CLEAN false main") ;; "OPEN UNSTABLE false main") [ "$reds" -eq 0 ] || { say "  fix-deploy #$n refused — red on a real check ($reds)"; return 1; };; *) say "  fix-deploy #$n refused — state '$st' (needs OPEN, mergeable, non-draft, base main)"; return 1;; esac
+  [ "$reds" -eq 0 ] || { say "  fix-deploy #$n refused — $reds red check(s) that are not advisory"; return 1; }
+  say "  fix-deploy: merging #$n (Director's number; the last production build is ERROR and this PR is its fix)"
+  gh pr merge "$n" --repo "$REPO" --squash >/dev/null 2>&1 || { say "  fix-deploy #$n — merge failed"; return 1; }
+  local r dpl; r=$(curl -s -X POST "$HOOK"); dpl=$(python3 -c "import json,sys;print(json.load(sys.stdin)['job']['id'])" <<<"$r" 2>/dev/null)
+  printf '%s\t%s\t%s\n' "$(date '+%F %T')" "W12 fix-deploy #$n" "$dpl" >> "$_CFG/v5-deploy-fires.tsv"
+  say "  fix-deploy: hook fired (job $dpl) — waiting for the verdict"
+  local d verdict="" uid=""; sleep 25
+  for i in $(seq 1 40); do
+    d=$(curl -s -H "Authorization: Bearer $tok" "https://api.vercel.com/v6/deployments?projectId=$VPROJ&teamId=$VTEAM&limit=1&target=production")
+    verdict=$(python3 -c 'import json,sys;x=json.load(sys.stdin)["deployments"][0];print((x.get("readyState") or x.get("state")),x.get("errorCode") or "-",x["uid"])' <<<"$d" 2>/dev/null)
+    case "$verdict" in READY*|ERROR*|CANCELED*) break;; esac; sleep 20
+  done
+  case "$verdict" in
+    READY*) say "  fix-deploy: production build READY ($verdict) — the run continues"; printf '%s' "$verdict" > "$STATE/fix-deploy-verdict"; return 0;;
+    *) freeze "fix-deploy #$n merged but the build is not READY ($verdict) — the pipeline is still broken"; say "  fix-deploy: ⛔ $verdict — frozen"; return 1;;
+  esac
+}
+
 run_once() {
   local ts; ts=$(date '+%Y%m%d-%H%M%S')
   local run="$STATE/run-$ts"; mkdir -p "$run"
+  read_approve_held   # wave bug b: approvals typed since the last round count in THIS round, not the next wave
   # Redirect ONCE per process. In a --goal loop this used to re-exec every round, stacking a live
   # tee per round; each new tee truncated $RECEIPT while the older ones kept flushing their copy,
   # so the receipt held the same header N times and no round's real output survived
@@ -931,7 +977,17 @@ run_once() {
     local dj last; dj=$(curl -s -H "Authorization: Bearer $tok" "https://api.vercel.com/v6/deployments?projectId=$VPROJ&teamId=$VTEAM&limit=1&target=production")
     last=$(python3 -c 'import json,sys;d=json.load(sys.stdin)["deployments"][0];print(d.get("readyState") or d.get("state"),d.get("errorCode") or "-",d["uid"])' <<<"$dj" 2>/dev/null)
     say "  last prod deployment: $last"
-    case "$last" in ERROR*) say "PREFLIGHT HARD STOP: the deploy pipeline is broken ($last) — nothing merged now can go live. Fix the deploy first."; return 1;; esac
+    case "$last" in ERROR*)
+      if [ "$MODE" = go ] && [ -n "${FIX_DEPLOY:-}" ]; then
+        # one shot: the number is consumed whether or not it worked, so a goal loop never re-merges it
+        rm -f "$STATE/fix-deploy-verdict"; local fix_n="$FIX_DEPLOY"; FIX_DEPLOY=""
+        if fix_deploy_now "$fix_n" "$tok" && [ -s "$STATE/fix-deploy-verdict" ]; then
+          last=$(cat "$STATE/fix-deploy-verdict"); say "  last prod deployment (after fix-deploy): $last"
+        else return 1; fi
+      else
+        say "PREFLIGHT HARD STOP: the deploy pipeline is broken ($last) — nothing merged now can go live. Fix the deploy first (go --fix-deploy <n> merges one green fix PR and rebuilds)."; return 1
+      fi;;
+    esac
     # the latest record may be a build in flight — ask for the latest READY one separately
     case "$last" in READY*) ;; *) dj=$(curl -s -H "Authorization: Bearer $tok" "https://api.vercel.com/v6/deployments?projectId=$VPROJ&teamId=$VTEAM&limit=1&target=production&state=READY");; esac
     prod_sha=$(python3 -c 'import json,sys;d=json.load(sys.stdin)["deployments"][0];print(((d.get("meta") or {}).get("githubCommitSha") or "") if (d.get("readyState") or d.get("state"))=="READY" else "")' <<<"$dj" 2>/dev/null)
