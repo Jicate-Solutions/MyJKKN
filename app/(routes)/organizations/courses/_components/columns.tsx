@@ -56,7 +56,7 @@ export function getCourseColumns(
       return (
         <Link
           href={`/organizations/courses/${course.id}`}
-          className='flex items-center hover:text-primary font-medium'
+          className='flex items-center min-h-[44px] hover:text-primary font-medium'
         >
           <BookOpen className='mr-2 h-4 w-4' />
           {course.course_code}

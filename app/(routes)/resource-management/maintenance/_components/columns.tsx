@@ -112,9 +112,9 @@ export const columns: ColumnDef<MaintenanceLog>[] = [
       return (
         <Link
           href={`/resource-management/maintenance/${log.id}`}
-          className='font-medium hover:text-primary hover:underline max-w-[300px] truncate block'
+          className='flex items-center min-h-[44px] max-w-[300px] font-medium hover:text-primary hover:underline'
         >
-          {log.title}
+          <span className='truncate'>{log.title}</span>
         </Link>
       );
     },

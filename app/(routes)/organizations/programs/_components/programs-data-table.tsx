@@ -1,6 +1,7 @@
 'use client';
 
 import { DataTable } from '@/components/data-table/data-table';
+import { programRowHref } from '@/components/data-table/utils/list-row-hrefs';
 import { getColumns } from './columns';
 import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import type { ProgramsSearchParams } from './data-table-schema';
@@ -323,6 +324,7 @@ export function ProgramsDataTable({ search }: ProgramsDataTableProps) {
           headers: []
         }}
         idField='id'
+        rowHref={programRowHref}
         config={{
           enableUrlState: true,
           enableDateFilter: false,

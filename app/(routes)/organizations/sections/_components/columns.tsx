@@ -47,7 +47,7 @@ export const getColumns = (
       return (
         <Link
           href={`/organizations/sections/${section.id}`}
-          className='font-medium hover:text-primary hover:underline'
+          className='inline-flex items-center min-h-[44px] font-medium hover:text-primary hover:underline'
         >
           {section.section_name}
         </Link>
