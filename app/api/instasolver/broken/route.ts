@@ -95,14 +95,46 @@ const DESCRIPTION_MIN = 10;
 const DESCRIPTION_MAX = 500;
 
 /**
- * Abuse control. The Director-only D2 gate is what keeps the Campus Walk
- * photo route from being flooded; this route has no such gate by design (I1 —
- * "everyone with a login"), so the ceiling does that job instead. Counted on
- * the rows this route itself creates, over a rolling 24h window rather than a
- * calendar day, so it cannot be reset by waiting for midnight.
+ * Abuse control. The Director-only D2 gate is what keeps the Campus Walk photo
+ * route from being flooded; this route has no such gate by design (I1), so
+ * these two ceilings do that job instead. Both are rolling windows rather than
+ * calendar days, so neither resets at midnight.
+ *
+ * ── WHY BOTH ARE COUNTED FROM `instasolver_report_ledger` ───────────────────
+ * NOT from `project_tasks`, which is what the first cut of this route counted.
+ * That table's RLS (20260528000000:844-849) is
+ * `FOR ALL USING (auth.uid() IS NOT NULL)` — any authenticated learner can
+ * DELETE those rows through PostgREST with their own JWT and then file again,
+ * so the ceiling could be erased by the party it limits. It was also an
+ * unindexed `count:'exact'` over a jsonb predicate that failed OPEN on
+ * timeout, meaning it got easier to defeat as the table grew.
+ *
+ * `instasolver_report_ledger` (20261213110000) has RLS on and NO policy for
+ * `authenticated`, so it is invisible and unwritable through both public keys
+ * while the service role can still count it, and it is indexed on exactly
+ * these two windows. `audit_logs` was checked first and rejected: its
+ * `FOR INSERT WITH CHECK (true)` policy would have let a learner forge rows
+ * under someone else's `user_id` and lock that person out of reporting a
+ * hazard.
  */
 const DAILY_REPORT_LIMIT = 10;
 const RATE_WINDOW_MS = 24 * 60 * 60 * 1000;
+const LEDGER_TABLE = 'instasolver_report_ledger';
+
+/**
+ * HIGH 2 — a learner ticking "dangerous" pages a real phone, and the Director
+ * has NOT ruled on that. D6 was decided for HIS OWN observations, where the
+ * volume is one walker. Until he widens or narrows it, an InstaSolver report
+ * pages the EAO ONLY (no Director copy — he gets the in-app bell like everyone
+ * else), and no college may send more than this many pages in a rolling 24h.
+ *
+ * Per INSTITUTION, not per reporter: the reporter ceiling above already stops
+ * one person flooding, and what this cap exists to stop is two hundred
+ * different learners each legitimately reporting the same fire risk. Over the
+ * cap the report is still filed and still urgent in-app — only the phone goes
+ * quiet, and the response says so.
+ */
+const INSTITUTION_PAGE_LIMIT_PER_DAY = 20;
 
 /** Rule #27 — every refusal is explicit JSON, never a silent success. */
 function fail(error: string, status: number, extra?: Record<string, unknown>) {
@@ -159,45 +191,57 @@ export async function POST(request: NextRequest) {
       403
     );
   }
-  if (profile.is_active === false) {
+  // FAIL CLOSED on `is_active`. `=== false` let NULL and any future third
+  // state through; `!== true` requires the column to actually say yes. There
+  // are no NULLs in `profiles.is_active` today, which is exactly why this is
+  // free to tighten now rather than after one appears.
+  if (profile.is_active !== true) {
     return fail(
       'Your account is not active, so it cannot file reports. Contact the office if this is wrong.',
       403
     );
   }
+  // 'guest' is a real `profiles.role` value and it is not an audience I1 names
+  // — it is the placeholder a not-yet-onboarded account sits in. Refused
+  // explicitly, with a reason, rather than being allowed to file a ticket that
+  // routes to nobody and belongs to no college (rule #27).
+  if (profile.role === 'guest') {
+    return fail(
+      'Guest accounts cannot report a fault yet. Ask the office to finish setting up your account, then try again.',
+      403
+    );
+  }
 
   // ── Rate limit, before any bytes are read ─────────────────────────────────
-  // Counted with the service-role client: `project_tasks` is readable by any
-  // authenticated user today (migration 20260528000000), but that is exactly
-  // the kind of open policy that gets tightened later, and a rate limit that
-  // silently counts zero is a rate limit that does not exist.
+  // Counted from `instasolver_report_ledger` with the service-role client. See
+  // DAILY_REPORT_LIMIT above for why not `project_tasks` and why not
+  // `audit_logs`: both are writable by the party being limited.
   const admin = createServiceRoleClient();
   const since = new Date(Date.now() - RATE_WINDOW_MS).toISOString();
   const { count: recentCount, error: countError } = await admin
-    .from('project_tasks')
+    .from(LEDGER_TABLE)
     .select('id', { count: 'exact', head: true })
-    // `front_door`, NOT `source`: every task this lane creates is written with
-    // source = 'campus-walk' so the fix screen, chase ladder and retention
-    // cron all keep seeing it. The door is what identifies a report as one of
-    // this route's, and it is what the ceiling counts.
-    .eq('metadata->>front_door', 'instasolver')
-    .eq('metadata->>reporter_id', user.id)
+    .eq('reporter_id', user.id)
     .gte('created_at', since);
 
   if (countError) {
-    // Fail OPEN, loudly logged. A counting outage must not swallow a report
-    // about an exposed wire; the ceiling exists to stop flooding, not to be
-    // the thing that loses a hazard.
+    // A counting outage must NOT swallow a report about an exposed wire, so the
+    // report still goes through. But "we cannot count" and "you may page every
+    // phone on campus" are different permissions: with no working ledger the
+    // per-institution page cap below cannot be enforced either, so the urgent
+    // path degrades to in-app only and the response says so. Never lose a
+    // hazard report; never page unbounded.
     console.error(
-      '[instasolver] rate-limit count failed, allowing the report through:',
+      '[instasolver] ledger count failed — filing the report, WhatsApp paging disabled for it:',
       countError.message
     );
   } else if ((recentCount ?? 0) >= DAILY_REPORT_LIMIT) {
     return fail(
-      `You've reported ${DAILY_REPORT_LIMIT} things today — thank you. More opens tomorrow.`,
+      `You've reported ${DAILY_REPORT_LIMIT} things in the last 24 hours — thank you. Try again after 24 hours from your first report today.`,
       429
     );
   }
+  const ledgerCountFailed = Boolean(countError);
 
   let form: FormData;
   try {
@@ -276,9 +320,16 @@ export async function POST(request: NextRequest) {
 
     // Content-addressed path: a re-upload of identical (cleaned) bytes
     // overwrites itself rather than littering the bucket.
+    //
+    // The `report/` segment keeps the two doors apart. Without it, the same
+    // person photographing the same fault through the Campus Walk capture
+    // screen and through this form produces the SAME key, so the second upload
+    // silently overwrites the first — and then the photo-retention cron, which
+    // deletes by object path, can purge an object a second live task still
+    // points at. Two doors must mean two objects.
     const sha256 = createHash('sha256').update(cleaned).digest('hex');
     const month = new Date().toISOString().slice(0, 7);
-    const storagePath = `${user.id}/${month}/${sha256}.jpg`;
+    const storagePath = `${user.id}/report/${month}/${sha256}.jpg`;
 
     const { error: upErr } = await admin.storage
       .from(BUCKET)
@@ -303,6 +354,59 @@ export async function POST(request: NextRequest) {
   // in `description` untouched.
   const titleLine = `${location} — ${description}`;
   const title = titleLine.length > 160 ? `${titleLine.slice(0, 157).trimEnd()}...` : titleLine;
+
+  // ── May this report page a phone? (HIGH 2) ────────────────────────────────
+  // Only a `dangerous` report ever pages. On top of that: the college must be
+  // under its rolling-24h page cap, and the ledger must be countable at all.
+  // Anything else and the report is still filed and still urgent IN-APP — the
+  // phone simply stays quiet, and `urgent_alert.suppressed_reason` below says
+  // which rule did it.
+  let pageSuppressedReason: 'institution_cap' | 'ledger_unavailable' | null = null;
+  if (dangerous && ledgerCountFailed) {
+    pageSuppressedReason = 'ledger_unavailable';
+  } else if (dangerous) {
+    const { count: pagedCount, error: pagedError } = await admin
+      .from(LEDGER_TABLE)
+      .select('id', { count: 'exact', head: true })
+      .eq('institution_id', profile.institution_id ?? null)
+      .eq('paged', true)
+      .gte('created_at', since);
+
+    if (pagedError) {
+      // Same rule as the reporter ceiling: file the report, but do not page on
+      // the strength of a count we could not take.
+      console.error(
+        '[instasolver] page-cap count failed — filing the report, WhatsApp paging disabled for it:',
+        pagedError.message
+      );
+      pageSuppressedReason = 'ledger_unavailable';
+    } else if ((pagedCount ?? 0) >= INSTITUTION_PAGE_LIMIT_PER_DAY) {
+      pageSuppressedReason = 'institution_cap';
+    }
+  }
+  const mayPage = dangerous && pageSuppressedReason === null;
+
+  // ── Record the report in the ledger BEFORE creating the task ──────────────
+  // Before, not after, so a crash between the two costs the reporter one slot
+  // out of ten rather than handing out an uncounted filing. `paged` records
+  // what we ALLOWED, not what WhatsApp later managed to deliver — a cap that
+  // only counted successful sends could be walked past by causing failures.
+  //
+  // A ledger write failure does not lose the report either. It degrades the
+  // same way a failed count does: file it, keep the phone quiet.
+  const { error: ledgerError } = await admin.from(LEDGER_TABLE).insert({
+    reporter_id: user.id,
+    institution_id: profile.institution_id ?? null,
+    paged: mayPage,
+  });
+  if (ledgerError) {
+    console.error(
+      '[instasolver] ledger insert failed — filing the report, WhatsApp paging disabled for it:',
+      ledgerError.message
+    );
+    pageSuppressedReason = dangerous ? 'ledger_unavailable' : pageSuppressedReason;
+  }
+  const pageAllowed = dangerous && pageSuppressedReason === null;
 
   const input: CreateWalkTaskInput = {
     title,
@@ -334,6 +438,17 @@ export async function POST(request: NextRequest) {
       reporter_role: profile.role ?? null,
       reporter_institution_id: profile.institution_id ?? null,
       location,
+    },
+    // HIGH 2 — EAO only, and only while the college is under its cap.
+    urgentPaging: {
+      whatsApp: pageAllowed,
+      directorCopy: false,
+      suppressedReason:
+        pageSuppressedReason === 'institution_cap'
+          ? `this college has already sent ${INSTITUTION_PAGE_LIMIT_PER_DAY} urgent pages in the last 24 hours`
+          : pageSuppressedReason === 'ledger_unavailable'
+            ? 'the report ledger could not be read, so the page cap could not be enforced'
+            : null,
     },
   };
 
@@ -383,9 +498,14 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // A human label for "Sent to ___". Best-effort: a missing name never turns
-  // a filed report into an error, it just falls back to the team.
-  let routedTo = 'the campus operations team';
+  // A human label for "Sent to ___", and NOTHING when there is nobody to name.
+  //
+  // The old default was the string 'the campus operations team', returned even
+  // when routing had resolved no owner at all. That reads as an assignment to
+  // a named group and it is not one: nobody is accountable, no due-date clock
+  // is anybody's, and a reporter who believes a team has it does not follow up.
+  // `routed_to: null` plus `notice` says what actually happened.
+  let routedTo: string | null = null;
   if (result.accountableProfileId) {
     try {
       const { data: owner } = await admin
@@ -402,22 +522,32 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  const urgent = result.urgentAlert ?? null;
+
   return NextResponse.json(
     {
       success: true,
       task_id: result.taskId,
       routed_to: routedTo,
+      // Set only when there is something true to say that `routed_to` cannot.
+      notice:
+        routedTo === null
+          ? 'Recorded. No one is assigned yet — the campus operations team will pick it up.'
+          : null,
       due_date: result.dueDate ?? null,
       dangerous,
       photo_saved: Boolean(uploaded),
       // Present only for a dangerous report. Carries whether a phone was
       // actually reached — an unsafe condition that paged nobody must never
-      // look like one that did.
-      urgent_alert: result.urgentAlert
+      // look like one that did — and, separately, whether we deliberately
+      // chose not to page, which is not a failure and must not read as one.
+      urgent_alert: urgent
         ? {
-            delivered: result.urgentAlert.delivered,
-            used_fallback: result.urgentAlert.usedFallback,
-            failure_reason: result.urgentAlert.failureReason,
+            delivered: urgent.delivered,
+            used_fallback: urgent.usedFallback,
+            failure_reason: urgent.failureReason,
+            page_suppressed: urgent.pageSuppressed,
+            page_suppressed_reason: urgent.pageSuppressedReason,
           }
         : null,
     },

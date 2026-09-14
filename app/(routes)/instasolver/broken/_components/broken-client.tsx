@@ -10,9 +10,12 @@
 // (app/(routes)/campus-walk/_components/walk-client.tsx) on purpose: the same
 // amber G4 notice, the same big touch targets, the same brand primitives. The
 // differences are deliberate:
-//   - the photo is OPTIONAL here, so there is no per-photo G4 modal to gate
-//     something that may never be attached; the notice carries the rule and
-//     the server still strips and fail-closes on every byte that does arrive
+//   - the photo is OPTIONAL here. The G4 gate is NOT optional though: an
+//     attached photo goes through the same blocking "no people in frame"
+//     AlertDialog the capture screen uses, because G4 is locked as "enforced
+//     in the capture UI, non-negotiable" and a banner is not enforcement — it
+//     is a notice you can scroll past. Optional-photo only means the dialog
+//     never appears when no photo is attached.
 //   - no offline queue in this lane (out of scope for this PR)
 //   - "dangerous" is a plain checkbox rather than a switch plus a confirm
 //     dialog, because the audience is everyone, not one trained walker
@@ -28,6 +31,16 @@ import {
   Trash2,
   Users
 } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -42,10 +55,14 @@ const DESCRIPTION_MAX = 500;
 const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
 
 interface SuccessState {
-  routedTo: string;
+  /** Null when routing resolved nobody — then `notice` carries the truth. */
+  routedTo: string | null;
+  notice: string | null;
   dueDate: string | null;
   dangerous: boolean;
   urgentDelivered: boolean | null;
+  /** True when a page was deliberately not sent (per-college cap, or no ledger). */
+  pageSuppressed: boolean;
 }
 
 /** "2026-09-16" -> "Tue, 16 Sep". Falls back to the raw value if unparseable. */
@@ -66,6 +83,11 @@ export function BrokenClient() {
   const [dangerous, setDangerous] = useState(false);
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  // G4: a photo the reporter has taken but not yet confirmed is free of
+  // people. It is NOT attached to the report while it sits here.
+  const [pendingPhoto, setPendingPhoto] = useState<{ file: File; previewUrl: string } | null>(
+    null
+  );
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [locating, setLocating] = useState(false);
   const [locationNote, setLocationNote] = useState<string | null>(null);
@@ -82,6 +104,10 @@ export function BrokenClient() {
     setPhoto(null);
     setPhotoPreview((url) => {
       if (url) URL.revokeObjectURL(url);
+      return null;
+    });
+    setPendingPhoto((pending) => {
+      if (pending) URL.revokeObjectURL(pending.previewUrl);
       return null;
     });
     setCoords(null);
@@ -120,11 +146,33 @@ export function BrokenClient() {
       if (fileRef.current) fileRef.current.value = '';
       return;
     }
-    setPhoto(file);
-    setPhotoPreview((old) => {
-      if (old) URL.revokeObjectURL(old);
-      return URL.createObjectURL(file);
+    // Straight into the G4 gate — never onto the report. Only confirmNoPeople
+    // attaches it.
+    setPendingPhoto({ file, previewUrl: URL.createObjectURL(file) });
+  }, []);
+
+  /** G4 gate passed: the reporter states nobody is recognisable in the frame. */
+  const confirmNoPeople = useCallback(() => {
+    setPendingPhoto((pending) => {
+      if (!pending) return null;
+      setPhoto(pending.file);
+      setPhotoPreview((old) => {
+        if (old) URL.revokeObjectURL(old);
+        return pending.previewUrl;
+      });
+      if (fileRef.current) fileRef.current.value = '';
+      return null;
     });
+  }, []);
+
+  /** G4 gate refused: discard the bytes and say why, per the capture screen. */
+  const retakeForPeople = useCallback(() => {
+    setPendingPhoto((pending) => {
+      if (pending) URL.revokeObjectURL(pending.previewUrl);
+      if (fileRef.current) fileRef.current.value = '';
+      return null;
+    });
+    setError('Photo discarded. Retake it so no one is recognisable — background people included.');
   }, []);
 
   const clearPhoto = useCallback(() => {
@@ -166,14 +214,18 @@ export function BrokenClient() {
         return;
       }
 
+      const urgent =
+        json.urgent_alert && typeof json.urgent_alert === 'object'
+          ? (json.urgent_alert as Record<string, unknown>)
+          : null;
+
       setSuccess({
-        routedTo: typeof json.routed_to === 'string' ? json.routed_to : 'the campus operations team',
+        routedTo: typeof json.routed_to === 'string' ? json.routed_to : null,
+        notice: typeof json.notice === 'string' ? json.notice : null,
         dueDate: typeof json.due_date === 'string' ? json.due_date : null,
         dangerous: json.dangerous === true,
-        urgentDelivered:
-          json.urgent_alert && typeof json.urgent_alert === 'object'
-            ? Boolean((json.urgent_alert as Record<string, unknown>).delivered)
-            : null
+        urgentDelivered: urgent ? Boolean(urgent.delivered) : null,
+        pageSuppressed: urgent ? urgent.page_suppressed === true : false
       });
     } catch {
       setError('Could not reach MyJKKN. Check your connection and try again.');
@@ -192,15 +244,35 @@ export function BrokenClient() {
               <Check className="h-5 w-5 text-green-700 mt-0.5 shrink-0" />
               <div className="space-y-1">
                 <p className="font-medium text-green-900 dark:text-green-200">
-                  Sent to {success.routedTo}.
+                  {success.routedTo ? `Sent to ${success.routedTo}.` : 'Report recorded.'}
                 </p>
+                {success.notice && (
+                  <p className="text-sm text-green-900/80 dark:text-green-200/80">
+                    {success.notice}
+                  </p>
+                )}
                 <p className="text-sm text-green-900/80 dark:text-green-200/80">
-                  Due {formatDue(success.dueDate)}. You&rsquo;ll be told when it&rsquo;s fixed.
+                  Due {formatDue(success.dueDate)}. You&rsquo;ll get a notification here when
+                  it&rsquo;s marked fixed.
                 </p>
               </div>
             </div>
 
-            {success.dangerous && success.urgentDelivered === false && (
+            {/* A page that was deliberately not sent is NOT a failure, and must
+                not be worded as one — but the reporter still needs to know the
+                phone stayed quiet, because that changes what they do next. */}
+            {success.dangerous && success.pageSuppressed && (
+              <div className="flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50 p-3 dark:bg-amber-950/20">
+                <AlertCircle className="h-5 w-5 text-amber-700 mt-0.5 shrink-0" />
+                <p className="text-sm text-amber-900 dark:text-amber-200">
+                  This is logged as urgent and due today, but no phone alert was sent — enough
+                  urgent alerts have already gone out here in the last day. If someone could get
+                  hurt right now, tell the office in person as well.
+                </p>
+              </div>
+            )}
+
+            {success.dangerous && !success.pageSuppressed && success.urgentDelivered === false && (
               <div className="flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50 p-3 dark:bg-amber-950/20">
                 <AlertCircle className="h-5 w-5 text-amber-700 mt-0.5 shrink-0" />
                 <p className="text-sm text-amber-900 dark:text-amber-200">
@@ -326,8 +398,8 @@ export function BrokenClient() {
                 <Users className="h-5 w-5 text-amber-700 mt-0.5 shrink-0" />
                 <p className="text-sm text-amber-900 dark:text-amber-200">
                   Photograph the <strong>condition</strong> only. If anyone is recognisable in
-                  frame &mdash; including in the background &mdash; take it again before you send
-                  it.
+                  frame &mdash; including in the background &mdash; take it again. You&rsquo;ll be
+                  asked to confirm this before the photo is attached.
                 </p>
               </CardContent>
             </Card>
@@ -386,10 +458,52 @@ export function BrokenClient() {
             Send report
           </Button>
           <p className="text-xs text-muted-foreground text-center">
-            You can send up to 10 reports a day.
+            You can send up to 10 reports in any 24 hours.
           </p>
         </CardContent>
       </Card>
+
+      {/* ── G4 gate — a real modal, not a policy note ─────────────────────────
+          Guardrail G4 is locked "enforced in the capture UI, non-negotiable",
+          and the Campus Walk capture screen enforces it exactly this way
+          (walk-client.tsx). A banner is not enforcement: it is a sentence you
+          can scroll past while the bytes upload anyway. The same AlertDialog
+          primitives are used here rather than a copy of that screen's
+          component, because the gate is inline local state there and there is
+          nothing importable to reuse.
+
+          Not dismissible by backdrop click or Escape (AlertDialog default with
+          a no-op onOpenChange); one of the two explicit buttons is the only way
+          out, so a photo is never attached without an answer. The server still
+          strips and fail-closes on every byte — that is the other half of G4,
+          not a substitute for this half. */}
+      <AlertDialog open={pendingPhoto !== null} onOpenChange={() => {}}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Check the photo before it&rsquo;s added</AlertDialogTitle>
+            <AlertDialogDescription>
+              This photo must show the broken thing only. If anyone is recognisable &mdash; even
+              in the background &mdash; retake it.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {pendingPhoto && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={pendingPhoto.previewUrl}
+              alt="The photo you just picked"
+              className="w-full rounded border"
+            />
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={retakeForPeople}>
+              People are in it &mdash; retake
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={confirmNoPeople}>
+              No people &mdash; use this photo
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

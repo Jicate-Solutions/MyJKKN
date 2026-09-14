@@ -758,7 +758,14 @@ export function buildSplitBoard(
   rows: WalkTaskRow[],
   threshold: number = SYSTEM_GAP_CANDIDATE_THRESHOLD
 ): SplitBoard {
-  const walkRows = rows.filter(isCampusWalkTask);
+  // D9's taxonomy boards measure the WALK, not the whole fault list. An
+  // InstaSolver report has no `kind` the reporter chose and no `category` a
+  // classifier confirmed, so every one of them lands here as an
+  // uncategorised symptom and inflates the "All N reports are symptoms"
+  // banner this board exists to make meaningful. Excluded for the same reason
+  // as coverage — see `isWalkedObservation`. buildFixBoard stays unfiltered:
+  // a closure is a closure whoever reported it.
+  const walkRows = rows.filter(isWalkedObservation);
 
   let symptomCount = 0;
   let systemGapCount = 0;
@@ -984,7 +991,13 @@ function unreachableOwnerOf(row: WalkTaskRow): UnreachableOwnerRow | null {
  * nothing — the same refusal buildSplitBoard makes.
  */
 export function buildOwnershipBoard(rows: WalkTaskRow[]): OwnershipBoard {
-  const walkRows = rows.filter(isCampusWalkTask);
+  // Same reason as buildSplitBoard. An InstaSolver report is routed to the
+  // EAO with no owner resolved, so `accountable_routed_to_eao_no_owner` is
+  // true on effectively all of them — they would dominate the unowned-category
+  // table and read as a walk taxonomy nobody owns, when in fact they are
+  // reports from the public that the fix lane already has. See
+  // `isWalkedObservation`.
+  const walkRows = rows.filter(isWalkedObservation);
 
   // Keyed case-insensitively so "Electrical" and "electrical" are one kind of
   // work, while the label shown is the first spelling actually recorded.

@@ -469,10 +469,41 @@ describe('D12 — area coverage is derived, and a missing location is counted', 
       NOW
     );
 
+    // ALL FIVE coverage aggregates, because a filter applied to the row list
+    // but forgotten in one accumulator is exactly the bug that would survive a
+    // single assertion. Every figure below would change if the InstaSolver row
+    // leaked in, so none of them can pass by accident.
     expect(board.coverage.observations).toBe(1);
-    // The reported square is a genuinely different cell, so if the filter were
-    // ever dropped this would read 2 — the assertion cannot pass by accident.
     expect(board.coverage.distinctAreas).toBe(1);
+    expect(board.coverage.observationsWithoutLocation).toBe(0);
+    expect(board.coverage.distinctInstitutions).toBe(0);
+    expect(board.coverage.distinctCategories).toBe(0);
+  });
+
+  it('counts every coverage aggregate for a row the Director DID walk to', () => {
+    // The control for the test above: identical shape, no `front_door`, so all
+    // five aggregates move. Without this, the exclusion test would also pass
+    // against a `buildCoverageBoard` that simply counted nothing.
+    const board = buildCoverageBoard(
+      [
+        task({
+          metadata: {
+            geo: { lat: 11.4521, lng: 77.8034 },
+            institution_id: 'inst-1',
+            category: 'Lighting'
+          }
+        }),
+        task({ metadata: { geo: null, institution_id: 'inst-2', category: 'Cleanliness' } })
+      ],
+      [],
+      NOW
+    );
+
+    expect(board.coverage.observations).toBe(2);
+    expect(board.coverage.distinctAreas).toBe(1);
+    expect(board.coverage.observationsWithoutLocation).toBe(1);
+    expect(board.coverage.distinctInstitutions).toBe(2);
+    expect(board.coverage.distinctCategories).toBe(2);
   });
 
   it('still counts an InstaSolver report as a fix on the fixing board', () => {
@@ -507,6 +538,22 @@ describe('D13 — one action versus a missing system', () => {
       task({ metadata: { kind: 'system_gap' } })
     ]);
     expect(board.symptomCount).toBe(2);
+    expect(board.systemGapCount).toBe(1);
+  });
+
+  it('leaves InstaSolver reports out of the walk taxonomy entirely', () => {
+    // D13's split describes the WALK: a `kind` the observer chose and a
+    // `category` a classifier proposed and a human confirmed. An InstaSolver
+    // report has neither, so every one of them would land as an uncategorised
+    // symptom and drive the "All N reports are symptoms" reading this board
+    // exists to make meaningful. Excluded for the same reason as coverage.
+    const board = buildSplitBoard([
+      task({ metadata: { kind: 'system_gap' } }),
+      task({ metadata: { kind: 'symptom', front_door: 'instasolver' } }),
+      task({ metadata: { kind: 'symptom', front_door: 'instasolver' } })
+    ]);
+
+    expect(board.symptomCount).toBe(0);
     expect(board.systemGapCount).toBe(1);
   });
 
@@ -573,6 +620,30 @@ describe('D13 — one action versus a missing system', () => {
 // lib/campus-walk/urgent-alert.ts, untouched by any of this.
 
 describe('an unowned area is surfaced, and it names work rather than people', () => {
+  it('leaves InstaSolver reports out of the unowned-work table', () => {
+    // An InstaSolver report routes to the EAO with no owner resolved, so
+    // `accountable_routed_to_eao_no_owner` is true on effectively all of them.
+    // Counted here they would dominate the table and read as a walk taxonomy
+    // nobody owns — when in fact they are public reports the fix lane already
+    // has. `everyObservationIsUnowned` in particular would flip to true and
+    // fire a banner about the Director's routing being broken.
+    const board = buildOwnershipBoard([
+      task({
+        metadata: {
+          accountable_routed_to_eao_no_owner: true,
+          front_door: 'instasolver',
+          category: 'Electrical'
+        }
+      }),
+      task({ metadata: { accountable_routed_to_eao_no_owner: false, category: 'Plumbing' } })
+    ]);
+
+    expect(board.observations).toBe(1);
+    expect(board.unowned).toBe(0);
+    expect(board.unownedByCategory).toHaveLength(0);
+    expect(board.everyObservationIsUnowned).toBe(false);
+  });
+
   it('counts the flag intake already writes, and groups it by kind of work', () => {
     const board = buildOwnershipBoard([
       task({
