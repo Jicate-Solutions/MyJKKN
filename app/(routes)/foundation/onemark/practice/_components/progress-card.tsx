@@ -16,6 +16,13 @@
 // "coming soon". The report's field names are read tolerantly (snake_case and
 // camelCase both) because the jsonb shape is Lane A's to settle.
 //
+// ONE REPORT PER SUBJECT. Lane A's route requires `?exam=<uuid>` (it answers
+// 400 `exam must be a uuid` without it — the combined practice run #3431 found
+// this card asking with no exam and therefore never rendering). The report is
+// per exam definition, and the practice home already knows the learner's
+// subjects, so the card takes them, reads the first ready one by default and
+// offers a picker when there is more than one.
+//
 // ORDER IS THE ONE THING TOLERANCE CANNOT COVER. Newest-first and oldest-first
 // carry identical field names, so a tolerant reader that assumed one would
 // render a WRONG "last time" and a backwards trend rather than nothing. The
@@ -24,6 +31,7 @@
 
 import { useEffect, useState } from 'react';
 import { TrendingUp } from 'lucide-react';
+import type { OneMarkSubject } from '@/lib/services/onemark/vault-service';
 
 interface LearnerReport {
   /** NEWEST FIRST, always — see `readLearnerReport`. */
@@ -50,6 +58,13 @@ function stamp(v: string | null): number | null {
   return Number.isFinite(t) ? t : null;
 }
 
+/** A non-empty string, else null — Lane A's parsed sitting spells its
+ *  timestamp `taken_at` (results-service.ts `LearnerSitting`); the raw RPC
+ *  and older fixtures said `submitted_at`. Both are read. */
+function str(v: unknown): string | null {
+  return typeof v === 'string' && v.length > 0 ? v : null;
+}
+
 /** Lane A's jsonb, read defensively. Anything missing simply does not render. */
 export function readLearnerReport(raw: any): LearnerReport | null {
   if (!raw || typeof raw !== 'object') return null;
@@ -57,8 +72,8 @@ export function readLearnerReport(raw: any): LearnerReport | null {
   const parsed = (Array.isArray(sittingsRaw) ? sittingsRaw : [])
     .map((s: any) => ({
       score: num(s?.score),
-      total: num(s?.total ?? s?.question_count ?? s?.questionCount),
-      submittedAt: typeof s?.submitted_at === 'string' ? s.submitted_at : typeof s?.submittedAt === 'string' ? s.submittedAt : null,
+      total: num(s?.total ?? s?.max_score ?? s?.maxScore ?? s?.question_count ?? s?.questionCount),
+      submittedAt: str(s?.taken_at) ?? str(s?.takenAt) ?? str(s?.submitted_at) ?? str(s?.submittedAt),
     }))
     .filter((s: any) => s.score !== null);
   // ORDER IS NOT ASSUMED. Lane A has not merged, and "newest first" is a
@@ -108,34 +123,74 @@ function Trend({ sittings }: { sittings: LearnerReport['sittings'] }) {
   );
 }
 
-export function ProgressCard({ learnerId }: { learnerId: string }) {
+type ProgressSubject = Pick<OneMarkSubject, 'examDefinitionId' | 'name' | 'poolReady' | 'questionCount'>;
+
+/** The subject the card opens on: the first one a learner can actually sit,
+ *  else the first listed. Null when the learner has no subjects at all. */
+export function defaultProgressSubject(subjects: ProgressSubject[]): ProgressSubject | null {
+  return subjects.find((s) => s.poolReady && s.questionCount > 0) ?? subjects[0] ?? null;
+}
+
+export function ProgressCard({
+  learnerId,
+  subjects,
+}: {
+  learnerId: string;
+  subjects: ProgressSubject[];
+}) {
   const [report, setReport] = useState<LearnerReport | null>(null);
+  // Lane A has answered OK at least once on this mount. Until then the card
+  // is invisible (the route may not be on main yet — a 404 must look like
+  // nothing, not like "no sittings"). After it, the frame and the picker stay
+  // put while a subject with no progress yet shows an empty body — otherwise
+  // a learner whose opening subject has no report could never reach the
+  // subject that does (advisory review on #3737).
+  const [answered, setAnswered] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [chosenExamId, setChosenExamId] = useState<string | null>(null);
+  const examId =
+    (chosenExamId && subjects.some((s) => s.examDefinitionId === chosenExamId)
+      ? chosenExamId
+      : defaultProgressSubject(subjects)?.examDefinitionId) ?? null;
 
   useEffect(() => {
     let cancelled = false;
+    setReport(null);
+    if (!examId) return;
+    setPending(true);
     (async () => {
       try {
         const res = await fetch(
-          `/api/foundation/onemark/results/learner/${encodeURIComponent(learnerId)}`,
+          `/api/foundation/onemark/results/learner/${encodeURIComponent(learnerId)}?exam=${encodeURIComponent(examId)}`,
           { headers: { 'Content-Type': 'application/json' } },
         );
         if (!res.ok) return;
         const body = await res.json().catch(() => null);
-        if (!cancelled) setReport(readLearnerReport(body?.report ?? body));
+        if (cancelled) return;
+        setAnswered(true);
+        setReport(readLearnerReport(body?.report ?? body));
       } catch {
         /* Lane A is not merged yet, or the network blinked — show nothing. */
+      } finally {
+        if (!cancelled) setPending(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [learnerId]);
+  }, [learnerId, examId]);
 
-  if (!report) return null;
+  if (!examId) return null;
+  // With one subject there is nothing to pick between, so an empty report
+  // still degrades to nothing. With several, the frame survives once Lane A
+  // has answered, so the picker is always reachable.
+  const keepFrame = subjects.length > 1 && answered;
+  if (!report && !keepFrame) return null;
+  const chosenName = subjects.find((s) => s.examDefinitionId === examId)?.name ?? null;
 
   // Only when the order was established from timestamps — otherwise sittings[0]
   // is just "the first one Lane A happened to send".
-  const last = report.ordered ? report.sittings[0] : null;
+  const last = report?.ordered ? report.sittings[0] : null;
   const lastLine =
     last && last.score !== null
       ? last.total
@@ -145,11 +200,39 @@ export function ProgressCard({ learnerId }: { learnerId: string }) {
 
   return (
     <section>
-      <div className="mb-3 flex items-center gap-2">
-        <TrendingUp className="h-4 w-4 text-muted-foreground" />
-        <h2 className="text-lg font-semibold text-foreground">My progress</h2>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <TrendingUp className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-lg font-semibold text-foreground">My progress</h2>
+        </div>
+        {subjects.length > 1 && (
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label="Subject">
+            {subjects.map((s) => (
+              <button
+                key={s.examDefinitionId}
+                type="button"
+                aria-pressed={s.examDefinitionId === examId}
+                onClick={() => setChosenExamId(s.examDefinitionId)}
+                className={
+                  s.examDefinitionId === examId
+                    ? 'rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground'
+                    : 'rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground hover:text-foreground'
+                }
+              >
+                {s.name}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       <div className="rounded-2xl bg-card p-5">
+        {!report && !pending && (
+          <p className="text-sm text-muted-foreground">
+            No sittings in {chosenName ?? 'this subject'} yet.
+          </p>
+        )}
+        {report && (
+          <>
         {report.ordered && report.sittings.length > 0 && (
           <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
             <Trend sittings={report.sittings} />
@@ -178,6 +261,8 @@ export function ProgressCard({ learnerId }: { learnerId: string }) {
             : ''}
           Answers are never shown here &mdash; they are in each sitting&rsquo;s own review.
         </p>
+          </>
+        )}
       </div>
     </section>
   );

@@ -123,16 +123,12 @@ jobs:
           fi
 
           echo "=== WhatsApp Discover Data ==="
-          DISCOVER=$(curl -s "$BASE_URL/api/admission/settings/whatsapp-numbers/discover")
-          WABA_COUNT=$(echo "$DISCOVER" | python3 -c "import sys,json; print(json.load(sys.stdin).get('waba_count',0))" 2>/dev/null || echo "0")
-          TOTAL=$(echo "$DISCOVER" | python3 -c "import sys,json; print(json.load(sys.stdin).get('total',0))" 2>/dev/null || echo "0")
-          if [ "$WABA_COUNT" -gt "0" ] && [ "$TOTAL" -gt "0" ]; then
-            echo "PASS Discover found $TOTAL numbers across $WABA_COUNT WABAs"
-            PASSED=$((PASSED + 1))
-          else
-            echo "FAIL Discover returned 0 WABAs or 0 numbers"
-            FAILED=$((FAILED + 1))
-          fi
+          # The WABA-count check was removed on 2026-09-14: this job has no session, so
+          # /api/admission/settings/whatsapp-numbers/discover always answers 401 here and the
+          # count was 0 on every deploy since at least 2026-09-12 — a red badge that meant
+          # nothing. The route being gated is already proven by the 'WA Discover — HTTP 401'
+          # check above; counting WABAs needs an authenticated caller and belongs in the
+          # three-layer sweep (L2), not in an unauthenticated smoke test.
 
           echo "================================"
           echo "Results: $PASSED passed, $FAILED failed"
