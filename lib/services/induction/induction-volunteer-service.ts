@@ -154,6 +154,11 @@ export interface FeedbackGroupMember {
    *  the same disambiguator the coordinator roster shows. NOT department:
    *  every engineering fresher sits in the shared first-year department. */
   program_name: string | null;
+  /** The identifier this fresher ACTUALLY has: register_number, else
+   *  roll_number, else application_id. register_number above is empty for four
+   *  of the five live cohorts, which left the mentor with a bare name to find
+   *  one fresher in a group of thirteen. Added by 20261116000000. */
+  ident: string | null;
   /** How the mentor actually reaches this fresher. Scoped server-side to the
    *  mentor's OWN group, so a mentor can never enumerate the cohort. */
   student_mobile: string | null;
@@ -221,6 +226,13 @@ export interface MentorMentee {
   fresher_learner_id: string;
   fresher_name: string;
   fresher_register: string | null;
+  /** The identifier this fresher ACTUALLY has: register_number, else
+   *  roll_number, else application_id (JKKN-CNR-469). Four of the five live
+   *  induction cohorts have neither a register nor a roll number — only the
+   *  application id, minted months earlier — so this, not fresher_register, is
+   *  what a fresher row prints. Server-side coalesce (20261116000000) rather
+   *  than three columns: the console shows one id, not a provenance trail. */
+  fresher_ident: string | null;
   has_feedback: boolean;
   is_cover: boolean;
   cover_until: string | null;
@@ -231,6 +243,11 @@ export interface MentorMentee {
    *  program_name — NOT department — is what distinguishes EEE from CSE, since
    *  every engineering fresher shares the first-year department row. */
   program_name: string | null;
+  /** NOT YET RETURNED BY THE LIVE RPC — fn_induction_admin_mentor_mentees stops
+   *  at program_name (20261115000000). These stay undefined at runtime, so the
+   *  console's tap-to-call link renders as nothing rather than wrongly. Adding
+   *  them is a policy decision (freshers' numbers in front of a wider audience),
+   *  deliberately deferred; it is another DROP/CREATE on that function. */
   student_mobile: string | null;
   father_mobile: string | null;
 }
@@ -240,6 +257,12 @@ export interface UnassignedFresher {
   fresher_learner_id: string;
   fresher_name: string;
   fresher_register: string | null;
+  /** Same identity aid as MentorMentee: register_number is NULL for most
+   *  freshers at induction time, so the programme is what tells two same-name
+   *  freshers apart when a coordinator picks who to place with which mentor. */
+  program_name: string | null;
+  /** register_number -> roll_number -> application_id. See MentorMentee. */
+  fresher_ident: string | null;
 }
 
 /** One scheduled monthly Senior Peer Mentor check-in the fresher can rate
@@ -252,6 +275,36 @@ export interface MentorCheckin {
   mentor_name: string | null;
   rating: number | null;
   comment: string | null;
+}
+
+/** The caller's OWN Senior Peer Mentor on one induction event — the mentee side
+ *  of the assignment the coordinator makes in the mentors console.
+ *
+ *  Every field here is verified against the live signature of
+ *  fn_induction_my_mentor_for_event (20261117000000), not assumed: the induction
+ *  RPCs have a history of TS declaring columns the deployed function never
+ *  returns, which renders as a silently blank UI. */
+export interface MyMentor {
+  mentor_learner_id: string;
+  mentor_name: string;
+  /** register_number -> roll_number -> application_id — the first identifier the
+   *  mentor actually has. Four of five cohorts have no register number. */
+  mentor_ident: string | null;
+  mentor_program: string | null;
+  /** NO mentor_mobile / mentor_email. 20261117000000 returned both;
+   *  20261118000000 removed them from the RPC after the Director's call not to
+   *  publish a mentor's contact details to their mentees. Removed at the
+   *  function, not hidden in the card — a field the server still sends is
+   *  readable from devtools whatever the UI renders. Don't re-add them here
+   *  without re-adding them to the RPC first — a declared field here is not
+   *  evidence the live function returns it, it just renders blank. */
+  mentor_photo_url: string | null;
+  /** True when this mentor is standing in for someone else — the coordinator set
+   *  a temporary cover. original_mentor_name is who they are covering for. */
+  is_cover: boolean;
+  cover_until: string | null;
+  original_mentor_name: string | null;
+  assigned_at: string;
 }
 
 /** Admin/coordinator honesty cross-check row: one mentor's group, one check-in
@@ -632,6 +685,24 @@ export class InductionVolunteerService {
       p_fresher_learner_id: fresherLearnerId,
     });
     if (error) throw error;
+  }
+
+  // ── Fresher: who my Senior Peer Mentor is ──────────────────────────────────
+
+  /** My own Senior Peer Mentor on this induction, or null if I have no current
+   *  assignment. Self-scoping — the RPC resolves the caller server-side and no
+   *  learner id is passed, so this can never read someone else's mentor.
+   *
+   *  Deliberately NOT fn_induction_my_mentor(): that one resolves the caller via
+   *  learners_profiles.profile_id, which is populated for 1 of 809 assigned
+   *  mentees in prod, so it returns nothing for almost everyone. This RPC leads
+   *  with get_my_learner_id() and keeps profile_id as a fallback (635 of 809). */
+  static async myMentorForEvent(eventId: string): Promise<MyMentor | null> {
+    const { data, error } = await getSupabase().rpc('fn_induction_my_mentor_for_event', {
+      p_event_id: eventId,
+    });
+    if (error) throw error;
+    return ((data as MyMentor[]) ?? [])[0] ?? null;
   }
 
   // ── Fresher: monthly mentor-helpfulness rating (self-report + honesty cross-check) ──

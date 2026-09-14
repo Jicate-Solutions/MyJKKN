@@ -54,7 +54,7 @@ import {
   useSuppressions,
   useCreateEscalation,
 } from '@/hooks/hr/recruitment-need/use-recruitment-signal';
-import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useHrInstitutionsWithAccess } from '@/hooks/hr/use-hr-institutions';
 import { SignalScoreBadge } from '@/components/hr/recruitment-need/signal-score-badge';
 import { SignalStatusDot } from '@/components/hr/recruitment-need/signal-status-dot';
 import { SnoozeDialog, UnsnoozeButton } from '@/components/hr/recruitment-need/snooze-dialog';
@@ -80,7 +80,7 @@ export default function RecruitmentNeedDetailPage() {
   const { data: allSignals, isLoading: signalsLoading } = useRecruitmentSignals({ institution_id: institutionId });
   const { data: institutionSignal, isLoading: instLoading } = useRecruitmentSignal(institutionId);
   const { data: suppressions } = useSuppressions(institutionId);
-  const { institutions } = useInstitutionsWithAccess({ entityType: 'all' });
+  const { institutions } = useHrInstitutionsWithAccess({ entityType: 'all' });
   const computeSignal = useComputeSignal();
   const createEscalation = useCreateEscalation();
 

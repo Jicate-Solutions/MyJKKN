@@ -1,5 +1,7 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { HousekeepingFeedbackGate } from './housekeeping-feedback-gate';
+import type { FeedbackHold } from '@/types/campus-living/housekeeping';
 import type {
   HostelAttendance,
   CreateHostelAttendanceDTO,
@@ -103,7 +105,13 @@ export class HostelAttendanceService {
   // allocation (keyed on profiles.id == hostel_residents.profile_id) is
   // merged in here. Residents without an active allocation still appear
   // (so they remain markable) but only under "All blocks".
-  static async getMarkableResidents(institutionId?: string, blockId?: string) {
+  /**
+   * @param date the date being marked. Housekeeping feedback holds are
+   *   evaluated against THIS date, not today — marking a past date must show
+   *   the holds that applied then. Optional and trailing so existing callers
+   *   keep working.
+   */
+  static async getMarkableResidents(institutionId?: string, blockId?: string, date?: string) {
     try {
       const supabase = createClientSupabaseClient();
 
@@ -194,6 +202,34 @@ export class HostelAttendanceService {
       const list = blockId
         ? merged.filter((m) => m.allocation?.block_id === blockId)
         : merged;
+      // Housekeeping feedback holds. A cleaning that finished and went unrated
+      // blocks attendance for EVERY learner in that room from the next day, and
+      // the block lifts the instant any roommate rates.
+      //
+      // This is UX only: the BEFORE trigger on hostel_attendance
+      // (fn_cl_housekeeping_attendance_gate) is the actual wall. We look holds
+      // up here so the warden sees WHY a learner cannot be marked instead of a
+      // raw check_violation from the database.
+      //
+      // A failure here must not silently un-hold anyone, but it must also not
+      // take down attendance marking entirely — so we log and fall back to "no
+      // holds known", and the trigger still refuses the write.
+      let holds = new Map<string, FeedbackHold>();
+      try {
+        holds = await HousekeepingFeedbackGate.holdsByLearner(institutionId, blockId, date);
+      } catch (holdErr) {
+        logger.error(
+          'campus-living/attendance',
+          'Could not read housekeeping feedback holds; the DB trigger still enforces them',
+          holdErr,
+        );
+      }
+
+      for (const item of list) {
+        const learnerId = item.allocation?.learner_id ?? item.profile?.id;
+        item.feedback_hold = learnerId ? holds.get(learnerId) ?? null : null;
+      }
+
       // Roll-call order: block, then floor, then room number, then name;
       // unallocated last. Floor must sort ahead of room number — room
       // numbers alone don't reliably encode floor (e.g. reused "1", "2"
@@ -426,19 +462,58 @@ export class HostelAttendanceService {
   }
 
   // ── Bulk mark attendance ──────────────────────────────────────────
-  static async bulkMarkAttendance(records: CreateHostelAttendanceDTO[]) {
+  /**
+   * Held learners are dropped from the batch and reported back rather than
+   * failing the whole write: the BEFORE trigger on hostel_attendance rejects a
+   * held learner, and one of them in a 60-row block upsert would take the
+   * entire block's marking down with it.
+   *
+   * The trigger remains the wall for every path that bypasses this method.
+   */
+  static async bulkMarkAttendance(
+    records: CreateHostelAttendanceDTO[],
+  ): Promise<{ marked: HostelAttendance[]; skipped: FeedbackHold[] }> {
     try {
+      if (records.length === 0) return { marked: [], skipped: [] };
+
+      let holds = new Map<string, FeedbackHold>();
+      try {
+        holds = await HousekeepingFeedbackGate.holdsByLearner(
+          records[0].institution_id,
+          undefined,
+          records[0].date,
+        );
+      } catch (holdErr) {
+        // Fall through with no known holds — the trigger still refuses them,
+        // the warden just gets the raw error instead of a tidy count.
+        logger.error(
+          'campus-living/attendance',
+          'Could not read housekeeping holds before bulk marking',
+          holdErr,
+        );
+      }
+
+      const allowed = holds.size === 0 ? records : records.filter((r) => !holds.has(r.learner_id));
+      const skipped =
+        holds.size === 0
+          ? []
+          : records
+              .filter((r) => holds.has(r.learner_id))
+              .map((r) => holds.get(r.learner_id) as FeedbackHold);
+
+      if (allowed.length === 0) return { marked: [], skipped };
+
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from('hostel_attendance')
-        .upsert(records, { onConflict: 'learner_id,date' })
+        .upsert(allowed, { onConflict: 'learner_id,date' })
         .select();
 
       if (error) {
         logger.error('campus-living/attendance', 'Failed to bulk mark attendance', error);
         throw error;
       }
-      return data as HostelAttendance[];
+      return { marked: (data ?? []) as HostelAttendance[], skipped };
     } catch (error) {
       logger.error('campus-living/attendance', 'Unexpected error in bulkMarkAttendance', error);
       throw error;

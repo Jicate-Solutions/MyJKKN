@@ -453,6 +453,9 @@ export class DataEntryService {
   ): Promise<Array<{ id: string; name: string }>> {
     const { data, error } = await supabase
       .from('institutions')
+      // Every institution, hr_organizations.included_in_hr or not. Recruitment
+      // is group-wide — that flag gates the HR module proper (leave, payroll,
+      // attendance) and no recruitment table carries its RLS gate.
       .select('id, name')
       .order('name');
     if (error) throw new Error(`Failed to list institutions: ${error.message}`);

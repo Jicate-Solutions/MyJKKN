@@ -205,6 +205,20 @@ function EditTournamentForm({
   const { data: detail, isLoading: divisionsLoading } = useTournament(tournament.id);
   const divisions = detail?.divisions ?? [];
 
+  // Director decision (2026-09-07): an event's college may still be changed
+  // while it is a DRAFT, and is fixed once it leaves draft. Before publication
+  // the institutional number cannot have reached a circular, a brochure or
+  // minutes, which is the only thing the freeze exists to protect. Moving a
+  // draft RE-ISSUES the number from the destination college.
+  //
+  // Past draft the database (trg_events_stamp_event_number) raises 23514, so the
+  // control is disabled rather than left to fail a save and discard every other
+  // edit made in the same dialog. Events are fetched with select('*')
+  // (EventBaseService.getEvents / getEvent), so status and event_number are both
+  // present on the row.
+  const issuedNumber = tournament.event_number ?? null;
+  const collegeLocked = tournament.status !== 'draft';
+
   // Defaults for the first division when a tournament has none yet — mirror the
   // create form so saving the edit modal seeds a valid division inline.
   const newDivisionDefaults: TournamentDivision = {
@@ -326,7 +340,11 @@ function EditTournamentForm({
           <Label htmlFor="t-institution">
             Host Institution <span className="text-destructive">*</span>
           </Label>
-          <Select value={form.institution_id} onValueChange={(v) => set('institution_id', v)}>
+          <Select
+            value={form.institution_id}
+            onValueChange={(v) => set('institution_id', v)}
+            disabled={collegeLocked}
+          >
             <SelectTrigger id="t-institution">
               <SelectValue
                 placeholder={
@@ -343,8 +361,31 @@ function EditTournamentForm({
             </SelectContent>
           </Select>
           <p className="text-xs text-muted-foreground">
-            Registration fees for this tournament settle into this institution&apos;s payment
-            account.
+            {collegeLocked ? (
+              <>
+                This tournament has left draft, so its college is fixed
+                {issuedNumber !== null ? (
+                  <>
+                    {' '}— institutional number{' '}
+                    <span className="font-medium">{issuedNumber}</span> is already in circulation
+                  </>
+                ) : null}
+                . If it genuinely has to move, ask a system administrator: it needs a database
+                change, not a form.
+              </>
+            ) : issuedNumber !== null ? (
+              <>
+                Still a draft, so the college can be changed. Moving it retires number{' '}
+                <span className="font-medium">{issuedNumber}</span> and issues a new one from the
+                destination college. Registration fees settle into this institution&apos;s payment
+                account.
+              </>
+            ) : (
+              <>
+                Registration fees for this tournament settle into this institution&apos;s payment
+                account.
+              </>
+            )}
           </p>
         </div>
 

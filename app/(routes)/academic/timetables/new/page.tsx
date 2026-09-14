@@ -115,6 +115,11 @@ const timetableFormSchema = z
     }),
     timetable_type: z.enum(['section', 'semester']).default('semester'),
     section_id: z.string().optional(), // Now optional for semester-level timetables
+    // Updated: 2026-09-11 - Declared section scope for semester-level timetables.
+    // A semester-level timetable covers the sections it names, not the whole
+    // semester, and saying so is what lets parallel section groups in one
+    // semester each hold their own timetable on identical dates.
+    section_ids: z.array(z.string()).default([]),
     start_date: z.date().optional(),
     end_date: z.date().optional(),
     is_active: z.boolean().default(true),
@@ -155,6 +160,22 @@ const timetableFormSchema = z
     {
       message: 'Please select a section for section-level timetables.',
       path: ['section_id']
+    }
+  )
+  .refine(
+    (data) => {
+      // A semester-level timetable must say which sections it covers. An empty
+      // scope reaches the duplicate guard as "the whole semester", which would
+      // reserve every section in it and block every parallel group — the exact
+      // failure this field exists to prevent.
+      if (data.timetable_type === 'semester' && data.section_ids.length === 0) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: 'Choose at least one section for this timetable to cover.',
+      path: ['section_ids']
     }
   )
   .refine(
@@ -204,6 +225,7 @@ export default function NewTimetablePage() {
       semester_id: '',
       timetable_type: 'semester', // Default to semester-level (new recommended approach)
       section_id: '',
+      section_ids: [],
       is_active: true,
       is_template: false,
       template_name: '',
@@ -225,6 +247,7 @@ export default function NewTimetablePage() {
   const watchTimetableType = form.watch('timetable_type'); // New watch
   const watchAttendanceMode = form.watch('attendance_mode');
   const watchSectionId = form.watch('section_id');
+  const watchSectionIds = form.watch('section_ids');
   const watchStartDate = form.watch('start_date');
   const watchEndDate = form.watch('end_date');
   const watchSelectedTemplateId = form.watch('selected_template_id');
@@ -315,27 +338,122 @@ export default function NewTimetablePage() {
       self.findIndex((s) => s.semester_name === semester.semester_name)
   );
 
+  // Sections are offered ONLY once the whole hierarchy is chosen.
+  // Fixed: 2026-09-11. Every one of these filters is optional in the service, so
+  // with any of them blank the query ran as "every active section this user can
+  // see" — and with limit 1000 that was all 539 of them, across every
+  // institution, listed in the scope picker before a semester was even picked.
+  // A section belongs to exactly one semester, so nothing short of the full
+  // chain names the set an operator is actually choosing from.
+  const sectionHierarchyComplete = Boolean(
+    watchInstitutionId &&
+      watchDegreeId &&
+      watchDepartmentId &&
+      watchProgramId &&
+      selectedSemesterId
+  );
+
   // Sections hook
   const {
     data: sectionsData,
-    refetch: fetchSections,
-    isLoading: loadingSections
+    isLoading: loadingSections,
+    isPlaceholderData: sectionsArePlaceholder
   } = useSections({
     institution_id: watchInstitutionId || undefined,
     degree_id: watchDegreeId || undefined,
     department_id: watchDepartmentId || undefined,
     program_id: watchProgramId || undefined,
     semester_id: selectedSemesterId || undefined,
-    isActive: true
-  });
+    isActive: true,
+    // Fixed: 2026-09-11 - SectionService.getSections DEFAULTS TO limit 10 and
+    // orders by created_at DESC, so this call silently returned 10 of JKKN
+    // Dental 4th Year BDS's 24 active sections — the 14 oldest simply were not
+    // offered. Every other useSections call in this module already passes
+    // limit: 1000 for exactly this reason.
+    //
+    // It was merely annoying for the single-select section dropdown (a section
+    // you could not reach). It is DESTRUCTIVE for the scope picker below, which
+    // pre-ticks whatever it is handed and SAVES that as the timetable's declared
+    // scope: a truncated list would silently write a scope missing 14 sections,
+    // and those learners would never see the timetable.
+    limit: 1000
+  }, { enabled: sectionHierarchyComplete });
 
-  const sections = sectionsData?.data ?? [];
+  // useSections keeps the PREVIOUS query's rows as placeholder data while the
+  // next one loads (and while it is disabled), and reports isLoading = false
+  // throughout. So the rows on hand can belong to an earlier, wider selection.
+  // Two guards, both needed:
+  //   - nothing at all until the hierarchy is complete;
+  //   - then only rows that genuinely match every selected level — the same
+  //     predicate the server applies, so the real result is never trimmed, but
+  //     a stale placeholder row can never be shown or pre-ticked.
+  const sections = sectionHierarchyComplete
+    ? (sectionsData?.data ?? []).filter(
+        (section: any) =>
+          section.institution_id === watchInstitutionId &&
+          section.degree_id === watchDegreeId &&
+          section.department_id === watchDepartmentId &&
+          section.program_id === watchProgramId &&
+          section.semester_id === selectedSemesterId
+      )
+    : [];
+
+  // Loading is true while the placeholder is up, not just on a cold fetch —
+  // otherwise the picker would render a stale list as if it were the answer.
+  const sectionsLoading =
+    sectionHierarchyComplete && (loadingSections || sectionsArePlaceholder);
 
   // Deduplicate sections by name to prevent duplicate keys in the dropdown
   const uniqueSections = sections.filter(
     (section, index, self) =>
       index === self.findIndex((s) => s.section_name === section.section_name)
   );
+
+  // The scope picker deliberately uses the RAW list, not uniqueSections. Dropping
+  // a same-named section from a single-select dropdown is cosmetic; dropping one
+  // from the declared scope would silently exclude its learners from the
+  // timetable with nothing on screen to say so. Checkboxes key on section.id,
+  // which is unique regardless, so the dedupe buys nothing here.
+  // (Measured 2026-09-11: zero semesters in production hold two active sections
+  // of the same name, so today the two lists are identical anyway.)
+  const scopeSections = sections;
+
+  // Pre-tick every section of the chosen semester. For a semester with a single
+  // group — the common case — this reproduces the pre-2026-09-11 behaviour
+  // exactly: the timetable covers everything and the duplicate guard still
+  // refuses a genuine second one. For a multi-group semester the operator
+  // unticks down to their group. Keyed on the semester so switching it starts
+  // from a clean full selection rather than carrying the old semester's ids.
+  //
+  // It must NEVER run on placeholder rows. It fires once per semester, so if it
+  // ticked a stale list the real 24 would arrive afterwards and never be
+  // ticked, and the saved scope would be whatever the previous query held.
+  const [scopePrefilledFor, setScopePrefilledFor] = useState<string | null>(null);
+  useEffect(() => {
+    if (!sectionHierarchyComplete) {
+      if (scopePrefilledFor !== null) {
+        setScopePrefilledFor(null);
+        form.setValue('section_ids', []);
+      }
+      return;
+    }
+    if (scopePrefilledFor === selectedSemesterId) return;
+    if (sectionsLoading || scopeSections.length === 0) return;
+
+    setScopePrefilledFor(selectedSemesterId);
+    form.setValue(
+      'section_ids',
+      scopeSections.map((s: any) => s.id),
+      { shouldValidate: false }
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    sectionHierarchyComplete,
+    selectedSemesterId,
+    sectionsLoading,
+    scopeSections.length,
+    scopePrefilledFor
+  ]);
 
   // Staff list for the Class Incharge picker (session_wise timetables only).
   // Scoped to the selected institution; empty/disabled until one is chosen.
@@ -420,19 +538,28 @@ export default function NewTimetablePage() {
     }
   }, [watchSelectedTemplateId, availableTemplates, form]);
 
-  // Check for existing timetable with date overlap validation
+  // Check whether this section already holds an active timetable this year
   const checkExistingTimetable = useCallback(async () => {
     const values = form.getValues();
 
-    // Only check if all required fields are filled
-    if (
+    // Two rules, two sets of fields. A SECTION-level timetable keys on
+    // academic_year + section alone, so requiring the whole hierarchy would gate
+    // the warning behind fields that cannot change the verdict. A SEMESTER-level
+    // one has no section and keys on the hierarchy plus the semester, so it
+    // needs those instead — and it used to be excluded from this check
+    // altogether by the `!values.section_id` guard, which is why the operator
+    // only ever learned about the clash at save time.
+    if (!values.academic_year_id) {
+      return;
+    }
+    if (values.timetable_type === 'section') {
+      if (!values.section_id) return;
+    } else if (
       !values.institution_id ||
-      !values.academic_year_id ||
       !values.degree_id ||
       !values.program_id ||
       !values.department_id ||
-      !values.semester_id ||
-      !values.section_id
+      !values.semester_id
     ) {
       return;
     }
@@ -459,9 +586,20 @@ export default function NewTimetablePage() {
         program_id: values.program_id,
         department_id: values.department_id,
         semester_id: values.semester_id,
-        section_id: values.section_id,
-        // Passed for the message only — they no longer decide the verdict, and
-        // either may legitimately be absent at this point in the form.
+        // Never send a section for a semester-level timetable. The field keeps
+        // its last value when the type is switched back and forth, and a stale
+        // id here would silently run the section rule on a row that will be
+        // saved without one.
+        section_id:
+          values.timetable_type === 'section' ? values.section_id : undefined,
+        // Mirrors the section_id guard above: a section-level row's scope is its
+        // own section, and sending the semester list there would run the wrong
+        // half of the rule on a row that will be saved without one.
+        section_ids:
+          values.timetable_type === 'semester' ? values.section_ids : undefined,
+        // For the section rule these are message-only. For the semester rule
+        // they ARE the verdict: two semester-level timetables clash only where
+        // their date ranges overlap, and an absent bound counts as unbounded.
         start_date: values.start_date
           ? formatDateForAPI(values.start_date)
           : undefined,
@@ -476,25 +614,40 @@ export default function NewTimetablePage() {
         message: result.message
       });
 
-      // The error belongs on the SECTION, not on the dates. It is the section
-      // that is taken; changing the date range no longer clears the conflict, so
-      // pointing the operator at the date fields would send them somewhere the
-      // problem cannot be fixed.
-      if (result.exists) {
-        toast.error(
-          result.message ||
-            'This section already has an active timetable for this academic year'
-        );
-        form.setError('section_id', {
-          type: 'manual',
-          message:
-            'This section already has an active timetable for this academic year'
-        });
-      } else {
-        form.clearErrors('section_id');
-      }
+      // The error goes on the field that can actually clear it. For a section
+      // conflict that is the section — the date range no longer excuses it. For
+      // a semester-level conflict it is the dates, and marking the section field
+      // there would point at an input the form never showed.
+      form.clearErrors('section_id');
+      form.clearErrors('section_ids');
       form.clearErrors('start_date');
       form.clearErrors('end_date');
+
+      if (result.exists) {
+        const isSemesterConflict = result.conflictScope === 'semester';
+        toast.error(
+          result.message ||
+            (isSemesterConflict
+              ? 'This semester already has an active semester-level timetable covering these dates'
+              : 'This section already has an active timetable for this academic year')
+        );
+        if (isSemesterConflict) {
+          // The SECTIONS are the clash, so the error belongs on the field that
+          // clears it. Marking the dates instead would send the operator off to
+          // shift a whole year's timetable to dodge one shared section.
+          form.setError('section_ids', {
+            type: 'manual',
+            message:
+              'Some of these sections are already covered by another timetable over these dates'
+          });
+        } else {
+          form.setError('section_id', {
+            type: 'manual',
+            message:
+              'This section already has an active timetable for this academic year'
+          });
+        }
+      }
     } catch (error) {
       logger.error('academic/timetables', 'Error checking existing timetable', error);
       setExistingTimetableCheck({ checking: false, exists: false });
@@ -503,11 +656,21 @@ export default function NewTimetablePage() {
 
   // Check for existing timetable when relevant fields change
   useEffect(() => {
-    if (watchSectionId) {
-      checkExistingTimetable();
-    }
+    // Not gated on a section any more: a semester-level timetable has none, and
+    // gating on one is what kept that path from ever being pre-checked.
+    // checkExistingTimetable decides for itself which fields it still needs.
+    checkExistingTimetable();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [watchSectionId, watchSemesterId, watchStartDate, watchEndDate]);
+  }, [
+    watchSectionId,
+    // The scope is half the semester-level key, so the warning has to re-run as
+    // the operator ticks and unticks — that is the field that clears it.
+    watchSectionIds,
+    watchSemesterId,
+    watchTimetableType,
+    watchStartDate,
+    watchEndDate
+  ]);
 
   // Form submission handler
   const onSubmit = async (values: TimetableFormValues) => {
@@ -524,6 +687,12 @@ export default function NewTimetablePage() {
 
       const formattedValues = {
         ...values,
+        // Normalised here, not left to the spread. A section-level row derives
+        // its scope from its own section in the service, and shipping a stale
+        // semester-wide list alongside section_id would put two contradicting
+        // answers on the wire.
+        section_ids:
+          values.timetable_type === 'semester' ? values.section_ids : [],
         start_date: formatDateForDB(values.start_date),
         end_date: formatDateForDB(values.end_date)
       };
@@ -546,6 +715,7 @@ export default function NewTimetablePage() {
             department_id: formattedValues.department_id,
             semester_id: formattedValues.semester_id,
             section_id: formattedValues.section_id,
+            section_ids: formattedValues.section_ids,
             timetable_type: formattedValues.timetable_type,
             start_date: formattedValues.start_date,
             end_date: formattedValues.end_date,
@@ -1022,6 +1192,12 @@ export default function NewTimetablePage() {
                             // Clear section_id when switching to semester type
                             if (value === 'semester') {
                               form.setValue('section_id', '');
+                            } else {
+                              // And the reverse: a section-level row derives its
+                              // scope from its own section, so a stale semester
+                              // list left behind here would be saved as a scope
+                              // that contradicts section_id.
+                              form.setValue('section_ids', []);
                             }
                           }}
                           value={field.value}
@@ -1080,9 +1256,9 @@ export default function NewTimetablePage() {
                             onValueChange={field.onChange}
                             value={field.value}
                             disabled={
-                              loadingSections ||
-                              !selectedSemesterId ||
-                              (sectionsData?.data.length ?? 0) === 0
+                              sectionsLoading ||
+                              !sectionHierarchyComplete ||
+                              sections.length === 0
                             }
                           >
                             <FormControl>
@@ -1109,6 +1285,120 @@ export default function NewTimetablePage() {
                           <FormMessage />
                         </FormItem>
                       )}
+                    />
+                  )}
+
+                  {/* Sections Covered - Only for semester-level timetables.
+                      Added: 2026-09-11. A semester-level timetable covers the
+                      sections it names, not the whole semester. Declaring that
+                      here is what lets parallel section groups in one semester
+                      (A..H, ADD 4A..H, TROIZ A..H) each hold their own
+                      timetable on identical dates — before this field existed,
+                      the first one created reserved all of them. */}
+                  {watchTimetableType === 'semester' && (
+                    <FormField
+                      control={form.control}
+                      name='section_ids'
+                      render={({ field }) => {
+                        const selected = field.value || [];
+                        const allIds = scopeSections.map((sec: any) => sec.id);
+                        const allSelected =
+                          allIds.length > 0 && selected.length === allIds.length;
+
+                        return (
+                          <FormItem>
+                            <div className='flex items-center justify-between gap-2'>
+                              <FormLabel>
+                                {adapt('Sections')} Covered{' '}
+                                <span className='text-red-500'>*</span>
+                              </FormLabel>
+                              <div className='flex items-center gap-2'>
+                                <span className='text-xs text-muted-foreground'>
+                                  {selected.length} of {allIds.length} selected
+                                </span>
+                                <Button
+                                  type='button'
+                                  variant='ghost'
+                                  size='sm'
+                                  className='h-7 px-2 text-xs'
+                                  disabled={allIds.length === 0}
+                                  onClick={() =>
+                                    field.onChange(allSelected ? [] : allIds)
+                                  }
+                                >
+                                  {allSelected ? 'Clear' : 'Select all'}
+                                </Button>
+                              </div>
+                            </div>
+                            <div
+                              className={cn(
+                                'max-h-48 overflow-y-auto rounded-md border p-2',
+                                selected.length === 0 &&
+                                  'border-red-300 bg-red-50 dark:bg-red-950/20'
+                              )}
+                            >
+                              {sectionsLoading && (
+                                <p className='py-3 text-center text-sm text-muted-foreground'>
+                                  Loading {adapt('sections')}...
+                                </p>
+                              )}
+
+                              {!sectionHierarchyComplete && (
+                                <p className='py-3 text-center text-sm text-muted-foreground'>
+                                  Select the institution, degree, department,
+                                  program and semester first.
+                                </p>
+                              )}
+
+                              {sectionHierarchyComplete &&
+                                !sectionsLoading &&
+                                scopeSections.length === 0 && (
+                                  <p className='py-3 text-center text-sm text-muted-foreground'>
+                                    No {adapt('sections')} exist for this
+                                    semester yet. Create them first.
+                                  </p>
+                                )}
+
+                              {!sectionsLoading &&
+                                scopeSections.map((sec: any) => (
+                                  <div
+                                    key={`scope-${sec.id}`}
+                                    className='flex items-center space-x-2 py-1'
+                                  >
+                                    <Checkbox
+                                      id={`scope-${sec.id}`}
+                                      checked={selected.includes(sec.id)}
+                                      onCheckedChange={(checked) => {
+                                        field.onChange(
+                                          checked
+                                            ? [...selected, sec.id]
+                                            : selected.filter(
+                                                (id: string) => id !== sec.id
+                                              )
+                                        );
+                                      }}
+                                    />
+                                    <label
+                                      htmlFor={`scope-${sec.id}`}
+                                      className='cursor-pointer text-sm'
+                                    >
+                                      {sec.section_name}
+                                    </label>
+                                  </div>
+                                ))}
+                            </div>
+                            <FormDescription>
+                              Only these {adapt('sections')} can be scheduled in
+                              this timetable, and only they see it. Leave every
+                              one ticked for a semester with a single group.
+                              Untick the rest when the semester runs parallel
+                              groups, so each group can keep its own timetable
+                              on the same dates.
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        );
+                      }}
                     />
                   )}
 

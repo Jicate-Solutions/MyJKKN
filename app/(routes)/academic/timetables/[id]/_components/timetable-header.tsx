@@ -328,15 +328,38 @@ export function TimetableHeader({
                 </div>
               )}
 
-              {/* For semester-level, show available sections count */}
-              {timetable.timetable_type === 'semester' && (
-                <div>
-                  <span className='text-gray-500'>{adapt('Sections')}</span>
-                  <p className='font-medium'>
-                    {timetable.available_sections?.length || 0} {adapt('Section').toLowerCase()}(s)
-                  </p>
-                </div>
-              )}
+              {/* For semester-level, show the DECLARED scope.
+                  Updated: 2026-09-11 - This used to print
+                  available_sections.length, which is every section in the
+                  semester. A timetable covering 8 of 24 read "24 Section(s)",
+                  overstating what it actually schedules by three times. */}
+              {timetable.timetable_type === 'semester' && (() => {
+                const all = timetable.available_sections || [];
+                const inScope = all.filter((s) => s.in_scope !== false);
+                const names = inScope.map((s) => s.section_name);
+                const isWholeSemester =
+                  all.length > 0 && inScope.length === all.length;
+
+                return (
+                  <div>
+                    <span className='text-gray-500'>{adapt('Sections')}</span>
+                    <p className='font-medium'>
+                      {inScope.length} of {all.length}{' '}
+                      {adapt('Section').toLowerCase()}(s)
+                      {isWholeSemester && (
+                        <span className='ml-1 font-normal text-gray-500'>
+                          (whole semester)
+                        </span>
+                      )}
+                    </p>
+                    {names.length > 0 && !isWholeSemester && (
+                      <p className='mt-1 text-xs text-gray-500'>
+                        {names.join(', ')}
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           </div>
 

@@ -4,16 +4,27 @@
 // worked only because `import type` is erased at build time. Creating it
 // here to plug the type-check debt alongside the Hostel Residents rebuild.
 
+// JSON shapes for jsonb writes live in types/json.ts so non-campus-living code
+// (the HR policy editors) can use them without importing from this module.
+export type { JsonValue, JsonObject } from './json';
+import type { JsonObject } from './json';
+
 // ─── Enums (mirrors supabase/migrations/20260222000015_campus_living_enums_and_tables.sql) ───
 
 export type AllocationType = 'fresh' | 'renewal' | 'transfer' | 'temporary';
 
+// Mirrors the hostel_allocations.status enum EXACTLY. 'pending_approval' and
+// 'rejected' were missing here while existing in the database — and 2 live rows
+// carry them (verified 2026-09-07), so code narrowing on this type was denying
+// states that real rows are in.
 export type AllocationStatus =
   | 'active'
   | 'vacated'
   | 'transferred'
   | 'suspended'
-  | 'pending_vacate';
+  | 'pending_vacate'
+  | 'pending_approval'
+  | 'rejected';
 
 export type VacateReason =
   | 'graduation'
@@ -24,9 +35,25 @@ export type VacateReason =
   | 'semester_end'
   | 'medical';
 
-export type FeeStatus = 'pending' | 'partial' | 'paid' | 'overdue' | 'waived';
+// Mirrors the hostel_allocations.fee_status enum EXACTLY. 'overdue' was listed
+// here but does not exist in the database enum (verified 2026-09-07: the enum is
+// pending|partial|paid|waived, and zero rows carry any other value), so any
+// filter passing it queried for a value that cannot exist. Nothing in the app
+// produced or rendered it.
+export type FeeStatus = 'pending' | 'partial' | 'paid' | 'waived';
 
-export type FoodPreference = 'veg' | 'non_veg' | 'vegan' | 'jain';
+// Mirrors the hostel_allocations.food_preference enum EXACTLY:
+// vegetarian | non_vegetarian | vegan | jain | eggetarian.
+// This previously read 'veg' | 'non_veg' | 'vegan' | 'jain' — two values the
+// database has never accepted and one ('eggetarian') it does. Saving a food
+// preference from the allocation drawer therefore failed on the enum every
+// time, which is why 0 rows carry one (verified 2026-09-07).
+export type FoodPreference =
+  | 'vegetarian'
+  | 'non_vegetarian'
+  | 'vegan'
+  | 'jain'
+  | 'eggetarian';
 
 // ─── Core row + DTOs ───────────────────────────────────────────────────
 
@@ -88,7 +115,7 @@ export interface CreateHostelAllocationDTO {
   emergency_contact_relation: string;
   medical_conditions?: string | null;
   food_preference?: FoodPreference | null;
-  metadata?: Record<string, unknown>;
+  metadata?: JsonObject;
   // ─── New columns added in hostel-rooms-v2 PR 1 ───
   monthly_fee_at_allocation_inr?: number | null;
   warden_id?: string | null;
@@ -109,7 +136,7 @@ export interface UpdateHostelAllocationDTO {
   emergency_contact_relation?: string;
   medical_conditions?: string | null;
   food_preference?: FoodPreference | null;
-  metadata?: Record<string, unknown>;
+  metadata?: JsonObject;
   // ─── New columns added in hostel-rooms-v2 PR 1 ───
   monthly_fee_at_allocation_inr?: number | null;
   warden_id?: string | null;
@@ -125,6 +152,9 @@ export interface AllocationFilters {
   allocation_type?: AllocationType;
   fee_status?: FeeStatus;
   learner_id?: string;
+  /** hostel_allocations.academic_year_id — the service already filtered on
+   *  this; it was simply missing from the interface. */
+  academic_year_id?: string;
   search?: string;
 }
 
@@ -214,7 +244,17 @@ export interface LearnerHostelite {
   current_allocation_id?: string | null;
   current_room_number?: string | null;
   current_bed_number?: string | null;
-  /** Learner lifecycle status (surfaced from v_learner_hostelites, which is filtered to active/reserved/admitted). */
+  /** False when the learner has no `profiles` row yet. hostel_allocations
+   *  .learner_id FKs profiles(id) and the login profile is only created at the
+   *  admitted -> active activation step, so these learners CANNOT be given a
+   *  bed — the UI must disable Allocate with that reason rather than let the
+   *  insert fail on a 23503. 48 of the 82 reserved/admitted hostelers as of
+   *  2026-09-05. Projected by v_learner_hostelites. */
+  has_login_profile?: boolean;
+  /** Learner lifecycle status. v_learner_hostelites carries active + reserved +
+   *  admitted (migration 20260905102440); the SERVICE defaults reads to
+   *  `active` only, so a widened list is always something the caller asked for.
+   *  See CL_ROSTER_STATUSES in lib/services/campus-living/roster-statuses.ts. */
   lifecycle_status?: string | null;
   /** Which date source produced year_of_study. NULL when no source available. PR #823. */
   year_source?: 'admission_year' | 'batch' | 'enquiry' | null;
@@ -250,6 +290,13 @@ export interface LearnerHostelitesFilters {
    */
   admission_year?: number;
   gender?: 'Male' | 'Female' | 'Other';
+  /**
+   * Learner lifecycle statuses to include. Omitted means
+   * CL_DEFAULT_ROSTER_STATUSES (['active']) — NOT "no filter". The view carries
+   * reserved and admitted too, so an absent filter must still resolve to the
+   * narrow set or every existing screen would silently gain 82 rows.
+   */
+  lifecycle_statuses?: readonly string[];
   block_id?: BlockFilterValue;
   // Block-scoped wardens: restrict to the warden's assigned blocks (cross-
   // institution). ANDs with block_id when both are present.
@@ -297,6 +344,10 @@ export interface UnallocatedCandidate {
   resolved_mess_category_name: string | null;
   // 'matched'|'different_year'|'untagged'|'none'
   bill_state: 'matched' | 'different_year' | 'untagged' | 'none';
+  /** Learner lifecycle status — 'active' | 'reserved' | 'admitted' (migration
+   *  20260905102440). Present so the Unallocated list can badge a reserved
+   *  learner instead of showing an unexplained new name. */
+  lifecycle_status: string;
   // 'ready' = all blocking conditions pass; 'incomplete' = something missing
   readiness: 'ready' | 'incomplete';
   // Human-readable list of what is blocking placement (empty when ready)
@@ -336,13 +387,20 @@ export interface LearnerCurrentAllocation {
   status: AllocationStatus;
 }
 
+// Columns only. `in_time` and `purpose` were listed here and selected by
+// learner-hostelite-service, and neither has ever been a column on
+// hostel_gate_passes — the select failed with 42703 inside a Promise.all, so
+// the residents drawer's gate-pass slice was broken outright.
 export interface LearnerGatePassSummary {
   id: string;
   pass_number: string | null;
   status: string;
+  /** Planned departure, as requested. */
+  planned_out_at: string | null;
+  /** Actual departure, recorded at the gate. */
   out_time: string | null;
-  in_time: string | null;
-  purpose: string | null;
+  actual_return: string | null;
+  destination: string | null;
   created_at: string;
 }
 
@@ -732,6 +790,14 @@ export interface HostelRoom {
   actual_capacity: number | null;
   ac_tonnage_tons: number | null;
   ac_annual_cost_inr: number | null;
+  // ─── Temporary beds (2026-09-09) ───
+  // Beds added beyond the sanctioned capacity for a learner who has to be
+  // placed in an already-full room. They become real, allocatable hostel_beds
+  // rows ('E1', 'E2', …) and count toward availability — but never toward the
+  // fee formula, which stays bound to `capacity`. Super-admin only.
+  extra_bed_count: number;
+  /** Generated: capacity + extra_bed_count. Allocatable beds; NOT a fee input. */
+  effective_capacity: number;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -759,6 +825,10 @@ export interface CreateHostelRoomDTO {
   actual_capacity?: number | null;
   ac_tonnage_tons?: number | null;
   ac_annual_cost_inr?: number | null;
+  // Super-admin only — a BEFORE trigger raises 42501 for anyone else. Omit the
+  // key entirely rather than sending 0, so a non-super-admin's save of the
+  // other fields is not refused. effective_capacity is generated; never write it.
+  extra_bed_count?: number;
 }
 
 export type UpdateHostelRoomDTO = Partial<CreateHostelRoomDTO>;
@@ -895,6 +965,15 @@ export interface MarkableResident {
    *  get_markable_resident_photos RPC (profiles.avatar_url is NULL for ~all
    *  students). Falls back to initials when absent. */
   student_photo_url: string | null;
+  /**
+   * Set when a cleaning in this learner's room finished and nobody rated it, so
+   * attendance is held for the whole room. Null when they can be marked.
+   *
+   * UX only — the BEFORE trigger on hostel_attendance is the actual wall. This
+   * exists so the warden sees a reason instead of a raw check_violation.
+   * Shaped like the academic side's LeaveBlockInfo so one banner renders both.
+   */
+  feedback_hold?: import('./campus-living/housekeeping').FeedbackHold | null;
 }
 
 export interface CreateHostelAttendanceDTO {
@@ -930,52 +1009,201 @@ export interface AttendanceFilters {
 // ─── Hostel Gate Passes ────────────────────────────────────────────────
 // Mirrors `hostel_gate_passes` table + supabase.ts enums.
 
+// The full lifecycle, in the order gate_pass_status_enum declares it. All seven
+// labels are live on the database — `requested` and `rejected` were added by
+// 20260907020000 and were simply missing from this union, which is why the
+// service had to cast every status write to `any`.
 export type GatePassStatus =
+  | 'requested'
   | 'issued'
   | 'active'
   | 'returned'
   | 'overdue'
-  | 'cancelled';
+  | 'cancelled'
+  | 'rejected';
 
+/**
+ * RETIRED, kept only for the published API contract.
+ *
+ * A pass is classified by `leave_type_id` — the same per-institution
+ * hostel_leave_types list /campus-living/settings/policies-workflows configures
+ * (16 types, each carrying real policy flags). This four-value enum could never
+ * express that, and no UI writes it any more. The column stayed nullable rather
+ * than being dropped because /api/api-management/campus-living/gate-passes
+ * accepts and returns it.
+ */
 export type GatePassType =
   | 'regular_out'
   | 'overnight'
   | 'emergency'
   | 'visitor_accompanied';
 
+/**
+ * Mirrors `hostel_gate_passes` as it stands after 20260912120000.
+ *
+ * Nullability here is the DATABASE's, not the happy path's: pass_number,
+ * qr_code and approved_by have been nullable since the request workflow landed
+ * (a pass that has only been asked for has no number and no approver), and
+ * typing them as `string` is what forced `as any` through the whole service.
+ */
 export interface HostelGatePass {
   id: string;
   institution_id: string;
   learner_id: string;
-  approved_by: string;
-  pass_number: string;
-  pass_type: GatePassType;
+  /** Stamped from the learner's active allocation. Storage only — never a policy predicate. */
+  block_id: string | null;
+
+  // ── What was asked for ──────────────────────────────────────────
+  /** hostel_leave_types.id — the classification every screen reads. */
+  leave_type_id: string | null;
   destination: string;
+  reason: string | null;
+  /** Planned departure. The gate records the real one in `out_time`. */
+  planned_out_at: string | null;
+  /** Planned return — the single due-back timestamp everything downstream reads. */
   expected_return: string;
-  actual_return: string | null;
+  transport_mode: string | null;
+  accompanying_person: string | null;
+  attachment_url: string | null;
+
+  // ── The decision ────────────────────────────────────────────────
+  status: GatePassStatus;
+  pass_number: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  rejected_by: string | null;
+  rejected_at: string | null;
+  rejection_reason: string | null;
+  cancelled_by: string | null;
+  cancellation_reason: string | null;
+
+  /** The warden's phone call to the parent. Advisory — it never blocks approval. */
+  parent_confirmed_at: string | null;
+  parent_confirmed_by: string | null;
+  parent_confirmed_number: string | null;
+
+  // ── What actually happened at the gate ──────────────────────────
   out_time: string | null;
-  gate_security_in: string | null;
+  actual_return: string | null;
   gate_security_out: string | null;
+  gate_security_in: string | null;
+
   leave_request_id: string | null;
   parent_notified: boolean | null;
-  qr_code: string;
-  status: GatePassStatus;
+  /** Retired: the gate scans the learner's permanent MyJKKN QR, not a per-pass code. */
+  qr_code: string | null;
+  /** @deprecated see {@link GatePassType} */
+  pass_type: GatePassType | null;
   created_at: string | null;
   updated_at: string | null;
 }
 
+/** What a learner submits at /campus-living/gate-passes/request. */
+export interface GatePassRequestDTO {
+  institution_id: string;
+  /** A learners_profiles.id OR a profiles.id — the service resolves either. */
+  learner_id: string;
+  leave_type_id: string;
+  reason: string;
+  destination: string;
+  /** ISO. Composed from the form's out date + out time. */
+  planned_out_at: string;
+  /** ISO. Composed from the form's return date + return time. */
+  expected_return: string;
+  transport_mode?: string | null;
+  accompanying_person?: string | null;
+  attachment_url?: string | null;
+}
+
+/** What a warden issues directly at /campus-living/gate-passes/new. */
 export interface CreateHostelGatePassDTO {
   institution_id: string;
   learner_id: string;
   approved_by: string;
-  pass_number: string;
-  pass_type: GatePassType;
+  leave_type_id: string;
   destination: string;
+  planned_out_at?: string | null;
   expected_return: string;
+  reason?: string | null;
+  transport_mode?: string | null;
+  accompanying_person?: string | null;
   leave_request_id?: string | null;
-  parent_notified?: boolean | null;
-  qr_code: string;
+  pass_number?: string | null;
   status?: GatePassStatus;
+}
+
+/**
+ * The learner dossier the warden decides from. Every field is auto-fetched —
+ * `v_learner_hostelites_scoped` for all but three, then `institutions.name`,
+ * `departments.department_name` and `sections.section_name` for the ids the
+ * view does not resolve.
+ *
+ * The SCOPED view, not the base one: `v_learner_hostelites` bypasses RLS and
+ * must never be queried from a browser client.
+ */
+export interface GatePassLearnerDossier {
+  learner_profile_id: string;
+  full_name: string;
+  roll_number: string | null;
+  photo_url: string | null;
+  institution_name: string | null;
+  degree_name: string | null;
+  department_name: string | null;
+  programme_name: string | null;
+  semester_name: string | null;
+  section_name: string | null;
+  academic_year_name: string | null;
+  year_of_study: number | null;
+  student_mobile: string | null;
+  father_mobile: string | null;
+  mother_mobile: string | null;
+  block_name: string | null;
+  room_number: string | null;
+  bed_number: string | null;
+  lifecycle_status: string | null;
+}
+
+/** One phone number the warden can tap to call, labelled by whose it is. */
+export interface GatePassContactNumber {
+  label: 'Student' | 'Father' | 'Mother';
+  number: string;
+}
+
+/** Everything /campus-living/gate-passes/[id] renders, in one read. */
+export interface GatePassDetail {
+  pass: HostelGatePass;
+  leaveType: {
+    id: string;
+    leave_type_name: string;
+    leave_type_code: string;
+    color_code: string;
+    requires_attachment: boolean;
+  } | null;
+  learner: GatePassLearnerDossier | null;
+  contacts: GatePassContactNumber[];
+  approverName: string | null;
+  rejectorName: string | null;
+  parentConfirmedByName: string | null;
+}
+
+/** A row on the warden queue — the pass, flattened for the DataTable. */
+export interface GatePassListRow {
+  id: string;
+  pass_number: string | null;
+  status: GatePassStatus;
+  learner_name: string;
+  learner_email: string | null;
+  leave_type_name: string;
+  destination: string;
+  reason: string | null;
+  planned_out_at: string | null;
+  expected_return: string;
+  out_time: string | null;
+  actual_return: string | null;
+  parent_confirmed_at: string | null;
+  created_at: string | null;
+  /** Index signature so DataTable's ExportableData constraint accepts rows. */
+  [key: string]: string | number | boolean | null | undefined;
 }
 
 // ─── Hostel Visitors + Known Visitors ──────────────────────────────────

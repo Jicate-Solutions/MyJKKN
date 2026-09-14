@@ -81,7 +81,13 @@ export class HRDashboardService {
       institution_id: string | null;
       mode: DashboardMode;
     }
-  ): Promise<HRDashboardPayload> {
+    // display_role is deliberately NOT produced here. It is the viewer's exact
+    // role label, and only the route knows it — viewer_role has already
+    // normalised several raw role_keys down to 'hr_officer' by the time this
+    // runs. app/api/hr/dashboard/route.ts adds it on the way out
+    // (`{ ...payload, display_role }`), so the field stays required on
+    // HRDashboardPayload for every consumer.
+  ): Promise<Omit<HRDashboardPayload, 'display_role'>> {
     const { viewer_role, hr_organization_id, institution_id, mode } = opts;
     const fy = getCurrentFiscalYear();
     const generated_at = new Date().toISOString();
@@ -387,6 +393,9 @@ export class HRDashboardService {
         .from('hr_organizations')
         .select('institution_id')
         .eq('id', hrOrgId)
+        // Resolves to null for an excluded institution, which is the point:
+        // its dashboard should not build at all.
+        .eq('included_in_hr', true)
         .maybeSingle();
       const instId = (org as { institution_id: string | null } | null)?.institution_id ?? null;
       if (instId) docsPending = docsPending.eq('institution_id', instId);
@@ -477,15 +486,6 @@ export class HRDashboardService {
     if (hrOrgId) overdue = overdue.eq('hr_organization_id', hrOrgId);
     const overdueCount = await safeCount(() => overdue);
 
-    let emergency = supabase
-      .from('hr_leave_applications')
-      .select('id', { count: 'exact', head: true })
-      .eq('is_emergency', true)
-      .gte('start_date', fy.start)
-      .lte('start_date', fy.end);
-    if (hrOrgId) emergency = emergency.eq('hr_organization_id', hrOrgId);
-    const emergencyCount = await safeCount(() => emergency);
-
     return [
       {
         name: 'overdue_approvals',
@@ -494,13 +494,6 @@ export class HRDashboardService {
         overdue: overdueCount,
         drill_url: `/hr/leave/approve?status=pending&created_before=${overdueCutoff}`,
         icon: 'Clock',
-      },
-      {
-        name: 'emergency_leave_fy',
-        label: 'Emergency Leave (FY)',
-        value: emergencyCount,
-        drill_url: `/hr/leave/approve?is_emergency=true&fy=${fy.label}`,
-        icon: 'Flame',
       },
     ];
   }
@@ -665,6 +658,8 @@ export class HRDashboardService {
     const { data: orgs, error } = await supabase
       .from('hr_organizations')
       .select('id, name, institution_id')
+      // Excluded institutions are not part of the HR module.
+      .eq('included_in_hr', true)
       .not('institution_id', 'is', null)
       .order('name', { ascending: true });
     if (error) throw error;

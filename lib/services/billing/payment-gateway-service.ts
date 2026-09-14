@@ -827,7 +827,17 @@ export class PaymentGatewayService {
     try {
       logger.info('billing/payment-gateway', 'Checking payment status', { transactionId });
 
+      // READ with the caller's session so RLS still decides who may look at this
+      // transaction. WRITE with the service-role client: the status persisted
+      // below is the gateway's answer, not the caller's claim, and
+      // `payment_transactions_update_policy` only admits super_admin / admin /
+      // accounts. A learner polling their own payment was therefore having the
+      // UPDATE silently dropped (RLS returns zero rows, no error), so a
+      // transaction stuck at 'initiated' could never self-heal from this path.
+      // The caller is authorised upstream in the route handler; the reason this
+      // needs elevation is the row's own update policy, not the caller.
       const supabase = await createClient();
+      const writer = createServiceRoleClient();
 
       // Step 1: Fetch transaction
       const { data: transaction, error: transactionError } = await (supabase as any)
@@ -882,7 +892,7 @@ export class PaymentGatewayService {
         else if (rzpStatus.status === 'refunded') newStatus = 'refunded';
 
         if (newStatus !== transaction.status) {
-          const { error: updateError } = await (supabase as any)
+          const { error: updateError } = await (writer as any)
             .from('payment_transactions')
             .update({
               status: newStatus,
@@ -935,7 +945,7 @@ export class PaymentGatewayService {
       }
 
       if (newStatus !== transaction.status) {
-        const { error: updateError } = await (supabase as any)
+        const { error: updateError } = await (writer as any)
           .from('payment_transactions')
           .update({
             status: newStatus,

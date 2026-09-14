@@ -144,6 +144,22 @@ const recruitmentSignoff: DirectorSignalDescriptor = {
   confidence: 'enforced',
   kind: 'people',
   async evaluate(supabase) {
+    // NOT widened to 'offer_issued' when the Issue Offer control shipped
+    // (2026-09-12, PR #3656), and that is correct — checked, not assumed.
+    //
+    // This signal is "Hires awaiting YOUR SIGNATURE": the `pinned` filter below
+    // keeps only rows whose CURRENT chain step names the Director. On final
+    // approval `fn_decide_recruitment_candidate` sets `current_step = v_next`
+    // where `v_next >= v_len` (migration 20260909230000 ~line 235), so for any
+    // candidate at 'approved' or beyond — 'package_fixed' and 'offer_issued'
+    // both — `approval_chain[current_step]` is undefined and `pinned` can never
+    // match. 'package_fixed' in this list is therefore ALREADY unreachable, and
+    // adding 'offer_issued' would add a second unreachable status rather than a
+    // row. It would also be wrong in meaning: a hire who has been issued an
+    // offer is past every approval and is awaiting nobody's signature.
+    //
+    // The queue that must (and does) carry these rows is fn_my_desk_waiting's
+    // 'offer' branch, widened in this PR's migration 20261202090000.
     const { data, error } = await supabase
       .from('hr_recruitment_candidates')
       .select('submitted_at, current_step, approval_chain')

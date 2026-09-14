@@ -35,6 +35,6 @@ export class ChatbotService {
     counselorId?: string
   ): Promise<void> {
     console.warn('[chatbot-service] handoffToHuman stub called');
-    throw new Error('Chatbot service not yet implemented');
+    throw new Error('Handing this chat over to a counselor is not available yet.');
   }
 }

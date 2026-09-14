@@ -4,14 +4,16 @@
  *
  * Mirrors supabase/migrations/20260904120000_hr_work_patterns.sql.
  *
- * A work pattern is an institution-scoped, named working week (which weekdays,
- * which hours) with its own days-per-leave-type. Its hours are ordinary
- * hr_shift_timings rows with staff_scope = 'work_pattern'; who is on it is an
- * effective-dated assignment. For an assigned person the pattern is EXCLUSIVE:
- * the resolver reads its rows or nothing, never the institution week.
+ * A work pattern is an institution-scoped, named set of WORKING DAYS with its
+ * own days-per-leave-type. Hours are never here: a member keeps the hours of
+ * their ordinary Shift Timings row (teaching / non-teaching / category /
+ * gender), and the pattern switches OFF the weekdays it does not work. It can
+ * remove days, never add one the institution's week does not work. The days
+ * are effective-dated (hr_work_pattern_weeks), like shift weeks are, so a
+ * later change cannot rewrite months already judged.
  */
 
-import type { IsoDayOfWeek } from '@/types/hr-shift-timings';
+import type { IsoDayOfWeek, ShiftAttendanceMode } from '@/types/hr-shift-timings';
 
 export interface HRWorkPattern {
   id: string;
@@ -72,16 +74,78 @@ export interface HRStaffWorkPatternAssignment {
   notes: string | null;
 }
 
-/** A pattern as listed: its row plus what the week, members and figures look like. */
+/** One effective-dated row of a pattern's working days. */
+export interface HRWorkPatternWeek {
+  id: string;
+  work_pattern_id: string;
+  /** ISO weekdays 1=Mon .. 7=Sun, sorted. */
+  working_days: IsoDayOfWeek[];
+  effective_from: string;
+  /** Exclusive. */
+  effective_until: string | null;
+  notes: string | null;
+  /**
+   * Per-day hour overrides, for the days that have one.
+   *
+   * OPTIONAL BY DESIGN, and usually empty: `working_days` decides WHICH days
+   * are worked, and a day with no entry here keeps the institution's shift
+   * timing for that weekday. An entry only exists where the pattern also needs
+   * to restate the hours — the visiting consultant who owes an hour on a
+   * Wednesday rather than the institution's full Wednesday.
+   */
+  day_hours?: HRWorkPatternDayHours[];
+}
+
+/**
+ * The hours a pattern imposes on one weekday.
+ *
+ * Mirrors hr_work_pattern_week_days, whose CHECK makes the two modes exclusive:
+ * a 'duration' row carries `required_minutes` and no windows, a 'span' row
+ * carries windows and no minutes. Anything else is a half-configured day.
+ */
+export interface HRWorkPatternDayHours {
+  day_of_week: IsoDayOfWeek;
+  attendance_mode: ShiftAttendanceMode;
+  /** Minutes owed on a 'duration' day; null on a 'span' day. */
+  required_minutes: number | null;
+  first_half_start: string | null;
+  first_half_end: string | null;
+  second_half_start: string | null;
+  second_half_end: string | null;
+  grace_minutes: number;
+}
+
+/** fn_hr_set_work_pattern_days */
+export interface SetWorkPatternDaysResult {
+  pattern_id: string;
+  week_id: string;
+  working_days: IsoDayOfWeek[];
+  effective_from: string;
+  /** True when a previous days row was closed at the date (a future change). */
+  superseded: boolean;
+  /** How many of the working days ended up carrying an hour override. */
+  days_with_hours: number;
+}
+
+/** A member as named on the pattern card — identity only, no dates. */
+export interface WorkPatternMemberBrief {
+  staff_id: string;
+  /** staff.staff_id — the employee code. */
+  staff_code: string | null;
+  name: string;
+  designation: string | null;
+}
+
+/** A pattern as listed: its row plus what the days, members and figures look like. */
 export interface WorkPatternSummary extends HRWorkPattern {
   /** For the "All institutions" listing; null only if the join was unreadable. */
   institution_name: string | null;
-  /** From the week in force on `asOf`; empty when no week has been saved yet. */
+  /** From the days row in force on `asOf`; empty when none has been saved yet. */
   working_days: IsoDayOfWeek[];
-  first_half_start: string | null;
-  second_half_end: string | null;
-  week_effective_from: string | null;
+  days_effective_from: string | null;
   member_count: number;
+  /** Who holds the pattern on `asOf`, name-sorted — one entry per counted member. */
+  members: WorkPatternMemberBrief[];
   entitlements: Array<{ leave_type_code: string; entitled_days: number }>;
 }
 
@@ -144,7 +208,7 @@ export interface AssignWorkPatternStaffResult {
 export interface DeleteWorkPatternResult {
   deleted: true;
   name: string;
-  week_rows_removed: number;
+  weeks_removed: number;
 }
 
 export interface AssignWorkPatternResult {

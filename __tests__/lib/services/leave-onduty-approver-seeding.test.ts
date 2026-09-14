@@ -38,9 +38,21 @@ const SECTION_ID = '3896c106-229f-496d-8552-50823e615c56';
 const DEPARTMENT_ID = '57047edf-b70b-4785-b68a-52b8880cad2a';
 const APPLICATION_ID = '11111111-1111-4111-8111-111111111111';
 
-// 2026-08-13 is a Thursday, far enough ahead that the backdate rule in
-// validateApplicationData does not reject it.
-const APPLY_DATE = '2026-08-13';
+// The TIMETABLE fixture below defines periods on THURSDAY only, and
+// validateApplicationData rejects a start_date more than
+// DEFAULT_VALIDATION_RULES.dates.maxBackdate days in the past. Derive the next
+// Thursday instead of hard-coding one: a fixed literal (this was '2026-08-13')
+// passes only until it falls out of the backdate window, then fails forever —
+// on every open PR, since test-suite.yml has no path filter. There is no
+// forward limit in validateApplicationData, so a future Thursday is always safe.
+// Built from local date parts, not toISOString(), which would shift the day
+// backwards for any timezone ahead of UTC and could land on a Wednesday.
+const APPLY_DATE = (() => {
+  const d = new Date();
+  d.setDate(d.getDate() + ((4 - d.getDay() + 7) % 7 || 7)); // Thu = 4; always future
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+})();
 const PERIOD_ID = 'd0f0d519-43ef-467b-8385-fcc961185b93';
 const COURSE_ID = 'd990aed1-95b2-4f18-86f8-f9223dc3d8ec';
 

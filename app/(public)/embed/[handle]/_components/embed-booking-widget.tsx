@@ -271,9 +271,11 @@ export function EmbedBookingWidget(props: EmbedBookingWidgetProps) {
             </div>
           )}
           <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#1C2B24]/55">
-              {props.institutionName ?? 'JKKN Institutions'}
-            </p>
+            {/* The institution eyebrow was removed 2026-09-08: the host's profile
+                institution is an internal filing detail, and it surfaced
+                "JKKN Testing Institution" to every visitor of the public page.
+                `institutionName` is still passed — the Razorpay checkout uses it
+                as the merchant name, and /meet groups the directory by it. */}
             <h1
               className="text-[1.6rem] leading-tight"
               style={{ fontFamily: 'var(--font-dm-serif-display), serif', color: 'var(--meet-accent)' }}

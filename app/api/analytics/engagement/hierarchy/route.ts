@@ -3,6 +3,13 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { EngagementService } from '@/lib/services/analytics/engagement-service';
+import {
+  ALL_INSTITUTIONS_ID,
+  BREAKDOWN_PARENT_LEVEL,
+  ENGAGEMENT_INSTITUTION_STAFF_ROLES,
+  applyEngagementScope
+} from '@/lib/services/analytics/engagement-scope';
 
 /**
  * GET /api/analytics/engagement/hierarchy
@@ -11,6 +18,14 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
  * Query params:
  * - level: 'all' | 'institution' | 'department' | 'program' | 'semester' | 'section'
  * - parent_id: UUID of parent entity (optional, filters results)
+ *
+ * Scope: a breakdown is only returned when the viewer may see its parent.
+ * department rows need their institution, program rows their department, and
+ * so on; the institution-level breakdown (and any breakdown with no parent)
+ * needs "all institutions". Outside the scope the answer is a 403 with a plain
+ * message, never an empty 200. Every query below also carries the viewer's
+ * scope as a filter, so a principal's institution breakdown lists only their
+ * own institution. Rules: lib/services/analytics/engagement-scope.ts.
  */
 export async function GET(request: NextRequest) {
   try {
@@ -36,14 +51,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
     }
 
-    // Allow access for analytics roles
-    const allowedRoles = [
+    // Allow access for analytics roles. Admin, counsellor and accounts staff are
+    // listed by their stored role names (the old 'counselor' no longer exists);
+    // the scope gate below holds every role to its own scope.
+    const allowedRoles: string[] = [
       'principal',
       'hod',
       'faculty',
-      'admin',
-      'counselor',
-      'accounts'
+      ...ENGAGEMENT_INSTITUTION_STAFF_ROLES
     ];
 
     if (!profile.is_super_admin && !allowedRoles.includes(profile.role)) {
@@ -62,7 +77,31 @@ export async function GET(request: NextRequest) {
     const ALL_VALUES = ['all', 'all_departments', 'all_programs', 'all_semesters', 'all_sections'];
     const shouldFilter = parentId && !ALL_VALUES.includes(parentId);
 
-    // Use service role client for elevated permissions
+    const VALID_LEVELS = ['all', 'institution', 'department', 'program', 'semester', 'section'];
+    if (!VALID_LEVELS.includes(level)) {
+      return NextResponse.json(
+        { error: 'Invalid level parameter' },
+        { status: 400 }
+      );
+    }
+
+    // Gate on the breakdown's parent before reading any engagement rows.
+    const access =
+      level === 'all' || level === 'institution' || !shouldFilter
+        ? await EngagementService.checkAccess(user.id, 'institution', ALL_INSTITUTIONS_ID)
+        : await EngagementService.checkAccess(
+            user.id,
+            BREAKDOWN_PARENT_LEVEL[level as keyof typeof BREAKDOWN_PARENT_LEVEL],
+            parentId as string
+          );
+    if (!access.allowed) {
+      return NextResponse.json({ error: access.reason }, { status: access.status });
+    }
+    const scope = access.scope;
+
+    // Use service role client for elevated permissions. RLS on
+    // student_engagement_scores scopes by institution only, so the viewer's
+    // scope is added to every query below instead.
     const serviceSupabase = createServiceRoleClient();
 
     let hierarchyData: any[] = [];
@@ -71,16 +110,19 @@ export async function GET(request: NextRequest) {
       case 'all':
       case 'institution':
         // Get institution-level breakdown
-        const { data: institutions } = await serviceSupabase
-          .from('student_engagement_scores')
-          .select(
-            `
+        const { data: institutions } = await applyEngagementScope(
+          serviceSupabase
+            .from('student_engagement_scores')
+            .select(
+              `
             institution_id,
             engagement_level,
             institutions!inner(name)
           `
-          )
-          .eq('calculation_date', new Date().toISOString().split('T')[0]);
+            )
+            .eq('calculation_date', new Date().toISOString().split('T')[0]),
+          scope
+        );
 
         hierarchyData = aggregateByEntity(
           institutions || [],
@@ -91,17 +133,22 @@ export async function GET(request: NextRequest) {
 
       case 'department':
         // Get department-level breakdown
-        let deptQuery = serviceSupabase
-          .from('student_engagement_scores')
-          .select(
-            `
+        // departments has department_name, not name: selecting `name` failed the
+        // whole query, so this breakdown was always empty.
+        let deptQuery = applyEngagementScope(
+          serviceSupabase
+            .from('student_engagement_scores')
+            .select(
+              `
             department_id,
             engagement_level,
-            departments!inner(name, institution_id)
+            departments!inner(department_name, institution_id)
           `
-          )
-          .eq('calculation_date', new Date().toISOString().split('T')[0])
-          .not('department_id', 'is', null);
+            )
+            .eq('calculation_date', new Date().toISOString().split('T')[0])
+            .not('department_id', 'is', null),
+          scope
+        );
 
         if (shouldFilter) {
           deptQuery = deptQuery.eq('institution_id', parentId);
@@ -111,23 +158,27 @@ export async function GET(request: NextRequest) {
         hierarchyData = aggregateByEntity(
           departments || [],
           'department_id',
-          'departments'
+          'departments',
+          'department_name'
         );
         break;
 
       case 'program':
         // Get program-level breakdown
-        let progQuery = serviceSupabase
-          .from('student_engagement_scores')
-          .select(
-            `
+        let progQuery = applyEngagementScope(
+          serviceSupabase
+            .from('student_engagement_scores')
+            .select(
+              `
             program_id,
             engagement_level,
             programs!inner(program_name, department_id)
           `
-          )
-          .eq('calculation_date', new Date().toISOString().split('T')[0])
-          .not('program_id', 'is', null);
+            )
+            .eq('calculation_date', new Date().toISOString().split('T')[0])
+            .not('program_id', 'is', null),
+          scope
+        );
 
         if (shouldFilter) {
           progQuery = progQuery.eq('department_id', parentId);
@@ -139,17 +190,20 @@ export async function GET(request: NextRequest) {
 
       case 'semester':
         // Get semester-level breakdown
-        let semQuery = serviceSupabase
-          .from('student_engagement_scores')
-          .select(
-            `
+        let semQuery = applyEngagementScope(
+          serviceSupabase
+            .from('student_engagement_scores')
+            .select(
+              `
             semester_id,
             engagement_level,
             semesters!inner(semester_name, program_id)
           `
-          )
-          .eq('calculation_date', new Date().toISOString().split('T')[0])
-          .not('semester_id', 'is', null);
+            )
+            .eq('calculation_date', new Date().toISOString().split('T')[0])
+            .not('semester_id', 'is', null),
+          scope
+        );
 
         if (shouldFilter) {
           semQuery = semQuery.eq('program_id', parentId);
@@ -166,17 +220,20 @@ export async function GET(request: NextRequest) {
 
       case 'section':
         // Get section-level breakdown
-        let secQuery = serviceSupabase
-          .from('student_engagement_scores')
-          .select(
-            `
+        let secQuery = applyEngagementScope(
+          serviceSupabase
+            .from('student_engagement_scores')
+            .select(
+              `
             section_id,
             engagement_level,
             sections!inner(section_name, semester_id)
           `
-          )
-          .eq('calculation_date', new Date().toISOString().split('T')[0])
-          .not('section_id', 'is', null);
+            )
+            .eq('calculation_date', new Date().toISOString().split('T')[0])
+            .not('section_id', 'is', null),
+          scope
+        );
 
         if (shouldFilter) {
           secQuery = secQuery.eq('semester_id', parentId);

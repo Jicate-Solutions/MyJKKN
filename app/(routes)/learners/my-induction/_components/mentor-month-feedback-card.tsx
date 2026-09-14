@@ -41,7 +41,10 @@ export function MentorMonthFeedbackCard({ eventId }: { eventId: string }) {
     <Card>
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
-          <HeartHandshake className="h-4 w-4" style={{ color: BRAND }} /> Your Senior Peer Mentor
+          {/* Titled for what it ASKS, not who it is about — MyMentorCard sits
+              directly above and owns "Your Senior Peer Mentor". Two adjacent
+              cards under the same heading read as one broken card. */}
+          <HeartHandshake className="h-4 w-4" style={{ color: BRAND }} /> Mentor check-in
         </CardTitle>
         <CardDescription>
           One quick question each month — it helps us know if the mentoring programme is actually working for you.

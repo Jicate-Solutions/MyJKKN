@@ -22,6 +22,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { normalizeMetaToken } from '@/lib/meta/graph-api-client';
 
 const GRAPH_VERSION = 'v25.0';
 
@@ -179,7 +180,7 @@ export async function GET() {
 
   const auditSummary = await loadAuditSummary();
 
-  const token = process.env.META_PAGE_ACCESS_TOKEN;
+  const token = normalizeMetaToken(process.env.META_PAGE_ACCESS_TOKEN, 'META_PAGE_ACCESS_TOKEN');
   if (!token) {
     return NextResponse.json(
       {

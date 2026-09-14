@@ -26,12 +26,22 @@ import {
   useActivityTimeline,
   useAuditStats
 } from '@/hooks/audit-trail/use-audit-trail';
+import {
+  AUDIT_LOG_DEFAULT_LIMIT,
+  AUDIT_LOG_DEFAULT_WINDOW_DAYS
+} from '@/lib/services/audit-trail/audit-service';
 import { useAuth } from '@/hooks/use-auth';
 import { AuditAction, AuditModule, AuditSeverity } from '@/types/audit-trail';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ActivityTimelineView } from './_components/activity-timeline-view';
 import { useTabParam } from '@/hooks/use-tab-param';
+import { toast } from 'sonner';
+import { downloadCsv } from '@/lib/utils/csv-export';
+import {
+  AUDIT_TRAIL_EXPORT_COLUMNS,
+  fetchAuditLogsForExport
+} from './_components/audit-trail-export';
 
 const AUDIT_TRAIL_TABS = ['timeline', 'statistics'] as const;
 
@@ -42,6 +52,7 @@ function AuditTrailPageInner() {
   const [actionFilter, setActionFilter] = useState('all');
   const [moduleFilter, setModuleFilter] = useState('all');
   const [severityFilter, setSeverityFilter] = useState('all');
+  const [isExporting, setIsExporting] = useState(false);
 
   const filters = useMemo(() => {
     const f: any = {};
@@ -56,9 +67,30 @@ function AuditTrailPageInner() {
     useActivityTimeline(filters);
   const { data: stats, isLoading: statsLoading } = useAuditStats(filters);
 
-  const handleExport = () => {
-    // TODO: Implement export functionality
-    console.log('Export audit logs');
+  // Same `filters` the timeline and statistics read, same viewer session.
+  const handleExport = async () => {
+    setIsExporting(true);
+    try {
+      const { logs, reachedLimit } = await fetchAuditLogsForExport(filters);
+      if (logs.length === 0) {
+        toast.info('There are no audit logs to download for these filters.');
+        return;
+      }
+      downloadCsv(logs, AUDIT_TRAIL_EXPORT_COLUMNS, 'audit-trail');
+      const count = logs.length.toLocaleString('en-IN');
+      if (reachedLimit) {
+        toast.success(
+          `Downloaded the newest ${count} entries. Narrow the filters to download the rest.`
+        );
+      } else {
+        toast.success(`Downloaded ${count} ${logs.length === 1 ? 'entry' : 'entries'}.`);
+      }
+    } catch (error) {
+      console.error('[audit-trail] Export failed:', error);
+      toast.error('The audit logs could not be downloaded. Please try again.');
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   return (
@@ -83,10 +115,20 @@ function AuditTrailPageInner() {
           <p className='text-muted-foreground'>
             Track all system activities and changes
           </p>
+          <p className='text-xs text-muted-foreground mt-1'>
+            Platform activity from the last {AUDIT_LOG_DEFAULT_WINDOW_DAYS} days
+            &middot; the timeline lists the {AUDIT_LOG_DEFAULT_LIMIT} most recent
+            entries
+          </p>
         </div>
-        <Button variant='outline' onClick={handleExport} className='shrink-0 self-start sm:self-auto'>
+        <Button
+          variant='outline'
+          onClick={handleExport}
+          disabled={isExporting}
+          className='shrink-0 self-start sm:self-auto'
+        >
           <Download className='mr-2 h-4 w-4' />
-          Export Logs
+          {isExporting ? 'Exporting...' : 'Export Logs'}
         </Button>
       </div>
 

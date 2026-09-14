@@ -35,7 +35,10 @@ export class CampusLivingReports {
 
       let roomQ = supabase
         .from('hostel_rooms')
-        .select('id, block_id, room_number, floor, room_type, ac_status, capacity')
+        // capacity is the sanctioned (fee-bearing) figure; effective_capacity
+        // adds any temporary extra beds. Both ride along so the report can show
+        // the real bed count without losing what the room is charged for.
+        .select('id, block_id, room_number, floor, room_type, ac_status, capacity, extra_bed_count, effective_capacity')
         .order('block_id')
         .order('room_number');
       if (blockIdFilter !== null && blockIdFilter.length > 0) {

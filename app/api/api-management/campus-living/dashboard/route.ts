@@ -52,8 +52,12 @@ export const GET = withAuth(async (request, auth) => {
       .eq('institution_id', institutionId).in('status', ['open', 'assigned', 'in_progress']),
     supabase.from('hostel_visitors').select('*', { count: 'exact', head: true })
       .eq('institution_id', institutionId).eq('status', 'checked_in'),
-    supabase.from('hostel_cleaning_tasks').select('*', { count: 'exact', head: true })
-      .eq('institution_id', institutionId).eq('date', today).eq('status', 'scheduled'),
+    // Repointed 2026-09-07: hostel_cleaning_tasks was dropped when housekeeping
+    // was rebuilt. The nearest equivalent to "a cleaning is due today and has
+    // not been done" is a booking for today that no cleaner has finished yet.
+    supabase.from('hostel_cleaning_bookings').select('*', { count: 'exact', head: true })
+      .eq('institution_id', institutionId).eq('booking_date', today)
+      .in('status', ['booked', 'assigned', 'in_progress']),
     supabase.from('hostel_laundry_orders').select('*', { count: 'exact', head: true })
       .eq('institution_id', institutionId).in('status', ['collected', 'washing', 'ready']),
   ]);

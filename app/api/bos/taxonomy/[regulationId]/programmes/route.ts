@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
-import { resolveBosAccess } from '@/lib/utils/bos/bos-access';
+import { resolveBosBoardScope } from '@/lib/utils/bos/bos-access';
 import { getBoardMemberProgrammes } from '@/lib/utils/bos/bos-chairman-access';
 import { BosProgrammeSummary } from '@/types/bos';
 
 type Params = { params: Promise<{ regulationId: string }> };
 
 // Roles that can edit all programmes (treated as board chairman / institutional head).
-const CHAIRMAN_ROLES = new Set(['hod', 'principal', 'vice_principal', 'dean', 'facilitator', 'coordinator']);
+// 'hod' is NOT here any more: an HOD edits only the programmes of the
+// departments they head (scope.hodDepartmentIds) — see the HOD block below.
+const CHAIRMAN_ROLES = new Set(['principal', 'vice_principal', 'dean', 'facilitator', 'coordinator']);
 
 /**
  * GET /api/bos/taxonomy/[regulationId]/programmes
@@ -31,7 +33,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const scope = await resolveBosAccess(user.id);
+    const scope = await resolveBosBoardScope(user.id);
 
     // Client passes institutionsId from the composition page so cross-institution
     // board members (e.g. SF user on an Aided board) use the board's institution.
@@ -91,12 +93,14 @@ export async function GET(request: NextRequest, { params }: Params) {
       [...coeBoardMap.entries()].map(([id, b]) => [id, b.board_name])
     );
 
-    // Fetch PO counts per programme for this regulation
+    // Fetch PO counts per programme for this regulation (active rows only —
+    // deactivated outcomes stay in the table but are not counted)
     const { data: poCounts } = await supabase
       .from('bos_programme_outcomes')
       .select('programme_code')
       .eq('institutions_id', institutionsId)
       .eq('regulation_id', regulationId)
+      .eq('is_active', true)
       .in('programme_code', programmeCodes);
 
     const poCountMap = new Map<string, number>();
@@ -110,6 +114,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       .select('programme_code')
       .eq('institutions_id', institutionsId)
       .eq('regulation_id', regulationId)
+      .eq('is_active', true)
       .in('programme_code', programmeCodes);
 
     const psoCountMap = new Map<string, number>();
@@ -125,6 +130,23 @@ export async function GET(request: NextRequest, { params }: Params) {
       memberProgrammes = new Set(programmeCodes);
     } else {
       memberProgrammes = await getBoardMemberProgrammes(user.id, programmeCodes, institutionsId);
+    }
+
+    // HOD: programmes whose programs.department_id is a department they head
+    // are editable (and visible) even without board membership — the same
+    // rule canWriteProgrammeOutcomes enforces on every write path.
+    if (scope.isHod && scope.hodDepartmentIds.size > 0) {
+      const { data: hodProgs } = await adminSupabase
+        .from('programs')
+        .select('program_id')
+        .in('institution_id', queryIds)
+        .in('department_id', [...scope.hodDepartmentIds]);
+      for (const p of (hodProgs ?? []) as { program_id: string }[]) {
+        const code = (p.program_id ?? '').toUpperCase();
+        if (programmeCodes.some((c) => c.toUpperCase() === code)) {
+          memberProgrammes.add(programmeCodes.find((c) => c.toUpperCase() === code)!);
+        }
+      }
     }
 
     const result: BosProgrammeSummary[] = boardProgs

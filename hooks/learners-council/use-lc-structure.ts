@@ -299,6 +299,37 @@ export function useUpdateMemberStatus() {
   });
 }
 
+/**
+ * Move a sitting member to a different seat.
+ *
+ * Invalidates positions as well as members: the seat they left is now free and
+ * the seat they took is now filled, and the assign dialog greys out filled
+ * seats from that data.
+ */
+export function useChangeMemberPosition() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      memberId,
+      positionId,
+      notes
+    }: {
+      memberId: string;
+      positionId: string;
+      notes?: string;
+    }) => LCStructureService.changeMemberPosition(memberId, positionId, notes),
+    onSuccess: () => {
+      toast.success('Position changed');
+      queryClient.invalidateQueries({ queryKey: lcStructureKeys.members.all });
+      queryClient.invalidateQueries({ queryKey: lcStructureKeys.positions.all });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to change position');
+    }
+  });
+}
+
 // ============================================================================
 // YUVA CHAPTER HOOKS
 // ============================================================================

@@ -101,6 +101,20 @@ export interface ImportPreviewRow {
   device_status: string;
   /** The window this verdict was judged against, e.g. '09:00–16:30 +5m'. */
   shift_window: string | null;
+  /**
+   * The named work pattern in force for this staff member on this date, or
+   * null when they follow the institution's own week. The pattern is already
+   * baked into the verdict — fn_shift_timing_pick blanks a weekday the pattern
+   * does not work — so this only names the rule that did it.
+   */
+  work_pattern: string | null;
+  /**
+   * The working weekdays actually in force for them, ISO 1=Mon..7=Sun: the
+   * pattern's mask when they hold one, the institution's week otherwise.
+   * Derived from the resolved timings themselves, so it cannot disagree with
+   * the verdict beside it. Empty only when no day in the file resolved.
+   */
+  working_days: number[];
   verdict: ImportVerdict;
   day_calc: string | null;
   late_minutes: number | null;

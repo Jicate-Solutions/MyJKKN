@@ -1,0 +1,205 @@
+name: Event time consistency
+
+# Catches an event row that stores the same moment twice and disagrees with
+# itself.
+#
+# THE FAILURE CLASS
+#   public.events holds an event's time in two independent shapes:
+#     event_date + start_time / end_time   the plain wall clock — what the event
+#                                          page renders to people
+#     start_date / end_date (timestamptz)  what scheduling logic reads and
+#                                          compares to now()
+#   Nothing keeps them equal. The edit dialog posts all five as separate fields
+#   and validates only that end_date is not before start_date, so editing the
+#   clock and forgetting the timestamp (or the reverse) silently leaves the row
+#   saying two different things.
+#
+#   Each shape stays perfectly self-consistent, which is why nothing catches it:
+#   start before end, every constraint satisfied. Only a human comparing the
+#   rendered page against the scheduler's behaviour can see the disagreement.
+#
+# THE INCIDENT, 2026-09-07
+#   'SEMINAR - LOGISTICS SUPPLY CHAIN MANAGEMENT', 9 Sep, live.
+#     end_time  14:00 IST   ← what attendees were shown
+#     end_date  13:00 IST   ← what the scheduler believed
+#   Found by reading the page; every data-layer check was green.
+#
+#   WHAT DID NOT HAPPEN: the seminar's feedback form opens 9 Sep 14:00 IST — the
+#   CLOCK value. Whoever set it by hand picked the column the page shows, so the
+#   form did not open early and nobody was asked to rate a running session. No
+#   code derives that window from end_date; starts_at/ends_at are plain columns.
+#
+#   That is the point rather than a reason to relax: the row still says two
+#   different things, nothing decided which is authoritative, and the next reader
+#   has an even chance of taking the other one. Four code paths already do —
+#   fn_person_availability treats end_date as a person's busy window, the
+#   calendar and .ics feeds prefer it over the clock the page renders,
+#   fn_induction_my_enrollments reads it, and the NAAC evidence emitter derives
+#   an event's academic year from it.
+#
+# WHY A SCHEDULED SWEEP AND NOT A PR GATE
+#   This is a DATA defect, not a code defect. Event rows are edited through the
+#   Events UI by staff, with no pull request anywhere in the loop, so a PR-scoped
+#   gate would have no diff to inspect and would correctly report nothing —
+#   exactly the gap that .github/workflows/anon-exposure-live.yml exists to close
+#   for anon exposure. Worse, running the live half on every PR would turn an
+#   unrelated event edit into a red run on somebody else's branch, and a gate
+#   that reddens innocent PRs gets switched off within a week.
+#
+#   So: the sweep runs on a timer, and pull requests that touch the gate itself
+#   run its own offline self-test instead.
+#
+# IT MUST NOT CRY WOLF ON MULTI-DAY EVENTS. A multi-day event legitimately ends
+# on a LATER DATE than event_date while its clock times are exactly right — seven
+# rows in production do (CERTIFICATE COURSES 1 Aug -> 15 Sep, the Business
+# Analytics workshop 10-11 Aug, and five more). A later end date is therefore
+# never flagged and only the end TIME OF DAY is compared. An end date EARLIER
+# than event_date is the opposite case — no multi-day reading explains an event
+# that ends before it starts — and is always reported. The self-test pins both
+# halves with real production shapes.
+#
+# THE BASELINE IS A DEBT LEDGER, AND IT NEVER COVERS A LIVE EVENT.
+# The original justification for baselining every pre-existing divergence was
+# that failing would "block every open PR". That was false — see the `sweep` job
+# below: `if: github.event_name != 'pull_request'` means the sweep NEVER runs on
+# a PR, so a red sweep blocks nothing. Only the self-test runs on PRs. The
+# argument protected nothing and downgraded a live, currently-wrong event to a
+# yellow warning under a green exit code.
+#
+# The ledger is kept for the reason that does hold — a permanently red sweep gets
+# ignored as thoroughly as a disabled one, so new divergence must stand out from
+# old — but the line is drawn at LIVE, not at OLD:
+#   draft / archived / cancelled / completed  may be enrolled; they warn.
+#   live                                      never enrolled, never pardoned,
+#                                             always fails.
+# An unrecognised status counts as live, so a new status value makes this gate
+# louder, not quieter. --update-baseline enforces the same rule when it writes.
+#
+# Consequence, deliberately: this sweep is RED today on two live events. That is
+# the gate working. It goes green when someone fixes them in the Events UI, and
+# no pull request is affected either way.
+#
+# IT NEVER WRITES. One read-only SELECT over public.events.
+
+on:
+  schedule:
+    # Twice a day at :41 — 03:41 and 15:41 UTC (09:11 and 21:11 IST). Off the
+    # hour and off the half hour on purpose: :00 is when every scheduled job on
+    # the platform fires at once and runners queue.
+    - cron: '41 3,15 * * *'
+  workflow_dispatch:
+  # Also on PRs that touch the gate itself, so a change to it is exercised before
+  # it can silently stop gating. The live sweep does NOT run here — see below.
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/ci/check-event-time-consistency.mjs'
+      - 'scripts/ci/event-time-divergence-baseline.json'
+      - '.github/workflows/event-time-consistency.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: event-time-consistency-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  self-test:
+    name: The gate's own logic
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    # Deliberately NOT skipped on draft PRs. A `!github.event.pull_request.draft`
+    # condition is how a gate reports success without running, and this one is
+    # the only thing exercising the multi-day carve-out on a PR.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # No npm install: the self-test is dependency-free (node: builtins only),
+      # so a broken lockfile cannot quietly take it offline.
+      #
+      # A gate that is not itself tested is a gate that quietly stops gating, and
+      # this one has a specific way of doing it: loosen the multi-day carve-out
+      # into "skip any row whose dates differ" and it stops seeing the seminar
+      # entirely — silence indistinguishable from a clean sweep. Every case in
+      # the self-test is a real production shape.
+      - name: Run the gate's self-test
+        run: node scripts/ci/check-event-time-consistency.mjs --self-test
+
+  sweep:
+    name: No event disagrees with itself
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      # Only needed for the SUPABASE_DB_URL route (the `pg` client). The
+      # Management API route uses fetch and no dependency at all.
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --fund=false
+
+      # Two ways in, either is sufficient — same as check-anon-exposure-live.mjs.
+      # Wiring only one is how that gate spent four days failing every run when a
+      # single secret went missing, even though the script could have used the
+      # other route. A token is also the narrower credential: revocable on its own
+      # without rotating the database password.
+      - name: Sweep production
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_DB_URL:-}" ] \
+             && { [ -z "${SUPABASE_ACCESS_TOKEN:-}" ] || [ -z "${SUPABASE_PROJECT_REF:-}" ]; }; then
+            echo "::error::No route to the database — the sweep cannot run."
+            echo "Set EITHER SUPABASE_DB_URL (direct Postgres),"
+            echo "OR both SUPABASE_ACCESS_TOKEN and SUPABASE_PROJECT_REF (Management API)."
+            echo "Failing rather than passing: 'the comparison did not run' and 'no event"
+            echo "diverges' are the same silence, and treating the first as the second is"
+            echo "how the seminar's wrong end time survived every green check."
+            exit 1
+          fi
+          if [ -n "${SUPABASE_DB_URL:-}" ]; then
+            echo "Route: direct Postgres (SUPABASE_DB_URL)."
+          else
+            echo "Route: Supabase Management API (SUPABASE_ACCESS_TOKEN + SUPABASE_PROJECT_REF)."
+          fi
+          node scripts/ci/check-event-time-consistency.mjs
+
+      # No `github.event_name != 'pull_request'` guard here: the whole job already
+      # carries it, so repeating it would only suggest this step can run on a PR.
+      - name: Explain a failure
+        if: failure()
+        run: |
+          echo "::error::An event's clock fields and its timestamptz fields disagree."
+          echo "The clock fields (event_date + start_time/end_time) are what the event page"
+          echo "shows people. The timestamptz fields (start_date/end_date) are what"
+          echo "scheduling logic compares to now(). When they differ, a person or a query"
+          echo "reading one of them acts on a moment the other half of the row denies —"
+          echo "a feedback window set an hour early, a busy slot booked at the wrong time,"
+          echo "a calendar invite that does not match the printed programme."
+          echo ""
+          echo "Fix in the Events UI: open the event, set the clock fields and the start/end"
+          echo "date-time to the same moment, and save. Ask the organiser which one is right."
+          echo "Do NOT assume the timestamptz is correct just because it is what the code reads."
+          echo ""
+          echo "A LIVE event is never baselined away. If this run is red on a live event, that"
+          echo "is the gate doing its job — the row is wrong in production now. Draft and"
+          echo "archived debt is listed as a warning instead and does not fail the run."
+          echo ""
+          echo "A multi-day event is NOT this bug: a LATER end DATE is expected and only the"
+          echo "end TIME OF DAY is compared. An end date EARLIER than event_date is always"
+          echo "reported — no multi-day event ends before the day it starts."

@@ -86,7 +86,7 @@ export function MembersTab({ pattern, institutionId }: Props) {
             Assign staff
           </Button>
           {weekMissing && (
-            <p className="mt-1 text-xs text-muted-foreground">Save the pattern&apos;s week first</p>
+            <p className="mt-1 text-xs text-muted-foreground">Save the pattern&apos;s working days first</p>
           )}
         </div>
       </div>

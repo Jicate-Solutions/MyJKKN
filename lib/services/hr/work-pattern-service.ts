@@ -6,16 +6,17 @@
  * destructures `{ error }`: a Supabase failure is a plain object, and a
  * try/catch alone would turn an RLS refusal into an empty list.
  *
- * The pattern's WEEK is not here — it is ordinary hr_shift_timings rows with
- * staff_scope = 'work_pattern', read and written through ShiftTimingService
- * with `workPatternId`. Membership is written ONLY through
- * fn_hr_assign_work_pattern, which also resyncs the open leave balances; the
- * assignments table refuses direct writes from anyone but a super admin.
+ * A pattern's DAYS are effective-dated rows in hr_work_pattern_weeks, written
+ * only through fn_hr_set_work_pattern_days. Hours are never here — a member
+ * keeps their Shift Timings hours and the pattern switches days off.
+ * Membership is written ONLY through fn_hr_assign_work_pattern, which also
+ * resyncs the open leave balances; both tables refuse direct writes from
+ * anyone but a super admin.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import type { HRShiftTiming, IsoDayOfWeek } from '@/types/hr-shift-timings';
+import type { IsoDayOfWeek } from '@/types/hr-shift-timings';
 import type {
   AssignWorkPatternResult,
   AssignableStaff,
@@ -25,10 +26,14 @@ import type {
   HRWorkPatternInsert,
   HRWorkPatternLeaveEntitlement,
   HRWorkPatternUpdate,
+  HRWorkPatternDayHours,
+  HRWorkPatternWeek,
+  SetWorkPatternDaysResult,
   StaffWorkPatternCurrent,
   WorkPatternEntitlementInput,
   WorkPatternLeaveTypeOption,
   WorkPatternMember,
+  WorkPatternMemberBrief,
   WorkPatternSummary,
 } from '@/types/hr-work-patterns';
 
@@ -95,17 +100,14 @@ export class WorkPatternService {
 
     const [weekRes, memberRes, entRes] = await Promise.all([
       supabase
-        .from('hr_shift_timings')
-        .select('work_pattern_id, day_of_week, is_working_day, first_half_start, second_half_end, effective_from')
-        .eq('staff_scope', 'work_pattern')
+        .from('hr_work_pattern_weeks')
+        .select('work_pattern_id, working_days, effective_from')
         .in('work_pattern_id', ids)
-        .eq('is_active', true)
         .lte('effective_from', on)
-        .or(`effective_until.is.null,effective_until.gt.${on}`)
-        .order('day_of_week', { ascending: true }),
+        .or(`effective_until.is.null,effective_until.gt.${on}`),
       supabase
         .from('hr_staff_work_pattern_assignments')
-        .select('work_pattern_id')
+        .select('work_pattern_id, staff_id')
         .in('work_pattern_id', ids)
         .lte('effective_from', on)
         .or(`effective_until.is.null,effective_until.gt.${on}`)
@@ -119,18 +121,39 @@ export class WorkPatternService {
     if (memberRes.error) throw memberRes.error;
     if (entRes.error) throw entRes.error;
 
-    type WeekRow = Pick<HRShiftTiming, 'work_pattern_id' | 'day_of_week' | 'is_working_day' | 'first_half_start' | 'second_half_end' | 'effective_from'>;
-    const weekByPattern = new Map<string, WeekRow[]>();
+    // One days row per pattern is in force on any date (the EXCLUDE constraint
+    // guarantees it), so a plain map suffices.
+    type WeekRow = { work_pattern_id: string; working_days: number[]; effective_from: string };
+    const weekByPattern = new Map<string, WeekRow>();
     for (const w of (weekRes.data ?? []) as WeekRow[]) {
-      if (!w.work_pattern_id) continue;
-      const bucket = weekByPattern.get(w.work_pattern_id);
-      if (bucket) bucket.push(w);
-      else weekByPattern.set(w.work_pattern_id, [w]);
+      weekByPattern.set(w.work_pattern_id, w);
     }
 
+    // Who holds each pattern today, not just how many: the card names them.
+    // One entry per assignment row, so the names and the count never disagree
+    // — a staff member v_hr_staff cannot see (excluded category) still counts,
+    // and reads '(unnamed)' here exactly as it does in the Members tab.
+    type AssignRow = { work_pattern_id: string; staff_id: string };
+    const assignments = (memberRes.data ?? []) as AssignRow[];
+    const { byId: staffById } = await WorkPatternService.staffLite(
+      supabase,
+      Array.from(new Set(assignments.map((a) => a.staff_id))),
+      { withCategories: false },
+    );
+
     const memberCount = new Map<string, number>();
-    for (const m of (memberRes.data ?? []) as Array<{ work_pattern_id: string }>) {
-      memberCount.set(m.work_pattern_id, (memberCount.get(m.work_pattern_id) ?? 0) + 1);
+    const membersByPattern = new Map<string, WorkPatternMemberBrief[]>();
+    for (const a of assignments) {
+      memberCount.set(a.work_pattern_id, (memberCount.get(a.work_pattern_id) ?? 0) + 1);
+      const s = staffById.get(a.staff_id);
+      const bucket = membersByPattern.get(a.work_pattern_id) ?? [];
+      bucket.push({
+        staff_id: a.staff_id,
+        staff_code: s?.staff_id ?? null,
+        name: fullName(s?.first_name, s?.last_name),
+        designation: s?.designation ?? null,
+      });
+      membersByPattern.set(a.work_pattern_id, bucket);
     }
 
     type EntRow = {
@@ -139,7 +162,7 @@ export class WorkPatternService {
       hr_leave_types: { leave_type_code: string; display_order: number } | null;
     };
     const entByPattern = new Map<string, Array<{ leave_type_code: string; entitled_days: number; order: number }>>();
-    for (const e of (entRes.data ?? []) as EntRow[]) {
+    for (const e of (entRes.data ?? []) as unknown as EntRow[]) {
       const bucket = entByPattern.get(e.work_pattern_id) ?? [];
       bucket.push({
         leave_type_code: e.hr_leave_types?.leave_type_code ?? '?',
@@ -150,15 +173,13 @@ export class WorkPatternService {
     }
 
     return rows.map((p) => {
-      const week = weekByPattern.get(p.id) ?? [];
-      const working = week.filter((w) => w.is_working_day);
+      const week = weekByPattern.get(p.id);
       return {
         ...p,
-        working_days: working.map((w) => w.day_of_week as IsoDayOfWeek),
-        first_half_start: working[0]?.first_half_start ?? null,
-        second_half_end: working[0]?.second_half_end ?? null,
-        week_effective_from: week[0]?.effective_from ?? null,
+        working_days: (week?.working_days ?? []).map((d) => d as IsoDayOfWeek),
+        days_effective_from: week?.effective_from ?? null,
         member_count: memberCount.get(p.id) ?? 0,
+        members: (membersByPattern.get(p.id) ?? []).sort((a, b) => a.name.localeCompare(b.name)),
         entitlements: (entByPattern.get(p.id) ?? [])
           .sort((a, b) => a.order - b.order)
           .map(({ leave_type_code, entitled_days }) => ({ leave_type_code, entitled_days })),
@@ -213,14 +234,121 @@ export class WorkPatternService {
   }
 
   /**
-   * Delete a pattern nobody has ever held (its week rows and figures with it).
-   * An RPC because hr_shift_timings' DELETE policy is admin-only; the function
-   * refuses — with the reason — when any assignment, live or ended, exists.
+   * Delete a pattern nobody has ever held (its days and figures with it).
+   * The function refuses — with the reason — when any assignment, live or
+   * ended, exists.
    */
   static async delete(supabase: SupabaseClient, id: string): Promise<DeleteWorkPatternResult> {
     const { data, error } = await supabase.rpc('fn_hr_delete_work_pattern', { p_id: id });
     if (error) throw error;
     return data as DeleteWorkPatternResult;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Working days
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * The weekdays the institution's GENERAL weeks work on `asOf` — the union of
+   * the teaching and non-teaching 'all' rows. The default selection for a new
+   * pattern, and the hint "the institution works Mon–Sat". Category or gender
+   * overrides are not consulted: they are the exception, not the default.
+   */
+  static async getInstitutionWorkingDays(
+    supabase: SupabaseClient,
+    institutionId: string,
+    asOf?: string,
+  ): Promise<IsoDayOfWeek[]> {
+    const on = asOf ?? today();
+    const { data, error } = await supabase
+      .from('hr_shift_timings')
+      .select('day_of_week, is_working_day')
+      .eq('institution_id', institutionId)
+      .in('staff_scope', ['teaching', 'non_teaching'])
+      .eq('applicable_gender', 'all')
+      .eq('is_active', true)
+      .lte('effective_from', on)
+      .or(`effective_until.is.null,effective_until.gt.${on}`);
+    if (error) throw error;
+
+    const days = new Set<number>();
+    for (const r of (data ?? []) as Array<{ day_of_week: number; is_working_day: boolean }>) {
+      if (r.is_working_day) days.add(r.day_of_week);
+    }
+    return Array.from(days).sort((a, b) => a - b) as IsoDayOfWeek[];
+  }
+
+  /** The days row in force for a pattern on `asOf` (default today), or null. */
+  static async getDays(
+    supabase: SupabaseClient,
+    patternId: string,
+    asOf?: string,
+  ): Promise<HRWorkPatternWeek | null> {
+    const on = asOf ?? today();
+    const { data, error } = await supabase
+      .from('hr_work_pattern_weeks')
+      .select('id, work_pattern_id, working_days, effective_from, effective_until, notes')
+      .eq('work_pattern_id', patternId)
+      .lte('effective_from', on)
+      .or(`effective_until.is.null,effective_until.gt.${on}`)
+      .order('effective_from', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+
+    const week = data as HRWorkPatternWeek;
+
+    // A SECOND QUERY, not a PostgREST embed. The hours are a separate table and
+    // an embed here would be an inner join in all but name — a pattern whose
+    // days carry no hours is the COMMON case, and losing it would make the tab
+    // render empty for almost every pattern in the system.
+    const { data: hours, error: hoursErr } = await supabase
+      .from('hr_work_pattern_week_days')
+      .select(
+        'day_of_week, attendance_mode, required_minutes, first_half_start, first_half_end, second_half_start, second_half_end, grace_minutes'
+      )
+      .eq('week_id', week.id)
+      .order('day_of_week');
+    if (hoursErr) throw hoursErr;
+
+    return { ...week, day_hours: (hours ?? []) as HRWorkPatternDayHours[] };
+  }
+
+  /**
+   * Set the pattern's working days from a date. The RPC closes the previous
+   * days row at that date, or rewrites it when backdating — the same rule as
+   * saving a shift-timing week.
+   */
+  static async setDays(
+    supabase: SupabaseClient,
+    params: {
+      patternId: string;
+      workingDays: IsoDayOfWeek[];
+      effectiveFrom: string;
+      notes?: string | null;
+      /**
+       * The per-day hours, in full.
+       *
+       * OMIT (undefined) to leave the existing hours alone — the RPC then
+       * carries them forward across a supersede, so moving only the effective
+       * date does not silently hand those days back to the institution shift.
+       * Pass `[]` to clear them deliberately.
+       */
+      dayHours?: HRWorkPatternDayHours[];
+    },
+  ): Promise<SetWorkPatternDaysResult> {
+    const { data, error } = await supabase.rpc('fn_hr_set_work_pattern_days', {
+      p_pattern_id: params.patternId,
+      p_working_days: params.workingDays,
+      p_effective_from: params.effectiveFrom,
+      p_notes: params.notes ?? null,
+      // `?? null` deliberately, NOT `|| null`: an empty array is a real
+      // instruction ("clear the hours") and must not be coerced to "leave them".
+      p_day_hours: params.dayHours ?? null,
+    });
+    if (error) throw error;
+    return data as SetWorkPatternDaysResult;
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -240,6 +368,8 @@ export class WorkPatternService {
       .from('hr_organizations')
       .select('id')
       .eq('institution_id', institutionId)
+      // Null for an excluded institution — work patterns cannot be set for one.
+      .eq('included_in_hr', true)
       .maybeSingle();
     if (orgErr) throw orgErr;
     if (!org) return [];
@@ -279,7 +409,7 @@ export class WorkPatternService {
       entitled_days: number | string;
       hr_leave_types: { leave_type_code: string; leave_type_name: string; display_order: number } | null;
     };
-    return ((data ?? []) as Row[])
+    return ((data ?? []) as unknown as Row[])
       .sort((a, b) => (a.hr_leave_types?.display_order ?? 0) - (b.hr_leave_types?.display_order ?? 0))
       .map((r) => ({
         id: r.id,
@@ -339,7 +469,9 @@ export class WorkPatternService {
   private static async staffLite(
     supabase: SupabaseClient,
     staffIds: string[],
+    opts?: { withCategories?: boolean },
   ): Promise<{ byId: Map<string, StaffLite>; categoryName: Map<string, string> }> {
+    const withCategories = opts?.withCategories ?? true;
     const byId = new Map<string, StaffLite>();
     const categoryName = new Map<string, string>();
     if (staffIds.length === 0) return { byId, categoryName };
@@ -360,7 +492,7 @@ export class WorkPatternService {
       if (s.category_id) catIds.add(s.category_id);
     }
 
-    if (catIds.size > 0) {
+    if (withCategories && catIds.size > 0) {
       const { data: cats, error: catErr } = await supabase
         .from('employment_categories')
         .select('id, category_name')
@@ -455,7 +587,7 @@ export class WorkPatternService {
 
     type AssignRow = { staff_id: string; work_pattern_id: string; hr_work_patterns: { name: string } | null };
     const current = new Map<string, { id: string; name: string }>();
-    for (const a of (assignRes.data ?? []) as AssignRow[]) {
+    for (const a of (assignRes.data ?? []) as unknown as AssignRow[]) {
       current.set(a.staff_id, { id: a.work_pattern_id, name: a.hr_work_patterns?.name ?? '' });
     }
 
@@ -508,7 +640,7 @@ export class WorkPatternService {
     if (error) throw error;
     if (!data) return null;
 
-    const row = data as {
+    const row = data as unknown as {
       id: string;
       work_pattern_id: string;
       effective_from: string;

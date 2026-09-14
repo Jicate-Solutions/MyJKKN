@@ -1,0 +1,27 @@
+# Single virtual server: authorize via rlm_rest, accept whatever it accepted.
+# rlm_rest maps HTTP 200 -> updated (reply attributes decoded) and 401 -> reject,
+# so the module's own return code decides Access-Accept vs Access-Reject.
+server default {
+	listen {
+		type = auth
+		ipaddr = 127.0.0.1
+		port = @@AUTH_PORT@@
+	}
+
+	authorize {
+		rest
+		if (ok || updated) {
+			update control {
+				&Auth-Type := Accept
+			}
+		}
+	}
+
+	authenticate {
+	}
+
+	post-auth {
+		Post-Auth-Type REJECT {
+		}
+	}
+}

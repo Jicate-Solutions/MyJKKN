@@ -64,22 +64,63 @@ import {
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 
+import { diffMinutes } from '@/lib/services/live-engine/time-window';
+
+// ---------------------------------------------------------------------------
+// SHARED LIVE ENGINE (2026-09-09)
+// ---------------------------------------------------------------------------
+// The pure half of this service — the time-window helpers and the engagement
+// gate — moved to lib/services/live-engine/ so the Online Meetings module can
+// reach the same verdict logic without importing AI Pulse's storage. Nothing
+// about AI Pulse changed: the names below are re-exported from here, so every
+// existing importer (the cron tick, the Meet webhook, the live shell, the dept
+// heatmap, the weekly digest, the PDE bridge) keeps working untouched.
+//
+// What stayed behind, and why:
+//   deriveCycleTimes — reconstructs a window from demo_date + "HH:MM" strings
+//     in JSONB because startup_events has no time columns. online_meetings has
+//     real starts_at/ends_at, so sharing this would only invite somebody to
+//     store times the hard way again.
+//   readPolicies — AI Pulse thresholds are global rows in ai_pulse_policies;
+//     an online meeting carries its own per-meeting engagement_config.
+//
+// The Online Meetings verdict is evaluateMeetingGates() in the shared module,
+// NOT evaluateGates() below. It counts every signal the meeting actually
+// enabled, because there polls are a working sensor. Do not converge them.
+// ---------------------------------------------------------------------------
+
+import {
+  withinJoinWindow,
+  isoToIstHHMM,
+  hhmmMinusMinutes,
+  deriveEffectiveStatus,
+} from '@/lib/services/live-engine/time-window';
+import {
+  STAY_TOLERANCE_MINUTES,
+  isPresentAtEnd,
+  isEngagedFromGates,
+  evaluateGates,
+  type EngagementSignals,
+  type GateStatus,
+} from '@/lib/services/live-engine/engagement-gates';
+
+// Imported into scope (this file still calls several of them) AND re-exported
+// under their original names, so no consumer had to change an import path.
+export {
+  withinJoinWindow,
+  isoToIstHHMM,
+  hhmmMinusMinutes,
+  deriveEffectiveStatus,
+  STAY_TOLERANCE_MINUTES,
+  isPresentAtEnd,
+  isEngagedFromGates,
+  evaluateGates,
+};
+export type { EngagementSignals, GateStatus };
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-export interface EngagementSignals {
-  joined_within_5min?: boolean;
-  joined_at?: string; // ISO timestamp
-  polls_responded?: number;
-  stayed_until?: string; // HH:MM
-  last_heartbeat_at?: string; // ISO timestamp
-  quiz_score?: number; // 0–100
-  quiz_passed?: boolean;
-  quiz_async_makeup?: boolean;
-  /** CARE E-move: optional "what should change next week?" free text. */
-  feedback_text?: string;
-}
 
 export interface LivePoll {
   id: string;
@@ -201,29 +242,12 @@ export interface LiveSessionData {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/** Minutes between two ISO/parseable timestamps. */
-function diffMinutes(a: string, b: string): number {
-  return Math.abs(new Date(a).getTime() - new Date(b).getTime()) / 60_000;
-}
-
-/**
- * Compute the on-time-join signal relative to cycle.starts_at.
- *
- * The window is policy-driven (`late_threshold_minutes`, seeded 10) — NOT the
- * old hardcoded 5 minutes. The JSONB signal key stays `joined_within_5min`
- * for backward compatibility (6 files read it); semantically it now means
- * "joined within the configured late threshold".
- */
-export function withinJoinWindow(
-  joinedAt: string,
-  startsAt: string | null,
-  windowMinutes: number,
-): boolean {
-  if (!startsAt) return true; // no start time → assume in-window
-  const joined = new Date(joinedAt).getTime();
-  const start = new Date(startsAt).getTime();
-  return joined <= start + windowMinutes * 60_000;
-}
+// `diffMinutes` and `withinJoinWindow` now live in
+// lib/services/live-engine/time-window.ts — imported and re-exported above.
+// The on-time window is policy-driven (`late_threshold_minutes`, seeded 10),
+// NOT the old hardcoded 5 minutes. The JSONB signal key stays
+// `joined_within_5min` for backward compatibility (6 files read it);
+// semantically it means "joined within the configured late threshold".
 
 // ---------------------------------------------------------------------------
 // Policy reads (config mandate — every threshold is an ai_pulse_policies row)
@@ -266,16 +290,7 @@ export function policyNumber(map: PolicyMap, key: string, fallback: number): num
   return Number.isFinite(v) ? v : fallback;
 }
 
-/** "HH:MM" of an ISO timestamp in IST (Asia/Kolkata). */
-export function isoToIstHHMM(iso: string): string {
-  const d = new Date(iso);
-  // toLocaleTimeString with IST keeps formatting consistent across deploys
-  return d.toLocaleTimeString('en-GB', {
-    timeZone: 'Asia/Kolkata',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
+// `isoToIstHHMM` now lives in lib/services/live-engine/time-window.ts.
 
 /**
  * Derive ISO starts_at/ends_at for an AI Pulse cycle.
@@ -311,33 +326,16 @@ export function deriveCycleTimes(row: {
   return { starts_at, ends_at };
 }
 
-/**
- * Effective cycle status, derived from the session window.
- *
- * Nothing in the platform transitions a cycle out of 'draft' (cycles-service
- * only ever writes 'draft' on create and 'cancelled' on cancel), so the
- * heartbeat gate ("only while live") and the quiz gate ("opens post_event")
- * were unreachable — cycle #1 (2026-06-11) recorded zero engagement because
- * of it. Instead of adding status-flipping machinery someone must remember
- * to run, derive the status from the clock: a draft cycle inside its session
- * window IS live, and past its window IS post_event. Explicit non-draft
- * statuses (cancelled, or anything set by hand) always win.
- */
-export function deriveEffectiveStatus(
-  rawStatus: string,
-  startsAt: string | null,
-  endsAt: string | null,
-  nowMs: number = Date.now(),
-): string {
-  if (rawStatus !== 'draft') return rawStatus;
-  if (!startsAt || !endsAt) return rawStatus;
-  const start = new Date(startsAt).getTime();
-  const end = new Date(endsAt).getTime();
-  if (!Number.isFinite(start) || !Number.isFinite(end)) return rawStatus;
-  if (nowMs >= start && nowMs <= end) return 'live';
-  if (nowMs > end) return 'post_event';
-  return rawStatus;
-}
+// `deriveEffectiveStatus` now lives in lib/services/live-engine/time-window.ts,
+// with the AI Pulse status names ('draft' → 'live' → 'post_event') as its
+// defaults so every call here reads exactly as it did.
+//
+// It exists because nothing in the platform transitions a cycle out of 'draft'
+// (cycles-service only ever writes 'draft' on create and 'cancelled' on
+// cancel), so the heartbeat gate ("only while live") and the quiz gate ("opens
+// post_event") were unreachable — cycle #1 (2026-06-11) recorded zero
+// engagement because of it. The status is derived from the clock instead of
+// from machinery somebody must remember to run.
 
 // ---------------------------------------------------------------------------
 // Service
@@ -960,181 +958,22 @@ export class LiveSessionService {
 }
 
 // ---------------------------------------------------------------------------
-// 4-AND gate evaluation (pure)
+// Engagement gate — MOVED to lib/services/live-engine/engagement-gates.ts
 // ---------------------------------------------------------------------------
-
-export interface GateStatus {
-  joined_within_5min: boolean;
-  polls_responded_ok: boolean;
-  stayed_until_end: boolean;
-  quiz_passed: boolean;
-  /** How many polls the Champion issued this cycle. Informational only — polls
-   *  are NOT part of the engagement verdict until poll authoring is wired into
-   *  live sessions (see specs/ai-pulse-graph-attendance-integration-2026-06-18.md). */
-  polls_issued: number;
-  /** How many poll responses this learner needs (min(3, polls_issued)). Display only. */
-  polls_required: number;
-  /** Real signals passed (0..3): joined / stayed / quiz. Polls excluded. */
-  passed_count: number; // 0..3
-  /** Number of gates counted toward the verdict (currently 3 — polls excluded). */
-  total: number;
-  is_engaged: boolean;
-}
-
-/**
- * The last heartbeat can land up to one interval (60s) before ends_at, and
- * isoToIstHHMM truncates seconds — so requiring stayed_until >= the exact end
- * HH:MM fails learners who genuinely stayed. Accept heartbeats within this
- * many minutes of the end.
- */
-export const STAY_TOLERANCE_MINUTES = 5;
-
-/** Subtract `minutes` from an "HH:MM" string, clamped at 00:00 (same-day). */
-export function hhmmMinusMinutes(hhmm: string, minutes: number): string {
-  const [h, m] = hhmm.split(':').map(Number);
-  if (!Number.isFinite(h) || !Number.isFinite(m)) return hhmm;
-  const total = Math.max(0, h * 60 + m - minutes);
-  const hh = String(Math.floor(total / 60)).padStart(2, '0');
-  const mm = String(total % 60).padStart(2, '0');
-  return `${hh}:${mm}`;
-}
-
-/**
- * Observable "present at session end" — the single source of truth for the
- * `stayed_until_end` sub-gate, shared across evaluateGates, the dept heatmap,
- * the weekly digest, the learner badge, and the PDE bridge.
- *
- * It is TRUE if EITHER:
- *   1. the client-side heartbeat recorded `stayed_until` at/after the end
- *      threshold (the original sensor), OR
- *   2. the learner took the quiz IN THE LIVE WINDOW —
- *      `typeof signals.quiz_score === 'number'` AND not an async make-up.
- *
- * Rationale: AI Pulse sessions run on an EXTERNAL meeting link
- * (jkkn.in/ai-pulse), so learners leave the MyJKKN page and the heartbeat
- * never fires — `stayed_until` is never recorded and the heartbeat sensor
- * reads false for everyone despite real attendance. The live quiz only opens
- * at session end, so having taken it live is an observable substitute for
- * being present at the end. Async make-ups (`quiz_async_makeup === true`) are
- * taken AFTER the session, so they are NOT credited as "stayed".
- *
- * `endThresholdHHMM` is the cycle's session-end "HH:MM" (already
- * tolerance-adjusted by the caller via hhmmMinusMinutes, or pass the raw end
- * and let this apply the tolerance). Pass `null` when no end time is available
- * (e.g. the learner badge reads from event_team_attendance with no cycle
- * config in scope) — the heartbeat branch is then skipped and only the
- * quiz-live proxy can satisfy presence.
- */
-export function isPresentAtEnd(
-  signals: Pick<
-    EngagementSignals,
-    'stayed_until' | 'quiz_score' | 'quiz_async_makeup'
-  >,
-  endThresholdHHMM: string | null,
-): boolean {
-  // Proxy: took the quiz live (not an async make-up) ⇒ present at end.
-  const tookQuizLive =
-    typeof signals.quiz_score === 'number' &&
-    signals.quiz_async_makeup !== true;
-  if (tookQuizLive) return true;
-
-  // Original heartbeat sensor (only usable when we know the end time).
-  if (signals.stayed_until && endThresholdHHMM) {
-    return signals.stayed_until >= endThresholdHHMM;
-  }
-  return false;
-}
-
-/**
- * The engagement verdict — honest "2 of 3 real signals" (Model B, 2026-06-18).
- *
- * The three REAL, measurable signals are:
- *   - joined  (clicked Join on time — real in-app event)
- *   - stayed  (present at end: heartbeat OR took the quiz live — see isPresentAtEnd)
- *   - quiz    (passed the weekly check — the actual learning outcome)
- *
- * `polls` is deliberately EXCLUDED from the verdict. It used to be the 4th gate,
- * but it was never a trustworthy signal: no cycle has issued polls, so the old
- * `evaluateGates` auto-PASSED it as a free point (inflating the score) while the
- * learner badge required real responses (deflating it) — the same learner read
- * "engaged" on the heatmap and "partial" on their badge. Until poll authoring is
- * wired into live sessions (blocked on the external-meeting venue — see
- * specs/ai-pulse-graph-attendance-integration-2026-06-18.md), polls is neither a
- * free pass nor a hard requirement: it simply doesn't count. Re-add it as a 4th
- * measurable gate (verdict → 3-of-4) once it's a working signal.
- *
- * History: 4-of-4 AND → 0% by construction (dead heartbeat) → 3-of-4 robust
- * (#1503, but with the polls free-pass) → this honest 2-of-3.
- *
- * `polls` is accepted for call-site compatibility but ignored. Shared so every
- * consumer (heatmap, learner badge, weekly digest, PDE bridge) agrees exactly.
- */
-export function isEngagedFromGates(gates: {
-  joined: boolean;
-  stayed: boolean;
-  quiz: boolean;
-  polls?: boolean; // accepted but NOT counted — see doc above
-}): boolean {
-  const passed =
-    Number(gates.joined) + Number(gates.stayed) + Number(gates.quiz);
-  return passed >= 2;
-}
-
-/**
- * Evaluate the engagement gate from raw signals + cycle end time.
- * Pure function, used by both the progress bar and the engagement card.
- *
- * `pollsIssued` is how many polls exist for the cycle: the polls requirement
- * is min(3, pollsIssued), so a cycle with no polls (the polls feature has no
- * authoring surface yet) doesn't make engagement unattainable.
- */
-export function evaluateGates(
-  signals: EngagementSignals,
-  endsAt: string | null,
-  pollsIssued: number = 0,
-): GateStatus {
-  const joined_within_5min = !!signals.joined_within_5min;
-  const polls_required = Math.min(3, Math.max(0, pollsIssued));
-  const polls_responded_ok =
-    polls_required === 0 || (signals.polls_responded ?? 0) >= polls_required;
-
-  // Derive the tolerance-adjusted end "HH:MM" from the ISO end, then delegate
-  // to the shared present-at-end helper (heartbeat OR live-quiz proxy).
-  const endThresholdHHMM = endsAt
-    ? hhmmMinusMinutes(
-        isoToIstHHMM(endsAt),
-        STAY_TOLERANCE_MINUTES,
-      )
-    : null;
-  const stayed_until_end = isPresentAtEnd(signals, endThresholdHHMM);
-
-  const quiz_passed = !!signals.quiz_passed;
-
-  // Honest verdict (Model B): count only the 3 real signals. Polls is excluded
-  // (it was a free auto-pass when un-issued); see isEngagedFromGates.
-  const passed_count =
-    Number(joined_within_5min) +
-    Number(stayed_until_end) +
-    Number(quiz_passed);
-
-  return {
-    joined_within_5min,
-    polls_responded_ok,
-    stayed_until_end,
-    quiz_passed,
-    polls_issued: Math.max(0, pollsIssued),
-    polls_required,
-    passed_count,
-    total: 3,
-    // Engaged = 2 of the 3 real signals (joined / stayed / quiz). Polls excluded.
-    is_engaged: isEngagedFromGates({
-      joined: joined_within_5min,
-      polls: polls_responded_ok,
-      stayed: stayed_until_end,
-      quiz: quiz_passed,
-    }),
-  };
-}
+// GateStatus, STAY_TOLERANCE_MINUTES, hhmmMinusMinutes, isPresentAtEnd,
+// isEngagedFromGates and evaluateGates all live there now and are re-exported
+// from the top of this file, so every consumer keeps its existing import.
+//
+// Read the doc comments there before changing anything. In particular the
+// verdict is an honest 2-of-3 (joined / stayed / quiz) and polls are
+// deliberately NOT counted: no AI Pulse cycle had ever issued one, so the old
+// 4th gate auto-PASSED as a free point on the heatmap while the learner badge
+// required real responses — the same learner read "engaged" in one place and
+// "partial" in the other.
+//
+// The Online Meetings module uses evaluateMeetingGates() instead, which counts
+// whichever signals that meeting actually enabled. There polls ARE a working
+// sensor (the host issues them in-page). The two verdicts differ on purpose.
 
 // ---------------------------------------------------------------------------
 // React Query hooks

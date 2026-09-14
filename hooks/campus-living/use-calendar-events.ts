@@ -22,7 +22,7 @@ import { useMessMenus } from '@/hooks/campus-living/use-mess-menus';
 import { useHostelIncidents } from '@/hooks/campus-living/use-hostel-incidents';
 import type {
   HostelLeaveRequest,
-  HostelGatePass,
+  GatePassListRow,
   HostelMaintenanceRequest,
   MessMenu,
   HostelIncident,
@@ -60,25 +60,28 @@ function mapLeave(row: HostelLeaveRequest): CalendarEvent {
   };
 }
 
-function mapGatePass(row: HostelGatePass): CalendarEvent {
-  // Gate passes are timestamped — use out_time or created_at as start,
-  // expected_return as end. Fall back to created_at for both if missing.
+function mapGatePass(row: GatePassListRow): CalendarEvent {
+  // Gate passes are timestamped. The window is the real one where it exists
+  // (out_time → actual_return) and the planned one where it does not — a pass
+  // that has been approved but not yet used still belongs on the calendar.
   const start =
     row.out_time ||
+    row.planned_out_at ||
     row.created_at ||
     row.expected_return ||
     new Date().toISOString();
-  const end = row.expected_return || row.actual_return || start;
+  const end = row.actual_return || row.expected_return || start;
   return {
     id: `gate-pass:${row.id}`,
     source: 'gate-pass',
     sourceId: row.id,
-    title: `Gate pass: ${row.pass_type ?? ''}`.trim(),
+    // The configured hostel leave type, not the retired pass_type enum.
+    title: `Gate pass: ${row.leave_type_name}`,
     subtitle: row.destination || row.pass_number || undefined,
     start,
     end,
     status: row.status,
-    variant: row.pass_type,
+    variant: row.leave_type_name,
   };
 }
 
@@ -174,7 +177,8 @@ function extractRows<T>(queryData: unknown): T[] {
  */
 export function useCalendarEvents(institutionId: string | undefined): UseCalendarEventsResult {
   const leaves = useHostelLeaveRequests(institutionId);
-  const passes = useGatePasses(institutionId);
+  // useGatePasses takes the institutions the caller can see, not one id.
+  const passes = useGatePasses(institutionId ? [institutionId] : []);
   const maintenance = useHostelMaintenanceRequests(institutionId);
   const menus = useMessMenus(institutionId);
   const incidents = useHostelIncidents(institutionId);
@@ -190,7 +194,7 @@ export function useCalendarEvents(institutionId: string | undefined): UseCalenda
     };
 
     extractRows<HostelLeaveRequest>(leaves.data).forEach((row) => push(mapLeave(row)));
-    extractRows<HostelGatePass>(passes.data).forEach((row) => push(mapGatePass(row)));
+    extractRows<GatePassListRow>(passes.data).forEach((row) => push(mapGatePass(row)));
     extractRows<HostelMaintenanceRequest>(maintenance.data).forEach((row) =>
       push(mapMaintenance(row)),
     );

@@ -29,6 +29,9 @@ export interface FacultySlot {
     department_name: string;
     program_name?: string;
     semester?: string;
+    /** The timetable's own validity window ('YYYY-MM-DD'), when known. */
+    start_date?: string | null;
+    end_date?: string | null;
   };
 
   // Break slot information
@@ -50,6 +53,8 @@ export interface FacultySlot {
     }>;
     is_break_slot: boolean;
     break_description?: string;
+    // Staff members assigned to this sub-slot (combined classes)
+    staff_members?: Array<{ id: string; first_name: string; last_name: string }>;
   }>;
 
   // Staff members assigned to this slot

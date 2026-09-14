@@ -22,6 +22,7 @@ import type {
   LeaveApproverCandidate,
   LeaveApproverEntry,
   LeaveApproverRoleOption,
+  LeaveChainResyncResult,
   LeaveFlowRunMode,
   LeaveFlowStepSource,
 } from '@/types/hr-leave-types';
@@ -241,6 +242,53 @@ export class LeaveApprovalFlowService {
       .update({ is_active: false, valid_until: new Date().toISOString() })
       .eq('id', flowId);
     if (error) throw error;
+  }
+
+  /**
+   * How many in-flight requests this flow governs that are still routing to the
+   * approvers it named BEFORE the last edit.
+   *
+   * Read-only, so the editor can show the number and ask before moving anything.
+   * The RPC applies the same most-specific-wins match as buildApprovalChain() —
+   * a per-type flow covers its type, a catch-all covers every type in the
+   * organisation with no flow of its own — so the count and the re-sync below can
+   * never disagree about which requests are in scope.
+   */
+  static async previewChainDrift(
+    supabase: SupabaseClient,
+    flowId: string
+  ): Promise<LeaveChainResyncResult> {
+    // `as any` on the client, not the result: types/supabase.ts is GENERATED and
+    // does not know a function added by a migration until it is regenerated.
+    // Same pattern as the hr_resolve_leave_ladder call in buildApprovalChain.
+    const { data, error } = await (supabase as any).rpc('fn_hr_leave_pending_chain_drift', {
+      p_flow_id: flowId,
+    });
+    if (error) throw error;
+    const row = (data ?? [])[0] as LeaveChainResyncResult | undefined;
+    return row ?? { eligible: 0, skipped_decided: 0, skipped_locked: 0 };
+  }
+
+  /**
+   * Re-route this flow's in-flight requests onto the chain it names now.
+   *
+   * Rebuilds each chain from the flow rather than patching the old one, so the
+   * result is identical to what the request would have got had it been submitted
+   * today. Requests that are part-approved keep their original chain — erasing a
+   * recorded decision to tidy up configuration is never the right trade — and so
+   * do requests whose dates sit in a locked attendance period, which refuses
+   * every write.
+   */
+  static async resyncPendingChains(
+    supabase: SupabaseClient,
+    flowId: string
+  ): Promise<LeaveChainResyncResult> {
+    const { data, error } = await (supabase as any).rpc('fn_hr_leave_resync_pending_chains', {
+      p_flow_id: flowId,
+    });
+    if (error) throw error;
+    const row = (data ?? [])[0] as LeaveChainResyncResult | undefined;
+    return row ?? { resynced: 0, skipped_decided: 0, skipped_locked: 0 };
   }
 
   /**

@@ -11,7 +11,7 @@
 // ============================================================================
 
 import { useState } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -92,11 +92,17 @@ export function WeekMenuStrip({
           <ChefHat className="h-4 w-4 text-primary" />
           This week&apos;s menu
         </CardTitle>
-        <CardDescription className="flex items-center gap-2 flex-wrap">
+        {/* A plain div, NOT CardDescription. CardDescription renders a paragraph
+            and Badge renders a div; a div inside a paragraph is invalid HTML, so
+            the browser closes the paragraph early and the client tree stops
+            matching the server's — which is the hydration error this fixes.
+            Carries the same classes CardDescription applies, so it is
+            pixel-identical. */}
+        <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
           <CalendarRange className="h-3.5 w-3.5" />
           Week of {menu?.week_start ?? '—'}
           <Badge variant="outline">{planLabel(planOptions, tierKey)}</Badge>
-        </CardDescription>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Day selector — segmented buttons, today highlighted */}

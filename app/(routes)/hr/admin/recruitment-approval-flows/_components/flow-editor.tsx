@@ -110,6 +110,8 @@ export function FlowEditor({
   const { data: roleCounts } = useRoleUserCounts();
   const upsert = useUpsertApprovalFlow();
 
+  // Every organization is selectable — recruitment runs for the whole group,
+  // including institutions outside the HR module proper.
   const allOrgIds = useMemo(() => (orgs ?? []).map((o) => o.id), [orgs]);
   const allSelected = allOrgIds.length > 0 && selectedOrgIds.size === allOrgIds.length;
   const orgNameById = useMemo(

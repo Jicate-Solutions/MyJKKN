@@ -129,7 +129,12 @@ export async function GET() {
         .select('staff_id, first_name, last_name, biometric_id, biometric_institution_id, institution_id')
         .not('biometric_id', 'is', null)
         .limit(5000),
-      svc.from('institutions').select('id, name, counselling_code').limit(500),
+      // Service-role client: RLS is bypassed, so the HR exclusion has to be
+      // expressed in the query or the template offers excluded institutions.
+      svc.from('institutions')
+        .select('id, name, counselling_code, hr_organizations!inner(included_in_hr)')
+        .eq('hr_organizations.included_in_hr', true)
+        .limit(500),
     ]);
     if (staffErr) {
       console.error('[import/template] staff lookup error:', staffErr);

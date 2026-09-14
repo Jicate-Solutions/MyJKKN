@@ -51,7 +51,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useHrInstitutionsWithAccess } from '@/hooks/hr/use-hr-institutions';
 import { useAuth } from '@/hooks/use-auth';
 
 // ---------------------------------------------------------------------------
@@ -163,7 +163,7 @@ export function NewPolicyEditor({ policyKey, fields }: NewPolicyEditorProps) {
   const supabase = useMemo(() => createClientSupabaseClient(), []);
   const { profile } = useAuth();
   const { institutions, loading: institutionsLoading } =
-    useInstitutionsWithAccess({ isActive: true });
+    useHrInstitutionsWithAccess({ isActive: true });
 
   const [rows, setRows] = useState<PolicyRow[]>([]);
   const [selectedInstitutionId, setSelectedInstitutionId] = useState<string>('');
@@ -304,7 +304,10 @@ export function NewPolicyEditor({ policyKey, fields }: NewPolicyEditorProps) {
 
       const { error: updateErr } = await supabase
         .from('platform_policies')
-        .update(updates)
+        // Cast at the write boundary: `updates` is a Partial<PolicyRow> whose
+        // jsonb fields are typed Record<string, unknown>, wider than the
+        // generated Json. The values are plain JSON objects at runtime.
+        .update(updates as never)
         .eq('id', currentRow.id);
       if (updateErr) throw updateErr;
 
@@ -318,7 +321,9 @@ export function NewPolicyEditor({ policyKey, fields }: NewPolicyEditorProps) {
         new_value: newValue,
         reason: reasonText.trim(),
         edited_by: profile.id,
-      });
+      // Cast at the write boundary: old_value/new_value are parsed JSON
+      // typed Record<string, unknown>, wider than the generated Json.
+      } as never);
       if (auditErr) throw auditErr;
 
       const { data: refetched } = await supabase

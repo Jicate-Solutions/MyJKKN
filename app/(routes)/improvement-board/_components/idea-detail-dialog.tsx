@@ -507,13 +507,42 @@ function Field({ label, value }: { label: string; value: string | null }) {
   );
 }
 
-function formatAction(a: ImprovementIdeaActivityEnriched): string {
+// Exported for test only: the coherence rule below is the whole point of
+// this function and deserves a direct guard rather than one inferred
+// through a full dialog render.
+export function formatAction(a: ImprovementIdeaActivityEnriched): string {
   if (a.action === 'resolution_recorded') {
     return a.to_status
       ? `recorded the fix and moved it to ${STATUS_LABEL[a.to_status]}`
       : 'recorded the fix';
   }
-  if (a.from_status && a.to_status) {
+  // A transition is only claimed when the two statuses actually DIFFER.
+  //
+  // A presence check is not enough here. 17 of the 46 rows in
+  // improvement_idea_activity carry from_status = to_status with both non-null
+  // (filed 6 Aug - 2 Sep, every one action='status_change'). A NULL would have
+  // fallen through and rendered nothing, which is honestly invisible; two equal
+  // non-null values passed the old `from_status && to_status` guard and produced
+  // a confident falsehood — "moved it from Under Review to Under Review" — on
+  // 37% of the log.
+  //
+  // Those rows are NOT repairable: 16 of the 17 are the only activity row their
+  // idea has, so there is no predecessor to reconstruct the real from_status
+  // from. Suppressing the claim IS the whole fix.
+  //
+  // to_status stays trustworthy on those rows — the defect wrote the NEW status
+  // into from_status, it did not corrupt the destination — so they fall through
+  // to "set status to X" below, which states where the idea landed without
+  // inventing where it came from.
+  //
+  // The leak is closed at the source, verified by mechanism rather than by
+  // observation: of the seven functions writing this table, four never write
+  // from_status at all, and fn_improvement_set_resolution /
+  // fn_improvement_set_verified_value always write to_status NULL by design, so
+  // neither can make the two equal. Only fn_improvement_set_status writes
+  // action='status_change' with both, and it now reads v_from_status from the
+  // idea BEFORE its UPDATE (PR #3242). Newest status_change row, 9 Sep: clean.
+  if (a.from_status && a.to_status && a.from_status !== a.to_status) {
     return `moved it from ${STATUS_LABEL[a.from_status]} to ${STATUS_LABEL[a.to_status]}`;
   }
   if (a.to_status) return `set status to ${STATUS_LABEL[a.to_status]}`;

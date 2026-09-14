@@ -6,6 +6,8 @@ import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
 import { RecruitmentPackageService } from '@/lib/services/hr/recruitment-package-service';
+import { createServiceRoleClient } from '@/lib/supabase/server';
+import { HrScopeError, assertCandidatePackagesInScope } from '@/lib/hr/scope-gate';
 
 async function getClient() {
   const cookieStore = await cookies();
@@ -32,10 +34,21 @@ export async function GET(
 ) {
   await connection();
   try {
-    const { packageId } = await params;
+    const { id, packageId } = await params;
     const supabase = await getClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    // Institution scope is answered BEFORE the read, and answered as 403 —
+    // RLS alone would return an empty list, which hides the leak it prevents.
+    const scope = await assertCandidatePackagesInScope({
+      admin: createServiceRoleClient(),
+      supabase,
+      userId: user.id,
+      candidateId: id,
+      packageId,
+    });
+    if (scope === 'not_found') return NextResponse.json({ error: 'Package not found' }, { status: 404 });
 
     const pkg = await RecruitmentPackageService.getPackage(supabase, packageId);
     if (!pkg) return NextResponse.json({ error: 'Package not found' }, { status: 404 });
@@ -43,6 +56,7 @@ export async function GET(
     return NextResponse.json({ data: pkg });
   } catch (err) {
     console.error('[hr/recruitment/candidates/:id/packages/:packageId] GET error', err);
+    if (err instanceof HrScopeError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Unknown error' },
       { status: 500 }

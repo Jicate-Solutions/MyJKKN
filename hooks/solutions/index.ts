@@ -691,6 +691,19 @@ export {
 } from './use-products';
 
 // ============================================
+// DEPARTMENT STATUS REVIEW HOOKS
+// ============================================
+
+export {
+  useOpenDepartmentStatusReviews,
+  useDecidedDepartmentStatusReviews,
+  useDecideDepartmentStatusReview,
+  departmentStatusReviewKeys,
+  type DepartmentStatusReviewWithDetails,
+  type DecideStatusReviewInput,
+} from './use-department-status-reviews';
+
+// ============================================
 // PARADIGM SHIFT DASHBOARD HOOKS
 // ============================================
 
@@ -699,3 +712,21 @@ export {
   useParadigmShiftDepartment,
   useParadigmShiftLeaderboard,
 } from './use-paradigm-shift';
+
+// ============================================
+// COMMUNITY ENGAGEMENT REGISTER HOOKS
+// ============================================
+
+export {
+  useCommunityEngagements,
+  useDepartmentSolutionOptions,
+  useRecordCommunityEngagement,
+  useDecideCommunityEngagement,
+  communityEngagementKeys,
+  type CommunityEngagement,
+  type DepartmentActivityReadout,
+  type DepartmentSolutionOption,
+  type EngagementApprovalStatus,
+  type EngagementDecisionOutcome,
+  type RecordEngagementInput,
+} from './use-community-engagements';

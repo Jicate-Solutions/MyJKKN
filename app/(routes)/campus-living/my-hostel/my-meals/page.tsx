@@ -6,7 +6,7 @@ import { useMemo, useState } from 'react';
 // MY MEALS — resident menu + Choose Your Menu return-arc surface (P0c)
 // ============================================================================
 // Spec: specs/choose-your-menu-platform-spec-2026-06-11.md
-// Pattern source: app/(routes)/campus-living/my-hostel/housekeeping/page.tsx
+// Pattern source: the resident room-cleaning page under my-hostel/housekeeping
 // (data-driven gating, no PermissionGuard — students are confined to
 // /campus-living/my-hostel/* by CampusLivingResidentGuard in the module
 // layout, so this route is reachable by residents and harmless for staff).

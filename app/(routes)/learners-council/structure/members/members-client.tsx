@@ -24,7 +24,12 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { Users, Filter, X, UserPlus, History, Download } from 'lucide-react';
-import { AssignMemberDialog, MemberStatusSelect, PositionHistoryDialog } from './member-actions';
+import {
+  AssignMemberDialog,
+  MemberStatusSelect,
+  PositionHistoryDialog,
+  ChangePositionDialog
+} from './member-actions';
 import { useLCMembers, useExportMembers } from '@/hooks/learners-council/use-lc-structure';
 import type { LCPosition } from '@/types/learners-council';
 
@@ -273,10 +278,25 @@ export function MembersClient({
                     </TableCell>
                     {isStaffOrAdmin && (
                       <TableCell className="text-right">
-                        <PositionHistoryDialog
-                          positionId={member.position_id}
-                          positionTitle={member.position?.title || 'Position'}
-                        />
+                        <div className="flex items-center justify-end gap-1">
+                          {/* Only a sitting appointment can be moved. An ended
+                              one has no seat to move out of — those go through
+                              Assign Member instead. */}
+                          {member.status === 'active' && (
+                            <ChangePositionDialog
+                              memberId={member.id}
+                              memberName={member.user?.full_name || 'this member'}
+                              currentPositionId={member.position_id}
+                              currentPositionTitle={member.position?.title || 'Position'}
+                              termId={member.term_id}
+                              positions={positions}
+                            />
+                          )}
+                          <PositionHistoryDialog
+                            positionId={member.position_id}
+                            positionTitle={member.position?.title || 'Position'}
+                          />
+                        </div>
                       </TableCell>
                     )}
                   </TableRow>

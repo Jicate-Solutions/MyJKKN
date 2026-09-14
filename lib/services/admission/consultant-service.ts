@@ -62,6 +62,33 @@ import type {
  * every 'auto_sync_learner' row render with no name, no program and a spurious
  * "Not Enquired" status. Both embeds are always selected; callers resolve them
  * through resolveReferralLearner().
+ *
+ * HOW OFTEN THE LEAD PATH ACTUALLY DELIVERS A LEARNER — measured 2026-09-08
+ * ------------------------------------------------------------------------
+ * "Resolve via lead" describes where the code LOOKS, not that it finds anyone.
+ * Counted on production (1,844 attributions), confirmed twice by independent
+ * means (a full-table join, and PostgREST `!inner` embeds):
+ *
+ *     1,676  carry their own learner_profile_id  → resolve directly
+ *       168  do not, so must route through the lead
+ *          ├─   9  the lead carries a learner    → genuinely reachable
+ *          └─ 159  the lead's learner_profile_id is NULL → DEAD END
+ *
+ * So the lead path resolves for 9 rows, not 168. The header of migration
+ * 20261104010000 describes that group as "reachable only through the lead",
+ * which overstates reachability ~18x — its arithmetic is right (no attribution
+ * has BOTH pointer columns empty) but "reachable" is the wrong word.
+ *
+ * The 159 are not corruption: every one points at a real admission_leads row,
+ * there are zero dangling keys, and 153 of those leads are still at funnel
+ * stage 'new'. They are credits banked at enquiry for people who never
+ * enrolled. They cannot be paid — fn_generate_referral_commissions builds its
+ * candidate set FROM learners_profiles and never reads this table for
+ * selection — so they do not inflate any payable count. They do, however,
+ * carry no admission year (the year hangs off the learner), which is why they
+ * land in the year-less bucket of fn_referral_attribution_page rather than in
+ * any single year. Back-filling that year from the lead is deliberately NOT
+ * done: it would tidy the totals while hiding the 159 again.
  */
 const ATTRIBUTION_SELECT = `
   *,

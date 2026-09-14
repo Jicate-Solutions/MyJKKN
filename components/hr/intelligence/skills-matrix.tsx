@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/select';
 import { Award, AlertCircle, UserX, Filter } from 'lucide-react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useHrInstitutionsWithAccess } from '@/hooks/hr/use-hr-institutions';
 
 interface StaffWithSpecs {
   staff_id: string;
@@ -80,7 +80,7 @@ function useSkillsData() {
 
 export function SkillsMatrixTab() {
   const { data, isLoading, isError } = useSkillsData();
-  const { institutions } = useInstitutionsWithAccess({ entityType: 'all' });
+  const { institutions } = useHrInstitutionsWithAccess({ entityType: 'all' });
   const [institutionFilter, setInstitutionFilter] = useState<string>('all');
   const [specFilter, setSpecFilter] = useState<string>('all');
   const [showUntagged, setShowUntagged] = useState(false);

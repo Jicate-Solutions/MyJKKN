@@ -9,9 +9,10 @@
  * (hr_shift_templates was removed 2026-08-06; shift config is now
  * hr_shift_timings, which is populated but not yet wired to attendance.)
  *
- * Policy: 1 full day earned per day worked, expiring 90 days later. Both are
- * enforced in the database (credit_days default, expiry trigger) rather than
- * here, so a claim raised through any client obeys them.
+ * Policy: 1 full day earned per day worked, expiring one calendar month later
+ * (90 days until 2026-09-11). Both are enforced in the database (credit_days
+ * default, expiry trigger) rather than here, so a claim raised through any
+ * client obeys them.
  */
 
 import { useMemo, useRef, useState } from 'react';
@@ -23,15 +24,22 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { LeaveDocumentUpload } from './leave-document-upload';
 import { useClaimWorkedDay } from '@/hooks/hr/use-comp-off';
+import { useDayOccupancy } from '@/hooks/hr/use-day-occupancy';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
 import { useClosedAttendanceMonths } from '@/hooks/hr/use-attendance-records';
 import { closedMonthsInRange, describeClosedMonths } from '@/types/hr-attendance';
 import { getErrorMessage } from '@/lib/utils';
 import type { LeaveDocument } from '@/types/hr';
+import {
+  COMP_OFF_WORK_LOCATION_LABELS,
+  addOneMonth,
+  type CompOffWorkLocation,
+} from '@/types/hr-comp-off';
 
 export function ClaimWorkedDayDialog({
   open,
@@ -44,6 +52,10 @@ export function ClaimWorkedDayDialog({
   const mutation = useClaimWorkedDay();
 
   const [workedDate, setWorkedDate] = useState('');
+  // Where the day was worked — required, and outside campus names the place.
+  // CompOffService and the table's CHECKs enforce the same pairing.
+  const [workLocation, setWorkLocation] = useState<CompOffWorkLocation | ''>('');
+  const [workPlace, setWorkPlace] = useState('');
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
   // Picked but NOT uploaded — files go to Drive on Submit, same pattern as
@@ -64,12 +76,17 @@ export function ClaimWorkedDayDialog({
   /** Category excluded from HR — trg_hcoc_block_non_hr_staff refuses the claim. */
   const notInHr = !ctx.isLoading && ctx.hasEmployeeRecord && !ctx.hrIncluded;
 
+  // Only one request may exist per day, and a worked-day claim competes with
+  // leave and permissions for it — claiming a day you also took leave on is a
+  // contradiction, and trg_hcoc_day_occupancy refuses it. Same predicate the
+  // trigger uses, so this cannot promise a claim the database will reject.
+  const { data: clash } = useDayOccupancy(ctx.employeeId, workedDate, workedDate);
+
   // Shown so the claimant knows the deadline before submitting, using the same
-  // +90 rule the database applies.
+  // one-calendar-month rule the database applies (addOneMonth mirrors it).
   const expiry = useMemo(() => {
     if (!workedDate) return null;
-    const d = new Date(`${workedDate}T00:00:00`);
-    d.setDate(d.getDate() + 90);
+    const d = new Date(`${addOneMonth(workedDate)}T00:00:00`);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     return {
@@ -78,15 +95,20 @@ export function ClaimWorkedDayDialog({
     };
   }, [workedDate]);
 
-  // The credit expires 90 days after the day worked, so a date older than that
+  // The credit expires a month after the day worked, so a date older than that
   // would be inserted already dead — visible in the ledger, never spendable.
   // hr_comp_off_set_expiry refuses it too; this only saves the round trip and
   // names the deadline, which the raw database message cannot do as kindly.
   const tooOld = !inFuture && !!expiry && expiry.daysLeft < 0;
 
+  const locationDone =
+    workLocation === 'inside_campus' ||
+    (workLocation === 'outside_campus' && workPlace.trim() !== '');
+
   const canSubmit =
     !!ctx.employeeId && !!ctx.hrOrgId && !!workedDate && !inFuture && !tooOld &&
-    closedHit.length === 0 && !notInHr && !mutation.isPending && !uploading &&
+    locationDone &&
+    closedHit.length === 0 && !notInHr && !clash && !mutation.isPending && !uploading &&
     // Proof of the worked day is required — CompOffService.claimWorkedDay
     // enforces the same rule; this only spares the round trip.
     documentFiles.length > 0;
@@ -145,8 +167,11 @@ export function ClaimWorkedDayDialog({
         worked_date: workedDate,
         notes: notes.trim() || null,
         documents,
+        work_location: workLocation || null,
+        work_place: workLocation === 'outside_campus' ? workPlace.trim() : null,
       });
       setWorkedDate(''); setNotes('');
+      setWorkLocation(''); setWorkPlace('');
       setDocumentFiles([]); setUploadError(null);
       uploadedRef.current = new WeakMap();
       onOpenChange(false);
@@ -157,7 +182,10 @@ export function ClaimWorkedDayDialog({
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) setError(null); onOpenChange(v); }}>
-      <DialogContent>
+      {/* The base DialogContent has no height cap. The location question made
+          this form tall enough to run off a laptop screen, taking Submit with
+          it. Nothing in here portals a popover, so scrolling the root is safe. */}
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <CalendarPlus className="h-5 w-5 text-primary" />
@@ -197,7 +225,12 @@ export function ClaimWorkedDayDialog({
               <p className="mt-1 text-xs text-destructive">
                 Too late to claim — a credit for this day expired on{' '}
                 <strong>{expiry?.label}</strong>. Compensatory off must be claimed
-                within 90 days of the day worked.
+                within one month of the day worked.
+              </p>
+            ) : clash ? (
+              <p className="mt-1 text-xs text-destructive">
+                Only one request is allowed per day, and you already have {clash} on
+                this date. Claim another day, or cancel that request first.
               </p>
             ) : expiry ? (
               <p className="mt-1 text-xs text-muted-foreground">
@@ -212,8 +245,39 @@ export function ClaimWorkedDayDialog({
               </p>
             ) : (
               <p className="mt-1 text-xs text-muted-foreground">
-                One full day is earned per day worked, usable for 90 days.
+                One full day is earned per day worked, usable for one month.
               </p>
+            )}
+          </div>
+
+          <div>
+            <Label id="cwdLocationLabel">
+              Where did you work? <span className="text-destructive">*</span>
+            </Label>
+            <RadioGroup
+              aria-labelledby="cwdLocationLabel"
+              className="mt-2 flex flex-wrap gap-x-6 gap-y-2"
+              value={workLocation}
+              onValueChange={(v) => setWorkLocation(v as CompOffWorkLocation)}
+            >
+              {(['inside_campus', 'outside_campus'] as const).map((loc) => (
+                <div key={loc} className="flex items-center gap-2">
+                  <RadioGroupItem value={loc} id={`cwd-${loc}`} />
+                  <Label htmlFor={`cwd-${loc}`} className="font-normal">
+                    {COMP_OFF_WORK_LOCATION_LABELS[loc]}
+                  </Label>
+                </div>
+              ))}
+            </RadioGroup>
+            {workLocation === 'outside_campus' && (
+              <div className="mt-3">
+                <Label htmlFor="cwdPlace">
+                  Place of work <span className="text-destructive">*</span>
+                </Label>
+                <Input id="cwdPlace" className="mt-1" maxLength={200} value={workPlace}
+                  onChange={(e) => setWorkPlace(e.target.value)}
+                  placeholder="e.g. Chennai – NAAC visit" />
+              </div>
             )}
           </div>
 

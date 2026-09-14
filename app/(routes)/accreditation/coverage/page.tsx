@@ -16,6 +16,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { BarChart3, TrendingUp, Inbox } from 'lucide-react';
 import { ACCREDITATION_BODIES } from '@/lib/types/accreditation';
+import { coverageBasisNote } from '@/lib/services/accreditation/coverage-measure';
 import { useAccreditationCoverage } from '@/hooks/accreditation/use-accreditation-scoreboard';
 
 export default function AccreditationCoveragePage() {
@@ -58,12 +59,19 @@ export default function AccreditationCoveragePage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
+            {/*
+              This paragraph used to advertise the formula it was wrong about:
+              evidence_rows / metrics_seeded, a count of rows over a count of
+              metrics. NIRF's 11,396 rows over a 17-metric catalogue scored
+              67,035%, the Math.min clamp turned it into 100%, and every NIRF
+              row on this page rendered a full green bar. Coverage is now
+              metrics answered over metrics asked; see coverage-measure.ts.
+            */}
             <p className="text-sm text-muted-foreground">
-              One row per (body × college) with evidence. Coverage is
-              <code className="mx-1">evidence_rows / metrics_seeded</code>
-              (placeholder). Real weighted formula per
-              <code className="mx-1">docs/one-jkkn-one-data.md §8</code> lands
-              with each body's dashboard.
+              One row per (body × college) with evidence. {coverageBasisNote()}{' '}
+              A metric with one file and a metric with a full dossier both count
+              once — weighted scoring per body rubric lands with each
+              body&apos;s own dashboard.
             </p>
             <div className="grid gap-3 md:grid-cols-3">
               <div className="rounded-lg border bg-card p-3">
@@ -126,8 +134,14 @@ export default function AccreditationCoveragePage() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Institution</TableHead>
-                          <TableHead className="text-right">Evidence</TableHead>
-                          <TableHead className="text-right">Metrics</TableHead>
+                          <TableHead className="text-right">Evidence rows</TableHead>
+                          {/*
+                            "Metrics" was the catalogue size alone, sitting next
+                            to an evidence-row count it had no arithmetic
+                            relationship to. It now shows both halves of the
+                            ratio the Coverage column renders.
+                          */}
+                          <TableHead className="text-right">Metrics answered</TableHead>
                           <TableHead className="w-[200px]">Coverage</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -148,7 +162,7 @@ export default function AccreditationCoveragePage() {
                               {row.evidence_rows}
                             </TableCell>
                             <TableCell className="text-right font-mono text-sm text-muted-foreground">
-                              {row.metrics_seeded}
+                              {row.metrics_with_evidence} of {row.metrics_seeded}
                             </TableCell>
                             <TableCell>
                               <div className="flex items-center gap-2">

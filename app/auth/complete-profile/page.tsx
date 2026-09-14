@@ -156,13 +156,9 @@ export default function CompleteProfile() {
         console.error('[Complete Profile] Error type:', typeof error);
         console.error('[Complete Profile] Error details:', JSON.stringify(error, null, 2));
 
-        const errorMessage = error instanceof Error
-          ? error.message
-          : typeof error === 'object' && error !== null
-          ? JSON.stringify(error)
-          : 'Failed to load user data';
-
-        toast.error(errorMessage);
+        toast.error(
+          'We could not load your profile. Please refresh the page, or contact support if this keeps happening.'
+        );
 
         // Don't redirect immediately - let user see the error
         // router.push('/auth/login');

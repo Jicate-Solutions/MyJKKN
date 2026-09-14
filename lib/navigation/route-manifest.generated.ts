@@ -2612,6 +2612,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/campus-living/gate-passes/request",
+            "label": "Request",
+            "iconName": "Ticket",
+            "children": []
+          },
+          {
             "path": "/campus-living/gate-passes/scan",
             "label": "Scan",
             "iconName": "Ticket",
@@ -2631,26 +2637,26 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "SprayCan",
         "children": [
           {
-            "path": "/campus-living/housekeeping/bookings",
-            "label": "Bookings",
+            "path": "/campus-living/housekeeping/availability",
+            "label": "Availability",
+            "iconName": "CalendarCheck",
+            "children": []
+          },
+          {
+            "path": "/campus-living/housekeeping/cleaners",
+            "label": "Cleaners",
             "iconName": "SprayCan",
             "children": []
           },
           {
-            "path": "/campus-living/housekeeping/my-work",
-            "label": "My Work",
+            "path": "/campus-living/housekeeping/holds",
+            "label": "Holds",
             "iconName": "SprayCan",
             "children": []
           },
           {
-            "path": "/campus-living/housekeeping/schedules",
-            "label": "Schedules",
-            "iconName": "CalendarClock",
-            "children": []
-          },
-          {
-            "path": "/campus-living/housekeeping/tasks",
-            "label": "Tasks",
+            "path": "/campus-living/housekeeping/types",
+            "label": "Types",
             "iconName": "SprayCan",
             "children": []
           }
@@ -2832,8 +2838,8 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": [
           {
             "path": "/campus-living/my-hostel/housekeeping",
-            "label": "Room Cleaning",
-            "iconName": "Brush",
+            "label": "Housekeeping",
+            "iconName": "SprayCan",
             "children": []
           },
           {
@@ -3093,12 +3099,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/campus-living/settings/hostel-years",
             "label": "Hostel Years",
             "iconName": "Building",
-            "children": []
-          },
-          {
-            "path": "/campus-living/settings/housekeeping",
-            "label": "Housekeeping",
-            "iconName": "SprayCan",
             "children": []
           },
           {
@@ -3512,6 +3512,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "children": []
   },
   {
+    "path": "/cohorts",
+    "label": "Cohorts",
+    "iconName": "FileText",
+    "children": [
+      {
+        "path": "/cohorts/coordinators",
+        "label": "Cohort Coordinators",
+        "iconName": "UserCog",
+        "children": []
+      }
+    ]
+  },
+  {
     "path": "/consultant-portal",
     "label": "Consultant Portal",
     "iconName": "FileText",
@@ -3922,6 +3935,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "children": []
               }
             ]
+          },
+          {
+            "path": "/hr/admin/institutions",
+            "label": "Institutions",
+            "iconName": "Building",
+            "children": []
           },
           {
             "path": "/hr/admin/leave-balances",
@@ -4789,6 +4808,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/improvement-board/placements",
+        "label": "Placements",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/improvement-board/postings",
         "label": "Postings",
         "iconName": "FileText",
@@ -5333,6 +5358,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      },
+      {
+        "path": "/learners/my-syllabus",
+        "label": "My Syllabus",
+        "iconName": "GraduationCap",
+        "children": []
       },
       {
         "path": "/learners/my-timetable",
@@ -5894,6 +5925,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/okr/team",
         "label": "Team",
         "iconName": "Users",
+        "children": []
+      }
+    ]
+  },
+  {
+    "path": "/online-meetings",
+    "label": "Online Meetings",
+    "iconName": "Video",
+    "children": [
+      {
+        "path": "/online-meetings/new",
+        "label": "Schedule a Team Meeting",
+        "iconName": "CalendarPlus",
         "children": []
       }
     ]

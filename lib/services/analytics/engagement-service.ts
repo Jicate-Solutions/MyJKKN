@@ -15,6 +15,22 @@ import type {
   SessionHistory,
   UserSession
 } from '@/types/analytics';
+import {
+  ALL_INSTITUTIONS_ID,
+  INVALID_SELECTION_REASON,
+  accessAllowed,
+  accessRefused,
+  applyEngagementScope,
+  isEngagementInstitutionStaffRole,
+  isUuid,
+  levelOpenToScope,
+  placementInScope,
+  scopeHasUnits,
+  scopeRefusalReason,
+  type EngagementAccess,
+  type EngagementPlacement,
+  type EngagementScopeChoices
+} from '@/lib/services/analytics/engagement-scope';
 
 /**
  * Runtime read of the student-row fetch cap used by EngagementService.
@@ -43,9 +59,33 @@ async function getStudentQueryLimit(): Promise<number> {
  */
 export class EngagementService {
   /**
-   * Get user's access scope based on their role and permissions
+   * Get user's access scope based on their role and permissions.
+   *
+   * This is the analytics module's general scope (health-score, lifecycle
+   * dashboard and usage-report services read it). Admin, counsellor and
+   * accounts staff get no scope here; only Engagement Analytics widens them,
+   * through getEngagementAccessScope() below.
    */
   static async getUserAccessScope(userId: string): Promise<AccessScope> {
+    return this.resolveAccessScope(userId, false);
+  }
+
+  /**
+   * The scope for Engagement Analytics (/users/activity > Engagement). The same
+   * as getUserAccessScope(), plus: admin, counsellor and accounts staff
+   * (ENGAGEMENT_INSTITUTION_STAFF_ROLES, by stored role name) see their own
+   * institution, the same as a principal, and nothing outside it. Director's
+   * decision, 2026-09-12. Every engagement gate, filter and the filter choices
+   * on screen read this one.
+   */
+  static async getEngagementAccessScope(userId: string): Promise<AccessScope> {
+    return this.resolveAccessScope(userId, true);
+  }
+
+  private static async resolveAccessScope(
+    userId: string,
+    institutionStaffAsPrincipal: boolean
+  ): Promise<AccessScope> {
     const supabase = await createServiceRoleClient();
 
     const { data: profile } = await supabase
@@ -65,6 +105,19 @@ export class EngagementService {
 
     // Principal has institution-level access
     if (profile.role === 'principal' && profile.institution_id) {
+      return {
+        type: 'institution',
+        institutionIds: [profile.institution_id]
+      };
+    }
+
+    // Engagement only: admin, counsellor and accounts staff see their own
+    // institution, like a principal. A profile with no institution gets nothing.
+    if (
+      institutionStaffAsPrincipal &&
+      isEngagementInstitutionStaffRole(profile.role) &&
+      profile.institution_id
+    ) {
       return {
         type: 'institution',
         institutionIds: [profile.institution_id]
@@ -109,6 +162,206 @@ export class EngagementService {
   }
 
   /**
+   * The gate for one selection: may this viewer see engagement for this unit?
+   * Resolves the viewer's scope, then checks the unit against it. Rules and the
+   * reason this is done in code are in engagement-scope.ts.
+   */
+  static async checkAccess(
+    userId: string,
+    level: OrganizationalLevel,
+    id: string
+  ): Promise<EngagementAccess> {
+    const scope = await this.getEngagementAccessScope(userId);
+    return this.checkScopeAccess(scope, level, id);
+  }
+
+  /**
+   * The gate for one selection against a known scope.
+   *
+   * "All institutions" (level institution, id "all") is allowed for a super
+   * admin, and for a principal only because every query then adds their own
+   * institution as a filter; it is refused for everyone else. Any other id is
+   * placed in the organisation (which institution and department it belongs
+   * to) and checked against the scope. An unknown unit is refused like an
+   * out-of-scope one.
+   */
+  static async checkScopeAccess(
+    scope: AccessScope,
+    level: OrganizationalLevel,
+    id: string
+  ): Promise<EngagementAccess> {
+    const refuse = () => accessRefused(scope, 403, scopeRefusalReason(scope));
+
+    if (level === 'institution' && id === ALL_INSTITUTIONS_ID) {
+      if (scope.type === 'global') return accessAllowed(scope);
+      if (scope.type === 'institution' && scopeHasUnits(scope)) {
+        return accessAllowed(scope);
+      }
+      return refuse();
+    }
+
+    if (!isUuid(id)) {
+      return accessRefused(scope, 400, INVALID_SELECTION_REASON);
+    }
+
+    if (scope.type === 'global') return accessAllowed(scope);
+    if (!scopeHasUnits(scope) || !levelOpenToScope(scope.type, level)) return refuse();
+
+    const placement = await this.resolvePlacement(level, id);
+    if (!placement || !placementInScope(scope, placement)) return refuse();
+
+    return accessAllowed(scope);
+  }
+
+  /**
+   * The gate for one learner's detail view: refuses before any of the learner's
+   * sessions are read. 404 when the learner has no engagement score today (the
+   * detail view needs one), 403 when their score sits outside the scope.
+   */
+  static async checkStudentAccess(
+    userId: string,
+    studentId: string
+  ): Promise<EngagementAccess> {
+    const scope = await this.getEngagementAccessScope(userId);
+
+    if (!isUuid(studentId)) {
+      return accessRefused(scope, 400, INVALID_SELECTION_REASON);
+    }
+    if (!scopeHasUnits(scope)) {
+      return accessRefused(scope, 403, scopeRefusalReason(scope));
+    }
+
+    const supabase = await createServiceRoleClient();
+    const { data: row, error } = await supabase
+      .from('student_engagement_scores')
+      .select('institution_id, department_id, section_id')
+      .eq('user_id', studentId)
+      .eq('calculation_date', new Date().toISOString().split('T')[0])
+      .maybeSingle();
+
+    if (error || !row) {
+      return accessRefused(scope, 404, 'No engagement record was found for this learner today.');
+    }
+
+    const placement: EngagementPlacement = {
+      institutionId: row.institution_id ?? null,
+      departmentId: row.department_id ?? null,
+      sectionId: row.section_id ?? null
+    };
+    if (!placementInScope(scope, placement)) {
+      return accessRefused(scope, 403, scopeRefusalReason(scope));
+    }
+    return accessAllowed(scope);
+  }
+
+  /**
+   * Which institution and department a unit belongs to. The institution level
+   * needs no lookup. Reads only the unit's own org columns (organisation
+   * structure, no learner data) and nothing leaves the server.
+   */
+  private static async resolvePlacement(
+    level: OrganizationalLevel,
+    id: string
+  ): Promise<EngagementPlacement | null> {
+    if (level === 'institution') {
+      return { institutionId: id, departmentId: null, sectionId: null };
+    }
+
+    const table =
+      level === 'department'
+        ? 'departments'
+        : level === 'program'
+          ? 'programs'
+          : level === 'semester'
+            ? 'semesters'
+            : 'sections';
+    const columns =
+      level === 'department' ? 'id, institution_id' : 'id, institution_id, department_id';
+
+    const supabase = await createServiceRoleClient();
+    const { data, error } = await supabase
+      .from(table)
+      .select(columns)
+      .eq('id', id)
+      .maybeSingle();
+
+    if (error || !data) return null;
+
+    const row = data as unknown as {
+      id: string;
+      institution_id?: string | null;
+      department_id?: string | null;
+    };
+    return {
+      institutionId: row.institution_id ?? null,
+      departmentId: level === 'department' ? row.id : (row.department_id ?? null),
+      sectionId: level === 'section' ? row.id : null
+    };
+  }
+
+  /**
+   * The filter choices the screen may offer this viewer (see
+   * EngagementScopeChoices). Only the viewer's own units are returned, as ids;
+   * the screen loads their names itself.
+   */
+  static async getScopeChoices(userId: string): Promise<EngagementScopeChoices> {
+    const scope = await this.getEngagementAccessScope(userId);
+    const none: EngagementScopeChoices = {
+      type: scope.type,
+      institutionIds: null,
+      departmentIds: null,
+      programIds: null,
+      semesterIds: null,
+      sectionIds: null
+    };
+
+    if (scope.type === 'global') return none;
+    if (scope.type === 'institution') {
+      return { ...none, institutionIds: scope.institutionIds ?? [] };
+    }
+
+    const supabase = await createServiceRoleClient();
+    const distinct = (values: Array<string | null | undefined>) =>
+      [...new Set(values.filter((v): v is string => !!v))];
+
+    if (scope.type === 'department') {
+      const departmentIds = scope.departmentIds ?? [];
+      const { data } = departmentIds.length
+        ? await supabase.from('departments').select('id, institution_id').in('id', departmentIds)
+        : { data: [] as Array<{ id: string; institution_id: string | null }> };
+      const rows = (data ?? []) as Array<{ id: string; institution_id: string | null }>;
+      return {
+        ...none,
+        institutionIds: distinct(rows.map((r) => r.institution_id)),
+        departmentIds: distinct(rows.map((r) => r.id))
+      };
+    }
+
+    const sectionIds = scope.sectionIds ?? [];
+    const { data } = sectionIds.length
+      ? await supabase
+          .from('sections')
+          .select('id, institution_id, department_id, program_id, semester_id')
+          .in('id', sectionIds)
+      : { data: [] as Array<Record<string, string | null>> };
+    const rows = (data ?? []) as Array<{
+      id: string;
+      institution_id: string | null;
+      department_id: string | null;
+      program_id: string | null;
+      semester_id: string | null;
+    }>;
+    return {
+      ...none,
+      institutionIds: distinct(rows.map((r) => r.institution_id)),
+      departmentIds: distinct(rows.map((r) => r.department_id)),
+      programIds: distinct(rows.map((r) => r.program_id)),
+      semesterIds: distinct(rows.map((r) => r.semester_id)),
+      sectionIds: distinct(rows.map((r) => r.id))
+    };
+  }
+
+  /**
    * Get engagement metrics for a specific organizational level
    */
   static async getMetrics(
@@ -117,32 +370,29 @@ export class EngagementService {
   ): Promise<EngagementMetrics | null> {
     try {
       const supabase = await createServiceRoleClient();
-      const accessScope = await this.getUserAccessScope(userId);
 
-      // Special handling for "all" institution - skip access check for global view
-      const isAllInstitutions = request.level === 'institution' && request.id === 'all';
-
-      // Verify user has access to this level/entity (skip for "all" if user has global/institution access)
-      if (!isAllInstitutions && !this.hasAccess(accessScope, request.level, request.id)) {
+      // Gate: refuse a selection outside the viewer's scope before reading rows.
+      const access = await this.checkAccess(userId, request.level, request.id);
+      if (!access.allowed) {
         return null;
       }
-
-      // For "all" institutions, user needs at least global or institution access
-      if (isAllInstitutions && accessScope.type !== 'global' && accessScope.type !== 'institution') {
-        return null;
-      }
+      const scope = access.scope;
 
       const dateFrom = request.dateFrom
         ? new Date(request.dateFrom)
         : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
       const dateTo = request.dateTo ? new Date(request.dateTo) : new Date();
 
-      // Build query based on organizational level
-      let query = supabase
-        .from('daily_engagement_metrics')
-        .select('*')
-        .gte('metric_date', dateFrom.toISOString().split('T')[0])
-        .lte('metric_date', dateTo.toISOString().split('T')[0]);
+      // Build query based on organizational level. The scope filter is always
+      // added, so "all institutions" for a principal is their own institution.
+      let query = applyEngagementScope(
+        supabase
+          .from('daily_engagement_metrics')
+          .select('*')
+          .gte('metric_date', dateFrom.toISOString().split('T')[0])
+          .lte('metric_date', dateTo.toISOString().split('T')[0]),
+        scope
+      );
 
       // Apply level filter - skip for "all" institutions
       switch (request.level) {
@@ -225,16 +475,19 @@ export class EngagementService {
       // Runtime read from platform_policies → 'analytics.engagement.query_limit' (default 10000).
       const STUDENT_QUERY_LIMIT = await getStudentQueryLimit();
 
-      let studentsQuery = supabase
-        .from('student_engagement_scores')
-        .select(`
+      let studentsQuery = applyEngagementScope(
+        supabase
+          .from('student_engagement_scores')
+          .select(`
           *,
           profiles!inner(full_name, email),
           sections!inner(section_name),
           programs(program_name),
           departments(department_name)
         `, { count: 'exact' }) // Get total count to detect if we hit the limit
-        .eq('calculation_date', new Date().toISOString().split('T')[0]); // Today's scores
+          .eq('calculation_date', new Date().toISOString().split('T')[0]), // Today's scores
+        scope
+      );
 
       // Apply level-specific filter - skip for "all" institutions
       switch (request.level) {
@@ -382,10 +635,10 @@ export class EngagementService {
   ): Promise<StudentEngagement[]> {
     try {
       const supabase = await createServiceRoleClient();
-      const accessScope = await this.getUserAccessScope(userId);
 
-      // Verify access
-      if (!this.hasAccess(accessScope, 'section', request.sectionId)) {
+      // Gate: refuse a section outside the viewer's scope before reading rows.
+      const access = await this.checkAccess(userId, 'section', request.sectionId);
+      if (!access.allowed) {
         return [];
       }
 
@@ -393,18 +646,21 @@ export class EngagementService {
       // Runtime read from platform_policies → 'analytics.engagement.query_limit' (default 10000).
       const STUDENT_QUERY_LIMIT = await getStudentQueryLimit();
 
-      const { data: scores, error, count } = await supabase
-        .from('student_engagement_scores')
-        .select(
-          `
+      const { data: scores, error, count } = await applyEngagementScope(
+        supabase
+          .from('student_engagement_scores')
+          .select(
+            `
           *,
           profiles!inner(full_name, email),
           sections!inner(section_name),
           programs(program_name),
           departments(department_name)
         `,
-          { count: 'exact' }
-        )
+            { count: 'exact' }
+          ),
+        access.scope
+      )
         .eq('section_id', request.sectionId)
         .eq('calculation_date', new Date().toISOString().split('T')[0])
         .order('percentile_rank', { ascending: false })
@@ -453,18 +709,10 @@ export class EngagementService {
   ): Promise<AtRiskStudent[]> {
     try {
       const supabase = await createServiceRoleClient();
-      const accessScope = await this.getUserAccessScope(userId);
 
-      // Special handling for "all" institution
-      const isAllInstitutions = request.level === 'institution' && request.id === 'all';
-
-      // Verify access (skip for "all" if user has global/institution access)
-      if (!isAllInstitutions && !this.hasAccess(accessScope, request.level, request.id)) {
-        return [];
-      }
-
-      // For "all" institutions, user needs at least global or institution access
-      if (isAllInstitutions && accessScope.type !== 'global' && accessScope.type !== 'institution') {
+      // Gate: refuse a selection outside the viewer's scope before reading rows.
+      const access = await this.checkAccess(userId, request.level, request.id);
+      if (!access.allowed) {
         return [];
       }
 
@@ -473,20 +721,25 @@ export class EngagementService {
       // Same semantic as STUDENT_QUERY_LIMIT — student-row fetch cap.
       const AT_RISK_QUERY_LIMIT = await getStudentQueryLimit();
 
-      let query = supabase
-        .from('student_engagement_scores')
-        .select(
-          `
+      // The scope filter is always added, so "all institutions" for a principal
+      // is their own institution.
+      let query = applyEngagementScope(
+        supabase
+          .from('student_engagement_scores')
+          .select(
+            `
           *,
           profiles!inner(full_name, email, phone_number),
           sections!inner(section_name),
           programs(program_name),
           departments(department_name)
         `,
-          { count: 'exact' }
-        )
-        .eq('is_at_risk', true)
-        .eq('calculation_date', new Date().toISOString().split('T')[0]);
+            { count: 'exact' }
+          )
+          .eq('is_at_risk', true)
+          .eq('calculation_date', new Date().toISOString().split('T')[0]),
+        access.scope
+      );
 
       // Apply level filter - skip for "all" institutions
       switch (request.level) {
@@ -559,10 +812,10 @@ export class EngagementService {
   ): Promise<SectionComparison[]> {
     try {
       const supabase = await createServiceRoleClient();
-      const accessScope = await this.getUserAccessScope(userId);
 
-      // Verify access to semester
-      if (!this.hasAccess(accessScope, 'semester', request.semesterId)) {
+      // Gate: refuse a semester outside the viewer's scope before reading rows.
+      const access = await this.checkAccess(userId, 'semester', request.semesterId);
+      if (!access.allowed) {
         return [];
       }
 
@@ -573,15 +826,20 @@ export class EngagementService {
       // section rows, not student rows. Needs its own seeded policy value.
       const SECTION_COMPARISON_LIMIT = 500;
 
-      const { data: overview, error, count } = await supabase
-        .from('mv_engagement_overview')
-        .select(
-          `
+      // mv_engagement_overview is a materialized view: row-level security never
+      // applies to it, so the scope filter here is the only thing narrowing it.
+      const { data: overview, error, count } = await applyEngagementScope(
+        supabase
+          .from('mv_engagement_overview')
+          .select(
+            `
           *,
           sections!inner(section_name)
         `,
-          { count: 'exact' }
-        )
+            { count: 'exact' }
+          ),
+        access.scope
+      )
         .eq('semester_id', request.semesterId)
         .not('section_id', 'is', null)
         .limit(SECTION_COMPARISON_LIMIT);
@@ -656,19 +914,26 @@ export class EngagementService {
   ): Promise<StudentEngagementDetail | null> {
     try {
       const supabase = await createServiceRoleClient();
-      const accessScope = await this.getUserAccessScope(userId);
+      const accessScope = await this.getEngagementAccessScope(userId);
 
-      // Get student's current engagement score
-      const { data: score, error: scoreError } = await supabase
-        .from('student_engagement_scores')
-        .select(
-          `
+      if (!scopeHasUnits(accessScope)) {
+        return null;
+      }
+
+      // Get student's current engagement score, only if it sits in the scope
+      const { data: score, error: scoreError } = await applyEngagementScope(
+        supabase
+          .from('student_engagement_scores')
+          .select(
+            `
           *,
           profiles!inner(full_name, email),
           sections(section_name),
           programs(program_name)
         `
-        )
+          ),
+        accessScope
+      )
         .eq('user_id', studentId)
         .eq('calculation_date', new Date().toISOString().split('T')[0])
         .single();
@@ -678,10 +943,15 @@ export class EngagementService {
         return null;
       }
 
-      // Verify access to this student's section
+      // Check the row itself too, before any session history is read. (The old
+      // check skipped learners with no section and let an institution- or
+      // department-scoped viewer through for anyone.)
       if (
-        score.section_id &&
-        !this.hasAccess(accessScope, 'section', score.section_id)
+        !placementInScope(accessScope, {
+          institutionId: score.institution_id ?? null,
+          departmentId: score.department_id ?? null,
+          sectionId: score.section_id ?? null
+        })
       ) {
         return null;
       }
@@ -775,42 +1045,6 @@ export class EngagementService {
       );
       return null;
     }
-  }
-
-  /**
-   * Helper: Check if user has access to a specific entity
-   */
-  private static hasAccess(
-    accessScope: AccessScope,
-    level: OrganizationalLevel,
-    entityId: string
-  ): boolean {
-    if (accessScope.type === 'global') {
-      return true;
-    }
-
-    if (accessScope.type === 'institution') {
-      // Institution access allows viewing all sub-levels
-      return true;
-    }
-
-    if (accessScope.type === 'department') {
-      // Department access allows viewing programs, semesters, sections
-      if (level === 'department') {
-        return accessScope.departmentIds?.includes(entityId) || false;
-      }
-      // For sub-levels, we'd need to verify the hierarchy (simplified here)
-      return true;
-    }
-
-    if (accessScope.type === 'section') {
-      if (level === 'section') {
-        return accessScope.sectionIds?.includes(entityId) || false;
-      }
-      return false;
-    }
-
-    return false;
   }
 
   /**

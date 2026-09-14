@@ -6,8 +6,11 @@ import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { useAuth } from '@/hooks/use-auth';
 import { useAttendanceDashboard } from '@/hooks/campus-living/use-hostel-attendance';
 import { BlockSelector } from '@/components/campus-living/block-selector';
@@ -22,8 +25,25 @@ import {
   ArrowRight,
   Calendar,
   Download,
-  Building2
+  Building2,
+  BarChart3,
+  ChevronLeft,
+  ChevronRight,
+  Info
 } from 'lucide-react';
+
+/**
+ * Shift a YYYY-MM-DD string by n days, in UTC.
+ *
+ * Local-time date math would roll an IST (+5:30) midnight back a day, and the
+ * stored `date` column is the same UTC basis Mark Attendance stamps.
+ */
+function addDays(iso: string, n: number): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + n);
+  return dt.toISOString().split('T')[0];
+}
 
 export default function AttendanceDashboardPage() {
   const { profile } = useAuth();
@@ -33,9 +53,15 @@ export default function AttendanceDashboardPage() {
   // Mark Attendance stamps rows with new Date().toISOString() — use the SAME
   // UTC date basis here so "today" matches what was just marked.
   const today = new Date().toISOString().split('T')[0];
+  // The page opens on today, but any past day can be reviewed. The service
+  // already honours an arbitrary date: it filters marks on it and ends the
+  // 7-day trend window there, so the whole page moves together.
+  const [date, setDate] = useState<string>(today);
+  const isToday = date === today;
+
   const { data: rawStats, isLoading } = useAttendanceDashboard(
     institutionId,
-    today,
+    date,
     blockFilter !== 'all' ? blockFilter : undefined
   );
   // Defensive: while loading rawStats is undefined; fall back to safe defaults
@@ -54,16 +80,6 @@ export default function AttendanceDashboardPage() {
     weekly_trend: Array.isArray(s.weekly_trend) ? s.weekly_trend : [],
   };
 
-  if (isLoading) {
-    return (
-      <ContentLayout title="Hostel Attendance">
-        <div className="flex items-center justify-center min-h-[400px]">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
-      </ContentLayout>
-    );
-  }
-
   return (
     <ContentLayout title="Hostel Attendance">
       <PageBreadcrumb
@@ -80,7 +96,13 @@ export default function AttendanceDashboardPage() {
           <div>
             <h1 className="text-2xl font-bold py-1">Hostel Attendance</h1>
             <p className="text-sm text-muted-foreground">
-              Today: {new Date(stats.date).toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+              {isToday ? 'Today' : 'Viewing'}:{' '}
+              {new Date(`${date}T00:00:00`).toLocaleDateString('en-IN', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+              })}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -96,6 +118,12 @@ export default function AttendanceDashboardPage() {
                 Absentees
               </Link>
             </Button>
+            <Button variant="outline" asChild>
+              <Link href="/campus-living/analytics/attendance">
+                <BarChart3 className="mr-2 h-4 w-4" />
+                View Analytics
+              </Link>
+            </Button>
             <Button asChild>
               <Link href="/campus-living/attendance/mark">
                 <ClipboardCheck className="mr-2 h-4 w-4" />
@@ -105,176 +133,264 @@ export default function AttendanceDashboardPage() {
           </div>
         </div>
 
-        {/* Filters */}
+        {/* Scope: which day, which block */}
         <Card>
           <CardContent className="p-4">
-            <div className="flex flex-col sm:flex-row gap-3">
-              <BlockSelector
-                institutionId={institutionId}
-                value={blockFilter}
-                onValueChange={setBlockFilter}
-              />
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+              <div className="space-y-1">
+                <Label htmlFor="attendance-date" className="text-xs text-muted-foreground">
+                  Date
+                </Label>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    aria-label="Previous day"
+                    onClick={() => setDate((d) => addDays(d, -1))}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <Input
+                    id="attendance-date"
+                    type="date"
+                    value={date}
+                    // No future days: attendance cannot have been marked for one,
+                    // and an empty page there reads as a fault rather than a date.
+                    max={today}
+                    onChange={(e) => e.target.value && setDate(e.target.value)}
+                    className="w-[160px]"
+                  />
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    aria-label="Next day"
+                    disabled={isToday}
+                    onClick={() => setDate((d) => addDays(d, 1))}
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Block</Label>
+                <BlockSelector
+                  institutionId={institutionId}
+                  value={blockFilter}
+                  onValueChange={setBlockFilter}
+                />
+              </div>
+
+              {!isToday && (
+                <Button variant="ghost" size="sm" onClick={() => setDate(today)}>
+                  Back to today
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>
 
-        {/* Primary Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-4">
-          <Card>
-            <CardContent className="p-4 text-center">
-              <Users className="h-5 w-5 text-muted-foreground mx-auto mb-1" />
-              <p className="text-2xl font-bold">{(stats.total_hostellers ?? 0).toLocaleString()}</p>
-              <p className="text-xs text-muted-foreground">Total</p>
-            </CardContent>
-          </Card>
-          <Card className="border-green-200 bg-green-50/50">
-            <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-green-700">{(stats.present ?? 0).toLocaleString()}</p>
-              <p className="text-xs text-green-600">Present</p>
-            </CardContent>
-          </Card>
-          <Card className="border-red-200 bg-red-50/50">
-            <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-red-700">{stats.absent}</p>
-              <p className="text-xs text-red-600">Absent</p>
-            </CardContent>
-          </Card>
-          <Card className="border-amber-200 bg-amber-50/50">
-            <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-amber-700">{stats.on_leave}</p>
-              <p className="text-xs text-amber-600">On Leave</p>
-            </CardContent>
-          </Card>
-          <Card className="border-orange-200 bg-orange-50/50">
-            <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-orange-700">{stats.late_entry}</p>
-              <p className="text-xs text-orange-600">Late Entry</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold">{stats.attendance_rate}%</p>
-              <p className="text-xs text-muted-foreground">Rate</p>
-            </CardContent>
-          </Card>
-          <Card className={stats.curfew_violations > 0 ? 'border-red-200 bg-red-50/50' : ''}>
-            <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-red-700">{stats.curfew_violations}</p>
-              <p className="text-xs text-red-600">Curfew Violations</p>
-            </CardContent>
-          </Card>
-        </div>
+        {/* Historical dates carry a mixed basis: the marks are from the chosen
+            day, but the resident population comes from allocations as they
+            stand NOW. Anyone who moved in or out since will skew the totals, so
+            say it rather than let the numbers quietly disagree with history. */}
+        {!isToday && (
+          <Alert>
+            <Info className="h-4 w-4" />
+            <AlertDescription>
+              Marks shown are from{' '}
+              {new Date(`${date}T00:00:00`).toLocaleDateString('en-IN', {
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric',
+              })}
+              , but resident totals and block rates are based on{' '}
+              <strong>today&apos;s</strong> allocations — anyone allocated or
+              vacated since then shifts those denominators.
+            </AlertDescription>
+          </Alert>
+        )}
 
-        {/* Block-wise Attendance */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2">
-            <div className="min-w-0">
-              <CardTitle className="text-base">Block-wise Attendance</CardTitle>
-              <CardDescription>Today&apos;s attendance by hostel block</CardDescription>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="shrink-0"
-              onClick={() =>
-                toast.info('Attendance export ships next.', {
-                  description: 'Block-wise CSV export will be available once the export endpoint is live.',
-                })
-              }
-            >
-              <Download className="mr-2 h-4 w-4" />
-              Export
-            </Button>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {(stats.blocks ?? []).length === 0 && (
+        {isLoading ? (
+          <div className="flex items-center justify-center min-h-[300px]">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          </div>
+        ) : (
+          <>
+          {/* Nothing was marked on this day at all — distinct from "everyone was
+              absent", which the zero-filled cards below would otherwise imply. */}
+          {stats.present + stats.absent + stats.on_leave + stats.late_entry === 0 && (
+            <Alert>
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>No attendance marked on this date</AlertTitle>
+              <AlertDescription>
+                The counts below are zero because no roll call was recorded
+                {blockFilter !== 'all' ? ' for this block' : ''} on this day — not
+                because residents were absent.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {/* Primary Stats. Six cards, not seven: the "Curfew Violations" card
+              that used to sit here read 0 on every date because
+              hostel_attendance.is_curfew_violation is true on zero rows in
+              production. It reported missing data as good behaviour. */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+            <Card>
+              <CardContent className="p-4 text-center">
+                <Users className="h-5 w-5 text-muted-foreground mx-auto mb-1" />
+                <p className="text-2xl font-bold">{(stats.total_hostellers ?? 0).toLocaleString()}</p>
+                <p className="text-xs text-muted-foreground">Total</p>
+              </CardContent>
+            </Card>
+            <Card className="border-green-200 bg-green-50/50">
+              <CardContent className="p-4 text-center">
+                <p className="text-2xl font-bold text-green-700">{(stats.present ?? 0).toLocaleString()}</p>
+                <p className="text-xs text-green-600">Present</p>
+              </CardContent>
+            </Card>
+            <Card className="border-red-200 bg-red-50/50">
+              <CardContent className="p-4 text-center">
+                <p className="text-2xl font-bold text-red-700">{stats.absent}</p>
+                <p className="text-xs text-red-600">Absent</p>
+              </CardContent>
+            </Card>
+            <Card className="border-amber-200 bg-amber-50/50">
+              <CardContent className="p-4 text-center">
+                <p className="text-2xl font-bold text-amber-700">{stats.on_leave}</p>
+                <p className="text-xs text-amber-600">On Leave</p>
+              </CardContent>
+            </Card>
+            <Card className="border-orange-200 bg-orange-50/50">
+              <CardContent className="p-4 text-center">
+                <p className="text-2xl font-bold text-orange-700">{stats.late_entry}</p>
+                <p className="text-xs text-orange-600">Late Entry</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4 text-center">
+                <p className="text-2xl font-bold">{stats.attendance_rate}%</p>
+                <p className="text-xs text-muted-foreground">Rate</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Block-wise Attendance */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-2">
+              <div className="min-w-0">
+                <CardTitle className="text-base">Block-wise Attendance</CardTitle>
+                <CardDescription>
+                  {isToday ? "Today's" : "Selected day's"} attendance by hostel block
+                </CardDescription>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                onClick={() =>
+                  toast.info('Attendance export ships next.', {
+                    description: 'Block-wise CSV export will be available once the export endpoint is live.',
+                  })
+                }
+              >
+                <Download className="mr-2 h-4 w-4" />
+                Export
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {(stats.blocks ?? []).length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-6">
+                    No block attendance recorded yet.
+                  </p>
+                )}
+                {(stats.blocks ?? []).map((block: any) => {
+                  const rate = block.total > 0 ? Math.round((block.present / block.total) * 100) : 0;
+                  return (
+                    <div key={block.id} className="flex flex-col gap-3 p-4 border rounded-lg sm:flex-row sm:items-center sm:gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2 mb-2">
+                          <Building2 className="h-4 w-4 text-muted-foreground" />
+                          <span className="font-medium">{block.name}</span>
+                          <Badge variant="outline" className="text-xs">{block.code}</Badge>
+                          {!block.marked && (
+                            <Badge variant="destructive" className="text-xs">Not Marked</Badge>
+                          )}
+                        </div>
+                        <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${rate >= 90 ? 'bg-green-500' : rate >= 75 ? 'bg-amber-500' : 'bg-red-500'}`}
+                            style={{ width: `${rate}%` }}
+                          />
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-4 text-center text-sm sm:shrink-0">
+                        <div>
+                          <p className="font-semibold text-green-600">{block.present}</p>
+                          <p className="text-xs text-muted-foreground">Present</p>
+                        </div>
+                        <div>
+                          <p className="font-semibold text-red-600">{block.absent}</p>
+                          <p className="text-xs text-muted-foreground">Absent</p>
+                        </div>
+                        <div>
+                          <p className="font-semibold text-amber-600">{block.on_leave}</p>
+                          <p className="text-xs text-muted-foreground">Leave</p>
+                        </div>
+                        <div>
+                          <p className="font-semibold">{rate}%</p>
+                          <p className="text-xs text-muted-foreground">Rate</p>
+                        </div>
+                      </div>
+                      <Button variant="ghost" size="sm" asChild>
+                        <Link href={`/campus-living/attendance/mark?block=${block.id}&date=${date}`}>
+                          {block.marked ? 'Update' : 'Mark'}
+                        </Link>
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Weekly Trend */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Weekly Attendance Trend</CardTitle>
+              <CardDescription>
+                The 7 days ending on the selected date
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {(stats.weekly_trend ?? []).length === 0 && (
                 <p className="text-sm text-muted-foreground text-center py-6">
-                  No block attendance recorded yet.
+                  No weekly trend data available.
                 </p>
               )}
-              {(stats.blocks ?? []).map((block: any) => {
-                const rate = block.total > 0 ? Math.round((block.present / block.total) * 100) : 0;
-                return (
-                  <div key={block.id} className="flex flex-col gap-3 p-4 border rounded-lg sm:flex-row sm:items-center sm:gap-4">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-2 mb-2">
-                        <Building2 className="h-4 w-4 text-muted-foreground" />
-                        <span className="font-medium">{block.name}</span>
-                        <Badge variant="outline" className="text-xs">{block.code}</Badge>
-                        {!block.marked && (
-                          <Badge variant="destructive" className="text-xs">Not Marked</Badge>
-                        )}
-                      </div>
-                      <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
+              <div className="grid grid-cols-7 gap-2">
+                {(stats.weekly_trend ?? []).map((day: any) => {
+                  const denom = (day.present ?? 0) + (day.absent ?? 0);
+                  const rate = denom > 0 ? Math.round(((day.present ?? 0) / denom) * 100) : 0;
+                  return (
+                    <div key={day.day} className="text-center">
+                      <p className="text-xs text-muted-foreground mb-2">{day.day}</p>
+                      <div className="h-24 bg-muted rounded-lg relative overflow-hidden">
                         <div
-                          className={`h-full rounded-full ${rate >= 90 ? 'bg-green-500' : rate >= 75 ? 'bg-amber-500' : 'bg-red-500'}`}
-                          style={{ width: `${rate}%` }}
+                          className={`absolute bottom-0 left-0 right-0 rounded-lg ${rate >= 90 ? 'bg-green-400' : rate >= 80 ? 'bg-amber-400' : 'bg-red-400'}`}
+                          style={{ height: `${rate}%` }}
                         />
                       </div>
+                      <p className="text-xs font-medium mt-1">{rate}%</p>
                     </div>
-                    <div className="flex flex-wrap gap-4 text-center text-sm sm:shrink-0">
-                      <div>
-                        <p className="font-semibold text-green-600">{block.present}</p>
-                        <p className="text-xs text-muted-foreground">Present</p>
-                      </div>
-                      <div>
-                        <p className="font-semibold text-red-600">{block.absent}</p>
-                        <p className="text-xs text-muted-foreground">Absent</p>
-                      </div>
-                      <div>
-                        <p className="font-semibold text-amber-600">{block.on_leave}</p>
-                        <p className="text-xs text-muted-foreground">Leave</p>
-                      </div>
-                      <div>
-                        <p className="font-semibold">{rate}%</p>
-                        <p className="text-xs text-muted-foreground">Rate</p>
-                      </div>
-                    </div>
-                    <Button variant="ghost" size="sm" asChild>
-                      <Link href={`/campus-living/attendance/mark?block=${block.id}`}>
-                        {block.marked ? 'Update' : 'Mark'}
-                      </Link>
-                    </Button>
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Weekly Trend */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Weekly Attendance Trend</CardTitle>
-            <CardDescription>Last 7 days attendance overview</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {(stats.weekly_trend ?? []).length === 0 && (
-              <p className="text-sm text-muted-foreground text-center py-6">
-                No weekly trend data available.
-              </p>
-            )}
-            <div className="grid grid-cols-7 gap-2">
-              {(stats.weekly_trend ?? []).map((day: any) => {
-                const denom = (day.present ?? 0) + (day.absent ?? 0);
-                const rate = denom > 0 ? Math.round(((day.present ?? 0) / denom) * 100) : 0;
-                return (
-                  <div key={day.day} className="text-center">
-                    <p className="text-xs text-muted-foreground mb-2">{day.day}</p>
-                    <div className="h-24 bg-muted rounded-lg relative overflow-hidden">
-                      <div
-                        className={`absolute bottom-0 left-0 right-0 rounded-lg ${rate >= 90 ? 'bg-green-400' : rate >= 80 ? 'bg-amber-400' : 'bg-red-400'}`}
-                        style={{ height: `${rate}%` }}
-                      />
-                    </div>
-                    <p className="text-xs font-medium mt-1">{rate}%</p>
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+          </>
+        )}
       </div>
     </ContentLayout>
   );

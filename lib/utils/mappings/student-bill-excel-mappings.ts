@@ -28,7 +28,12 @@ export const STUDENT_BILL_TEMPLATE_HEADERS = [
   'Bill Description',
   'Due Date',
   'Billing Amount',
-  'Remarks'
+  'Remarks',
+  // Optional pair, appended at the END on purpose: the template route's
+  // dataValidation cell letters (D/E/F) track column order, so a new column
+  // inserted mid-sheet would move the dropdowns onto the wrong cells.
+  'Instalment Shares',
+  'Instalment Due Dates'
 ] as const;
 
 export type StudentBillTemplateHeader = (typeof STUDENT_BILL_TEMPLATE_HEADERS)[number];
@@ -82,6 +87,20 @@ export const STUDENT_BILL_HEADER_ALIASES: Record<string, string[]> = {
   due_date: ['due date', 'duedate', 'due_date'],
   billing_amount: ['billing amount', 'amount', 'billing_amount'],
   remarks: ['remarks', 'remark', 'notes'],
+  // Optional since 2026-09-06. A sheet without them imports exactly as
+  // before; a sheet with them gives each bill a payment schedule.
+  instalment_shares: [
+    'instalment shares',
+    'installment shares',
+    'instalment_shares',
+    'shares'
+  ],
+  instalment_due_dates: [
+    'instalment due dates',
+    'installment due dates',
+    'instalment_due_dates',
+    'instalment dates'
+  ],
   academic_year_name: [
     'academic year',
     // Retained: the header was "Academic Year (optional)" until 2026-07-29,
@@ -135,11 +154,95 @@ export interface StudentBillRow {
   due_date: string; // ISO YYYY-MM-DD
   billing_amount: number;
   remarks?: string;
+  /** e.g. "30/35/35" — percentages, must total 100. Optional. */
+  instalment_shares?: string;
+  /** e.g. "2026-10-30|2027-01-30|2027-02-28". Optional. */
+  instalment_due_dates?: string;
 
   // Filled by validator
   _resolved_student_id?: string;
   _resolved_institution_id?: string;
   _resolved_item_category_id?: string;
+}
+
+/** One parsed schedule line from the two optional sheet columns. */
+export interface ParsedInstalmentLine {
+  share_percent: number;
+  due_date: string;
+}
+
+/**
+ * Parses the optional "Instalment Shares" / "Instalment Due Dates" pair.
+ *
+ *   shares: "30/35/35"  (also accepts commas or spaces)
+ *   dates:  "2026-10-30|2027-01-30|2027-02-28"  (also accepts commas)
+ *
+ * Returns `{ lines: [] }` when BOTH cells are blank — the overwhelmingly
+ * common case, and the one that must behave exactly as it did before these
+ * columns existed. Every other shape is validated and reported at preview
+ * time, because the alternative is a Postgres BL002 after the bill row has
+ * already been inserted.
+ */
+export function parseInstalmentColumns(
+  sharesRaw: string,
+  datesRaw: string,
+  // The caller's own date normaliser. Passed in rather than reimplemented:
+  // cellToISODate already exists (twice) in the bulk services, and a third
+  // copy here would be free to disagree about Excel serial dates.
+  toISODate: (value: unknown) => string | null
+): { lines: ParsedInstalmentLine[]; errors: string[] } {
+  const shares = (sharesRaw || '').trim();
+  const dates = (datesRaw || '').trim();
+  if (!shares && !dates) return { lines: [], errors: [] };
+
+  const errors: string[] = [];
+  if (!shares || !dates) {
+    errors.push(
+      'Instalment Shares and Instalment Due Dates must both be filled in, or both left blank.'
+    );
+    return { lines: [], errors };
+  }
+
+  const shareParts = shares.split(/[\/,;|\s]+/).filter(Boolean);
+  const dateParts = dates.split(/[|,;\s]+/).filter(Boolean);
+
+  if (shareParts.length !== dateParts.length) {
+    errors.push(
+      `Instalments do not line up: ${shareParts.length} share(s) but ${dateParts.length} due date(s).`
+    );
+    return { lines: [], errors };
+  }
+  if (shareParts.length < 2) {
+    errors.push('An instalment schedule needs at least 2 instalments.');
+    return { lines: [], errors };
+  }
+
+  const lines: ParsedInstalmentLine[] = [];
+  let total = 0;
+
+  for (let i = 0; i < shareParts.length; i++) {
+    const pct = Number(shareParts[i].replace('%', ''));
+    if (!Number.isFinite(pct) || pct <= 0 || pct > 100) {
+      errors.push(`Instalment ${i + 1}: "${shareParts[i]}" is not a share between 0 and 100.`);
+      continue;
+    }
+    const iso = toISODate(dateParts[i]);
+    if (!iso) {
+      errors.push(`Instalment ${i + 1}: "${dateParts[i]}" is not a valid date.`);
+      continue;
+    }
+    total += pct;
+    lines.push({ share_percent: pct, due_date: iso });
+  }
+
+  // Exactly 100, matching validatePlanLines and the fee-structure editor. The
+  // engine's last-absorbs-rounding rule would quietly turn 30/30/30 into
+  // 30/30/40, which is never what the author of the sheet meant.
+  if (errors.length === 0 && Math.abs(total - 100) > 0.005) {
+    errors.push(`Instalment shares must total 100% (they total ${total.toFixed(2)}%).`);
+  }
+
+  return { lines: errors.length > 0 ? [] : lines, errors };
 }
 
 export interface ImportError {
