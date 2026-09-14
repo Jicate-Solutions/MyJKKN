@@ -43,8 +43,50 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { KIND_LABEL, type ChangeKind, type ChangelogEntry } from '@/lib/changelog/types';
 import { CATEGORY_BLURB, groupByCategory, type ChangeCategory } from '@/lib/changelog/categories';
 import { formatEntryTime } from '@/lib/changelog/entry-time';
+import { chooseEntryLink } from '@/lib/changelog/entry-link.mjs';
+import { routeMatcher } from '@/lib/auth/route-matcher';
+import { isPageAccessible } from '@/lib/navigation/permission-filter';
 
 const PAGE = 60;
+
+/**
+ * May THIS reader open that path? The canonical answer, not a new one.
+ *
+ * Two existing pieces, composed exactly as RoutePermissionGuard composes them
+ * (components/auth/route-permission-guard.tsx) and as the sidebar does:
+ *
+ *   1. routeMatcher.match(path)?.permission — the permission MENU_PERMISSIONS
+ *      declares for that route, wildcard-aware so a [id] segment still matches.
+ *   2. isPageAccessible(...)                — the access rule itself: admin
+ *      bypass, the sentinel wall, the named per-route unions, then the key.
+ *
+ * WHY NOT THE MIDDLEWARE'S RULE. proxy.ts consults MENU_PERMISSIONS only for
+ * CUSTOM primary roles; every built-in role (faculty, hod, principal, staff…)
+ * is waved through every permission-mapped route and the PAGE refuses them
+ * client-side. A route-level test alone would therefore answer "yes, they can
+ * open it" for precisely the roles observed hitting the wall on production —
+ * a faculty member on /admission/consultants/attribution-orphans. isPageAccessible
+ * has no such role carve-out: it reads the key for everyone, which is why it is
+ * the rule this page must ask.
+ *
+ * FAIL-OPEN ON AN UNMAPPED PATH IS THE CANONICAL BEHAVIOUR, not an oversight
+ * here. A route with no MENU_PERMISSIONS entry is allowed by isPageAccessible,
+ * by RoutePermissionGuard, and by the nav — "no permission field = visible to
+ * all authenticated users". Making this one surface stricter than all three
+ * would hide working links, which is the opposite complaint.
+ *
+ * IT DECIDES THE LINK, NEVER THE ACCESS. Nothing here grants anything: the
+ * target page runs its own guard, and the data behind it runs RLS. The worst a
+ * bug in this function can do is show or withhold a link.
+ */
+function readerCanOpen(
+  path: string,
+  permissions: Record<string, boolean>,
+  isSuperAdmin: boolean,
+  userRole: string
+): boolean {
+  return isPageAccessible(path, routeMatcher.match(path)?.permission, permissions, isSuperAdmin, userRole);
+}
 
 /** Contributor pills shown before the "+N more" button, below `sm`. */
 const PHONE_CONTRIBUTORS = 5;
@@ -226,6 +268,21 @@ export function WhatsNewView() {
   const [moduleSlug, setModuleSlug] = useState('all');
   const [shown, setShown] = useState(PAGE);
   const [allContributors, setAllContributors] = useState(false);
+
+  /**
+   * The reader's own "may I open that?" test, bound once per permission change.
+   *
+   * usePermissions is a React Query hook and useChangelog above already calls
+   * it, so this is the same cache entry rather than a second fetch. The list
+   * below is never rendered while permissions are still resolving — useChangelog
+   * folds permsLoading into its own isLoading — so this cannot decide a link on
+   * an empty permission map and then quietly change its mind.
+   */
+  const { permissions, isSuperAdmin, userProfile } = usePermissions();
+  const canOpen = useMemo(() => {
+    const role = userProfile?.role ?? '';
+    return (path: string) => readerCanOpen(path, permissions, isSuperAdmin, role);
+  }, [permissions, isSuperAdmin, userProfile?.role]);
 
   const filtered = useMemo(() => {
     if (!entries) return [];
@@ -471,7 +528,12 @@ export function WhatsNewView() {
         ))}
       </div>
 
-      {activeModule?.href && (
+      {/* The same rule as every row link below: offered only if this reader can
+          actually open it. A module the reader may read NEWS about is not
+          automatically a module whose landing page their role opens — Billing
+          news reaches anyone holding any `billing.*` key, while /billing itself
+          carries its own MENU_PERMISSIONS entry. */}
+      {activeModule?.href && canOpen(activeModule.href) && (
         <Link
           href={activeModule.href}
           className="inline-flex items-center gap-1.5 rounded-sm py-1 text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -568,19 +630,25 @@ export function WhatsNewView() {
                         means we know the area. A reader can tell which promise
                         is being made before spending a tap on it.
 
-                        NO PERMISSION CHECK HERE, deliberately. The entries this
-                        reader received were already narrowed server-side by
-                        fn_changelog_visible_modules(), so every row on screen
-                        belongs to a module they can reach. A deep path inside
-                        that module may still carry its own finer permission —
-                        that is fine and is the target page's job to state, not
-                        a second access system's.
+                        EACH CANDIDATE IS TESTED AGAINST THIS READER before it
+                        is offered — chooseEntryLink + canOpen, above. The
+                        previous version checked nothing, on the reasoning that
+                        fn_changelog_visible_modules() had already narrowed the
+                        rows to modules the reader can reach. That reasoning is
+                        true and insufficient: module visibility is decided by
+                        permission NAMESPACE, while `e.l` is derived from the
+                        files a commit touched, and a commit filed under one
+                        module routinely edits a screen gated by another
+                        module's key. Observed on production 2026-09-14 — a
+                        learner and a holder of the `faculty` role both followed
+                        a link from here into an access-denied card. The
+                        Director's ruling of 2026-09-13 (edge case 3) is that
+                        such a link is HIDDEN for them: no dead ends. So an
+                        unreachable exact screen falls back to the module, an
+                        unreachable module falls back to nothing, and the
+                        fallback is re-tested rather than assumed.
                       */
-                      const link = e.l
-                        ? { href: e.l, label: 'Open this page' }
-                        : mod?.href
-                          ? { href: mod.href, label: `Open ${mod.label}` }
-                          : null;
+                      const link = chooseEntryLink(e.l, mod?.href, mod?.label ?? '', canOpen);
                       // Read in Asia/Kolkata, the same clock `e.d` was written in,
                       // so the time on the row and the date above it are two
                       // readings of one instant and cannot name different days.
@@ -662,15 +730,52 @@ export function WhatsNewView() {
                                 indistinguishable in a screen reader's link
                                 list. Naming each one after its own change makes
                                 the list navigable.
+
+                                THE `basis-full` WRAPPER IS THE PHONE-OVERLAP
+                                FIX, and it is spatial rather than cosmetic.
+                                Three floating controls stack at `right-4` on
+                                every authenticated page — the bug reporter
+                                (bottom-nav-safe-2), the Director handover
+                                (-safe-3) and the work pulse (-safe-4), 48px
+                                each — so the column owns x ∈ [329, 377] on a
+                                393px screen for the bottom ~316px of it. Left
+                                to flow at the END of this metadata line, the
+                                link packed at the right edge whenever the time,
+                                the contributor's name and the PR number left
+                                room: measured at 393px with the project's own
+                                compiled Tailwind, a row credited to "Boobalan
+                                Subramanian" put the link at x ∈ [278, 353] —
+                                24px inside the column, with the buttons sitting
+                                on top of the one control the row exists to
+                                offer. The wrapper puts it on its own line at
+                                x ∈ [29, 104]: clear of the column at EVERY
+                                scroll offset, which bottom padding cannot
+                                promise, since a fixed element crosses every row
+                                of a scrolling list.
+
+                                WHY A WRAPPER RATHER THAN `basis-full` ON THE
+                                ANCHOR. Both break the line, but flex-basis is a
+                                SIZE: on the anchor it stretched the link's box
+                                to the full card width (measured x ∈ [29, 364]),
+                                pushing its right end back under the buttons —
+                                an invisible tap target that the FABs win anyway.
+                                `max-w-fit` shrinks the box but then no longer
+                                forces the break. A wrapper separates the two
+                                jobs: the span takes the line, the anchor keeps
+                                its 75px. `sm:basis-auto` restores the inline
+                                layout above the breakpoint, where no floating
+                                column overlaps the content.
                               */
-                              <Link
-                                href={link.href}
-                                className="inline-flex shrink-0 items-center gap-1 rounded-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                              >
-                                {link.label}
-                                <ArrowRight className="h-3 w-3" aria-hidden="true" />
-                                <span className="sr-only">: {e.s}</span>
-                              </Link>
+                              <span className="basis-full sm:basis-auto">
+                                <Link
+                                  href={link.href}
+                                  className="inline-flex shrink-0 items-center gap-1 rounded-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                >
+                                  {link.label}
+                                  <ArrowRight className="h-3 w-3" aria-hidden="true" />
+                                  <span className="sr-only">: {e.s}</span>
+                                </Link>
+                              </span>
                             )}
                           </p>
                         </li>
@@ -684,7 +789,13 @@ export function WhatsNewView() {
         </div>
       )}
 
-      <div className="flex flex-col items-center gap-3 pb-4">
+      {/* pb-nav-safe below lg: the mobile BottomNav is `fixed bottom-0` over a
+          76px strip plus the iOS home-indicator inset, and ContentLayout's pb-8
+          (32px) is not enough to clear it — the last row of a list this long sits
+          permanently underneath. The `nav-safe` token is the repository's own
+          measurement of that strip (tailwind.config.ts); lg:pb-4 restores the
+          original spacing above the breakpoint, where the nav does not exist. */}
+      <div className="flex flex-col items-center gap-3 pb-nav-safe lg:pb-4">
         {shown < filtered.length && (
           <Button
             variant="outline"

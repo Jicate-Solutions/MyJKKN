@@ -15,7 +15,7 @@
 import { describe, it, expect } from 'vitest';
 // .mjs, imported from TypeScript, exactly as modules.mjs and title-rules.mjs
 // are by the suites beside this one.
-import { routeFromPageFile, entryHref } from '@/lib/changelog/entry-link.mjs';
+import { routeFromPageFile, entryHref, chooseEntryLink } from '@/lib/changelog/entry-link.mjs';
 
 /** "Everything in the list exists" — the tree at a ref that changed nothing. */
 const allExist = () => true;
@@ -165,5 +165,83 @@ describe('entryHref — one link per commit', () => {
     // recoverable on the next sync, a page full of 404s is not.
     const files = ['app/(routes)/hr/page.tsx', 'app/(routes)/billing/page.tsx'];
     expect(entryHref(files, treeOf()).href).toBeNull();
+  });
+});
+
+/**
+ * chooseEntryLink — the SECOND question, asked per reader.
+ *
+ * entryHref above decides whether a link points at a real screen. These rules
+ * decide whether the person looking at the row may open it. They exist because
+ * on production, 2026-09-14, they did not: a super admin opened
+ * /cdc/admin/exam-topic-map from a Foundation entry, and a learner following the
+ * same row got "Access Denied — Required Permission: cdc.training.edit".
+ */
+describe('chooseEntryLink — a link the reader cannot open is not offered', () => {
+  /** Everything is open — the super-admin case. */
+  const openToAll = () => true;
+  /** A reader who may open exactly these paths and nothing else. */
+  const canOpenOnly = (...paths: string[]) => {
+    const set = new Set(paths);
+    return (p: string) => set.has(p);
+  };
+
+  it('offers the exact screen to a reader who can open it', () => {
+    expect(
+      chooseEntryLink('/cdc/admin/exam-topic-map', '/cdc', 'CDC', openToAll)
+    ).toEqual({ href: '/cdc/admin/exam-topic-map', label: 'Open this page' });
+  });
+
+  it('falls back to the module when the exact screen is closed to this reader', () => {
+    // The row is visible because the reader holds SOMETHING in the cdc
+    // namespace; the deep screen carries its own, finer key. That gap is the
+    // whole defect: module visibility and page permission are different tests.
+    expect(
+      chooseEntryLink('/cdc/admin/exam-topic-map', '/cdc', 'CDC', canOpenOnly('/cdc'))
+    ).toEqual({ href: '/cdc', label: 'Open CDC' });
+  });
+
+  it('offers nothing when the module landing page is closed too', () => {
+    // The fallback is RE-TESTED, never assumed. A module whose news reaches a
+    // reader is not a module whose landing page their role opens — observed on
+    // production for faculty and /admission/consultants/attribution-orphans,
+    // whose module link /admission carries admission.dashboard.view.
+    expect(
+      chooseEntryLink(
+        '/admission/consultants/attribution-orphans',
+        '/admission',
+        'Admission',
+        canOpenOnly()
+      )
+    ).toBeNull();
+  });
+
+  it('offers nothing rather than a dead anchor when the module has no href', () => {
+    // `platform` and `cohort-programmes` have no href of their own. A reader who
+    // can open anything still gets no link here, because there is nothing to link.
+    expect(chooseEntryLink(null, null, 'Platform', openToAll)).toBeNull();
+  });
+
+  it('goes straight to the module when the entry derived no screen of its own', () => {
+    // ~70% of entries: a migration, a service, a shared component. Unchanged
+    // behaviour, still gated.
+    expect(chooseEntryLink(null, '/billing', 'Billing', openToAll)).toEqual({
+      href: '/billing',
+      label: 'Open Billing',
+    });
+  });
+
+  it('never asks about a path it is not going to offer', () => {
+    // The predicate reaches the app's permission stack. Calling it for a
+    // candidate already ruled out would be wasted work on 60 rows per screen,
+    // and — more to the point — asking about the module link after the exact
+    // screen already won would make the module's own gate look load-bearing
+    // when it is not.
+    const asked: string[] = [];
+    chooseEntryLink('/billing/receipts', '/billing', 'Billing', (p) => {
+      asked.push(p);
+      return true;
+    });
+    expect(asked).toEqual(['/billing/receipts']);
   });
 });
