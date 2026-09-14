@@ -697,7 +697,10 @@ def ci(p):
     if bad: return "FAIL", bad[:3]
     pend = [r.get("name") for r in runs if (r.get("status") or "").upper() in ("IN_PROGRESS","QUEUED","PENDING","EXPECTED") or ((r.get("status") or "").upper()=="COMPLETED" and r.get("conclusion") is None)]
     if pend: return "PENDING", pend[:3]
-    canc = [r.get("name") for r in runs if (r.get("conclusion") or "").upper()=="CANCELLED"]
+    # 2026-09-14 14:41: four green fold PRs sat "blocked" for a round because the AI-review router had been
+    # CANCELLED on each — the advisory list excused its FAILURES but not its cancellations. Advice that never
+    # ran is still advice: a cancelled check named in $STATE/advisory-checks does not hold a PR.
+    canc = [r.get("name") for r in runs if (r.get("conclusion") or "").upper()=="CANCELLED" and (r.get("name") or "") not in ADVISORY]
     if canc: return "UNVERIFIED", canc[:3]   # cancelled has no verdict — the live guard treats it the same
     return "OK", []
 def minutes_since(iso):
