@@ -111,11 +111,26 @@ export async function GET(request: NextRequest) {
     const categoryId = url.searchParams.get('category_id');
     const isActive = url.searchParams.get('is_active');
     const hasExtendedProfile = url.searchParams.get('has_extended_profile');
-    // role_type — coarse taxonomy (faculty/admin/support/management).
-    // role_key — fine-grained role keyed to custom_roles (e.g. 'hod', 'principal').
-    // Both freeform strings, no DB CHECK constraint — passed through as-is.
-    const roleType = url.searchParams.get('role_type');
+    // role_key — the staff role taxonomy, keyed to custom_roles (e.g. 'faculty',
+    // 'hod', 'principal', 'librarian'). Freeform string, no DB CHECK constraint —
+    // passed through as-is.
+    //
+    // role_type is NOT a filter. Measured on production 2026-09-14: every one of
+    // the 875 staff rows carries role_type = 'teacher', so the four values these
+    // docs used to advertise — faculty / admin / support / management — matched
+    // zero rows and returned `200 []` with no error. Rejected explicitly below
+    // rather than answering "no staff" forever.
     const roleKey = url.searchParams.get('role_key');
+
+    if (url.searchParams.has('role_type')) {
+      return NextResponse.json(
+        {
+          error:
+            "The 'role_type' filter is retired: every team-member record carries the same value, so it could never match. Use 'role_key' instead — see /application-hub/api-guidelines for the values in live use.",
+        },
+        { status: 400, headers: corsHeaders }
+      );
+    }
     // tags — comma-separated list of staff tags. Matches staff carrying ANY of
     // the requested tags (overlap / OR). Lowercased to match how the staff form
     // stores them, so ?tags=Placement_Cell and ?tags=placement_cell behave alike.
@@ -168,10 +183,6 @@ export async function GET(request: NextRequest) {
 
     if (hasExtendedProfile !== null) {
       query = query.eq('has_extended_profile', hasExtendedProfile === 'true');
-    }
-
-    if (roleType) {
-      query = query.eq('role_type', roleType);
     }
 
     if (roleKey) {
