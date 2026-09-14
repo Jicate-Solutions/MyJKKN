@@ -1,12 +1,9 @@
-export const dynamic = 'force-dynamic';
-
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
 import { RecruitmentService } from '@/lib/services/hr/recruitment-service';
-import { getErrorMessage } from '@/lib/utils';
 
 async function getClient() {
   const cookieStore = await cookies();
@@ -39,23 +36,15 @@ export async function POST(
     if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = await request.json().catch(() => ({}));
-    if (!body.reason) {
-      return NextResponse.json({ error: 'rejection reason is required' }, { status: 400 });
-    }
+    const reason = body.reason ?? 'Withdrawn by submitter';
 
-    const updated = await RecruitmentService.rejectCandidate(supabase, id, user.id, body.reason);
+    const updated = await RecruitmentService.withdrawCandidate(supabase, id, reason);
     return NextResponse.json({ data: updated });
   } catch (err) {
-    console.error('[hr/recruitment/candidates/:id/reject] error', err);
-    // The decision now runs through the SECURITY DEFINER RPC
-    // fn_decide_recruitment_candidate, so a refusal arrives as a PostgrestError —
-    // a plain object, not an `Error`. `err instanceof Error` was false for it, and
-    // every RLS/authorization failure reached the approver as the useless
-    // "Unknown error". getErrorMessage keeps the function's own guard text.
-    const code = (err as { code?: string })?.code;
+    console.error('[hr/recruitment/candidates/:id/withdraw] error', err);
     return NextResponse.json(
-      { error: getErrorMessage(err) },
-      { status: code === '42501' ? 403 : code === 'P0002' ? 404 : 400 }
+      { error: err instanceof Error ? err.message : 'Unknown error' },
+      { status: 400 }
     );
   }
 }

@@ -1,11 +1,11 @@
-export const dynamic = 'force-dynamic';
-
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
-import { RecruitmentService } from '@/lib/services/hr/recruitment-service';
+import { RecruitmentPackageService } from '@/lib/services/hr/recruitment-package-service';
+import { createServiceRoleClient } from '@/lib/supabase/server';
+import { HrScopeError, assertCandidatePackagesInScope } from '@/lib/hr/scope-gate';
 
 async function getClient() {
   const cookieStore = await cookies();
@@ -26,35 +26,33 @@ async function getClient() {
   );
 }
 
-/**
- * PATCH /api/hr/recruitment/candidates/[id]/step-comment
- * Body: { step_index: number, comment: string }
- * Edits a decided approval-step's review comment. Authorization (author /
- * super-admin / override-key holder) is enforced inside the SECURITY DEFINER
- * RPC fn_update_recruitment_step_comment.
- */
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+export async function POST(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string; packageId: string }> }
 ) {
   await connection();
   try {
-    const { id } = await params;
+    const { id, packageId } = await params;
     const supabase = await getClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const body = await request.json().catch(() => ({}));
-    const stepIndex = body.step_index;
-    if (typeof stepIndex !== 'number' || !Number.isInteger(stepIndex) || stepIndex < 0) {
-      return NextResponse.json({ error: 'step_index must be a non-negative integer' }, { status: 400 });
-    }
-    const comment = typeof body.comment === 'string' ? body.comment : '';
+    // Institution scope is answered BEFORE the read, and answered as 403 —
+    // RLS alone would return an empty list, which hides the leak it prevents.
+    const scope = await assertCandidatePackagesInScope({
+      admin: createServiceRoleClient(),
+      supabase,
+      userId: user.id,
+      candidateId: id,
+      packageId,
+    });
+    if (scope === 'not_found') return NextResponse.json({ error: 'Package not found' }, { status: 404 });
 
-    const updated = await RecruitmentService.updateStepComment(supabase, id, stepIndex, comment);
+    const updated = await RecruitmentPackageService.approvePackage(supabase, packageId, user.id);
     return NextResponse.json({ data: updated });
   } catch (err) {
-    console.error('[hr/recruitment/candidates/:id/step-comment] error', err);
+    console.error('[hr/recruitment/candidates/:id/packages/:packageId/approve] error', err);
+    if (err instanceof HrScopeError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Unknown error' },
       { status: 400 }

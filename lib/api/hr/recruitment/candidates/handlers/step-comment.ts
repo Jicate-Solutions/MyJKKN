@@ -1,5 +1,3 @@
-export const dynamic = 'force-dynamic';
-
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse, connection } from 'next/server';
@@ -26,7 +24,14 @@ async function getClient() {
   );
 }
 
-export async function POST(
+/**
+ * PATCH /api/hr/recruitment/candidates/[id]/step-comment
+ * Body: { step_index: number, comment: string }
+ * Edits a decided approval-step's review comment. Authorization (author /
+ * super-admin / override-key holder) is enforced inside the SECURITY DEFINER
+ * RPC fn_update_recruitment_step_comment.
+ */
+export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -38,12 +43,16 @@ export async function POST(
     if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = await request.json().catch(() => ({}));
-    const reason = body.reason ?? 'Withdrawn by submitter';
+    const stepIndex = body.step_index;
+    if (typeof stepIndex !== 'number' || !Number.isInteger(stepIndex) || stepIndex < 0) {
+      return NextResponse.json({ error: 'step_index must be a non-negative integer' }, { status: 400 });
+    }
+    const comment = typeof body.comment === 'string' ? body.comment : '';
 
-    const updated = await RecruitmentService.withdrawCandidate(supabase, id, reason);
+    const updated = await RecruitmentService.updateStepComment(supabase, id, stepIndex, comment);
     return NextResponse.json({ data: updated });
   } catch (err) {
-    console.error('[hr/recruitment/candidates/:id/withdraw] error', err);
+    console.error('[hr/recruitment/candidates/:id/step-comment] error', err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Unknown error' },
       { status: 400 }
