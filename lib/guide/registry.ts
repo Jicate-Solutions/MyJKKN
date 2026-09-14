@@ -52,6 +52,7 @@ import { GUIDES as FOUNDATION_GUIDES, REQUIRES as FOUNDATION_REQUIRES, SESSION_L
 import { GUIDES as AUDIT_GUIDES, REQUIRES as AUDIT_REQUIRES } from "../audit/guide/content";
 import { GUIDES as IMPROVEMENT_GUIDES, REQUIRES as IMPROVEMENT_REQUIRES } from "../improvement/guide/content";
 import { GUIDES as CEO_ROUNDS_GUIDES, REQUIRES as CEO_ROUNDS_REQUIRES } from "../ceo-rounds/guide/content";
+import { GUIDES as INSTASOLVER_GUIDES, REQUIRES as INSTASOLVER_REQUIRES } from "../instasolver/guide/content";
 import {
   GUIDES as ACCREDITATION_GUIDES,
   REQUIRES as ACCREDITATION_REQUIRES,
@@ -82,7 +83,13 @@ import {
  * Permission keys are OPAQUE strings (AI Pulse uses ':' , others use '.').
  * ──────────────────────────────────────────────────────────────────────── */
 export const PERSONA_REQUIRES: Record<CanonicalPersona, string[]> = {
-  learner: [],
+  // InstaSolver's key is registered on the OPEN lane on purpose, and on no
+  // other. Decision I1 grants instasolver.view to EVERY role, so listing it on
+  // a staff row (supervisor, module-admin, …) would make that lane visible to
+  // everybody — the resolver shows a lane when the viewer holds ANY key in its
+  // row. Registered here it is inert for visibility (learner is always visible)
+  // while keeping the key discoverable from the one file that owns them.
+  learner: [INSTASOLVER_REQUIRES.filer],
   facilitator: [AI_PULSE_REQUIRES.faculty, PDE_REQUIRES.faculty, ACADEMIC_REQUIRES.faculty, STARTUP_REQUIRES.mentor, STARTUP_REQUIRES.evaluator, SOLUTIONS_REQUIRES.delivery_team, IMS_REQUIRES.cashier, BOS_REQUIRES.member, FOUNDATION_REQUIRES.facilitator, FOUNDATION_REQUIRES.paper_builder, FOUNDATION_REQUIRES.item_approver],
   "unit-lead": [AI_PULSE_REQUIRES.champion, CAMPUS_REQUIRES.warden, CAMPUS_REQUIRES.mess, IMS_REQUIRES.storekeeper, BOS_REQUIRES.chairman, LEARNERS_COUNCIL_REQUIRES.member, EVENTS_REQUIRES.organiser],
   coordinator: [AI_PULSE_REQUIRES.incharge, ADMISSION_REQUIRES.counsellor, BILLING_REQUIRES["finance-officer"], ACADEMIC_REQUIRES.coordinator, STARTUP_REQUIRES.coordinator, SOLUTIONS_REQUIRES.sales_lead, ORGANIZATIONS_REQUIRES.viewer, IMS_REQUIRES.requester, MEETINGS_REQUIRES.host, LEARNERS_COUNCIL_REQUIRES.coordinator, EVENTS_REQUIRES.proposer, RESOURCES_REQUIRES.requester, OKR_REQUIRES.contributor, SCHOOLS_NETWORK_REQUIRES.coordinator, FOUNDATION_REQUIRES.coordinator, ACCREDITATION_REQUIRES.assign],
@@ -1227,7 +1234,31 @@ export const accreditationGuide: ModuleGuide = {
   routes: [],
 };
 
-export const REGISTRY: ModuleGuide[] = [aiPulseGuide, campusLivingGuide, pdeGuide, hrGuide, admissionGuide, billingGuide, academicGuide, startupStudioGuide, solutionsGuide, organizationsGuide, imsGuide, bosGuide, meetingsGuide, learnersGuide, learnersCouncilGuide, eventsGuide, resourceManagementGuide, vacGuide, okrGuide, schoolsNetworkGuide, foundationGuide, auditGuide, improvementGuide, ceoRoundsGuide, idCardsGuide, accreditationGuide];
+/* ── InstaSolver (the one front door for "something is wrong here") ──────────
+ * ONE lane, contributed ONLY to the open `learner` lane — and with NO
+ * `withRequires` wrapper, which is the opposite of every other module here and
+ * is deliberate. Decision I1 (specs/instasolver-2026-09-14.md) gives every role
+ * instasolver.view, so a permission tag would gate nothing — except for the
+ * student role, which the resolver short-circuits to `can: () => false`, which
+ * would hide these steps from precisely the people the front door is for.
+ * Contributed to the learner lane alone because that lane is the one every
+ * viewer sees, parents included, which is exactly the audience I1 names.
+ * ────────────────────────────────────────────────────────────────────────── */
+export const instaSolverGuide: ModuleGuide = {
+  module: "instasolver",
+  basePath: "/instasolver",
+  lanes: {
+    learner: {
+      sections: INSTASOLVER_GUIDES.lanes.filer.sections,
+      startHere: INSTASOLVER_GUIDES.lanes.filer.startHere,
+      title: INSTASOLVER_GUIDES.lanes.filer.title,
+      tagline: INSTASOLVER_GUIDES.lanes.filer.tagline,
+    },
+  },
+  routes: [{ pattern: "/instasolver/*", persona: "learner" }],
+};
+
+export const REGISTRY: ModuleGuide[] = [aiPulseGuide, campusLivingGuide, pdeGuide, hrGuide, admissionGuide, billingGuide, academicGuide, startupStudioGuide, solutionsGuide, organizationsGuide, imsGuide, bosGuide, meetingsGuide, learnersGuide, learnersCouncilGuide, eventsGuide, resourceManagementGuide, vacGuide, okrGuide, schoolsNetworkGuide, foundationGuide, auditGuide, improvementGuide, ceoRoundsGuide, idCardsGuide, accreditationGuide, instaSolverGuide];
 
 /** Canonical personas at least one module contributes real sections to. A
  *  persona NOT in this set is sparse (composeLane returns the platform-overview
@@ -1269,6 +1300,7 @@ const MODULE_LABELS: Record<string, string> = {
   improvement: "Improvement Board",
   "ceo-rounds": "CEO Rounds",
   accreditation: "Accreditation & Compliance",
+  instasolver: "InstaSolver",
 };
 
 /** Human label for a module namespace; falls back to the raw id if unknown. */
@@ -1314,6 +1346,7 @@ const MODULE_GLOSSARIES: Record<string, GlossaryTerm[]> = {
   improvement: IMPROVEMENT_GUIDES.glossary ?? [],
   "ceo-rounds": CEO_ROUNDS_GUIDES.glossary ?? [],
   accreditation: ACCREDITATION_GUIDES.glossary ?? [],
+  instasolver: INSTASOLVER_GUIDES.glossary ?? [],
 };
 
 /** "Words to know" terms for one module; empty array if module unknown. */
