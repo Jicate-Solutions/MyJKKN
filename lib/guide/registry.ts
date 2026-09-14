@@ -52,7 +52,7 @@ import { GUIDES as FOUNDATION_GUIDES, REQUIRES as FOUNDATION_REQUIRES, SESSION_L
 import { GUIDES as AUDIT_GUIDES, REQUIRES as AUDIT_REQUIRES } from "../audit/guide/content";
 import { GUIDES as IMPROVEMENT_GUIDES, REQUIRES as IMPROVEMENT_REQUIRES } from "../improvement/guide/content";
 import { GUIDES as CEO_ROUNDS_GUIDES, REQUIRES as CEO_ROUNDS_REQUIRES } from "../ceo-rounds/guide/content";
-import { GUIDES as INSTASOLVER_GUIDES, REQUIRES as INSTASOLVER_REQUIRES } from "../instasolver/guide/content";
+import { GUIDES as INSTASOLVER_GUIDES } from "../instasolver/guide/content";
 import {
   GUIDES as ACCREDITATION_GUIDES,
   REQUIRES as ACCREDITATION_REQUIRES,
@@ -83,13 +83,14 @@ import {
  * Permission keys are OPAQUE strings (AI Pulse uses ':' , others use '.').
  * ──────────────────────────────────────────────────────────────────────── */
 export const PERSONA_REQUIRES: Record<CanonicalPersona, string[]> = {
-  // InstaSolver's key is registered on the OPEN lane on purpose, and on no
-  // other. Decision I1 grants instasolver.view to EVERY role, so listing it on
-  // a staff row (supervisor, module-admin, …) would make that lane visible to
-  // everybody — the resolver shows a lane when the viewer holds ANY key in its
-  // row. Registered here it is inert for visibility (learner is always visible)
-  // while keeping the key discoverable from the one file that owns them.
-  learner: [INSTASOLVER_REQUIRES.filer],
+  // InstaSolver contributes NO key to this map, on purpose. `learner` is the
+  // always-visible lane and resolve-persona.ts short-circuits it before it ever
+  // reads this row, so an entry here would change no lane's visibility — while
+  // costing one extra permission RPC on every page load, for every user, to
+  // resolve a key whose answer is already "yes". The key still lives in
+  // lib/instasolver/guide/content.ts (REQUIRES.filer), which is where a reader
+  // looks for it.
+  learner: [],
   facilitator: [AI_PULSE_REQUIRES.faculty, PDE_REQUIRES.faculty, ACADEMIC_REQUIRES.faculty, STARTUP_REQUIRES.mentor, STARTUP_REQUIRES.evaluator, SOLUTIONS_REQUIRES.delivery_team, IMS_REQUIRES.cashier, BOS_REQUIRES.member, FOUNDATION_REQUIRES.facilitator, FOUNDATION_REQUIRES.paper_builder, FOUNDATION_REQUIRES.item_approver],
   "unit-lead": [AI_PULSE_REQUIRES.champion, CAMPUS_REQUIRES.warden, CAMPUS_REQUIRES.mess, IMS_REQUIRES.storekeeper, BOS_REQUIRES.chairman, LEARNERS_COUNCIL_REQUIRES.member, EVENTS_REQUIRES.organiser],
   coordinator: [AI_PULSE_REQUIRES.incharge, ADMISSION_REQUIRES.counsellor, BILLING_REQUIRES["finance-officer"], ACADEMIC_REQUIRES.coordinator, STARTUP_REQUIRES.coordinator, SOLUTIONS_REQUIRES.sales_lead, ORGANIZATIONS_REQUIRES.viewer, IMS_REQUIRES.requester, MEETINGS_REQUIRES.host, LEARNERS_COUNCIL_REQUIRES.coordinator, EVENTS_REQUIRES.proposer, RESOURCES_REQUIRES.requester, OKR_REQUIRES.contributor, SCHOOLS_NETWORK_REQUIRES.coordinator, FOUNDATION_REQUIRES.coordinator, ACCREDITATION_REQUIRES.assign],

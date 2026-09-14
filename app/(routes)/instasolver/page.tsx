@@ -25,6 +25,17 @@
 // explicit next step rather than vanishing or dead-ending (rule #27 — a refusal
 // is spoken, never silent).
 //
+// That branch ORs the key check with `hasDbAdminBypass`. `user_has_permission()`
+// bypasses only `is_super_admin = true`, while the database's own `is_admin()`
+// ALSO admits `profiles.role IN ('admin','super_admin','administrator')` — and
+// every standardised policy behind Procurement opens with
+// `is_super_admin() OR is_admin() OR user_has_permission(...)`. Reading the key
+// alone therefore told a plain `administrator` to "ask your HOD" about a request
+// the database would have let them raise themselves: under-claiming the one role
+// whose job is to unblock everybody else. This mirrors the data layer exactly,
+// so it grants nothing the database does not already grant, and a learner or
+// team member outside those three role strings is unaffected.
+//
 // This is a fast UI-level gate, not the enforcement boundary: /procurement and
 // each lane re-check their own keys server-side when the filer arrives.
 
@@ -33,6 +44,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { PageHeader } from '@/components/page-header';
 import { Card, CardContent } from '@/components/ui/card';
+import { hasDbAdminBypass } from '@/lib/navigation/permission-filter';
 import { createClient } from '@/lib/supabase/server';
 import { ChooserClient } from './_components/chooser-client';
 
@@ -62,12 +74,23 @@ export default async function InstaSolverPage() {
     );
   }
 
-  // Purchase branch. A failed RPC is treated as "cannot raise" — fail closed,
-  // and the card then shows the ask-your-HOD line, which is a true statement
-  // either way.
-  const { data: canRaisePurchase } = await supabase.rpc('user_has_permission', {
-    permission_name: 'procurement.request_create'
-  });
+  // Purchase branch. A failed RPC or a failed profile read is treated as
+  // "cannot raise" — fail closed, and the card then shows the ask-your-HOD line,
+  // which is a true statement either way.
+  const [{ data: holdsRequestCreate }, { data: profile }] = await Promise.all([
+    supabase.rpc('user_has_permission', {
+      permission_name: 'procurement.request_create'
+    }),
+    supabase
+      .from('profiles')
+      .select('role, is_super_admin')
+      .eq('id', user.id)
+      .maybeSingle()
+  ]);
+
+  const canRaisePurchase =
+    holdsRequestCreate === true ||
+    hasDbAdminBypass(profile?.role, profile?.is_super_admin === true);
 
   return (
     <ContentLayout title="InstaSolver">
@@ -78,7 +101,7 @@ export default async function InstaSolverPage() {
           description="Tell us what's wrong. It goes to the right person."
         />
       </div>
-      <ChooserClient canRaisePurchase={canRaisePurchase === true} />
+      <ChooserClient canRaisePurchase={canRaisePurchase} />
     </ContentLayout>
   );
 }
