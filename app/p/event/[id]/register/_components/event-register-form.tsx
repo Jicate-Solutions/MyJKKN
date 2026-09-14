@@ -11,7 +11,7 @@
 // name prefilled and their profile linked server-side; a guest types theirs.
 
 import { useMemo, useState } from 'react';
-import { CheckCircle2, Loader2 } from 'lucide-react';
+import { CheckCircle2, ListOrdered, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -49,6 +49,8 @@ export function EventRegisterForm({
   feeLabel,
   signedInName,
   signedInEmail,
+  full = false,
+  claimOnly = false,
   sections,
 }: {
   eventId: string;
@@ -59,6 +61,17 @@ export function EventRegisterForm({
   feeLabel: string | null;
   signedInName: string | null;
   signedInEmail: string | null;
+  /**
+   * The event has no places left AND its cap_behavior is 'waitlist', so this
+   * form is still open on purpose for a signed-in person: sending it joins the
+   * queue — or, if a place is being held for them, takes that place up.
+   */
+  full?: boolean;
+  /**
+   * The registration window has shut, but a place is being held for THIS
+   * signed-in visitor, so the form is open only so they can take it up.
+   */
+  claimOnly?: boolean;
   sections: SectionWithFields[];
 }) {
   const [name, setName] = useState(signedInName ?? '');
@@ -69,6 +82,14 @@ export function EventRegisterForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  /**
+   * The event was full and this person went onto the waiting list instead
+   * (HTTP 202). Its own state: 202 is an `ok` response, so without this branch
+   * a queued person would be shown "You're registered!".
+   */
+  const [queued, setQueued] = useState<{ position: number | null; message: string } | null>(
+    null
+  );
   const [rzp, setRzp] = useState<RzpState | null>(null);
 
   const isPaid = fee > 0;
@@ -119,6 +140,14 @@ export function EventRegisterForm({
       if (!res.ok && res.status !== 207) {
         throw new Error(body.error || `Registration failed (${res.status})`);
       }
+      if (res.status === 202 && body.waitlisted) {
+        setQueued({
+          position: typeof body.position === 'number' ? body.position : null,
+          message:
+            body.message || 'This event is full, so you have been added to the waiting list.',
+        });
+        return;
+      }
       if (body.razorpay_order_id && body.razorpay_key_id) {
         setRzp({
           orderId: body.razorpay_order_id,
@@ -152,6 +181,25 @@ export function EventRegisterForm({
     );
   }
 
+  if (queued) {
+    return (
+      <div className="rounded-xl border bg-card p-6 text-center shadow-sm">
+        <ListOrdered className="mx-auto mb-2 h-10 w-10 text-amber-600" />
+        <h2 className="text-lg font-semibold">
+          {queued.position
+            ? `You're number ${queued.position} on the waiting list`
+            : "You're on the waiting list"}
+        </h2>
+        <p className="mt-1 text-sm text-muted-foreground">{queued.message}</p>
+        <p className="mt-3 text-xs text-muted-foreground">
+          If a place frees up it is offered to whoever is at the front of the queue and
+          held for them for 48 hours. You will be told in MyJKKN — then come back to this
+          page, signed in, and send the form again to take the place up.
+        </p>
+      </div>
+    );
+  }
+
   if (done) {
     return (
       <div className="rounded-xl border bg-card p-6 text-center shadow-sm">
@@ -169,6 +217,20 @@ export function EventRegisterForm({
 
   return (
     <div className="space-y-5 rounded-xl border bg-card p-5 shadow-sm">
+      {full && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3">
+          <p className="flex items-center gap-2 text-sm font-medium text-amber-700 dark:text-amber-400">
+            <ListOrdered className="h-4 w-4" />
+            {claimOnly ? 'A place is being held for you' : 'This event is full'}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {claimOnly
+              ? 'Registration has otherwise closed. Send this form to take the place up before the hold lapses.'
+              : 'Send this form to join the waiting list. If a place frees up it is offered to whoever is at the front and held for them for 48 hours — or, if a place is already being held for you, sending this takes it up.'}
+          </p>
+        </div>
+      )}
+
       {isPaid && (
         <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
           <p className="text-sm font-medium">
