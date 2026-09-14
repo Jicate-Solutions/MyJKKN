@@ -152,9 +152,18 @@ export interface ComplaintCategory {
   allow_anonymous: boolean;
 }
 
+/**
+ * The two calls these helpers make, and nothing else, so they can be handed
+ * either the caller's session client, the service-role client, or a stub in a
+ * test. Written with METHOD syntax deliberately: method signatures are
+ * bivariant, so a generated client whose `from()` accepts only a union of real
+ * table names still satisfies this. A property-style `from: (t: string) => …`
+ * would be contravariant under strictFunctionTypes and reject every real
+ * client.
+ */
 interface MinimalQueryClient {
-  from: (table: string) => any;
-  rpc: (fn: string, args: Record<string, unknown>) => any;
+  from(table: string): any;
+  rpc(fn: string, args: Record<string, unknown>): any;
 }
 
 /**
