@@ -69,8 +69,19 @@ export interface CreateWalkTaskInput {
   kind: WalkKind;
   /** D6 urgent lane — exposed wire, gas smell, broken stair. */
   isUnsafe?: boolean;
-  /** Storage path in the private `campus-walk` bucket. */
-  photoStoragePath: string;
+  /**
+   * Storage path in the private `campus-walk` bucket.
+   *
+   * Optional since the InstaSolver front door (app/api/instasolver/broken)
+   * landed: someone reporting a broken fan from a corridor may have no usable
+   * photo, and losing the report over a missing image is the worse outcome.
+   * Campus Walk's own capture screen still always sends one — its route
+   * rejects a photoless observation before it ever reaches here — so no
+   * existing caller's behaviour changes. When neither this nor `photos` is
+   * supplied the task is created with no attachment rows and
+   * `metadata.photo_storage_path` is null.
+   */
+  photoStoragePath?: string;
   photoMimeType?: string;
   photoSizeBytes?: number;
   /**
@@ -102,6 +113,24 @@ export interface CreateWalkTaskInput {
   institutionId?: string | null;
   /** Who filed it. Stored for audit; NOT surfaced on the ticket — D10 shows "Management walk". */
   raisedByProfileId?: string | null;
+  /**
+   * Which front door filed this, written to `metadata.source`. Defaults to
+   * 'campus-walk' — every existing caller omits it and is unaffected.
+   *
+   * InstaSolver (decision I4, 2026-09-14) passes 'instasolver': the same
+   * engine, a different doorway. Note that the campus-walk consumers which
+   * filter `metadata->>source = 'campus-walk'` (the scoreboard, the review
+   * screen, the chase-up cron and the photo-retention cron) therefore do NOT
+   * see a task filed under a different source — see the PR's assumptions.
+   */
+  source?: string;
+  /**
+   * Extra audit keys merged into the task's `metadata` jsonb, e.g. who
+   * reported it through a public front door. Merged FIRST, so it can never
+   * clobber the routing/audit keys this service writes itself; `source`
+   * above is the one deliberately overridable field.
+   */
+  extraMetadata?: Record<string, unknown>;
 }
 
 /**
@@ -406,6 +435,18 @@ export interface CreateWalkTaskResult {
    * unsafe condition that paged nobody must not look like one that did.
    */
   urgentAlert?: UrgentAlertOutcome;
+  /**
+   * YYYY-MM-DD the routing settled on (kind/unsafe -> DUE_IN_DAYS). Returned
+   * so a front door can tell the reporter when the fix is due without
+   * re-reading the row it just created. Optional: existing callers ignore it.
+   */
+  dueDate?: string;
+  /**
+   * profiles.id of whoever ended up Accountable after the EAO fallback and
+   * any leave reassignment. Returned for the same reason as `dueDate` — a
+   * front door needs a name to show. Null when nobody could be resolved.
+   */
+  accountableProfileId?: string | null;
 }
 
 /**
@@ -453,22 +494,28 @@ export async function createWalkTask(
     const leaveOriginalProfileId = routing.leaveOriginalProfileId;
     const leaveOriginalStaffId = routing.leaveOriginalStaffId;
 
+    // A report with no photo at all is legal since InstaSolver (see
+    // `photoStoragePath`): an empty list simply means the attachment loop
+    // below inserts nothing. Campus Walk's own route still guarantees at
+    // least one photo, so its behaviour through here is unchanged.
     const photoList: WalkPhoto[] =
       input.photos && input.photos.length > 0
         ? input.photos.slice(0, 3)
-        : [
-            {
-              storagePath: input.photoStoragePath,
-              mimeType: input.photoMimeType,
-              sizeBytes: input.photoSizeBytes
-            }
-          ];
+        : input.photoStoragePath
+          ? [
+              {
+                storagePath: input.photoStoragePath,
+                mimeType: input.photoMimeType,
+                sizeBytes: input.photoSizeBytes
+              }
+            ]
+          : [];
     if (input.photos && input.photos.length > 3) {
       console.warn(
         `[campus-walk] ${input.photos.length} photos supplied, capping at 3 (primary + next 2 kept)`
       );
     }
-    const primaryPhotoPath = photoList[0]?.storagePath ?? input.photoStoragePath;
+    const primaryPhotoPath = photoList[0]?.storagePath ?? input.photoStoragePath ?? null;
     const nowIso = new Date().toISOString();
 
     // D8's block/unblock shape (app/api/campus-walk/fix/route.ts) is the
@@ -481,7 +528,11 @@ export async function createWalkTask(
     // enforces that set on this direct write, but matching it keeps any UI
     // that maps reason_code -> label from hitting an unknown value.
     const metadata: Record<string, unknown> = {
-      source: 'campus-walk',
+      // Caller-supplied audit keys first, so they can never clobber the
+      // routing/audit fields written below. `source` is the single field a
+      // caller may deliberately override (InstaSolver passes 'instasolver').
+      ...(input.extraMetadata ?? {}),
+      source: input.source ?? 'campus-walk',
       kind: input.kind,
       unsafe: Boolean(input.isUnsafe),
       category: input.category ?? null,
@@ -681,7 +732,9 @@ export async function createWalkTask(
       taskId: task.id as string,
       attachmentId,
       attachmentIds,
-      urgentAlert
+      urgentAlert,
+      dueDate,
+      accountableProfileId
     };
   } catch (e: any) {
     console.error('[campus-walk] createWalkTask threw:', e?.message ?? e);
