@@ -9,6 +9,7 @@ import {
   type VerifiedTokenUser
 } from './lib/auth/token-validation-cache';
 import { routeMatcher } from './lib/auth/route-matcher';
+import { resolveLegacyRedirect } from './lib/auth/legacy-redirects';
 import { routeAllowedByHandover } from './lib/auth/handover-route-access';
 import { FEATURE_FLAGS } from './lib/config/feature-flags';
 import { StudentValidationService } from './lib/services/auth/student-validation-service';
@@ -312,27 +313,19 @@ const isPublicPath = (path: string): boolean => {
 // sidebar's copy, so the gate and the nav can't drift apart.
 // Spec: specs/pre-onboarding-induction-access-2026-06-29.md
 
-// Legacy drip-sequence routes relocated to /automations/ (2026-05-12).
-// Keep these 301s for at least one release cycle / 90 days so external
-// bookmarks and stale links resolve.
-const LEGACY_CAMPAIGN_REDIRECTS: Record<string, string> = {
-  '/admission/marketing/campaigns/monitoring':
-    '/admission/marketing/automations/monitoring',
-  '/admission/marketing/campaigns/roi':
-    '/admission/marketing/automations/roi',
-  '/admission/marketing/campaigns/segments':
-    '/admission/marketing/automations/segments',
-};
-
 export async function proxy(request: NextRequest) {
   try {
     const currentPath = request.nextUrl.pathname;
 
-    const legacyTarget = LEGACY_CAMPAIGN_REDIRECTS[currentPath];
-    if (legacyTarget) {
+    // Legacy path redirects live here, not in next.config.ts — a config redirect
+    // costs one of Vercel's 2048 routes per deployment, a middleware redirect costs
+    // none (2026-09-14: the build hit 2061 and failed). Table + rules:
+    // lib/auth/legacy-redirects.ts. Query string travels with the URL clone.
+    const legacy = resolveLegacyRedirect(currentPath);
+    if (legacy) {
       const url = request.nextUrl.clone();
-      url.pathname = legacyTarget;
-      return NextResponse.redirect(url, 301);
+      url.pathname = legacy.pathname;
+      return NextResponse.redirect(url, legacy.status);
     }
 
     // Parent Portal — fully isolated dual-auth domain. Gate /parent/* with the

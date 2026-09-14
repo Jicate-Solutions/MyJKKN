@@ -5,7 +5,7 @@
 // Drift guard: __tests__/director-desk/route-gate-map.test.ts
 //
 // Every route whose real gate is NOT simply its MENU_PERMISSIONS key.
-// 118 routes cannot be handed over at all; 381 declare
+// 119 routes cannot be handed over at all; 386 declare
 // their own permission keys through PermissionGuard / PolicyPageShell.
 // ============================================================================
 
@@ -65,12 +65,14 @@ export const ROUTE_GATE_MAP: Record<string, RouteGateEntry> = {
   "/admin/id-cards/address-check": { keys: ['id_cards.jobs.view'] },
   "/admin/id-cards/batch-print": { keys: ['id_cards.jobs.manage'] },
   "/admin/id-cards/morning": { keys: ['id_cards.jobs.view'] },
+  "/admin/id-cards/photo-check": { keys: ['id_cards.jobs.view'] },
   "/admin/id-cards/policy": { blocked: 'superAdmin' },
   "/admin/id-cards/print-queue": { blocked: 'adminRole' },
   "/admin/id-cards/template": { keys: ['id_cards.templates.edit'] },
   "/admin/landing-pages": { blocked: 'superAdmin' },
   "/admin/learner-notes": { blocked: 'superAdmin' },
   "/admin/nav-config": { blocked: 'superAdmin' },
+  "/admin/orchestration": { blocked: 'superAdmin' },
   "/admin/page-metadata": { keys: ['system.view'] },
   "/admin/reset-driver-passwords": { blocked: 'superAdmin' },
   "/admin/retention-policies": { blocked: 'superAdmin' },
@@ -87,9 +89,11 @@ export const ROUTE_GATE_MAP: Record<string, RouteGateEntry> = {
   "/admission/consultants/admin/portal-access": { blocked: 'superAdmin' },
   "/admission/consultants/admin/tier-policy": { blocked: 'superAdmin' },
   "/admission/consultants/analytics": { keys: ['admission.consultants.analytics.view'] },
+  "/admission/consultants/attribution-orphans": { keys: ['admission.consultants.commissions.view'] },
   "/admission/consultants/commissions": { keys: ['admission.consultants.view'] },
   "/admission/consultants/import": { keys: ['admission.consultants.commissions.view'] },
   "/admission/consultants/new": { keys: ['admission.consultants.create'] },
+  "/admission/consultants/payout-readiness": { keys: ['admission.consultants.commissions.view'] },
   "/admission/consultants/payouts": { keys: ['admission.consultants.commissions.view'] },
   "/admission/consultants/reconciliation": { keys: ['admission.consultants.commissions.view'] },
   "/admission/consultants/referral-rates": { keys: ['admission.consultants.commissions.view'] },
@@ -248,13 +252,13 @@ export const ROUTE_GATE_MAP: Record<string, RouteGateEntry> = {
   "/billing/late-charges": { keys: ['billing.late_charges.view'], routeGuarded: true },
   "/billing/onboarding": { keys: ['billing.onboarding.view'], routeGuarded: true },
   "/billing/payment-accounts": { keys: ['billing.payment_accounts.view'], routeGuarded: true },
-  "/billing/receipt-cancellations": { keys: ['billing.receipts.cancel.request'], routeGuarded: true },
   "/billing/refund-approvals": { keys: ['billing.refunds.configure'], routeGuarded: true },
   "/billing/schedule": { keys: ['billing.schedule.view'], routeGuarded: true },
   "/billing/schedule/bulk-create/upload": { keys: ['billing.schedule.bulk_create', 'billing.schedule.create'], routeGuarded: true },
   "/billing/schedule/bulk-edit": { keys: ['billing.schedule.update'], routeGuarded: true },
   "/billing/school-fees": { keys: ['school_fees.read'], routeGuarded: true },
   "/billing/school-fees/[id]": { keys: ['school_fees.read'], routeGuarded: true },
+  "/billing/school-fees/collect": { keys: ['school_fees.collect'], routeGuarded: true },
   "/billing/school-fees/concessions": { keys: ['school_fees.read'], routeGuarded: true },
   "/billing/school-fees/generate": { keys: ['school_fees.generate'], routeGuarded: true },
   "/billing/school-fees/new": { keys: ['school_fees.manage'], routeGuarded: true },
@@ -352,6 +356,7 @@ export const ROUTE_GATE_MAP: Record<string, RouteGateEntry> = {
   "/hr/admin": { keys: ['hr.dashboard.view'], routeGuarded: true },
   "/hr/admin/academic-years": { keys: ['hr.academic_years.manage'], routeGuarded: true },
   "/hr/admin/automation-rules": { blocked: 'superAdmin' },
+  "/hr/admin/designation-mapping": { keys: ['hr.employees.edit'], routeGuarded: true },
   "/hr/admin/disciplinary": { blocked: 'superAdmin' },
   "/hr/admin/disciplinary/[id]": { blocked: 'superAdmin' },
   "/hr/admin/disciplinary/new": { blocked: 'superAdmin' },
@@ -449,6 +454,7 @@ export const ROUTE_GATE_MAP: Record<string, RouteGateEntry> = {
   "/hr/admin/training": { blocked: 'superAdmin' },
   "/hr/admin/training/[id]": { blocked: 'superAdmin' },
   "/hr/admin/training/new": { blocked: 'superAdmin' },
+  "/hr/admin/work-patterns": { keys: ['hr.shift_timings.manage'], routeGuarded: true },
   "/hr/recruitment/jobs": { keys: ['hr.recruitment.view'], routeGuarded: true },
   "/industry-partners": { keys: ['cdc.industry_partners.view'] },
   "/industry-partners/[id]": { keys: ['cdc.industry_partners.view'] },

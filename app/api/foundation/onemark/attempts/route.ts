@@ -19,6 +19,7 @@ import {
   persistServedSet,
   projectItemForLearner,
   readPolicyInt,
+  readServedListFromDb,
   resolveCaller,
   shuffle,
   shuffleOptionsTogether,
@@ -26,6 +27,7 @@ import {
   sittingQuestionCount,
   timedMinutes,
   type LearnerItem,
+  type ServedSetWrite,
 } from '@/lib/services/onemark/attempt-server';
 import type { OneMarkAttemptMode } from '@/types/onemark';
 
@@ -47,6 +49,12 @@ import type { OneMarkAttemptMode } from '@/types/onemark';
 // started_at and the paper's window, never from when the browser came back.
 // A dropped connection costs the learner the time it was dropped for, which
 // is the same thing it would cost in a hall.
+//
+// The same holds for a TIMED sitting (Wave 3 try-out defect 3, Director
+// ruling 2026-09-14): the next Timed tap reopens the learner's open timed
+// sitting on that subject with its clock where it was. One whose clock has
+// already run out is closed as it stands and a fresh sitting opens — see
+// resumeOrCloseOpenTimed.
 //
 // The fp_attempts row is opened HERE, with the service-role client, after the
 // caller's own fp_students row has been resolved through RLS. fp_attempts'
@@ -313,6 +321,84 @@ export async function GET() {
   }
 }
 
+/** Defect 3 (Wave 3 try-out 2026-09-12; Director ruling 2026-09-14): a timed
+ *  sitting the learner walked away from — tab closed, phone locked — is still
+ *  in_progress on the record. The next Timed tap must come back to THAT row
+ *  with its clock where it was, never open a second one beside it. The header
+ *  above already promised this for a live paper; timed never had it, so every
+ *  abandoned timed sitting stayed open forever and each tap added another.
+ *
+ *  A clock that has already run out (deadlineFor + the same grace the respond
+ *  route allows) cannot be reopened: that sitting is closed as it stands —
+ *  every served question without a response goes in as a SKIP (decision 18),
+ *  then the RPC submits — and the tap opens a fresh one. Its id is reported in
+ *  `expiredClosed` so the runner can say so. The same close applies to an open
+ *  row that has nothing left to reopen: no served set on record (a pre-S3 row)
+ *  or every served question retired since.
+ *
+ *  Keyed the way the row is written: learner + the subject's standing pool +
+ *  mode 'timed', newest first. */
+async function resumeOrCloseOpenTimed(
+  admin: any,
+  sessionClient: any,
+  learnerId: string,
+  poolId: string,
+  minutes: number,
+): Promise<
+  | { kind: 'resume'; attempt: any; questions: LearnerItem[]; expiredClosed: string[] }
+  | { kind: 'fresh'; expiredClosed: string[] }
+  | { kind: 'error'; status: number; message: string }
+> {
+  const { data: rows } = await admin
+    .from('fp_attempts')
+    .select(ATTEMPT_COLUMNS)
+    .eq('student_id', learnerId)
+    .eq('assessment_id', poolId)
+    .eq('mode', 'timed')
+    .eq('status', 'in_progress')
+    .order('started_at', { ascending: false });
+  // Filtered again here, the way the live path does: only an OPEN timed row
+  // on THIS pool is ever resumed or closed.
+  const openRows = (rows ?? []).filter(
+    (a: any) => a.status === 'in_progress' && a.mode === 'timed' && a.assessment_id === poolId,
+  );
+  const expiredClosed: string[] = [];
+  const now = Date.now();
+  for (const row of openRows) {
+    const served = await readServedListFromDb(admin, row.id);
+    const deadline = deadlineFor(row, { timedMinutes: minutes });
+    const clockOut = deadline !== null && now > deadline + DEADLINE_GRACE_MS;
+    let questions: LearnerItem[] = [];
+    if (!clockOut && served) {
+      const { data: items } = await admin
+        .from('fp_items')
+        .select(LEARNER_ITEM_COLUMNS)
+        .in('id', served);
+      const byId = new Map((items ?? []).map((it: any) => [it.id, it]));
+      // The order the learner already saw, not the bank's.
+      questions = served
+        .map((id) => byId.get(id))
+        .filter((it: any) => it && it.is_active)
+        .map(projectItemForLearner);
+    }
+    if (!clockOut && questions.length > 0) {
+      return { kind: 'resume', attempt: row, questions, expiredClosed };
+    }
+    const { data: existing } = await admin
+      .from('fp_responses')
+      .select('item_id')
+      .eq('attempt_id', row.id);
+    const done = new Set((existing ?? []).map((r: any) => r.item_id));
+    const blanks = (served ?? []).filter((id) => !done.has(id));
+    const outcome = await closeSitting(sessionClient, row.id, blanks);
+    if (outcome.error) {
+      return { kind: 'error', status: outcome.error.status, message: outcome.error.message };
+    }
+    expiredClosed.push(row.id);
+  }
+  return { kind: 'fresh', expiredClosed };
+}
+
 // ---------------------------------------------------------------------------
 // POST — open one sitting
 // ---------------------------------------------------------------------------
@@ -392,6 +478,8 @@ export async function POST(request: NextRequest) {
     let resumedAttempt: any = null;
     let alreadyAnswered: string[] = [];
     let optionsShuffled = false;
+    /** Timed sittings whose clock had run out, closed as they stood on this tap. */
+    let expiredClosed: string[] = [];
 
     if (mode === 'live') {
       // ---- Live-assigned paper -------------------------------------------
@@ -612,7 +700,22 @@ export async function POST(request: NextRequest) {
       assessmentId = pool.id;
       assessmentTitle = pool.title;
 
-      if (replayPaper) {
+      if (mode === 'timed') {
+        const open = await resumeOrCloseOpenTimed(admin, supabase, learner.id, pool.id, minutes);
+        if (open.kind === 'error') {
+          return NextResponse.json({ error: open.message }, { status: open.status });
+        }
+        expiredClosed = open.expiredClosed;
+        if (open.kind === 'resume') {
+          resumedAttempt = open.attempt;
+          questions = open.questions;
+        }
+      }
+
+      if (resumedAttempt) {
+        // A reopened timed sitting: its questions were rebuilt from the served
+        // set above, so nothing is drawn.
+      } else if (replayPaper) {
         // The same questions the paper asked, in the same order, drawn as a
         // practice sitting — the sitting itself is never reopened.
         const { data: paperItems, error: paperItemsError } = await admin
@@ -800,10 +903,15 @@ export async function POST(request: NextRequest) {
     // same wall the token does. NULL is right for a live paper — its set is
     // the paper. Before S3's migration is applied the column is absent and
     // this is a no-op; the token still guards. Both ship for one release.
-    const servedStored =
+    const servedStored: ServedSetWrite | 'skipped_live' | 'unchanged' =
       mode === 'live'
         ? 'skipped_live'
-        : await persistServedSet(admin, attempt.id, questions.map((q) => q.id));
+        : resumedAttempt
+          ? // A reopened timed sitting already carries its set; rewriting it
+            // could only shrink it (a question retired since) and the RPCs'
+            // wall must keep judging by what was actually served.
+            'unchanged'
+          : await persistServedSet(admin, attempt.id, questions.map((q) => q.id));
 
     return NextResponse.json({
       attemptId: attempt.id,
@@ -830,6 +938,9 @@ export async function POST(request: NextRequest) {
       optionsShuffled,
       resumed: Boolean(resumedAttempt),
       alreadyAnswered,
+      /** Defect 3 — timed sittings whose clock had run out, submitted as they
+       *  stood before this one opened. Empty on every other tap. */
+      expiredClosed,
       // How many were asked for vs served. A vault review can be shorter
       // than requested by design (decision 13); a live paper is its own size.
       requested: mode === 'live' ? questions.length : questionCount,
