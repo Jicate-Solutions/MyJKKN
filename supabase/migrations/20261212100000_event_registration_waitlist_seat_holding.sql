@@ -640,15 +640,20 @@ CREATE TRIGGER tr_events_registration_deleted_settle_waitlist
 -- ---------------------------------------------------------------------------
 -- Grants
 -- ---------------------------------------------------------------------------
--- `authenticated` MUST be named in the REVOKE: Supabase's ALTER DEFAULT
--- PRIVILEGES hands that role its own direct INSERT/UPDATE/DELETE at CREATE
--- TABLE time, independent of PUBLIC (memory
--- feedback_authenticated_holds_a_direct_table_grant_too).
+-- `authenticated` AND `service_role` MUST both be named in the REVOKE:
+-- Supabase's ALTER DEFAULT PRIVILEGES (pg_default_acl, grantor postgres,
+-- schema public: anon/authenticated/service_role = arwdDxt) hands each of the
+-- three API roles its own direct ALL at CREATE TABLE time, independent of
+-- PUBLIC (memory feedback_authenticated_holds_a_direct_table_grant_too). A
+-- REVOKE that omits service_role leaves it holding DELETE and TRUNCATE, and
+-- the GRANT below then adds nothing it did not already have — which is exactly
+-- what the self-check below caught on the first production dry run
+-- (2026-09-14 22:07, P0001 "deletable by service_role").
 --
 -- Every write is made by the API routes under the service-role client, after
 -- they have checked capacity and authority. NO DELETE FOR ANYBODY: a queue row
 -- is the record that somebody was refused a place and what happened next.
-REVOKE ALL ON public.event_registration_waitlist FROM anon, authenticated, PUBLIC;
+REVOKE ALL ON public.event_registration_waitlist FROM anon, authenticated, service_role, PUBLIC;
 GRANT SELECT ON public.event_registration_waitlist TO authenticated;
 GRANT SELECT, INSERT, UPDATE ON public.event_registration_waitlist TO service_role;
 
