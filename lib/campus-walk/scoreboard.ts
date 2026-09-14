@@ -146,6 +146,26 @@ export function isCampusWalkTask(row: WalkTaskRow): boolean {
   return (row.metadata ?? {}).source === 'campus-walk';
 }
 
+/**
+ * A lane task the Director actually WALKED to.
+ *
+ * D9 splits the two boards by what each one measures: "walkers on coverage,
+ * fixers on verified closures". Since decision I4 (2026-09-14) a report can
+ * also arrive through the InstaSolver front door, filed by any signed-in
+ * learner or staff member. Such a row is a campus-walk lane task in
+ * every other respect and is deliberately left that way — the fix board counts
+ * its verified closure, the chase ladder chases it when it goes overdue, and
+ * the retention cron purges its photo on the same clock.
+ *
+ * But nobody walked to it. Counting it as area coverage would credit the
+ * Director's walk with ground he never covered, which is the one number this
+ * board exists to state honestly. So the coverage board — and ONLY the
+ * coverage board — filters these out.
+ */
+export function isWalkedObservation(row: WalkTaskRow): boolean {
+  return isCampusWalkTask(row) && (row.metadata ?? {}).front_door !== 'instasolver';
+}
+
 /** D13. `metadata.kind`, defaulting to the overwhelmingly common case. */
 export function walkKindOf(row: WalkTaskRow): 'symptom' | 'system_gap' {
   return (row.metadata ?? {}).kind === 'system_gap' ? 'system_gap' : 'symptom';
@@ -627,7 +647,10 @@ export function buildCoverageBoard(
   stepDays: StepDay[],
   now: Date = new Date()
 ): CoverageBoard {
-  const walkRows = rows.filter(isCampusWalkTask);
+  // Only ground the Director walked. A report that arrived through the
+  // InstaSolver front door is a lane task everywhere else, but it is not
+  // coverage — see `isWalkedObservation`.
+  const walkRows = rows.filter(isWalkedObservation);
 
   const areas = new Set<string>();
   const institutions = new Set<string>();
@@ -735,7 +758,14 @@ export function buildSplitBoard(
   rows: WalkTaskRow[],
   threshold: number = SYSTEM_GAP_CANDIDATE_THRESHOLD
 ): SplitBoard {
-  const walkRows = rows.filter(isCampusWalkTask);
+  // D9's taxonomy boards measure the WALK, not the whole fault list. An
+  // InstaSolver report has no `kind` the reporter chose and no `category` a
+  // classifier confirmed, so every one of them lands here as an
+  // uncategorised symptom and inflates the "All N reports are symptoms"
+  // banner this board exists to make meaningful. Excluded for the same reason
+  // as coverage — see `isWalkedObservation`. buildFixBoard stays unfiltered:
+  // a closure is a closure whoever reported it.
+  const walkRows = rows.filter(isWalkedObservation);
 
   let symptomCount = 0;
   let systemGapCount = 0;
@@ -961,7 +991,13 @@ function unreachableOwnerOf(row: WalkTaskRow): UnreachableOwnerRow | null {
  * nothing — the same refusal buildSplitBoard makes.
  */
 export function buildOwnershipBoard(rows: WalkTaskRow[]): OwnershipBoard {
-  const walkRows = rows.filter(isCampusWalkTask);
+  // Same reason as buildSplitBoard. An InstaSolver report is routed to the
+  // EAO with no owner resolved, so `accountable_routed_to_eao_no_owner` is
+  // true on effectively all of them — they would dominate the unowned-category
+  // table and read as a walk taxonomy nobody owns, when in fact they are
+  // reports from the public that the fix lane already has. See
+  // `isWalkedObservation`.
+  const walkRows = rows.filter(isWalkedObservation);
 
   // Keyed case-insensitively so "Electrical" and "electrical" are one kind of
   // work, while the label shown is the first spelling actually recorded.
