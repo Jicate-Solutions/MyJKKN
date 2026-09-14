@@ -157,7 +157,7 @@ describe('marathon catch-all dispatch', () => {
     expect(matchMarathonRoute([])?.route.name).toBe('event-detail');
   });
 
-  it('prefers the literal qr children over the dynamic bib number', () => {
+  it('prefers the literal qr sub-paths over the dynamic bib number', () => {
     expect(matchMarathonRoute(['qr', 'bulk'])?.route.name).toBe('qr-bulk');
     expect(matchMarathonRoute(['qr', 'generate'])?.route.name).toBe('qr-generate');
     expect(matchMarathonRoute(['qr', '9001'])?.route.name).toBe('qr-bib');
