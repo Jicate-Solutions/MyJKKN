@@ -96,7 +96,7 @@ migration, which requires a PR, which requires review. That is the point.
 |---|---|---|
 | **1. Access control** | the whole `roles`, `users`, `settings`, `permissions` and `director.handover` namespaces (prefix key **and** everything beneath it), plus anything named `%user_roles%`, `%.role(s).assign/grant` or `%impersonat%` | — |
 | **1a. Sentinels** (see below) | `super_admin`, `view_dashboard`, `view_profile` — MENU_PERMISSIONS values that are *markers*, not keys | — |
-| **1b. Keys that authorise a role write** (see below) | `organizations.leadership%`, `admission.counselors.create`, `staff.create` — derived from the SQL, not from their names | — |
+| **1b. Keys that authorise a role write** (see below) | `organizations.leadership%`, `admission.counselors.create`, `staff.create`, and since 2026-09-14 `audit.external_auditor.manage`, `courses.applications.decide` — derived from the SQL, not from their names | — |
 | **2. Salary & team-member files** | `hr.payroll`, `hr.employees`, `hr.documents`, `hr.performance_reviews`, `hr.promotion.case`, `hr.counseling`, `hr.grievance`, `hr.memos`, `hr.recruitment.packages`, `hr.leave.encashment` (each: prefix key **and** everything beneath it), `staff.create/edit/delete/status_update` | routine `hr.leave.apply/approve/view`, `hr.attendance.%`, `hr.dashboard.%`, `hr.policies.%` |
 | **3. Exam marks & results** | `academic.internal-marks` **and** `academic.internal_marks` (both spellings), `academic.course-grades`, `academic.exam_eligibility`, `lti.grade_sync` (each: prefix key **and** everything beneath it) | `academic.attendance.mark` — that is *marking attendance*, a verb collision, not exam marks |
 | **4. Money movement** | every `billing%` / `admission_fees%` that is **not** read-only, **plus 13 keys found by label sweep** (see below) | `billing.%.view/read/export`, `billing.analytics.%`, `billing.coverage.%`, `admission_fees.%.view/read/export` — reports were explicitly kept handable |
@@ -180,13 +180,15 @@ every function definition in `supabase/`, keeps the `SECURITY DEFINER` ones whos
 (following one level of `can-manage` helper), and **fails if any of those keys is handable**.
 
 The result is the maintained artifact **`specs/director-desk/role-writing-functions.json`**.
-The 2026-08-05 sweep found three authorising keys:
+The 2026-08-05 sweep found three authorising keys; the 2026-09-14 sweep found two more, walled by migration `20261212110000` (the spine's body verbatim plus those two lines):
 
 | Key | Function | What it grants |
 |---|---|---|
 | `organizations.leadership.manage` | `fn_set_college_leadership` | `principal` / `vice_principal`, permanently |
 | `admission.counselors.create` | `assign_counselor_role` | `counselor` — `institution_scope='all'`, so a **cluster-wide** role |
 | `staff.create` | `mirror_staff_role_to_user_roles` | any role the team-member record names (already walled by wall 2) |
+| `audit.external_auditor.manage` | `fn_extend_institution_access`, `revoke_all_user_institution_access` | extends or strips a person's `user_institution_access` — access that outlives the handover (added 2026-09-14) |
+| `courses.applications.decide` | `fn_course_approve_application` | approving an application mints the participant's role (added 2026-09-14) |
 
 Every other role-writing function is a trigger or is gated on a `role_key` (e.g.
 `fn_induction_can_manage_coordinators` requires `role_key = 'induction_lead'`), and a handover
