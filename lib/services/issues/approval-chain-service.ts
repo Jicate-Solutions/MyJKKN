@@ -32,7 +32,7 @@
 //      order of operations, no hidden I/O.
 //
 // Spec:      specs/instasolver-2026-09-14.md
-// Migration: supabase/migrations/20261212110000_instasolver_substrate_v2.sql
+// Migration: supabase/migrations/20261213100000_instasolver_substrate_v2.sql
 // Pattern source: lib/services/hr/leave-service.ts (buildApprovalChain)
 // ============================================================================
 

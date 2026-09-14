@@ -24,7 +24,7 @@
 //   - create/update input types for the complaint lane
 //
 // Spec:      specs/instasolver-2026-09-14.md
-// Migration: supabase/migrations/20261212110000_instasolver_substrate_v2.sql
+// Migration: supabase/migrations/20261213100000_instasolver_substrate_v2.sql
 // Pattern source: lib/types/grievance.ts
 // ============================================================================
 
@@ -94,7 +94,7 @@ export interface BuildChainInput {
 
 /**
  * List-shape projection over grievance_tickets, plus the two InstaSolver
- * cutover markers added by 20261212110000 (I9).
+ * cutover markers added by 20261213100000 (I9).
  *
  * There is deliberately no `issue_type` and no `requirement_id`: this table
  * holds complaints and nothing else, which is what keeps the accreditation

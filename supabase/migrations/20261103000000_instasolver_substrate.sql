@@ -1,4 +1,4 @@
--- SUPERSEDED BY 20261212110000_instasolver_substrate_v2.sql — do not apply.
+-- SUPERSEDED BY 20261213100000_instasolver_substrate_v2.sql — do not apply.
 --
 -- This file was never applied to production and never will be. Its premise was
 -- reversed by the Director on 2026-09-14 (specs/instasolver-2026-09-14.md):
@@ -96,7 +96,7 @@ BEGIN;
 -- The header explains why. This block is what makes "do not apply"
 -- enforceable rather than advisory: `supabase db push` applies pending
 -- migrations in VERSION order, so 20261103000000 would run BEFORE
--- 20261212110000 and its objects would land before the replacement's
+-- 20261213100000 and its objects would land before the replacement's
 -- verification block could object. Each migration is its own transaction,
 -- so the replacement failing afterwards would not roll this one back.
 --
@@ -112,7 +112,7 @@ BEGIN;
 DO $superseded$
 BEGIN
   RAISE EXCEPTION
-    'ABORTED: 20261103000000_instasolver_substrate.sql is SUPERSEDED and must not be applied. Apply 20261212110000_instasolver_substrate_v2.sql instead. Reason: specs/instasolver-2026-09-14.md reversed this file''s premise on 2026-09-14 — nothing reads grievance_tickets.issue_type, so it cannot keep non-complaints out of the NAAC and UGC counts, and requirement_requests duplicates the Procurement module.';
+    'ABORTED: 20261103000000_instasolver_substrate.sql is SUPERSEDED and must not be applied. Apply 20261213100000_instasolver_substrate_v2.sql instead. Reason: specs/instasolver-2026-09-14.md reversed this file''s premise on 2026-09-14 — nothing reads grievance_tickets.issue_type, so it cannot keep non-complaints out of the NAAC and UGC counts, and requirement_requests duplicates the Procurement module.';
 END $superseded$;
 
 -- ---------------------------------------------------------------------

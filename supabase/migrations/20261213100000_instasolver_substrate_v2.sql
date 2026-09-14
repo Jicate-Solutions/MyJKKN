@@ -1,6 +1,6 @@
 -- =====================================================================
 -- Migration: instasolver_substrate_v2
--- Created:   2026-12-12
+-- Created:   2026-12-13
 -- Spec:      specs/instasolver-2026-09-14.md (locked decisions I1–I10)
 -- Supersedes: supabase/migrations/20261103000000_instasolver_substrate.sql
 --
