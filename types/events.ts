@@ -73,7 +73,18 @@ export const GENERAL_EVENT_ACTIVE_STATUS = 'live' as const satisfies EventStatus
  */
 export const GENERAL_EVENT_STATUS_TRANSITIONS: Partial<Record<EventStatus, EventStatus[]>> = {
   draft: ['live'],
-  live: ['draft'],
+  // live -> cancelled (2026-09-13): calling off a live event is a THIRD state,
+  // not a return to Draft. Moving it back to draft hides the page and closes
+  // registration, but says nothing to the people already registered and leaves
+  // the event looking unpublished rather than called off. `cancelled` carries a
+  // reason — INTERNAL, not public (Director's ruling, 13 Sep: "short public
+  // line, full reason kept inside"). The public registration page prints a
+  // standard cancellation notice and an address to write to; the organiser's
+  // own words are shown in full only on the /events/[id] console.
+  //
+  // NOT offered from `draft`: a draft was never announced, so there is nobody to
+  // tell and nothing to call off — deleting or leaving it is the honest answer.
+  live: ['draft', 'cancelled'],
   planning: ['draft', 'live'],
   preparation: ['draft', 'live'],
   execution: ['draft', 'live'],
@@ -82,14 +93,30 @@ export const GENERAL_EVENT_STATUS_TRANSITIONS: Partial<Record<EventStatus, Event
   cancelled: ['draft', 'live'],
 };
 
-/** Draft vs Active — every non-draft general-event status reads as Active. */
+/**
+ * Draft vs Active vs Cancelled.
+ *
+ * `cancelled` is named rather than collapsed into "Active": every OTHER
+ * non-draft value (planning, execution, post_event, …) is a legacy row still
+ * genuinely running, but a cancelled event is called off, and reporting it as
+ * "Active" in the hub would be the badge lying about the one status that most
+ * needs to be read correctly.
+ */
 export function generalEventStatusLabel(status: string): string {
-  return status === 'draft' ? 'Draft' : 'Active';
+  if (status === 'draft') return 'Draft';
+  if (status === 'cancelled') return 'Cancelled';
+  return 'Active';
 }
 
-/** True when the event is open (i.e. anything that isn't a draft). */
+/**
+ * True when the event is open — not a draft, and not cancelled.
+ *
+ * Cancelled is excluded for the same reason the label names it: this flag drives
+ * the green "open" badge on the hub and the "Event is now Active" toast, and a
+ * called-off event is neither.
+ */
 export function isGeneralEventActive(status: string): boolean {
-  return status !== 'draft';
+  return status !== 'draft' && status !== 'cancelled';
 }
 
 // ── Induction ────────────────────────────────────────────────────────────────
@@ -208,6 +235,16 @@ export interface Event {
   // quality-evidence-spine emitter (PR #2408); written by the NAAC criteria
   // field on the tournament edit dialog (Wave 3, 2026-07-26).
   naac_criteria: string[];
+  // NO CANCELLATION FIELDS HERE, AND THEY MUST NOT COME BACK.
+  //
+  // Why an event was called off lives in `public.event_cancellations` — see
+  // EventCancellation below and migration 20261204113700. `events` is
+  // anon-readable (`events_public_read` has no TO clause and `is_public`
+  // defaults to true), and the reason is KEPT when an event is reinstated, so a
+  // column here would publish the organiser's verbatim text to the public anon
+  // key the moment a cancelled event went live again — with no page printing it
+  // and nothing to notice. Director's ruling, 13 Sep 2026: "keep the reason out
+  // of the public table entirely."
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -367,6 +404,34 @@ export interface UpdateEventDto extends Partial<CreateEventDto> {
   hero_image_url?: string;
   hero_video_url?: string;
   route_config?: Record<string, unknown>;
+  // Deliberately no `cancellation_reason`: it is not a column on `events`. See
+  // the note in the Event interface above, and EventCancellation below.
+}
+
+/**
+ * Why a general event was called off — the row in `public.event_cancellations`.
+ *
+ * A SEPARATE TABLE, not three columns on `events`, because `events` is
+ * anon-readable and the reason is kept when an event is reinstated. See
+ * migration 20261204113700 for the full reasoning and the three alternatives
+ * the Director rejected.
+ *
+ * Read by signed-in users at the event's institution — the same people
+ * `events_auth_read` already shows the event to — and printed in full on the
+ * /events/[id] console. The public registration page never reads this table.
+ *
+ * `cancelled_at` / `cancelled_by` are stamped by trg_event_cancellation_stamp
+ * and are never sent from a client, so a browser that can write the row cannot
+ * name somebody else as the canceller.
+ */
+export interface EventCancellation {
+  event_id: string;
+  /** The organiser's own words. NULL when a cancellation was recorded without one. */
+  reason: string | null;
+  cancelled_at: string;
+  cancelled_by: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 /**

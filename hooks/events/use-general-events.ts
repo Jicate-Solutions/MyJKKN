@@ -14,6 +14,7 @@ import { GeneralEventService } from '@/lib/services/events/core/general-event-se
 import { isGeneralEventActive } from '@/types/events';
 import type {
   Event,
+  EventCancellation,
   EventDeleteBlockers,
   EventStatus,
   UpdateEventDto,
@@ -28,6 +29,7 @@ const KEYS = {
   lists: () => [...KEYS.all, 'list'] as const,
   detail: (id: string) => [...KEYS.all, 'detail', id] as const,
   deleteBlockers: (id: string) => [...KEYS.all, 'delete-blockers', id] as const,
+  cancellation: (id: string) => [...KEYS.all, 'cancellation', id] as const,
 };
 
 /**
@@ -128,6 +130,64 @@ export function useUpdateGeneralEventStatus() {
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to update status');
     },
+  });
+}
+
+/**
+ * Call an event off, with a reason.
+ *
+ * Separate from useUpdateGeneralEventStatus because the reason is not optional:
+ * GeneralEventService.cancel refuses a blank one, and so does the database.
+ * Invalidates KEYS.all rather than lists() for the same reason useDeleteEvent
+ * does — the hub table runs in fetchDataFn mode and refreshes off an invalidate
+ * on a CACHED query under the ['general-events'] prefix.
+ */
+export function useCancelGeneralEvent() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+      GeneralEventService.cancel(id, reason),
+    onSuccess: (event) => {
+      queryClient.invalidateQueries({ queryKey: KEYS.all });
+      queryClient.invalidateQueries({ queryKey: KEYS.detail(event.id) });
+      // No separate invalidate for KEYS.cancellation(id): it is
+      // [...KEYS.all, 'cancellation', id], and invalidateQueries prefix-matches,
+      // so the KEYS.all call above already covers it. Adding one would read as
+      // load-bearing to the next person and be a no-op.
+      // Names the cascade, because it has already happened by the time this
+      // shows: tr_event_cancelled_cascade_release releases the event's rooms and
+      // un-assigns its people inside the same write.
+      toast.success('Event cancelled — registration is closed and its bookings are released');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to cancel event');
+    },
+  });
+}
+
+/**
+ * Why this event was called off — the row in `public.event_cancellations`.
+ *
+ * A separate hook and a separate query, because the reason is no longer a column
+ * on the event: `events` is anon-readable, so a column there would publish the
+ * organiser's words to the public key once a cancelled event was reinstated
+ * (Director's ruling, 13 Sep; see migration 20261204113700).
+ *
+ * `enabled` is the whole point. Pass `event.status === 'cancelled'`: every other
+ * event has no row here, and asking for one on every event detail page would be
+ * a query per page view to answer a question nobody asked. It also keeps this
+ * call off the screens of people looking at events that were never cancelled.
+ *
+ * Not retried on failure. An RLS denial is a verdict, not a transient error, and
+ * retrying it three times just delays the banner's honest fallback.
+ */
+export function useEventCancellation(id: string, enabled: boolean) {
+  return useQuery<EventCancellation | null>({
+    queryKey: KEYS.cancellation(id),
+    queryFn: () => GeneralEventService.getCancellation(id),
+    enabled: Boolean(id) && enabled,
+    retry: false,
   });
 }
 

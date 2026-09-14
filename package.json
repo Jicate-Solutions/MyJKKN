@@ -8,6 +8,7 @@
     "dev:webpack": "next dev --webpack",
     "dev:sentry": "cross-env LOCAL_SENTRY=1 next dev --turbopack",
     "build": "npm run gen:routes && npm run gen:page-access && npm run check:sidebar && npm run check:reachability && npm run check:audit-coverage && cross-env NODE_OPTIONS=\"--max-old-space-size=12288 --max-semi-space-size=128\" next build --turbopack && serwist build serwist.config.mjs",
+    "build:ci": "npm run gen:routes && npm run gen:page-access && npm run check:sidebar && npm run check:reachability && npm run check:audit-coverage && cross-env NODE_OPTIONS=\"--max-old-space-size=6144 --max-semi-space-size=128\" next build --turbopack && serwist build serwist.config.mjs",
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",

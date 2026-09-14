@@ -13,7 +13,14 @@
 // __tests__/lib/navigation/global-record-search-keys.test.ts derives the key
 // from the route map and pins it against the SQL.
 
-export type RecordEntity = 'learner' | 'staff' | 'lead' | 'course';
+export type RecordEntity =
+  | 'learner'
+  | 'staff'
+  | 'lead'
+  | 'course'
+  | 'department'
+  | 'program'
+  | 'institution';
 
 export interface RecordHit {
   entity: RecordEntity;
@@ -59,6 +66,31 @@ export const RECORD_ENTITIES: Record<RecordEntity, RecordEntityMeta> = {
     iconName: 'BookOpen',
     href: (id) => `/courses/${id}`,
     order: 4,
+  },
+  // The three organisational kinds sit below the people and courses a user
+  // searches all day: they are a much smaller set, and someone typing a name
+  // is far more often after a learner than after the department they sit in.
+  department: {
+    label: 'Departments',
+    // Every iconName here must be a key of ICON_MAP (lib/navigation/page-registry).
+    // An unknown name does not fail loudly — it silently falls back to a
+    // generic icon, so 'School' and 'Library', which are not registered, would
+    // have shipped looking like a rendering bug.
+    iconName: 'FolderTree',
+    href: (id) => `/organizations/departments/${id}`,
+    order: 5,
+  },
+  program: {
+    label: 'Programmes',
+    iconName: 'BookOpenCheck',
+    href: (id) => `/organizations/programs/${id}`,
+    order: 6,
+  },
+  institution: {
+    label: 'Institutions',
+    iconName: 'Building2',
+    href: (id) => `/organizations/institutions/${id}`,
+    order: 7,
   },
 };
 

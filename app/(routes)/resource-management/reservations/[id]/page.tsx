@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/breadcrumb';
 import { ReservationInfo } from './_components/reservation-info';
 import { ReservationActions } from './_components/reservation-actions';
+import { ReservationApprovalActions } from './_components/reservation-approval-actions';
 import { ReservationTimeline } from './_components/reservation-timeline';
 import { ReservationComments } from './_components/reservation-comments';
 import {
@@ -164,6 +165,11 @@ export default function ReservationDetailsPage({
 
         {/* Sidebar */}
         <div className='space-y-6'>
+          {/* BUG-004010: approvers act here instead of returning to the queue. */}
+          <ReservationApprovalActions
+            reservation={reservation}
+            userId={user?.id}
+          />
           <ReservationActions reservation={reservation} userId={user?.id} />
           <ReservationTimeline
             reservation={reservation}

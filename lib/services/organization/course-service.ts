@@ -204,7 +204,7 @@ export class CourseService {
         ) {
           console.error('Database schema error:', error);
           toast.error(
-            'Database schema needs to be updated. Please refresh the page or contact support.'
+            'Courses could not be loaded right now. Please refresh the page, or contact support if this keeps happening.'
           );
           // Return empty data to prevent crashing
           return {
@@ -272,7 +272,7 @@ export class CourseService {
         ) {
           console.error('Database schema error:', error);
           toast.error(
-            'Database schema needs to be updated. Please refresh the page or contact support.'
+            'Some course details could not be loaded. Please refresh the page, or contact support if this keeps happening.'
           );
           // Return basic course data to prevent crashing
           return { id } as Course;

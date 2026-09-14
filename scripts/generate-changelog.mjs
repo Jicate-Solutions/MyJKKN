@@ -25,6 +25,7 @@ import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { moduleFor, lookupModule } from '../lib/changelog/modules.mjs';
 import { INTERNAL_SCOPES } from '../lib/changelog/modules.mjs';
+import { entryHref } from '../lib/changelog/entry-link.mjs';
 import {
   stripBugRefs,
   isInternalEngineering,
@@ -35,6 +36,45 @@ import {
 const REF = process.env.CHANGELOG_REF || 'jicate/main';
 const US = '\x1f'; // field separator
 const RS = '\x1e'; // record separator
+
+/**
+ * The clock every changelog date and time is read in.
+ *
+ * NOT the machine's. `git log --date=short` renders each commit in the
+ * COMMITTER'S own offset, and 293 of this repository's 7,305 commits carry `Z`
+ * rather than `+05:30` — they are GitHub's own merge commits, which GitHub
+ * records in UTC. Under the old day-only format that was invisible. It stops
+ * being invisible the moment a time is displayed: a merge GitHub stamped
+ * 2026-09-10T20:30:00Z is 2:00 am on the 11th in IST, so the row would show a
+ * time from a day the header above it does not name.
+ *
+ * Pinning the whole read to Asia/Kolkata makes the date and the time two
+ * readings of ONE clock, so they cannot disagree by construction. It is also the
+ * timezone every other boundary on this page is already drawn in — istDate() and
+ * recentFrom() in app/api/whats-new/route.ts, after a bug that printed
+ * "Updated 5 September" above an entry dated 6 September.
+ *
+ * Measured cost: 38 of 7,305 commits (0.52%) move to the following day, and
+ * every one of them is a UTC-stamped merge that genuinely happened after IST
+ * midnight. Those rows are corrected on the first sync after this ships.
+ *
+ * Set explicitly rather than inherited: GitHub Actions runs in UTC, so relying
+ * on the ambient TZ would give CI and a developer's Mac different answers.
+ */
+const CHANGELOG_TZ = 'Asia/Kolkata';
+
+/**
+ * `iso-strict-local` = the committer date rendered in CHANGELOG_TZ, with that
+ * zone's offset attached: `2026-09-12T19:40:00+05:30`. The first ten characters
+ * are exactly what `--date=short` used to return for an IST committer, so `d`
+ * keeps its meaning and its `date` column; the rest is the time we used to throw
+ * away (Director, 2026-09-12: "can we also add time to the whatsnew so that we
+ * know when the change happened").
+ */
+const GIT_DATE_FORMAT = '--date=iso-strict-local';
+
+/** Environment for every git read here — see CHANGELOG_TZ. */
+const GIT_ENV = { ...process.env, TZ: CHANGELOG_TZ };
 
 // Types that describe a change a human would care about. Everything else
 // (ci, chore, docs, test, refactor, wip, style) is scaffolding, not news.
@@ -188,6 +228,60 @@ function scopeFromFiles(files) {
   return [...tally.entries()].sort((a, b) => b[1] - a[1])[0][0];
 }
 
+/**
+ * Every page file that exists in the tree RIGHT NOW, at the ref being read.
+ *
+ * The link on an entry is derived from the files that commit touched, and those
+ * files are evidence about the day it landed — some of them months ago. A page
+ * renamed or deleted since would still be in that commit's diff and would still
+ * produce a perfectly well-formed URL, pointing at a 404. A dead link on a
+ * changelog is worse than no link: the reader follows it, lands nowhere, and
+ * stops trusting every other row on the page.
+ *
+ * So each derived path is checked for membership here before it becomes a link.
+ * Read with `git ls-tree`, not a second walk of history — this is a snapshot of
+ * one ref, which is exactly the question being asked.
+ *
+ * An unreadable tree returns an EMPTY set, and an empty set means every link is
+ * dropped rather than every link being trusted. That is the safe direction: a
+ * sync that writes no links is a page that looks like it did last week, while a
+ * sync that writes unvalidated links is a page full of 404s. In practice the
+ * case cannot arise on its own — `git log <ref>` succeeding implies `git
+ * ls-tree <ref>` does too, and collectChangelog's own fallback to HEAD is
+ * mirrored below — so this is a backstop, not a routine path.
+ *
+ * NOT given GIT_ENV. That environment exists to pin the timezone every date is
+ * read in; a tree listing has no dates in it.
+ */
+function readPageFiles(ref) {
+  const list = (target) =>
+    execSync(`git ls-tree -r ${target} --name-only`, {
+      maxBuffer: 256 * 1024 * 1024,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+
+  let raw = '';
+  try {
+    raw = list(ref);
+  } catch {
+    try {
+      raw = list('HEAD');
+    } catch {
+      return new Set();
+    }
+  }
+
+  const pages = new Set();
+  for (const line of raw.split('\n')) {
+    const file = line.trim();
+    // Narrowed before it is stored: the tree is ~15,000 paths and only the
+    // ~1,600 page files can ever be looked up in it.
+    if (file.endsWith('/page.tsx')) pages.add(file);
+  }
+  return pages;
+}
+
 const SUBJECT_RE = /^(feat|fix|perf|security)(?:\(([^)]+)\))?(!?):\s*(.+)$/;
 const PR_RE = /\s*\(#(\d+)\)\s*$/;
 /**
@@ -205,8 +299,8 @@ const PR_RE = /\s*\(#(\d+)\)\s*$/;
  * overwrites it. This function reports what git says. The database remembers
  * what a human decided about it.
  *
- * Returns { ref, gitFailed, entries, modules, contributors, skipped, recovered }
- * where an entry is the compact { h, d, t, m, s, a, p?, b? }.
+ * Returns { ref, gitFailed, entries, modules, contributors, skipped, recovered,
+ * links } where an entry is the compact { h, d, at?, t, m, s, a, l?, p?, b? }.
  */
 export function collectChangelog({ ref = REF } = {}) {
   // A build or CI host may hand us a SHALLOW clone (Vercel clones with limited
@@ -219,17 +313,22 @@ export function collectChangelog({ ref = REF } = {}) {
   let gitFailed = false;
   try {
     raw = execSync(
-      `git log ${ref} --format=${RS}%H${US}%an${US}%ae${US}%cd${US}%s${US} --date=short --name-only`,
-      { maxBuffer: 512 * 1024 * 1024, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+      `git log ${ref} --format=${RS}%H${US}%an${US}%ae${US}%cd${US}%s${US} ${GIT_DATE_FORMAT} --name-only`,
+      { maxBuffer: 512 * 1024 * 1024, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], env: GIT_ENV }
     );
   } catch {
     // Not a git checkout, or the ref is absent (a shallow CI clone has neither
     // `jicate/main` nor full history).
     gitFailed = true;
     try {
+      // The SECOND call site, and it must carry the same date format and the
+      // same TZ as the one above. It only runs when `ref` is unreachable — a
+      // shallow CI clone, a machine without the remote — so a half-applied
+      // change here is invisible on every machine where the first path works
+      // and only appears on the one where it does not.
       raw = execSync(
-        `git log HEAD --format=${RS}%H${US}%an${US}%ae${US}%cd${US}%s${US} --date=short --name-only`,
-        { maxBuffer: 512 * 1024 * 1024, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+        `git log HEAD --format=${RS}%H${US}%an${US}%ae${US}%cd${US}%s${US} ${GIT_DATE_FORMAT} --name-only`,
+        { maxBuffer: 512 * 1024 * 1024, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], env: GIT_ENV }
       );
     } catch {
       raw = '';
@@ -241,12 +340,36 @@ export function collectChangelog({ ref = REF } = {}) {
   const skipped = { internal: 0, nonUserFacing: 0, engineering: 0, contentFree: 0 };
   const moduleDict = {};
   let recovered = 0;
+  /**
+   * The page files that exist at `ref` today, read ONCE for the whole run —
+   * ~7,000 commits are about to be asked the same membership question.
+   *
+   * `precise` counts entries that end up with their own deep link; `dropped`
+   * counts entries that had one derivable and lost it because the page is no
+   * longer in the tree. Everything else falls back to the module's href, which
+   * the page already renders.
+   */
+  const pageFiles = readPageFiles(ref);
+  const pageStillExists = (f) => pageFiles.has(f);
+  const links = { precise: 0, dropped: 0, treeRead: pageFiles.size };
 
   for (const rec of raw.split(RS)) {
     const line = rec.replace(/^\n/, '');
     if (!line.trim()) continue;
     const parts = line.split(US);
-    const [sha, name, email, date] = parts;
+    const [sha, name, email, committedAt] = parts;
+    // `committedAt` is `2026-09-12T19:40:00+05:30`. The first ten characters are
+    // the day, which is what `--date=short` used to hand back and what the
+    // `date` column, the date headers, the 90-day split and both indexes are
+    // built on — so `d` is unchanged in meaning and in type.
+    //
+    // The slice is written to survive a git that does not know
+    // `iso-strict-local` and falls back to a bare `YYYY-MM-DD`: `d` is still
+    // right, and `at` is simply absent rather than malformed. An absent `at` is
+    // a state the whole chain already has to handle — every row in the table is
+    // in it until the first sync after this ships.
+    const date = (committedAt ?? '').slice(0, 10);
+    const at = (committedAt ?? '').includes('T') ? committedAt : null;
     const subject = parts[4];
     // Everything after the last separator is the --name-only file list.
     const files = (parts[5] ?? '').split('\n').map((f) => f.trim()).filter(Boolean);
@@ -297,6 +420,22 @@ export function collectChangelog({ ref = REF } = {}) {
     const who = author(name, email);
     authorTally.set(who, (authorTally.get(who) || 0) + 1);
 
+    /*
+     * WHERE the change happened, from the SAME file list the module was
+     * recovered from a few lines above. Deliberately not a second read of git:
+     * `--name-only` is already on the log format and `files` is already parsed,
+     * so this is one more question asked of data we hold, not another walk of
+     * 7,000 commits.
+     *
+     * Null for roughly three quarters of entries — a migration, a service, a
+     * cron route, a component shared by six screens. That is the honest answer
+     * and the page falls back to the module's own href for it. Only a commit
+     * that touched a real, still-present, non-dynamic page gets a deep link.
+     */
+    const link = entryHref(files, pageStillExists);
+    if (link.href) links.precise += 1;
+    if (link.dropped) links.dropped += 1;
+
     entries.push({
       // 12, not 7. This is the natural key the database upserts on, so a prefix
     // collision is not cosmetic: two colliding shas in one batch raise 21000 and
@@ -307,10 +446,17 @@ export function collectChangelog({ ref = REF } = {}) {
     // reason; a fixed column cannot, so it starts wide.
     h: sha.slice(0, 12),
       d: date,
+      // The instant the change landed, in IST, offset attached. `d` is its first
+      // ten characters, so the two can never name different days.
+      ...(at ? { at } : {}),
       t: USER_FACING[type],
       m: mod.key,
       s: text.charAt(0).toUpperCase() + text.slice(1),
       a: who,
+      // The screen this change happened on. ABSENT rather than null when there
+      // is none, like `p` and `b` below — the page tests for presence, and the
+      // database column is nullable for exactly the same reason.
+      ...(link.href ? { l: link.href } : {}),
       ...(prMatch ? { p: Number(prMatch[1]) } : {}),
       ...(breaking ? { b: 1 } : {}),
     });
@@ -334,6 +480,7 @@ export function collectChangelog({ ref = REF } = {}) {
       .map(([name, count]) => ({ name, count })),
     skipped,
     recovered,
+    links,
   };
 }
 
@@ -345,7 +492,7 @@ export function collectChangelog({ ref = REF } = {}) {
  */
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   const out = collectChangelog();
-  const { entries, modules, contributors, skipped, recovered } = out;
+  const { entries, modules, contributors, skipped, recovered, links } = out;
 
   if (process.argv.includes('--json')) {
     process.stdout.write(JSON.stringify({ entries, modules, contributors }));
@@ -360,6 +507,9 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
     console.log(`  skipped: ${skipped.nonUserFacing} non-user-facing, ${skipped.internal} internal-scope`);
     console.log(`           ${skipped.engineering} build-toolchain, ${skipped.contentFree} content-free titles`);
     console.log(`  module recovered from changed files: ${recovered}`);
+    console.log(`  deep links: ${links.precise} entries open their own screen, ` +
+      `${entries.length - links.precise} fall back to their module` +
+      (links.dropped ? `, ${links.dropped} lost a link to a page that no longer exists` : ''));
     console.log(`  platform (everyone-can-read) entries: ${entries.filter((e) => e.m === 'platform').length}`);
     console.log(`  contributors: ${contributors.length}, modules: ${Object.keys(modules).length}`);
     console.log(`  nothing written — entries live in changelog_entries; see scripts/sync-changelog-db.mjs`);

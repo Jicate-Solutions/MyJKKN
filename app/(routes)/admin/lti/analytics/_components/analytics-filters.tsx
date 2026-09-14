@@ -63,7 +63,7 @@ export function AnalyticsFilters({
 
   const handleExport = () => {
     // TODO: Implement Excel export
-    alert('Export functionality coming soon!');
+    alert('Export is not available on this page yet.');
   };
 
   const hasFilters = Object.values(currentFilters).some((v) => v);

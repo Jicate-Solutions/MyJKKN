@@ -114,7 +114,7 @@ async function RoleBasedDashboard() {
         console.error('[Dashboard] Student role but no learner_id assigned to profile');
         return (
           <div className='text-center py-8 text-muted-foreground'>
-            Student profile not linked. Please contact administration.
+            Your learner profile is not linked to your account yet. Please ask your administrator to link it.
           </div>
         );
       }
@@ -130,7 +130,7 @@ async function RoleBasedDashboard() {
         console.error('[Dashboard] Student role but no learner profile found for id:', profile.learner_id);
         return (
           <div className='text-center py-8 text-muted-foreground'>
-            Student profile not found. Please contact administration.
+            We could not find your learner profile. Please ask your administrator for help.
           </div>
         );
       }
@@ -139,7 +139,7 @@ async function RoleBasedDashboard() {
         console.warn('[Dashboard] Student has no section assigned');
         return (
           <div className='text-center py-8 text-muted-foreground'>
-            No section assigned. Please contact administration.
+            You have not been added to a section yet. Please ask your administrator to add you.
           </div>
         );
       }
@@ -159,7 +159,7 @@ async function RoleBasedDashboard() {
       // TODO: Implement FacultyDashboard in next task
       return (
         <div className='text-center py-8 text-muted-foreground'>
-          Faculty dashboard coming soon...
+          A dashboard for Senior Learners is not available here yet. Please use the menu to open your pages.
         </div>
       );
     }
@@ -180,7 +180,7 @@ async function RoleBasedDashboard() {
       // TODO: Implement LeadershipDashboard in next task
       return (
         <div className='text-center py-8 text-muted-foreground'>
-          Leadership dashboard coming soon...
+          A leadership dashboard is not available here yet. Please use the menu to open your pages.
         </div>
       );
     }
