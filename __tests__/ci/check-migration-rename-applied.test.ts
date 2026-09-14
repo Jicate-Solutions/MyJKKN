@@ -490,7 +490,28 @@ describe('the real files on main, not reductions of them', () => {
     // PR #3263 performs this rename, so from that merge onward the body lives at
     // the NEW path. The simulated rename below still runs from -> to, which is the
     // historical fact the guard is being tested against.
-    const sql = read('supabase/migrations/20261103000000_instasolver_substrate.sql');
+    //
+    // 2026-09-14 — the body no longer lives in supabase/migrations/. The Director
+    // reversed this substrate's premise (specs/instasolver-2026-09-14.md), and
+    // 20261103000000_instasolver_substrate.sql was emptied to a comment-only
+    // no-op: an earlier `RAISE EXCEPTION` guard placed there halted
+    // `supabase db push` before the migrations queued behind it could run. The
+    // 1,193-line body is preserved verbatim as the fixture read below, copied
+    // from jicate/main at the superseding commit.
+    //
+    // Reading the fixture rather than the live migration keeps this test
+    // asserting what it was written to assert — that the guard still lands
+    // correctly on a REAL 60 KB migration body of exactly that shape — instead of
+    // degrading into a vacuous pass over an empty file. The fact under test (the
+    // 20260504 -> 20261103000000 rename and its not-applied verdict) is history
+    // and cannot change.
+    const sql = read('__tests__/ci/fixtures/instasolver-substrate-20261103000000.sql');
+    // Guard the guard. If the fixture is ever truncated or swapped for a
+    // reduction, the assertions below would go green on nothing. It must still
+    // carry the objects the verdict is computed from.
+    expect(sql.length).toBeGreaterThan(40_000);
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS public.requirement_requests');
+    expect(sql).toContain('fn_generate_unresolved_grievance_items');
     const r = run({
       renames: [{
         from: 'supabase/migrations/20260504_instasolver_substrate.sql',

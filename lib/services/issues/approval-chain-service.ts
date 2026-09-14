@@ -11,7 +11,7 @@
 // Seed budget bands (super_admin-editable rows in
 // procurement_approval_thresholds):
 //   - HOD          ≤ ₹10,000
-//   - Principal    ₹10,001 – ₹50,000
+//   - Principal    ₹10,000.01 – ₹50,000   (paise-exact: the bands are contiguous)
 //   - super_admin  > ₹50,000
 //
 // REWRITTEN 2026-09-14 (specs/instasolver-2026-09-14.md). Two changes:
@@ -106,6 +106,22 @@ export class ApprovalChainService {
       )
       .sort((a, b) => a.min_amount - b.min_amount);
 
+    // NO BAND MATCHED IS AN ERROR, NEVER AN EMPTY CHAIN.
+    //
+    // Returning [] here used to mean "approved by nobody": getCurrentApprover([])
+    // is null, so isChainComplete([]) was true and a purchase with no approver
+    // read as fully approved. The bands are seeded contiguous to the paise, so
+    // reaching this line means the configuration is broken (a tier deleted, an
+    // institution override with a hole in it, or a negative budget) — and a
+    // broken spending policy must stop the request, not wave it through.
+    if (matched.length === 0) {
+      throw new Error(
+        `No approval tier covers ₹${budget} (institution ${input.institution_id}). ` +
+          `procurement_approval_thresholds must cover every amount with no gap. ` +
+          `Refusing to build an empty approval chain — an empty chain would read as fully approved.`
+      );
+    }
+
     return matched.map((r, i) => ({
       step_order: i + 1,
       approver_role: r.approval_authority,
@@ -195,10 +211,20 @@ export class ApprovalChainService {
   }
 
   /**
-   * Convenience: true when every chain step has a non-pending status
-   * (the chain is fully decided one way or another).
+   * True when the chain has at least one step and every step has a non-pending
+   * status (the chain is fully decided one way or another).
+   *
+   * AN EMPTY CHAIN IS NOT COMPLETE. `getCurrentApprover([])` is null because
+   * there is nothing pending, and reading that alone as "complete" turned a
+   * purchase nobody approved into a purchase fully approved. A chain of zero
+   * steps means no approval was ever sought, which is the opposite of decided.
+   * buildApprovalChain now refuses to produce one, and this is the second lock
+   * on the same door: a chain that arrives empty from anywhere — a stored row
+   * written before that fix, a caller that constructs its own array — still
+   * cannot clear the gate.
    */
   static isChainComplete(chain: ApprovalChainStep[]): boolean {
+    if (!chain || chain.length === 0) return false;
     return this.getCurrentApprover(chain) === null;
   }
 }

@@ -39,6 +39,14 @@
 --
 -- WHAT THIS FILE KEEPS from 20261103000000 (verbatim where possible):
 --   - grievance_categories.allow_anonymous            (I7: anonymous filing)
+--     NOTE: it DEFAULTS TO TRUE, so on apply every grievance category that
+--     already exists becomes anonymous-capable. That is deliberate and it is
+--     the Director's decision I7 — asked whether anonymous filing should be
+--     allowed everywhere or only on sensitive categories, he chose the
+--     broadest option. There is NO per-category opt-in step to perform after
+--     this migration; switching a category OFF is the exception, not the
+--     enrolment. Stated here because a `boolean NOT NULL DEFAULT true` on an
+--     existing table reads like a harmless additive column and is not one.
 --   - grievance_tickets.migrated_from_subdomain
 --     + legacy_external_id                            (I9: old-site import)
 --   - fn_track_issue_by_token()                       (I7: private tracking code)
@@ -57,7 +65,8 @@
 -- WHAT THIS FILE ADDS:
 --   - public.procurement_approval_thresholds — the tier table from I5,
 --     same shape as the abandoned requirement_approval_thresholds, seeded
---     HOD ≤ ₹10,000 · principal ₹10,001–50,000 · super_admin above.
+--     HOD ≤ ₹10,000 · principal ₹10,000.01–50,000 · super_admin above.
+--     Bounds are paise-exact so the bands are contiguous — see section 3b.
 --   - two platform_policies rows: the I8 complaint-about-your-own-superior
 --     route target, and the I6 voting threshold.
 --
@@ -136,7 +145,7 @@ EXCEPTION WHEN undefined_column THEN
 END $$;
 
 COMMENT ON TABLE public.procurement_approval_thresholds IS
-  'Budget approval tiers for InstaSolver purchase requests (I5), by approval_authority + amount band. Shape cloned from approval_authority_config plus min/max_amount. Defaults: HOD ≤ ₹10,000, principal ₹10,001–50,000, super_admin above. institution_id NULL = platform-wide; per-institution rows override. Read by lib/services/issues/approval-chain-service.ts. Procurement''s own super-admin approval on procurement_purchase_requests sits AFTER this chain, not instead of it.';
+  'Budget approval tiers for InstaSolver purchase requests (I5), by approval_authority + amount band. Shape cloned from approval_authority_config plus min/max_amount. Defaults: HOD ≤ ₹10,000, principal ₹10,000.01–50,000, super_admin above ₹50,000. Bounds are paise-exact because the columns are numeric(12,2) and the chain builder matches budget BETWEEN min_amount AND max_amount — integer boundaries would leave every amount in 10000.01-10000.99 and 50000.01-50000.99 matching no tier at all. institution_id NULL = platform-wide; per-institution rows override. Read by lib/services/issues/approval-chain-service.ts. Procurement''s own super-admin approval on procurement_purchase_requests sits AFTER this chain, not instead of it.';
 
 COMMENT ON COLUMN public.procurement_approval_thresholds.min_amount IS
   'Inclusive lower bound for this tier, in rupees. 0 = no lower limit.';
@@ -145,11 +154,28 @@ COMMENT ON COLUMN public.procurement_approval_thresholds.max_amount IS
 
 ALTER TABLE public.procurement_approval_thresholds ENABLE ROW LEVEL SECURITY;
 
--- Read-open to authenticated (the chain builder runs as the filer), write
--- super_admin only — these bands decide who may approve spending.
+-- READ — the chain builder runs as the filer, so any signed-in user must be
+-- able to read the bands that apply to them. That is the platform-wide rows
+-- (institution_id IS NULL), which are shared by design, plus their own
+-- college's overrides. It is NOT every college's overrides: a per-institution
+-- row says what one college's principal may approve and up to what amount, and
+-- a plain `auth.role() = 'authenticated'` would have published all 8 colleges'
+-- spending authority to every signed-in user at every other college. Scoped
+-- with the same role_has_institution_access() the grievance policies below use.
+--
+-- auth.role() is wrapped in a scalar sub-select for the same INITPLAN reason
+-- spelled out at section 4: it is a per-row CONSTANT, so unwrapped it is
+-- re-evaluated once per row. role_has_institution_access(institution_id) is
+-- deliberately NOT wrapped — it takes a per-row column and is not a constant.
 DROP POLICY IF EXISTS "procurement_approval_thresholds_select" ON public.procurement_approval_thresholds;
 CREATE POLICY "procurement_approval_thresholds_select" ON public.procurement_approval_thresholds FOR SELECT
-USING (auth.role() = 'authenticated');
+USING (
+  (SELECT auth.role()) = 'authenticated'
+  AND (
+    institution_id IS NULL
+    OR role_has_institution_access(institution_id)
+  )
+);
 
 DROP POLICY IF EXISTS "procurement_approval_thresholds_manage" ON public.procurement_approval_thresholds;
 CREATE POLICY "procurement_approval_thresholds_manage" ON public.procurement_approval_thresholds FOR ALL
@@ -183,14 +209,27 @@ GRANT  ALL ON TABLE public.procurement_approval_thresholds TO service_role;
 -- fires and a second run silently duplicates all three tiers. Duplicated
 -- tiers would duplicate approval steps in every chain built from them.
 -- WHERE NOT EXISTS is NULL-correct and therefore actually idempotent.
+--
+-- BANDS ARE CONTIGUOUS TO THE PAISE. The Director's numbers are unchanged —
+-- HOD up to ₹10,000, principal up to ₹50,000, super_admin above — but the
+-- columns are numeric(12,2) and the chain builder matches with
+-- `budget >= min_amount AND budget <= max_amount`, so the obvious integer
+-- boundaries 10000 / 10001 and 50000 / 50001 leave a one-rupee hole a hundred
+-- paise wide at each step. ₹10,000.50 and ₹50,000.01 fell into neither band,
+-- matched no tier, and produced an EMPTY approval chain — which read as
+-- "approved by nobody" all the way through. The lower bound of each upper band
+-- is therefore one paisa above the ceiling below it, not one rupee. Every
+-- non-negative amount now lands in exactly one band, and the two boundary
+-- amounts are covered by a unit test
+-- (__tests__/services/issues/approval-chain-service.test.ts).
 -- ---------------------------------------------------------------------
 INSERT INTO public.procurement_approval_thresholds
   (approval_authority, institution_id, escalate_after_days, fallback_role, is_active, min_amount, max_amount)
 SELECT v.approval_authority, v.institution_id, v.escalate_after_days, v.fallback_role, v.is_active, v.min_amount, v.max_amount
 FROM (VALUES
-  ('hod',         NULL::uuid, 7,  'principal',   true, 0::numeric,     10000::numeric),
-  ('principal',   NULL::uuid, 10, 'super_admin', true, 10001::numeric, 50000::numeric),
-  ('super_admin', NULL::uuid, 14, 'super_admin', true, 50001::numeric, NULL::numeric)
+  ('hod',         NULL::uuid, 7,  'principal',   true, 0::numeric,        10000::numeric),
+  ('principal',   NULL::uuid, 10, 'super_admin', true, 10000.01::numeric, 50000::numeric),
+  ('super_admin', NULL::uuid, 14, 'super_admin', true, 50000.01::numeric, NULL::numeric)
 ) AS v(approval_authority, institution_id, escalate_after_days, fallback_role, is_active, min_amount, max_amount)
 WHERE NOT EXISTS (
   SELECT 1 FROM public.procurement_approval_thresholds t
@@ -431,7 +470,7 @@ AS $fn_track$
 $fn_track$;
 
 COMMENT ON FUNCTION public.fn_track_issue_by_token(text) IS
-  'Status lookup for an anonymously filed InstaSolver complaint, keyed on anonymous_token (I7). Returns at most one row and only filer-facing fields (number, subject, status, the four progress timestamps, and the resolution message written for her) — never committee notes, attachments, handler identity or any raised_by_* column. SECURITY DEFINER because the filer is unauthenticated and has no RLS identity. NOT granted to anon: the /track/<token> route must call this with a service-role client and enforce a per-IP rate limit, which the function itself does not do.';
+  'Status lookup for an anonymously filed InstaSolver complaint, keyed on anonymous_token (I7). Returns at most one row and only filer-facing fields (number, subject, status, the four progress timestamps, and the resolution message written for her) — never committee notes, attachments, handler identity or any raised_by_* column. SECURITY DEFINER because the filer is unauthenticated and has no RLS identity. NOT granted to anon: the /track/<token> route must call this with a service-role client. Rate limiting is the caller's job, not this function's. Callers on unauthenticated-public routes must enforce issues.anonymous_track.rate_limit_per_hour; callers behind the platform login gate may rely on that gate plus token entropy (the token is 192 bits, and the shape guard rejects a blank or truncated value before any lookup).';
 
 -- GRANT POSTURE — deliberately service_role, NOT anon.
 --
@@ -486,7 +525,7 @@ VALUES
   ('instasolver.purchase.vote_threshold_amount',
    'global', NULL,
    to_jsonb(50001),
-   'Rupee amount at or above which an InstaSolver purchase request goes to a vote before its approval chain runs (I6). Seeded to the super_admin tier floor (₹50,001) — the Director''s stated default of "only for big-ticket items" until he sets a different amount. Below this amount the tiered approval in procurement_approval_thresholds runs on its own.',
+   'Rupee amount at or above which an InstaSolver purchase request goes to a vote before its approval chain runs (I6). Seeded just above the principal tier's ₹50,000 ceiling — the Director''s stated default of "only for big-ticket items" until he sets a different amount. Below this amount the tiered approval in procurement_approval_thresholds runs on its own.',
    'number')
 ON CONFLICT (policy_key, scope_type, COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'::uuid)) DO NOTHING;
 
