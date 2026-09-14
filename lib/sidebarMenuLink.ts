@@ -1700,6 +1700,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // something every meetings user should see by default.
   '/meetings/series': 'meetings.series.view',
   '/meetings/series/rules': 'meetings.series.view',
+  // The proposed month (piece 4a) reads the same configuration, so it reuses the
+  // same key rather than inventing one that nobody could be granted.
+  '/meetings/slate': 'meetings.series.view',
 
   // Online Meetings — dynamic team meetings with the AI Pulse engagement layer
   // and external-guest support. Separate module from /meetings above; see the
@@ -3540,6 +3543,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             // no nav-config, so a tier-N+1 chip is never rendered for it and the
             // reachability gate reports the rules screen as unreachable otherwise.
             { href: '/meetings/series/rules', label: 'Scheduling Rules', active: pathname.startsWith('/meetings/series/rules') },
+            { href: '/meetings/slate', label: 'Proposed Month', active: pathname.startsWith('/meetings/slate') },
             { href: '/meetings/inbox', label: 'Inbox', active: pathname.startsWith('/meetings/inbox') },
             { href: '/meetings/routing-forms', label: 'Routing Forms', active: pathname.startsWith('/meetings/routing-forms') },
             { href: '/meetings/workflows', label: 'Workflows', active: pathname.startsWith('/meetings/workflows') },
