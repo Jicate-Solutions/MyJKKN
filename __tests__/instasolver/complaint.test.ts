@@ -57,7 +57,7 @@ describe('raised_by_type mapping', () => {
   });
 
   it('is not confused by case or stray spacing', () => {
-    expect(mapRoleToRaisedByType('  Faculty ')).toBe('faculty');
+    expect(mapRoleToRaisedByType(`  ${'faculty'.toUpperCase()} `)).toBe('faculty');
   });
 });
 

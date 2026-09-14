@@ -65,11 +65,11 @@ function Shell({ children }: { children: React.ReactNode }) {
 function Notice({
   icon,
   title,
-  children,
+  detail,
 }: {
   icon: React.ReactNode;
   title: string;
-  children?: React.ReactNode;
+  detail?: React.ReactNode;
 }) {
   return (
     <Card className="mt-4">
@@ -77,7 +77,7 @@ function Notice({
         <span className="mt-0.5 shrink-0">{icon}</span>
         <div>
           <p className="font-medium">{title}</p>
-          {children ? <p className="text-sm text-muted-foreground">{children}</p> : null}
+          {detail ? <p className="text-sm text-muted-foreground">{detail}</p> : null}
         </div>
       </CardContent>
     </Card>
@@ -144,10 +144,8 @@ export default async function TrackIssuePage({
         <Notice
           icon={<AlertCircle className="h-5 w-5 text-amber-600" />}
           title="Tracking opens once the database update lands — your complaint is safe"
-        >
-          It has been filed and it is in the queue. Keep your code — this page will show its
-          progress as soon as the update is applied.
-        </Notice>
+          detail="It has been filed and it is in the queue. Keep your code — this page will show its progress as soon as the update is applied."
+        />
       </Shell>
     );
   }
@@ -158,9 +156,8 @@ export default async function TrackIssuePage({
         <Notice
           icon={<SearchX className="h-5 w-5 text-muted-foreground" />}
           title="No complaint matches this code"
-        >
-          Check the code and try again. Codes are case-sensitive.
-        </Notice>
+          detail="Check the code and try again. Codes are case-sensitive."
+        />
       </Shell>
     );
   }
