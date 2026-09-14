@@ -178,6 +178,17 @@ export interface UrgentAlertOutcome {
    * — this is the field that must never be allowed to pass unnoticed.
    */
   failureReason: string | null;
+  /**
+   * True when WhatsApp was deliberately NOT attempted, because the caller
+   * withheld permission to page (InstaSolver's per-college cap, or its ledger
+   * being uncountable). Distinct from a failure in every direction that
+   * matters: nothing was tried, no alarm is raised, and the condition is still
+   * urgent in-app. A suppressed page must never be read as a delivered one,
+   * and must never be read as a broken one either.
+   */
+  pageSuppressed: boolean;
+  /** Which rule suppressed the page. Null unless `pageSuppressed`. */
+  pageSuppressedReason: string | null;
   /** ISO timestamp of the attempt. */
   at: string;
 }
@@ -234,6 +245,21 @@ export interface UrgentAlertCopyInput {
    * the whole point of re-alerting on repeats.
    */
   occurrenceNumber?: number | null;
+  /**
+   * How the condition reached MyJKKN, from `metadata.attribution`. Names a
+   * CHANNEL, never a person (D10). Defaults to 'Management walk', which is
+   * what every Campus Walk observation is; an InstaSolver report passes
+   * 'Reported via InstaSolver', because telling a fixer the Director
+   * personally stood in that corridor when a learner sent a photo changes how
+   * they treat it and what they say afterwards.
+   */
+  attribution?: string | null;
+  /**
+   * Whether a photo exists. The line used to promise one unconditionally; an
+   * InstaSolver photo is optional, so it would send a fixer looking for a
+   * picture nobody took.
+   */
+  hasPhoto?: boolean;
 }
 
 /** 1 -> "1st", 2 -> "2nd", 9 -> "9th", 11 -> "11th". */
@@ -282,7 +308,12 @@ export function buildUrgentAlertText(input: UrgentAlertCopyInput): string {
       ? `Needs action today (due ${input.dueDate}).`
       : 'Needs action today.'
   );
-  lines.push('Reported on a Management walk. Open MyJKKN > Campus Walk to see the photo.');
+  const attribution = (input.attribution ?? '').trim() || 'Management walk';
+  lines.push(
+    input.hasPhoto === false
+      ? `${attribution}. Open MyJKKN > Campus Walk for the details.`
+      : `${attribution}. Open MyJKKN > Campus Walk to see the photo.`
+  );
 
   return lines.join('\n');
 }
@@ -399,7 +430,15 @@ export async function resolveUrgentAlertTargets(
  */
 export async function resolveUrgentAlertRecipients(
   db: SupabaseClient,
-  accountableProfileId: string | null
+  accountableProfileId: string | null,
+  /**
+   * Whether to add the Director copy the 2026-09-04 ruling requires. Defaults
+   * true, which is that ruling. Passed false for an InstaSolver report: that
+   * ruling was made about the Director's own observations, and whether a
+   * learner's tick should ring his phone is a decision he has not made. He
+   * still gets the in-app bell; only the phone is spared.
+   */
+  copyDirector: boolean = true
 ): Promise<{
   targets: UrgentAlertTarget[];
   usedFallback: boolean;
@@ -417,6 +456,17 @@ export async function resolveUrgentAlertRecipients(
       usedFallback: true,
       directorCopied: false,
       directorCopyReason: null,
+      reason: primary.reason,
+    };
+  }
+
+  // EAO only, by the caller's instruction.
+  if (!copyDirector) {
+    return {
+      targets: primary.targets,
+      usedFallback: false,
+      directorCopied: false,
+      directorCopyReason: 'the Director copy is withheld for InstaSolver reports pending his ruling',
       reason: primary.reason,
     };
   }
@@ -547,6 +597,33 @@ export interface SendUrgentAlertInput {
    * suppressed by occurrence #1's.
    */
   occurrenceNumber?: number | null;
+  /**
+   * false -> send NO WhatsApp for this condition, and record it as
+   * deliberately suppressed. Undefined/true is today's behaviour.
+   *
+   * Set false by app/api/instasolver/broken when its per-college page cap is
+   * reached, or when its ledger cannot be counted at all: the report is still
+   * filed and still urgent in-app, but a learner-triggered page is never sent
+   * unbounded. A suppressed page raises no undelivered alarm — nothing failed,
+   * nothing was attempted.
+   */
+  whatsAppAllowed?: boolean;
+  /**
+   * false -> do not copy the Director's phone; he still gets the in-app bell.
+   * Undefined/true keeps the 2026-09-04 always-copy ruling, which he made
+   * about his OWN observations and not about learner reports.
+   */
+  copyDirector?: boolean;
+  /** Why a page was suppressed. Recorded verbatim on the outcome. */
+  pageSuppressedReason?: string | null;
+  /** `metadata.attribution` — the channel, never a person (D10). */
+  attribution?: string | null;
+  /**
+   * Whether a photo actually exists on the task. The message promised one
+   * unconditionally; an InstaSolver photo is optional, so that line would send
+   * a fixer hunting for a picture nobody took.
+   */
+  hasPhoto?: boolean;
 }
 
 /**
@@ -568,11 +645,33 @@ export async function sendUrgentConditionAlert(
     directorCopied: false,
     directorCopyReason: null,
     failureReason: null,
+    pageSuppressed: false,
+    pageSuppressedReason: null,
     at,
   };
 
+  // Permission to page withheld by the caller. Return BEFORE resolving any
+  // recipient or touching WhatsApp: no send, and deliberately no undelivered
+  // alarm, because an alarm would report a failure where there was a decision.
+  // The condition is still urgent — the in-app notifications this lane writes
+  // are unaffected, and the response the reporter sees says the phone stayed
+  // quiet.
+  if (input.whatsAppAllowed === false) {
+    outcome.pageSuppressed = true;
+    outcome.pageSuppressedReason = input.pageSuppressedReason ?? 'paging not permitted';
+    outcome.failureReason = null;
+    console.warn(
+      `[campus-walk/urgent] page deliberately suppressed for task ${input.taskId}: ${outcome.pageSuppressedReason}`
+    );
+    return outcome;
+  }
+
   try {
-    const resolved = await resolveUrgentAlertRecipients(db, input.accountableProfileId);
+    const resolved = await resolveUrgentAlertRecipients(
+      db,
+      input.accountableProfileId,
+      input.copyDirector !== false
+    );
     outcome.usedFallback = resolved.usedFallback;
     outcome.directorCopied = resolved.directorCopied;
     outcome.directorCopyReason = resolved.directorCopyReason;
@@ -628,6 +727,8 @@ export async function sendUrgentConditionAlert(
       category: input.category ?? null,
       locationHint: input.locationHint ?? null,
       occurrenceNumber: input.occurrenceNumber,
+      attribution: input.attribution ?? null,
+      hasPhoto: input.hasPhoto,
     });
 
     for (const target of resolved.targets) {
