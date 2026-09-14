@@ -609,7 +609,7 @@ export function parseLearnerReport(raw: unknown): LearnerReport {
       const ok = int(pick(t, 'correct'));
       return {
         key,
-        label: str(pick(t, 'label', 'name', 'title')) ?? key,
+        label: str(pick(t, 'label', 'name', 'title', 'display_name')) ?? key,
         correct: ok,
         total,
         accuracy: total > 0 ? Math.round((ok / total) * 1000) / 10 : null,
@@ -633,17 +633,23 @@ export function parseLearnerReport(raw: unknown): LearnerReport {
     })
     .filter((x): x is LearnerSitting => x !== null);
 
+  // The live RPC (S3, 20260919120000) emits `student_id` / `exam_definition_id`
+  // as bare uuids beside — or instead of — the `student` / `exam` objects, and
+  // fp_students carries `full_name` + `grade`, exam_definitions `display_name`
+  // + `config_key`. Read those spellings too, so the header is never empty
+  // when the row it describes has a name.
+  const grade = str(pick(s, 'grade'));
   return {
     student: {
-      id: str(pick(s, 'id', 'student_id')) ?? '',
+      id: str(pick(s, 'id', 'student_id')) ?? str(pick(root, 'student_id')) ?? '',
       name: str(pick(s, 'name', 'full_name')) ?? 'Name not recorded',
       roll_no: str(pick(s, 'roll_no', 'roll_number')),
-      cohort_label: str(pick(s, 'cohort_label', 'cohort')),
+      cohort_label: str(pick(s, 'cohort_label', 'cohort')) ?? (grade ? `Class ${grade}` : null),
     },
     exam: {
-      id: str(pick(e, 'id', 'exam_definition_id')) ?? '',
+      id: str(pick(e, 'id', 'exam_definition_id')) ?? str(pick(root, 'exam_definition_id')) ?? '',
       key: str(pick(e, 'key', 'config_key')),
-      name: str(pick(e, 'name', 'title')),
+      name: str(pick(e, 'name', 'title', 'display_name')),
     },
     progress: { attempted, correct, accuracy },
     topics,

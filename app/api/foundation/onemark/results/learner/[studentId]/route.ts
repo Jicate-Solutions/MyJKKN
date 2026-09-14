@@ -56,7 +56,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     // Defence in depth — see the header. One indexed read, RLS-scoped.
     const { data: visible, error: visibleError } = await (supabase as any)
       .from('fp_students')
-      .select('id')
+      .select('id, full_name, grade')
       .eq('id', studentId)
       .maybeSingle();
     if (visibleError) throw visibleError;
@@ -93,7 +93,24 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       return NextResponse.json({ error: 'That learner has no OneMark record.' }, { status: 404 });
     }
 
-    return NextResponse.json({ report: parseLearnerReport(data) });
+    // Try-out defect 2 (2026-09-12), half A. The live RPC emits `student_id`
+    // as a bare uuid and no `student` object, so the header read "Name not
+    // recorded" for a learner whose name is on file. The fp_students row was
+    // already read above for the access check and carries the name, so it is
+    // the source here — no second read. Once 20261212090000 is applied the RPC
+    // sends a `student` object too; its keys win (same table, same row).
+    const raw: Record<string, unknown> =
+      typeof data === 'object' && !Array.isArray(data) ? (data as Record<string, unknown>) : {};
+    const fromRpc =
+      raw.student && typeof raw.student === 'object' && !Array.isArray(raw.student)
+        ? (raw.student as Record<string, unknown>)
+        : {};
+    return NextResponse.json({
+      report: parseLearnerReport({
+        ...raw,
+        student: { id: visible.id, full_name: visible.full_name, grade: visible.grade, ...fromRpc },
+      }),
+    });
   } catch (err) {
     console.error('[onemark/results/learner/[studentId]] GET failed', err);
     return NextResponse.json(
