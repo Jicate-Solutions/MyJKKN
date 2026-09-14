@@ -622,7 +622,7 @@ export default async function DashboardV2Page({
             vapidPublicKey={process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY}
           />
           <ThemeToggle />
-          <div className='text-xs text-neutral-400 dark:text-neutral-600'>
+          <div className='text-xs text-muted-foreground'>
             Prefer the old dashboard?{' '}
             <Link
               href='/dashboard/classic'
