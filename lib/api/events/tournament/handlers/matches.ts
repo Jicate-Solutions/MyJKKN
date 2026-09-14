@@ -1,5 +1,3 @@
-export const dynamic = 'force-dynamic';
-
 // GET /api/events/tournament/[eventId]/matches
 // Organizer list of matches for a tournament (joined with entry + winner names).
 // Requires sports.tournaments.view. (Public scoreboard read is PR4, via a separate
