@@ -180,7 +180,7 @@ export function SourcesTable() {
                         />
                         {row.is_system ? (
                           <p className="mt-1 text-[10px] leading-tight text-muted-foreground">
-                            written by name
+                            built in — always on
                           </p>
                         ) : null}
                       </TableCell>

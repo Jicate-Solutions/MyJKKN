@@ -196,7 +196,7 @@ export function SourceAnalyticsView() {
             <CardHeader>
               <CardTitle className="text-base">Every source, every number</CardTitle>
               <CardDescription>
-                Below {minLearners} learners no difference is claimed at all — with fewer than that, a gap between
+                Below {minLearners}{' '}learners no difference is claimed at all — with fewer than that, a gap between
                 two groups is noise wearing a number&rsquo;s clothes.
               </CardDescription>
             </CardHeader>
