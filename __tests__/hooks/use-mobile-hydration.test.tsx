@@ -52,7 +52,7 @@ afterEach(() => {
 });
 
 describe('useIsMobile across server render → client hydration', () => {
-  it('a phone gets the mobile classes after hydrating server (desktop) markup', async () => {
+  it('a phone gets the mobile utilities after hydrating server (desktop) markup', async () => {
     // 1. server: no phone viewport → desktop shape, no pb-20. (jsdom keeps a
     //    `window` during renderToString, so stand in for a real server by
     //    rendering the string at a desktop width.)
