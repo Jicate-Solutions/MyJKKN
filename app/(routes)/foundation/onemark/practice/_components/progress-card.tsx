@@ -139,6 +139,14 @@ export function ProgressCard({
   subjects: ProgressSubject[];
 }) {
   const [report, setReport] = useState<LearnerReport | null>(null);
+  // Lane A has answered OK at least once on this mount. Until then the card
+  // is invisible (the route may not be on main yet — a 404 must look like
+  // nothing, not like "no sittings"). After it, the frame and the picker stay
+  // put while a subject with no progress yet shows an empty body — otherwise
+  // a learner whose opening subject has no report could never reach the
+  // subject that does (advisory review on #3737).
+  const [answered, setAnswered] = useState(false);
+  const [pending, setPending] = useState(false);
   const [chosenExamId, setChosenExamId] = useState<string | null>(null);
   const examId =
     (chosenExamId && subjects.some((s) => s.examDefinitionId === chosenExamId)
@@ -149,6 +157,7 @@ export function ProgressCard({
     let cancelled = false;
     setReport(null);
     if (!examId) return;
+    setPending(true);
     (async () => {
       try {
         const res = await fetch(
@@ -157,9 +166,13 @@ export function ProgressCard({
         );
         if (!res.ok) return;
         const body = await res.json().catch(() => null);
-        if (!cancelled) setReport(readLearnerReport(body?.report ?? body));
+        if (cancelled) return;
+        setAnswered(true);
+        setReport(readLearnerReport(body?.report ?? body));
       } catch {
         /* Lane A is not merged yet, or the network blinked — show nothing. */
+      } finally {
+        if (!cancelled) setPending(false);
       }
     })();
     return () => {
@@ -167,11 +180,17 @@ export function ProgressCard({
     };
   }, [learnerId, examId]);
 
-  if (!report || !examId) return null;
+  if (!examId) return null;
+  // With one subject there is nothing to pick between, so an empty report
+  // still degrades to nothing. With several, the frame survives once Lane A
+  // has answered, so the picker is always reachable.
+  const keepFrame = subjects.length > 1 && answered;
+  if (!report && !keepFrame) return null;
+  const chosenName = subjects.find((s) => s.examDefinitionId === examId)?.name ?? null;
 
   // Only when the order was established from timestamps — otherwise sittings[0]
   // is just "the first one Lane A happened to send".
-  const last = report.ordered ? report.sittings[0] : null;
+  const last = report?.ordered ? report.sittings[0] : null;
   const lastLine =
     last && last.score !== null
       ? last.total
@@ -207,6 +226,13 @@ export function ProgressCard({
         )}
       </div>
       <div className="rounded-2xl bg-card p-5">
+        {!report && !pending && (
+          <p className="text-sm text-muted-foreground">
+            No sittings in {chosenName ?? 'this subject'} yet.
+          </p>
+        )}
+        {report && (
+          <>
         {report.ordered && report.sittings.length > 0 && (
           <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
             <Trend sittings={report.sittings} />
@@ -235,6 +261,8 @@ export function ProgressCard({
             : ''}
           Answers are never shown here &mdash; they are in each sitting&rsquo;s own review.
         </p>
+          </>
+        )}
       </div>
     </section>
   );

@@ -83,8 +83,8 @@ describe('ProgressCard ↔ learner-report API contract', () => {
     // `submitted_at` would find no timestamp, drop the ordered views, and the
     // card's whole promise (trend + "last time") would stay hidden against the
     // route it now calls correctly.
+    // (The header block naming the learner is omitted — this card never reads it.)
     const LANE_A_PARSED = {
-      student: { id: LEARNER_ID, name: 'Priya', roll_no: null, cohort_label: 'Class 12' },
       exam: { id: PHYSICS_EXAM, key: 'physics', name: 'Physics' },
       progress: { attempted: 10, correct: 6, accuracy: 60 },
       topics: [],
@@ -136,6 +136,43 @@ describe('ProgressCard ↔ learner-report API contract', () => {
       `/api/foundation/onemark/results/learner/${LEARNER_ID}?exam=${ENGLISH_EXAM}`,
     );
     expect(screen.getByRole('button', { name: 'English' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('keeps the picker reachable when the opening subject has no report yet', async () => {
+    // Physics (opened first) has nothing to show; English has a sitting. Before
+    // this, `readLearnerReport` → null removed the WHOLE card, picker included,
+    // so the learner could never reach English (advisory review on #3737).
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const exam = new URL(String(url), 'https://jkkn.ai').searchParams.get('exam');
+        const report = exam === ENGLISH_EXAM ? REPORT : { sittings: [], vault: {} };
+        return new Response(JSON.stringify({ report }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }),
+    );
+    render(<ProgressCard learnerId={LEARNER_ID} subjects={SUBJECTS} />);
+    await screen.findByText('No sittings in Physics yet.');
+    fireEvent.click(screen.getByRole('button', { name: 'English' }));
+    await screen.findByText('2 of 5 last time');
+    expect(screen.getByRole('button', { name: 'Physics' })).toBeInTheDocument();
+  });
+
+  it('with a single subject and no report it still renders nothing', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(JSON.stringify({ report: { sittings: [], vault: {} } }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      ),
+    );
+    const { container } = render(<ProgressCard learnerId={LEARNER_ID} subjects={[SUBJECTS[0]]} />);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(container).toBeEmptyDOMElement();
   });
 
   it('opens on the first subject the learner can sit, not merely the first listed', () => {
