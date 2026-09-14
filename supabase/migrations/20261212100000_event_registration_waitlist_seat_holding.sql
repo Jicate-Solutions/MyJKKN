@@ -152,7 +152,7 @@ COMMENT ON COLUMN public.event_registration_waitlist.claim_code IS
 COMMENT ON COLUMN public.event_registration_waitlist.claim_code_presented IS
   'Write-only. A claim writes the code it holds here; the trigger compares it with claim_code and nulls it on every write, so it is always NULL at rest.';
 COMMENT ON COLUMN public.event_registration_waitlist.offer_expires_at IS
-  'When the hold lapses: offered_at + 24 hours (Director's ruling, 2026-09-14), set by the trigger, immutable. Past it the offer neither holds a place nor can be taken up; fn_event_waitlist_settle marks it expired and offers the place to the next person.';
+  'When the hold lapses: offered_at + 24 hours (Director''s ruling, 2026-09-14), set by the trigger, immutable. Past it the offer neither holds a place nor can be taken up; fn_event_waitlist_settle marks it expired and offers the place to the next person.';
 
 CREATE INDEX idx_event_registration_waitlist_queue
   ON public.event_registration_waitlist (event_id, queue_seq);
