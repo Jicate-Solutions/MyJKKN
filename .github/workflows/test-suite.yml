@@ -188,6 +188,7 @@ jobs:
       UNMARKED_TEST_PGUSER: postgres
       AQS_TEST_PGUSER: postgres
       LEADERSHIP_TEST_PGUSER: postgres
+      WAITLIST_TEST_PGUSER: postgres   # __tests__/events/event-waitlist-seat-holding.pg.test.ts (#3739)
       PHC_TEST_PGUSER: postgres
       ACK_SEEN_TEST_PGUSER: postgres
 

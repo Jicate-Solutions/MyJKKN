@@ -81,6 +81,7 @@ import { SOI_EVENT_TYPE } from '@/lib/services/school-of-influence/constants';
 import { EditGeneralEventDialog } from '../_components/edit-general-event-dialog';
 import { canEditEvent } from '../_components/event-display';
 import { EventFormCards } from '@/components/events/registration/event-form-cards';
+import { EventWaitlistCard } from '@/components/events/registration/event-waitlist-card';
 import { EventFeedbackLinkCard } from '@/components/events/feedback/event-feedback-link-card';
 import { EventInstagramCard } from '@/components/events/social/event-instagram-card';
 import { EventTasksCard } from '@/components/events/shared/event-tasks-card';
@@ -877,6 +878,14 @@ export default function GeneralEventDetailPage() {
           variant="general"
           eventName={event.name}
         />
+
+        {/* Who is queuing for a full event, in order, and any place being held.
+            Directly under the registration forms because it is the other half
+            of that door. The card gates itself on fn_can_manage_event_waitlist
+            and renders nothing when the event does not queue, when nobody is
+            waiting, or when the viewer may not see a list of named people with
+            their phone numbers. */}
+        <EventWaitlistCard eventId={event.id} />
 
         {isSchoolOfInfluence && (
           <p className="text-xs text-muted-foreground">
