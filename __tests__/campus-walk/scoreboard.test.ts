@@ -444,7 +444,7 @@ describe('D12 — area coverage is derived, and a missing location is counted', 
 
   it('does not credit the walk with ground an InstaSolver reporter covered', () => {
     // Decision I4 (2026-09-14) put a second front door on this lane: any
-    // signed-in learner, parent or staff member can report something broken and
+    // signed-in learner or staff member can report something broken and
     // it becomes a campus-walk task through the same engine. The row is a full
     // lane task on purpose — `source` stays 'campus-walk', so the fix screen
     // closes it, the chase ladder chases it and the retention cron purges its

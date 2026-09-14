@@ -3,10 +3,17 @@
 // InstaSolver — "something is broken", the report screen.
 //
 // Decision I1 (Director, 2026-09-14, specs/instasolver-2026-09-14.md):
-// everyone with a login can report a broken thing — learners, teaching and
-// non-teaching staff, parents. Decision I4 sends what they report into Campus
-// Walk's fix lane (`project_tasks` under CAMPUS-OPS), never into
-// `grievance_tickets` — a broken fan must not land in a NAAC or UGC return.
+// everyone with a login can report a broken thing. In practice, on this route,
+// that means every role in the STAFF auth flow — learners, teaching and
+// non-teaching staff. It does NOT yet include parents: the Parent Portal is a
+// separate login domain (proxy.ts `handleParentPortal`, a `parent_session` JWT,
+// and only `/parent/*` paths), so a parent who opens this URL is bounced to
+// /auth/login by the staff flow. A `/parent/…` entry point is a follow-up lane,
+// not something this page can reach.
+//
+// Decision I4 sends what they report into Campus Walk's fix lane
+// (`project_tasks` under CAMPUS-OPS), never into `grievance_tickets` — a broken
+// fan must not land in a NAAC or UGC return.
 //
 // This wrapper deliberately carries NO role gate. Campus Walk's own capture
 // screen is Director-only (D2, `isCampusWalkReporter`) and stays that way;
@@ -14,10 +21,13 @@
 // you signed in", mirroring that page's structure and its rule-#27 explicit
 // refusal card rather than a silent redirect.
 //
-// Until the sidebar entry and `MENU_PERMISSIONS['/instasolver/broken']` land
-// (a separate PR), this route is unmapped and therefore reachable only by a
-// super admin — the platform's default for an unmapped route. Nothing here
-// needs to change when that lands.
+// Until #3743 maps it, this route is UNMAPPED — and an unmapped route is OPEN,
+// not closed: `RouteMatcher.hasAccess` (lib/auth/route-matcher.ts) returns
+// `true` when `match(path)` finds no config, so every authenticated
+// staff-flow role can already reach this page. That is consistent with
+// decision I1 — the sidebar entry and `MENU_PERMISSIONS['/instasolver/broken']`
+// make the access explicit rather than granting it. Nothing here needs to
+// change when that lands.
 
 import { AlertCircle } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';

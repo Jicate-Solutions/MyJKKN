@@ -53,6 +53,19 @@
 // rewrite the container to drop every metadata-bearing segment, then fail
 // CLOSED if the rewrite did not actually produce a clean file. It is guardrail
 // G4's enforcement point and it applies identically to a learner's photo.
+//
+// WHO CAN ACTUALLY REACH THIS. Every role in the STAFF auth flow — learners,
+// teaching and non-teaching staff — including right now, before #3743 maps the
+// route: `RouteMatcher.hasAccess` (lib/auth/route-matcher.ts) returns `true`
+// when `match(path)` finds no config, so an UNMAPPED route is open, not
+// super-admin-only. #3743 makes that access explicit rather than granting it.
+//
+// PARENTS ARE NOT REACHED YET, despite I1's wording. The Parent Portal is a
+// separate login domain: proxy.ts gates `/parent/*` with a `parent_session`
+// JWT via `handleParentPortal` and returns BEFORE the staff Supabase flow
+// runs. A parent opening /instasolver/broken therefore has no Supabase session
+// and is redirected to /auth/login. Reaching parents needs a `/parent/…` entry
+// point — a follow-up lane, not a change to this route.
 // ============================================================================
 
 export const dynamic = 'force-dynamic';
@@ -329,8 +342,8 @@ export async function POST(request: NextRequest) {
   // `departments` and `hr_leave_applications` to resolve the EAO, the
   // department head and any leave reassignment, and writes bell
   // notifications. Under the caller's own session those reads are governed by
-  // the caller's permissions — and this route's callers are learners and
-  // parents, who can see almost none of it. Routing would silently resolve
+  // the caller's permissions — and this route's callers include learners, who
+  // can see almost none of it. Routing would silently resolve
   // nobody and every report would land unowned, with no error to show for it.
   // Who may POST is decided by the profile check at the top of this route,
   // not by which client performs the write.

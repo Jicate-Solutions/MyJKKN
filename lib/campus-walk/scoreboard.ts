@@ -152,7 +152,7 @@ export function isCampusWalkTask(row: WalkTaskRow): boolean {
  * D9 splits the two boards by what each one measures: "walkers on coverage,
  * fixers on verified closures". Since decision I4 (2026-09-14) a report can
  * also arrive through the InstaSolver front door, filed by any signed-in
- * learner, parent or staff member. Such a row is a campus-walk lane task in
+ * learner or staff member. Such a row is a campus-walk lane task in
  * every other respect and is deliberately left that way — the fix board counts
  * its verified closure, the chase ladder chases it when it goes overdue, and
  * the retention cron purges its photo on the same clock.
