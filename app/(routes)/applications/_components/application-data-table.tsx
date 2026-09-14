@@ -1,6 +1,7 @@
 'use client';
 
 import { DataTable } from '@/components/data-table/data-table';
+import { applicationRowHref } from '@/components/data-table/utils/list-row-hrefs';
 import { getColumns } from './columns';
 import type { ApplicationsSearchParams } from './data-table-schema';
 import { Button } from '@/components/ui/button';
@@ -172,6 +173,7 @@ export function ApplicationsDataTable({ search }: ApplicationsDataTableProps) {
         headers: []
       }}
       idField='id'
+      rowHref={applicationRowHref}
       config={{
         enableUrlState: true,
         enableDateFilter: false,

@@ -59,7 +59,7 @@ export function getCourseMappingColumns(
       return (
         <Link
           href={`/organizations/courses/mappings/${mapping.id}`}
-          className='flex items-center hover:text-primary font-medium'
+          className='flex items-center min-h-[44px] hover:text-primary font-medium'
         >
           <FileText className='mr-2 h-4 w-4' />
           {mapping.course?.course_code}

@@ -1,6 +1,7 @@
 'use client';
 
 import { DataTable } from '@/components/data-table/data-table';
+import { admissionLeadRowHref } from '@/components/data-table/utils/list-row-hrefs';
 import { getLeadColumns, LeadStageBadge, useLeadStageOptions } from './columns';
 import { SourceBadge, OverdueBadge } from './source-badge';
 import { ConsultantService } from '@/lib/services/admission/consultant-service';
@@ -1015,6 +1016,7 @@ export function LeadsDataTable() {
         getColumns={stableGetColumns}
         exportConfig={exportConfig}
         idField="id"
+        rowHref={admissionLeadRowHref}
         config={{
           enableUrlState: true,
           // Date-wise filter (created_at range) — the toolbar's CalendarDatePicker
