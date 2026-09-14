@@ -491,13 +491,13 @@ USING (
 --     above, that instantly strips read AND update from the assignee, the proxy
 --     filer and every holder of grievance.tickets.view, leaving only
 --     institution-scoped icc_members and super_admin. A complainant can lock
---     the handling staff out of her own case.
+--     the team members handling it out of her own case.
 --
 --   * set status = 'resolved' herself. That fires the closure trigger in
 --     20260422_grievance_evidence_emission_trigger.sql, which writes
 --     quality_evidence_mappings rows — NAAC 7.7.1 and the UGC grievance
 --     return. A self-closed complaint becomes accreditation evidence with no
---     staff member ever having looked at it. This whole migration exists
+--     team member ever having looked at it. This whole migration exists
 --     because those counts have to be honest; leaving this open would
 --     contradict its own reason for existing.
 --
@@ -573,7 +573,7 @@ END;
 $raiser_guard$;
 
 COMMENT ON FUNCTION public.fn_grievance_raiser_change_allowed(public.grievance_tickets, public.grievance_tickets, boolean) IS
-  'Returns NULL when the proposed change is allowed, or the NAME of the first forbidden column when it is not. Pure and IMMUTABLE so it is unit-testable without a session identity — the trigger fn_grievance_raiser_update_guard resolves the actor and calls this. A non-privileged raiser may edit her own open ticket''s free text and withdraw it; she may not change is_icc_only, assigned_to, filed_by, institution_id, category_id or raised_by_id, and may not set status to anything but open or withdrawn (resolving it would emit NAAC/UGC evidence for a complaint no staff member ever handled).';
+  'Returns NULL when the proposed change is allowed, or the NAME of the first forbidden column when it is not. Pure and IMMUTABLE so it is unit-testable without a session identity — the trigger fn_grievance_raiser_update_guard resolves the actor and calls this. A non-privileged raiser may edit her own open ticket''s free text and withdraw it; she may not change is_icc_only, assigned_to, filed_by, institution_id, category_id or raised_by_id, and may not set status to anything but open or withdrawn (resolving it would emit NAAC/UGC evidence for a complaint no team member ever handled).';
 
 CREATE OR REPLACE FUNCTION public.fn_grievance_raiser_update_guard()
 RETURNS trigger
@@ -605,7 +605,7 @@ BEGIN
 
   IF v_blocked IS NOT NULL THEN
     RAISE EXCEPTION
-      'grievance_tickets.% cannot be changed by the person who raised the ticket (ticket %). Allowed edits: the complaint text, and status -> withdrawn. Changing is_icc_only would lock the handling staff out of the case; changing status to resolved or closed would emit NAAC/UGC accreditation evidence for a complaint nobody handled.',
+      'grievance_tickets.% cannot be changed by the person who raised the ticket (ticket %). Allowed edits: the complaint text, and status -> withdrawn. Changing is_icc_only would lock the team members handling it out of the case; changing status to resolved or closed would emit NAAC/UGC accreditation evidence for a complaint nobody handled.',
       v_blocked, OLD.id
       USING ERRCODE = 'insufficient_privilege';
   END IF;
@@ -1074,7 +1074,7 @@ BEGIN
   END IF;
 
   -- 5. Flipping is_icc_only is BLOCKED — this is the one that locks the
-  --    handling staff out of her case.
+  --    team members handling it out of her case.
   v_new := v_old;
   v_new.is_icc_only := true;
   v_got := public.fn_grievance_raiser_change_allowed(v_old, v_new, false);
