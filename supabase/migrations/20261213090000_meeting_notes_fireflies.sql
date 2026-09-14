@@ -1,4 +1,4 @@
--- supabase/migrations/20261212090000_meeting_notes_fireflies.sql
+-- supabase/migrations/20261213090000_meeting_notes_fireflies.sql
 --
 -- ############################################################################
 -- ## FILE ONLY — NOT APPLIED. The operator applies this at merge.           ##
@@ -54,7 +54,7 @@
 -- `uq_meeting_notes_provider_ref (provider, provider_ref)`. The ingest upserts
 -- onto it, so a re-run updates the row it already wrote and never adds a second.
 --
--- Version 20261212090000 is above every file on jicate/main (max
+-- Version 20261213090000 is above every file on jicate/main (max
 -- 20261211090000) and was checked against the open pull requests with
 -- scripts/ci/check-migration-version-cross-pr.sh. No BEGIN/COMMIT of its own.
 
