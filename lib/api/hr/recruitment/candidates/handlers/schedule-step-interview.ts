@@ -1,13 +1,9 @@
-export const dynamic = 'force-dynamic';
-
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
-import { RecruitmentPackageService } from '@/lib/services/hr/recruitment-package-service';
-import { createServiceRoleClient } from '@/lib/supabase/server';
-import { HrScopeError, assertCandidatePackagesInScope } from '@/lib/hr/scope-gate';
+import { RecruitmentService } from '@/lib/services/hr/recruitment-service';
 
 async function getClient() {
   const cookieStore = await cookies();
@@ -28,33 +24,38 @@ async function getClient() {
   );
 }
 
+/**
+ * POST /api/hr/recruitment/candidates/[id]/schedule-step-interview
+ * Body: { scheduled_at, duration_minutes?, mode, location_or_link?, panel_member_ids? }
+ * Schedules (or reschedules) the interview for the candidate's CURRENT approval
+ * step and stamps its id onto that step. Approver-only (enforced in service).
+ */
 export async function POST(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string; packageId: string }> }
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
 ) {
   await connection();
   try {
-    const { id, packageId } = await params;
+    const { id } = await params;
     const supabase = await getClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    // Institution scope is answered BEFORE the read, and answered as 403 —
-    // RLS alone would return an empty list, which hides the leak it prevents.
-    const scope = await assertCandidatePackagesInScope({
-      admin: createServiceRoleClient(),
-      supabase,
-      userId: user.id,
-      candidateId: id,
-      packageId,
-    });
-    if (scope === 'not_found') return NextResponse.json({ error: 'Package not found' }, { status: 404 });
+    const body = await request.json();
+    if (!body.scheduled_at || !body.mode) {
+      return NextResponse.json({ error: 'scheduled_at and mode are required' }, { status: 400 });
+    }
 
-    const updated = await RecruitmentPackageService.approvePackage(supabase, packageId, user.id);
-    return NextResponse.json({ data: updated });
+    const result = await RecruitmentService.scheduleStepInterview(supabase, id, user.id, {
+      scheduled_at: body.scheduled_at,
+      duration_minutes: body.duration_minutes,
+      mode: body.mode,
+      location_or_link: body.location_or_link ?? null,
+      panel_member_ids: Array.isArray(body.panel_member_ids) ? body.panel_member_ids : undefined,
+    });
+    return NextResponse.json({ data: result });
   } catch (err) {
-    console.error('[hr/recruitment/candidates/:id/packages/:packageId/approve] error', err);
-    if (err instanceof HrScopeError) return NextResponse.json({ error: err.message }, { status: err.status });
+    console.error('[hr/recruitment/candidates/:id/schedule-step-interview] error', err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Unknown error' },
       { status: 400 }

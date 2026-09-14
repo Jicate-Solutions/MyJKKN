@@ -1,5 +1,3 @@
-export const dynamic = 'force-dynamic';
-
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse, connection } from 'next/server';
@@ -28,49 +26,16 @@ async function getClient() {
   );
 }
 
-// GET  /api/hr/recruitment/candidates/[id]/packages  — list all packages for candidate
-// POST /api/hr/recruitment/candidates/[id]/packages  — propose new package
-
-export async function GET(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  await connection();
-  try {
-    const { id } = await params;
-    const supabase = await getClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-    // Institution scope is answered BEFORE the read, and answered as 403 —
-    // RLS alone would return an empty list, which hides the leak it prevents.
-    const scope = await assertCandidatePackagesInScope({
-      admin: createServiceRoleClient(),
-      supabase,
-      userId: user.id,
-      candidateId: id,
-    });
-    if (scope === 'not_found') return NextResponse.json({ error: 'Candidate not found' }, { status: 404 });
-
-    const packages = await RecruitmentPackageService.listPackages(supabase, id);
-    return NextResponse.json({ data: packages });
-  } catch (err) {
-    console.error('[hr/recruitment/candidates/:id/packages] GET error', err);
-    if (err instanceof HrScopeError) return NextResponse.json({ error: err.message }, { status: err.status });
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Unknown error' },
-      { status: 500 }
-    );
-  }
-}
+// POST /api/hr/recruitment/candidates/[id]/packages/[packageId]/counter
+// Body: { proposed_monthly_salary, proposed_monthly_salary_breakdown?, currency?, notes? }
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string; packageId: string }> }
 ) {
   await connection();
   try {
-    const { id } = await params;
+    const { id, packageId } = await params;
     const supabase = await getClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -82,20 +47,26 @@ export async function POST(
       supabase,
       userId: user.id,
       candidateId: id,
+      packageId,
     });
-    if (scope === 'not_found') return NextResponse.json({ error: 'Candidate not found' }, { status: 404 });
+    if (scope === 'not_found') return NextResponse.json({ error: 'Package not found' }, { status: 404 });
 
     const body = await request.json();
 
-    const created = await RecruitmentPackageService.proposePackage(supabase, {
-      ...body,
+    const created = await RecruitmentPackageService.counterOffer(supabase, packageId, {
       candidate_id: id,
       proposed_by: user.id,
+      // Optional — the service normalises blank/null to NULL and validates a supplied figure.
+      proposed_monthly_salary: body.proposed_monthly_salary ?? null,
+      proposed_monthly_salary_breakdown: body.proposed_monthly_salary_breakdown ?? null,
+      currency: body.currency ?? 'INR',
+      hr_organization_id: body.hr_organization_id ?? null,
+      notes: body.notes ?? null,
     });
 
     return NextResponse.json({ data: created }, { status: 201 });
   } catch (err) {
-    console.error('[hr/recruitment/candidates/:id/packages] POST error', err);
+    console.error('[hr/recruitment/candidates/:id/packages/:packageId/counter] error', err);
     if (err instanceof HrScopeError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Unknown error' },

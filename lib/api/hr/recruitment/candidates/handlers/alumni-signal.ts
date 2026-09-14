@@ -1,5 +1,3 @@
-export const dynamic = 'force-dynamic';
-
 /**
  * GET /api/hr/recruitment/candidates/[id]/alumni-signal
  *

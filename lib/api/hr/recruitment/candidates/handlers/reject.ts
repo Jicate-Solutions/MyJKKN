@@ -1,11 +1,10 @@
-export const dynamic = 'force-dynamic';
-
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
 import { RecruitmentService } from '@/lib/services/hr/recruitment-service';
+import { getErrorMessage } from '@/lib/utils';
 
 async function getClient() {
   const cookieStore = await cookies();
@@ -26,12 +25,6 @@ async function getClient() {
   );
 }
 
-/**
- * POST /api/hr/recruitment/candidates/[id]/schedule-step-interview
- * Body: { scheduled_at, duration_minutes?, mode, location_or_link?, panel_member_ids? }
- * Schedules (or reschedules) the interview for the candidate's CURRENT approval
- * step and stamps its id onto that step. Approver-only (enforced in service).
- */
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -43,24 +36,24 @@ export async function POST(
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const body = await request.json();
-    if (!body.scheduled_at || !body.mode) {
-      return NextResponse.json({ error: 'scheduled_at and mode are required' }, { status: 400 });
+    const body = await request.json().catch(() => ({}));
+    if (!body.reason) {
+      return NextResponse.json({ error: 'rejection reason is required' }, { status: 400 });
     }
 
-    const result = await RecruitmentService.scheduleStepInterview(supabase, id, user.id, {
-      scheduled_at: body.scheduled_at,
-      duration_minutes: body.duration_minutes,
-      mode: body.mode,
-      location_or_link: body.location_or_link ?? null,
-      panel_member_ids: Array.isArray(body.panel_member_ids) ? body.panel_member_ids : undefined,
-    });
-    return NextResponse.json({ data: result });
+    const updated = await RecruitmentService.rejectCandidate(supabase, id, user.id, body.reason);
+    return NextResponse.json({ data: updated });
   } catch (err) {
-    console.error('[hr/recruitment/candidates/:id/schedule-step-interview] error', err);
+    console.error('[hr/recruitment/candidates/:id/reject] error', err);
+    // The decision now runs through the SECURITY DEFINER RPC
+    // fn_decide_recruitment_candidate, so a refusal arrives as a PostgrestError —
+    // a plain object, not an `Error`. `err instanceof Error` was false for it, and
+    // every RLS/authorization failure reached the approver as the useless
+    // "Unknown error". getErrorMessage keeps the function's own guard text.
+    const code = (err as { code?: string })?.code;
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Unknown error' },
-      { status: 400 }
+      { error: getErrorMessage(err) },
+      { status: code === '42501' ? 403 : code === 'P0002' ? 404 : 400 }
     );
   }
 }
