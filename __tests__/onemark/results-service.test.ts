@@ -344,6 +344,72 @@ describe('parseLearnerReport', () => {
 });
 
 /* ------------------------------------------------------------------ *
+ * Try-out defect 2, 2026-09-12 (PR #3431). The LIVE S3 function emits
+ * `student_id` / `exam_definition_id` as bare uuids and a `progress` that is
+ * fn_fp_student_progress's mastery snapshot — no `student`, no counts — and
+ * 20261212090000 adds `student` { full_name, grade }, `exam` { display_name,
+ * config_key }, `progress.attempted/correct/skipped` and `topics[]` labelled by
+ * `display_name`. The parser must read both shapes.
+ * ------------------------------------------------------------------ */
+
+describe('try-out defect 2 — the learner report reads the live RPC shape', () => {
+  const STUDENT = '08f23565-4f0f-4fe8-b2e2-43a892afdb85';
+  /** Exactly what production returned on 2026-09-12 before the fix. */
+  const liveBefore = {
+    student_id: STUDENT,
+    exam_definition_id: EXAM,
+    progress: {
+      student_id: STUDENT,
+      exam_definition_id: EXAM,
+      current_mastery_avg: null,
+      current_topics: [],
+      baseline_captured_at: null,
+      baseline_snapshot: null,
+    },
+    vault: { active: 2, mastered: 0, due_now: 2, next_due_at: null },
+    sittings: [
+      { attempt_id: 'a3', mode: 'timed', status: 'submitted', score: 2, out_of: 5, submitted_at: '2026-09-12T14:26:16Z' },
+    ],
+  };
+
+  it('takes the ids from the bare scalars when there is no student / exam object', () => {
+    const r = parseLearnerReport(liveBefore);
+    expect(r.student.id).toBe(STUDENT);
+    expect(r.exam.id).toBe(EXAM);
+  });
+
+  it('reports 0 / 0 / — honestly when the RPC sends the mastery snapshot only — never a number made up from the sittings', () => {
+    const r = parseLearnerReport(liveBefore);
+    expect(r.progress).toEqual({ attempted: 0, correct: 0, accuracy: null });
+    expect(r.topics).toEqual([]);
+    expect(r.sittings).toHaveLength(1);
+  });
+
+  it('reads the name and class from the fp_students spellings the route now supplies', () => {
+    const r = parseLearnerReport({ ...liveBefore, student: { id: STUDENT, full_name: 'Test Student', grade: '12' } });
+    expect(r.student.name).toBe('Test Student');
+    expect(r.student.cohort_label).toBe('Class 12');
+  });
+
+  it('reads the 20261212090000 payload: counts merged into progress, topics labelled by display_name, exam by display_name', () => {
+    const r = parseLearnerReport({
+      ...liveBefore,
+      student: { id: STUDENT, full_name: 'Test Student', grade: '12' },
+      exam: { id: EXAM, config_key: 'tn_hsc_physics', display_name: 'TN State Board — HSC Physics (Class 12)' },
+      progress: { ...liveBefore.progress, attempted: 5, correct: 2, skipped: 1 },
+      topics: [{ topic_id: '2fad3ea2', label: 'Unit 1: Electrostatics', total: 5, correct: 2, skipped: 1 }],
+    });
+    expect(r.progress).toEqual({ attempted: 5, correct: 2, accuracy: 40 });
+    expect(r.exam.key).toBe('tn_hsc_physics');
+    expect(r.exam.name).toBe('TN State Board — HSC Physics (Class 12)');
+    expect(r.topics).toEqual([
+      { key: '2fad3ea2', label: 'Unit 1: Electrostatics', correct: 2, total: 5, accuracy: 40 },
+    ]);
+    expect(parseLearnerReport({ topics: [{ topic_id: 't9', display_name: 'Optics', total: 4, correct: 1 }] }).topics[0].label).toBe('Optics');
+  });
+});
+
+/* ------------------------------------------------------------------ *
  * Fix round, 2026-09-08. One test per reviewer finding that was
  * reproduced and repaired, each named by its finding id so a later
  * reader can walk back from the assertion to the report.
