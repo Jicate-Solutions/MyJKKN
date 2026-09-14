@@ -249,7 +249,7 @@ function fail(message, detail) {
  *  the stale value would always look unchanged. */
 export const ENTRY_COLUMNS = [
   'sha', 'entry_date', 'entry_at', 'kind', 'module_key', 'subject', 'author',
-  'href', 'pr_number', 'breaking', 'ordinal',
+  'href', 'pr_number', 'breaking', 'ordinal', 'reverted_by_sha',
 ];
 
 /** The module columns the upsert sets, same reasoning. `key` is the conflict target. */
@@ -310,7 +310,7 @@ function toInstantKey(value) {
  *
  * @param {{ h: string, d: string, at?: string | null, t?: string, m?: string,
  *           s?: string, a?: string, e?: string, l?: string | null, p?: number,
- *           b?: number | boolean }} e
+ *           b?: number | boolean, rv?: string | null }} e
  * @param {number} ordinal
  */
 export function entryRow(e, ordinal) {
@@ -334,6 +334,20 @@ export function entryRow(e, ordinal) {
     pr_number: e.p ?? null,
     breaking: e.b === 1,
     ordinal,
+    // The commit that reverted this change, when it is no longer on the branch
+    // (scripts/generate-changelog.mjs resolves that from the revert graph — by
+    // SHA, never by comparing subjects). NULL for all but a handful of entries,
+    // and NULL is the meaningful value: it is what the highlight cron reads to
+    // decide that a write-up may stay up.
+    //
+    // ⚠ ADDING THIS COLUMN COSTS ONE FULL REWRITE. It joins the fingerprint
+    // below, so on the first sync after this ships every stored row's digest
+    // differs and all ~4,990 entries are written once. That is the same one-off
+    // this file already took for `entry_at` (2026-09-12) and `href`
+    // (2026-09-13), and for the same reason: a column the upsert sets but the
+    // fingerprint ignores is a column that can never be CORRECTED, because the
+    // row carrying the stale value always looks unchanged.
+    reverted_by_sha: e.rv ?? null,
   };
 }
 
@@ -659,7 +673,7 @@ export async function writeChangelog({ client, entries, modules, ref, appKey = D
       // `entry_at::text` would instead render in the session's timezone, which
       // is a setting, not a fact.
       `SELECT sha, entry_date::text AS entry_date, entry_at, kind, module_key, subject, author,
-              href, pr_number, breaking, ordinal
+              href, pr_number, breaking, ordinal, reverted_by_sha
          FROM public.changelog_entries
         WHERE app_key = $1`,
       [appKey]
@@ -720,22 +734,22 @@ export async function writeChangelog({ client, entries, modules, ref, appKey = D
       const slice = changed.slice(i, i + BATCH);
       const values = [];
       const rows = slice.map((e, n) => {
-        // TWELVE columns per row since app_key joined them — eleven when href
-        // did, ten when entry_at did, nine before that. This stride is the one
-        // number that must move with the column list: leave it behind and every
-        // row after the first reads its neighbour's parameters — valid SQL, no
-        // error, entirely wrong data.
-        const b = n * 12;
+        // THIRTEEN columns per row since reverted_by_sha joined them — twelve
+        // when app_key did, eleven when href did, ten when entry_at did, nine
+        // before that. This stride is the one number that must move with the
+        // column list: leave it behind and every row after the first reads its
+        // neighbour's parameters — valid SQL, no error, entirely wrong data.
+        const b = n * 13;
         // e.ordinal was assigned by assignOrdinals over the WHOLE read, not by
         // position in this batch or in the changed list — it is the only thing
         // that preserves git's order for the dozen-odd changes sharing a date.
         values.push(appKey, e.sha, e.entry_date, e.entry_at, e.kind, e.module_key, e.subject, e.author,
-          e.href, e.pr_number, e.breaking, e.ordinal);
-        return `($${b + 1}, $${b + 2}, $${b + 3}::date, $${b + 4}::timestamptz, $${b + 5}, $${b + 6}, $${b + 7}, $${b + 8}, $${b + 9}, $${b + 10}::int, $${b + 11}::boolean, $${b + 12}::int)`;
+          e.href, e.pr_number, e.breaking, e.ordinal, e.reverted_by_sha);
+        return `($${b + 1}, $${b + 2}, $${b + 3}::date, $${b + 4}::timestamptz, $${b + 5}, $${b + 6}, $${b + 7}, $${b + 8}, $${b + 9}, $${b + 10}::int, $${b + 11}::boolean, $${b + 12}::int, $${b + 13})`;
       });
       await client.query(
         `INSERT INTO public.changelog_entries
-           (app_key, sha, entry_date, entry_at, kind, module_key, subject, author, href, pr_number, breaking, ordinal)
+           (app_key, sha, entry_date, entry_at, kind, module_key, subject, author, href, pr_number, breaking, ordinal, reverted_by_sha)
          VALUES ${rows.join(', ')}
          ON CONFLICT (app_key, sha) DO UPDATE
            SET entry_date = EXCLUDED.entry_date,
@@ -748,6 +762,11 @@ export async function writeChangelog({ client, entries, modules, ref, appKey = D
                pr_number  = EXCLUDED.pr_number,
                breaking   = EXCLUDED.breaking,
                ordinal    = EXCLUDED.ordinal,
+               -- SET, not left alone: a re-landed change must lose its marker,
+               -- or its write-up stays retracted after the feature has come
+               -- back. The generator recomputes this from the whole history on
+               -- every run, so EXCLUDED is always the current answer.
+               reverted_by_sha = EXCLUDED.reverted_by_sha,
                updated_at = now()`,
         values
       );

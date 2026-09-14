@@ -58,9 +58,16 @@
 //     it stays.
 //   5 NEVER REWRITE A HIDDEN ONE. See the COLLECT pass — a row that already
 //     exists is never overwritten.
-//   6 AUTO-HIDE WHEN A CHANGE IS UNDONE. See the RETRACT pass.
-//   7 REPORT IT. Not here: app/api/whats-new/highlights/report/route.ts.
+//   6 AUTO-HIDE WHEN A CHANGE IS UNDONE. See the TAKE DOWN pass. Matched BY
+//     SHA since 2026-09-14 — the subject matching #3710 shipped could never
+//     fire, and specs/whats-new/KNOWN-GAP-revert-detection.md says why.
+//   7 REPORT IT. The tap is app/api/whats-new/highlights/report/route.ts; the
+//     THRESHOLD is here — three distinct readers take a write-up down by
+//     themselves (Director, 2026-09-13 22:20), configurable in
+//     platform_policies, and never against a row a person has already touched.
 //   8 ALERT AFTER REPEATED FAILURES. See the withCronRun wrapper at the bottom.
+//     A run that STOPS happening is now caught too, but not here — that is
+//     lib/cron/absence.ts, read by the same cron-failure-alerts route.
 //
 // WHY 5, 7 AND 8 ARE NOT OPTIONAL EXTRAS. This route runs TWICE AN HOUR and
 // publishes UNREVIEWED — both explicit rulings. A fault therefore repeats 48
@@ -90,11 +97,22 @@ import {
   isRefusal,
   parseHighlightResult,
 } from '@/lib/changelog/highlight-prompt';
-import { findRetractions } from '@/lib/changelog/revert-detect';
+import {
+  findRevertTakedowns,
+  findReportTakedowns,
+  reportKey,
+  type Takedown,
+} from '@/lib/changelog/revert-detect';
 import { withCronRun } from '@/lib/cron/run-log';
 import type { ChangelogEntry, ChangelogModule } from '@/lib/changelog/types';
 
 const JOB_TYPE = 'whats_new.highlight_draft';
+
+/** How many DISTINCT readers must flag a write-up before it comes down by
+ *  itself. A config row, because it is a Director decision and not a constant
+ *  buried here (docs/architecture/config-table-pattern.md). */
+const REPORT_HIDE_POLICY_KEY = 'whats_new.highlight_report_hide_threshold';
+const DEFAULT_REPORT_HIDE_THRESHOLD = 3;
 
 /**
  * Max outstanding jobs this route will hold on the lane.
@@ -150,6 +168,10 @@ interface ExistingHighlight {
   status: 'draft' | 'approved' | 'skipped';
   source: 'human' | 'ai';
   selection_reason: string | null;
+  /** Stamped the moment a PERSON approves, skips or restores the row. The
+   *  report takedown refuses to touch a row that carries it — see
+   *  findReportTakedowns for why that is not politeness but a loop guard. */
+  reviewed_at: string | null;
 }
 
 interface EntryRow {
@@ -162,6 +184,9 @@ interface EntryRow {
   author: string;
   pr_number: number | null;
   breaking: boolean;
+  /** The commit that reverted this change, or null. Written by
+   *  scripts/sync-changelog-db.mjs from the generator's revert graph. */
+  reverted_by_sha: string | null;
 }
 
 function toEntry(r: EntryRow): ChangelogEntry {
@@ -383,7 +408,7 @@ async function handler(request: NextRequest) {
     if (onlySha) {
       const { data, error } = await admin
         .from('changelog_entries')
-        .select('sha,app_key,entry_date,kind,module_key,subject,author,pr_number,breaking')
+        .select('sha,app_key,entry_date,kind,module_key,subject,author,pr_number,breaking,reverted_by_sha')
         .eq('sha', onlySha)
         .eq('hidden', false)
         .limit(1);
@@ -401,7 +426,7 @@ async function handler(request: NextRequest) {
       for (let page = 0; page < MAX_PAGES; page++) {
         const { data, error } = await admin
           .from('changelog_entries')
-          .select('sha,app_key,entry_date,kind,module_key,subject,author,pr_number,breaking')
+          .select('sha,app_key,entry_date,kind,module_key,subject,author,pr_number,breaking,reverted_by_sha')
           .eq('hidden', false)
           .gte('entry_date', from)
           .order('entry_date', { ascending: false })
@@ -453,7 +478,7 @@ async function handler(request: NextRequest) {
       for (let i = 0; i < rows.length; i += IN_CHUNK) {
         const { data, error: exErr } = await admin
           .from('changelog_highlights')
-          .select('sha,app_key,status,source,selection_reason')
+          .select('sha,app_key,status,source,selection_reason,reviewed_at')
           .in('sha', rows.slice(i, i + IN_CHUNK).map((r) => r.sha));
         if (exErr) throw new Error(exErr.message);
         existing.push(...((data as ExistingHighlight[] | null) ?? []));
@@ -526,65 +551,116 @@ async function handler(request: NextRequest) {
         }
       }
 
-      // ── RETRACT: ruling 6 — a write-up for a change that was undone comes
-      //    down on its own. ─────────────────────────────────────────
+      // ── TAKE DOWN: ruling 6 (the change was undone) and the 22:20 ruling
+      //    (three readers said it is wrong). ──────────────────────────
       //
       // "Nobody should be told to go try something that no longer exists."
       // A reverted feature leaves a card on the page saying where to click and
       // what the reader can now do, and that is worse than no card: they go
       // looking, find nothing, and stop trusting the page.
       //
-      // WHAT IS DETECTED, AND WHAT IS NOT. `git revert` writes a subject of
-      // exactly `Revert "<original subject>"`, and that is the only shape this
-      // can see — changelog_entries stores the SUBJECT and no body, so the
-      // reliable `This reverts commit <sha>` body line is out of reach without
-      // widening the sync, which another lane owns. A hand-written undo ("fix:
-      // put the old behaviour back"), a reworded squash title, and a feature
-      // removed by a later redesign are all invisible here. The Director was
-      // shown this shape of gap and accepted it. The full list is in
-      // lib/changelog/revert-detect.ts, which also carries the parity rule that
-      // stops a RE-LAND (`Revert "Revert "X""`) being read as an undo.
+      // MATCHED BY SHA, NOT BY TEXT — this is the fix for the gap recorded in
+      // specs/whats-new/KNOWN-GAP-revert-detection.md. The subject-matching
+      // version shipped in #3710 could never fire (a `Revert "…"` commit never
+      // became an entry, and the stored subject has had its prefix stripped
+      // anyway) and, had it fired, would have taken down the WRONG module's
+      // write-up, because two modules' subjects store as the same string once
+      // that prefix is gone. scripts/generate-changelog.mjs now resolves the
+      // revert graph against raw git output and writes the answer to
+      // changelog_entries.reverted_by_sha; this pass only reads that column.
       //
-      // Only 'approved' rows are retracted — a draft renders nowhere and a
-      // skipped one is already down, so touching either would be noise in the
-      // audit trail for no change on the page.
-      const approvedByKey = new Map(
-        existing.filter((h) => h.status === 'approved').map((h) => [h.sha, h])
-      );
-      const writtenEntries = rows.filter((r) => approvedByKey.has(r.sha));
-      if (writtenEntries.length > 0) {
-        for (const hit of findRetractions(rows, writtenEntries)) {
-          const prior = approvedByKey.get(hit.sha);
-          if (!prior) continue;
-          // The audit line KEEPS the old reason rather than replacing it. A row
-          // that came down silently is indistinguishable from one a person
-          // skipped, and this is the only record of why the page changed.
-          const reason =
-            `Taken down automatically: this change was reverted by ${hit.reverted_by}. ` +
-            `Previously: ${prior.selection_reason ?? '(no reason recorded)'}`;
-          const { error: retErr } = await (admin as any)
-            .from('changelog_highlights')
-            .update({ status: 'skipped', selection_reason: reason.slice(0, 2000) })
-            .eq('app_key', hit.app_key)
-            .eq('sha', hit.sha);
-          if (retErr) {
-            // Not a fault worth paging over: the card stays up one more run and
-            // the next run tries again. Logged so a repeat is findable.
-            console.warn(
-              `[cron/whats-new-highlight-drafts] retract failed for ${hit.sha}: ${retErr.message}`
-            );
-            continue;
-          }
-          // 'skipped' is also what ruling 5 keys on, so a retracted write-up is
-          // never re-offered to the writer either — the two rulings meet here
-          // rather than needing a second mechanism.
-          retracted.push({
-            sha: hit.sha,
-            reverted_by: hit.reverted_by,
-            reverted_by_subject: hit.reverted_by_subject,
-            was_written_by: prior.source,
-          });
+      // STILL INVISIBLE, and accepted by the Director: a hand-written undo
+      // ("fix: put the old behaviour back") and a feature removed by a later
+      // redesign carry no revert signal at all.
+      //
+      // Only 'approved' rows come down — a draft renders nowhere and a skipped
+      // one is already down, so touching either would be noise in the audit
+      // trail for no change on the page.
+      const approvedRows = existing.filter((h) => h.status === 'approved');
+      const approvedByKey = new Map(approvedRows.map((h) => [h.sha, h]));
+
+      // THE REPORT TALLY, for the write-ups that are actually on the page.
+      // Scoped to this run's window and chunked for the same reason every other
+      // `.in()` here is: a month's ~800 shas in one URL builds a query string
+      // long enough to be rejected. The UNIQUE on (app_key, sha, reported_by)
+      // is what makes a plain row count mean "distinct readers".
+      const reportCounts = new Map<string, number>();
+      const approvedShas = [...approvedByKey.keys()];
+      for (let i = 0; i < approvedShas.length; i += IN_CHUNK) {
+        const { data, error: repErr } = await admin
+          .from('changelog_highlight_reports')
+          .select('app_key,sha')
+          .in('sha', approvedShas.slice(i, i + IN_CHUNK));
+        if (repErr) throw new Error(repErr.message);
+        for (const r of (data as { app_key: string; sha: string }[] | null) ?? []) {
+          const k = reportKey(r.app_key, r.sha);
+          reportCounts.set(k, (reportCounts.get(k) ?? 0) + 1);
         }
+      }
+
+      // The threshold is a config row, not a constant buried here. A policy read
+      // that fails falls back to the default rather than returning early — the
+      // alternative is a policy outage silently disabling a safeguard.
+      let reportThreshold = DEFAULT_REPORT_HIDE_THRESHOLD;
+      const { data: thresholdValue } = await admin.rpc('fn_get_policy', {
+        p_key: REPORT_HIDE_POLICY_KEY,
+        p_scope_id: null,
+      });
+      if (typeof thresholdValue === 'number' && thresholdValue >= 1) {
+        reportThreshold = Math.floor(thresholdValue);
+      }
+
+      const takedowns: Takedown[] = [
+        ...findRevertTakedowns(rows, approvedRows),
+        ...findReportTakedowns(approvedRows, reportCounts, reportThreshold),
+      ];
+
+      for (const hit of takedowns) {
+        const prior = approvedByKey.get(hit.sha);
+        if (!prior) continue;
+        // The audit line KEEPS the old reason rather than replacing it. A row
+        // that came down silently is indistinguishable from one a person
+        // skipped, and this is the only prose record of why the page changed —
+        // skip_reason is the queryable one beside it.
+        const why =
+          hit.reason === 'reverted'
+            ? `this change was reverted by ${hit.reverted_by}`
+            : `${hit.reports} readers reported the write-up as wrong`;
+        const reason =
+          `Taken down automatically: ${why}. ` +
+          `Previously: ${prior.selection_reason ?? '(no reason recorded)'}`;
+        const { error: retErr } = await (admin as any)
+          .from('changelog_highlights')
+          .update({
+            status: 'skipped',
+            // QUERYABLE, unlike the sentence above it. Without this column a
+            // machine takedown and a person's hide are the same row, so a super
+            // admin cannot find the machine ones to review, and ruling 5's
+            // never-rewrite check (which keys on status alone) leaves a restored
+            // write-up permanently unwritable with nothing to say why.
+            skip_reason: hit.reason,
+            selection_reason: reason.slice(0, 2000),
+          })
+          .eq('app_key', hit.app_key)
+          .eq('sha', hit.sha);
+        if (retErr) {
+          // Not a fault worth paging over: the card stays up one more run and
+          // the next run tries again. Logged so a repeat is findable.
+          console.warn(
+            `[cron/whats-new-highlight-drafts] takedown failed for ${hit.sha}: ${retErr.message}`
+          );
+          continue;
+        }
+        // 'skipped' is also what ruling 5 keys on, so a retracted write-up is
+        // never re-offered to the writer either — the two rulings meet here
+        // rather than needing a second mechanism.
+        retracted.push({
+          sha: hit.sha,
+          reason: hit.reason,
+          ...(hit.reverted_by ? { reverted_by: hit.reverted_by } : {}),
+          ...(hit.reports ? { reports: hit.reports } : {}),
+          was_written_by: prior.source,
+        });
       }
     }
   } catch (e) {
