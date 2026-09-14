@@ -1,0 +1,26 @@
+name: Route budget (Vercel 2048 cap)
+
+# Vercel refuses a deployment with more than 2048 routes (too_many_routes). Each dynamic
+# page/API file costs 2, each next.config redirect/rewrite/header 1. Production failed on
+# this twice (2026-09-03 at 2051, 2026-09-14 at 2061) with nothing in the repo counting.
+# scripts/ci/check-route-budget.sh fails a PR only when it is over the 2000 gate AND adds
+# to the count versus its base — unrelated PRs pass while the route families are folded.
+
+on:
+  pull_request:
+    paths:
+      - 'app/**'
+      - 'next.config.ts'
+      - 'scripts/ci/check-route-budget.sh'
+      - '.github/workflows/route-budget.yml'
+
+jobs:
+  route-budget:
+    name: Route budget (≤2000 of Vercel's 2048)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Count routes on this PR and on its base
+        run: bash scripts/ci/check-route-budget.sh "origin/${{ github.base_ref }}" 2000
