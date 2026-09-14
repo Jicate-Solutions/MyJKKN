@@ -1,0 +1,208 @@
+// POST /api/events/marathon/[eventId]/payment/pre-register
+// Creates a payment session BEFORE registration.
+// Stores registration form data in the payment transaction metadata.
+// On successful payment callback, the registration is created automatically.
+
+import { NextRequest, NextResponse } from 'next/server';
+import { createServiceRoleClient, getAuthUser } from '@/lib/supabase/server';
+import { HDFCEventClient } from '@/lib/services/events/core/hdfc-event-client';
+import { logger } from '@/lib/utils/enhanced-logger';
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ eventId: string }> }
+) {
+  try {
+    const { eventId } = await params;
+    const supabase = createServiceRoleClient();
+
+    // Parse body
+    let body: Record<string, unknown>;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+    }
+
+    const {
+      amount,
+      payer_name,
+      payer_email,
+      payer_phone,
+      registration_data, // Full registration form data to save after payment
+    } = body as {
+      amount?: number;
+      payer_name?: string;
+      payer_email?: string;
+      payer_phone?: string;
+      registration_data?: Record<string, unknown>;
+    };
+
+    // Validate required fields
+    if (!amount || !payer_name || !payer_email || !payer_phone || !registration_data) {
+      return NextResponse.json(
+        { error: 'amount, payer_name, payer_email, payer_phone, and registration_data are required' },
+        { status: 400 }
+      );
+    }
+
+    if (typeof amount !== 'number' || amount <= 0) {
+      return NextResponse.json(
+        { error: 'Amount must be a positive number' },
+        { status: 400 }
+      );
+    }
+
+    // Validate event exists
+    const { data: event, error: eventError } = await supabase
+      .from('events')
+      .select('id, name, year, status')
+      .eq('id', eventId)
+      .single();
+
+    if (eventError || !event) {
+      return NextResponse.json({ error: 'Event not found' }, { status: 404 });
+    }
+
+    // SECURITY / DATA INTEGRITY: If the caller is authenticated, FORCE the
+    // registration's profile_id and learner_id to come from the session —
+    // never trust the client-supplied values. This prevents a helper user
+    // registering classmates from their own browser and accidentally (or
+    // maliciously) stamping their own profile_id onto every row.
+    // External/public registrations (no session) continue to work with
+    // whatever profile_id the client sends, which is typically null.
+    const { user: authUser } = await getAuthUser();
+    if (authUser) {
+      let derivedLearnerId: string | null = null;
+      try {
+        // Match learner by the user's profile email against learners_profiles.college_email
+        // (mirrors the pattern used in getEnhancedUserProfile at lib/supabase/server.ts)
+        const { data: authProfile } = await supabase
+          .from('profiles')
+          .select('email')
+          .eq('id', authUser.id)
+          .single();
+        if (authProfile?.email) {
+          const { data: learnerRow } = await supabase
+            .from('learners_profiles')
+            .select('id')
+            .eq('college_email', authProfile.email)
+            .maybeSingle();
+          derivedLearnerId = learnerRow?.id ?? null;
+        }
+      } catch (lookupError) {
+        logger.warn('events/payment', 'Learner lookup failed in pre-register', {
+          userId: authUser.id,
+          error: lookupError instanceof Error ? lookupError.message : String(lookupError),
+        });
+      }
+      // Override any client-supplied profile_id / learner_id with session-derived values
+      (registration_data as Record<string, unknown>).profile_id = authUser.id;
+      if (derivedLearnerId) {
+        (registration_data as Record<string, unknown>).learner_id = derivedLearnerId;
+      } else {
+        // Clear it rather than leave whatever the client sent
+        (registration_data as Record<string, unknown>).learner_id = null;
+      }
+    }
+
+    // Generate unique transaction reference
+    const now = new Date();
+    const ts = now.getFullYear().toString() +
+      String(now.getMonth() + 1).padStart(2, '0') +
+      String(now.getDate()).padStart(2, '0') +
+      String(now.getHours()).padStart(2, '0') +
+      String(now.getMinutes()).padStart(2, '0') +
+      String(now.getSeconds()).padStart(2, '0');
+    const rand = Math.random().toString(36).substring(2, 7).toUpperCase();
+    const transactionRef = `E${ts}${rand}`;
+
+    // Create payment transaction (no registration_id yet — will be set after payment)
+    const { data: transaction, error: txnError } = await supabase
+      .from('event_payment_transactions')
+      .insert({
+        event_id: eventId,
+        registration_id: null, // No registration yet — payment first
+        transaction_ref: transactionRef,
+        amount,
+        currency: 'INR',
+        status: 'initiated',
+        payer_name,
+        payer_email,
+        payer_phone,
+        // Store the full registration form data as metadata in gateway_response
+        // This will be used to create the registration after payment succeeds
+        gateway_response: { pending_registration_data: registration_data },
+        institution_id: (registration_data as any).institution_id || null,
+      })
+      .select('id')
+      .single();
+
+    if (txnError || !transaction) {
+      logger.error('events/payment', 'Failed to create pre-registration payment', txnError);
+      return NextResponse.json(
+        { error: 'Failed to create payment transaction' },
+        { status: 500 }
+      );
+    }
+
+    // Call HDFC to create payment session
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const callbackUrl = `${appUrl}/api/events/marathon/${eventId}/payment/callback?transaction_ref=${transactionRef}`;
+
+    let hdfcResult: { payment_url: string; session_id: string };
+    try {
+      hdfcResult = await HDFCEventClient.createSession({
+        transactionRef,
+        amount,
+        customerName: payer_name,
+        customerEmail: payer_email,
+        customerPhone: payer_phone,
+        returnUrl: callbackUrl,
+        description: `Marathon Registration - ${event.name}`,
+      });
+    } catch (hdfcError) {
+      // Mark transaction as failed
+      await supabase
+        .from('event_payment_transactions')
+        .update({ status: 'failed' })
+        .eq('id', transaction.id);
+
+      logger.error('events/payment', 'HDFC session creation failed for pre-register', hdfcError);
+      return NextResponse.json(
+        { error: 'Payment gateway unavailable. Please try again.' },
+        { status: 502 }
+      );
+    }
+
+    // Update transaction with session ID
+    await supabase
+      .from('event_payment_transactions')
+      .update({
+        gateway_session_id: hdfcResult.session_id,
+        status: 'processing',
+      })
+      .eq('id', transaction.id);
+
+    logger.info('events/payment', 'Pre-registration payment initiated', {
+      transactionId: transaction.id,
+      transactionRef,
+      amount,
+    });
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        payment_url: hdfcResult.payment_url,
+        transaction_id: transaction.id,
+        transaction_ref: transactionRef,
+      },
+    });
+  } catch (error) {
+    logger.error('events/payment', 'Pre-register payment failed', error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Internal error' },
+      { status: 500 }
+    );
+  }
+}

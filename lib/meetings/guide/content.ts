@@ -366,6 +366,18 @@ export const GUIDES: GuideBook = {
               detail:
                 'When two colleges want the same slot, whoever went first last cycle goes later this cycle. This is the order rotation walks, so no college stays permanently squeezed.',
             },
+            {
+              action:
+                'Open **Proposed Month**, pick the month, and press **Propose this month** to see the whole month laid out.',
+              detail:
+                'Every series is laid against the real availability of everyone required. Nothing is booked and nobody is invited — a proposed month is a draft you can propose again as often as you like. Read it four ways: by college, by date, by series, or as a calendar.',
+              tip: 'Read the banner at the top first. It lists every meeting that could not be given a time, with the reason, and every meeting that was flipped to online. It stays on screen until you have dealt with each one.',
+              platforms: {
+                web: 'Left sidebar → **Meetings** → **Proposed Month**.',
+                mobile: 'Tap **More (⋯)** → **Meetings → Recurring Series**, then the **Proposed month** tab.',
+              },
+              link: { label: 'Take me there', href: '/meetings/slate' },
+            },
           ],
         },
         {
