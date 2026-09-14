@@ -114,15 +114,32 @@ export async function listOneMarkExams(): Promise<OneMarkExam[]> {
   return (data ?? []) as OneMarkExam[];
 }
 
+/**
+ * The unit picker on the drafting surface.
+ *
+ * RETIRED UNITS ARE EXCLUDED (added 2026-09-08, OneMark Wave 3 Lane U review).
+ * This read had no is_active filter and did not even select the column, so a
+ * retired unit stayed on offer here forever. That became a live defect the
+ * moment Lane U shipped a Retire button: the new unit list moves a retired
+ * unit into a section headed "hidden from every picker, questions kept", the
+ * API answers DELETE with "retire it instead: the unit disappears from every
+ * picker", and this picker went on offering it. The paper wizard already
+ * filtered (app/api/foundation/onemark/paper/_shared.ts), which is exactly why
+ * the gap was invisible from inside either lane.
+ *
+ * Filtered in TypeScript rather than as an embedded PostgREST predicate: the
+ * column is selected and checked here, which keeps the behaviour readable and
+ * testable and avoids relying on embedded-resource filter semantics.
+ */
 export async function listTopicsForExam(examId: string): Promise<DraftTopic[]> {
   const { data, error } = await sb()
     .from('exam_topic_map')
-    .select('sort_order, topic:cdc_exam_syllabus_topics!inner(id, config_key, display_name)')
+    .select('sort_order, topic:cdc_exam_syllabus_topics!inner(id, config_key, display_name, is_active)')
     .eq('exam_definition_id', examId)
     .order('sort_order', { ascending: true });
   if (error) throw error;
   return (data ?? [])
-    .filter((r: any) => r.topic)
+    .filter((r: any) => r.topic && r.topic.is_active !== false)
     .map((r: any) => ({
       id: r.topic.id,
       config_key: r.topic.config_key,

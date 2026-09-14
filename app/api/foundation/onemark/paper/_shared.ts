@@ -217,7 +217,23 @@ export async function loadChapters(supabase: AnyClient, examId: string): Promise
         id: t.id,
         config_key: t.config_key,
         display_name: t.display_name,
-        sort_order: t.sort_order ?? row.sort_order ?? 100,
+        // THE MAP'S POSITION WINS, not the topics table's global column
+        // (fixed 2026-09-08, OneMark Wave 3 Lane U review).
+        //
+        // These were the wrong way round. `t.sort_order` is
+        // cdc_exam_syllabus_topics.sort_order — one GLOBAL column shared with
+        // every government-coaching topic, where both OneMark subjects start
+        // at 1. `row.sort_order` is exam_topic_map.sort_order, the per-exam
+        // position, which is the unit list's only real ordering key and the
+        // only column Lane U's re-order controls write.
+        //
+        // Nothing looked broken because the two agreed: measured against
+        // production 2026-09-08, all 18 OneMark units have identical values in
+        // both columns, so this swap is a verified NO-OP on today's data. It
+        // stops being a no-op the first time anyone presses Move up on the
+        // unit list — from then on the map moves and the global column does
+        // not, and this wizard would have silently kept showing the old order.
+        sort_order: row.sort_order ?? t.sort_order ?? 100,
         is_general: GENERAL_TOPIC_KEYS.has(t.config_key),
       };
     })

@@ -123,8 +123,51 @@ function renderOptions(arr: ArrangedItem, lang: 'ta' | 'en'): string {
   return `<div class="opts ${arr.layout}">${cells}</div>`;
 }
 
+/**
+ * Wave 3 Lane D — the pictures on a question, printed ONCE, between the stem
+ * and the options, at most the width of the text column.
+ *
+ * An asset whose bytes could not be read prints its description instead of a
+ * hole: a Physics candidate reading "a circuit with two resistors in parallel
+ * across a 6 V cell" can still answer, and the invigilator can see at a glance
+ * that a figure is missing. Alt text is mandatory on every stored row
+ * (ruling #4), so the fallback is always there.
+ */
+function renderAssets(item: ArrangedItem['item']): string {
+  const assets = (item.assets ?? []).slice().sort((a, b) => (a.sortOrder ?? 1) - (b.sortOrder ?? 1));
+  if (assets.length === 0) return '';
+  const figures = assets
+    .map((a) => {
+      const alt = escapeHtml(a.alt ?? '');
+      if (!a.dataUri) {
+        return `<div class="figure missing">[ figure not available${alt ? ` — ${alt}` : ''} ]</div>`;
+      }
+      return `<div class="figure"><img src="${a.dataUri}" alt="${alt}"></div>`;
+    })
+    .join('');
+  return `<div class="figures">${figures}</div>`;
+}
+
 function renderQuestion(arr: ArrangedItem, bilingual: boolean): string {
   const { item } = arr;
+  const figures = renderAssets(item);
+
+  // With a figure, the two language blocks are SPLIT so the picture can sit
+  // once between the stems and the options and be shared by both — the board's
+  // own bilingual layout. Without one (every item in the bank today) the
+  // markup below is exactly what Lane P shipped.
+  if (figures) {
+    const stems: string[] = [];
+    const options: string[] = [];
+    if (bilingual && item.stemTa) {
+      stems.push(`<div class="lang ta"><div class="stem">${itemTextToHtml(item.stemTa)}</div></div>`);
+      options.push(`<div class="lang ta">${renderOptions(arr, 'ta')}</div>`);
+    }
+    stems.push(`<div class="lang en"><div class="stem">${itemTextToHtml(item.stemEn)}</div></div>`);
+    options.push(`<div class="lang en">${renderOptions(arr, 'en')}</div>`);
+    return `<div class="q"><div class="num">${arr.number}.</div><div class="body">${stems.join('')}${figures}${options.join('')}</div></div>`;
+  }
+
   const blocks: string[] = [];
   if (bilingual && item.stemTa) {
     blocks.push(

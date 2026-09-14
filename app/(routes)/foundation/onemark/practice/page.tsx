@@ -260,9 +260,9 @@ export default function OneMarkPracticePage() {
 
         {data?.learner && (
           <div className="space-y-8">
-            {/* ---- My progress (Lane A's learner report) ---------------------
+            {/* ---- My progress (Lane A's learner report, one subject at a time)
                 Renders nothing until that API is on main. */}
-            <ProgressCard learnerId={data.learner.id} />
+            <ProgressCard learnerId={data.learner.id} subjects={data.subjects} />
 
             {/* ---- Subjects: practice + timed ------------------------------- */}
             <section>

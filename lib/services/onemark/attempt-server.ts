@@ -595,6 +595,30 @@ export async function readServedSetFromDb(
   }
 }
 
+/** The stored served set IN THE ORDER IT WAS DRAWN, or null when the column
+ *  is absent, NULL (a live paper) or empty. A resumed timed sitting (defect 3)
+ *  is rebuilt from this: the same questions, in the same order, on the same
+ *  row — a Set would lose the order the learner already saw. */
+export async function readServedListFromDb(
+  adminClient: any,
+  attemptId: string,
+): Promise<string[] | null> {
+  try {
+    const { data, error } = await adminClient
+      .from('fp_attempts')
+      .select('served_item_ids')
+      .eq('id', attemptId)
+      .maybeSingle();
+    if (error || !data) return null;
+    const ids = (data as any).served_item_ids;
+    if (!Array.isArray(ids)) return null;
+    const strings = ids.filter((v: unknown): v is string => typeof v === 'string' && UUID_RE.test(v));
+    return strings.length ? strings : null;
+  } catch {
+    return null;
+  }
+}
+
 /** The set this sitting actually served — the stored column first, the signed
  *  token second. `null` means neither could be established, which is a refusal,
  *  not an empty set. */
