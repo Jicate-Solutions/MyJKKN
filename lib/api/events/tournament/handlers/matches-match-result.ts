@@ -1,5 +1,3 @@
-export const dynamic = 'force-dynamic';
-
 // POST /api/events/tournament/[eventId]/matches/[matchId]/result
 // Record a match result via fn_record_result (which also advances the knockout
 // winner into the next match). Called with the user's SESSION client so the RPC's

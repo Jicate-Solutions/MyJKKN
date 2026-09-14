@@ -1,6 +1,3 @@
-export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
-
 // GET /api/events/tournament/[eventId]/qr/generate
 //
 // Returns a QR entry-pass per ACTIVE tournament entry (mirrors the marathon QR

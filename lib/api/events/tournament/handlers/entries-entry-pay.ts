@@ -1,5 +1,3 @@
-export const dynamic = 'force-dynamic';
-
 // POST /api/events/tournament/[eventId]/entries/[entryId]/pay
 // Generate (or re-generate) an online payment link for an existing unpaid entry.
 // Reuses EventPaymentService (the shared HDFC/Razorpay rail). Requires

@@ -1,5 +1,3 @@
-export const dynamic = 'force-dynamic';
-
 // POST /api/events/tournament/[eventId]/award
 // Finalize a division and write verified achievements to the athlete profiles of
 // JKKN learners on the placed (gold/silver/bronze) entries, via fn_award_achievements

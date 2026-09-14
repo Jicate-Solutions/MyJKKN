@@ -1,5 +1,3 @@
-export const dynamic = 'force-dynamic';
-
 // /api/events/tournament/[eventId]/entries
 //   GET — organizer list of entries for a tournament (joined with payment + roster).
 //

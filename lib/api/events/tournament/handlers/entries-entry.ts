@@ -1,5 +1,3 @@
-export const dynamic = 'force-dynamic';
-
 // /api/events/tournament/[eventId]/entries/[entryId]
 //   PATCH  — update an entry (seed/status/name/notes) OR mark its payment paid offline.
 //   DELETE — withdraw an entry; refund is allowed only until the configured cutoff

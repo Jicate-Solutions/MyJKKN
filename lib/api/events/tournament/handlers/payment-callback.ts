@@ -1,5 +1,3 @@
-export const dynamic = 'force-dynamic';
-
 // POST /api/events/tournament/[eventId]/payment/callback
 // Razorpay's hosted checkout POSTs back here after payment. Verifies the
 // signature + runs the dual inquiry server-side (NEVER trusts the client),

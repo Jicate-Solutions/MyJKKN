@@ -1,5 +1,3 @@
-export const dynamic = 'force-dynamic';
-
 // PATCH /api/events/tournament/[eventId]/matches/[matchId]
 // Schedule a match: time + optional venue/court + optional official. Creates an
 // event_session (+ a resource_reservation when a court is chosen, + an

@@ -1,5 +1,3 @@
-export const dynamic = 'force-dynamic';
-
 // POST /api/events/tournament/[eventId]/fixtures
 // Generate the bracket/schedule for a division by calling fn_generate_fixtures.
 // IMPORTANT: the RPC is called via the user's SESSION client (not service-role) so

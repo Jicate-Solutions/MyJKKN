@@ -1,5 +1,3 @@
-export const dynamic = 'force-dynamic';
-
 // POST /api/events/tournament/[eventId]/public-register
 // SELF-SERVICE registration (Director decisions #1/#5/#6, 2026-06-23). Unlike the
 // organizer endpoint (/entries, which requires sports.tournaments.manage), this path
