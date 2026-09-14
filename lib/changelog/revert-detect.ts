@@ -1,163 +1,175 @@
-// What's New — did this change UNDO an earlier one?
+// What's New — the two reasons a published write-up comes down on its own.
 //
-// Director ruling 6 (2026-09-13, specs/whats-new/highlight-writer-rulings-2026-09-13.md):
-// "If a change is later undone, its write-up comes down automatically. Nobody
-// should be told to go try something that no longer exists." He accepted, in
-// the same breath, that not every revert is detectable and that some will slip
-// through — so this file's job is to be HONEST about which shape it catches
-// rather than to appear thorough.
+// ── WHY THIS FILE WAS REWRITTEN (2026-09-14)
+// It used to match reverts by TEXT, and specs/whats-new/KNOWN-GAP-revert-detection.md
+// records, at length, that the result could never fire in production:
 //
-// ── WHAT IT CAN SEE
-// `git revert` writes a subject of exactly `Revert "<the original subject>"`.
-// That is the only machine-guaranteed shape in the whole revert story, and it
-// is the one shape that survives into changelog_entries, because the sync
-// stores the SUBJECT line and nothing else.
+//   1. `git revert` writes `Revert "feat(x): …"`, which does not match the
+//      generator's SUBJECT_RE, so a revert never became a changelog_entries row
+//      at all. Measured on jicate/main 2026-09-14: five commits carry a
+//      `Revert "…"` subject and not one of them could survive that filter.
+//   2. The `subject` STORED on a row has had its `type(scope):` prefix stripped,
+//      its `(#nnnn)` removed and its first letter upper-cased — so comparing it
+//      against a revert's raw quoted subject could not succeed even if (1) were
+//      lifted.
+//   3. Worse than not firing: because the prefix is stripped, `feat(events):
+//      send a reminder` and `fix(billing): send a reminder` STORE AS THE SAME
+//      STRING. The moment (1) was lifted, one revert would have taken down an
+//      unrelated module's write-up. The Director's stated bias is that a false
+//      retraction is the worse failure, so text matching is gone rather than
+//      guarded: nothing in this file compares a subject any more.
 //
-// ── WHAT IT CANNOT SEE, STATED PLAINLY
-//   • A hand-written undo. "fix: put the old behaviour back" reverts a feature
-//     and looks like any other fix. Undetectable here, and undetectable by any
-//     rule short of reading the diff.
-//   • `This reverts commit <sha>` in the commit BODY. That line is the reliable
-//     machine signal — but changelog_entries has no body column, only `subject`
-//     (20260906090000_changelog_live_data.sql). Matching on it would mean
-//     widening the sync, and scripts/sync-changelog-db.mjs is owned by another
-//     lane right now.
-//   • A revert whose subject was reworded on the way in (a squash-merge title
-//     typed by a person, a "Revert: x" colon form, a translated subject).
-//   • A feature removed by a later redesign rather than by a revert.
-//   • A revert landing in a DIFFERENT application's repository from the change
-//     it undoes. Matching is scoped to one app_key, because a subject line is
-//     only unique inside one repository — the same lesson
-//     20260907183500_changelog_entries_key_by_app_and_sha.sql records for shas.
+// The revert graph is now resolved ONCE, at read time, in
+// scripts/generate-changelog.mjs — against raw git output, where a subject
+// still has its prefix and can be resolved to a single commit — and the answer
+// is written to changelog_entries.reverted_by_sha. This file only reads that
+// column. Matching is by SHA, which is unique inside one repository, which is
+// the same key the row itself is keyed by.
 //
-// ── RE-LANDS ARE NOT REVERTS, AND THAT IS THE SUBTLE ONE
-// `Revert "Revert "feat: X""` is a RE-LAND: the feature is back. Matching one
-// level of quoting would read that as an undo of `Revert "feat: X"` and, worse,
-// a naive matcher that just strips the first prefix would retract the write-up
-// for the feature that has just returned. So depth is counted and only ODD
-// depth is an undo — the same parity rule a person applies by eye.
+// ── THE SECOND REASON: THREE READERS SAID IT IS WRONG
+// Director ruling (2026-09-13, 22:20): three distinct readers flagging a
+// write-up should take it down automatically, and a super admin can restore it.
+// changelog_highlight_reports is a tally with one row per (write-up, reader),
+// so the count is by construction the number of DISTINCT readers.
+//
+// ── WHY BOTH TAKEDOWNS RECORD A QUERYABLE REASON
+// Both land on status = 'skipped', which is also what a person's "hide this"
+// and the writer's own "no user-visible effect" refusal land on. Before
+// skip_reason existed, the four were distinguishable only by prose inside
+// selection_reason, which is not queryable — so a super admin could not find
+// the machine takedowns to review, and ruling 5's never-rewrite check (which
+// keys on status alone) made a restored write-up permanently unwritable with no
+// way to tell why. skip_reason is that missing column.
 //
 // Pure, no I/O, no clock. The caller does the database work.
 
-/** The trailing squash-merge pull-request marker: `feat: thing (#3712)`. */
-const PR_SUFFIX = /\s*\(#\d+\)\s*$/;
+/** Why a published write-up came down. Mirrors the CHECK on
+ *  changelog_highlights.skip_reason — keep the two in step. */
+export type SkipReason = 'reverted' | 'reported' | 'person' | 'ai_refused';
+
+/** A write-up that must come down, and why. */
+export interface Takedown {
+  app_key: string;
+  sha: string;
+  reason: SkipReason;
+  /** The sha of the commit that reverted it. Only for reason 'reverted'. */
+  reverted_by?: string;
+  /** How many distinct readers flagged it. Only for reason 'reported'. */
+  reports?: number;
+}
+
+/** One entry, in the only fields these decisions need. */
+export interface EntryRevertState {
+  app_key: string;
+  sha: string;
+  /** changelog_entries.reverted_by_sha — NULL for all but a handful of rows. */
+  reverted_by_sha?: string | null;
+}
+
+/** One published write-up, in the only fields these decisions need. */
+export interface WrittenHighlight {
+  app_key: string;
+  sha: string;
+  status: 'draft' | 'approved' | 'skipped';
+  source: 'human' | 'ai';
+  /** Set the moment a PERSON approves, skips or restores the row. */
+  reviewed_at?: string | null;
+}
+
+/** Key a row by the pair it is actually keyed by. A bare sha is unique inside
+ *  ONE repository and nowhere else — 20260907183500 records that lesson. */
+function key(app_key: string, sha: string): string {
+  return `${app_key}:${sha}`;
+}
 
 /**
- * One layer of `Revert "..."`, with an optional pull-request suffix outside the
- * quotes (GitHub appends it when the revert is squash-merged).
+ * Ruling 6 — the write-ups whose change is not on the branch any more.
  *
- * Anchored at both ends and greedy inside the quotes so a subject that itself
- * contains a quote character still peels correctly: the LAST closing quote is
- * the one that closes the revert, not the first.
- */
-const REVERT_LAYER = /^Revert\s+"(.*)"\s*(?:\(#\d+\))?\s*$/;
-
-/**
- * The subject this one undoes — or null when it undoes nothing we can see.
+ * "Nobody should be told to go try something that no longer exists." A reverted
+ * feature leaves a card saying where to click and what the reader can now do,
+ * and that is worse than no card: they go looking, find nothing, and stop
+ * trusting the page.
  *
- * Returns the innermost original subject at ODD quoting depth (a revert), and
- * null at even depth (a re-land) and for every shape listed in the header.
+ * ONLY 'approved' ROWS. A draft renders nowhere and a skipped one is already
+ * down, so touching either would be noise in the audit trail for no change on
+ * the page.
+ *
+ * A HUMAN-WRITTEN WRITE-UP IS RETRACTED TOO, unlike the report takedown below,
+ * and that asymmetry is deliberate. A revert is an objective fact about the
+ * branch — the thing the card points at is gone whoever wrote the card. A
+ * report is three readers' opinion, and a person who has already looked at the
+ * row has outranked them.
+ *
+ * WHAT IS STILL INVISIBLE, STATED PLAINLY. A hand-written undo ("fix: put the
+ * old behaviour back") reverts a feature and looks like any other fix; a
+ * feature removed by a later redesign is not a revert at all. Neither carries
+ * `This reverts commit <sha>` nor a `Revert "…"` subject, so neither reaches
+ * this column. The Director was shown that gap and accepted it.
  */
-export function revertedSubject(subject: string): string | null {
-  if (typeof subject !== 'string') return null;
-
-  let current = subject.trim();
-  let depth = 0;
-
-  // Bounded: each pass must strip a whole `Revert "..."` layer or the loop
-  // ends, so this cannot spin on a pathological subject.
-  for (;;) {
-    const m = REVERT_LAYER.exec(current);
-    if (!m) break;
-    current = m[1].trim();
-    depth++;
+export function findRevertTakedowns(
+  entries: ReadonlyArray<EntryRevertState>,
+  written: ReadonlyArray<WrittenHighlight>
+): Takedown[] {
+  const approved = new Map<string, WrittenHighlight>();
+  for (const w of written) {
+    if (w.status !== 'approved') continue;
+    approved.set(key(w.app_key, w.sha), w);
   }
 
-  if (depth === 0) return null;
-  // Even depth is a re-land: the change is back on the branch, so its write-up
-  // must NOT be taken down.
-  if (depth % 2 === 0) return null;
-  if (current === '') return null;
-  return current;
-}
-
-/**
- * The form two subjects are compared in.
- *
- * A revert carries the original subject verbatim EXCEPT that the original may
- * have picked up its own `(#1234)` on the way in while the quoted copy did not,
- * or vice versa. Dropping that one suffix from both sides is the only latitude
- * taken here — everything else is compared exactly, because a loose match would
- * take down a write-up for a change nobody reverted, which is a worse failure
- * than missing one the Director already accepted will be missed.
- */
-export function revertMatchKey(subject: string): string {
-  return String(subject ?? '').trim().replace(PR_SUFFIX, '').trim();
-}
-
-/** One entry, in the only two fields this matching needs. */
-export interface RevertCandidate {
-  sha: string;
-  app_key: string;
-  subject: string;
-}
-
-/** A write-up that must come down, and the change that undid it. */
-export interface Retraction {
-  /** the entry whose write-up is retracted */
-  app_key: string;
-  sha: string;
-  /** the sha of the commit that reverted it */
-  reverted_by: string;
-  /** the reverting commit's own subject, for the audit line */
-  reverted_by_subject: string;
-}
-
-/**
- * Which of `written` were undone by something in `entries`.
- *
- * `written` is the set of entries that currently carry a write-up on the page;
- * `entries` is every entry in the window, reverts included. Both are matched
- * inside one app_key.
- *
- * A revert only retracts a change that came BEFORE it. Without that guard a
- * revert would also match a later re-application that happens to carry the same
- * subject, and would take down the write-up for the change that is live.
- */
-export function findRetractions(
-  entries: ReadonlyArray<RevertCandidate & { entry_date: string }>,
-  written: ReadonlyArray<RevertCandidate & { entry_date: string }>
-): Retraction[] {
-  const out: Retraction[] = [];
+  const out: Takedown[] = [];
   const seen = new Set<string>();
-
   for (const e of entries) {
-    const undone = revertedSubject(e.subject);
-    if (!undone) continue;
-    const key = revertMatchKey(undone);
-    if (key === '') continue;
-
-    for (const w of written) {
-      if (w.app_key !== e.app_key) continue;
-      if (w.sha === e.sha) continue;
-      if (revertMatchKey(w.subject) !== key) continue;
-      // Strictly earlier by date. Same-day is allowed: a revert landing on the
-      // day of the change it undoes is the commonest revert there is, and
-      // changelog_entries carries a DATE, not a timestamp, so a stricter test
-      // would miss most real reverts.
-      if (w.entry_date > e.entry_date) continue;
-
-      const id = `${w.app_key}:${w.sha}`;
-      if (seen.has(id)) continue;
-      seen.add(id);
-      out.push({
-        app_key: w.app_key,
-        sha: w.sha,
-        reverted_by: e.sha,
-        reverted_by_subject: e.subject,
-      });
-    }
+    const by = e.reverted_by_sha;
+    if (!by) continue;
+    // A commit cannot revert itself. Defensive rather than expected: the
+    // generator already refuses that edge, and a row that claimed it would
+    // otherwise retract a live write-up.
+    if (by === e.sha) continue;
+    const k = key(e.app_key, e.sha);
+    if (!approved.has(k) || seen.has(k)) continue;
+    seen.add(k);
+    out.push({ app_key: e.app_key, sha: e.sha, reason: 'reverted', reverted_by: by });
   }
-
   return out;
+}
+
+/**
+ * The write-ups that enough distinct readers have called wrong.
+ *
+ * `reports` is app_key+sha → how many DISTINCT readers flagged it. The UNIQUE
+ * on changelog_highlight_reports (app_key, sha, reported_by) is what makes a
+ * plain row count mean that, so the caller may count rows without de-duplicating.
+ *
+ * NEVER A ROW A PERSON HAS ALREADY LOOKED AT. `reviewed_at` is stamped the
+ * moment a super admin approves, skips or RESTORES a row, so this rule cannot
+ * undo a human decision — and, just as importantly, cannot fight one: without
+ * that guard, restoring a write-up that still carries three reports would be
+ * followed by the cron taking it down again on the next tick, every half hour,
+ * for ever.
+ *
+ * The reports themselves are never deleted — the tally of how often the writing
+ * was wrong must survive the fixing of any one instance of it.
+ */
+export function findReportTakedowns(
+  written: ReadonlyArray<WrittenHighlight>,
+  reports: ReadonlyMap<string, number>,
+  threshold: number
+): Takedown[] {
+  // A threshold below 1 would take down every write-up that nobody reported.
+  const min = Math.max(1, Math.floor(threshold));
+  const out: Takedown[] = [];
+  for (const w of written) {
+    if (w.status !== 'approved') continue;
+    if (w.reviewed_at) continue;
+    const n = reports.get(key(w.app_key, w.sha)) ?? 0;
+    if (n < min) continue;
+    out.push({ app_key: w.app_key, sha: w.sha, reason: 'reported', reports: n });
+  }
+  return out;
+}
+
+/** The map key `findReportTakedowns` reads, so a caller counting rows does not
+ *  have to know how the pair is spelled. */
+export function reportKey(app_key: string, sha: string): string {
+  return key(app_key, sha);
 }

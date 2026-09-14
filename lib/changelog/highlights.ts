@@ -52,6 +52,25 @@ export interface HighlightCandidate {
 export const WEEKLY_CAP = 10;
 
 /**
+ * The most write-ups the READER'S STRIP shows at once.
+ *
+ * Same number, a different job, which is why it is a different constant.
+ * WEEKLY_CAP bounds what is offered for writing in one week; this bounds what
+ * is shown on the page, and the two stopped being the same thing the moment
+ * the strip was allowed to reach past the current week.
+ *
+ * WHY THE STRIP NEEDED A CAP OF ITS OWN. Until now it had none and needed
+ * none: it rendered one week, and one week could never hold more than
+ * WEEKLY_CAP approved write-ups. Once the strip reads the whole backlog window
+ * (WRITEUP_BACKLOG_FLOOR onwards) an uncapped strip would render every
+ * approved write-up ever made — 199 of them on 2026-09-14 — which is a
+ * different page, not a bigger strip. Ten keeps the Director's "about ten
+ * highlights" shape while letting the ten come from wherever the most recent
+ * ten actually are.
+ */
+export const STRIP_CAP = 10;
+
+/**
  * The oldest change that will EVER be written up. A fixed date, on purpose.
  *
  * Director ruling 1 (2026-09-13): write up the last month — roughly 800 of the

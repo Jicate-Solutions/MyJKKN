@@ -1,6 +1,13 @@
 'use client';
 
-// The approver's queue — one card per change picked for this week.
+// The approver's queue — one card per change picked for this week, PLUS one per
+// write-up already on What's New that this week's selection did not offer.
+//
+// THAT SECOND GROUP IS NOT A CONVENIENCE. What's New shows the most recent ten
+// write-ups whichever week they fall in, and most of them are written by a model
+// and published with nobody reading them first. Edit and set-back-to-draft, on
+// this screen, are the only way to correct or withdraw that text — so a card the
+// reader can see and this screen cannot is a live page nobody can take down.
 //
 // Reads GET /api/whats-new/highlights?queue=1 and writes back through
 // PUT /api/whats-new/highlights. Both ends re-check whats_new.highlights.manage
@@ -48,10 +55,25 @@ interface Saved {
   action: string | null;
   status: Status;
   selection_reason: string | null;
+  /** How many DISTINCT readers tapped "this looks wrong" (Director ruling 7).
+   *  The route has always sent it and no screen read it, so a reader's tap was
+   *  a write into a table nobody looked at. It renders on the card below. */
+  reports?: number;
 }
 
 interface QueueBody {
   weekFrom: string;
+  /** How many write-ups are ACTUALLY on What's New right now, counted by the
+   *  server with the same walk that builds the strip. Not derivable from
+   *  `saved`: the strip reaches back a month and `saved` also carries drafts
+   *  and older rows, so counting approved rows here would be a second answer
+   *  and the wrong one. */
+  liveCount?: number;
+  /** Write-ups the strip is rendering that this week's selection did not offer
+   *  — older than this week, or crowded out of it. They get the same card and
+   *  the same buttons, because a write-up on the page with no way to correct or
+   *  withdraw it is the failure this screen exists to prevent. */
+  live?: Candidate[];
   saved: Saved[];
   candidates: Candidate[];
 }
@@ -190,18 +212,38 @@ export function HighlightQueue() {
     );
   }
 
-  const approvedCount = body.saved.filter((s) => s.status === 'approved').length;
+  // Already on the page and not offered by this week's selection. Rendered in
+  // the SAME list and with the SAME buttons as a fresh candidate — a separate
+  // read-only section would be the bug (a live write-up nobody can withdraw)
+  // wearing a heading.
+  const live = body.live ?? [];
+  const cards = [...body.candidates, ...live];
+  // The server's count, never a re-derivation from `saved`. See QueueBody.
+  const liveCount = body.liveCount ?? live.length;
 
   return (
     <div className="space-y-5">
       <p className="text-sm text-muted-foreground">
         Week beginning <span className="font-medium text-foreground">{formatDay(body.weekFrom)}</span> ·{' '}
-        <span className="font-medium text-foreground">{approvedCount}</span>{' '}
-        {approvedCount === 1 ? 'highlight is' : 'highlights are'} live on What’s New ·{' '}
+        <span className="font-medium text-foreground">{liveCount}</span>{' '}
+        {liveCount === 1 ? 'highlight is' : 'highlights are'} live on What’s New ·{' '}
         <span className="font-medium text-foreground">{body.candidates.length}</span> waiting for a write-up
       </p>
 
-      {body.candidates.length === 0 ? (
+      {live.length > 0 && (
+        // Said out loud, because a month-old change appearing in a weekly queue
+        // is otherwise just confusing. What's New shows the most recent
+        // write-ups whatever week they came from, so these are on the page now.
+        <p className="text-xs text-muted-foreground">
+          The last{' '}
+          <span className="font-medium text-foreground">{live.length}</span>{' '}
+          {live.length === 1 ? 'card is a write-up' : 'cards are write-ups'} already on What’s New from
+          before this week. Edit the text to correct one, or set it back to draft to take it off the
+          page.
+        </p>
+      )}
+
+      {cards.length === 0 ? (
         <Card>
           <CardContent className="py-10 text-center">
             <ListChecks className="mx-auto h-6 w-6 text-muted-foreground" aria-hidden="true" />
@@ -214,7 +256,7 @@ export function HighlightQueue() {
         </Card>
       ) : (
         <ul className="space-y-4">
-          {body.candidates.map((c) => {
+          {cards.map((c) => {
             const draft = draftFor(c);
             const saved = savedBySha.get(c.sha);
             const isBusy = busy === c.sha;
@@ -244,6 +286,18 @@ export function HighlightQueue() {
                   {saved?.status === 'approved' && (
                     <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
                       Live
+                    </span>
+                  )}
+                  {/* Ruling 7's deliverable, finally on a screen. Readers tap
+                      "this looks wrong" on the strip; the count of distinct
+                      readers is a super admin's measure of how often the
+                      writing is wrong, and it is the reason the writer is
+                      allowed to publish unreviewed. Shown only when somebody
+                      has actually flagged it — a "0" on every card would make
+                      the one that matters invisible. */}
+                  {(saved?.reports ?? 0) > 0 && (
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                      {saved!.reports === 1 ? '1 reader says this is wrong' : `${saved!.reports} readers say this is wrong`}
                     </span>
                   )}
                 </div>
