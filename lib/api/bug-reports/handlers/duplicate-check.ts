@@ -1,8 +1,3 @@
-export const dynamic = 'force-dynamic';
-// Long-poll window for the Max-lane drain. Mirrors the proven ai_jobs consumers
-// (ai-triage, ai-reverify, app/api/ai-query).
-export const maxDuration = 300;
-
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/client';

@@ -1,5 +1,3 @@
-export const dynamic = 'force-dynamic';
-
 import { NextResponse, connection } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
