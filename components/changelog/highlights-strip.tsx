@@ -1,16 +1,26 @@
 'use client';
 
 /**
- * What's New — this week's highlights.
+ * What's New — the most recent highlights.
  *
  * The few changes someone read, wrote up in plain English, and approved. It
  * sits above the plain list because the plain list answers "what changed" and
  * this answers the two questions the Director actually asked for: what it means
  * for me, and what I can now do.
  *
- * IT IS ABSENT, NOT EMPTY, when there is nothing to show. A week nobody wrote
- * up renders no heading, no card and no "no highlights yet" placeholder — the
- * page then looks exactly as it does today, which is the whole compatibility
+ * NOT "THIS WEEK", AND THAT IS THE POINT. This said "Worth knowing this week"
+ * and rendered only write-ups whose change landed in the current week, while
+ * the writer worked through a MONTH of backlog. On 2026-09-14 that meant 199
+ * approved write-ups existed and 6 could be displayed; the other 193 were
+ * unreachable by construction. The route now serves the most recent ten
+ * whichever week they fall in, so a thin week fills from the days before it —
+ * which is why nothing on this card says "week" any more. Putting a week label
+ * back would make the heading lie about what is under it.
+ *
+ * IT IS ABSENT, NOT EMPTY, when there is nothing to show. A reader scoped to
+ * nothing, and a platform with no approved write-ups at all, render no heading,
+ * no card and no "no highlights yet" placeholder — the page then looks exactly
+ * as it did before this strip existed, which is the whole compatibility
  * requirement. Same for a failed fetch: the plain list below is the thing
  * people came for and it is unaffected, so a highlights failure says nothing
  * rather than pushing an error card above working content. (The sibling
@@ -65,6 +75,26 @@ interface StripItem {
 
 /** What has happened to this reader's report-it tap on one card. */
 type ReportState = 'idle' | 'sending' | 'done' | 'failed';
+
+/**
+ * The day the change landed, as "12 Sep".
+ *
+ * IT RENDERS ON EVERY CARD, and that is load-bearing now the strip is no longer
+ * a week. These ten come from a month-wide window, so a card can be weeks old
+ * under a heading that says nothing about when — and a reader with no date has
+ * no way to tell a change that shipped yesterday from one that shipped in
+ * August. Parsed in UTC on a bare Y-M-D so it cannot slide by one day in a
+ * timezone the reader happens to be in.
+ */
+function formatDay(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  if (!y || !m || !d) return '';
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'UTC',
+  });
+}
 
 const KIND_STYLE: Record<HighlightKind, { icon: typeof Sparkles; chip: string; label: string }> = {
   new: {
@@ -138,18 +168,28 @@ export function HighlightsStrip({ modules }: HighlightsStripProps) {
     };
   }, []);
 
-  // Absent, not empty — while loading, on failure, and for a week nobody wrote up.
+  // Absent, not empty — while loading, on failure, and when there is nothing
+  // approved this reader may see.
   if (!items || items.length === 0) return null;
 
   return (
     <section aria-labelledby="whats-new-highlights" className="space-y-3">
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
         <h2 id="whats-new-highlights" className="text-base font-semibold text-foreground">
-          Worth knowing this week
+          Worth knowing
         </h2>
         <p className="text-xs text-muted-foreground">
-          {items.length === 1 ? 'One change' : `${items.length} changes`} that affect how you work —
-          everything else is in the list below.
+          {/* NOT "the most recent changes". These are the most recently
+              WRITTEN-UP ones, which is a different set: the writer works
+              through a backlog, so a change from last week can appear here
+              before one from yesterday, and dozens of newer changes may have no
+              write-up at all. Claiming recency the strip does not have is the
+              kind of small lie that makes a reader distrust the rest of the
+              card. */}
+          {items.length === 1
+            ? 'One recent change explained in plain English'
+            : `${items.length} recent changes explained in plain English`}{' '}
+          — everything else is in the list below.
         </p>
       </div>
 
@@ -177,6 +217,18 @@ export function HighlightsStrip({ modules }: HighlightsStripProps) {
                   <span className="min-w-0 break-words text-xs font-medium text-muted-foreground">
                     {label}
                   </span>
+                )}
+                {/* See formatDay above: the strip spans a month now, so the day
+                    is the only thing on the card that says how old it is. */}
+                {h.date && (
+                  <>
+                    <span className="text-xs text-muted-foreground" aria-hidden="true">
+                      ·
+                    </span>
+                    <time dateTime={h.date} className="text-xs text-muted-foreground">
+                      {formatDay(h.date)}
+                    </time>
+                  </>
                 )}
               </div>
 
