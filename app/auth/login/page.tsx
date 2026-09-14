@@ -466,7 +466,7 @@ export default function LoginPage() {
               <Button
                 onClick={handleGoogleLogin}
                 disabled={loading}
-                className='w-full h-12 text-base font-medium bg-green-600 hover:bg-green-700 dark:bg-green-700 dark:hover:bg-green-800 text-white'
+                className='w-full h-12 text-base font-medium bg-green-700 hover:bg-green-800 dark:bg-green-700 dark:hover:bg-green-800 text-white'
               >
                 {loading ? (
                   <div className='flex items-center space-x-2'>

@@ -953,7 +953,7 @@ export function DataTable<TData extends ExportableData, TValue>({
                 <Badge variant='secondary' className='ml-2'>
                   {data?.pagination.total_items &&
                     data.pagination.total_items > 0 && (
-                      <span className='ml-2 text-black font-medium'>
+                      <span className='font-medium'>
                         {Math.round(
                           (Math.min(
                             page * pageSize,
