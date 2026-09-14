@@ -500,8 +500,8 @@ export default function LoginPage() {
 
               {/* Invite-only notice */}
               <p className='text-xs text-gray-600 dark:text-gray-400 text-center leading-relaxed border-t pt-3'>
-                Access is restricted to pre-registered JKKN staff, facilitators, and
-                enrolled learners. If you haven&apos;t been onboarded, please
+                Access is restricted to pre-registered JKKN team members, Senior
+                Learners, and enrolled learners. If you haven&apos;t been onboarded, please
                 contact your administrator.
               </p>
 
