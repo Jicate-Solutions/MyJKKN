@@ -45,7 +45,7 @@ import {
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useHrInstitutionsWithAccess } from '@/hooks/hr/use-hr-institutions';
 
 interface InstitutionPolicyEditorProps {
   policyKey: string;
@@ -74,7 +74,7 @@ export function InstitutionPolicyEditor(props: InstitutionPolicyEditorProps) {
 
   const { profile } = useAuth();
   const { isSuperAdmin } = usePermissions();
-  const { institutions, loading: instLoading } = useInstitutionsWithAccess({
+  const { institutions, loading: instLoading } = useHrInstitutionsWithAccess({
     entityType: 'institution',
   });
 
@@ -202,7 +202,7 @@ export function InstitutionPolicyEditor(props: InstitutionPolicyEditorProps) {
         const { data, error: upErr } = await supabase
           .from('platform_policies')
           .update({
-            value: parsedDraft.value,
+            value: parsedDraft.value as never,
             updated_by: user?.id ?? null,
             updated_at: new Date().toISOString(),
           })
@@ -234,7 +234,7 @@ export function InstitutionPolicyEditor(props: InstitutionPolicyEditorProps) {
             policy_key: policyKey,
             scope_type: 'institution',
             scope_id: selectedInstitutionId,
-            value: parsedDraft.value,
+            value: parsedDraft.value as never,
             description: policyDescription,
             data_type: 'object',
             is_system: false,

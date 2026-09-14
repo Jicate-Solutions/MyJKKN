@@ -25,6 +25,31 @@
  * are now exact head-counts, which stay correct however large the table
  * grows. Rows are still fetched — but only the approved ones, which are the
  * only rows the per-employee burnout maths actually reads.
+ *
+ * WHY THERE IS A FOURTH BAR THAT NAMES NO STATUS.
+ * The summary card says "all N requests" but only drew approved, pending and
+ * rejected. Measured on production 2026-09-09 over the whole of
+ * hr_leave_applications: 698 pending, 449 approved, 73 rejected, 84
+ * withdrawn, 12 cancelled — 1,316 rows, so 96 of them (7.3%) sat in the
+ * denominator with no bar and the bars stopped at 92.7% under a header
+ * promising all of them. (The tab counts a three-month window, not the whole
+ * table; the shortfall is the same shape either way, since the denominator
+ * and the bars are drawn from the same window.) The fourth bar is derived as
+ * total − (pending + approved + rejected) rather than enumerating
+ * "withdrawn" and "cancelled", so it stays exhaustive if a new status is
+ * ever added, and it is labelled for what it is rather than named after a
+ * status it does not exclusively contain.
+ *
+ * Two limits on the figures above, both deliberate. They are whole-table
+ * service-role counts, taken once to prove the arithmetic; this component
+ * reads through the browser client under RLS (hla_select scopes by
+ * fn_my_staff_ids / applied_by / final_approver_id / fn_my_hr_organization_ids),
+ * so a real reader sees a filtered subset and will never see 1,316. The
+ * identity still holds for them, because all four counts pass the same policy.
+ * And the four counts are independent head-counts issued concurrently, so a
+ * row that changes status mid-flight can be counted twice; the Math.max floor
+ * below keeps the residual from going negative, but the bars are a snapshot,
+ * not a transaction, and are not promised to total exactly.
  */
 
 import { useMemo } from 'react';
@@ -157,12 +182,20 @@ export function EngagementPulseTab() {
     // Pending requests split by whether the time off has already been taken.
     const awaitingNotYetStarted = Math.max(0, data.pendingCount - data.backlogCount);
 
+    // Everything the three named bars do not cover, derived rather than
+    // enumerated so it stays correct when a new status is added.
+    const otherStatusCount = Math.max(
+      0,
+      data.totalCount - data.pendingCount - data.approvedCount - data.rejectedCount
+    );
+
     return {
       activeStaffCount,
       totalLeaves: data.totalCount,
       approvedCount: data.approvedCount,
       pendingCount: data.pendingCount,
       rejectedCount: data.rejectedCount,
+      otherStatusCount,
       backlogCount: data.backlogCount,
       awaitingNotYetStarted,
       approvedSampleTruncated: data.approvedSampleTruncated,
@@ -335,8 +368,12 @@ export function EngagementPulseTab() {
             Leave Application Summary (Last 3 Months)
           </CardTitle>
           <CardDescription>
-            Status distribution across all {metrics.totalLeaves} requests in the window. Pending is a
-            processing state, not an engagement measure — see the approval control gap above.
+            Status distribution across all {metrics.totalLeaves} requests in the window. Pending is
+            a processing state, not an engagement measure — see the approval control gap above.
+            &quot;Every other status&quot; is the remainder once approved, pending and rejected are
+            counted, so nothing is left out of the chart. It is mostly withdrawn and cancelled, but
+            it also catches statuses that are still open — an escalated request lands here, not in
+            Pending.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -345,6 +382,7 @@ export function EngagementPulseTab() {
               { label: 'Approved', count: metrics.approvedCount, color: 'bg-green-500' },
               { label: 'Pending', count: metrics.pendingCount, color: 'bg-amber-500' },
               { label: 'Rejected', count: metrics.rejectedCount, color: 'bg-red-500' },
+              { label: 'Every other status', count: metrics.otherStatusCount, color: 'bg-slate-400' },
             ].map(({ label, count, color }) => {
               const pct = metrics.totalLeaves > 0 ? (count / metrics.totalLeaves) * 100 : 0;
               return (

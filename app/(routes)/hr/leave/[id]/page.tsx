@@ -1,157 +1,55 @@
 'use client';
 
-import { useState } from 'react';
+/**
+ * One leave request, full page.
+ *
+ * Nothing links here any more — the requests list opens LeaveRequestDetailSheet
+ * instead (2026-09-07). The route is kept so a bookmarked or shared request URL
+ * still resolves, and it renders the SAME LeaveRequestDetail body the sheet
+ * does rather than a second copy that would drift.
+ */
+
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
-import {
-  useApplication,
-  useApplicationComments,
-  useAddComment,
-  useWithdrawApplication,
-  useCancelApplication,
-} from '@/hooks/hr/use-leave';
-import { LEAVE_DURATION_LABELS, LEAVE_STATUS_LABELS } from '@/types/hr';
-import { LeaveDocumentList } from '../_components/leave-document-list';
-import { ApprovalChainTimeline } from '../_components/approval-chain-timeline';
+import { Card, CardContent } from '@/components/ui/card';
+
+import { LeaveRequestDetail } from '../_components/leave-request-detail';
 
 export default function ApplicationDetailPage() {
   const params = useParams();
-  const id = typeof params.id === 'string' ? params.id : Array.isArray(params.id) ? params.id[0] : '';
-
-  const { data: app, isLoading } = useApplication(id);
-  const { data: comments } = useApplicationComments(id);
-  const addComment = useAddComment();
-  const withdraw = useWithdrawApplication();
-  const cancel = useCancelApplication();
-
-  const [body, setBody] = useState('');
-
-  if (isLoading) return <ContentLayout title="Loading…"><p className="text-sm text-muted-foreground">Loading application…</p></ContentLayout>;
-  if (!app) return <ContentLayout title="Not found"><p className="text-sm text-muted-foreground">Application not found.</p></ContentLayout>;
-
-  const onPost = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!body.trim()) return;
-    await addComment.mutateAsync({ applicationId: id, body: body.trim() });
-    setBody('');
-  };
+  const id =
+    typeof params.id === 'string'
+      ? params.id
+      : Array.isArray(params.id)
+        ? params.id[0]
+        : '';
 
   return (
-    <ContentLayout title="Leave Application">
+    <ContentLayout title="Leave Request">
       <Breadcrumb>
         <BreadcrumbList>
-          <BreadcrumbItem><BreadcrumbLink asChild><Link href="/hr">HR</Link></BreadcrumbLink></BreadcrumbItem>
+          <BreadcrumbItem>
+            <BreadcrumbLink asChild><Link href="/hr">HR</Link></BreadcrumbLink>
+          </BreadcrumbItem>
           <BreadcrumbSeparator />
-          <BreadcrumbItem><BreadcrumbLink asChild><Link href="/hr/leave">Leave</Link></BreadcrumbLink></BreadcrumbItem>
+          <BreadcrumbItem>
+            <BreadcrumbLink asChild><Link href="/hr/leave/requests">Leave</Link></BreadcrumbLink>
+          </BreadcrumbItem>
           <BreadcrumbSeparator />
-          <BreadcrumbItem><BreadcrumbPage>{app.start_date} → {app.end_date}</BreadcrumbPage></BreadcrumbItem>
+          <BreadcrumbItem><BreadcrumbPage>Request</BreadcrumbPage></BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div className="mt-6 space-y-4 max-w-3xl">
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base">Application Details</CardTitle>
-              <Badge>{LEAVE_STATUS_LABELS[app.status]}</Badge>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <div className="grid grid-cols-2 gap-3">
-              <div><span className="text-muted-foreground">Dates:</span> <span className="font-medium">{app.start_date} → {app.end_date}</span></div>
-              <div><span className="text-muted-foreground">Duration:</span> <span className="font-medium">{LEAVE_DURATION_LABELS[app.duration_type]}</span></div>
-              <div><span className="text-muted-foreground">Total days:</span> <span className="font-medium">{app.total_days}</span></div>
-              <div><span className="text-muted-foreground">Emergency:</span> <span className="font-medium">{app.is_emergency ? 'Yes' : 'No'}</span></div>
-              <div><span className="text-muted-foreground">Employee:</span> <span className="font-mono text-xs">{app.employee_id}</span></div>
-              <div><span className="text-muted-foreground">Applied by:</span> <span className="font-mono text-xs">{app.applied_by}</span></div>
-              <div><span className="text-muted-foreground">Created:</span> {new Date(app.created_at).toLocaleString()}</div>
-              {app.final_decided_at && (
-                <div><span className="text-muted-foreground">Decided:</span> {new Date(app.final_decided_at).toLocaleString()}</div>
-              )}
-            </div>
-            <div>
-              <div className="text-muted-foreground mb-1">Reason</div>
-              <p className="whitespace-pre-wrap">{app.reason}</p>
-            </div>
-            <div className="sm:col-span-2">
-              {/* The applicant's own view of what they attached — and, for an
-                  emergency filed empty, the reminder that it is still owed. */}
-              <LeaveDocumentList
-                documents={app.documents}
-                outstanding={(app.documents?.length ?? 0) === 0 && !!app.is_emergency}
-              />
-            </div>
-            {app.rejection_reason && (
-              <div className="text-red-700 dark:text-red-400">
-                <div className="mb-1">Rejection Reason</div>
-                <p className="whitespace-pre-wrap">{app.rejection_reason}</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader><CardTitle className="text-sm">Approval Chain (frozen at apply-time)</CardTitle></CardHeader>
-          <CardContent>
-            {/* Same component as the approver's detail sheet, so the applicant
-                and the approver read one chain, not two renderings of it. */}
-            <ApprovalChainTimeline app={app} />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader><CardTitle className="text-sm">Discussion</CardTitle></CardHeader>
-          <CardContent className="space-y-3">
-            {comments && comments.length > 0 ? (
-              <div className="space-y-2">
-                {comments.map((c) => (
-                  <div key={c.id} className="border-l-2 border-muted pl-3 py-1">
-                    <p className="text-sm">{c.comment}</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {new Date(c.created_at).toLocaleString()}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">No comments yet.</p>
-            )}
-
-            <form onSubmit={onPost} className="space-y-2 pt-2 border-t">
-              <Textarea
-                value={body}
-                onChange={(e) => setBody(e.target.value)}
-                rows={2}
-                placeholder="Add a comment…"
-              />
-              <Button type="submit" size="sm" disabled={!body.trim() || addComment.isPending}>
-                Post Comment
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-
-        <div className="flex gap-2">
-          {app.status === 'pending' && (
-            <Button variant="outline" onClick={() => withdraw.mutate(id)} disabled={withdraw.isPending}>
-              Withdraw
-            </Button>
-          )}
-          {app.status === 'approved' && !app.superseded_by && (
-            <Button variant="outline" onClick={() => cancel.mutate(id)} disabled={cancel.isPending}>
-              Cancel (restore balance)
-            </Button>
-          )}
-        </div>
-      </div>
+      <Card className="mt-6 max-w-3xl">
+        <CardContent className="p-6">
+          <LeaveRequestDetail applicationId={id} />
+        </CardContent>
+      </Card>
     </ContentLayout>
   );
 }

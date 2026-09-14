@@ -119,6 +119,8 @@ export default function RequiredDocumentsPage() {
       const { data, error } = await sb
         .from('hr_organizations')
         .select('id, name')
+        // Excluded institutions are not part of the HR module.
+        .eq('included_in_hr', true)
         .order('name');
       if (!active) return;
       if (error) {

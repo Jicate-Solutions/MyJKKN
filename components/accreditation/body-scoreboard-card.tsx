@@ -58,9 +58,19 @@ export function BodyScoreboardCard({ meta, scoreboard, isLoading }: BodyScoreboa
             <div className="h-10 w-full animate-pulse rounded bg-muted" />
           ) : scoreboard ? (
             <div className="space-y-1.5">
+              {/*
+                "N of M metrics", never a bare "N". The catalogue is not evenly
+                populated — NAAC holds 69 active metrics and AICTE holds 1 — so
+                a percentage on its own tells a reader nothing about how much
+                was asked. The denominator travels with the ratio on every
+                card, including the well-populated ones: a caveat that shows up
+                only on thin bodies reads as an all-clear everywhere else.
+              */}
               <div className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground">Metrics seeded</span>
-                <span className="font-medium">{scoreboard.metrics_seeded}</span>
+                <span className="text-muted-foreground">Metrics with evidence</span>
+                <span className="font-medium">
+                  {scoreboard.metrics_with_evidence} of {scoreboard.metrics_seeded}
+                </span>
               </div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">Evidence rows</span>

@@ -1,48 +1,41 @@
 // ============================================================================
-// The Pending tab must be able to hold a row, and Approve/Reject must be able
-// to write one.
+// The gate-pass flow must be able to write what it claims to write.
 //
-// /campus-living/gate-passes opens on a "Pending" tab — it is the DEFAULT
-// landing view for every warden. It has a count card, a tab badge, an Approve
-// button and a Reject button with a mandatory-reason dialog. None of it could
-// ever do anything:
+// Every column this service names has to exist, every status has to be a label
+// the enum holds, and every NOT NULL column has to be supplied or relaxed.
+// Get any of those wrong and the failure is SILENT in the way this stack
+// specialises in: PGRST204 on a phantom column, 22P02 on an impossible enum
+// label, 23502 on a missing required one — all arriving in `{ error }` that a
+// fire-and-forget caller never reads, leaving a queue that is empty and a
+// queue that is broken looking identical.
 //
-//   • requestGatePass wrote status = 'requested'. gate_pass_status_enum held
-//     exactly issued|active|returned|overdue|cancelled, so every submit died
-//     on 22P02 before reaching a constraint.
-//   • the same insert omitted pass_number, qr_code and approved_by — all three
-//     NOT NULL with no default — so with the enum fixed it would then die
-//     on 23502.
-//   • requestGatePass wrote `reason`, rejectGatePass wrote `rejected_by` +
-//     `rejection_reason`, cancelGatePass wrote `cancelled_by` +
-//     `cancellation_reason`. None of the five were columns → PGRST204.
-//   • getPendingRequests filtered on that impossible status, so the queue
-//     returned [] forever. An empty queue and a broken queue look identical.
+// That is not hypothetical here. hostel_gate_passes sat at ZERO rows for a
+// year because `requestGatePass` wrote a status the enum did not have, and the
+// Pending tab filtered on that same impossible value.
 //
 // WHY THIS IS NOT SELF-AGREEMENT
 // ------------------------------
-// The two anchors below are NOT copied from the code under test:
+// The anchors below are NOT copied from the code under test:
 //
 //   LIVE_COLUMNS / LIVE_ENUM_LABELS / LIVE_NOT_NULL_NO_DEFAULT are the schema
-//   as it stands on production TODAY — the same 18-column set the sibling
-//   suite gate-pass-create-payload.test.tsx read from information_schema on
-//   2026-08-14, and the enum from 20260222000015 line 134.
-//
-//   LIVE_UPDATE_POLICY is the live RLS expression captured in
-//   rls_initplan_wrap_sweep.sql line 2324.
+//   as it stood on production immediately BEFORE this rebuild, read from
+//   information_schema and pg_enum on 2026-09-12.
 //
 // Everything the service is allowed to name must be in that live schema OR
-// declared by the migration file this PR ships. The migration is PARSED, not
-// assumed — so deleting it, or shipping one that forgets a column, turns these
-// tests red. Verified as a negative control by moving the migration aside and
-// re-running: 8 of 13 fail, each naming the exact missing piece.
+// declared by the rebuild migration this PR ships. The migration is PARSED
+// from disk, not assumed — so deleting it, or shipping one that forgets a
+// column, turns these tests red.
 // ============================================================================
 
 import { existsSync, readFileSync } from 'fs';
 import path from 'path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// ── Anchor 1: the live schema of public.hostel_gate_passes ──────────────────
+// ── Anchor 1: public.hostel_gate_passes BEFORE the rebuild migration ────────
+// Read from information_schema 2026-09-12. The five request-workflow columns
+// (reason, rejected_by, rejection_reason, cancelled_by, cancellation_reason)
+// are present because 20260907020000 IS applied, despite its file header
+// still saying "NOT APPLIED — FILE ONLY".
 const LIVE_COLUMNS = [
   'id',
   'institution_id',
@@ -62,31 +55,38 @@ const LIVE_COLUMNS = [
   'parent_notified',
   'created_at',
   'updated_at',
+  'reason',
+  'rejected_by',
+  'rejection_reason',
+  'cancelled_by',
+  'cancellation_reason',
 ];
 
-// public.gate_pass_status_enum, 20260222000015 line 134.
-const LIVE_ENUM_LABELS = ['issued', 'active', 'returned', 'overdue', 'cancelled'];
+// public.gate_pass_status_enum, all seven labels, read from pg_enum 2026-09-12.
+const LIVE_ENUM_LABELS = [
+  'requested',
+  'issued',
+  'active',
+  'returned',
+  'overdue',
+  'cancelled',
+  'rejected',
+];
 
-// NOT NULL, no default. A row that omits any of these raises 23502.
+// NOT NULL, no default, before the rebuild. pass_number / qr_code /
+// approved_by are already nullable — 20260907020000 relaxed them.
 const LIVE_NOT_NULL_NO_DEFAULT = [
   'institution_id',
   'learner_id',
   'pass_type',
-  'pass_number',
   'expected_return',
   'destination',
-  'approved_by',
-  'qr_code',
 ];
-
-// The live UPDATE policy admits exactly one permission. The 2026-08-06 audit
-// quoted in 20260903041500 measured ZERO holders of it.
-const LIVE_UPDATE_POLICY_PERMISSION = 'campus_living.gate_passes.edit';
 
 // ── Anchor 2: what this PR's migration declares ─────────────────────────────
 const MIGRATION_PATH = path.resolve(
   process.cwd(),
-  'supabase/migrations/20260907020000_gate_pass_request_workflow.sql',
+  'supabase/migrations/20260912120000_gate_pass_rebuild.sql',
 );
 
 const migrationSql = existsSync(MIGRATION_PATH) ? readFileSync(MIGRATION_PATH, 'utf8') : '';
@@ -95,12 +95,11 @@ function matchAll(source: string, rx: RegExp) {
   return [...source.matchAll(rx)].map((m) => m[1]);
 }
 
-const ADDED_ENUM_LABELS = matchAll(migrationSql, /ADD VALUE IF NOT EXISTS '([a-z_]+)'/g);
 const ADDED_COLUMNS = matchAll(migrationSql, /ADD COLUMN IF NOT EXISTS\s+(\w+)/g);
 const RELAXED_COLUMNS = matchAll(migrationSql, /ALTER COLUMN\s+(\w+)\s+DROP NOT NULL/g);
 
 const WRITABLE_COLUMNS = new Set([...LIVE_COLUMNS, ...ADDED_COLUMNS]);
-const VALID_STATUSES = new Set([...LIVE_ENUM_LABELS, ...ADDED_ENUM_LABELS]);
+const VALID_STATUSES = new Set(LIVE_ENUM_LABELS);
 const STILL_REQUIRED = LIVE_NOT_NULL_NO_DEFAULT.filter((c) => !RELAXED_COLUMNS.includes(c));
 
 // ── A recording stand-in for the Supabase client ────────────────────────────
@@ -125,9 +124,15 @@ function builderFor(rec: Recorded) {
       rec.filters.push([col, val]);
       return b;
     },
-    in: chain,
+    in: (col: string, val: unknown) => {
+      rec.filters.push([col, val]);
+      return b;
+    },
+    is: chain,
     gte: chain,
     lte: chain,
+    lt: chain,
+    limit: chain,
     order: chain,
     range: chain,
     single: async () => result(),
@@ -181,48 +186,46 @@ import {
 const PASSES = 'hostel_gate_passes';
 const pick = (op: Recorded['op']) => recorded.find((r) => r.table === PASSES && r.op === op)!;
 
+/** A type with no policy limits — the rules themselves are tested separately. */
+const NO_LIMITS = {
+  advance_notice_hours: null,
+  default_max_duration_days: null,
+  requires_attachment: false,
+};
+
 const REQUEST_INPUT = {
   institution_id: 'inst-uuid-0001',
   learner_id: 'learners-profiles-uuid-0001',
-  pass_type: 'regular_out',
-  expected_return: '2026-09-08T18:30:00.000Z',
+  leave_type_id: 'leave-type-uuid-0001',
   destination: '  Salem, parental home  ',
   reason: '  Family function  ',
+  planned_out_at: '2026-09-13T04:30:00.000Z',
+  expected_return: '2026-09-14T13:00:00.000Z',
+  transport_mode: '  College bus  ',
+  accompanying_person: '  Father — R. Kumar  ',
 };
 
 beforeEach(() => {
   recorded = [];
   rowByTable = {
     profiles: { id: 'profiles-uuid-0001' },
+    hostel_allocations: { block_id: 'block-uuid-0001' },
     [PASSES]: { id: 'pass-uuid-0001', status: 'issued' },
   };
 });
 
 describe('the status vocabulary the workflow runs on', () => {
-  it('adds the two labels the enum is missing, so a request can exist at all', () => {
-    expect(
-      VALID_STATUSES.has(GATE_PASS_REQUESTED),
-      `'${GATE_PASS_REQUESTED}' is not a gate_pass_status_enum label and no migration adds it — ` +
-        `every request insert raises 22P02. Live labels: ${LIVE_ENUM_LABELS.join(', ')}`,
-    ).toBe(true);
-    expect(
-      VALID_STATUSES.has(GATE_PASS_REJECTED),
-      `'${GATE_PASS_REJECTED}' is not a gate_pass_status_enum label and no migration adds it — ` +
-        `the Reject button can never record its decision.`,
-    ).toBe(true);
-  });
-
-  it('does not silently rely on a label that only the TypeScript layer believes in', () => {
-    // Both constants are NEW vocabulary — if either were already live, this
-    // whole PR would be unnecessary and the test would be asserting nothing.
-    expect(LIVE_ENUM_LABELS).not.toContain(GATE_PASS_REQUESTED);
-    expect(LIVE_ENUM_LABELS).not.toContain(GATE_PASS_REJECTED);
+  it('uses only labels the enum actually holds', () => {
+    // Both were added by 20260907020000 and ARE live — verified against
+    // pg_enum on 2026-09-12. An insert naming anything else dies on 22P02.
+    expect(VALID_STATUSES.has(GATE_PASS_REQUESTED)).toBe(true);
+    expect(VALID_STATUSES.has(GATE_PASS_REJECTED)).toBe(true);
   });
 });
 
 describe('requestGatePass — a learner asking for a pass', () => {
   it('names no key that is not a column on hostel_gate_passes', async () => {
-    await GatePassService.requestGatePass(REQUEST_INPUT);
+    await GatePassService.requestGatePass(REQUEST_INPUT, NO_LIMITS);
 
     const phantom = Object.keys(pick('insert').payload).filter((k) => !WRITABLE_COLUMNS.has(k));
     expect(
@@ -232,19 +235,18 @@ describe('requestGatePass — a learner asking for a pass', () => {
   });
 
   it('writes a status the column can hold', async () => {
-    await GatePassService.requestGatePass(REQUEST_INPUT);
+    await GatePassService.requestGatePass(REQUEST_INPUT, NO_LIMITS);
 
     const status = pick('insert').payload.status as string;
     expect(VALID_STATUSES.has(status), `status '${status}' is not a valid enum label`).toBe(true);
     expect(status).toBe(GATE_PASS_REQUESTED);
   });
 
-  it('omits pass_number, qr_code and approved_by — and the migration makes that legal', async () => {
-    await GatePassService.requestGatePass(REQUEST_INPUT);
+  it('omits pass_number and approved_by — a request has neither', async () => {
+    await GatePassService.requestGatePass(REQUEST_INPUT, NO_LIMITS);
     const payload = pick('insert').payload;
 
-    // A pass that has only been asked for genuinely has none of the three.
-    for (const col of ['pass_number', 'qr_code', 'approved_by']) {
+    for (const col of ['pass_number', 'approved_by', 'qr_code']) {
       expect(payload).not.toHaveProperty(col);
     }
 
@@ -256,8 +258,18 @@ describe('requestGatePass — a learner asking for a pass', () => {
     ).toEqual([]);
   });
 
+  it('classifies by leave_type_id, the list the settings screen configures', async () => {
+    await GatePassService.requestGatePass(REQUEST_INPUT, NO_LIMITS);
+    const payload = pick('insert').payload;
+
+    expect(payload.leave_type_id).toBe('leave-type-uuid-0001');
+    // pass_type is the retired 4-value enum. Writing it would re-introduce a
+    // second, disagreeing classification.
+    expect(payload).not.toHaveProperty('pass_type');
+  });
+
   it('resolves the picker id into the profiles id the FK and the RLS lane both need', async () => {
-    await GatePassService.requestGatePass(REQUEST_INPUT);
+    await GatePassService.requestGatePass(REQUEST_INPUT, NO_LIMITS);
 
     // learner_id is FK'd to profiles(id), and the resident INSERT policy
     // compares learner_id = auth.uid(). Passing the picker's
@@ -266,39 +278,65 @@ describe('requestGatePass — a learner asking for a pass', () => {
     expect(recorded.some((r) => r.table === 'profiles')).toBe(true);
   });
 
+  it('stamps the block from the active allocation, for the gate audit log', async () => {
+    await GatePassService.requestGatePass(REQUEST_INPUT, NO_LIMITS);
+
+    // hostel_access_log.block_id is NOT NULL; without this stamp the gate
+    // scan has nothing to attribute the movement to.
+    expect(pick('insert').payload.block_id).toBe('block-uuid-0001');
+  });
+
   it('trims the free text the learner typed', async () => {
-    await GatePassService.requestGatePass(REQUEST_INPUT);
+    await GatePassService.requestGatePass(REQUEST_INPUT, NO_LIMITS);
     const payload = pick('insert').payload;
 
     expect(payload.destination).toBe('Salem, parental home');
     expect(payload.reason).toBe('Family function');
+    expect(payload.transport_mode).toBe('College bus');
+    expect(payload.accompanying_person).toBe('Father — R. Kumar');
+  });
+
+  it('re-checks the leave-type rules before inserting, not only on the form', async () => {
+    // The form is a courtesy. This is the boundary — a learner who bypasses
+    // the UI must hit the same refusal.
+    await expect(
+      GatePassService.requestGatePass(REQUEST_INPUT, {
+        ...NO_LIMITS,
+        requires_attachment: true,
+      }),
+    ).rejects.toThrow(/supporting document/i);
+
+    expect(recorded.some((r) => r.table === PASSES && r.op === 'insert')).toBe(false);
   });
 });
 
 describe('approveGatePass — the Approve button', () => {
   it('names no key that is not a column', async () => {
-    rowByTable[PASSES] = { id: 'pass-uuid-0001', status: 'issued' };
     await GatePassService.approveGatePass('pass-uuid-0001', 'warden-uuid-0001');
 
     const phantom = Object.keys(pick('update').payload).filter((k) => !WRITABLE_COLUMNS.has(k));
     expect(phantom, `not columns: ${phantom.join(', ')}`).toEqual([]);
   });
 
-  it('fills the three fields the issued-pass CHECK now demands', async () => {
+  it('fills what the issued-pass CHECK demands, and nothing it does not', async () => {
     await GatePassService.approveGatePass('pass-uuid-0001', 'warden-uuid-0001');
     const payload = pick('update').payload;
 
     expect(payload.status).toBe('issued');
     expect(payload.approved_by).toBe('warden-uuid-0001');
     expect(payload.pass_number).toBeTruthy();
-    expect(payload.qr_code).toBeTruthy();
+    expect(payload.approved_at).toBeTruthy();
+
+    // No per-pass QR any more: the gate scans the learner's permanent MyJKKN
+    // QR. Generating one would be dead data, and the CHECK no longer wants it.
+    expect(payload).not.toHaveProperty('qr_code');
   });
 
   it('only acts on a row that is still pending', async () => {
     await GatePassService.approveGatePass('pass-uuid-0001', 'warden-uuid-0001');
 
     // Without this filter a second click on a stale tab re-issues an already
-    // active pass a NEW qr_code, invalidating the one the learner is carrying.
+    // active pass a NEW pass_number, invalidating the learner's reference.
     expect(pick('update').filters).toContainEqual(['status', GATE_PASS_REQUESTED]);
   });
 
@@ -319,13 +357,18 @@ describe('rejectGatePass — the Reject button', () => {
     expect(phantom, `not columns: ${phantom.join(', ')}`).toEqual([]);
   });
 
-  it('records who refused, why, and a status the column can hold', async () => {
-    await GatePassService.rejectGatePass('pass-uuid-0001', 'warden-uuid-0001', '  Exams this week  ');
+  it('records who refused, when, why, and a status the column can hold', async () => {
+    await GatePassService.rejectGatePass(
+      'pass-uuid-0001',
+      'warden-uuid-0001',
+      '  Exams this week  ',
+    );
     const payload = pick('update').payload;
 
     expect(VALID_STATUSES.has(payload.status as string)).toBe(true);
     expect(payload.status).toBe(GATE_PASS_REJECTED);
     expect(payload.rejected_by).toBe('warden-uuid-0001');
+    expect(payload.rejected_at).toBeTruthy();
     expect(payload.rejection_reason).toBe('Exams this week');
   });
 
@@ -337,9 +380,37 @@ describe('rejectGatePass — the Reject button', () => {
   });
 });
 
+describe('recordParentCall — the phone call, recorded', () => {
+  it('stores WHICH number was dialled, not just that somebody was called', async () => {
+    await GatePassService.recordParentCall('pass-uuid-0001', 'warden-uuid-0001', '9876543210');
+    const payload = pick('update').payload;
+
+    // A learner has three numbers on file. "A parent was contacted" without
+    // naming one is not a record anybody can act on later.
+    expect(payload.parent_confirmed_number).toBe('9876543210');
+    expect(payload.parent_confirmed_by).toBe('warden-uuid-0001');
+    expect(payload.parent_confirmed_at).toBeTruthy();
+
+    const phantom = Object.keys(payload).filter((k) => !WRITABLE_COLUMNS.has(k));
+    expect(phantom, `not columns: ${phantom.join(', ')}`).toEqual([]);
+  });
+});
+
+describe('cancelGatePass — withdrawing a pass', () => {
+  it('cannot rewrite closed history', async () => {
+    await GatePassService.cancelGatePass('pass-uuid-0001', 'warden-uuid-0001', 'Plans changed');
+
+    // Before the rebuild this had no status filter at all and would happily
+    // "cancel" a pass the learner had already returned on.
+    const statusFilter = pick('update').filters.find(([col]) => col === 'status');
+    expect(statusFilter, 'cancel does not scope by status — it can rewrite a closed pass').toBeTruthy();
+    expect(statusFilter![1]).toEqual(['requested', 'issued']);
+  });
+});
+
 describe('getPendingRequests — what fills the tab', () => {
   it('filters on a status a row can actually hold', async () => {
-    await GatePassService.getPendingRequests('inst-uuid-0001');
+    await GatePassService.getPendingRequests(['inst-uuid-0001']);
 
     const statusFilter = pick('select').filters.find(([col]) => col === 'status');
     expect(statusFilter, 'the pending queue does not filter on status at all').toBeTruthy();
@@ -348,67 +419,96 @@ describe('getPendingRequests — what fills the tab', () => {
       `the queue filters on '${statusFilter![1]}', which no row can ever hold — the tab stays empty forever`,
     ).toBe(true);
   });
+
+  it('scopes to the institutions it was given, without an isSuperAdmin branch', async () => {
+    await GatePassService.getPendingRequests(['inst-a', 'inst-b']);
+
+    // Passing accessible ids through — rather than dropping the filter for a
+    // super admin — is what keeps a scope='all' secondary role working.
+    expect(pick('select').filters).toContainEqual(['institution_id', ['inst-a', 'inst-b']]);
+  });
 });
 
-describe('the migration keeps the write lane open for the people who decide', () => {
-  it('admits approve and reject without closing the lane that already exists', () => {
+describe('the rebuild migration matches what the service assumes', () => {
+  it('adds every column the service writes but the live schema lacks', () => {
+    const needed = [
+      'leave_type_id',
+      'block_id',
+      'planned_out_at',
+      'transport_mode',
+      'accompanying_person',
+      'attachment_url',
+      'approved_at',
+      'rejected_at',
+      'parent_confirmed_at',
+      'parent_confirmed_by',
+      'parent_confirmed_number',
+    ];
+    const missing = needed.filter((c) => !ADDED_COLUMNS.includes(c));
     expect(
-      migrationSql.includes('campus_living.gate_passes.approve'),
-      'the UPDATE policy still does not admit .approve — every Approve click updates 0 rows and reports success',
-    ).toBe(true);
-    expect(
-      migrationSql.includes('campus_living.gate_passes.reject'),
-      'the UPDATE policy still does not admit .reject',
-    ).toBe(true);
-    expect(
-      migrationSql.includes(LIVE_UPDATE_POLICY_PERMISSION),
-      `the replacement policy dropped the live lane ${LIVE_UPDATE_POLICY_PERMISSION}`,
-    ).toBe(true);
+      missing,
+      `the migration does not add these, so every write naming them raises PGRST204: ${missing.join(', ')}`,
+    ).toEqual([]);
   });
 
-  it('keeps the issued-pass guarantee the dropped NOT NULLs used to carry', () => {
-    expect(RELAXED_COLUMNS.sort()).toEqual(['approved_by', 'pass_number', 'qr_code']);
+  it('makes pass_type optional, since nothing writes it any more', () => {
+    expect(
+      RELAXED_COLUMNS,
+      'pass_type is still NOT NULL — every request insert would fail on 23502',
+    ).toContain('pass_type');
+  });
+
+  it('drops qr_code from the issued-pass CHECK, since no pass generates one', () => {
     expect(
       migrationSql.includes('hostel_gate_passes_issued_pass_is_complete'),
-      'nothing replaces the NOT NULLs — an issued pass could exist with no QR code and no guard would find out until midnight',
+      'the issued-pass CHECK is gone entirely — an issued pass could exist with no number and no approver',
+    ).toBe(true);
+
+    // Line endings in this repo are MIXED per file and git rewrites them on
+    // checkout, so the slice must never anchor on a literal '\n'.
+    const checkExpr =
+      /ADD CONSTRAINT\s+hostel_gate_passes_issued_pass_is_complete\s+CHECK\s*\(([\s\S]*?)\);/.exec(
+        migrationSql,
+      )?.[1] ?? '';
+    expect(checkExpr, 'could not locate the CHECK expression in the migration').not.toBe('');
+    expect(
+      checkExpr.includes('qr_code'),
+      'the CHECK still requires qr_code, so approval fails on 23514 for a pass that correctly has none',
+    ).toBe(false);
+    expect(checkExpr).toContain('pass_number');
+    expect(checkExpr).toContain('approved_by');
+  });
+
+  it('grants the leave-type read the learner form depends on', () => {
+    // hostel_leave_types SELECT requires campus_living.leave_types.view, and
+    // `student` did not hold it. Without this the type dropdown renders empty
+    // with no error at all.
+    expect(
+      migrationSql.includes('campus_living.leave_types.view'),
+      'nothing grants leave_types.view — the learner sees an empty type dropdown and no error',
+    ).toBe(true);
+    expect(migrationSql).toMatch(/permissions\s*\|\|\s*jsonb_build_object/);
+    // A bare jsonb_build_object REPLACES the whole permissions object.
+    expect(migrationSql).not.toMatch(/SET permissions\s*=\s*jsonb_build_object/);
+  });
+
+  it('indexes the lookup the gate runs on every single scan', () => {
+    expect(
+      migrationSql.includes('idx_hgp_learner_status'),
+      'learner_id + status is unindexed, and it is the query every gate scan makes',
     ).toBe(true);
   });
 
-  it('never casts a label it added in the same file, so it can be rehearsed in a transaction', () => {
-    // ALTER TYPE ... ADD VALUE forbids USING the new value in the same
-    // transaction. The two places Postgres would coerce a literal to
-    // gate_pass_status_enum are the CHECK expression and the policy body; a
-    // label there would abort any BEGIN ... ROLLBACK review rehearsal while
-    // still working unwrapped — a difference that only shows up on production.
-    // (Comparisons against pg_enum.enumlabel::text are text, never a cast.)
-    const checkExpr = migrationSql.slice(
-      migrationSql.indexOf('CHECK ('),
-      migrationSql.indexOf('END $$;', migrationSql.indexOf('CHECK (')),
-    );
-    const policyStart = migrationSql.indexOf('CREATE POLICY hostel_gate_passes_update_permission');
-    const policyExpr = migrationSql.slice(policyStart, migrationSql.indexOf('\n);', policyStart));
-
-    expect(checkExpr, 'the issued-pass CHECK is not in the file at all').toContain('status NOT IN');
-
-    for (const label of ADDED_ENUM_LABELS) {
-      expect(
-        checkExpr.includes(`'${label}'`),
-        `the CHECK names '${label}', a label added by this same file — that raises 55000 in a transaction`,
-      ).toBe(false);
-      expect(
-        policyExpr.includes(`'${label}'`),
-        `the UPDATE policy names '${label}', a label added by this same file`,
-      ).toBe(false);
-      expect(
-        migrationSql.includes(`'${label}'::`),
-        `the file casts '${label}' to a type explicitly`,
-      ).toBe(false);
-    }
+  it('contains no transaction block — exec_sql EXECUTEs inside a function', () => {
+    // scripts/apply-migration-file.mjs ships the body through
+    // public.exec_sql(), where BEGIN/COMMIT is a syntax error.
+    expect(migrationSql).not.toMatch(/^\s*BEGIN;\s*$/m);
+    expect(migrationSql).not.toMatch(/^\s*COMMIT;\s*$/m);
   });
 });
 
 describe('the detail page reads only fields its own query produces', () => {
-  it('touches no property that is neither a column nor an embed', () => {
+  it('touches no property that is neither a column nor a resolved name', () => {
     const pagePath = path.resolve(
       process.cwd(),
       'app/(routes)/campus-living/gate-passes/[id]/page.tsx',
@@ -420,12 +520,11 @@ describe('the detail page reads only fields its own query produces', () => {
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/^\s*\/\/.*$/gm, '');
 
-    // getGatePass selects '*' plus two embeds. Anything else the page reads off
-    // `pass` is undefined on a real row — and `.map`/`.name` on undefined is a
-    // crash, not a blank. hostel_gate_passes held zero rows, so nobody hit it.
-    const allowed = new Set([...WRITABLE_COLUMNS, 'learner', 'hostel_leave_requests']);
+    // getGatePassDetail returns the row plus embeds. Anything else the page
+    // reads off `pass` is undefined on a real row — and `.map`/`.name` on
+    // undefined is a crash, not a blank.
+    const allowed = new Set([...WRITABLE_COLUMNS, 'learner', 'leave_type']);
 
-    // Property reads only — skip `pass.foo(` style calls, there are none.
     const read = [...source.matchAll(/\bpass\.(\w+)/g)].map((m) => m[1]);
     const invented = [...new Set(read)].filter((p) => !allowed.has(p));
 

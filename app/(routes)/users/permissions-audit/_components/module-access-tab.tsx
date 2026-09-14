@@ -43,8 +43,10 @@ import {
   getDisplayNameForModuleKey,
 } from '@/lib/permissions-audit/module-mappings';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { AssignUserDialog } from './assign-user-dialog';
 import { CreateScopedRoleDialog } from './create-scoped-role-dialog';
+import { ModulePageTree } from './module-page-tree';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -205,7 +207,20 @@ function verbFor(action: string): VerbStyle {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
+/**
+ * The two ways to read one module's access.
+ *
+ * 'pages'   — page → tabs → controls, with the roles that reach each. This is
+ *             the question people actually arrive with ("who sees the Approvals
+ *             tab?"), so it is the default.
+ * 'actions' — the original key-centric grid: every permission key in the
+ *             module, grouped by action verb. Still the right view for "who
+ *             holds <key>", and for spotting keys no page references.
+ */
+const VIEWS = ['pages', 'actions'] as const;
+
 export function ModuleAccessTab() {
+  const [view, setView] = useTabParam<(typeof VIEWS)[number]>('pages', VIEWS, 'view');
   const [data, setData] = useState<MatrixData | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -406,6 +421,9 @@ export function ModuleAccessTab() {
     setSubmodule('__all__');
     setActionFilter(action);
     setPickerOpen(false);
+    // An action scope only means something in the key-centric view, so picking
+    // one switches to it rather than silently doing nothing on the page tree.
+    setView('actions');
   };
 
   // Sub-modules for the selected module
@@ -571,12 +589,35 @@ export function ModuleAccessTab() {
                 Module → Roles (Inverse Access Lens)
               </CardTitle>
               <p className='text-xs text-muted-foreground mt-1'>
-                Pick a module (and optional sub-module) to see exactly which roles can view,
-                create, edit, or delete. User counts shown per role; click a role to open it
-                in User Resolver.
+                Pick a module, then read it either way:{' '}
+                <span className='font-medium text-foreground'>Pages</span> walks every screen
+                in the module down to its tabs and table actions;{' '}
+                <span className='font-medium text-foreground'>Actions</span> groups the
+                module&rsquo;s permission keys by verb. User counts shown per role; click a
+                role to open it in User Resolver.
               </p>
             </div>
             <div className='flex flex-wrap items-center gap-3'>
+              {/* Sub-view toggle. Mirrored to ?view= so a page-level finding is
+                  a shareable link, the same way ?tab= makes each audit tab one. */}
+              <div className='inline-flex rounded-md border p-0.5'>
+                {VIEWS.map((v) => (
+                  <button
+                    key={v}
+                    type='button'
+                    onClick={() => setView(v)}
+                    aria-pressed={view === v}
+                    className={`rounded px-3 py-1 text-xs capitalize transition-colors ${
+                      view === v
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {v}
+                  </button>
+                ))}
+              </div>
+
               <div className='flex items-center gap-2'>
                 <span className='text-xs text-muted-foreground whitespace-nowrap'>
                   Module
@@ -648,7 +689,7 @@ export function ModuleAccessTab() {
                 </Popover>
               </div>
 
-              {submodules.length > 1 && (
+              {view === 'actions' && submodules.length > 1 && (
                 <div className='flex items-center gap-2'>
                   <span className='text-xs text-muted-foreground whitespace-nowrap'>
                     Sub-module
@@ -670,15 +711,17 @@ export function ModuleAccessTab() {
               )}
 
               <div className='ml-auto flex items-center gap-2'>
-                <Button
-                  size='sm'
-                  variant='outline'
-                  className='h-8 text-xs gap-1'
-                  onClick={exportCsv}
-                  disabled={actionKeys.length === 0}
-                >
-                  <Download className='h-3 w-3' /> Export CSV
-                </Button>
+                {view === 'actions' && (
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    className='h-8 text-xs gap-1'
+                    onClick={exportCsv}
+                    disabled={actionKeys.length === 0}
+                  >
+                    <Download className='h-3 w-3' /> Export CSV
+                  </Button>
+                )}
                 <Link href='/users/role-management'>
                   <Button size='sm' variant='outline' className='h-8 text-xs gap-1'>
                     Edit roles <ExternalLink className='h-3 w-3' />
@@ -697,7 +740,7 @@ export function ModuleAccessTab() {
                   <span className='font-medium text-foreground'>{submodule}</span>
                 </>
               )}
-              {actionFilter && (
+              {view === 'actions' && actionFilter && (
                 <>
                   {' '}
                   ›{' '}
@@ -713,16 +756,23 @@ export function ModuleAccessTab() {
                   </button>
                 </>
               )}
-              <span className='mx-2'>·</span>
-              {totalPerms} permission{totalPerms !== 1 ? 's' : ''} across{' '}
-              {actionKeys.length} action{actionKeys.length !== 1 ? 's' : ''}
+              {view === 'actions' && (
+                <>
+                  <span className='mx-2'>·</span>
+                  {totalPerms} permission{totalPerms !== 1 ? 's' : ''} across{' '}
+                  {actionKeys.length} action{actionKeys.length !== 1 ? 's' : ''}
+                </>
+              )}
             </div>
           </div>
         </CardHeader>
       </Card>
 
-      {/* Action cards */}
-      {actionKeys.length === 0 ? (
+      {view === 'pages' ? (
+        // key={module}: switching modules should reset the expanded rows and
+        // the filter, and remounting is how React expresses that.
+        <ModulePageTree key={module} moduleKey={module} />
+      ) : /* Action cards */ actionKeys.length === 0 ? (
         <Card>
           <CardContent className='flex items-center justify-center h-32 text-sm text-muted-foreground'>
             No permissions defined for this scope.

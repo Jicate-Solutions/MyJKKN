@@ -1,6 +1,8 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import {
+  useMutation, useQueries, useQuery, useQueryClient, type QueryClient,
+} from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { HRLeaveTypeService } from '@/lib/services/hr/leave-type-service';
 import type {
@@ -8,7 +10,10 @@ import type {
   HRLeaveTypeInsert,
   HRLeaveTypeUpdate,
 } from '@/types/hr-leave-types';
-import type { HRBalanceAdjustPayload } from '@/types/hr-leave-staff-balances';
+import type {
+  HRBalanceAdjustPayload,
+  HRLeaveMonthEntryPayload,
+} from '@/types/hr-leave-staff-balances';
 
 const KEY = 'hr-leave-types';
 const ANALYTICS_KEY = 'hr-leave-balance-analytics';
@@ -16,6 +21,8 @@ const STAFF_BALANCES_KEY = 'hr-leave-staff-balances';
 const CAN_APPROVE_KEY = 'hr-can-approve-leave';
 const STO_USAGE_KEY = 'hr-sto-usage';
 const LEAVE_PERIOD_USAGE_KEY = 'hr-leave-period-usage';
+const ACCRUED_AS_OF_KEY = 'hr-leave-accrued-as-of';
+const MONTHLY_LEDGER_KEY = 'hr-leave-monthly-ledger';
 
 /**
  * Refresh the per-period allowance figures the apply drawers quote.
@@ -31,9 +38,14 @@ const LEAVE_PERIOD_USAGE_KEY = 'hr-leave-period-usage';
  *
  * Every mutation that moves an application into or out of
  * ('pending','approved','escalated') must call this.
+ *
+ * The month-wise ledger belongs here for the same reason: it attributes each
+ * request to the month whose credit paid for it, so approving or withdrawing
+ * one re-orders the FIFO walk for every LATER request too — a stale ledger
+ * would keep showing days drawn from a month they no longer come from.
  */
 export function invalidateAllowanceViews(qc: QueryClient) {
-  for (const key of [STO_USAGE_KEY, LEAVE_PERIOD_USAGE_KEY]) {
+  for (const key of [STO_USAGE_KEY, LEAVE_PERIOD_USAGE_KEY, MONTHLY_LEDGER_KEY]) {
     qc.invalidateQueries({ queryKey: [key] });
   }
 }
@@ -88,12 +100,70 @@ export function useStaffLeaveBalances(
 }
 
 /**
+ * The month-by-month ledger behind one balance cell.
+ *
+ * `enabled` guards both ids: the RPC needs a staff member and a leave type, and
+ * firing it with nulls would surface a Postgres argument error as the panel's
+ * empty state. The year may be null — the RPC resolves "the year containing
+ * today" itself, exactly as the page-level year does.
+ *
+ * Returns [] rather than raising for comp-off and short-time-off types, which
+ * carry no day entitlement to divide into months.
+ */
+export function useLeaveMonthlyLedger(
+  staffId: string | null,
+  leaveTypeId: string | null,
+  hrAcademicYearId: string | null
+) {
+  const supabase = createClientSupabaseClient();
+  return useQuery({
+    queryKey: [MONTHLY_LEDGER_KEY, staffId, leaveTypeId, hrAcademicYearId],
+    queryFn: () =>
+      HRLeaveTypeService.getMonthlyLedger(
+        supabase,
+        staffId as string,
+        leaveTypeId as string,
+        hrAcademicYearId
+      ),
+    enabled: !!staffId && !!leaveTypeId,
+  });
+}
+
+/**
+ * Record or clear the days taken in one month.
+ *
+ * Invalidates the same three keys as useAdjustLeaveBalance, and for the same
+ * reason: in `add` mode this moves `used`, so the grid's available/used columns
+ * and the Analytics totals both go stale. The ledger key matters most — an
+ * entry re-orders the FIFO walk for every LATER month, so the rows the user is
+ * looking at change, not just the one they edited.
+ */
+export function useSetLeaveMonthEntry() {
+  const qc = useQueryClient();
+  const supabase = createClientSupabaseClient();
+  return useMutation({
+    mutationFn: (payload: HRLeaveMonthEntryPayload) =>
+      HRLeaveTypeService.setMonthEntry(supabase, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [MONTHLY_LEDGER_KEY] });
+      qc.invalidateQueries({ queryKey: [STAFF_BALANCES_KEY] });
+      qc.invalidateQueries({ queryKey: [ANALYTICS_KEY] });
+    },
+  });
+}
+
+/**
  * Correct one staff member's balance.
  *
  * Invalidates the analytics key as well as the staff key: an adjustment moves
  * the used/entitled totals and the covered-staff count that the Analytics tab
  * renders, so leaving it stale would show two different numbers for the same
  * year on two tabs of one page.
+ *
+ * The ledger key goes too, and it is the one most easily forgotten: writing
+ * `used` changes the opening adjustment (used minus the approved applications),
+ * which is drawn from the EARLIEST months — so a correction typed here
+ * re-attributes months the user is looking at, not just the total.
  */
 export function useAdjustLeaveBalance() {
   const qc = useQueryClient();
@@ -104,6 +174,7 @@ export function useAdjustLeaveBalance() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [STAFF_BALANCES_KEY] });
       qc.invalidateQueries({ queryKey: [ANALYTICS_KEY] });
+      qc.invalidateQueries({ queryKey: [MONTHLY_LEDGER_KEY] });
     },
   });
 }
@@ -197,6 +268,38 @@ export function useHardDeleteHRLeaveType() {
   });
 }
 
+/**
+ * ONE-OFF Casual Leave reset for 2026-2027 (migration 20260907140000).
+ *
+ * Invalidation is guarded on `vars.dryRun`, not on anything in the response:
+ * a dry run writes nothing whatever it returns, and a refusal comes back as a
+ * thrown RPC error rather than a payload with a marker in it. Same shape as
+ * useGenerateBalances — and the same trap documented on
+ * useHardDeleteHRLeaveType above.
+ *
+ * A real run rewrites balances, month entries AND rejects leave applications,
+ * so it has to reach further than the balance keys: the requests queue and the
+ * staff-facing leave pages read the applications it just decided.
+ */
+export function useResetCasualLeave2026_27() {
+  const qc = useQueryClient();
+  const supabase = createClientSupabaseClient();
+  return useMutation({
+    mutationFn: ({ dryRun }: { dryRun: boolean }) =>
+      HRLeaveTypeService.resetCasualLeave2026_27(supabase, dryRun),
+    onSuccess: (_data, vars) => {
+      if (vars.dryRun) return;
+      qc.invalidateQueries({ queryKey: [KEY] });
+      qc.invalidateQueries({ queryKey: [ANALYTICS_KEY] });
+      qc.invalidateQueries({ queryKey: [STAFF_BALANCES_KEY] });
+      qc.invalidateQueries({ queryKey: ['hr-leave-balance'] });
+      qc.invalidateQueries({ queryKey: ['hr-leave-staff-balances'] });
+      qc.invalidateQueries({ queryKey: ['hr-leave-applications'] });
+      qc.invalidateQueries({ queryKey: ['hr-leave-requests'] });
+    },
+  });
+}
+
 export function useGenerateBalances() {
   const qc = useQueryClient();
   const supabase = createClientSupabaseClient();
@@ -271,8 +374,58 @@ export function useStoUsage(
       HRLeaveTypeService.getStoUsage(
         supabase, employeeId!, leaveTypeId!, hrAcademicYearId, onDate
       ),
-    enabled: !!employeeId && !!leaveTypeId,
+    // The DATE is required, not optional. Without one the RPC falls back to
+    // CURRENT_DATE, so the drawer quoted THIS month's allowance while the user
+    // was picking a date in another — a figure hr_trig_sto_enforce_limits was
+    // never going to apply.
+    enabled: !!employeeId && !!leaveTypeId && !!onDate,
   });
+}
+
+/**
+ * Days accrued by the REQUEST's start date, not by today — for EVERY offered
+ * type, because the dropdown quotes a balance beside each one.
+ *
+ * trg_hla_balance_guard measures a request against fn_hr_leave_accrued_days at
+ * NEW.start_date, while v_hr_leave_balance can only report CURRENT_DATE. In
+ * September a staff member who has spent June, July and August reads "1 day
+ * available" — September's credit — and the drawer offered it for an August
+ * date the server then refused with 23514.
+ *
+ * Resolving only the SELECTED type left the same mismatch one step earlier: the
+ * list the choice is made FROM still quoted the view's CURRENT_DATE figure, so
+ * the type was picked against September and the card then corrected itself to
+ * August. One query per type, keyed exactly as a single lookup would be, so the
+ * card and the list share a cache entry instead of fetching the same number
+ * twice.
+ */
+export function useLeaveAccruedAsOfMany(
+  employeeId: string | undefined,
+  /** Every type the drawer offers, the selected one included. */
+  leaveTypeIds: string[],
+  hrAcademicYearId: string | null,
+  onDate?: string
+): Record<string, number> {
+  const supabase = createClientSupabaseClient();
+  const results = useQueries({
+    queries: leaveTypeIds.map((leaveTypeId) => ({
+      queryKey: [ACCRUED_AS_OF_KEY, employeeId, leaveTypeId, hrAcademicYearId, onDate ?? null],
+      queryFn: () =>
+        HRLeaveTypeService.getAccruedDays(
+          supabase, employeeId!, leaveTypeId, hrAcademicYearId, onDate
+        ),
+      enabled: !!employeeId && !!onDate,
+    })),
+  });
+
+  // Rebuilt each render rather than memoized: the id list is derived from the
+  // balance array and changes identity every render anyway, so a useMemo would
+  // recompute regardless while tripping the compiler's manual-memo rule.
+  const byType: Record<string, number> = {};
+  results.forEach((r, i) => {
+    if (typeof r.data === 'number') byType[leaveTypeIds[i]] = r.data;
+  });
+  return byType;
 }
 
 /**
@@ -294,6 +447,9 @@ export function useLeavePeriodUsage(
       HRLeaveTypeService.getLeavePeriodUsage(
         supabase, employeeId!, leaveTypeId!, hrAcademicYearId, onDate
       ),
-    enabled: !!employeeId && !!leaveTypeId,
+    // Date-gated for the same reason as useStoUsage: the RPC defaults to
+    // CURRENT_DATE, and a cap quoted for the wrong month is not the cap
+    // trg_hla_leave_period_cap enforces.
+    enabled: !!employeeId && !!leaveTypeId && !!onDate,
   });
 }

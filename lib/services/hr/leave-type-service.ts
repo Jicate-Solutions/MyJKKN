@@ -20,6 +20,8 @@ import type { HRLeaveBalanceAnalytics } from '@/types/hr-leave-analytics';
 import type {
   HRBalanceAdjustPayload,
   HRBalanceAdjustResult,
+  HRLeaveMonthEntryPayload,
+  HRLeaveMonthlyLedgerRow,
   HRStaffBalanceDetail,
 } from '@/types/hr-leave-staff-balances';
 import type { LeavePeriodUsage, StoUsage } from '@/types/hr-leave-types';
@@ -248,6 +250,32 @@ export class HRLeaveTypeService {
    * applications list would drift the first time hr_calc_leave_days changes how
    * it treats weekends or holidays.
    */
+  /**
+   * How much of the annual entitlement has ACCRUED by a given date.
+   *
+   * The same function trg_hla_balance_guard calls with NEW.start_date. The
+   * balance view can only answer for CURRENT_DATE, so a request dated in an
+   * earlier month was being measured against credit that had not accrued when
+   * it starts — the drawer offered a day the trigger then refused.
+   */
+  static async getAccruedDays(
+    supabase: SupabaseClient,
+    employeeId: string,
+    leaveTypeId: string,
+    hrAcademicYearId: string | null,
+    /** Request start date. Omitted means today. */
+    onDate?: string
+  ): Promise<number> {
+    const { data, error } = await supabase.rpc('fn_hr_leave_accrued_days', {
+      p_staff_id: employeeId,
+      p_leave_type_id: leaveTypeId,
+      p_hr_academic_year_id: hrAcademicYearId,
+      ...(onDate ? { p_on: onDate } : {}),
+    });
+    if (error) throw error;
+    return Number(data ?? 0);
+  }
+
   static async getLeavePeriodUsage(
     supabase: SupabaseClient,
     employeeId: string,
@@ -326,6 +354,63 @@ export class HRLeaveTypeService {
   }
 
   /**
+   * The month-by-month ledger behind one (staff, leave type) cell.
+   *
+   * Answers the two questions the flat cell cannot: which month's credit paid
+   * for a given request, and how much of each month rolled forward unused.
+   *
+   * Gated inside the RPC on hr.leave.balance.manage OR hr.leave.approve OR the
+   * caller's own staff ids — the manage key matters because it is held by 7
+   * roles against approve's 2, and it is manage that opens the Adjust dialog
+   * this feeds. Self-access is what lets the same call serve the staff member's
+   * own leave page.
+   */
+  static async getMonthlyLedger(
+    supabase: SupabaseClient,
+    staffId: string,
+    leaveTypeId: string,
+    hrAcademicYearId: string | null
+  ): Promise<HRLeaveMonthlyLedgerRow[]> {
+    const { data, error } = await supabase.rpc('fn_hr_leave_monthly_ledger', {
+      p_staff_id: staffId,
+      p_leave_type_id: leaveTypeId,
+      p_hr_academic_year_id: hrAcademicYearId,
+    });
+    if (error) throw error;
+    // Empty for a type that is not day-denominated (comp off, short time off),
+    // which the RPC returns rather than raising.
+    return (data ?? []) as HRLeaveMonthlyLedgerRow[];
+  }
+
+  /**
+   * Record (or clear) days taken in one month that have no application.
+   *
+   * Gated on hr.leave.policies.write — the same key as the Used days tab,
+   * because in `add` mode this moves the same `used` figure. `reclassify` is
+   * additionally capped server-side at the days not yet explained by
+   * applications or other months; exceeding it raises 23514 with a message
+   * naming the remaining figure, which is worth surfacing verbatim.
+   *
+   * `days: 0` deletes the entry — there is no separate delete call.
+   */
+  static async setMonthEntry(
+    supabase: SupabaseClient,
+    payload: HRLeaveMonthEntryPayload
+  ): Promise<Record<string, unknown>> {
+    const { data, error } = await supabase.rpc('hr_leave_month_entry_set', {
+      p_employee_id: payload.employee_id,
+      p_leave_type_id: payload.leave_type_id,
+      p_hr_academic_year_id: payload.hr_academic_year_id,
+      p_month_start: payload.month_start,
+      p_days: payload.days,
+      p_mode: payload.mode,
+      p_reason: payload.reason,
+    });
+    if (error) throw error;
+    return data as Record<string, unknown>;
+  }
+
+  /**
    * Correct a single (staff, leave type) cell, with an audit row.
    *
    * The RPC applies a DIFFERENT permission key per action — set_used needs
@@ -347,6 +432,25 @@ export class HRLeaveTypeService {
     });
     if (error) throw error;
     return data as HRBalanceAdjustResult;
+  }
+
+  /**
+   * ONE-OFF 2026-09-07 repair of Casual Leave consumption for HR year
+   * 2026-2027 (migration 20260907140000). Super-admin only, inside the RPC.
+   *
+   * `dryRun` writes nothing and returns the same shaped summary as a real run,
+   * so the two can be compared before committing. Guard cache invalidation on
+   * the REQUEST, never on the response — a refused run returns no marker.
+   */
+  static async resetCasualLeave2026_27(
+    supabase: SupabaseClient,
+    dryRun: boolean
+  ): Promise<Record<string, unknown>> {
+    const { data, error } = await supabase.rpc('fn_hr_cl_reset_2026_27', {
+      p_dry_run: dryRun,
+    });
+    if (error) throw error;
+    return data as Record<string, unknown>;
   }
 
   static async generateBalances(

@@ -19,12 +19,13 @@
  *   'teaching'     — every category with employment_categories.is_teaching = true
  *   'non_teaching' — every category with is_teaching = false
  *   'category'     — one specific employment_category_id (beats the two above)
- *   'work_pattern' — the seven rows of one hr_work_patterns row (2026-09-04).
- *                    EXCLUSIVE for anyone assigned to the pattern on that date:
- *                    the resolver matches the pattern's rows or nothing, it
- *                    never falls back to the three above. Always gender 'all'.
+ *
+ * Work patterns (2026-09-04) are NOT a scope here. A pattern holds working
+ * days only (hr_work_pattern_weeks); the resolver takes the member's row from
+ * this ladder and switches the day off when it is not one of the pattern's.
+ * Hours are never configured per pattern.
  */
-export type ShiftStaffScope = 'teaching' | 'non_teaching' | 'category' | 'work_pattern';
+export type ShiftStaffScope = 'teaching' | 'non_teaching' | 'category';
 
 /**
  * What the resolvers report in `matched_by`. Wider than the writable scope:
@@ -53,14 +54,22 @@ export type ShiftApplicableGender = 'all' | 'male' | 'female' | 'bigender';
 /** ISO-8601 weekday: 1=Mon .. 7=Sun. Matches Postgres EXTRACT(ISODOW FROM date). */
 export type IsoDayOfWeek = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
+/**
+ * How a working day is judged.
+ *
+ * 'span'     — be present across the window(s). The original rule, and the only
+ *              value an hr_shift_timings row itself ever carries.
+ * 'duration' — owe N minutes, whenever they fall. Overlaid onto the resolved
+ *              row from a work pattern's per-day hours.
+ */
+export type ShiftAttendanceMode = 'span' | 'duration';
+
 export interface HRShiftTiming {
   id: string;
   institution_id: string;
   staff_scope: ShiftStaffScope;
   /** Non-null iff staff_scope === 'category'. */
   employment_category_id: string | null;
-  /** Non-null iff staff_scope === 'work_pattern'. */
-  work_pattern_id: string | null;
   /** Defaults to 'all'. Composes with staff_scope — see ShiftApplicableGender. */
   applicable_gender: ShiftApplicableGender;
   day_of_week: IsoDayOfWeek;
@@ -81,6 +90,22 @@ export interface HRShiftTiming {
   second_half_end: string | null;
   /** Late allowance on first_half_start ONLY. */
   grace_minutes: number;
+  /**
+   * How the day is judged.
+   *
+   * 'span' is the original rule and the only one an institution row ever
+   * stores: be present across the configured window(s). 'duration' means any
+   * `required_minutes` on that day counts, whenever they fall — the visiting
+   * consultant who owes one hour on a Wednesday and may work it at any point.
+   *
+   * A duration row NEVER arrives from hr_shift_timings itself. It is overlaid
+   * by fn_shift_timing_pick from hr_work_pattern_week_days, which is why the
+   * two columns live on this type at all: the resolved row is the single
+   * contract between resolution and evaluation.
+   */
+  attendance_mode: ShiftAttendanceMode;
+  /** Minutes owed on a 'duration' day. Null for every 'span' day. */
+  required_minutes: number | null;
   /** Only meaningful when day_of_week === 6. */
   second_saturday_holiday: boolean;
   effective_from: string;
@@ -97,7 +122,6 @@ export interface HRShiftTimingInsert {
   institution_id: string;
   staff_scope: ShiftStaffScope;
   employment_category_id?: string | null;
-  work_pattern_id?: string | null;
   /** Omitted means 'all' — the database default. */
   applicable_gender?: ShiftApplicableGender;
   day_of_week: IsoDayOfWeek;
@@ -132,8 +156,6 @@ export interface ShiftTimingFilters {
   institutionId: string;
   staffScope?: ShiftStaffScope;
   employmentCategoryId?: string | null;
-  /** Required with staffScope 'work_pattern'. Must reach the React Query key too. */
-  workPatternId?: string | null;
   /**
    * Defaults to 'all'. MUST be part of any React Query key built from these
    * filters — without it the Female week is served from the 'all' week's cache.
@@ -162,10 +184,17 @@ export interface ResolvedShiftTiming {
   second_half_start: string | null;
   second_half_end: string | null;
   grace_minutes: number;
-  /** first_half_start + grace_minutes. Null on a non-working day. */
+  /**
+   * first_half_start + grace_minutes. Null on a non-working day, and null on a
+   * 'duration' day — there is no session start to be late against.
+   */
   grace_deadline: string | null;
   /** Which rule matched: a scope, or 'second_saturday_holiday'. */
   matched_by: ResolvedShiftScope;
+  /** See HRShiftTiming.attendance_mode. */
+  attendance_mode: ShiftAttendanceMode;
+  /** Minutes owed on a 'duration' day. Null for every 'span' day. */
+  required_minutes: number | null;
 }
 
 /**

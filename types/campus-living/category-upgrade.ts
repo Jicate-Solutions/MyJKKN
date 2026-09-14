@@ -28,6 +28,15 @@ export interface UpgradeRoomOption {
   capacity: number;
   occupied_beds: number;
   available_beds: number;
+  /** The room's OWN category. A target category may seat learners in more than
+   *  one room category (hostel_category_room_sources), so this is not always the
+   *  category being upgraded to. */
+  source_category_id: string;
+  source_category_name: string;
+  /** True for the target category's own rooms; false for a borrowed pool (e.g.
+   *  a Deluxe room offered to a Premium upgrader). The learner's category, fee
+   *  and benefits are the target's either way — only the room differs. */
+  is_native: boolean;
 }
 
 // Resident's own pending upgrade intents from fn_my_upgrade_waitlist.

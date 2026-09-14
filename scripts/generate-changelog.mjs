@@ -8,27 +8,73 @@
  * NOT — 2,794 of our user-facing changes never went through a PR, and building
  * from PRs alone would credit 96% of MyJKKN to one person.
  *
- * Output: lib/changelog/data/{recent,archive,meta}.json. NOT public/ — anything
- * ending in .json there is treated as a public static asset by proxy.ts and
- * bypasses auth. Served only via the authenticated route app/api/whats-new.
+ * Output: NOTHING on disk. It used to write lib/changelog/data/{recent,archive,
+ * meta}.json and those files were committed; the entries now live in the
+ * changelog_entries table (2026-09-06) and the page reads the database. Two
+ * writers of one list drift, and only one of them is what people see, so the
+ * files were deleted rather than left lying around regenerating.
  *
- * Run: npm run changelog
+ * What is left is a LIBRARY plus a read-only CLI:
+ *   collectChangelog()  — the parsing, imported by scripts/sync-changelog-db.mjs,
+ *                         which is the only thing that writes the rows.
+ *   npm run changelog   — prints what the rules currently produce. `--json`
+ *                         prints the payload to stdout for local inspection.
  */
 import { execSync } from 'node:child_process';
-import { writeFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 import { moduleFor, lookupModule } from '../lib/changelog/modules.mjs';
 import { INTERNAL_SCOPES } from '../lib/changelog/modules.mjs';
+import { entryHref } from '../lib/changelog/entry-link.mjs';
 import {
   stripBugRefs,
   isInternalEngineering,
   isContentFree,
   redactIdentifiers,
 } from '../lib/changelog/title-rules.mjs';
-import { HIDDEN } from '../lib/changelog/hidden.mjs';
 
 const REF = process.env.CHANGELOG_REF || 'jicate/main';
 const US = '\x1f'; // field separator
 const RS = '\x1e'; // record separator
+
+/**
+ * The clock every changelog date and time is read in.
+ *
+ * NOT the machine's. `git log --date=short` renders each commit in the
+ * COMMITTER'S own offset, and 293 of this repository's 7,305 commits carry `Z`
+ * rather than `+05:30` — they are GitHub's own merge commits, which GitHub
+ * records in UTC. Under the old day-only format that was invisible. It stops
+ * being invisible the moment a time is displayed: a merge GitHub stamped
+ * 2026-09-10T20:30:00Z is 2:00 am on the 11th in IST, so the row would show a
+ * time from a day the header above it does not name.
+ *
+ * Pinning the whole read to Asia/Kolkata makes the date and the time two
+ * readings of ONE clock, so they cannot disagree by construction. It is also the
+ * timezone every other boundary on this page is already drawn in — istDate() and
+ * recentFrom() in app/api/whats-new/route.ts, after a bug that printed
+ * "Updated 5 September" above an entry dated 6 September.
+ *
+ * Measured cost: 38 of 7,305 commits (0.52%) move to the following day, and
+ * every one of them is a UTC-stamped merge that genuinely happened after IST
+ * midnight. Those rows are corrected on the first sync after this ships.
+ *
+ * Set explicitly rather than inherited: GitHub Actions runs in UTC, so relying
+ * on the ambient TZ would give CI and a developer's Mac different answers.
+ */
+const CHANGELOG_TZ = 'Asia/Kolkata';
+
+/**
+ * `iso-strict-local` = the committer date rendered in CHANGELOG_TZ, with that
+ * zone's offset attached: `2026-09-12T19:40:00+05:30`. The first ten characters
+ * are exactly what `--date=short` used to return for an IST committer, so `d`
+ * keeps its meaning and its `date` column; the rest is the time we used to throw
+ * away (Director, 2026-09-12: "can we also add time to the whatsnew so that we
+ * know when the change happened").
+ */
+const GIT_DATE_FORMAT = '--date=iso-strict-local';
+
+/** Environment for every git read here — see CHANGELOG_TZ. */
+const GIT_ENV = { ...process.env, TZ: CHANGELOG_TZ };
 
 // Types that describe a change a human would care about. Everything else
 // (ci, chore, docs, test, refactor, wip, style) is scaffolding, not news.
@@ -182,177 +228,290 @@ function scopeFromFiles(files) {
   return [...tally.entries()].sort((a, b) => b[1] - a[1])[0][0];
 }
 
-const SUBJECT_RE = /^(feat|fix|perf|security)(?:\(([^)]+)\))?(!?):\s*(.+)$/;
-const PR_RE = /\s*\(#(\d+)\)\s*$/;
+/**
+ * Every page file that exists in the tree RIGHT NOW, at the ref being read.
+ *
+ * The link on an entry is derived from the files that commit touched, and those
+ * files are evidence about the day it landed — some of them months ago. A page
+ * renamed or deleted since would still be in that commit's diff and would still
+ * produce a perfectly well-formed URL, pointing at a 404. A dead link on a
+ * changelog is worse than no link: the reader follows it, lands nowhere, and
+ * stops trusting every other row on the page.
+ *
+ * So each derived path is checked for membership here before it becomes a link.
+ * Read with `git ls-tree`, not a second walk of history — this is a snapshot of
+ * one ref, which is exactly the question being asked.
+ *
+ * An unreadable tree returns an EMPTY set, and an empty set means every link is
+ * dropped rather than every link being trusted. That is the safe direction: a
+ * sync that writes no links is a page that looks like it did last week, while a
+ * sync that writes unvalidated links is a page full of 404s. In practice the
+ * case cannot arise on its own — `git log <ref>` succeeding implies `git
+ * ls-tree <ref>` does too, and collectChangelog's own fallback to HEAD is
+ * mirrored below — so this is a backstop, not a routine path.
+ *
+ * NOT given GIT_ENV. That environment exists to pin the timezone every date is
+ * read in; a tree listing has no dates in it.
+ */
+function readPageFiles(ref) {
+  const list = (target) =>
+    execSync(`git ls-tree -r ${target} --name-only`, {
+      maxBuffer: 256 * 1024 * 1024,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
 
-
-// The changelog regenerates on every build, so a merge is on the page as soon
-// as it deploys. But a build host may hand us a SHALLOW clone (Vercel clones
-// with limited depth), and a shallow clone produces a short, wrong changelog
-// that looks perfectly valid. Rather than silently publish six months of
-// history as two weeks, fall back to the committed files and say so.
-let raw = '';
-let gitFailed = false;
-try {
-  raw = execSync(
-    `git log ${REF} --format=${RS}%H${US}%an${US}%ae${US}%cd${US}%s${US} --date=short --name-only`,
-    { maxBuffer: 512 * 1024 * 1024, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
-  );
-} catch {
-  // Not a git checkout, or the ref is absent (a shallow CI clone has neither
-  // `jicate/main` nor full history).
-  gitFailed = true;
+  let raw = '';
   try {
-    raw = execSync(
-      `git log HEAD --format=${RS}%H${US}%an${US}%ae${US}%cd${US}%s${US} --date=short --name-only`,
-      { maxBuffer: 512 * 1024 * 1024, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
-    );
+    raw = list(ref);
   } catch {
-    raw = '';
-  }
-}
-
-const entries = [];
-const authorTally = new Map();
-const skipped = { internal: 0, hidden: 0, nonUserFacing: 0, engineering: 0, contentFree: 0 };
-const moduleDict = {};
-let recovered = 0;
-
-for (const rec of raw.split(RS)) {
-  const line = rec.replace(/^\n/, '');
-  if (!line.trim()) continue;
-  const parts = line.split(US);
-  const [sha, name, email, date] = parts;
-  const subject = parts[4];
-  // Everything after the last separator is the --name-only file list.
-  const files = (parts[5] ?? '').split('\n').map((f) => f.trim()).filter(Boolean);
-  if (!subject) continue;
-
-  // The one manual override on an otherwise fully automatic page — see
-  // lib/changelog/hidden.mjs. Checked before any other rule so a hidden entry
-  // costs nothing and cannot be resurrected by a later rule change.
-  if (HIDDEN.has(sha.slice(0, 7))) { skipped.hidden++; continue; }
-
-  const m = subject.match(SUBJECT_RE);
-  if (!m) { skipped.nonUserFacing++; continue; }
-
-  const [, type, rawScope, breaking, rawText] = m;
-  let scopeTop = (rawScope || '').split('/')[0].toLowerCase().trim();
-  if (INTERNAL_SCOPES.has(scopeTop)) { skipped.internal++; continue; }
-  // No scope, or one we do not recognise: ask the files instead of defaulting
-  // to the everyone-can-read bucket.
-  // The infra-only guard deliberately runs ONLY when the author gave us no
-  // usable scope. A review pass argued it should be unconditional, on the
-  // grounds that a `feat(billing)` commit touching nothing but
-  // supabase/migrations has no user-visible surface. Measured before acting:
-  // 686 user-facing commits touch only infra paths, 667 of them carry an
-  // explicit author scope, and 569 are supabase/. Reading them, they are real
-  // news that simply ships as a database change — "the Move-to-Account preview
-  // refused learners the commit would have admitted", "hide names on the
-  // All-JKKN shelf". In a Supabase app, RLS and migrations ARE the product
-  // surface. Making this unconditional dropped 543 entries (11.5%) of genuine
-  // news, so it stays scoped to the no-signal case: no usable scope AND only
-  // infra files means nothing tells us it is news.
-  if (!lookupModule(scopeTop)) {
-    const fromFiles = scopeFromFiles(files);
-    if (fromFiles) {
-      scopeTop = fromFiles;
-      recovered++;
-    } else if (isAllInfra(files)) {
-      skipped.internal++;
-      continue;
+    try {
+      raw = list('HEAD');
+    } catch {
+      return new Set();
     }
   }
 
-  const prMatch = rawText.match(PR_RE);
-  // Order matters: the PR number is stripped first (it is always outermost),
-  // then the auto-triage bug tail it was hiding.
-  const text = redactIdentifiers(stripBugRefs(rawText.replace(PR_RE, ''))).trim();
-  if (!text) continue;
-  if (isInternalEngineering(text)) { skipped.engineering++; continue; }
-  if (isContentFree(text)) { skipped.contentFree++; continue; }
-
-  const mod = moduleFor(scopeTop);
-  moduleDict[mod.key] = { label: mod.label, perm: mod.perm, href: mod.href };
-
-  const who = author(name, email);
-  authorTally.set(who, (authorTally.get(who) || 0) + 1);
-
-  entries.push({
-    h: sha.slice(0, 7),
-    d: date,
-    t: USER_FACING[type],
-    m: moduleFor(scopeTop).key,
-    s: text.charAt(0).toUpperCase() + text.slice(1),
-    a: who,
-    ...(prMatch ? { p: Number(prMatch[1]) } : {}),
-    ...(breaking ? { b: 1 } : {}),
-  });
+  const pages = new Set();
+  for (const line of raw.split('\n')) {
+    const file = line.trim();
+    // Narrowed before it is stored: the tree is ~15,000 paths and only the
+    // ~1,600 page files can ever be looked up in it.
+    if (file.endsWith('/page.tsx')) pages.add(file);
+  }
+  return pages;
 }
 
-// Newest first; git log is already reverse-chronological, but same-day commits
-// keep their commit order, which is what we want inside a day.
-// git log's ordering is topological, not strictly chronological, so a handful of
-// commits still land out of date order. A changelog is read as a timeline, so
-// sort explicitly. Array.prototype.sort is stable, which keeps commits made on
-// the same day in the order they were committed.
-entries.sort((a, b) => (a.d < b.d ? 1 : a.d > b.d ? -1 : 0));
-
-// Refuse to overwrite a good changelog with a truncated one.
-const META_PATH = 'lib/changelog/data/meta.json';
-if (existsSync(META_PATH)) {
-  const prev = JSON.parse(readFileSync(META_PATH, 'utf8'));
-  if (entries.length < prev.total * 0.9) {
-    console.warn(
-      `changelog: KEEPING the committed files. Git gave ${entries.length} entries but ` +
-        `${prev.total} are already published${gitFailed ? ' (ref ' + REF + ' not reachable — shallow clone?)' : ''}. ` +
-        `Run \`git fetch jicate main\` for a full history, then \`npm run changelog\`.`
+const SUBJECT_RE = /^(feat|fix|perf|security)(?:\(([^)]+)\))?(!?):\s*(.+)$/;
+const PR_RE = /\s*\(#(\d+)\)\s*$/;
+/**
+ * Read git history and produce the changelog payload.
+ *
+ * Exported because TWO callers need exactly these rules: the CLI at the bottom
+ * of this file, and scripts/sync-changelog-db.mjs, which writes the rows the
+ * /whats-new page reads. A second copy of this parsing would drift, and these
+ * rules are what decide which of 4,700 commits a student is shown — so there is
+ * one copy, here.
+ *
+ * Takedowns are NOT applied here. Hiding an entry used to mean editing
+ * lib/changelog/hidden.mjs and rebuilding; since 2026-09-06 it is the `hidden`
+ * column on changelog_entries, set by a person, and the sync deliberately never
+ * overwrites it. This function reports what git says. The database remembers
+ * what a human decided about it.
+ *
+ * Returns { ref, gitFailed, entries, modules, contributors, skipped, recovered,
+ * links } where an entry is the compact { h, d, at?, t, m, s, a, l?, p?, b? }.
+ */
+export function collectChangelog({ ref = REF } = {}) {
+  // A build or CI host may hand us a SHALLOW clone (Vercel clones with limited
+  // depth), and a shallow clone produces a short, wrong changelog that looks
+  // perfectly valid. Nothing here can tell the difference, so this function
+  // reports `gitFailed` and the entry count and lets the caller decide — the
+  // sync script refuses to write when the count collapses against what the
+  // table already holds.
+  let raw = '';
+  let gitFailed = false;
+  try {
+    raw = execSync(
+      `git log ${ref} --format=${RS}%H${US}%an${US}%ae${US}%cd${US}%s${US} ${GIT_DATE_FORMAT} --name-only`,
+      { maxBuffer: 512 * 1024 * 1024, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], env: GIT_ENV }
     );
-    process.exit(0);
+  } catch {
+    // Not a git checkout, or the ref is absent (a shallow CI clone has neither
+    // `jicate/main` nor full history).
+    gitFailed = true;
+    try {
+      // The SECOND call site, and it must carry the same date format and the
+      // same TZ as the one above. It only runs when `ref` is unreachable — a
+      // shallow CI clone, a machine without the remote — so a half-applied
+      // change here is invisible on every machine where the first path works
+      // and only appears on the one where it does not.
+      raw = execSync(
+        `git log HEAD --format=${RS}%H${US}%an${US}%ae${US}%cd${US}%s${US} ${GIT_DATE_FORMAT} --name-only`,
+        { maxBuffer: 512 * 1024 * 1024, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], env: GIT_ENV }
+      );
+    } catch {
+      raw = '';
+    }
+  }
+
+  const entries = [];
+  const authorTally = new Map();
+  const skipped = { internal: 0, nonUserFacing: 0, engineering: 0, contentFree: 0 };
+  const moduleDict = {};
+  let recovered = 0;
+  /**
+   * The page files that exist at `ref` today, read ONCE for the whole run —
+   * ~7,000 commits are about to be asked the same membership question.
+   *
+   * `precise` counts entries that end up with their own deep link; `dropped`
+   * counts entries that had one derivable and lost it because the page is no
+   * longer in the tree. Everything else falls back to the module's href, which
+   * the page already renders.
+   */
+  const pageFiles = readPageFiles(ref);
+  const pageStillExists = (f) => pageFiles.has(f);
+  const links = { precise: 0, dropped: 0, treeRead: pageFiles.size };
+
+  for (const rec of raw.split(RS)) {
+    const line = rec.replace(/^\n/, '');
+    if (!line.trim()) continue;
+    const parts = line.split(US);
+    const [sha, name, email, committedAt] = parts;
+    // `committedAt` is `2026-09-12T19:40:00+05:30`. The first ten characters are
+    // the day, which is what `--date=short` used to hand back and what the
+    // `date` column, the date headers, the 90-day split and both indexes are
+    // built on — so `d` is unchanged in meaning and in type.
+    //
+    // The slice is written to survive a git that does not know
+    // `iso-strict-local` and falls back to a bare `YYYY-MM-DD`: `d` is still
+    // right, and `at` is simply absent rather than malformed. An absent `at` is
+    // a state the whole chain already has to handle — every row in the table is
+    // in it until the first sync after this ships.
+    const date = (committedAt ?? '').slice(0, 10);
+    const at = (committedAt ?? '').includes('T') ? committedAt : null;
+    const subject = parts[4];
+    // Everything after the last separator is the --name-only file list.
+    const files = (parts[5] ?? '').split('\n').map((f) => f.trim()).filter(Boolean);
+    if (!subject) continue;
+
+    const m = subject.match(SUBJECT_RE);
+    if (!m) { skipped.nonUserFacing++; continue; }
+
+    const [, type, rawScope, breaking, rawText] = m;
+    let scopeTop = (rawScope || '').split('/')[0].toLowerCase().trim();
+    if (INTERNAL_SCOPES.has(scopeTop)) { skipped.internal++; continue; }
+    // No scope, or one we do not recognise: ask the files instead of defaulting
+    // to the everyone-can-read bucket.
+    // The infra-only guard deliberately runs ONLY when the author gave us no
+    // usable scope. A review pass argued it should be unconditional, on the
+    // grounds that a `feat(billing)` commit touching nothing but
+    // supabase/migrations has no user-visible surface. Measured before acting:
+    // 686 user-facing commits touch only infra paths, 667 of them carry an
+    // explicit author scope, and 569 are supabase/. Reading them, they are real
+    // news that simply ships as a database change — "the Move-to-Account preview
+    // refused learners the commit would have admitted", "hide names on the
+    // All-JKKN shelf". In a Supabase app, RLS and migrations ARE the product
+    // surface. Making this unconditional dropped 543 entries (11.5%) of genuine
+    // news, so it stays scoped to the no-signal case: no usable scope AND only
+    // infra files means nothing tells us it is news.
+    if (!lookupModule(scopeTop)) {
+      const fromFiles = scopeFromFiles(files);
+      if (fromFiles) {
+        scopeTop = fromFiles;
+        recovered++;
+      } else if (isAllInfra(files)) {
+        skipped.internal++;
+        continue;
+      }
+    }
+
+    const prMatch = rawText.match(PR_RE);
+    // Order matters: the PR number is stripped first (it is always outermost),
+    // then the auto-triage bug tail it was hiding.
+    const text = redactIdentifiers(stripBugRefs(rawText.replace(PR_RE, ''))).trim();
+    if (!text) continue;
+    if (isInternalEngineering(text)) { skipped.engineering++; continue; }
+    if (isContentFree(text)) { skipped.contentFree++; continue; }
+
+    const mod = moduleFor(scopeTop);
+    moduleDict[mod.key] = { label: mod.label, perm: mod.perm, href: mod.href };
+
+    const who = author(name, email);
+    authorTally.set(who, (authorTally.get(who) || 0) + 1);
+
+    /*
+     * WHERE the change happened, from the SAME file list the module was
+     * recovered from a few lines above. Deliberately not a second read of git:
+     * `--name-only` is already on the log format and `files` is already parsed,
+     * so this is one more question asked of data we hold, not another walk of
+     * 7,000 commits.
+     *
+     * Null for roughly three quarters of entries — a migration, a service, a
+     * cron route, a component shared by six screens. That is the honest answer
+     * and the page falls back to the module's own href for it. Only a commit
+     * that touched a real, still-present, non-dynamic page gets a deep link.
+     */
+    const link = entryHref(files, pageStillExists);
+    if (link.href) links.precise += 1;
+    if (link.dropped) links.dropped += 1;
+
+    entries.push({
+      // 12, not 7. This is the natural key the database upserts on, so a prefix
+    // collision is not cosmetic: two colliding shas in one batch raise 21000 and
+    // roll back every future sync, and across batches the second silently
+    // overwrites the first, losing an entry permanently. 7 hex chars is 268M
+    // values, which by the birthday bound is already ~4% likely across 4,769
+    // entries and ~27% by 12,000. Git itself auto-grows abbreviations for this
+    // reason; a fixed column cannot, so it starts wide.
+    h: sha.slice(0, 12),
+      d: date,
+      // The instant the change landed, in IST, offset attached. `d` is its first
+      // ten characters, so the two can never name different days.
+      ...(at ? { at } : {}),
+      t: USER_FACING[type],
+      m: mod.key,
+      s: text.charAt(0).toUpperCase() + text.slice(1),
+      a: who,
+      // The screen this change happened on. ABSENT rather than null when there
+      // is none, like `p` and `b` below — the page tests for presence, and the
+      // database column is nullable for exactly the same reason.
+      ...(link.href ? { l: link.href } : {}),
+      ...(prMatch ? { p: Number(prMatch[1]) } : {}),
+      ...(breaking ? { b: 1 } : {}),
+    });
+  }
+
+  // Newest first. git log's ordering is topological, not strictly chronological,
+  // so a handful of commits land out of date order. A changelog is read as a
+  // timeline, so sort explicitly. Array.prototype.sort is stable, which keeps
+  // commits made on the same day in the order they were committed.
+  entries.sort((a, b) => (a.d < b.d ? 1 : a.d > b.d ? -1 : 0));
+
+  return {
+    ref,
+    gitFailed,
+    entries,
+    // The module dictionary travels WITH the entries, so no caller re-derives it.
+    // `perm` is the permission namespace a reader is tested against.
+    modules: Object.fromEntries(Object.entries(moduleDict).sort()),
+    contributors: [...authorTally.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, count]) => ({ name, count })),
+    skipped,
+    recovered,
+    links,
+  };
+}
+
+/* ─────────────────────────────── CLI ──────────────────────────────────────
+ * Read-only. `npm run changelog` used to write the three JSON files and they
+ * were committed; both are gone. Writing the rows is scripts/sync-changelog-db.mjs
+ * and nothing else. This is here so a person can see what the rules produce
+ * without touching the database — bare for a summary, `--json` for the payload.
+ */
+if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+  const out = collectChangelog();
+  const { entries, modules, contributors, skipped, recovered, links } = out;
+
+  if (process.argv.includes('--json')) {
+    process.stdout.write(JSON.stringify({ entries, modules, contributors }));
+  } else {
+    const first = entries[entries.length - 1]?.d ?? null;
+    const latest = entries[0]?.d ?? null;
+    console.log(`changelog: ${entries.length} entries  ${first} → ${latest}  (ref ${out.ref})`);
+    if (out.gitFailed) {
+      console.warn(`  WARNING: ${out.ref} was not reachable — read HEAD instead. A shallow`);
+      console.warn(`  clone reads as a short history; run \`git fetch jicate main\` for the full one.`);
+    }
+    console.log(`  skipped: ${skipped.nonUserFacing} non-user-facing, ${skipped.internal} internal-scope`);
+    console.log(`           ${skipped.engineering} build-toolchain, ${skipped.contentFree} content-free titles`);
+    console.log(`  module recovered from changed files: ${recovered}`);
+    console.log(`  deep links: ${links.precise} entries open their own screen, ` +
+      `${entries.length - links.precise} fall back to their module` +
+      (links.dropped ? `, ${links.dropped} lost a link to a page that no longer exists` : ''));
+    console.log(`  platform (everyone-can-read) entries: ${entries.filter((e) => e.m === 'platform').length}`);
+    console.log(`  contributors: ${contributors.length}, modules: ${Object.keys(modules).length}`);
+    console.log(`  nothing written — entries live in changelog_entries; see scripts/sync-changelog-db.mjs`);
   }
 }
-
-mkdirSync('lib/changelog/data', { recursive: true });
-
-// Split the payload. The Director reads this on a phone: shipping 187 KB of
-// six-month history on first paint is the wrong trade. `recent.json` covers the
-// last 90 days and renders immediately; `archive.json` is fetched only when the
-// reader asks for older changes.
-const CUTOFF = new Date(Date.now() - 90 * 864e5).toISOString().slice(0, 10);
-const recent = entries.filter((e) => e.d >= CUTOFF);
-const archive = entries.filter((e) => e.d < CUTOFF);
-writeFileSync('lib/changelog/data/recent.json', JSON.stringify(recent));
-writeFileSync('lib/changelog/data/archive.json', JSON.stringify(archive));
-
-const months = [...new Set(entries.map((e) => e.d.slice(0, 7)))].sort().reverse();
-const meta = {
-  // en-CA formats as YYYY-MM-DD, and LOCAL time - entry dates come from each
-  // commit's own +05:30 offset via %cd, so a UTC stamp here printed
-  // "Updated 5 September" above an entry dated 6 September.
-  generatedAt: new Date().toLocaleDateString('en-CA'),
-  ref: REF,
-  total: entries.length,
-  first: entries[entries.length - 1]?.d ?? null,
-  latest: entries[0]?.d ?? null,
-  months,
-  recentFrom: CUTOFF,
-  recentCount: recent.length,
-  archiveCount: archive.length,
-  contributors: [...authorTally.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .map(([name, count]) => ({ name, count })),
-  // The module dictionary travels WITH the data, so the page never re-derives it.
-  // `perm` is the permission namespace the page tests the viewer against.
-  modules: Object.fromEntries(Object.entries(moduleDict).sort()),
-};
-writeFileSync('lib/changelog/data/meta.json', JSON.stringify(meta, null, 2));
-
-console.log(`changelog: ${entries.length} entries  ${meta.first} → ${meta.latest}`);
-console.log(`  recent (90d): ${recent.length}   archive: ${archive.length}`);
-console.log(`  skipped: ${skipped.nonUserFacing} non-user-facing, ${skipped.internal} internal-scope`);
-console.log(`           ${skipped.engineering} build-toolchain, ${skipped.contentFree} content-free titles`);
-if (skipped.hidden) console.log(`  hidden by lib/changelog/hidden.mjs: ${skipped.hidden}`);
-console.log(`  module recovered from changed files: ${recovered}`);
-console.log(`  platform (everyone-can-read) entries: ${entries.filter((e) => e.m === 'platform').length}`);
-console.log(`  contributors: ${meta.contributors.length}, modules: ${Object.keys(meta.modules).length}`);
-console.log(`  unmapped scopes -> "platform": run with CHANGELOG_DEBUG=1 to list`);

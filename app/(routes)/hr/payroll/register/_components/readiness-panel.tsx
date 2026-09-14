@@ -26,7 +26,6 @@ import {
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import type { SalaryRegisterPreflight } from '@/types/hr-payroll';
 
 interface ReadinessPanelProps {
@@ -57,12 +56,10 @@ export function ReadinessPanel({
 }: ReadinessPanelProps) {
   if (isLoading) {
     return (
-      <Card>
-        <CardContent className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Checking whether this month can be generated…
-        </CardContent>
-      </Card>
+      <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Checking whether this month can be generated…
+      </div>
     );
   }
 
@@ -84,73 +81,69 @@ export function ReadinessPanel({
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardContent className="space-y-4 p-4 sm:p-6">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Stat label="HR staff working here" value={preflight.roster_count} />
-            <Stat label="Ready to be paid" value={preflight.payable_count} />
-            <Stat
-              label="No salary recorded"
-              value={preflight.missing_salary_count}
-              muted={preflight.missing_salary_count === 0}
-            />
-            <Stat
-              label="No bank account"
-              value={preflight.missing_bank_count}
-              muted={preflight.missing_bank_count === 0}
-            />
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Stat label="HR staff working here" value={preflight.roster_count} />
+        <Stat label="Ready to be paid" value={preflight.payable_count} />
+        <Stat
+          label="No salary recorded"
+          value={preflight.missing_salary_count}
+          muted={preflight.missing_salary_count === 0}
+        />
+        <Stat
+          label="No bank account"
+          value={preflight.missing_bank_count}
+          muted={preflight.missing_bank_count === 0}
+        />
+      </div>
+
+      {/* One row per WORK LOCATION on the roster, not just the paying
+          institution. Usually a single row; several when the institution
+          pays people who work elsewhere. */}
+      {dependencies.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-sm font-medium">
+            {dependencies.length === 1 ? 'Attendance month this register needs' : 'Attendance months this register needs'}
           </div>
-
-          {/* One row per WORK LOCATION on the roster, not just the paying
-              institution. Usually a single row; several when the institution
-              pays people who work elsewhere. */}
-          {dependencies.length > 0 && (
-            <div className="space-y-2">
-              <div className="text-sm font-medium">
-                {dependencies.length === 1 ? 'Attendance month this register needs' : 'Attendance months this register needs'}
+          <div className="divide-y divide-border rounded-md border border-border">
+            {dependencies.map((d) => (
+              <div
+                key={d.institution_id}
+                className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm"
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  {d.status === 'locked' ? (
+                    <CalendarCheck className="h-4 w-4 shrink-0 text-emerald-600" />
+                  ) : (
+                    <CalendarX className="h-4 w-4 shrink-0 text-amber-600" />
+                  )}
+                  <span className="truncate">{d.institution_name}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    {d.staff_count} staff
+                  </span>
+                </div>
+                <Badge
+                  variant={d.status === 'locked' ? 'secondary' : 'outline'}
+                  className="shrink-0"
+                >
+                  {d.status === 'locked'
+                    ? `Closed, ${d.working_days_count ?? '?'} working days`
+                    : d.status === 'open'
+                      ? 'Still open'
+                      : 'Never opened'}
+                </Badge>
               </div>
-              <div className="divide-y divide-border rounded-md border border-border">
-                {dependencies.map((d) => (
-                  <div
-                    key={d.institution_id}
-                    className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm"
-                  >
-                    <div className="flex min-w-0 items-center gap-2">
-                      {d.status === 'locked' ? (
-                        <CalendarCheck className="h-4 w-4 shrink-0 text-emerald-600" />
-                      ) : (
-                        <CalendarX className="h-4 w-4 shrink-0 text-amber-600" />
-                      )}
-                      <span className="truncate">{d.institution_name}</span>
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {d.staff_count} staff
-                      </span>
-                    </div>
-                    <Badge
-                      variant={d.status === 'locked' ? 'secondary' : 'outline'}
-                      className="shrink-0"
-                    >
-                      {d.status === 'locked'
-                        ? `Closed · ${d.working_days_count ?? '?'} working days`
-                        : d.status === 'open'
-                          ? 'Still open'
-                          : 'Never opened'}
-                    </Badge>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+            ))}
+          </div>
+        </div>
+      )}
 
-          {preflight.working_days_basis ? (
-            <p className="text-xs text-muted-foreground">
-              Day rate will divide each salary by{' '}
-              <strong>{preflight.working_days_basis} working days</strong> — the month standard for
-              this institution, so a mid-month joiner is paid pro rata rather than a full month.
-            </p>
-          ) : null}
-        </CardContent>
-      </Card>
+      {preflight.working_days_basis ? (
+        <p className="text-xs text-muted-foreground">
+          Day rate will divide each salary by{' '}
+          <strong>{preflight.working_days_basis} working days</strong> — the month standard for
+          this institution, so a mid-month joiner is paid pro rata rather than a full month.
+        </p>
+        ) : null}
 
       {blockers.length > 0 && (
         <Alert variant="destructive">

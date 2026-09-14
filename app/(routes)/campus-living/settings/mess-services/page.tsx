@@ -9,7 +9,6 @@
  * settings sub-page's existing editor components inline — no editor is
  * rewritten:
  *   • Choose Your Menu   → <ChooseYourMenuPolicyForm/>  (self-contained policy form)
- *   • Housekeeping       → <HousekeepingPolicyForm/>    (self-contained policy form)
  *   • Amenities          → <AmenitiesDataTable/> + <AmenityFormDialog/>  (table + dialog)
  *   • Maintenance SLA    → linked (the existing page renders its own full ContentLayout
  *                          shell with no extracted inner component, so it is not cleanly
@@ -37,9 +36,6 @@ import { PermissionError } from '@/components/errors/permission-error';
 
 // Reuse — Choose Your Menu policy form (self-fetching, self-saving; brings its own cards)
 import { ChooseYourMenuPolicyForm } from '../choose-your-menu/_components/choose-your-menu-policy-form';
-
-// Reuse — Housekeeping slot-booking policy form (self-fetching, self-saving; brings its own cards)
-import { HousekeepingPolicyForm } from '../housekeeping/_components/housekeeping-policy-form';
 
 // Reuse — Amenities catalog editor (self-fetching table + create/edit dialog)
 import { AmenitiesDataTable } from '../amenities/_components/amenities-data-table';
@@ -113,8 +109,8 @@ export default function MessServicesConfigPage() {
             <h1 className='text-xl font-semibold tracking-tight'>Mess &amp; Daily Services</h1>
             <p className='mt-1 max-w-3xl text-sm text-muted-foreground'>
               One place to configure the daily-living services residents use — menu
-              personalization, room-cleaning slots, the amenities catalog, and maintenance
-              response targets. Each section reads and writes the same live config as its
+              personalization, the amenities catalog, and maintenance response
+              targets. Each section reads and writes the same live config as its
               standalone page; changes apply on the next page load, no deploy needed.
             </p>
           </div>
@@ -129,16 +125,7 @@ export default function MessServicesConfigPage() {
             <ChooseYourMenuPolicyForm />
           </section>
 
-          {/* Section 2 — Housekeeping slot booking (self-contained policy form; own cards). */}
-          <section className='space-y-4'>
-            <SectionHeader
-              title='Housekeeping Slot Booking'
-              description='Every knob of the resident room-cleaning feature — slot length, daily window, capacity, advance-booking lead time, cancellation cutoff, per-tier weekly quotas, and the master switch.'
-            />
-            <HousekeepingPolicyForm />
-          </section>
-
-          {/* Section 3 — Amenities catalog (self-fetching table + create dialog). */}
+          {/* Section 2 — Amenities catalog (self-fetching table + create dialog). */}
           <Card>
             <CardContent className='p-6 space-y-6'>
               <SectionHeader
@@ -154,7 +141,7 @@ export default function MessServicesConfigPage() {
             </CardContent>
           </Card>
 
-          {/* Section 4 — Maintenance SLA (inline; the extracted section brings its own
+          {/* Section 3 — Maintenance SLA (inline; the extracted section brings its own
               heading + Save + the resolution-time grid). */}
           <div className='border-t pt-6'>
             <MaintenanceSlaSection />

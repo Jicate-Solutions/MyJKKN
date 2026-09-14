@@ -16,7 +16,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import {
-  AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, Download, FileSpreadsheet,
+  AlertCircle, ArrowLeft, ArrowRight, CalendarDays, CheckCircle2, Download, FileSpreadsheet,
   Loader2, Upload, UserX, X,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -33,6 +33,7 @@ import {
   type BiometricAnomalyKind, type BiometricImportReport,
   type BiometricSuggestResponse, type ImportVerdict,
 } from '@/types/hr-biometric';
+import { DAY_OF_WEEK_OPTIONS } from '@/types/hr-shift-timings';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useSuggestMappings } from '@/hooks/hr/use-biometric-mapping';
 import { LinkCodesStep } from './link-codes-step';
@@ -300,8 +301,22 @@ export function BiometricImportDialog({ open, onOpenChange, onImportComplete }: 
                 </AlertDescription>
               </Alert>
 
+              {/* Two people in the same file legitimately get different
+                  verdicts for the same date once work patterns are in play, so
+                  the week each row was judged against is spelled out rather
+                  than left to be inferred from an unexplained "Weekly off". */}
+              <Alert>
+                <CalendarDays className="h-4 w-4" />
+                <AlertDescription>
+                  <strong>Working week per person.</strong> Team members on a work pattern follow
+                  that pattern&apos;s days; everyone else follows the institution&apos;s week. The{' '}
+                  <em>Working week</em> column shows the days actually in force — a dimmed day is a
+                  weekly off for that person, whichever rule produced it.
+                </AlertDescription>
+              </Alert>
+
               <div className="overflow-x-auto rounded-md border">
-                <table className="w-full min-w-[1000px] text-sm">
+                <table className="w-full min-w-[1200px] text-sm">
                   <thead className="bg-muted/50">
                     <tr className="text-left">
                       <th className="px-3 py-2 font-medium">Code</th>
@@ -318,6 +333,11 @@ export function BiometricImportDialog({ open, onOpenChange, onImportComplete }: 
                           The shift is shown instead, so the rule that produced
                           the verdict is visible next to it. */}
                       <th className="px-3 py-2 font-medium">Shift applied</th>
+                      {/* The work pattern is already inside the verdict — the
+                          resolver blanks a weekday the pattern does not work.
+                          Naming it here is what makes a Tuesday "Weekly off"
+                          legible instead of looking like a bug. */}
+                      <th className="px-3 py-2 font-medium">Working week</th>
                       <th className="px-3 py-2 font-medium">Verdict</th>
                     </tr>
                   </thead>
@@ -335,6 +355,13 @@ export function BiometricImportDialog({ open, onOpenChange, onImportComplete }: 
                         <td className="px-3 py-2 font-mono text-xs">{fmtMinutes(r.work_minutes)}</td>
                         <td className="px-3 py-2 font-mono text-xs text-muted-foreground">
                           {r.shift_window ?? '—'}
+                        </td>
+                        <td className="px-3 py-2">
+                          <WorkingWeekCell
+                            pattern={r.work_pattern}
+                            days={r.working_days}
+                            today={isoDowOf(r.work_date)}
+                          />
                         </td>
                         <td className="px-3 py-2">
                           <Badge variant="secondary" className={VERDICT_CLASS[r.verdict]}>
@@ -727,6 +754,49 @@ export function BiometricImportDialog({ open, onOpenChange, onImportComplete }: 
 function fmtMinutes(m: number | null): string {
   if (m === null || m === undefined) return '—';
   return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+
+/** ISO weekday (1=Mon..7=Sun) of 'YYYY-MM-DD', parsed as UTC so no viewer
+ *  timezone can shift the date a day. */
+function isoDowOf(workDate: string): number {
+  const d = new Date(`${workDate}T00:00:00Z`).getUTCDay();
+  return d === 0 ? 7 : d;
+}
+
+/**
+ * The week this row was judged against: the pattern's name (or the
+ * institution's own week), then the seven weekdays with the working ones lit.
+ * The row's own weekday is ringed, so a "Weekly off" verdict can be read off
+ * the cell — a dimmed, ringed day IS the explanation.
+ */
+function WorkingWeekCell({ pattern, days, today }: {
+  pattern: string | null;
+  days: number[];
+  today: number;
+}) {
+  const label = pattern ?? 'Institution week';
+  if (days.length === 0) {
+    return <span className="text-xs text-muted-foreground">—</span>;
+  }
+  return (
+    <div className="space-y-0.5" title={`${label} · ${days.length} day(s) a week`}>
+      <p className={`truncate text-xs ${pattern ? 'font-medium' : 'text-muted-foreground'}`}>
+        {label} · {days.length}d
+      </p>
+      <div className="flex items-center gap-0.5">
+        {DAY_OF_WEEK_OPTIONS.map((d) => (
+          <span
+            key={d.value}
+            className={`rounded px-1 py-0.5 text-[10px] font-medium ${
+              days.includes(d.value) ? 'bg-primary/10 text-primary' : 'text-muted-foreground/40'
+            } ${d.value === today ? 'ring-1 ring-foreground/30' : ''}`}
+          >
+            {d.short.slice(0, 2)}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function Stat({ label, value, tone, small }: {

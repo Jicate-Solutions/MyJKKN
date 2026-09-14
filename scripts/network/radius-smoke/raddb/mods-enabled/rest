@@ -1,0 +1,35 @@
+# rlm_rest -> the mock MyJKKN endpoint (mock-server.mjs).
+# In production the same block points at https://www.jkkn.ai/api/network/radius-auth
+# with a bearer header from Supabase Vault (see the Part 5 VPS playbook).
+rest {
+	tls {
+	}
+
+	connect_uri = "@@MOCK_URL@@"
+
+	authorize {
+		uri = "${..connect_uri}/api/network/radius-auth"
+		method = 'post'
+		body = 'json'
+		# `data` is expanded but NOT escaped by rlm_rest ("Values from expansion
+		# will not be escaped, this should be done using the appropriate xlat
+		# method" — raddb/mods-available/rest, 3.2.x). The hotspot forwards
+		# whatever the person typed as User-Name, so every value goes through
+		# %{jsonquote:...}, the JSON escape xlat rlm_rest registers in 3.2
+		# (src/modules/rlm_rest/rlm_rest.c: xlat_register("jsonquote", ...);
+		# present in the Homebrew 3.2.8 rlm_rest.dylib). run.sh fixture 6 proves it.
+		data = '{ "username": "%{jsonquote:%{User-Name}}", "password": "%{jsonquote:%{User-Password}}", "nas_identifier": "%{jsonquote:%{NAS-Identifier}}", "calling_station_id": "%{jsonquote:%{Calling-Station-Id}}" }'
+		tls = ${..tls}
+	}
+
+	pool {
+		start = 0
+		min = 0
+		max = 4
+		spare = 1
+		uses = 0
+		retry_delay = 1
+		lifetime = 0
+		idle_timeout = 60
+	}
+}

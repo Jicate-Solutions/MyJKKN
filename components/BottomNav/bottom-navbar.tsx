@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useCallback, useLayoutEffect, useRef } from 'react';
+import { useEffect, useMemo, useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -41,6 +41,7 @@ import { BottomNavItem } from './bottom-nav-item';
 import { BottomNavSubmenu } from './bottom-nav-submenu';
 import { BottomNavMoreMenu, GROUP_TILE_GRADIENTS } from './bottom-nav-more-menu';
 import { BottomNavMinimized } from './bottom-nav-minimized';
+import { BottomNavQrHandle } from './bottom-nav-qr-handle';
 import { BottomNavGroup, FlatMenuItem, ActivePageInfo } from './types';
 
 /**
@@ -140,6 +141,13 @@ export function BottomNavbar() {
   const isMobile = useIsMobile();
   const hasInitialized = useRef(false);
   const hasHydrated = useBottomNavHydration();
+
+  // Live height of the nav strip. The QR handle is a fixed-positioned SIBLING
+  // (the strip clips its own overflow, see bottom-nav-qr-handle.tsx), so it
+  // needs the strip's height to sit exactly on its top edge — and to follow
+  // when the submenu panel expands and the strip grows.
+  const navRef = useRef<HTMLElement | null>(null);
+  const [navHeight, setNavHeight] = useState(0);
 
   const {
     permissions,
@@ -506,6 +514,20 @@ export function BottomNavbar() {
     }
   }, [isExpanded, setExpanded]);
 
+  // Measure the strip so the QR handle can ride its top edge. Runs again once
+  // hydration/loading let the nav actually mount (the ref is null before that),
+  // and a ResizeObserver keeps up with submenu expand/collapse.
+  useLayoutEffect(() => {
+    const el = navRef.current;
+    if (!el) return;
+    const measure = () => setNavHeight(el.getBoundingClientRect().height);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasHydrated, isLoading, primaryNavGroups.length]);
+
   // Wait for Zustand store to hydrate before rendering
   // This prevents flash of incorrect state
   if (!hasHydrated) {
@@ -549,6 +571,7 @@ export function BottomNavbar() {
 
       {/* Full bottom navigation - always visible on mobile */}
       <motion.nav
+        ref={navRef}
         data-bottom-nav
         initial={{ y: 80, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
@@ -633,6 +656,23 @@ export function BottomNavbar() {
           />
         </div>
       </motion.nav>
+
+      {/* Curved QR tab on the strip's top edge — tap or swipe up to see your
+          own JKKN ID QR. Held back until the strip has been measured so it
+          can never paint at the bottom of the screen for a frame. */}
+      {navHeight > 0 && (
+        <BottomNavQrHandle
+          // usePermissions' profile, NOT this file's `user` from
+          // @/providers/auth-provider: the app is wrapped in the OTHER
+          // AuthProvider (hooks/use-auth-provider, see app/layout.tsx), and
+          // that context hands out a default `{ user: null }` instead of
+          // throwing — so `user` here is always null and the handle never
+          // rendered.
+          userId={userProfile?.id}
+          personName={userProfile?.full_name ?? undefined}
+          bottomOffset={navHeight}
+        />
+      )}
 
       {/* More menu sheet — feeds the FULL accessible module list, not the
           slice past primary. Drawer's own usePageFavorites hook handles

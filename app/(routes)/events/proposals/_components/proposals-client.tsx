@@ -25,9 +25,15 @@ import {
   CalendarDays, MapPin, Users, Wallet, Check, X, ExternalLink, Loader2,
 } from 'lucide-react';
 import type {
+  EventProposalAudience,
+  EventProposalBudgetBand,
   EventProposalStatus,
 } from '@/types/events';
 import { EVENT_PROPOSAL_STATUS_LABELS } from '@/types/events';
+import {
+  ProposalEditDialog,
+  type EditableProposal,
+} from '../../_components/proposal-edit-dialog';
 
 interface ProposalRow {
   id: string;
@@ -72,6 +78,21 @@ function formatDate(iso: string | null): string {
   return new Date(iso).toLocaleDateString('en-IN', {
     day: 'numeric', month: 'short', year: 'numeric',
   });
+}
+
+/** Narrow a list row to the shape the edit dialog reads, so it skips its fetch. */
+function toEditable(p: ProposalRow): EditableProposal {
+  return {
+    id: p.id,
+    title: p.title,
+    event_date: p.event_date,
+    venue: p.venue,
+    audience: (p.audience ?? []) as EventProposalAudience[],
+    expected_attendance: p.expected_attendance,
+    budget_band: p.budget_band as EventProposalBudgetBand | null,
+    status: p.status,
+    proposer_id: p.proposer_id,
+  };
 }
 
 export function ProposalsClient({
@@ -133,9 +154,20 @@ export function ProposalsClient({
       return;
     }
 
+    // data.status arrives from PostgREST as a plain string — the generated row
+    // type does not carry the EventProposalStatus union — so it must be narrowed
+    // before it goes back into ProposalRow. The value itself is safe: it is
+    // whatever we just wrote one statement above, and that write is already
+    // typed (`as EventProposalStatus`), so this narrows rather than asserts
+    // something unknown.
     setProposals(prev => prev.map(p =>
       p.id === proposal.id
-        ? { ...p, status: data.status, decision_notes: data.decision_notes, decided_at: data.decided_at }
+        ? {
+            ...p,
+            status: data.status as EventProposalStatus,
+            decision_notes: data.decision_notes,
+            decided_at: data.decided_at,
+          }
         : p,
     ));
     toast.success(action === 'approve' ? 'Proposal approved' : 'Proposal rejected');
@@ -157,6 +189,25 @@ export function ProposalsClient({
       p.id === proposal.id ? { ...p, status: 'withdrawn' as EventProposalStatus } : p,
     ));
     toast.success('Proposal withdrawn');
+    router.refresh();
+  };
+
+  /** Reflect a saved edit in the list straight away, without a full refetch. */
+  const applyEdit = (updated: EditableProposal) => {
+    setProposals(prev => prev.map(p =>
+      p.id === updated.id
+        ? {
+            ...p,
+            title: updated.title,
+            event_date: updated.event_date,
+            venue: updated.venue,
+            audience: updated.audience ?? [],
+            expected_attendance: updated.expected_attendance,
+            budget_band: updated.budget_band,
+          }
+        : p,
+    ));
+    toast.success('Event details updated');
     router.refresh();
   };
 
@@ -237,6 +288,14 @@ export function ProposalsClient({
                           View
                         </Link>
                       </Button>
+                      {/* Direct edit of date + details. Renders itself only for
+                          someone the event_proposals UPDATE policy will accept. */}
+                      <ProposalEditDialog
+                        proposalId={p.id}
+                        initial={toEditable(p)}
+                        viewerIsAdmin={isAdminRole}
+                        onSaved={applyEdit}
+                      />
                       {canDecide && (
                         <>
                           <Button

@@ -25,6 +25,14 @@ import { Skeleton } from '@/components/ui/skeleton';
 // Date requests (CARRE Lane B): same pattern — Supabase browser client, so ssr: false.
 const DateRequests = dynamic(() => import('./_components/date-requests'), { ssr: false });
 
+// Direct edit of the proposal's date + details — same pattern (Supabase browser
+// client, so ssr: false). Renders nothing unless the viewer may actually edit,
+// which is why it sits here unconditionally.
+const ProposalEditDialog = dynamic(
+  () => import('../../../_components/proposal-edit-dialog').then(m => m.ProposalEditDialog),
+  { ssr: false }
+);
+
 const ProposalTimeline = dynamic(
   () => import('./_components/timeline'),
   {
@@ -103,9 +111,13 @@ export default function ProposalStatusPage() {
           </CardContent>
         </Card>
 
-        {/* Event-date requests — timestamps the ask for a confirmed date (LC Q4) */}
+        {/* Event-date requests — timestamps the ask for a confirmed date (LC Q4),
+            and (2026-09-07) lets a decider answer one instead of only asking. */}
         {id && (
-          <div className="mt-4">
+          <div className="mt-4 space-y-3">
+            <div className="flex justify-end empty:hidden">
+              <ProposalEditDialog proposalId={id} />
+            </div>
             <DateRequests proposalId={id} />
           </div>
         )}

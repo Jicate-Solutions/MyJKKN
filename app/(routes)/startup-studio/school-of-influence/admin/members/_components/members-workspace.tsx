@@ -87,6 +87,8 @@ import {
 import { soiDisplayName } from '@/lib/services/school-of-influence/constants';
 import type { Cohort, MembershipStatus } from '@/lib/types/cohort-core';
 
+import { BatchStatusCard } from './batch-status-card';
+
 function messageOf(error: unknown): string {
   return (error as { message?: string })?.message ?? 'Something went wrong.';
 }
@@ -302,7 +304,28 @@ export function MembersWorkspace({ eventId }: Props) {
     );
   }
 
-  if (denied) return <AccessPanel message={denied} />;
+  // A refusal on the ROSTER is not a refusal on the batch's STAGE — the two are
+  // decided by different predicates in the database. Somebody holding
+  // "cohort.edit" may move a batch from one stage to the next while not being
+  // allowed to see who is in it, so the stage control is rendered here too and
+  // asks the database for its own verdict. Hiding it behind the roster's answer
+  // would make this screen NARROWER than the write it guards and lock out a
+  // person the database plainly admits.
+  if (denied) {
+    return (
+      <div className="mt-4 space-y-4">
+        {selectedId && (
+          <BatchStatusCard
+            key={selectedId}
+            cohortId={selectedId}
+            cohortName={soiDisplayName(selectedBatch?.name ?? 'This batch')}
+            fallbackStatus={selectedBatch?.status ?? null}
+          />
+        )}
+        <AccessPanel message={denied} />
+      </div>
+    );
+  }
 
   // Skeleton until the FIRST roster arrives — not just until the batch list
   // does. Without the `!roster` test the empty state paints for a moment
@@ -348,10 +371,11 @@ export function MembersWorkspace({ eventId }: Props) {
           <CardTitle className="text-base">No batch is showing here</CardTitle>
           <CardDescription>
             Either this programme has no batch yet — create one from the batch admin
-            first — or your account cannot see its batches, which needs the
+            first — or your account cannot see its batches. Seeing them needs the
             &ldquo;cohort.view&rdquo; permission for the institution that runs the
-            programme. Ask the COO or a MyJKKN administrator if you expected to see
-            one.
+            programme, or an active appointment as one of the programme&rsquo;s
+            coordinators. Ask the COO or a MyJKKN administrator if you expected to
+            see one.
           </CardDescription>
         </CardHeader>
       </Card>
@@ -411,6 +435,20 @@ export function MembersWorkspace({ eventId }: Props) {
             </CardDescription>
           </CardHeader>
         </Card>
+      )}
+
+      {/* The batch's own stage sits above its roster, because that is the order
+          the decision is made in: you look at who is in the batch, then you say
+          the round has started or is over. The control asks the database for its
+          own verdict — it is not gated on the roster's answer. */}
+      {selectedId && (
+        <BatchStatusCard
+          key={selectedId}
+          cohortId={selectedId}
+          cohortName={soiDisplayName(selectedBatch?.name ?? 'This batch')}
+          fallbackStatus={selectedBatch?.status ?? null}
+          onChanged={() => void loadBatches()}
+        />
       )}
 
       <Card>

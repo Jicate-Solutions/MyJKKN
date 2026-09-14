@@ -54,11 +54,20 @@ export function useCreateExternalAuditor() {
   });
 }
 
+/** PATCH returns how many grants were actually extended — `extended: 0` is a
+ *  real answer meaning this person holds no cross-institution grants. Typed so
+ *  the screen can report the true number instead of an unconditional
+ *  "Extended by 7 days" (which it did while the write was a silent no-op). */
+export interface ExtendExternalAuditorResult {
+  data: { user_id: string; extended: number };
+  metadata?: { extend_days?: number };
+}
+
 export function useExtendExternalAuditor() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ userId, extendDays = 7 }: { userId: string; extendDays?: number }) =>
-      httpJson(`/api/audit/external-auditors/${userId}`, {
+      httpJson<ExtendExternalAuditorResult>(`/api/audit/external-auditors/${userId}`, {
         method: 'PATCH',
         body: JSON.stringify({ extend_days: extendDays }),
       }),

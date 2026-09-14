@@ -35,38 +35,20 @@ import {
   backEnabledOf,
   backImageUrlOf,
   currentProfileId,
-  fetchTemplatesWithLayout,
+  sampleLearnerProfileId,
   setTemplateBackEnabled,
   setTemplateBackBackground,
   uploadCardBackBackground,
   type TemplateDesignRow
 } from '@/lib/services/id-cards/template-design-client';
-import { pickPreferredAdminTemplateId } from '@/lib/services/id-cards/template-picker';
+import { useTemplateSelection } from '@/components/admin/id-cards/template-selection';
 
 export function IdCardBackDesignTab() {
-  const [templates, setTemplates] = useState<TemplateDesignRow[] | null>(null);
-  const [selectedId, setSelectedId] = useState<string>('');
+  // Shared with every other tab (one list, one selected template).
+  const { templates, selectedId, selected, reload } = useTemplateSelection();
   const [busy, setBusy] = useState<'toggle' | 'upload' | 'remove' | 'preview' | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-
-  const reload = useCallback(async () => {
-    try {
-      const rows = await fetchTemplatesWithLayout();
-      setTemplates(rows);
-      // Full list stays (dark templates must be designable); only the default
-      // prefers an active template.
-      setSelectedId((prev) => pickPreferredAdminTemplateId(rows, prev));
-    } catch (err) {
-      console.error('[id-cards/back-design] template load failed:', err);
-      setTemplates([]);
-      toast.error('Could not load templates');
-    }
-  }, []);
-
-  useEffect(() => {
-    reload();
-  }, [reload]);
 
   // Revoke stale blob URLs so previews don't leak memory.
   useEffect(() => {
@@ -75,9 +57,10 @@ export function IdCardBackDesignTab() {
     };
   }, [previewUrl]);
 
-  const selected = templates?.find((t) => t.id === selectedId) ?? null;
   const backEnabled = selected ? backEnabledOf(selected) : false;
   const artworkUrl = selected ? backImageUrlOf(selected) : null;
+  const orientation = (selected?.back_layout_json as Record<string, unknown> | null | undefined)?.orientation;
+  const isPortraitTemplate = orientation === 'portrait' || orientation === 'portrait-flipped';
 
   const onToggleBack = async (enabled: boolean) => {
     if (!selected) return;
@@ -138,8 +121,41 @@ export function IdCardBackDesignTab() {
     try {
       const profileId = await currentProfileId();
       if (!profileId) throw new Error('No signed-in session found');
+      await renderPreview(profileId);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Preview failed');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /** Preview with a real learner of the template's institution — shows the
+   *  learner-only zones (roll no, study period) an admin account never has. */
+  const onPreviewLearner = async () => {
+    if (!selected) return;
+    setBusy('preview');
+    try {
+      const profileId = await sampleLearnerProfileId(selected.institution_id);
+      if (!profileId) {
+        throw new Error(
+          selected.institution_id
+            ? 'No learner with an account found for this template’s institution'
+            : 'Assign the template to an institution first (Institution tab)'
+        );
+      }
+      await renderPreview(profileId);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Preview failed');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const renderPreview = async (profileId: string) => {
+    if (!selected) return;
+    {
       const res = await fetch(
-        `/api/id-cards/templates/${selected.id}/render?profile_id=${profileId}&format=png&side=back`
+        `/api/id-cards/templates/${selected.id}/render?profile_id=${profileId}&format=png&side=back&upright=1`
       );
       if (!res.ok) throw new Error(`Preview failed (HTTP ${res.status})`);
       const blob = await res.blob();
@@ -147,10 +163,6 @@ export function IdCardBackDesignTab() {
         if (prev) URL.revokeObjectURL(prev);
         return URL.createObjectURL(blob);
       });
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Preview failed');
-    } finally {
-      setBusy(null);
     }
   };
 
@@ -175,27 +187,9 @@ export function IdCardBackDesignTab() {
     <div className="space-y-5">
       {/* Template picker */}
       <div className="flex flex-wrap items-center gap-3">
-        <span className="text-sm text-muted-foreground">Template:</span>
-        <Select value={selectedId} onValueChange={setSelectedId}>
-          <SelectTrigger className="w-72">
-            <SelectValue placeholder="Choose a template" />
-          </SelectTrigger>
-          <SelectContent>
-            {templates.map((t) => (
-              <SelectItem key={t.id} value={t.id}>
-                {(t.name ?? 'Untitled template') + (t.active ? '' : ' (inactive)')}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
         {selected && (
           <Badge variant={backEnabled ? 'secondary' : 'outline'}>
             {backEnabled ? 'Back side on' : 'Back side off'}
-          </Badge>
-        )}
-        {selected && !selected.active && (
-          <Badge variant="destructive">
-            Not switched on — will not be offered for printing
           </Badge>
         )}
       </div>
@@ -277,6 +271,14 @@ export function IdCardBackDesignTab() {
               )}
               Preview back with my data
             </Button>
+            <Button variant="secondary" onClick={onPreviewLearner} disabled={busy !== null || !selected}>
+              {busy === 'preview' ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Eye className="mr-2 h-4 w-4" />
+              )}
+              Preview back with a learner
+            </Button>
           </div>
 
           {/* Live preview */}
@@ -301,8 +303,10 @@ export function IdCardBackDesignTab() {
             </div>
             <ul className="list-disc space-y-1 pl-5">
               <li>
-                Export exactly <strong>1014 × 638 pixels</strong>. PNG, JPEG or
-                WebP, up to 6 MB.
+                Export at the card&apos;s own size —{' '}
+                <strong>{isPortraitTemplate ? '638 × 1014' : '1014 × 638'} pixels</strong> (or an
+                exact multiple). Used edge to edge as uploaded — nothing cropped, no frame added.
+                PNG, JPEG or WebP, up to 6 MB.
               </li>
               <li>
                 With artwork present the green footer band is not drawn — the

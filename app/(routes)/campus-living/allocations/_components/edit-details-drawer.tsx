@@ -30,10 +30,14 @@ import type {
 } from '@/types/campus-living';
 
 // Food preferences must mirror the `food_preference_enum` values on prod.
-// Kept in sync with types/campus-living.ts FoodPreference.
+// Kept in sync with types/campus-living.ts FoodPreference, which mirrors the
+// hostel_allocations.food_preference enum. The first two options used to send
+// 'veg' / 'non_veg' — values the enum does not contain, so saving either
+// failed at the database and no allocation ever stored a food preference.
 const FOOD_PREFERENCES: { value: FoodPreference; label: string }[] = [
-  { value: 'veg', label: 'Vegetarian' },
-  { value: 'non_veg', label: 'Non-Vegetarian' },
+  { value: 'vegetarian', label: 'Vegetarian' },
+  { value: 'non_vegetarian', label: 'Non-Vegetarian' },
+  { value: 'eggetarian', label: 'Eggetarian' },
   { value: 'vegan', label: 'Vegan' },
   { value: 'jain', label: 'Jain' },
 ];

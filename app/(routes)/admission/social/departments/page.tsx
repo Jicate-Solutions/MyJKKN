@@ -16,7 +16,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Copy, Instagram, Check, Link2, Unlink } from 'lucide-react';
+import Link from 'next/link';
+import { Copy, Instagram, Check, Link2, Unlink, Repeat } from 'lucide-react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -70,6 +71,10 @@ interface IgAccountRow {
   id: string;
   username: string;
   metrics_source: string | null;
+  /** Written by the pollers on every SUCCESSFUL tick only — the failure paths
+   *  never touch the ig_accounts row. So this is the one field that separates a
+   *  handle Meta is still answering for from one it stopped answering for. */
+  last_polled_at: string | null;
 }
 
 /** An account is truly "unlocked" (receiving full insights) only when Meta
@@ -124,6 +129,48 @@ function connChip(value: boolean | null) {
   if (value === true) return <Badge variant="default">Connected</Badge>;
   if (value === false) return <Badge variant="outline">Not connected</Badge>;
   return <span className="text-muted-foreground">—</span>;
+}
+
+/**
+ * Days since a handle was last successfully polled, or null when we cannot say
+ * (no timestamp, or the ig_accounts row is not in our visible set). Null must
+ * render as the plain badge — absence of evidence is not evidence of staleness.
+ */
+function daysSincePoll(lastPolledAt: string | null | undefined): number | null {
+  if (!lastPolledAt) return null;
+  const t = Date.parse(lastPolledAt);
+  if (Number.isNaN(t)) return null;
+  return Math.floor((Date.now() - t) / 86_400_000);
+}
+
+/** Every poller on this data runs hourly, so a healthy handle is refreshed ~24x
+ *  a day. Three days absorbs a deploy freeze or a multi-hour Meta outage and
+ *  still catches a real outage long before it becomes a quarter. */
+const STALE_AFTER_DAYS = 3;
+
+/**
+ * "Monitored" used to be rendered from ig_account_id alone — purely "is this
+ * handle linked into the pipeline", with no freshness input at all. That made a
+ * dead handle visually identical to a working one: on 2026-09-09 @jkkn_otat
+ * (last polled 2026-06-10, 90 days, 2,101 consecutive Meta rejections, 2 metric
+ * snapshots ever) carried exactly the same "Monitored · Public only" pair as
+ * @jkkn_pharmacology (polled that morning, 2,175 snapshots). The account row
+ * kept its last-good state because the poller's failure path never writes to
+ * ig_accounts, so the page had nothing to go on but the link.
+ */
+function monitoringChip(days: number | null) {
+  if (days === null || days < STALE_AFTER_DAYS) {
+    return <Badge variant="default">Monitored</Badge>;
+  }
+  return (
+    <Badge
+      variant="outline"
+      className="w-fit border-amber-500/60 text-amber-700 dark:text-amber-500"
+      title={`Linked, but Meta has not answered for this handle in ${days} days — its followers and post numbers are frozen at that date.`}
+    >
+      Monitored · stale {days}d
+    </Badge>
+  );
 }
 
 /**
@@ -315,6 +362,12 @@ export default function SocialDepartmentAccountsPage() {
   const [rows, setRows] = useState<DeptAccountRow[]>([]);
   const [connections, setConnections] = useState<IgConnectionRow[]>([]);
   const [igAccounts, setIgAccounts] = useState<IgAccountRow[]>([]);
+  // ig_accounts.id values that have at least one row in ig_posts. The loop reads
+  // the last N posts with NO date filter, so "has ever posted" is exactly the
+  // condition for a loop that can show something. Deliberately NOT read from
+  // ig_accounts.last_post_at: that column is null on 54 of 71 accounts and
+  // disagrees with ig_posts on 16 of 50 live departments (checked 2026-09-07).
+  const [accountsWithPosts, setAccountsWithPosts] = useState<Set<string> | null>(null);
   const [igLoaded, setIgLoaded] = useState(false);
   const [igError, setIgError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -360,20 +413,49 @@ export default function SocialDepartmentAccountsPage() {
     // A role with departments.view but not instagram.view would get an empty/denied
     // result — which must render as "unavailable", NOT as "nothing is live" (that
     // would fabricate drift). Track the load + error so the UI can tell them apart.
-    supabase
-      .from('ig_accounts')
-      .select('id, username, metrics_source')
-      .then(({ data, error: err }) => {
+    // await + try/catch rather than .then().catch(): PostgREST's builder is a
+    // PromiseLike, not a Promise, so it has no .catch — main's newer
+    // postgrest-js types make that an error (TS2339) rather than the silent
+    // any it used to be. Behaviour is unchanged: a rejected request (network
+    // failure) must still set igLoaded, or the tiles and the Loop column pin
+    // on "…" forever.
+    void (async () => {
+      try {
+        const { data, error: err } = await supabase
+          .from('ig_accounts')
+          .select('id, username, metrics_source, last_polled_at');
         if (err) setIgError(err.message);
         else setIgAccounts((data as unknown as IgAccountRow[]) ?? []);
-        setIgLoaded(true);
-      })
-      // A rejected promise (network failure) never resolves the .then, which
-      // would leave igLoaded false and pin the new tiles/column on "…" forever.
-      .catch((e: unknown) => {
+      } catch (e: unknown) {
         setIgError(e instanceof Error ? e.message : String(e));
+      } finally {
         setIgLoaded(true);
-      });
+      }
+    })();
+
+    // Which handles have any post at all. ig_posts carries the same policy pair
+    // as ig_accounts (institution scope OR social.instagram.view), so a caller
+    // who can see the accounts above can see these. On any failure this stays
+    // null, which renders the Loop cell as "unknown" (a link, as before) rather
+    // than fabricating "no posts" for every department.
+    // Paged deliberately: ig_posts is already 1,009 rows and grows, while
+    // PostgREST caps a single response (commonly at 1,000). An unpaged read
+    // would silently truncate and mark a posting department "No posts yet".
+    // Any error abandons the read and leaves the state null = unknown.
+    void (async () => {
+      const PAGE = 1000;
+      const found = new Set<string>();
+      for (let from = 0; ; from += PAGE) {
+        const { data, error: err } = await supabase
+          .from('ig_posts')
+          .select('account_id')
+          .range(from, from + PAGE - 1);
+        if (err || !data) return; // stays null → link shown, never a false "no posts"
+        for (const row of data as { account_id: string }[]) found.add(row.account_id);
+        if (data.length < PAGE) break;
+      }
+      setAccountsWithPosts(found);
+    })();
   }, []);
 
   useEffect(() => {
@@ -405,6 +487,36 @@ export default function SocialDepartmentAccountsPage() {
   // Ground truth is only usable once the ig_accounts fetch resolved WITH rows.
   // Empty (RLS denied for a role lacking social.instagram.view) or not-yet-loaded
   // must render as "unavailable", never as "0 live / everything is drift".
+  /** dept row id -> resolved ig_accounts.id, matched exactly as insightByDept
+   *  does (ig_account_id first, then username). Used only to ask "has this
+   *  handle ever posted", which decides whether its loop can show anything. */
+  const acctIdByDept = useMemo(() => {
+    const byUsername = new Map<string, string>();
+    const ids = new Set<string>();
+    for (const a of igAccounts) {
+      ids.add(a.id);
+      byUsername.set(a.username.toLowerCase(), a.id);
+    }
+    const map = new Map<string, string>();
+    for (const r of rows) {
+      if (r.ig_account_id && ids.has(r.ig_account_id)) map.set(r.id, r.ig_account_id);
+      else {
+        const viaName = byUsername.get(r.username.toLowerCase());
+        if (viaName) map.set(r.id, viaName);
+      }
+    }
+    return map;
+  }, [rows, igAccounts]);
+
+  /** ig_accounts.id -> last successful poll. Read through acctIdByDept, which
+   *  only resolves accounts we can actually see, so a row hidden by partial RLS
+   *  stays "unknown freshness" and keeps the plain badge. */
+  const lastPolledByAcct = useMemo(() => {
+    const map = new Map<string, string | null>();
+    for (const a of igAccounts) map.set(a.id, a.last_polled_at);
+    return map;
+  }, [igAccounts]);
+
   const igAvailable = igLoaded && !igError && igAccounts.length > 0;
 
   // dept row id -> real insight state (only meaningful when igAvailable):
@@ -613,6 +725,7 @@ export default function SocialDepartmentAccountsPage() {
                     <TableHead>Live insights</TableHead>
                     <TableHead>Monitoring</TableHead>
                     <TableHead>IG Login</TableHead>
+                    <TableHead>Loop</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -643,7 +756,11 @@ export default function SocialDepartmentAccountsPage() {
                       </TableCell>
                       <TableCell>
                         {r.ig_account_id ? (
-                          <Badge variant="default">Monitored</Badge>
+                          monitoringChip(
+                            daysSincePoll(
+                              lastPolledByAcct.get(acctIdByDept.get(r.id) ?? '')
+                            )
+                          )
                         ) : (
                           <Badge variant="secondary">Not in pipeline</Badge>
                         )}
@@ -655,6 +772,49 @@ export default function SocialDepartmentAccountsPage() {
                           onChanged={load}
                           onActionError={setActionError}
                         />
+                      </TableCell>
+                      {/* Entry point to this department's own weekly READ →
+                          DECIDE → LEARN cycle. The loop reads real signal
+                          (saves/shares/comments), which only exists for handles
+                          Meta feeds fully — so the link is offered only where
+                          live insights are on. */}
+                      <TableCell>
+                        {(() => {
+                          if (insightByDept.get(r.id) !== 'live') {
+                            return (
+                              <span
+                                className="text-sm text-muted-foreground"
+                                title="The loop scores saves, shares and comments — Meta only exposes those once full insights are on."
+                              >
+                                —
+                              </span>
+                            );
+                          }
+                          // Post presence is unknown until the ig_posts read lands
+                          // (or if it failed). Offer the link rather than claim silence.
+                          const acctId = acctIdByDept.get(r.id);
+                          const known = accountsWithPosts !== null && acctId !== undefined;
+                          if (known && !accountsWithPosts.has(acctId)) {
+                            return (
+                              <span
+                                className="text-sm text-muted-foreground"
+                                title="This handle has never posted, so its loop has nothing to read yet. That silence is the finding — the loop is ready the moment it posts."
+                              >
+                                No posts yet
+                              </span>
+                            );
+                          }
+                          return (
+                            <Link
+                              href={`/admission/social/loop?account=${encodeURIComponent(r.username)}`}
+                              className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+                              aria-label={`Open the weekly loop for @${r.username}`}
+                            >
+                              <Repeat className="h-3.5 w-3.5" aria-hidden="true" />
+                              Open loop
+                            </Link>
+                          );
+                        })()}
                       </TableCell>
                     </TableRow>
                   ))}

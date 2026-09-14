@@ -273,7 +273,8 @@ describe('buildBackElement — default design', () => {
   it('renders blood group, DOB, guardian, address, contact, barcode + value, footer', () => {
     const tree = buildBackElement(baseInput());
     const text = collectText(tree).join(' | ');
-    expect(text).toContain('BLOOD GROUP');
+    // Headings are hidden by default (values only) — 2026-09-05.
+    expect(text).not.toContain('BLOOD GROUP');
     expect(text).toContain('B+');
     expect(text).toContain('09 Nov 2001');
     expect(text).toContain('R. Kumar');
@@ -346,7 +347,32 @@ describe('buildBackElement — default design', () => {
     const text = collectText(tree).join(' | ');
     expect(text).toContain('info@jkkn.ac.in');
     expect(text).toContain('www.jkkn.ac.in');
-    expect(text).toContain('BLOOD GROUP'); // default blocks remain
+    expect(text).toContain('B+'); // default blocks remain (values only, headings hidden)
+  });
+
+  it('show_field_labels: true prints the headings again, and hides authored heading static_text otherwise', () => {
+    const withLabels = collectText(
+      buildBackElement(baseInput({ layout: { show_field_labels: true } }))
+    ).join(' | ');
+    expect(withLabels).toContain('BLOOD GROUP');
+    expect(withLabels).toContain('DATE OF BIRTH');
+
+    const authored = collectText(
+      buildBackElement(
+        baseInput({
+          layout: {
+            elements: [
+              { field: 'static_text', text: 'ADDRESS', x: 44, y: 290 },
+              { field: 'static_text', text: 'CONTACT :', x: 44, y: 470 },
+              { field: 'static_text', text: 'COLLEGE CONTACT DETAILS', x: 44, y: 600 }
+            ]
+          }
+        })
+      )
+    ).join(' | ');
+    expect(authored).not.toContain('ADDRESS');
+    expect(authored).not.toContain('CONTACT :');
+    expect(authored).toContain('COLLEGE CONTACT DETAILS'); // not a field heading — kept
   });
 
   it('positioned barcode overlay renders the barcode image at the element spot', () => {
@@ -445,7 +471,7 @@ describe('buildBackElement — portrait rotation', () => {
     const text = collectText(
       buildBackElement(baseInput({ layout: { orientation: 'portrait' } }))
     ).join(' | ');
-    expect(text).toContain('BLOOD GROUP');
+    expect(text).toContain('B+'); // headings hidden by default; values remain
     expect(text).toContain('B+');
     expect(text).toContain('TAMIL NADU, INDIA');
   });

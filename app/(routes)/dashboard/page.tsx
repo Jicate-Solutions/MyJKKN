@@ -37,6 +37,7 @@ import { LimitedHero } from '@/components/dashboard/limited-hero';
 import { LiveAgencyCard } from '@/components/dashboard/live-agency-card';
 import { StudentHeroStrip } from '@/components/dashboard/student-hero-strip';
 import { UdyogStudentCard } from '@/components/dashboard/udyog-student-card';
+import { CampusDrivesStudentCard } from '@/components/dashboard/campus-drives-student-card';
 import { DeptIgFeedCard } from '@/components/dashboard/dept-ig-feed-card';
 import { DeptMomentumCard } from '@/components/dashboard/dept-momentum-card';
 import { HodZones } from '@/components/dashboard/hod-zones';
@@ -518,6 +519,19 @@ export default async function DashboardV2Page({
               </div>
             </DashboardErrorBoundary>
           )}
+
+        {/* Campus drives the learner qualifies for (2026-09-12). Until this card
+            existed the notification dropped when a drive opened was the ONLY route
+            to the willingness page — /cdc/drives is coordinator surface the learner
+            cannot open — so a missed notification meant the drive was never seen.
+            Client island; self-hides when there is no open drive for them. */}
+        {isStudent && (
+          <DashboardErrorBoundary label='Campus drives' mode='silent'>
+            <div className='max-w-xl'>
+              <CampusDrivesStudentCard />
+            </div>
+          </DashboardErrorBoundary>
+        )}
 
         {/* UDYOG application requirement — student self-service (BUG-004075, 4a).
             Client island; self-hides when the learner has no UDYOG obligation.

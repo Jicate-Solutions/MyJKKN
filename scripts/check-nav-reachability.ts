@@ -243,6 +243,7 @@ const NAV_EXCLUDE = new Set<string>([
   '/campus-living/allocations/new',
   '/campus-living/blocks/new',
   '/campus-living/gate-passes/new', // "Issue gate pass" form (button-invoked from /campus-living/gate-passes — added by PR #766 BUG-003897)
+  '/campus-living/gate-passes/request', // Learner's "Request Gate Pass" form (button-invoked from the My Hostel Requests tab)
   '/campus-living/leave/new',
   '/campus-living/maintenance/new',
   '/campus-living/mess/caterers/new',
@@ -501,6 +502,11 @@ const NAV_EXCLUDE = new Set<string>([
   // write-UI (/admission/social/admin + /admission/social/admin/policies) stays
   // excluded above — super-admin-only config, reached via the governance page's
   // "Edit policy →" links, not a tier-strip chip.
+
+  // Cohorts hub landing (PR #2781): redirect('/cohorts/coordinators'). Exists
+  // only so /cohorts does not 404; the real target is the chip-reachable
+  // sidebar entry. Same convention as /moments above.
+  '/cohorts',
 
 ]);
 

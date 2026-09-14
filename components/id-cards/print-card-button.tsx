@@ -47,6 +47,9 @@ import {
   hasOnlyInactiveTemplates,
   pickPreferredPrintTemplate
 } from '@/lib/services/id-cards/template-picker';
+import { resolveLearnerInstitutions } from '@/lib/services/id-cards/card-preview-client';
+import { pickTemplateForInstitution } from '@/lib/services/id-cards/institution-template';
+import { distinctPurposes, type TemplateAudience } from '@/lib/id-cards/template-purpose';
 
 // TWO empty states, two remedies. "No template exists" and "templates exist but
 // none is switched on" used to share one message, and the shared one pointed at
@@ -161,6 +164,45 @@ export function TemplateSelect({
   );
 }
 
+/**
+ * Purpose picker: "Institution default" or one of the purposes the active
+ * templates offer for the audience (Learners / Senior Learners / …). Hidden when
+ * there is nothing to choose between.
+ */
+export function PurposeSelect({
+  templates,
+  audience,
+  institutionIds,
+  value,
+  onChange,
+  className
+}: {
+  templates: IdCardTemplateOption[] | null;
+  audience: TemplateAudience;
+  institutionIds?: ReadonlySet<string> | null;
+  value: string;
+  onChange: (key: string) => void;
+  className?: string;
+}) {
+  const purposes = distinctPurposes(templates ?? [], audience, institutionIds ?? null);
+  if (purposes.length < 2) return null;
+  return (
+    <Select value={value || '__default__'} onValueChange={(v) => onChange(v === '__default__' ? '' : v)}>
+      <SelectTrigger className={className ?? 'h-9 w-[200px]'}>
+        <SelectValue placeholder="Purpose" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="__default__">Institution default</SelectItem>
+        {purposes.map((p) => (
+          <SelectItem key={p.key} value={p.key}>
+            {p.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // PrintCardButton
 // ──────────────────────────────────────────────────────────────────────────────
@@ -196,6 +238,11 @@ export function PrintCardButton({
     useIdCardTemplates(canManageJobs);
 
   const [resolvedProfileId, setResolvedProfileId] = useState<string | null>(null);
+  // Learner's institution → their assigned template (picker = fallback only).
+  const [learnerInstitutionId, setLearnerInstitutionId] = useState<string | null>(null);
+  const [purposeKey, setPurposeKey] = useState('');
+  // Learner pages pass learnerId; team-member pages pass profileId/lookupEmail.
+  const audience: TemplateAudience = learnerId ? 'learner' : 'team_member';
   const [resolving, setResolving] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
@@ -210,7 +257,13 @@ export function PrintCardButton({
           return;
         }
         if (learnerId) {
-          const id = await resolveProfileIdForLearner(learnerId);
+          const [id, institutions] = await Promise.all([
+            resolveProfileIdForLearner(learnerId),
+            resolveLearnerInstitutions([learnerId]).catch(() => new Map())
+          ]);
+          if (!cancelled) {
+            setLearnerInstitutionId(institutions.get(learnerId)?.institutionId ?? null);
+          }
           if (!cancelled && id) {
             setResolvedProfileId(id);
             return;
@@ -240,13 +293,23 @@ export function PrintCardButton({
   }, [canManageJobs, profileId, learnerId, lookupEmail]);
 
   const handlePrint = async () => {
-    if (!resolvedProfileId || !selectedTemplateId || submitting) return;
+    if (!resolvedProfileId || submitting) return;
+    // Institution → assigned template; the picker's value is only the fallback.
+    const choice = pickTemplateForInstitution(templates ?? [], learnerInstitutionId, selectedTemplateId, {
+      audience,
+      purposeKey
+    });
+    if (!choice) return;
     setSubmitting(true);
-    const outcome = await enqueuePrintJob(resolvedProfileId, selectedTemplateId);
+    const outcome = await enqueuePrintJob(resolvedProfileId, choice.template.id);
     setSubmitting(false);
 
     if (outcome.status === 'queued') {
-      toast.success(`ID card for ${personName} queued for printing`);
+      toast.success(
+        choice.usedFallback
+          ? `ID card for ${personName} queued (fallback template — no active template for their institution)`
+          : `ID card for ${personName} queued on “${choice.template.name}”`
+      );
     } else if (outcome.status === 'already_queued') {
       toast(`Already in the print queue`);
     } else {
@@ -283,11 +346,20 @@ export function PrintCardButton({
   return (
     <div className="flex items-center gap-2">
       {!noTemplates && !noAccount && (
-        <TemplateSelect
-          templates={templates}
-          value={selectedTemplateId}
-          onChange={selectTemplate}
-        />
+        <>
+          <PurposeSelect
+            templates={templates}
+            audience={audience}
+            institutionIds={learnerInstitutionId ? new Set([learnerInstitutionId]) : null}
+            value={purposeKey}
+            onChange={setPurposeKey}
+          />
+          <TemplateSelect
+            templates={templates}
+            value={selectedTemplateId}
+            onChange={selectTemplate}
+          />
+        </>
       )}
       {tooltipMessage ? (
         <TooltipProvider>

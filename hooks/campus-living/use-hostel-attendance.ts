@@ -69,14 +69,22 @@ export function useAttendanceDashboard(
 
 // Active residents merged with their allocation (block/room/bed) for the
 // Mark Attendance page. blockId narrows to residents allocated in that block.
-export function useMarkableResidents(institutionId: string | undefined, blockId?: string) {
+export function useMarkableResidents(
+  institutionId: string | undefined,
+  blockId?: string,
+  /** The date being marked — housekeeping holds are evaluated against it. */
+  date?: string,
+) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
-    queryKey: hostelAttendanceKeys.markable(institutionId, blockId),
+    // date is part of the key: the same roster carries different holds on
+    // different dates, so omitting it would serve yesterday's holds today.
+    queryKey: [...hostelAttendanceKeys.markable(institutionId, blockId), date ?? 'today'],
     queryFn: () =>
       HostelAttendanceService.getMarkableResidents(
         isSuperAdmin ? undefined : institutionId,
-        blockId
+        blockId,
+        date,
       ),
     enabled: isSuperAdmin || !!institutionId,
   });
@@ -112,9 +120,17 @@ export function useMarkAttendance() {
   return useMutation({
     mutationFn: (payload: CreateHostelAttendanceDTO[]) =>
       HostelAttendanceService.bulkMarkAttendance(payload),
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: hostelAttendanceKeys.all });
-      toast.success('Attendance marked');
+      // Report anyone dropped for a housekeeping hold rather than silently
+      // marking fewer people than the warden selected.
+      if (result.skipped.length > 0) {
+        toast.warning(
+          `${result.marked.length} marked. ${result.skipped.length} skipped — housekeeping feedback pending for their rooms.`,
+        );
+      } else {
+        toast.success('Attendance marked');
+      }
     },
     onError: (error: Error) => {
       toast.error(`Failed to mark attendance: ${error.message}`);

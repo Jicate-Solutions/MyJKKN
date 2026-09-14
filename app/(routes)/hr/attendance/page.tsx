@@ -31,7 +31,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { CalendarRange, CalendarX, CheckCircle2, Clock, ListChecks, UserX } from 'lucide-react';
+import { CalendarRange, CalendarX, CheckCircle2, Clock, ListChecks, UserRound, UserX } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -121,12 +121,37 @@ export default function MyAttendancePage() {
   const staffId = selectedStaff?.id ?? employee?.id ?? null;
   const viewingOther = Boolean(selectedStaff && selectedStaff.id !== employee?.id);
 
+  // Why the viewer has no record of their OWN — null when they have one. Two
+  // distinct values because "no staff record" is a data fix and "not included
+  // in HR" is a policy, and sending someone to chase the wrong one wastes HR's
+  // time. Until 2026-09-08 either value ended the render outright, which locked
+  // a view_all holder who has no staff record of their own out of EVERYONE's
+  // attendance: the filter below sat further down the same ternary chain and
+  // was never reached.
+  const selfBlock: 'no-record' | 'not-included' | null = !employee
+    ? 'no-record'
+    : employee.hr_included === false
+      ? 'not-included'
+      : null;
+
   const {
     logDays, weeks, summary, isLoading, isFetching, isEmptyMonth, period, periodResolution, refresh,
   } = useAttendanceMonthView(staffId, month);
   const { data: monthsWithData } = useAttendanceMonthsWithData(staffId);
 
   const gateLoading = permLoading || empLoading;
+
+  // Extracted so the "nobody selected yet" state below renders the same filter
+  // without duplicating it. Null for everyone who cannot view others.
+  const staffFilter = canViewAll ? (
+    <AttendanceStaffFilter
+      selected={selectedStaff}
+      onSelect={setSelectedStaff}
+      onReset={() => setSelectedStaff(null)}
+      selfName={selfName}
+      hasOwnRecord={selfBlock === null}
+    />
+  ) : null;
 
   return (
     <ContentLayout title="My Attendance">
@@ -146,23 +171,31 @@ export default function MyAttendancePage() {
 
       <div className="mt-4 space-y-5">
         <PageHeader
-          title={viewingOther ? `Attendance — ${selectedStaff!.name}` : 'My Attendance'}
+          title={
+            viewingOther
+              ? `Attendance — ${selectedStaff!.name}`
+              : selfBlock
+                ? 'Attendance'
+                : 'My Attendance'
+          }
           description={
             viewingOther
               ? 'Viewing another staff member’s record. Self-service corrections are unavailable here.'
-              : 'Your day-by-day attendance, reconciled from the biometric machines against your configured shift timings.'
+              : selfBlock
+                ? 'You have no attendance record of your own. Search above to open someone else’s.'
+                : 'Your day-by-day attendance, reconciled from the biometric machines against your configured shift timings.'
           }
         />
 
         {gateLoading ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
-        ) : !employee ? (
+        ) : !employee && !canViewAll ? (
           <EmptyState
             icon={<UserX className="h-10 w-10 text-muted-foreground" />}
             title="No staff record linked"
             description="My Attendance reads the record attached to your staff profile. Contact HR if you believe this is an error."
           />
-        ) : employee.hr_included === false ? (
+        ) : employee?.hr_included === false && !canViewAll ? (
           // A DIFFERENT state from "no staff record": the person exists, their
           // employment category simply takes no part in HR. Saying "no record"
           // here would send them chasing a data fix that is actually a policy.
@@ -171,16 +204,22 @@ export default function MyAttendancePage() {
             title="Not managed in HR"
             description="Your employment category is not included in the HR module, so no attendance is recorded for you here. Contact HR if you believe this is an error."
           />
+        ) : selfBlock && !selectedStaff ? (
+          // Reached only by a view_all holder with no usable record of their
+          // own. The filter is the whole point of the page for them, so it
+          // renders; the tabs would otherwise show an empty grid belonging to
+          // nobody, because every query is disabled while staffId is null.
+          <>
+            {staffFilter}
+            <EmptyState
+              icon={<UserRound className="h-10 w-10 text-muted-foreground" />}
+              title="Choose a team member"
+              description="You have no attendance record of your own, so there is nothing to show until you pick someone. Search above to open a team member’s record."
+            />
+          </>
         ) : (
           <>
-            {canViewAll && (
-              <AttendanceStaffFilter
-                selected={selectedStaff}
-                onSelect={setSelectedStaff}
-                onReset={() => setSelectedStaff(null)}
-                selfName={selfName}
-              />
-            )}
+            {staffFilter}
 
             <Tabs value={tab} onValueChange={(v) => setParam('tab', v)}>
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -230,7 +269,6 @@ export default function MyAttendancePage() {
                 <AttendanceLogTab
                   days={logDays}
                   isLoading={isLoading}
-                  canRegularize={canRegularizeSelf && !viewingOther}
                 />
               </TabsContent>
 

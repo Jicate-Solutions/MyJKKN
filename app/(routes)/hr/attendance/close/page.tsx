@@ -25,9 +25,11 @@
  */
 
 import { useCallback, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 import {
+  AlertCircle,
   AlertTriangle,
   CheckCircle2,
   ChevronLeft,
@@ -65,6 +67,7 @@ import { getErrorMessage } from '@/lib/utils';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
   useAttendancePeriodConsole,
+  useCloseSalaryPreview,
   useLockAttendancePeriod,
   useReopenAttendancePeriod,
 } from '@/hooks/hr/use-attendance-periods';
@@ -72,6 +75,8 @@ import type { AttendancePeriodConsoleRow } from '@/lib/services/hr/attendance/at
 
 import { CloseConsoleTable, type CloseStateFilter } from './_components/close-console-table';
 import { CloseConsoleFilters } from './_components/close-console-filters';
+import { CloseSalaryPreview } from './_components/close-salary-preview';
+import { useHrOrgMappings } from '@/hooks/hr/use-hr-org-mappings';
 import { coverageOf } from './_components/close-console-columns';
 
 const MONTHS = [
@@ -171,6 +176,7 @@ function CoveragePanel({
 }
 
 export default function AttendanceMonthClosePage() {
+  const router = useRouter();
   const { canAccess, isSuperAdmin, isLoading: permsLoading } = usePermissions();
   const canView = canAccess('hr.attendance.period', 'view');
   const canManage = canAccess('hr.attendance.period', 'manage');
@@ -186,6 +192,7 @@ export default function AttendanceMonthClosePage() {
   const { data, isLoading, error, refetch, isFetching } =
     useAttendancePeriodConsole(year, month);
   const lock = useLockAttendancePeriod();
+
   const reopen = useReopenAttendancePeriod();
 
   const [confirmRow, setConfirmRow] = useState<AttendancePeriodConsoleRow | null>(null);
@@ -194,6 +201,33 @@ export default function AttendanceMonthClosePage() {
   const [stateFilter, setStateFilter] = useState<CloseStateFilter>('all');
   /** Ticked when the close would leave roster staff with no frozen row. */
   const [gapAcknowledged, setGapAcknowledged] = useState(false);
+  /**
+   * The preview fingerprint the operator ticked, not a plain boolean.
+   *
+   * Storing WHAT was verified rather than THAT something was verified is what
+   * makes the confirmation meaningful: if the projection changes underneath —
+   * a biometric import, a leave approved — the stored fingerprint stops
+   * matching and the Close button disables itself.
+   */
+  const [salaryVerified, setSalaryVerified] = useState<string | null>(null);
+  // institution -> hr_organization. The console is keyed by institution; the
+  // salary register is keyed by the shadow org, and this is the gated mapping
+  // the rest of HR uses.
+  const { orgIdByInstitution } = useHrOrgMappings();
+  const confirmOrgId = confirmRow
+    ? orgIdByInstitution.get(confirmRow.institution_id) ?? null
+    : null;
+
+  const salaryPreview = useCloseSalaryPreview(
+    confirmOrgId,
+    year,
+    month,
+    Boolean(confirmRow),
+  );
+
+  // Verified only while the ticked fingerprint still matches what is on screen.
+  const salaryOk =
+    Boolean(salaryPreview.data) && salaryVerified === salaryPreview.data?.fingerprint;
 
   const rows = useMemo(() => data ?? [], [data]);
 
@@ -218,15 +252,41 @@ export default function AttendanceMonthClosePage() {
   const runLock = useCallback(
     async (row: AttendancePeriodConsoleRow) => {
       try {
+        // Re-run the projection at the moment of closing. A confirmation given
+        // ten minutes ago is not evidence about the numbers being frozen now,
+        // and attendance moves — imports, approvals, regularizations.
+        const fresh = await salaryPreview.refetch();
+        if (fresh.data && fresh.data.fingerprint !== salaryVerified) {
+          setSalaryVerified(null);
+          toast.error(
+            'The attendance for this month changed since you checked the figures. Review the salary preview again before closing.',
+          );
+          return;
+        }
+
         await lock.mutateAsync({ institutionId: row.institution_id, year, month });
         toast.success(`${row.institution_name} closed for ${MONTHS[month - 1]} ${year}.`);
         setConfirmRow(null);
+
+        // Closing is not the end of the job — the salary register is. The
+        // register page already accepts ?institution=&year=&month= for exactly
+        // this handoff, so it opens scoped to what was just closed instead of
+        // making the operator re-pick it.
+        //
+        // Guarded on canViewRegister: hr.payroll.register.view is held by
+        // HR Head alone, and anyone else would be redirected straight into an
+        // unauthorized page having just succeeded at something.
+        if (canViewRegister) {
+          router.push(
+            `/hr/payroll/register?institution=${row.institution_id}&year=${year}&month=${month}`,
+          );
+        }
       } catch (err) {
         // The RPC's message names the blocking count, so it is shown verbatim.
         toast.error(getErrorMessage(err));
       }
     },
-    [lock, month, year]
+    [lock, month, year, salaryPreview, salaryVerified, canViewRegister, router]
   );
 
   const runReopen = useCallback(async () => {
@@ -359,7 +419,11 @@ export default function AttendanceMonthClosePage() {
           canViewRegister={canViewRegister}
           isSuperAdmin={isSuperAdmin}
           busy={lock.isPending}
-          onClose={(row) => { setConfirmRow(row); setGapAcknowledged(false); }}
+          onClose={(row) => {
+            setConfirmRow(row);
+            setGapAcknowledged(false);
+            setSalaryVerified(null);
+          }}
           onReopen={(row) => { setReopenRow(row); setReason(''); }}
         />
         </>
@@ -377,7 +441,7 @@ export default function AttendanceMonthClosePage() {
 
       {/* Plain close. Only reachable when nothing is pending. */}
       <AlertDialog open={Boolean(confirmRow)} onOpenChange={(o) => { if (!o) setConfirmRow(null); }}>
-        <AlertDialogContent>
+        <AlertDialogContent className='flex max-h-[90vh] max-w-4xl flex-col'>
           <AlertDialogHeader>
             <AlertDialogTitle>
               Close {MONTHS[month - 1]} {year} for {confirmRow?.institution_name}?
@@ -389,17 +453,48 @@ export default function AttendanceMonthClosePage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
 
-          {confirmRow ? <CoveragePanel
-            row={confirmRow}
-            acknowledged={gapAcknowledged}
-            onAcknowledge={setGapAcknowledged}
-          /> : null}
+          {/* min-h-0 and overflow-y-auto on the SAME element: the dialog has no
+              height cap of its own, and a hundred-row salary preview would
+              otherwise run off the screen with the footer painted over it. */}
+          <div className='min-h-0 flex-1 space-y-3 overflow-y-auto pr-1'>
+            {confirmRow ? <CoveragePanel
+              row={confirmRow}
+              acknowledged={gapAcknowledged}
+              onAcknowledge={setGapAcknowledged}
+            /> : null}
+
+            {confirmRow ? (
+              confirmOrgId ? (
+                <CloseSalaryPreview
+                  preview={salaryPreview.data}
+                  isLoading={salaryPreview.isLoading}
+                  error={salaryPreview.error}
+                  verifiedFingerprint={salaryVerified}
+                  onVerify={setSalaryVerified}
+                  // Mirrors fn_hr_regularize_attendance_day's own gate:
+                  // hr.attendance.period.manage is held by hr_head alone, so
+                  // this is exactly "super admin or HR Head". The RPC checks it
+                  // again — this only decides whether the control is offered.
+                  canRegularize={isSuperAdmin || canManage}
+                />
+              ) : (
+                <Alert variant='destructive'>
+                  <AlertCircle className='h-4 w-4' />
+                  <AlertDescription className='text-xs'>
+                    This institution has no HR organisation, so the salary register
+                    cannot be previewed and the month cannot be verified.
+                  </AlertDescription>
+                </Alert>
+              )
+            ) : null}
+          </div>
 
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               disabled={
                 lock.isPending ||
+                !salaryOk ||
                 (confirmRow ? coverageOf(confirmRow).hasGap && !gapAcknowledged : true)
               }
               onClick={(e) => {

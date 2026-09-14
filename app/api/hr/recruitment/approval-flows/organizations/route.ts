@@ -24,7 +24,16 @@ async function getClient() {
   );
 }
 
-/** HR organizations visible to the caller (flow builder org selector). */
+/**
+ * HR organizations visible to the caller — every one of them.
+ *
+ * NO included_in_hr filter, deliberately. Recruitment runs group-wide: that
+ * flag gates the HR module proper (leave, payroll, attendance, staff records)
+ * and no recruitment table carries its restrictive RLS policy. Filtering here
+ * both hid three institutions from the workflow org selector and dropped them
+ * from the id -> name map, which rendered raw UUIDs in the table's
+ * Organization column.
+ */
 export async function GET() {
   await connection();
   try {

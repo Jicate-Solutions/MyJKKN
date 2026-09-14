@@ -1,0 +1,22 @@
+-- ============================================================================
+-- fn_learner_status_apply_item_rules is an INTERNAL helper, not an API.
+--
+-- Extracting STAGE A0 in 20260906120000 gave it a PostgREST endpoint of its
+-- own: SECURITY DEFINER + EXECUTE to `authenticated` means any logged-in user
+-- could POST /rpc/fn_learner_status_apply_item_rules for an arbitrary learner
+-- id. It cannot set a status the fee rules do not already justify — it
+-- recomputes everything from the bills — but forcing a promotion evaluation on
+-- someone else's learner record is not something a caller should be able to do,
+-- and the ungated-maintenance-RPC shape is exactly the one this codebase has
+-- been bitten by before.
+--
+-- Both real callers (evaluate_learner_status_after_payment and
+-- fn_billing_resync_item_schedules) are themselves SECURITY DEFINER owned by
+-- postgres, so they execute this as the OWNER. Revoking the `authenticated`
+-- grant closes the endpoint without affecting either of them.
+--
+-- Verified after applying: the engine still promotes through STAGE A0 when
+-- called as an authenticated user.
+-- ============================================================================
+
+REVOKE EXECUTE ON FUNCTION public.fn_learner_status_apply_item_rules(uuid, text) FROM authenticated;

@@ -36,6 +36,7 @@ import { AdvocacyCard } from './_components/advocacy-card';
 import { DayFeedbackCard } from './_components/day-feedback-card';
 import { ProgramFeedbackCard } from './_components/program-feedback-card';
 import { MentorMonthFeedbackCard } from './_components/mentor-month-feedback-card';
+import { MyMentorCard } from './_components/my-mentor-card';
 
 const BRAND = '#0b6d41';
 
@@ -195,6 +196,12 @@ export default function MyInductionPage() {
                 )}
               </CardContent>
             </Card>
+
+            {/* Who my Senior Peer Mentor is + how to reach them — self-scoping,
+                shows from the moment a coordinator assigns me. Sits ABOVE the
+                monthly rating: you have to know who someone is before being
+                asked to rate them. */}
+            <MyMentorCard eventId={enrollment.event_id} />
 
             {/* Monthly "did your mentor help you?" rating — self-scoping, only shows once a check-in has come due */}
             <MentorMonthFeedbackCard eventId={enrollment.event_id} />

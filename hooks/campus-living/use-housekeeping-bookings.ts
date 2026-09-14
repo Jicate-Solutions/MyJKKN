@@ -1,224 +1,325 @@
 'use client';
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import {
-  HousekeepingBookingService,
-  type BookingBoardParams,
-  type MarkableBookingStatus,
-} from '@/lib/services/campus-living/housekeeping-booking-service';
+import { HousekeepingBookingService } from '@/lib/services/campus-living/housekeeping-booking-service';
+import { bookingErrorMessage } from '@/lib/services/campus-living/housekeeping-rules';
+import { getErrorMessage } from '@/lib/utils';
+import { isRpcFailure } from '@/types/campus-living/housekeeping';
+import type { RescheduleBookingDto } from '@/types/campus-living/housekeeping';
 
-export interface AssignBookingInput {
-  bookingId: string;
-  profileId?: string | null;
-  name?: string | null;
-  clear?: boolean;
-}
-
-// Query key factory — all keys namespaced under 'housekeeping-bookings'.
 export const housekeepingBookingKeys = {
   all: ['housekeeping-bookings'] as const,
-  availableSlots: (blockId: string | undefined, date: string | undefined) =>
-    ['housekeeping-bookings', 'available-slots', blockId, date] as const,
-  myBookings: (fromDate?: string) =>
-    ['housekeeping-bookings', 'my-bookings', fromDate ?? 'all'] as const,
-  entitlement: () => ['housekeeping-bookings', 'entitlement'] as const,
-  board: (institutionId: string | undefined, params: BookingBoardParams) =>
+  /** excludeBookingId is part of the key: the same room/type/date grid differs
+   *  depending on whether a booking is being left out of the capacity count. */
+  slots: (roomId?: string, typeId?: string, date?: string, excludeBookingId?: string) =>
     [
       'housekeeping-bookings',
-      'board',
-      institutionId,
-      params.date ?? null,
-      params.dateFrom ?? null,
-      params.dateTo ?? null,
+      'slots',
+      roomId ?? '-',
+      typeId ?? '-',
+      date ?? '-',
+      excludeBookingId ?? '-',
     ] as const,
-  assignableStaff: (institutionId: string | undefined) =>
-    ['housekeeping-bookings', 'assignable-staff', institutionId] as const,
+  reschedules: (bookingId?: string) =>
+    ['housekeeping-bookings', 'reschedules', bookingId ?? 'none'] as const,
+  /** The admin table's status tiles. Keyed on the filters only — the page and
+   *  page size must NOT be in here, or the totals would change as you page. */
+  statusCounts: (filters: Record<string, unknown>) =>
+    ['housekeeping-bookings', 'status-counts', filters] as const,
+  detail: (bookingId?: string) =>
+    ['housekeeping-bookings', 'detail', bookingId ?? 'none'] as const,
+  mine: (roomId?: string) => ['housekeeping-bookings', 'mine', roomId ?? 'none'] as const,
+  photos: (bookingId: string) => ['housekeeping-bookings', 'photos', bookingId] as const,
+  myAllocation: () => ['housekeeping-bookings', 'my-allocation'] as const,
 };
 
-// Resident-friendly messages for the RPC envelope error codes
-// (fn_housekeeping_book_slot / cancel contracts — spec 2026-06-10).
-const BOOKING_ERROR_MESSAGES: Record<string, string> = {
-  disabled: 'Housekeeping slot booking is currently turned off',
-  no_active_allocation: 'You need an active hostel allocation to book a cleaning slot',
-  tier_not_entitled: 'Your hostel tier does not include housekeeping slot booking',
-  quota_exhausted: 'You have used all your included cleaning slots for this week',
-  slot_full: 'That slot has just been filled — please pick another',
-  outside_window: 'That time is outside the daily cleaning window',
-  too_far_ahead: 'That date is too far ahead to book yet',
-  past_slot: 'That slot has already passed',
-  duplicate: 'You already have a booking for this slot',
-  // cancel / mark codes (fn_housekeeping_cancel_booking / _mark_booking)
-  cutoff_passed: 'Too close to the slot time to cancel — please contact the hostel office',
-  forbidden: 'You can only manage your own bookings',
-  invalid_status: 'That status change is not allowed',
-  not_cancellable: 'This booking can no longer be cancelled',
-  not_found: 'This booking no longer exists',
-  not_markable: 'Only booked or assigned slots can be marked complete or no-show',
-  // assign codes (fn_housekeeping_assign_booking)
-  not_assignable: 'Only booked or assigned slots can be assigned',
-  missing_assignee: 'Pick a staff member or type a name',
-};
-
-function bookingErrorMessage(errorCode?: string, fallback = 'Request failed'): string {
-  return (errorCode && BOOKING_ERROR_MESSAGES[errorCode]) || fallback;
-}
-
-// --- Queries ---
-
-export function useAvailableSlots(
-  blockId: string | undefined,
-  date: string | undefined
-) {
+/** The caller's own live allocation, or null when they have no room. */
+export function useMyAllocation() {
   return useQuery({
-    queryKey: housekeepingBookingKeys.availableSlots(blockId, date),
-    queryFn: () => HousekeepingBookingService.getAvailableSlots(blockId!, date!),
-    enabled: !!blockId && !!date,
-  });
-}
-
-export function useMyBookings(fromDate?: string) {
-  return useQuery({
-    queryKey: housekeepingBookingKeys.myBookings(fromDate),
-    queryFn: () => HousekeepingBookingService.getMyBookings(fromDate),
-  });
-}
-
-export function useMyEntitlement() {
-  return useQuery({
-    queryKey: housekeepingBookingKeys.entitlement(),
-    queryFn: () => HousekeepingBookingService.getMyEntitlement(),
+    queryKey: housekeepingBookingKeys.myAllocation(),
+    queryFn: () => HousekeepingBookingService.getMyAllocation(),
   });
 }
 
 /**
- * `institutionId` undefined = all institutions the caller can access — a
- * legitimate scope, not a missing param, so the query always runs. (It used
- * to be `enabled: !!institutionId`, which left super admins and users with no
- * profiles.institution_id staring at an empty board.)
+ * Everything a booking mutation must refresh.
+ *
+ * Nothing self-refreshes in this app (staleTime 5min, no refetch on focus), so
+ * a booking change has to push the OTHER module's keys too or a warden sees a
+ * stale attendance hold. Holds are their own namespace, invalidated here as
+ * well because completing or waiving a booking changes them.
  */
-export function useBookingBoard(
-  institutionId?: string,
-  params: BookingBoardParams = {}
+function invalidateBookingSurfaces(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({ queryKey: housekeepingBookingKeys.all });
+  qc.invalidateQueries({ queryKey: ['housekeeping-holds'] });
+  qc.invalidateQueries({ queryKey: ['hostel-attendance'] });
+}
+
+export function useSlotGrid(
+  roomId?: string,
+  typeId?: string,
+  date?: string,
+  excludeBookingId?: string,
 ) {
   return useQuery({
-    queryKey: housekeepingBookingKeys.board(institutionId, params),
-    queryFn: () => HousekeepingBookingService.getBookingBoard(institutionId, params),
+    queryKey: housekeepingBookingKeys.slots(roomId, typeId, date, excludeBookingId),
+    queryFn: () =>
+      HousekeepingBookingService.getSlots(
+        roomId as string,
+        typeId as string,
+        date as string,
+        excludeBookingId,
+      ),
+    enabled: Boolean(roomId && typeId && date),
   });
 }
 
-export function useAssignableStaff(institutionId: string | undefined) {
+/** Every move a booking has made, oldest first. Both the admin timeline and
+ *  the learner's history read this. */
+export function useBookingReschedules(bookingId?: string) {
   return useQuery({
-    queryKey: housekeepingBookingKeys.assignableStaff(institutionId),
-    queryFn: () => HousekeepingBookingService.getAssignableStaff(institutionId!),
-    enabled: !!institutionId,
-    staleTime: 5 * 60 * 1000,
+    queryKey: housekeepingBookingKeys.reschedules(bookingId),
+    queryFn: () => HousekeepingBookingService.listReschedules(bookingId as string),
+    enabled: Boolean(bookingId),
   });
 }
 
-// --- Mutations ---
+/**
+ * Status totals for the admin table's tiles, over the WHOLE filtered set.
+ *
+ * The table pages server-side, so counting the rows it hands back would report
+ * page 1 as if it were everything. This asks the database instead.
+ */
+export function useBookingStatusCounts(filters: {
+  dateFrom?: string;
+  dateTo?: string;
+  institutionId?: string;
+  blockId?: string;
+}) {
+  return useQuery({
+    queryKey: housekeepingBookingKeys.statusCounts(filters),
+    queryFn: () => HousekeepingBookingService.countBookingsByStatus(filters),
+  });
+}
+
+/** Everything behind one booking. Only fetches once the dialog has a booking. */
+export function useBookingDetail(bookingId?: string) {
+  return useQuery({
+    queryKey: housekeepingBookingKeys.detail(bookingId),
+    queryFn: () => HousekeepingBookingService.getBookingDetail(bookingId as string),
+    enabled: Boolean(bookingId),
+  });
+}
+
+export function useMyBookings(roomId?: string, fromDate?: string) {
+  return useQuery({
+    queryKey: housekeepingBookingKeys.mine(roomId),
+    queryFn: () => HousekeepingBookingService.listMyBookings(roomId as string, fromDate),
+    enabled: Boolean(roomId),
+  });
+}
+
+/**
+ * Ratings already on a booking. The learner surface needs this to know whether
+ * THIS learner has rated — any roommate may rate, so "the booking has feedback"
+ * and "I have rated" are different questions and only the second decides whether
+ * to keep showing them the form.
+ */
+export function useBookingFeedback(bookingId?: string) {
+  return useQuery({
+    queryKey: ['housekeeping-bookings', 'feedback', bookingId ?? 'none'] as const,
+    queryFn: () => HousekeepingBookingService.listFeedback(bookingId as string),
+    enabled: Boolean(bookingId),
+  });
+}
+
+export function useBookingPhotos(bookingId: string) {
+  return useQuery({
+    queryKey: housekeepingBookingKeys.photos(bookingId),
+    queryFn: () => HousekeepingBookingService.listPhotos(bookingId),
+    enabled: Boolean(bookingId),
+  });
+}
+
+/**
+ * Remove one before/after photo.
+ *
+ * Routed through the API rather than the service because the Drive file has to
+ * go with the row, and only the server holds the Drive credentials. The route's
+ * own copy is already actionable (the last-photo 409), so it is surfaced as-is.
+ */
+export function useDeleteBookingPhoto() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ photoId }: { photoId: string; bookingId: string }) => {
+      const res = await fetch(`/api/campus-living/housekeeping/photos/${photoId}`, {
+        method: 'DELETE',
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error ?? 'Could not remove the photo.');
+      return json;
+    },
+    onSuccess: (_data, { bookingId }) => {
+      toast.success('Photo removed');
+      qc.invalidateQueries({ queryKey: housekeepingBookingKeys.photos(bookingId) });
+      qc.invalidateQueries({ queryKey: housekeepingBookingKeys.detail(bookingId) });
+      // The table's Before/After counts come off the board rows, not the photo
+      // query — without this the cell keeps the old count until a reload.
+      qc.invalidateQueries({ queryKey: housekeepingBookingKeys.all });
+    },
+    onError: (error) => toast.error(getErrorMessage(error)),
+  });
+}
 
 export function useBookSlot() {
-  const queryClient = useQueryClient();
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: ({
+      typeId,
       date,
       slotStart,
       notes,
     }: {
+      typeId: string;
       date: string;
       slotStart: string;
       notes?: string;
-    }) => HousekeepingBookingService.bookSlot(date, slotStart, notes),
+    }) => HousekeepingBookingService.book(typeId, date, slotStart, notes),
     onSuccess: (result) => {
-      // Refresh slot grid + lists either way — a slot_full rejection means
-      // the availability the user is looking at is already stale.
-      queryClient.invalidateQueries({ queryKey: housekeepingBookingKeys.all });
-      if (result.success) {
-        toast.success('Cleaning slot booked');
+      // Invalidate on BOTH outcomes: a refusal means the grid on screen is
+      // already stale (someone else took the slot, or locked the room).
+      invalidateBookingSurfaces(qc);
+      if (!isRpcFailure(result)) {
+        toast.success('Cleaning booked');
+      } else if (result.error_code === 'quota_exhausted' && result.allowed != null) {
+        toast.error(`Your room has used all ${result.allowed} of its bookings for this cleaning.`);
       } else {
         toast.error(bookingErrorMessage(result.error_code, 'Could not book this slot'));
       }
     },
-    onError: (error: Error) => {
-      toast.error(`Failed to book slot: ${error.message}`);
-    },
+    onError: (error) => toast.error(`Could not book this slot: ${getErrorMessage(error)}`),
   });
 }
 
 export function useCancelBooking() {
-  const queryClient = useQueryClient();
+  const qc = useQueryClient();
   return useMutation({
-    mutationFn: (bookingId: string) =>
-      HousekeepingBookingService.cancelBooking(bookingId),
+    mutationFn: ({ bookingId, reason }: { bookingId: string; reason?: string }) =>
+      HousekeepingBookingService.cancel(bookingId, reason),
     onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: housekeepingBookingKeys.all });
-      if (result.success) {
-        toast.success('Booking cancelled');
-      } else {
+      invalidateBookingSurfaces(qc);
+      if (isRpcFailure(result)) {
         toast.error(bookingErrorMessage(result.error_code, 'Could not cancel this booking'));
-      }
-    },
-    onError: (error: Error) => {
-      toast.error(`Failed to cancel booking: ${error.message}`);
-    },
-  });
-}
-
-export function useAssignBooking() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ bookingId, profileId, name, clear }: AssignBookingInput) =>
-      HousekeepingBookingService.assignBooking(bookingId, { profileId, name, clear }),
-    onSuccess: (result, variables) => {
-      queryClient.invalidateQueries({ queryKey: housekeepingBookingKeys.all });
-      if (result.success) {
-        toast.success(variables.clear ? 'Assignment cleared' : 'Booking assigned');
       } else {
-        const message =
-          result.error_code === 'forbidden'
-            ? 'You do not have permission to assign bookings (housekeeping schedule required)'
-            : bookingErrorMessage(result.error_code, 'Could not assign this booking');
-        toast.error(message);
+        toast.success('Booking cancelled');
       }
     },
-    onError: (error: Error) => {
-      toast.error(`Failed to assign booking: ${error.message}`);
-    },
+    onError: (error) => toast.error(`Could not cancel: ${getErrorMessage(error)}`),
   });
 }
 
-export function useMarkBooking() {
-  const queryClient = useQueryClient();
+export function useAssignCleaner() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: ({
       bookingId,
-      status,
+      cleanerId,
+      clear,
     }: {
       bookingId: string;
-      status: MarkableBookingStatus;
-    }) => HousekeepingBookingService.markBooking(bookingId, status),
-    onSuccess: (result, variables) => {
-      queryClient.invalidateQueries({ queryKey: housekeepingBookingKeys.all });
-      if (result.success) {
-        toast.success(
-          variables.status === 'completed'
-            ? 'Booking marked complete'
-            : 'Booking marked as no-show'
-        );
+      cleanerId: string | null;
+      clear?: boolean;
+    }) => HousekeepingBookingService.assign(bookingId, cleanerId, clear ?? false),
+    onSuccess: (result) => {
+      invalidateBookingSurfaces(qc);
+      if (isRpcFailure(result)) {
+        toast.error(bookingErrorMessage(result.error_code, 'Could not assign this cleaner'));
       } else {
-        // 'forbidden' from fn_housekeeping_mark_booking means the STAFF caller
-        // lacks campus_living.housekeeping.mark_done — the shared map's
-        // resident-facing "own bookings" wording is wrong in this context.
-        const message =
-          result.error_code === 'forbidden'
-            ? 'You do not have permission to update bookings — ask your admin for the housekeeping mark-done permission'
-            : bookingErrorMessage(result.error_code, 'Could not update this booking');
-        toast.error(message);
+        toast.success(
+          result.cleaner_name ? `Assigned to ${result.cleaner_name}` : 'Cleaner cleared',
+        );
       }
     },
-    onError: (error: Error) => {
-      toast.error(`Failed to update booking: ${error.message}`);
+    onError: (error) => toast.error(`Could not assign: ${getErrorMessage(error)}`),
+  });
+}
+
+/**
+ * Move a booking, then tell the room.
+ *
+ * The notification is fired only on success and is never awaited into the
+ * result: sendNotification failing must not report a completed reschedule as an
+ * error. The RPC's own refusals come back as { success: false } and are turned
+ * into copy by bookingErrorMessage, exactly like assign and cancel.
+ */
+export function useRescheduleBooking() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (dto: RescheduleBookingDto) => HousekeepingBookingService.reschedule(dto),
+    onSuccess: (result, dto) => {
+      invalidateBookingSurfaces(qc);
+      qc.invalidateQueries({ queryKey: housekeepingBookingKeys.reschedules(dto.bookingId) });
+      if (isRpcFailure(result)) {
+        toast.error(bookingErrorMessage(result.error_code, 'Could not reschedule this booking'));
+        return;
+      }
+      void HousekeepingBookingService.notifyRescheduled(dto.bookingId);
+      toast.success(
+        result.cleaner_name
+          ? `Moved to ${result.booking_date} at ${result.slot_start} — ${result.cleaner_name}`
+          : `Moved to ${result.booking_date} at ${result.slot_start}`,
+      );
+    },
+    onError: (error) => toast.error(`Could not reschedule: ${getErrorMessage(error)}`),
+  });
+}
+
+export function useWaiveHold() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      bookingId,
+      reason,
+      waivedBy,
+    }: {
+      bookingId: string;
+      reason: string;
+      waivedBy: string;
+    }) => HousekeepingBookingService.waiveHold(bookingId, reason, waivedBy),
+    onSuccess: () => {
+      invalidateBookingSurfaces(qc);
+      toast.success('Hold waived — attendance released for this room');
+    },
+    onError: (error) => toast.error(`Could not waive the hold: ${getErrorMessage(error)}`),
+  });
+}
+
+export function useSubmitFeedback() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: {
+      bookingId: string;
+      institutionId: string;
+      roomId: string;
+      learnerId: string;
+      rating: number;
+      comment?: string | null;
+    }) => HousekeepingBookingService.submitFeedback(args),
+    onSuccess: () => {
+      invalidateBookingSurfaces(qc);
+      toast.success('Thanks — your rating released attendance for your room');
+    },
+    onError: (error) => {
+      const msg = getErrorMessage(error);
+      toast.error(
+        msg.includes('23505')
+          ? 'You have already rated this cleaning.'
+          : `Could not submit your rating: ${msg}`,
+      );
     },
   });
 }
+
+/** Re-exported so pages import learner-facing copy from one place. */
+export { bookingErrorMessage };

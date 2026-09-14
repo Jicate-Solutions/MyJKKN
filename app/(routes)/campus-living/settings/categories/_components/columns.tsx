@@ -6,12 +6,40 @@ import { Badge } from '@/components/ui/badge';
 import type { HostelCategory } from '@/types/hostel-categories';
 import { HOSTEL_CATEGORY_TYPE_LABELS, ALLOCATION_MODE_LABELS } from '@/types/hostel-categories';
 import { HostelCategoryRowActions, HostelCategoryNameCell } from './row-actions';
+import { useActiveHostelCategories } from '@/hooks/campus-living/use-hostel-categories';
+import { useCategoryRoomSources } from '@/hooks/campus-living/use-hostel-category-room-sources';
 
 const TYPE_VARIANT: Record<string, 'default' | 'secondary' | 'outline'> = {
   boys: 'default',
   girls: 'secondary',
   mixed: 'outline',
 };
+
+/**
+ * The extra room categories this one may seat learners in. Both queries are the
+ * same cached keys the rest of this page uses, so rendering it per row costs
+ * nothing extra.
+ */
+function RoomSourcesCell({ category }: { category: HostelCategory }) {
+  const { data: sources = [] } = useCategoryRoomSources();
+  const { hostelCategories } = useActiveHostelCategories();
+
+  const names = sources
+    .filter((s) => s.category_id === category.id)
+    .map((s) => hostelCategories.find((c) => c.id === s.source_category_id)?.name)
+    .filter((n): n is string => !!n);
+
+  if (names.length === 0) return <span className='text-muted-foreground'>—</span>;
+  return (
+    <div className='flex flex-wrap gap-1'>
+      {names.map((n) => (
+        <Badge key={n} variant='outline' className='font-normal'>
+          {n}
+        </Badge>
+      ))}
+    </div>
+  );
+}
 
 export const createColumns = (): ColumnDef<HostelCategory>[] => [
   {
@@ -85,6 +113,11 @@ export const createColumns = (): ColumnDef<HostelCategory>[] => [
           : '—'}
       </span>
     ),
+  },
+  {
+    id: 'room_sources',
+    header: 'Also Uses Rooms From',
+    cell: ({ row }) => <RoomSourcesCell category={row.original} />,
   },
   {
     accessorKey: 'sort_order',

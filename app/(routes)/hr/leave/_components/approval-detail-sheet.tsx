@@ -19,7 +19,7 @@
 // Nothing links to it any more, so it is reachable by URL only.
 
 import { useState } from 'react';
-import { Check, Loader2, X } from 'lucide-react';
+import { Check, Loader2, RotateCcw, X } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -32,7 +32,11 @@ import {
 import { StatusBadge } from './request-table';
 import { ApprovalChainTimeline } from './approval-chain-timeline';
 import { LeaveDocumentList } from './leave-document-list';
-import { formatBiometricGap, formatDays, formatHours } from './format';
+import { DecisionEmailStatus } from './decision-email-status';
+import {
+  approveLabel, formatBiometricGap, formatDays, formatHours, isReviewStep, stageLabel,
+} from './format';
+import { useCanFinalizeLeave } from '@/hooks/hr/use-leave-approval-flows';
 import { hoursFor } from './approval-queue-columns';
 import type { ApprovalRowActionHandlers } from './approval-row-actions';
 import { useApplication, useApplicationComments, useAddComment } from '@/hooks/hr/use-leave';
@@ -75,6 +79,12 @@ export function ApprovalDetailSheet({
   const isShort = row?.request_category === 'short_time_off';
   const hours = row ? hoursFor(row) : null;
 
+  // Does a decision here review the request or grant it?
+  const isReview = row ? isReviewStep(row) : false;
+  // ...and if it only reviews, is this caller ALSO the final approver, free to
+  // grant it outright? Only Postgres can answer that — see the hook.
+  const { data: canFinalize } = useCanFinalizeLeave(isReview ? row?.id : undefined);
+
   const postComment = async () => {
     if (!row || !comment.trim()) return;
     setCommentError(null);
@@ -88,13 +98,28 @@ export function ApprovalDetailSheet({
 
   return (
     <Sheet open={Boolean(row)} onOpenChange={onOpenChange}>
+      {/*
+        THE SCROLL BELONGS TO THE BODY, NOT TO THIS ELEMENT.
+        This was `flex flex-col overflow-y-auto` with the body at `flex-1
+        min-h-0` and no overflow of its own — two contradictory instructions.
+        Flex handed the body the leftover height (root − header − footer),
+        min-h-0 let it shrink below its content, and `overflow: visible` meant
+        the surplus neither clipped nor scrolled: it spilled out and PAINTED
+        OVER THE FOOTER. The approval chain rendered underneath the Approve and
+        Reject buttons, worst on exactly the rows that need reading — a footer
+        carrying the biometric-gap warning is three lines taller, so it steals
+        three more lines from the body.
+        overflow-hidden here + overflow-y-auto on the body is the shell that
+        actually works, and it pins the decision buttons while a long request
+        scrolls, which is what an approver wants anyway.
+      */}
       <SheetContent
         side="right"
-        className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-xl"
+        className="flex w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-xl"
       >
         {row && (
           <>
-            <SheetHeader className="space-y-2 border-b p-4 text-left sm:p-6">
+            <SheetHeader className="shrink-0 space-y-2 border-b p-4 text-left sm:p-6">
               <SheetTitle className="text-base">
                 {row.staff_name ?? 'Unknown staff'}
               </SheetTitle>
@@ -114,17 +139,14 @@ export function ApprovalDetailSheet({
                   : ''}
               </SheetDescription>
               <div className="flex flex-wrap items-center gap-1.5">
-                <StatusBadge status={row.status} />
-                {row.is_emergency && (
-                  <Badge variant="outline" className="border-red-300 text-red-700">Emergency</Badge>
-                )}
+                <StatusBadge status={row.status} revoked={row.revoked_at !== null} />
                 {row.is_own && (
                   <Badge variant="outline" className="border-amber-300 text-amber-800">Yours</Badge>
                 )}
               </div>
             </SheetHeader>
 
-            <div className="min-h-0 flex-1 space-y-5 p-4 sm:p-6">
+            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4 sm:p-6">
               <dl className="grid grid-cols-2 gap-3">
                 <Field label="Institution">{row.institution_name ?? '—'}</Field>
                 <Field label="HR organization">{row.hr_organization_name ?? '—'}</Field>
@@ -180,17 +202,18 @@ export function ApprovalDetailSheet({
               )}
 
               {/* Straight after the reason: the certificate is the evidence FOR
-                  the reason, and an approver reads the two together. Waits on
-                  the REST fetch — the queue RPC does not return documents. */}
-              {isLoading ? (
-                <Skeleton className="h-12 w-full" />
-              ) : (
-                <LeaveDocumentList
-                  documents={app?.documents}
-                  outstanding={!!app && (app.documents?.length ?? 0) === 0 && !!app.is_emergency}
-                  hideWhenEmpty
-                />
-              )}
+                  the reason, and an approver reads the two together.
+                  Rendered from the ROW now that the queue RPC returns
+                  documents, so it no longer sits behind a skeleton waiting on
+                  the REST fetch. `app` stays as the fallback for the five
+                  minutes after a deploy in which a session can still be holding
+                  a cached queue payload from before the column existed
+                  (staleTime is 5 min and nothing refetches on focus). */}
+              <LeaveDocumentList
+                documents={row.documents ?? app?.documents}
+                hideWhenEmpty
+                viewerTitle={[row.staff_name, row.leave_type_name].filter(Boolean).join(' · ')}
+              />
 
               <Separator />
 
@@ -242,13 +265,44 @@ export function ApprovalDetailSheet({
               </div>
             </div>
 
-            <SheetFooter className="flex-row gap-2 border-t p-4 sm:justify-end sm:p-6">
+            {/* bg-background so nothing can ever show through it again, even if
+                a future child escapes its box. */}
+            <SheetFooter className="shrink-0 flex-row flex-wrap gap-2 border-t bg-background p-4 sm:justify-end sm:p-6">
               {/* A decided row is undecidable for everyone — the "your own
                   request" explanation below is only right on OPEN rows. */}
               {row.status !== 'pending' && row.status !== 'escalated' ? (
-                <p className="text-xs text-muted-foreground">
-                  Already decided{row.final_approver_name ? ` by ${row.final_approver_name}` : ''}.
-                </p>
+                <div className="flex w-full flex-wrap items-end justify-between gap-3">
+                  <div className="min-w-0 space-y-1">
+                    {row.revoked_at ? (
+                      <p className="text-xs text-amber-700 dark:text-amber-400">
+                        Approval revoked
+                        {row.revoked_by_name ? ` by ${row.revoked_by_name}` : ''} on{' '}
+                        {new Date(row.revoked_at).toLocaleDateString('en-GB')}
+                        {row.revoke_reason ? ` — ${row.revoke_reason}` : ''}.
+                      </p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        Already decided
+                        {row.final_approver_name ? ` by ${row.final_approver_name}` : ''}.
+                      </p>
+                    )}
+                    <DecisionEmailStatus target={{ leaveApplicationId: row.id }} />
+                  </div>
+                  {/* The only action a decided row still has. Same cheap test as
+                      the row menu; the dialog asks the database whether this
+                      caller and this month actually allow it. */}
+                  {row.status === 'approved' && row.revoked_at === null && !row.is_own && (
+                    <Button
+                      variant="outline"
+                      className="border-amber-600/40 text-amber-700 hover:bg-amber-600/10 hover:text-amber-700 dark:text-amber-400"
+                      disabled={handlers.isPending}
+                      onClick={() => { handlers.onRevoke(row); onOpenChange(false); }}
+                    >
+                      <RotateCcw className="mr-1 h-4 w-4" />
+                      Revoke approval…
+                    </Button>
+                  )}
+                </div>
               ) : row.can_decide ? (
                 <>
                   {/* The reason sits in the footer beside the button it
@@ -256,7 +310,10 @@ export function ApprovalDetailSheet({
                       to the decision should not have to scroll back to find out
                       why Approve is greyed. Reject stays live — refusing writes
                       no attendance stamp, so the database does not refuse it. */}
-                  {row.biometric_gap_from !== null && (
+                  {/* A review writes no attendance stamp, so the biometric gate
+                      does not apply to it — see the same correction in
+                      approval-row-actions.tsx. */}
+                  {row.biometric_gap_from !== null && !isReview && (
                     <p className="mr-auto max-w-[22rem] self-center text-xs leading-snug text-amber-700 dark:text-amber-400">
                       Biometric attendance is not uploaded for{' '}
                       <strong>{formatBiometricGap(row.biometric_gap_from)}</strong>.
@@ -264,14 +321,24 @@ export function ApprovalDetailSheet({
                       the month first.
                     </p>
                   )}
+                  {isReview && (
+                    <p className="mr-auto max-w-[22rem] self-center text-xs leading-snug text-muted-foreground">
+                      {stageLabel(row)} — your decision records a review and passes
+                      this on. {canFinalize
+                        ? 'You are also the final approver, so you may grant it outright instead.'
+                        : 'It does not grant the leave.'}
+                    </p>
+                  )}
                   <Button
                     variant="outline"
                     className="flex-1 border-emerald-600/40 text-emerald-700 hover:bg-emerald-600/10 hover:text-emerald-700 sm:flex-none"
-                    disabled={handlers.isPending || row.biometric_gap_from !== null}
+                    disabled={
+                      handlers.isPending || (row.biometric_gap_from !== null && !isReview)
+                    }
                     onClick={() => { handlers.onApprove(row); onOpenChange(false); }}
                   >
                     <Check className="mr-1 h-4 w-4" />
-                    Approve
+                    {canFinalize ? 'Approve now' : approveLabel(row)}
                   </Button>
                   <Button
                     variant="outline"

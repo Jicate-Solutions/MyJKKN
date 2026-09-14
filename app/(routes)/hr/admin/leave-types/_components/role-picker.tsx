@@ -149,6 +149,7 @@ export function RolePicker({
         container={container ?? undefined}
         data-vaul-no-drag
         align="start"
+        collisionPadding={8}
         className="w-full p-0"
         style={{ width: 'var(--radix-popover-trigger-width)', minWidth: '250px' }}
         onOpenAutoFocus={(e) => {
@@ -167,7 +168,18 @@ export function RolePicker({
           }
         >
           <CommandInput placeholder={searchPlaceholder} />
-          <CommandList>
+          {/* CommandList's own cap is a flat max-h-[300px], which asks for 300px
+              of room the viewport may not have — on a short window the list runs
+              off the bottom instead of shrinking. Radix publishes the space it
+              actually resolved as --radix-popover-content-available-height, so
+              take whichever is smaller. If the variable is ever absent the whole
+              min() is invalid and the inline style is dropped, leaving the 300px
+              class intact. */}
+          <CommandList
+            style={{
+              maxHeight: 'min(300px, var(--radix-popover-content-available-height))',
+            }}
+          >
             <CommandEmpty>{emptyMessage}</CommandEmpty>
             <CommandGroup>
               {clearLabel && (

@@ -54,10 +54,10 @@ const lookups = {
   ]),
 } as unknown as BulkResolveLookups;
 
-// Every structure must promote to BOTH Reserved and Admitted somewhere (see
-// REQUIRED_PROMOTIONS), so each happy-path fixture below carries the two rungs
-// on rows that are otherwise about something else. A structure with one row
-// can only name one rung, which is why several fixtures gained a second fee.
+// Every structure must promote a learner somewhere — Reserved or Admitted, one
+// is enough (see PROMOTION_RUNGS). The happy-path fixtures below still carry
+// both rungs, because that is what a real two-instalment structure looks like;
+// the one-rung shapes are exercised in the promotion describe block.
 
 /** The structure columns as the export repeats them down every row. */
 const STRUCTURE = {
@@ -546,10 +546,12 @@ describe('resolveUnifiedSheet — the instalments must add up to the fee Amount'
 });
 
 // ---------------------------------------------------------------------------
-// EVERY STRUCTURE MUST PROMOTE TO BOTH RUNGS. "Promotes To" is how a settled
-// fee moves a learner account → reserved → admitted; a structure that names
-// only one rung (or neither) strands learners on it however much they pay.
-describe('resolveUnifiedSheet — every structure must promote to both Reserved and Admitted', () => {
+// EVERY STRUCTURE MUST PROMOTE SOMEWHERE. "Promotes To" is how a settled fee
+// moves a learner account → reserved → admitted; a structure that names NEITHER
+// rung takes money and moves nobody. One rung is enough — a govt-quota
+// structure only reserves the seat, and a single unsplit fee has one row to
+// say it on. Requiring both refused ten live "GQ 7.5" structures.
+describe('resolveUnifiedSheet — every structure must promote a learner somewhere', () => {
   const FEE = { 'Fee Structure ID': STRUCT, 'Fee Category': '1 Year Tuition Fee', Amount: 140000 };
   const inst = (n: number, promotes: string, over: Record<string, unknown> = {}) =>
     row({ ...FEE, 'Instalment #': n, 'Share %': 50, 'Due After (Days)': n * 30, 'Promotes To': promotes, ...over });
@@ -570,18 +572,33 @@ describe('resolveUnifiedSheet — every structure must promote to both Reserved 
     const { res } = one([inst(1, ''), inst(2, '')]);
     expect(res.errors).toHaveLength(1);
     expect(res.errors[0]).toMatch(/^Row 2:/);
-    expect(res.errors[0]).toMatch(/must promote a learner to both Reserved and Admitted/);
-    expect(res.errors[0]).toMatch(/Missing: Reserved and Admitted\.$/);
+    expect(res.errors[0]).toMatch(/does not promote a learner anywhere/);
+    expect(res.errors[0]).toMatch(/Reserved or Admitted/);
   });
 
-  it('rejects a structure that names only one rung, and says which is missing', () => {
-    expect(one([inst(1, 'Reserved'), inst(2, 'Reserved')]).res.errors.join(' ')).toMatch(/Missing: Admitted\./);
-    expect(one([inst(1, 'Admitted'), inst(2, '')]).res.errors.join(' ')).toMatch(/Missing: Reserved\./);
+  // The two shapes the both-rungs rule used to refuse.
+  it('accepts Admitted alone — one fee that admits outright', () => {
+    expect(one([row({ ...FEE, 'Promotes To': 'Admitted' })]).res.errors).toEqual([]);
+    expect(one([inst(1, 'Admitted'), inst(2, 'Admitted')]).res.errors).toEqual([]);
+    expect(one([inst(1, 'Admitted'), inst(2, '')]).res.errors).toEqual([]);
+  });
+
+  it('accepts Reserved alone — a govt-quota seat that allotment admits', () => {
+    expect(one([row({ ...FEE, 'Promotes To': 'Reserved' })]).res.errors).toEqual([]);
+    expect(one([inst(1, 'Reserved'), inst(2, 'Reserved')]).res.errors).toEqual([]);
+  });
+
+  it('accepts a rung named on one fee while another fee names none', () => {
+    const { res } = one([
+      row({ ...FEE, 'Promotes To': '' }),
+      row({ ...FEE, 'Fee Category': 'Uniform Fee', Amount: 5000, 'Promotes To': 'Admitted' }),
+    ]);
+    expect(res.errors).toEqual([]);
   });
 
   it('holds a brand-new structure (no ID) to the same rule', () => {
     const { res } = one([row({ 'Fee Category': '1 Year Tuition Fee', Amount: 100000 })]);
-    expect(res.errors.join(' ')).toMatch(/must promote a learner to both/);
+    expect(res.errors.join(' ')).toMatch(/does not promote a learner anywhere/);
   });
 
   it('exempts an archived structure — it bills nobody', () => {
@@ -591,6 +608,6 @@ describe('resolveUnifiedSheet — every structure must promote to both Reserved 
   it('reports row-level problems first, not the missing rungs on top of them', () => {
     const { res } = one([inst(1, '', { 'Share %': 30 }), inst(2, '', { 'Share %': 30 })]);
     expect(res.errors.join(' ')).toMatch(/not 100%/);
-    expect(res.errors.join(' ')).not.toMatch(/must promote/);
+    expect(res.errors.join(' ')).not.toMatch(/promote a learner/);
   });
 });

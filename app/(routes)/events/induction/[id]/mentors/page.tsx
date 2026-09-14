@@ -399,7 +399,21 @@ export default function SeniorPeerMentorConsolePage() {
               <div key={f.fresher_learner_id} className="flex items-center justify-between gap-2 rounded-md border p-2 text-sm">
                 <div className="min-w-0">
                   <div className="font-medium truncate">{f.fresher_name || 'Unnamed'}</div>
-                  <div className="text-xs text-muted-foreground">{f.fresher_register ?? '—'}</div>
+                  {/* Programme first, matching the mentee rows below — it is what
+                      separates two same-name freshers. The id follows it and is
+                      fresher_ident, not fresher_register: the register number is
+                      empty for four of the five live cohorts, so the coordinator
+                      placing a fresher was reading a bare name. */}
+                  <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                    {f.program_name && (
+                      <span className="inline-flex items-center gap-1 min-w-0">
+                        <GraduationCap className="h-3 w-3 shrink-0" />
+                        <span className="truncate">{f.program_name}</span>
+                      </span>
+                    )}
+                    {f.fresher_ident && <span className="tabular-nums">{f.fresher_ident}</span>}
+                    {!f.program_name && !f.fresher_ident && <span>—</span>}
+                  </div>
                 </div>
                 <MentorPicker mentors={activeMentors} disabled={busy !== null}
                   onPick={(mentorId) => moveFresher(f.fresher_learner_id, f.fresher_name, mentorId)} />
@@ -492,12 +506,15 @@ export default function SeniorPeerMentorConsolePage() {
                               <div className="min-w-0">
                                 <div className="truncate">
                                   {f.fresher_name || 'Unnamed'}
-                                  {/* Shown inline only when it exists — most
-                                      freshers have no register number yet, and a
-                                      lone em-dash told the reader nothing. */}
-                                  {f.fresher_register && (
+                                  {/* fresher_ident, NOT fresher_register: four of
+                                      the five live cohorts have no register and no
+                                      roll number, so a register-only line printed
+                                      nothing at all. The server falls back to the
+                                      application id (JKKN-CNR-469), which every
+                                      fresher has. */}
+                                  {f.fresher_ident && (
                                     <span className="ml-2 text-[11px] font-normal text-muted-foreground tabular-nums">
-                                      {f.fresher_register}
+                                      {f.fresher_ident}
                                     </span>
                                   )}
                                 </div>

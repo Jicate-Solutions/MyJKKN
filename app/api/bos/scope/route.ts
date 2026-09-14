@@ -38,6 +38,9 @@ export async function GET() {
       boardsOf: Array.from(scope.boardsOf),
       chairmanForBoards: Array.from(scope.chairmanForBoards),
       institutionsOf: Array.from(scope.institutionsOf),
+      // HOD scope (departments the user heads) — drives /bos/po-pso.
+      hodDepartmentIds: Array.from(scope.hodDepartmentIds),
+      isHod: scope.isHod,
     },
     {
       headers: { 'Cache-Control': 'no-store' },

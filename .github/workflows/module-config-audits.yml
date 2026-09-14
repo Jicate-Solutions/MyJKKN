@@ -142,7 +142,12 @@ jobs:
           extract_missing() {
             # The script prints missing slugs as lines like "  ✗ slug" (with
             # ANSI colors). Strip ANSI, keep the slug column, sorted unique.
-            sed $'s/\x1b\\[[0-9;]*m//g' | grep -E '^  ✗ ' | awk '{print $2}' | sort -u
+            # grep exits 1 on NO MATCH, and this step runs under `set -euo pipefail`, so a
+            # checker run with ZERO missing slugs killed the step before the BASE audit and the
+            # delta comparison ever ran — i.e. a PR that fixed ALL the drift could never pass
+            # this gate (found 2026-09-08 on #3323, which took the checker from 7 missing to 0).
+            # `|| [[ $? -eq 1 ]]` accepts the empty set but still propagates a real grep error (2).
+            sed $'s/\x1b\\[[0-9;]*m//g' | { grep -E '^  ✗ ' || [[ $? -eq 1 ]]; } | awk '{print $2}' | sort -u
           }
 
           # HEAD audit (script exits 1 on any missing — tolerated, we diff below)

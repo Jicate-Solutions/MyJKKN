@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
-import { resolveBosAccess } from '@/lib/utils/bos/bos-access';
+import { resolveBosAccess, resolveBosBoardScope } from '@/lib/utils/bos/bos-access';
 import { resolveCasRegulationIds } from '@/lib/utils/bos/institution-scope';
-import { isMemberForProgramme } from '@/lib/utils/bos/bos-chairman-access';
+import {
+  canWriteProgrammeOutcomes,
+  resolveProgrammeOutcomeTarget,
+  sortOutcomeRows,
+  syncOutcomeSet,
+} from '@/lib/utils/bos/programme-outcomes';
 import { BosProgrammeOutcome } from '@/types/bos';
 
 type Params = { params: Promise<{ regulationId: string; code: string }> };
@@ -32,6 +37,9 @@ async function resolveInstitution(
  * Query parameters:
  * - institutionsIds (optional CSV): For CAS, pass both UUIDs (Aided,Self-Financing)
  *   to search across both. If omitted, resolves from user's scope.
+ * - includeInactive=1: also return soft-deactivated rows (is_active=false).
+ *   Default returns ACTIVE rows only — consumers (syllabus CO-PO editor,
+ *   compositions Outcomes tab) must not offer a deactivated outcome.
  */
 export async function GET(request: NextRequest, { params }: Params) {
   try {
@@ -46,6 +54,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     const { searchParams } = new URL(request.url);
     const csv = searchParams.get('institutionsIds');
     const clientIds = csv ? csv.split(',').filter(Boolean) : [];
+    const includeInactive = searchParams.get('includeInactive') === '1';
 
     let filterIds: string[] = [];
     if (scope.isSuperAdmin && clientIds.length > 0) {
@@ -89,6 +98,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       .select('*')
       .in('regulation_id', regIds)
       .eq('programme_code', programmeCode.toUpperCase());
+    if (!includeInactive) query = query.eq('is_active', true);
 
     if (filterIds.length === 1) {
       query = query.eq('institutions_id', filterIds[0]);
@@ -101,7 +111,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     const { data, error } = await query;
 
     if (error) throw error;
-    return NextResponse.json({ data: data ?? [] });
+    return NextResponse.json({ data: sortOutcomeRows((data ?? []) as BosProgrammeOutcome[], 'po') });
   } catch (error) {
     console.error('[GET /api/bos/taxonomy/[regulationId]/programmes/[code]/pos]', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
@@ -110,13 +120,16 @@ export async function GET(request: NextRequest, { params }: Params) {
 
 /**
  * POST /api/bos/taxonomy/[regulationId]/programmes/[code]/pos
- * Batch-replace all POs for this regulation + programme.
- * Chairman or super-admin only.
+ * Batch "replace" of the Programme Outcomes for this regulation + programme.
  *
  * Body: { pos: Array<{ po_code: string; description: string }> }
  *
- * Strategy: DELETE existing rows then INSERT new ones (atomic via sequential ops).
- * po_code is auto-assigned client-side (PO1, PO2…); sort_order mirrors array index.
+ * NO DELETES (single source of truth shared with /bos/po-pso): each incoming
+ * code is upserted (description / order updated, row reactivated); active
+ * rows whose code is no longer present are soft-deactivated (is_active=false).
+ * Authorization = canWriteProgrammeOutcomes: super-admin, principal of the
+ * institution, HOD of the programme's department, or any member of a board
+ * governing the programme. Writes run service-role after that check.
  */
 export async function POST(request: NextRequest, { params }: Params) {
   try {
@@ -125,22 +138,11 @@ export async function POST(request: NextRequest, { params }: Params) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const scope = await resolveBosAccess(user.id);
+    const scope = await resolveBosBoardScope(user.id);
     const institutionsId = await resolveInstitution(supabase, scope, regulationId);
 
     if (!institutionsId) {
       return NextResponse.json({ error: 'Cannot determine institution' }, { status: 400 });
-    }
-
-    // Board member guard — any member (chairman or otherwise) can write; super-admin bypasses
-    if (!scope.isSuperAdmin) {
-      const canEdit = await isMemberForProgramme(user.id, programmeCode.toUpperCase(), institutionsId);
-      if (!canEdit) {
-        return NextResponse.json(
-          { error: 'Only board members can update Programme Outcomes' },
-          { status: 403 }
-        );
-      }
     }
 
     const body = (await request.json()) as {
@@ -151,42 +153,32 @@ export async function POST(request: NextRequest, { params }: Params) {
       return NextResponse.json({ error: 'pos array is required' }, { status: 400 });
     }
 
-    const upperCode = programmeCode.toUpperCase();
-
-    // Delete existing POs for this programme + regulation
-    const { error: deleteError } = await supabase
-      .from('bos_programme_outcomes')
-      .delete()
-      .eq('institutions_id', institutionsId)
-      .eq('regulation_id', regulationId)
-      .eq('programme_code', upperCode);
-
-    if (deleteError) throw deleteError;
-
-    // Insert new POs (skip if empty)
-    let inserted: BosProgrammeOutcome[] = [];
-    if (body.pos.length > 0) {
-      const rows = body.pos.map((po, idx) => ({
-        institutions_id: institutionsId,
-        regulation_id: regulationId,
-        programme_code: upperCode,
-        po_code: po.po_code.trim(),
-        description: po.description?.trim() ?? null,
-        sort_order: idx + 1,
-        created_by: user.id,
-        updated_by: user.id,
-      }));
-
-      const { data: insertedData, error: insertError } = await supabase
-        .from('bos_programme_outcomes')
-        .insert(rows)
-        .select();
-
-      if (insertError) throw insertError;
-      inserted = insertedData ?? [];
+    const db = createServiceRoleClient();
+    const target = await resolveProgrammeOutcomeTarget(db, {
+      institutionsId,
+      regulationId,
+      programmeCode,
+    });
+    if (!target) {
+      return NextResponse.json({ error: 'Cannot determine institution' }, { status: 400 });
     }
 
-    return NextResponse.json({ data: inserted });
+    if (!(await canWriteProgrammeOutcomes(scope, user.id, target))) {
+      return NextResponse.json(
+        { error: 'Only board members, the HOD or the principal can update Programme Outcomes' },
+        { status: 403 }
+      );
+    }
+
+    const saved = await syncOutcomeSet<BosProgrammeOutcome>(
+      db,
+      target,
+      'po',
+      body.pos.map((r) => ({ code: r.po_code, description: r.description })),
+      user.id
+    );
+
+    return NextResponse.json({ data: saved });
   } catch (error) {
     console.error('[POST /api/bos/taxonomy/[regulationId]/programmes/[code]/pos]', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

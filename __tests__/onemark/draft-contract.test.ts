@@ -44,6 +44,46 @@ function good(over: Record<string, unknown> = {}) {
 }
 
 describe('buildDraftPayload', () => {
+  // Regression guard, 2026-09-08. With ids alone the model REFUSED to draft
+  // (ai_jobs e81294c6, production): "I have no way to resolve topic_id … to an
+  // actual TN HSC Physics chapter". A uuid names a row, not a chapter. The
+  // labels must reach the model; _ctx must stay the machine shape the collect
+  // pass parses.
+  const labels = {
+    exam_label: 'TN State Board — HSC Physics (Class 12)',
+    topic_label: 'Unit 1: Electrostatics',
+    tag_labels: ['Formula recall'],
+  };
+
+  it('sends the chapter name to the model, not just its id', () => {
+    const built = buildDraftPayload(physics, labels);
+    const forModel = JSON.parse(built.prompt);
+    expect(forModel.topic_label).toBe('Unit 1: Electrostatics');
+    expect(forModel.exam_label).toContain('Physics');
+    expect(forModel.tag_labels).toEqual(['Formula recall']);
+    // the ids still travel — the runner writes them onto the rows
+    expect(forModel.exam_definition_id).toBe(physics.exam_definition_id);
+  });
+
+  it('keeps labels OUT of _ctx so the collect pass still parses it', () => {
+    const built = buildDraftPayload(physics, labels);
+    expect(built._ctx).toEqual(physics);
+    expect(built._ctx).not.toHaveProperty('topic_label');
+    expect(parsePayload(built)).toEqual(physics);
+  });
+
+  it('carries a null unit label for a chapter-agnostic request', () => {
+    const built = buildDraftPayload({ ...physics, topic_id: null }, { ...labels, topic_label: null });
+    expect(JSON.parse(built.prompt).topic_label).toBeNull();
+    expect(parsePayload(built)!.topic_id).toBeNull();
+  });
+
+  it('still works with no labels at all (older callers)', () => {
+    const built = buildDraftPayload(physics);
+    expect(JSON.parse(built.prompt)).toEqual(physics);
+    expect(parsePayload(built)).toEqual(physics);
+  });
+
   // The Max seat runner substitutes ONE slot, {{prompt}}, from payload.prompt,
   // and validates input_schema keys at the top level. Two production failures
   // taught this: a flat payload left {{payload}} empty (ai_jobs 1096542b), and

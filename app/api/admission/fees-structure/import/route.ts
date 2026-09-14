@@ -271,14 +271,19 @@ export async function POST(req: NextRequest) {
         // operator hunting for a quota problem when the real story was that the
         // previous import of the same file had already created all 18. Say so
         // here, with the existing structure's name and ID, before anything runs.
+        // findDuplicateCreates compares against the state this batch LEAVES,
+        // so a sheet that narrows a structure's communities on one row and
+        // creates the complement on another is not a duplicate.
         const duplicates = await findDuplicateCreates(supabase, resolutions);
         for (const res of resolutions) {
           const dupe = duplicates.get(res.rowNumber);
           if (!dupe) continue;
           res.errors.push(
-            `A fee structure with these exact dimensions and communities already exists: "${dupe.name}"` +
-              (dupe.created_at ? ` (created ${dupe.created_at.slice(0, 10)})` : '') +
-              `. This row would create a duplicate and the database would refuse it. To update that structure, put its ID ${dupe.id} in the Fee Structure ID column — or start again from Export for Edit, which fills the IDs in for you.`,
+            dupe.sheetRow
+              ? `This row and row ${dupe.sheetRow} ("${dupe.name}") both create a new structure claiming the same community for the same dimensions, and the database allows only one. Give them separate communities, or merge them into a single row.`
+              : `A fee structure with these exact dimensions and communities already exists: "${dupe.name}"` +
+                (dupe.created_at ? ` (created ${dupe.created_at.slice(0, 10)})` : '') +
+                `. This row would create a duplicate and the database would refuse it. To update that structure, put its ID ${dupe.id} in the Fee Structure ID column — or start again from Export for Edit, which fills the IDs in for you.`,
           );
         }
       } catch (e: any) {
@@ -379,7 +384,21 @@ export async function POST(req: NextRequest) {
 
     let created = 0, updated = 0;
     const failed: Array<{ row: number; name: string; error: string }> = [];
-    for (const res of resolutions) {
+    // EVERY UPDATE BEFORE ANY CREATE, each half keeping sheet order. Each RPC
+    // call is its own transaction and the overlap trigger reads live state, so
+    // the order rows happen to sit in decides whether the batch is legal. The
+    // common shape — narrow a structure to the BC/OC communities on one row,
+    // create the SC/ST complement on another — only works if the narrowing
+    // runs first. An update can only free or reshape communities; a create can
+    // only claim them. Updates-first is therefore the one order that never
+    // invents a conflict, and it is the order Validate predicts against
+    // (findDuplicateCreates). Sheet order within each half keeps the row
+    // numbers in `failed` reading top-to-bottom.
+    const ordered = [
+      ...resolutions.filter((r) => r.payload!.structure_id),
+      ...resolutions.filter((r) => !r.payload!.structure_id),
+    ];
+    for (const res of ordered) {
       const isUpdate = !!res.payload!.structure_id;
       const { data, error } = await supabase.rpc('admission_bulk_upsert_fee_structure', { p_payload: res.payload });
       if (error) { failed.push({ row: res.rowNumber, name: res.name, error: error.message }); continue; }

@@ -54,8 +54,10 @@ import {
   // Clear All previously used XCircle, which now belongs to Mark All Absent
   // sitting immediately beside it — two identical icons on adjacent buttons
   // that do very different things.
-  Eraser
+  Eraser,
+  AlertTriangle,
 } from 'lucide-react';
+import { holdMessage } from '@/lib/services/campus-living/housekeeping-rules';
 
 type AttendanceStatus = 'present' | 'absent' | 'on_leave' | 'late_entry' | 'medical';
 
@@ -72,11 +74,20 @@ export default function MarkAttendancePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const blockParam = searchParams.get('block');
+  // The attendance dashboard can be viewed on any past day, and its per-block
+  // "Mark / Update" buttons hand the day over here. Without this the link
+  // silently opened TODAY's roll call while the operator believed they were
+  // correcting an earlier date. Validated shape only; anything else falls back.
+  const dateParam = searchParams.get('date');
+  const seededDate =
+    dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)
+      ? dateParam
+      : new Date().toISOString().split('T')[0];
 
   // 'all' = every block; previously defaulted to the literal '1' which is not
   // a block UUID, so untouched submits failed and the select matched nothing.
   const [selectedBlock, setSelectedBlock] = useState(blockParam ?? 'all');
-  const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().split('T')[0]);
+  const [attendanceDate, setAttendanceDate] = useState(seededDate);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFloor, setSelectedFloor] = useState('all');
   const [selectedCategory, setSelectedCategory] = useState('all');
@@ -124,7 +135,9 @@ export default function MarkAttendancePage() {
   // block filter works and each row carries block/room/bed context.
   const { data: studentsRaw, isLoading } = useMarkableResidents(
     profile?.institution_id ?? '',
-    selectedBlock === 'all' ? undefined : selectedBlock
+    selectedBlock === 'all' ? undefined : selectedBlock,
+    // Holds are evaluated against the date being marked, not today.
+    attendanceDate
   );
   // For block-scoped users viewing "All my blocks", drop residents outside
   // their grants (incl. unallocated ones — those aren't assigned to them).
@@ -338,7 +351,19 @@ export default function MarkAttendancePage() {
     );
   }) ?? [], [students, selectedFloor, selectedCategory, searchQuery]);
 
-  const visibleIds = useMemo(() => filteredStudents.map((s) => s.id), [filteredStudents]);
+  // Held learners are excluded from every selection surface: select-all, group
+  // checkboxes and the bulk bar. They cannot be written anyway — the BEFORE
+  // trigger on hostel_attendance refuses them — so including them would only
+  // produce a bulk action that silently marks fewer people than it selected.
+  const visibleIds = useMemo(
+    () => filteredStudents.filter((s) => !s.feedback_hold).map((s) => s.id),
+    [filteredStudents]
+  );
+
+  const heldCount = useMemo(
+    () => filteredStudents.filter((s) => s.feedback_hold).length,
+    [filteredStudents]
+  );
 
   // Selection is confined to what's on screen: switching block, floor, category
   // or search drops anything that scrolled out of scope.
@@ -632,8 +657,19 @@ export default function MarkAttendancePage() {
                   onToggle={() => toggleGroupSelection(visibleIds)}
                   label="Select all visible residents"
                 />
-                <span>Select all ({filteredStudents.length})</span>
+                {/* Count excludes held learners — select-all cannot pick them,
+                    so promising a larger number would be a lie. */}
+                <span>Select all ({visibleIds.length})</span>
               </div>
+            )}
+            {heldCount > 0 && (
+              <Link
+                href="/campus-living/housekeeping/holds"
+                className="flex items-center gap-1.5 rounded-md border border-destructive/50 bg-destructive/5 px-2.5 py-1.5 text-xs text-destructive"
+              >
+                <AlertTriangle className="h-3.5 w-3.5" />
+                {heldCount} on housekeeping hold
+              </Link>
             )}
             <Button variant="outline" size="sm" onClick={handleMarkAllPresent}>
               <CheckCircle2 className="mr-2 h-4 w-4 text-green-600" />
@@ -704,44 +740,45 @@ export default function MarkAttendancePage() {
                           </span>
                         </h4>
                         <div className="space-y-2">
-                          {room.students.map((student) => {
-                            const status = attendance[student.id];
+                          {room.students.map((resident) => {
+                            const status = attendance[resident.id];
                             return (
-                              <Card key={student.id} className={status ? 'border-l-4' : ''} style={{
+                              <Card key={resident.id} className={status ? 'border-l-4' : ''} style={{
                                 borderLeftColor: status === 'present' ? '#16a34a' : status === 'absent' ? '#dc2626' : status === 'on_leave' ? '#d97706' : status === 'late_entry' ? '#ea580c' : status === 'medical' ? '#9333ea' : undefined,
                               }}>
                                 <CardContent className="p-4">
                                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                                     <div className="flex items-center gap-3">
                                       <Checkbox
-                                        checked={selectedIds.has(student.id)}
-                                        onCheckedChange={() => toggleResident(student.id)}
-                                        aria-label={`Select ${student.profile?.full_name ?? 'resident'}`}
+                                        checked={selectedIds.has(resident.id)}
+                                        onCheckedChange={() => toggleResident(resident.id)}
+                                        disabled={!!resident.feedback_hold}
+                                        aria-label={`Select ${resident.profile?.full_name ?? 'resident'}`}
                                         className="h-5 w-5"
                                       />
                                       <Avatar className="h-10 w-10">
                                         <AvatarImage
-                                          src={student.profile?.avatar_url ?? student.student_photo_url ?? undefined}
-                                          alt={student.profile?.full_name ?? 'Learner'}
+                                          src={resident.profile?.avatar_url ?? resident.student_photo_url ?? undefined}
+                                          alt={resident.profile?.full_name ?? 'Learner'}
                                         />
                                         <AvatarFallback className="bg-muted text-muted-foreground text-sm font-medium">
-                                          {getInitials(student.profile?.full_name)}
+                                          {getInitials(resident.profile?.full_name)}
                                         </AvatarFallback>
                                       </Avatar>
                                       <div>
-                                        <p className="font-medium">{student.profile?.full_name ?? 'Unknown'}</p>
+                                        <p className="font-medium">{resident.profile?.full_name ?? 'Unknown'}</p>
                                         <p className="text-sm text-muted-foreground">
-                                          {student.id_proof_number ?? student.profile?.email ?? student.id.slice(0, 8)}
+                                          {resident.id_proof_number ?? resident.profile?.email ?? resident.id.slice(0, 8)}
                                         </p>
                                         <p className="text-xs text-muted-foreground">
-                                          {student.allocation
+                                          {resident.allocation
                                             ? [
-                                                student.allocation.block?.name,
-                                                student.allocation.room?.room_number
-                                                  ? `Room ${student.allocation.room.room_number}`
+                                                resident.allocation.block?.name,
+                                                resident.allocation.room?.room_number
+                                                  ? `Room ${resident.allocation.room.room_number}`
                                                   : null,
-                                                student.allocation.bed?.bed_number
-                                                  ? `Bed ${student.allocation.bed.bed_number}`
+                                                resident.allocation.bed?.bed_number
+                                                  ? `Bed ${resident.allocation.bed.bed_number}`
                                                   : null,
                                               ]
                                                 .filter(Boolean)
@@ -750,20 +787,41 @@ export default function MarkAttendancePage() {
                                         </p>
                                       </div>
                                     </div>
-                                    <div className="flex gap-1.5 flex-wrap">
-                                      {statusOptions.map((opt) => (
-                                        <button
-                                          key={opt.value}
-                                          onClick={() => handleMarkStatus(student.id, opt.value)}
-                                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs font-medium transition-colors ${
-                                            status === opt.value ? opt.color + ' border-current' : 'bg-background hover:bg-muted border-border'
-                                          }`}
-                                        >
-                                          {opt.icon}
-                                          {opt.label}
-                                        </button>
-                                      ))}
-                                    </div>
+                                    {/* A housekeeping feedback hold replaces the
+                                        status buttons entirely: the BEFORE
+                                        trigger on hostel_attendance would
+                                        refuse the write anyway, so offering
+                                        the buttons would only produce a
+                                        confusing failure. */}
+                                    {resident.feedback_hold ? (
+                                      <div className="flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+                                        <AlertTriangle className="h-4 w-4 shrink-0" />
+                                        <span>
+                                          {holdMessage(resident.feedback_hold)}{' '}
+                                          <Link
+                                            href="/campus-living/housekeeping/holds"
+                                            className="underline underline-offset-2"
+                                          >
+                                            View holds
+                                          </Link>
+                                        </span>
+                                      </div>
+                                    ) : (
+                                      <div className="flex gap-1.5 flex-wrap">
+                                        {statusOptions.map((opt) => (
+                                          <button
+                                            key={opt.value}
+                                            onClick={() => handleMarkStatus(resident.id, opt.value)}
+                                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs font-medium transition-colors ${
+                                              status === opt.value ? opt.color + ' border-current' : 'bg-background hover:bg-muted border-border'
+                                            }`}
+                                          >
+                                            {opt.icon}
+                                            {opt.label}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    )}
                                   </div>
                                 </CardContent>
                               </Card>

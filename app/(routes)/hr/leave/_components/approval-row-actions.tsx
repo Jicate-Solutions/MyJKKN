@@ -15,7 +15,7 @@
 // dialog, the detail sheet and the React Query invalidation. This component
 // owns only the menu.
 
-import { Check, Eye, MoreHorizontal, X } from 'lucide-react';
+import { Check, Eye, MoreHorizontal, RotateCcw, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -27,13 +27,15 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import type { HRLeaveApprovalQueueRow } from '@/types/hr';
-import { formatBiometricGap } from './format';
+import { approveLabel, formatBiometricGap, isReviewStep, stageLabel } from './format';
 
 export interface ApprovalRowActionHandlers {
   /** Opens the detail SHEET. No navigation — see approval-detail-sheet.tsx. */
   onView: (row: HRLeaveApprovalQueueRow) => void;
   onApprove: (row: HRLeaveApprovalQueueRow) => void;
   onReject: (row: HRLeaveApprovalQueueRow) => void;
+  /** Opens the revoke confirmation for an APPROVED row. */
+  onRevoke: (row: HRLeaveApprovalQueueRow) => void;
   /** True while any decision is in flight — disables every menu at once. */
   isPending: boolean;
 }
@@ -50,6 +52,11 @@ export function ApprovalRowActions({
   // rows, but they must not fall into the "your own request" explanation below
   // — a decided row is undecidable for everyone, not just its owner.
   const isDecided = row.status !== 'pending' && row.status !== 'escalated';
+  // A decision on a review step forwards the request; only the final step
+  // grants it. Both the wording and the biometric gate depend on which.
+  const isReview = isReviewStep(row);
+  const stage = stageLabel(row);
+  const blockedByBiometric = row.biometric_gap_from !== null;
 
   return (
     <DropdownMenu>
@@ -84,6 +91,32 @@ export function ApprovalRowActions({
           self-approval bar, so hiding these on is_own would block exactly the
           person the database lets through.
         */}
+        {/*
+          REVOKE — the one action a decided row still has.
+
+          Offered on the cheap test only: approved, not already revoked, not your
+          own. Whether THIS caller is the final approver depends on a chain step
+          usually routed to a role, and custom_roles is unreadable client-side —
+          the confirmation asks Postgres (fn_hr_leave_revoke_block_reason) and
+          shows the answer, including "that month is closed". Deciding it here
+          would either grey out the right person or need a per-row role lookup
+          across every approved row, which is what timed the queue RPC out in
+          Sep 2026.
+        */}
+        {row.status === 'approved' && row.revoked_at === null && !row.is_own && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              disabled={handlers.isPending}
+              onClick={() => handlers.onRevoke(row)}
+              className="text-amber-700 focus:text-amber-700 dark:text-amber-400"
+            >
+              <RotateCcw className="mr-2 h-4 w-4" />
+              Revoke approval…
+            </DropdownMenuItem>
+          </>
+        )}
+
         {isDecided ? null : row.can_decide ? (
           <>
             <DropdownMenuSeparator />
@@ -100,14 +133,25 @@ export function ApprovalRowActions({
               request that ought to be refusable on its own merits.
             */}
             <DropdownMenuItem
-              disabled={handlers.isPending || row.biometric_gap_from !== null}
+              // The biometric gate blocks only the FINAL approval.
+              // hr_trig_block_leave_approval_without_biometric fires on the
+              // transition INTO approved, and a review step does not make that
+              // transition — disabling it here would refuse a review the
+              // database would have accepted.
+              disabled={handlers.isPending || (blockedByBiometric && !isReview)}
               onClick={() => handlers.onApprove(row)}
               className="text-emerald-700 focus:text-emerald-700"
             >
               <Check className="mr-2 h-4 w-4" />
-              Approve
+              {approveLabel(row)}
             </DropdownMenuItem>
-            {row.biometric_gap_from !== null && (
+            {isReview && (
+              <DropdownMenuLabel className="whitespace-normal py-1 text-xs font-normal leading-snug text-muted-foreground">
+                {stage ? `${stage}. ` : ''}This records your review and passes the
+                request to the next approver — it does not grant the leave.
+              </DropdownMenuLabel>
+            )}
+            {blockedByBiometric && !isReview && (
               <DropdownMenuLabel className="whitespace-normal py-1 text-xs font-normal leading-snug text-amber-700 dark:text-amber-400">
                 Biometric not uploaded for{' '}
                 {formatBiometricGap(row.biometric_gap_from)} — import it first,

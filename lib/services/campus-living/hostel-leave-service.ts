@@ -672,7 +672,7 @@ export class HostelLeaveService {
       throw new Error(`Approval chain run ${runId} not found.`);
     }
 
-    const row = data as {
+    const row = data as unknown as {
       status: 'in_progress' | 'completed' | 'rejected' | 'cancelled';
       current_stage_idx: number;
       rule: { stages: StageDefinition[] };

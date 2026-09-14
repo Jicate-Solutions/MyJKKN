@@ -163,3 +163,6 @@ mcp.json
 
 # Generated per-PR by .github/workflows/typecheck-pr-scoped.yml — never committed.
 tsconfig.pr-scoped.json
+
+/proposals
+.screenshots/
