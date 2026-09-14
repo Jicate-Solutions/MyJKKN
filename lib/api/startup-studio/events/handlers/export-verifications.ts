@@ -1,12 +1,15 @@
-export const dynamic = 'force-dynamic';
-
-// app/api/startup-studio/events/[id]/export/verifications/route.ts
+// Handler for GET /api/startup-studio/events/[id]/export/verifications
+// Moved verbatim from app/api/startup-studio/events/[id]/export/verifications/route.ts
+// when the family folded into the [[...slug]] catch-all. The only edits are
+// this header, the params type (the dispatcher hands every handler the same
+// Record<string, string>), and dropping the `dynamic` export, which now lives
+// on the catch-all route file that owns the request.
 import { NextRequest, NextResponse, connection } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<Record<string, string>> }
 ) {
   await connection();
   try {
