@@ -1001,6 +1001,7 @@
     "induction.create",
     "induction.manage",
     "induction.view",
+    "instasolver.view",
     "internship.assignments.create",
     "internship.assignments.delete",
     "internship.assignments.edit",

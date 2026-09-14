@@ -1,28 +1,107 @@
 // app/(routes)/instasolver/page.tsx
 //
-// The /instasolver hub. Next.js App Router needs a page.tsx at every directory
-// meant to be reachable as a URL, so without this file /instasolver is a 404
-// even though /instasolver/broken works — the "Hub Page Reachability" gate
-// exists because that exact class of bug reached production three times in
-// 2026 (HR in April, PDE in June, the PDE sweep in June).
+// InstaSolver — the chooser. The ONE front door for "something is wrong here".
 //
-// ── THIS IS A PLACEHOLDER, AND IT IS MEANT TO BE REPLACED ───────────────────
-// Decision I3 (specs/instasolver-2026-09-14.md) puts a real chooser here —
-// "One button. First tap asks: complaint / something broken / need to buy" —
-// and that chooser is built in #3743, which creates this same path. When #3743
-// lands, ITS page.tsx supersedes this file wholesale; there is nothing here
-// worth merging. Until then this lane is the only door that exists, so sending
-// the visitor straight to it is both the honest behaviour and the only one
-// that does not 404.
+// Spec: specs/instasolver-2026-09-14.md.
+//   I1  everyone with a login can file — the sidebar row and this page are
+//       gated on instasolver.view, granted to every role by migration
+//       20261212120000.
+//   I2  the name is InstaSolver — the name every college already knows.
+//   I3  ONE button whose first screen asks "what kind?". This page IS that
+//       screen. It writes nothing; it only hands the filer to the lane that
+//       already owns the work.
 //
-// `replace` rather than a push: /instasolver is a routing waypoint, not a
-// screen, so it must not sit in the visitor's back history and bounce them
-// forward again when they try to leave.
+// Three lanes, three owners:
+//   something is broken -> /instasolver/broken    (Campus Walk's task engine)
+//   I have a complaint  -> /instasolver/complaint (the grievance spine)
+//   we need to buy      -> /procurement/requests/new, and ONLY for the roles
+//                          that hold procurement.request_create. Purchases are
+//                          not an InstaSolver lane (I3) — Procurement already
+//                          owns that journey end to end.
+//
+// The purchase branch is resolved HERE, server-side, and passed down as a
+// boolean: the client never sees a permission check it could be tricked into
+// re-deciding. When the viewer cannot raise one, the card still renders with an
+// explicit next step rather than vanishing or dead-ending (rule #27 — a refusal
+// is spoken, never silent).
+//
+// That branch ORs the key check with `hasDbAdminBypass`. `user_has_permission()`
+// bypasses only `is_super_admin = true`, while the database's own `is_admin()`
+// ALSO admits `profiles.role IN ('admin','super_admin','administrator')` — and
+// every standardised policy behind Procurement opens with
+// `is_super_admin() OR is_admin() OR user_has_permission(...)`. Reading the key
+// alone therefore told a plain `administrator` to "ask your HOD" about a request
+// the database would have let them raise themselves: under-claiming the one role
+// whose job is to unblock everybody else. This mirrors the data layer exactly,
+// so it grants nothing the database does not already grant, and a learner or
+// team member outside those three role strings is unaffected.
+//
+// This is a fast UI-level gate, not the enforcement boundary: /procurement and
+// each lane re-check their own keys server-side when the filer arrives.
 
-import { redirect } from 'next/navigation';
+import { AlertCircle } from 'lucide-react';
+import { ContentLayout } from '@/components/layout/content-layout';
+import { PageBreadcrumb } from '@/components/navigation';
+import { PageHeader } from '@/components/page-header';
+import { Card, CardContent } from '@/components/ui/card';
+import { hasDbAdminBypass } from '@/lib/navigation/permission-filter';
+import { createClient } from '@/lib/supabase/server';
+import { ChooserClient } from './_components/chooser-client';
 
 export const dynamic = 'force-dynamic';
 
-export default function InstaSolverHubPage() {
-  redirect('/instasolver/broken');
+export default async function InstaSolverPage() {
+  const supabase = await createClient();
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return (
+      <ContentLayout title="InstaSolver">
+        <Card className="mt-6">
+          <CardContent className="flex items-start gap-3 py-6">
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+            <div>
+              <p className="font-medium">You are not signed in</p>
+              <p className="text-sm text-muted-foreground">
+                Sign in to raise an issue with InstaSolver.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      </ContentLayout>
+    );
+  }
+
+  // Purchase branch. A failed RPC or a failed profile read is treated as
+  // "cannot raise" — fail closed, and the card then shows the ask-your-HOD line,
+  // which is a true statement either way.
+  const [{ data: holdsRequestCreate }, { data: profile }] = await Promise.all([
+    supabase.rpc('user_has_permission', {
+      permission_name: 'procurement.request_create'
+    }),
+    supabase
+      .from('profiles')
+      .select('role, is_super_admin')
+      .eq('id', user.id)
+      .maybeSingle()
+  ]);
+
+  const canRaisePurchase =
+    holdsRequestCreate === true ||
+    hasDbAdminBypass(profile?.role, profile?.is_super_admin === true);
+
+  return (
+    <ContentLayout title="InstaSolver">
+      <PageBreadcrumb items={[{ label: 'Home', href: '/' }, { label: 'InstaSolver' }]} />
+      <div className="mt-4">
+        <PageHeader
+          title="InstaSolver"
+          description="Tell us what's wrong. It goes to the right person."
+        />
+      </div>
+      <ChooserClient canRaisePurchase={canRaisePurchase} />
+    </ContentLayout>
+  );
 }
