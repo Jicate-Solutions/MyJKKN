@@ -146,6 +146,26 @@ export function isCampusWalkTask(row: WalkTaskRow): boolean {
   return (row.metadata ?? {}).source === 'campus-walk';
 }
 
+/**
+ * A lane task the Director actually WALKED to.
+ *
+ * D9 splits the two boards by what each one measures: "walkers on coverage,
+ * fixers on verified closures". Since decision I4 (2026-09-14) a report can
+ * also arrive through the InstaSolver front door, filed by any signed-in
+ * learner, parent or staff member. Such a row is a campus-walk lane task in
+ * every other respect and is deliberately left that way — the fix board counts
+ * its verified closure, the chase ladder chases it when it goes overdue, and
+ * the retention cron purges its photo on the same clock.
+ *
+ * But nobody walked to it. Counting it as area coverage would credit the
+ * Director's walk with ground he never covered, which is the one number this
+ * board exists to state honestly. So the coverage board — and ONLY the
+ * coverage board — filters these out.
+ */
+export function isWalkedObservation(row: WalkTaskRow): boolean {
+  return isCampusWalkTask(row) && (row.metadata ?? {}).front_door !== 'instasolver';
+}
+
 /** D13. `metadata.kind`, defaulting to the overwhelmingly common case. */
 export function walkKindOf(row: WalkTaskRow): 'symptom' | 'system_gap' {
   return (row.metadata ?? {}).kind === 'system_gap' ? 'system_gap' : 'symptom';
@@ -627,7 +647,10 @@ export function buildCoverageBoard(
   stepDays: StepDay[],
   now: Date = new Date()
 ): CoverageBoard {
-  const walkRows = rows.filter(isCampusWalkTask);
+  // Only ground the Director walked. A report that arrived through the
+  // InstaSolver front door is a lane task everywhere else, but it is not
+  // coverage — see `isWalkedObservation`.
+  const walkRows = rows.filter(isWalkedObservation);
 
   const areas = new Set<string>();
   const institutions = new Set<string>();

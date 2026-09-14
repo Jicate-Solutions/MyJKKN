@@ -29,6 +29,23 @@
 // service-role write, the 422-vs-503 split, the 207 `stored_unrouted`
 // envelope — is imported from the same modules, never re-implemented.
 //
+// ONE LIST, NOT A SECOND ONE. The task this route creates carries
+// `metadata.source = 'campus-walk'`, exactly like an observation, because I4
+// is "campus walk also should feed into the same only". Every campus-walk
+// consumer that filters on that value therefore keeps working on these rows
+// unchanged: the fix screen and API close them, the review screen and API list
+// and approve them, the chase ladder chases them when they go overdue, and the
+// photo-retention cron purges their photos on the same clock. All of that is
+// intended, not incidental.
+//
+// The door is recorded as `metadata.front_door = 'instasolver'` and exactly
+// two things read it: this route's per-reporter rate limit, and the D9
+// coverage board (`isWalkedObservation`, lib/campus-walk/scoreboard.ts), which
+// excludes these rows because coverage measures ground the Director WALKED and
+// nobody walked to a report a learner sent in. The fixing board still counts
+// their verified closures — D9's own split: walkers on coverage, fixers on
+// verified closures.
+//
 // THE JPEG PIPELINE IS IMPORTED, NOT COPIED. isJpegMagic -> stripJpegMetadata
 // -> scanJpegForMetadata (lib/services/pde/jpeg-metadata.ts) is the same
 // Node-safe strip-and-fail-closed sequence the observations route documents at
@@ -146,7 +163,11 @@ export async function POST(request: NextRequest) {
   const { count: recentCount, error: countError } = await admin
     .from('project_tasks')
     .select('id', { count: 'exact', head: true })
-    .eq('metadata->>source', 'instasolver')
+    // `front_door`, NOT `source`: every task this lane creates is written with
+    // source = 'campus-walk' so the fix screen, chase ladder and retention
+    // cron all keep seeing it. The door is what identifies a report as one of
+    // this route's, and it is what the ceiling counts.
+    .eq('metadata->>front_door', 'instasolver')
     .eq('metadata->>reporter_id', user.id)
     .gte('created_at', since);
 
@@ -286,9 +307,16 @@ export async function POST(request: NextRequest) {
     geo,
     institutionId: profile.institution_id ?? null,
     raisedByProfileId: user.id,
-    source: 'instasolver',
+    // ONE LIST (decision I4). The service writes metadata.source =
+    // 'campus-walk' unconditionally and no caller can change it, so this task
+    // is a campus-walk lane task in every respect: the fix screen and API will
+    // close it, the review screen lists it, the chase ladder chases it when it
+    // goes overdue, and the photo-retention cron purges its photo on the same
+    // clock. Only the door it arrived through is recorded here — read by the
+    // D9 coverage board alone, which must not credit the Director's walk with
+    // ground a learner reported from.
     extraMetadata: {
-      source: 'instasolver',
+      front_door: 'instasolver',
       reporter_id: user.id,
       reporter_role: profile.role ?? null,
       reporter_institution_id: profile.institution_id ?? null,

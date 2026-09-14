@@ -156,8 +156,12 @@ describe('InstaSolver broken intake — the rate limit', () => {
     await postForm(VALID);
 
     const asObject = Object.fromEntries(countFilters.map(([k, v]) => [k, v]));
-    // Wrong source => a Campus Walk observation would burn a reporter's quota.
-    expect(asObject['metadata->>source']).toBe('instasolver');
+    // The ceiling counts the DOOR, not the source. Every task this route makes
+    // carries source = 'campus-walk' (one list), so counting on source would
+    // count the Director's own observations too and burn a learner's quota on
+    // somebody else's walk.
+    expect(asObject['metadata->>front_door']).toBe('instasolver');
+    expect(asObject['metadata->>source']).toBeUndefined();
     // Wrong reporter => one busy reporter would lock out everybody.
     expect(asObject['metadata->>reporter_id']).toBe('user-1');
 
@@ -216,15 +220,38 @@ describe('InstaSolver broken intake — dangerous maps to the unsafe lane', () =
     expect(createWalkTask.mock.calls[0][1].isUnsafe).toBe(false);
   });
 
-  it('stamps the lane and the reporter onto metadata so the limit can count it', async () => {
+  it('stamps the reporter onto metadata so the limit can count it', async () => {
     await postForm(VALID);
 
     const input = createWalkTask.mock.calls[0][1];
-    expect(input.source).toBe('instasolver');
-    expect(input.extraMetadata.source).toBe('instasolver');
     expect(input.extraMetadata.reporter_id).toBe('user-1');
     expect(input.extraMetadata.reporter_role).toBe('learner');
     expect(input.extraMetadata.reporter_institution_id).toBe('inst-1');
+  });
+
+  it('files the task INTO the campus-walk lane and records the door separately', async () => {
+    // Decision I4 — "campus walk also should feed into the same only". This is
+    // the assertion that keeps InstaSolver reports on ONE list.
+    //
+    // If `source` ever stops being 'campus-walk', six things break silently and
+    // all at once: app/api/campus-walk/fix/route.ts and
+    // app/(routes)/campus-walk/fix/page.tsx refuse the task with `wrong_lane`
+    // so no fixer can ever close it, app/api/campus-walk/review/route.ts
+    // refuses to approve it, the review list and the fixing board stop showing
+    // it, lib/campus-walk/chase-up.ts stops chasing it when it goes overdue,
+    // and app/api/cron/campus-walk-photo-retention stops purging a learner's
+    // photo. Every one of those failures looks like nothing happening.
+    //
+    // The door lives in `front_door` instead, read by exactly two things: this
+    // route's rate limit, and the D9 coverage board (`isWalkedObservation`),
+    // which excludes it because nobody walked to it.
+    await postForm(VALID);
+
+    const input = createWalkTask.mock.calls[0][1];
+    // No caller may set the lane — the service writes 'campus-walk' itself.
+    expect(input.source).toBeUndefined();
+    expect(input.extraMetadata.source).toBeUndefined();
+    expect(input.extraMetadata.front_door).toBe('instasolver');
   });
 
   it('files no photo fields when no photo was attached', async () => {

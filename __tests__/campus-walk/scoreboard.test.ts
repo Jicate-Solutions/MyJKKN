@@ -441,6 +441,60 @@ describe('D12 — area coverage is derived, and a missing location is counted', 
     expect(board.feed.state).toBe('never_reported');
     expect(board.coverage.distinctAreas).toBe(1);
   });
+
+  it('does not credit the walk with ground an InstaSolver reporter covered', () => {
+    // Decision I4 (2026-09-14) put a second front door on this lane: any
+    // signed-in learner, parent or staff member can report something broken and
+    // it becomes a campus-walk task through the same engine. The row is a full
+    // lane task on purpose — `source` stays 'campus-walk', so the fix screen
+    // closes it, the chase ladder chases it and the retention cron purges its
+    // photo — and the door it arrived through is recorded as `front_door`.
+    //
+    // D9 splits the two boards by what each measures: walkers on coverage,
+    // fixers on verified closures. Nobody WALKED to a report a learner sent in,
+    // so counting it here would credit the Director's walk with ground he never
+    // covered, which is the one number this board exists to state honestly.
+    const board = buildCoverageBoard(
+      [
+        task({ metadata: { geo: { lat: 11.4521, lng: 77.8034 } } }),
+        task({
+          metadata: {
+            source: 'campus-walk',
+            front_door: 'instasolver',
+            geo: { lat: 11.4900, lng: 77.8500 }
+          }
+        })
+      ],
+      [],
+      NOW
+    );
+
+    expect(board.coverage.observations).toBe(1);
+    // The reported square is a genuinely different cell, so if the filter were
+    // ever dropped this would read 2 — the assertion cannot pass by accident.
+    expect(board.coverage.distinctAreas).toBe(1);
+  });
+
+  it('still counts an InstaSolver report as a fix on the fixing board', () => {
+    // The other half of D9's split, and the reason the coverage filter is
+    // narrow. The same kind of row excluded above must be counted here, or a
+    // department loses credit for work it genuinely did.
+    const board = buildFixBoard(
+      [
+        closed({ owner_staff_id: 'staff-a' }),
+        closed({ owner_staff_id: 'staff-b' }),
+        closed({ owner_staff_id: 'staff-b', metadata: { front_door: 'instasolver' } })
+      ],
+      staffIndex([
+        ['staff-a', 'dept-1', 'Maintenance'],
+        ['staff-b', 'dept-1', 'Maintenance']
+      ]),
+      NOW
+    );
+
+    const row = board.rows.find((r) => r.departmentName === 'Maintenance');
+    expect(row?.verifiedClosures).toBe(3);
+  });
 });
 
 // ── D13 — the symptom / system split ─────────────────────────────────────────

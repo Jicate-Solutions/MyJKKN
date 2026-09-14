@@ -114,21 +114,19 @@ export interface CreateWalkTaskInput {
   /** Who filed it. Stored for audit; NOT surfaced on the ticket — D10 shows "Management walk". */
   raisedByProfileId?: string | null;
   /**
-   * Which front door filed this, written to `metadata.source`. Defaults to
-   * 'campus-walk' — every existing caller omits it and is unaffected.
+   * Extra audit keys merged into the task's `metadata` jsonb — e.g. which
+   * front door a report arrived through, and who reported it. Merged FIRST, so
+   * it can NEVER clobber the routing/audit keys this service writes itself.
+   * `metadata.source` in particular is always 'campus-walk' and no caller can
+   * override it.
    *
-   * InstaSolver (decision I4, 2026-09-14) passes 'instasolver': the same
-   * engine, a different doorway. Note that the campus-walk consumers which
-   * filter `metadata->>source = 'campus-walk'` (the scoreboard, the review
-   * screen, the chase-up cron and the photo-retention cron) therefore do NOT
-   * see a task filed under a different source — see the PR's assumptions.
-   */
-  source?: string;
-  /**
-   * Extra audit keys merged into the task's `metadata` jsonb, e.g. who
-   * reported it through a public front door. Merged FIRST, so it can never
-   * clobber the routing/audit keys this service writes itself; `source`
-   * above is the one deliberately overridable field.
+   * That is deliberate (decision I4, 2026-09-14): an InstaSolver report IS a
+   * campus-walk lane task — one list — so it must stay visible to every
+   * consumer that filters `metadata->>source = 'campus-walk'`, namely the fix
+   * screen and API, the review screen and API, the chase ladder and the
+   * photo-retention cron. The door it arrived through is recorded separately
+   * as `metadata.front_door`, which only the D9 coverage board reads (see
+   * `isWalkedObservation` in lib/campus-walk/scoreboard.ts).
    */
   extraMetadata?: Record<string, unknown>;
 }
@@ -529,10 +527,11 @@ export async function createWalkTask(
     // that maps reason_code -> label from hitting an unknown value.
     const metadata: Record<string, unknown> = {
       // Caller-supplied audit keys first, so they can never clobber the
-      // routing/audit fields written below. `source` is the single field a
-      // caller may deliberately override (InstaSolver passes 'instasolver').
+      // routing/audit fields written below — `source` included. Every task
+      // this service creates is a campus-walk lane task, whichever front door
+      // it arrived through; the door goes in `front_door`, not here.
       ...(input.extraMetadata ?? {}),
-      source: input.source ?? 'campus-walk',
+      source: 'campus-walk',
       kind: input.kind,
       unsafe: Boolean(input.isUnsafe),
       category: input.category ?? null,
