@@ -949,24 +949,27 @@ export function DataTable<TData extends ExportableData, TValue>({
                 </span>
               </div>
 
-              <div className='flex items-center gap-2'>
-                <Badge variant='secondary' className='ml-2'>
-                  {data?.pagination.total_items &&
-                    data.pagination.total_items > 0 && (
-                      <span className='font-medium'>
-                        {Math.round(
-                          (Math.min(
-                            page * pageSize,
-                            data.pagination.total_items
-                          ) /
-                            data.pagination.total_items) *
-                            100
-                        )}
-                        % of total
-                      </span>
-                    )}
-                </Badge>
-              </div>
+              {/* The whole pill is conditional, not just its text: with the
+                  Badge always mounted, an empty result set rendered a bare
+                  "0" inside it — `0 && …` is the number 0 to React, not
+                  false. Seen live on an empty institutions search. */}
+              {data && data.pagination.total_items > 0 && (
+                <div className='flex items-center gap-2'>
+                  <Badge variant='secondary' className='ml-2'>
+                    <span className='font-medium'>
+                      {Math.round(
+                        (Math.min(
+                          page * pageSize,
+                          data.pagination.total_items
+                        ) /
+                          data.pagination.total_items) *
+                          100
+                      )}
+                      % of total
+                    </span>
+                  </Badge>
+                </div>
+              )}
 
               {totalSelectedItems > 0 && (
                 <div className='flex items-center gap-2'>
