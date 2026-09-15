@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm, useWatch } from 'react-hook-form';
-import type { FieldErrors } from 'react-hook-form';
+import type { FieldErrors, Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'react-hot-toast';
 import { CalendarIcon } from 'lucide-react';
@@ -48,7 +48,12 @@ import { getFirstErrorField } from '@/lib/utils/form-errors';
 import { RoleService } from '@/lib/services/roles/role-service';
 import { usePermissions } from '@/hooks/use-permissions';
 import type { CustomRole } from '@/types/auth';
-import { buildStaffSchema, extendedStaffSchema, type StaffFormValues } from './staff-form-schema';
+import {
+  buildStaffSchema,
+  describeProfileIssues,
+  extendedStaffSchema,
+  type StaffFormValues
+} from './staff-form-schema';
 import { LocationCombobox } from './location-combobox';
 import {
   indianStates,
@@ -246,7 +251,9 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
   const schema = useMemo(() => buildStaffSchema(!isEditing), [isEditing]);
 
   const form = useForm<FormValues>({
-    resolver: zodResolver(schema),
+    // The resolver schema carries repeater rows as z.any() (see buildStaffSchema),
+    // so its inferred type is looser than FormValues; the runtime shape is the same.
+    resolver: zodResolver(schema) as unknown as Resolver<FormValues>,
     defaultValues: buildDefaults(staff)
   });
 
@@ -513,6 +520,21 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
   const loginEnabled = form.watch('login_enabled');
 
   const onInvalid = (errors: FieldErrors<FormValues>) => {
+    // A failed save must never be silent (BUG-005982, BUG-005983). The scroll
+    // below only knows basic fields, so always say something, and send the
+    // user to the tab holding the first error.
+    const errorKeys = Object.keys(errors);
+    if (errorKeys.length > 0) {
+      const firstKey = errorKeys[0];
+      const tabId = mapFieldToTab(firstKey) ?? 'basic';
+      router.replace(`?tab=${tabId}`, { scroll: false });
+      toast.error(
+        `Not saved: ${errorKeys.length} field${errorKeys.length === 1 ? '' : 's'} need${
+          errorKeys.length === 1 ? 's' : ''
+        } attention on the ${tabId.charAt(0).toUpperCase()}${tabId.slice(1)} tab.`
+      );
+    }
+
     const firstErrorField = getFirstErrorField(errors, staffFieldOrder);
     if (!firstErrorField) {
       return;
@@ -553,14 +575,20 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
           result.error.issues.forEach((issue) => {
             form.setError(issue.path.join('.') as any, { message: issue.message });
           });
-          // Switch to the first tab that has an error.
-          const firstField = result.error.issues[0]?.path[0] as string | undefined;
-          if (firstField) {
-            const tabId = mapFieldToTab(firstField);
-            if (tabId) {
-              router.replace(`?tab=${tabId}`, { scroll: false });
-            }
+          // Switch to the first tab that has an error, and SAY so — this path
+          // used to set errors on a tab the user was not looking at and return
+          // without a word, which read as a dead button.
+          const summary = describeProfileIssues(result.error.issues);
+          const tabId = summary.firstField ? mapFieldToTab(summary.firstField) : null;
+          if (tabId) {
+            router.replace(`?tab=${tabId}`, { scroll: false });
           }
+          const tabName = tabId ? `${tabId.charAt(0).toUpperCase()}${tabId.slice(1)}` : 'profile';
+          toast.error(
+            `Not saved. A published profile must be complete: ${summary.count} detail${
+              summary.count === 1 ? '' : 's'
+            } missing on the ${tabName} tab. ${summary.firstMessage}.`
+          );
           return;
         }
       }
