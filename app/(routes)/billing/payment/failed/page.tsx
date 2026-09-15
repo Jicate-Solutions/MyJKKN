@@ -4,7 +4,7 @@
 // Route: /billing/payment/failed?transaction_id=xxx
 // Purpose: Display payment failure information with enhanced UI
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Card,
@@ -26,6 +26,11 @@ import {
   Loader2
 } from 'lucide-react';
 import { usePaymentStatus } from '@/hooks/billing/use-payment-gateway';
+import {
+  buildPaymentRedirectUrl,
+  shouldRedirectToSuccessPage,
+} from '@/lib/billing/payment-status-flow';
+import { logger } from '@/lib/utils/enhanced-logger';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
@@ -34,11 +39,14 @@ import { motion, AnimatePresence } from 'motion/react';
 
 // Failure Animation Component
 function FailureAnimation({ status }: { status: string }) {
-  const isCancelled = status === 'cancelled';
-  const Icon = isCancelled ? AlertTriangle : XCircle;
-  const colorFrom = isCancelled ? 'from-orange-500' : 'from-red-500';
-  const colorTo = isCancelled ? 'to-amber-600' : 'to-rose-600';
-  const ringColor = isCancelled ? 'bg-orange-500/20' : 'bg-red-500/20';
+  // Only a genuine `failed` is drawn as a hard red failure. Cancelled, expired,
+  // refunded and still-unconfirmed payments get the softer warning mark — the
+  // red cross read as "your money is gone" on statuses where it is not.
+  const isHardFailure = status === 'failed';
+  const Icon = isHardFailure ? XCircle : AlertTriangle;
+  const colorFrom = isHardFailure ? 'from-red-500' : 'from-orange-500';
+  const colorTo = isHardFailure ? 'to-rose-600' : 'to-amber-600';
+  const ringColor = isHardFailure ? 'bg-red-500/20' : 'bg-orange-500/20';
 
   return (
     <motion.div
@@ -117,17 +125,43 @@ export default function PaymentFailedPage() {
     error
   } = usePaymentStatus(transactionId, !!transactionId);
 
+  // Hand back to the success page when the webhook lands after this redirect.
+  //
+  // This used to be a bare `router.push()` in the RENDER BODY, so it re-fired on
+  // every one of the 3-second poll's re-renders, and it rebuilt the URL from
+  // `transaction_id` alone — dropping `verified`/`verified_status` and every
+  // other callback param. The success page, stripped of the callback's verdict,
+  // fell back to its DB path and could bounce straight back here: a closed loop
+  // the learner saw as an endlessly reloading confirmation page.
+  const hasRedirectedRef = useRef(false);
+  const paymentStatusValue = paymentStatus?.status ?? null;
+
+  useEffect(() => {
+    if (!transactionId || hasRedirectedRef.current) return;
+    if (!shouldRedirectToSuccessPage(paymentStatusValue)) return;
+
+    hasRedirectedRef.current = true;
+    logger.log(
+      'billing/payment-failed',
+      'Transaction settled as success, returning to success page',
+      transactionId
+    );
+    router.replace(
+      buildPaymentRedirectUrl(
+        '/billing/payment/success',
+        transactionId,
+        searchParams.toString(),
+        // A cancel reason is meaningless once the payment succeeded.
+        ['reason']
+      )
+    );
+  }, [paymentStatusValue, transactionId, searchParams, router]);
+
   useEffect(() => {
     if (
-      paymentStatus &&
-      ['failed', 'cancelled', 'expired'].includes(paymentStatus.status)
+      paymentStatusValue &&
+      ['failed', 'cancelled', 'expired'].includes(paymentStatusValue)
     ) {
-      const statusMessages: Record<string, string> = {
-        failed: 'Payment failed. Please try again.',
-        cancelled: 'Payment was cancelled.',
-        expired: 'Payment session expired. Please try again.'
-      };
-
       // Delay to show animation first
       setTimeout(() => {
         toast.error('Payment Not Completed', {
@@ -143,7 +177,9 @@ export default function PaymentFailedPage() {
     }, 1000);
 
     return () => clearTimeout(timer);
-  }, [paymentStatus]);
+    // Keyed on the status VALUE, not the polled object identity, so the poll's
+    // 3-second refetches cannot re-fire the toast.
+  }, [paymentStatusValue]);
 
   if (!transactionId) {
     return (
@@ -245,10 +281,23 @@ export default function PaymentFailedPage() {
     );
   }
 
-  // Redirect if payment is successful
-  if (paymentStatus.status === 'success') {
-    router.push(`/billing/payment/success?transaction_id=${transactionId}`);
-    return null;
+  // The payment actually succeeded — the effect above is navigating to the
+  // success page. Render a neutral waiting view (never the failure card, and
+  // never `null`, which flashed a blank screen) until the route changes.
+  if (shouldRedirectToSuccessPage(paymentStatus.status)) {
+    return (
+      <div className='min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 via-emerald-50 to-teal-50 dark:from-gray-900 dark:via-green-950 dark:to-gray-800'>
+        <div className='text-center'>
+          <Loader2 className='h-16 w-16 animate-spin text-green-600 mx-auto mb-6' />
+          <h2 className='text-2xl font-bold text-gray-900 dark:text-white mb-2'>
+            Payment Confirmed
+          </h2>
+          <p className='text-gray-600 dark:text-gray-400'>
+            Taking you to your payment confirmation...
+          </p>
+        </div>
+      </div>
+    );
   }
 
   const getStatusInfo = (status: string) => {
@@ -277,10 +326,30 @@ export default function PaymentFailedPage() {
         color: 'text-yellow-600 dark:text-yellow-400',
         bgGradient: 'from-yellow-500 to-amber-600'
       },
+      // A refund is money that WAS taken and then returned — it landed here
+      // because it is not a live successful payment, but calling it "Payment
+      // Failed" (the old fallback) is wrong and alarming.
+      refunded: {
+        title: 'Payment Refunded',
+        description:
+          'This payment was refunded. The amount has been returned to your original payment method.',
+        color: 'text-blue-600 dark:text-blue-400',
+        bgGradient: 'from-blue-500 to-indigo-600'
+      },
       processing: {
         title: 'Payment Processing',
         description:
           'Your payment is still being processed. Please check back later.',
+        color: 'text-blue-600 dark:text-blue-400',
+        bgGradient: 'from-blue-500 to-indigo-600'
+      },
+      // An `initiated` row means the gateway never reported back. Without this
+      // entry it fell through to the "Payment Failed" fallback — a terminal
+      // verdict on a payment that may still be settling.
+      initiated: {
+        title: 'Payment Not Confirmed',
+        description:
+          'We have not received a confirmation for this payment yet. If money was debited it will be reconciled automatically — please check your billing page before paying again.',
         color: 'text-blue-600 dark:text-blue-400',
         bgGradient: 'from-blue-500 to-indigo-600'
       }

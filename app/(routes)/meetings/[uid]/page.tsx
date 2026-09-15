@@ -26,6 +26,7 @@ import {
   Video,
   FileText,
   ExternalLink,
+  UserSearch,
 } from 'lucide-react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -54,6 +55,12 @@ import { AgendaSection } from './_components/agenda-section';
 import { ActionItemsSection } from './_components/action-items-section';
 import { CarriedOverSection } from './_components/carried-over-section';
 import { PersonHistorySection } from './_components/person-history-section';
+import {
+  InterviewLinkSection,
+  type CandidateOption,
+  type JobOption,
+  type LinkedInterview,
+} from './_components/interview-link-section';
 
 const BREADCRUMB_ITEMS = [
   { label: 'Home', href: '/' },
@@ -141,6 +148,63 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
     .order('occurred_at', { ascending: false })
     .limit(1)
     .maybeSingle();
+
+  // ── is this meeting an interview? ────────────────────────────────────────
+  // Read first, ALWAYS — an interview already linked should be visible to
+  // anyone the recruitment policies admit, whether or not they may edit it.
+  // RLS does the deciding: someone without hr.recruitment.view simply gets no
+  // row and never learns the card exists.
+  const { data: linkedRow } = await supabase
+    .from('hr_recruitment_interviews')
+    .select(
+      'id, round_name, outcome_summary, candidate:hr_recruitment_candidates(name, role_title)',
+    )
+    .eq('booking_id', booking.id)
+    .maybeSingle();
+
+  // The pickers are only fetched for someone who could actually submit them.
+  // Offering a form that RLS will refuse is the silent failure this project
+  // forbids, so the permission is asked once here and the server action asks
+  // again — hiding a control is not a security boundary.
+  const { data: canEditInterview } = await supabase.rpc('user_has_permission', {
+    permission_name: 'hr.recruitment.create',
+  });
+
+  let candidateOptions: CandidateOption[] = [];
+  let jobOptions: JobOption[] = [];
+  if (canEditInterview && !linkedRow) {
+    const [{ data: candidateRows }, { data: jobRows }] = await Promise.all([
+      supabase
+        .from('hr_recruitment_candidates')
+        .select('id, name, role_title')
+        .order('created_at', { ascending: false })
+        .limit(200),
+      supabase.from('hr_recruitment_jobs').select('id, title').limit(200),
+    ]);
+    candidateOptions = ((candidateRows ?? []) as Array<Record<string, unknown>>).map((r) => ({
+      id: r.id as string,
+      name: (r.name as string) ?? 'Unnamed candidate',
+      roleTitle: (r.role_title as string | null) ?? null,
+    }));
+    jobOptions = ((jobRows ?? []) as Array<Record<string, unknown>>)
+      .filter((r) => typeof r.title === 'string' && (r.title as string).trim() !== '')
+      .map((r) => ({ id: r.id as string, title: r.title as string }));
+  }
+
+  const linkedInterview: LinkedInterview | null = linkedRow
+    ? (() => {
+        const row = linkedRow as Record<string, unknown>;
+        const candidate = Array.isArray(row.candidate)
+          ? (row.candidate[0] as Record<string, unknown> | undefined)
+          : (row.candidate as Record<string, unknown> | undefined);
+        return {
+          candidateName: (candidate?.name as string | null) ?? null,
+          roleTitle: (candidate?.role_title as string | null) ?? null,
+          roundName: (row.round_name as string | null) ?? null,
+          outcomeSummary: (row.outcome_summary as string | null) ?? null,
+        };
+      })()
+    : null;
 
   // host display info (native bookings store the profile id only)
   const { data: host } = await supabase
@@ -386,6 +450,29 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
                   <ExternalLink className="h-3.5 w-3.5" aria-hidden />
                 </a>
               ) : null}
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {/* Only rendered when there is something to show or something the
+            viewer may do. A meeting that is not an interview, seen by somebody
+            who could not record one anyway, shows nothing at all. */}
+        {linkedInterview || canEditInterview ? (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <UserSearch className="h-4 w-4 text-muted-foreground" aria-hidden />
+                Interview
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <InterviewLinkSection
+                uid={booking.uid}
+                candidates={candidateOptions}
+                jobs={jobOptions}
+                linked={linkedInterview}
+                canEdit={!!canEditInterview}
+              />
             </CardContent>
           </Card>
         ) : null}

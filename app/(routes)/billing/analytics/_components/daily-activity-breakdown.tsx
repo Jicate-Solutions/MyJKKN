@@ -1,9 +1,16 @@
 'use client';
 
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useMemo, useState, type ReactNode } from 'react';
+import Link from 'next/link';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
-import { formatCurrency, formatINRCompact, num } from './_utils';
+import {
+  formatCurrency,
+  formatINRCompact,
+  num,
+  drilldown,
+  type DrilldownScope,
+} from './_utils';
 import type { BillingDailyActivityRow } from '@/types/billing-analytics';
 
 interface DayGroup {
@@ -61,12 +68,28 @@ function groupByDay(rows: BillingDailyActivityRow[]): DayGroup[] {
   return Array.from(map.values());
 }
 
+/** A figure inside an expandable row — must not also toggle the row. */
+function CellLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <Link
+      href={href}
+      onClick={(e) => e.stopPropagation()}
+      className='rounded px-1 underline-offset-2 hover:underline'
+    >
+      {children}
+    </Link>
+  );
+}
+
 export function DailyActivityBreakdown({
   data,
   loading,
+  scope,
 }: {
   data?: BillingDailyActivityRow[];
   loading: boolean;
+  /** Active institution filter, carried into every drill-down link. */
+  scope: DrilldownScope;
 }) {
   const groups = useMemo(() => groupByDay(data ?? []), [data]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -90,6 +113,16 @@ export function DailyActivityBreakdown({
       </p>
     );
   }
+
+  // Receipts carry a date filter, so they open exactly that day. The bill and
+  // learner lists have no created-on filter, so they open scoped to the
+  // institution only.
+  const dayReceipts = (date: string, institutionId = scope.institutionId) =>
+    drilldown.receipts({ institutionId, date_from: date, date_to: date });
+  const bills = (institutionId = scope.institutionId) =>
+    drilldown.bills({ institutionId });
+  const students = (institutionId = scope.institutionId) =>
+    drilldown.students({ institutionId });
 
   return (
     <div className='max-h-[460px] overflow-auto'>
@@ -128,25 +161,35 @@ export function DailyActivityBreakdown({
                     </div>
                   </td>
                   <td className='px-2 py-2 text-right'>
-                    {g.bills.toLocaleString('en-IN')}
+                    <CellLink href={bills()}>
+                      {g.bills.toLocaleString('en-IN')}
+                    </CellLink>
                   </td>
                   <td
                     className='px-2 py-2 text-right'
                     title={formatCurrency(g.billed)}
                   >
-                    {formatINRCompact(g.billed)}
+                    <CellLink href={bills()}>
+                      {formatINRCompact(g.billed)}
+                    </CellLink>
                   </td>
                   <td className='px-2 py-2 text-right'>
-                    {g.students.toLocaleString('en-IN')}
+                    <CellLink href={students()}>
+                      {g.students.toLocaleString('en-IN')}
+                    </CellLink>
                   </td>
                   <td className='px-2 py-2 text-right'>
-                    {g.receipts.toLocaleString('en-IN')}
+                    <CellLink href={dayReceipts(g.date)}>
+                      {g.receipts.toLocaleString('en-IN')}
+                    </CellLink>
                   </td>
                   <td
                     className='px-2 py-2 text-right font-semibold text-green-700'
                     title={formatCurrency(g.collected)}
                   >
-                    {formatINRCompact(g.collected)}
+                    <CellLink href={dayReceipts(g.date)}>
+                      {formatINRCompact(g.collected)}
+                    </CellLink>
                   </td>
                 </tr>
                 {isOpen &&
@@ -156,28 +199,40 @@ export function DailyActivityBreakdown({
                       className='bg-muted/20 border-b text-xs'
                     >
                       <td className='text-muted-foreground py-1.5 pr-2 pl-7'>
-                        {r.institution_name}
+                        <CellLink href={dayReceipts(g.date, r.institution_id)}>
+                          {r.institution_name}
+                        </CellLink>
                       </td>
                       <td className='px-2 py-1.5 text-right'>
-                        {num(r.bills_created).toLocaleString('en-IN')}
+                        <CellLink href={bills(r.institution_id)}>
+                          {num(r.bills_created).toLocaleString('en-IN')}
+                        </CellLink>
                       </td>
                       <td
                         className='px-2 py-1.5 text-right'
                         title={formatCurrency(num(r.amount_billed))}
                       >
-                        {formatINRCompact(r.amount_billed)}
+                        <CellLink href={bills(r.institution_id)}>
+                          {formatINRCompact(r.amount_billed)}
+                        </CellLink>
                       </td>
                       <td className='px-2 py-1.5 text-right'>
-                        {num(r.students_billed).toLocaleString('en-IN')}
+                        <CellLink href={students(r.institution_id)}>
+                          {num(r.students_billed).toLocaleString('en-IN')}
+                        </CellLink>
                       </td>
                       <td className='px-2 py-1.5 text-right'>
-                        {num(r.receipts_created).toLocaleString('en-IN')}
+                        <CellLink href={dayReceipts(g.date, r.institution_id)}>
+                          {num(r.receipts_created).toLocaleString('en-IN')}
+                        </CellLink>
                       </td>
                       <td
                         className='px-2 py-1.5 text-right text-green-700'
                         title={formatCurrency(num(r.amount_collected))}
                       >
-                        {formatINRCompact(r.amount_collected)}
+                        <CellLink href={dayReceipts(g.date, r.institution_id)}>
+                          {formatINRCompact(r.amount_collected)}
+                        </CellLink>
                       </td>
                     </tr>
                   ))}

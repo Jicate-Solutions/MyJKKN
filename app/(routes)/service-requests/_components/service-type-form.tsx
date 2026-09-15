@@ -129,6 +129,7 @@ export function ServiceTypeForm({ initialData, onSubmit, isSubmitting }: Service
       department_ids: initialData?.department_ids || [],
       program_ids: initialData?.program_ids || [],
       certificate_template_keys: initialData?.certificate_template_keys ?? [],
+      issues_gate_pass: initialData?.issues_gate_pass ?? false,
       fields: fields,
       approval_steps: approvalSteps,
     },
@@ -524,6 +525,39 @@ export function ServiceTypeForm({ initialData, onSubmit, isSubmitting }: Service
           {errors.approval_steps && (
             <p className="text-xs text-red-500 mt-2">{errors.approval_steps.message}</p>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Gate Pass category */}
+      <Card className={cn(watch('issues_gate_pass') && 'border-primary')}>
+        <CardHeader>
+          <CardTitle>Gate Pass</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <label
+            htmlFor="issues_gate_pass"
+            className={cn(
+              'flex items-start gap-3 rounded-lg border-2 p-4 cursor-pointer transition-colors',
+              watch('issues_gate_pass') ? 'border-primary bg-primary/5' : 'border-muted hover:border-muted-foreground/30'
+            )}
+          >
+            <Checkbox
+              id="issues_gate_pass"
+              checked={!!watch('issues_gate_pass')}
+              onCheckedChange={(c) => setValue('issues_gate_pass', !!c, { shouldValidate: true })}
+              className="mt-0.5"
+            />
+            <span className="flex flex-col gap-1">
+              <span className="font-medium text-sm">This is a Gate Pass request type</span>
+              <span className="text-xs text-muted-foreground">
+                The request form gains a built-in Gate Pass block (date, expected exit and
+                return time, reason, alternate mobile). Learner name, roll number, email and
+                mobile are taken from the profile. On final approval a Gate Pass ID and a
+                secure QR are issued for the learner, and Gate Security scans it at the
+                campus gate to record OUT and IN. Custom fields below are optional.
+              </span>
+            </span>
+          </label>
         </CardContent>
       </Card>
 
