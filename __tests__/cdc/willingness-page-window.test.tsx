@@ -12,6 +12,13 @@
  *
  * The page is rendered for real and its buttons are clicked for real; only the
  * network is stubbed.
+ *
+ * 2026-09-15 — the page grew a profile card, an academic-standing card and a
+ * data-consent checkbox (direct pushes 760f08e180 / 18f5153bfa). "I'm in" is now
+ * "Confirm willingness", it stays disabled until the consent box is ticked, and
+ * the POST carries `additional_mobile` + `data_consent` alongside `intent`. The
+ * fixture and the open-window test follow the shipped page; the closed-window
+ * copy is unchanged.
  */
 
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
@@ -46,14 +53,30 @@ function snapshot(over: Partial<LearnerWillingnessSnapshot> = {}): LearnerWillin
       willingness_window_close_at: null,
       drive_date: '2026-10-01',
     } as LearnerWillingnessSnapshot['drive'],
+    circular: null,
     eligibility: { id: 'e1', program_ids: ['prog-1'] } as LearnerWillingnessSnapshot['eligibility'],
     recruiter: { id: 'r1', name: 'Foxconn India' } as LearnerWillingnessSnapshot['recruiter'],
     drive_type: null,
-    learner: { id: 'l1', program_id: 'prog-1' },
+    learner: {
+      id: 'l1',
+      program_id: 'prog-1',
+      institution_id: 'inst-1',
+      semester_order: 5,
+      semester_label: 'Semester 5',
+      register_number: '24UBAC12',
+      full_name: 'Test Learner',
+      email: 'test.student@jkkn.ac.in',
+      mobile: '9876543210',
+    },
+    missing_profile_fields: [],
+    academic: null,
     willingness: null,
     is_eligible: true,
-    is_window_open: true,
+    ineligible_reason: null,
+    uses_semester_targeting: false,
     window_state: 'open',
+    is_window_open: true,
+    deadline_passed: false,
     ...over,
   };
 }
@@ -97,8 +120,19 @@ describe('willingness page — window open (the state every production drive is 
     serve(snapshot());
     await renderPage();
 
-    const yes = await screen.findByRole('button', { name: /I'm in/i });
+    const yes = await screen.findByRole('button', { name: /Confirm willingness/i });
     expect(screen.getByRole('button', { name: /I decline/i })).toBeTruthy();
+
+    // Confirm is gated on the data-consent box: a click before ticking it must
+    // post nothing, so the learner cannot hand over CGPA/arrears by accident.
+    expect((yes as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(yes);
+    expect(
+      fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === 'POST')
+    ).toBeUndefined();
+
+    fireEvent.click(screen.getByRole('checkbox'));
+    await waitFor(() => expect((yes as HTMLButtonElement).disabled).toBe(false));
 
     fireEvent.click(yes);
 
@@ -109,6 +143,8 @@ describe('willingness page — window open (the state every production drive is 
       expect(posted).toBeTruthy();
       expect(JSON.parse((posted![1] as RequestInit).body as string)).toEqual({
         intent: 'willing',
+        additional_mobile: null,
+        data_consent: true,
       });
     });
   });
@@ -130,7 +166,7 @@ describe('willingness page — window closed by its date', () => {
 
     expect(await screen.findByText(/window for responding has closed/i)).toBeTruthy();
     expect(screen.getByText(/Responses closed on/i)).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /I'm in/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Confirm willingness/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /I decline/i })).toBeNull();
   });
 
@@ -170,7 +206,7 @@ describe('willingness page — window has not started', () => {
 
     expect(await screen.findByText(/not accepting responses yet/i)).toBeTruthy();
     expect(screen.getByText(/You can respond from/i)).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /I'm in/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Confirm willingness/i })).toBeNull();
   });
 });
 
