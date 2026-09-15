@@ -594,7 +594,7 @@ function CdcDriveDetailContent({ params }: { params: Promise<{ id: string }> }) 
                     </Link>
                   </Button>
                 </div>
-              )
+              )}
             </CardContent>
           </Card>
 

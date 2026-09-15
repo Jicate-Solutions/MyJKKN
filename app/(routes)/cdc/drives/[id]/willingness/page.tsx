@@ -222,7 +222,6 @@ export default function CdcDriveWillingnessPage({ params }: { params: Promise<{ 
 
   const {
     drive,
-  const {
     circular,
     recruiter,
     drive_type,
@@ -550,9 +549,6 @@ export default function CdcDriveWillingnessPage({ params }: { params: Promise<{ 
               {!is_window_open ? (
                 <Alert>
                   <Info className="h-4 w-4" />
-              {!is_window_open ? (
-                <Alert>
-                  <Info className="h-4 w-4" />
                   <AlertTitle>
                     {window_state === 'closed'
                       ? 'The window for responding has closed.'
@@ -574,9 +570,6 @@ export default function CdcDriveWillingnessPage({ params }: { params: Promise<{ 
                         : deadline_passed
                           ? `Responses closed on ${new Date(drive.willingness_window_close_at!).toLocaleString()}. Contact the placement team if you still want to take part.`
                           : `Current status: ${CDC_DRIVE_STATUS_LABELS[drive.status]}. You cannot declare or change your response.`}
-                  </AlertDescription>
-                </Alert>
-              ) : null}
                   </AlertDescription>
                 </Alert>
               ) : null}

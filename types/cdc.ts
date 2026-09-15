@@ -219,22 +219,6 @@ export interface CdcDriveEligibility {
   updated_by: string | null;
 }
 
-/**
- * What the eligibility form submits. `program_ids` is required — an eligibility
- * row with no program matches no learner, which is indistinguishable from having
- * no row at all (see CdcEligibilityService).
- */
-export interface CdcDriveEligibilityInput {
-  program_ids: string[];
-  min_cgpa?: number | null;
-  min_semester?: number | null;
-  max_arrears?: number | null;
-  allowed_genders?: string[] | null;
-  program_year?: number | null;
-  passed_out_allowed?: boolean;
-  additional_notes?: string | null;
-}
-
 export interface CdcDriveEligibilityResponse {
   data: CdcDriveEligibility | null;
   matching_learners: number | null;
@@ -318,11 +302,18 @@ export interface CdcDriveTransitionPayload {
   metadata?: Record<string, unknown> | null;
 }
 
-/** Eligibility thresholds shown to learners (cdc_drive_eligibility, one row per drive). */
+/**
+ * Eligibility thresholds shown to learners (cdc_drive_eligibility, one row per drive).
+ * `program_ids` is only meaningful for legacy drives without institution+semester
+ * targeting (20260915100000); targeted drives leave it empty.
+ */
 export interface CdcDriveEligibilityInput {
+  program_ids?: string[];
   min_cgpa?: number | null;
   max_arrears?: number | null;
   min_semester?: number | null;
+  allowed_genders?: string[] | null;
+  program_year?: number | null;
   passed_out_allowed?: boolean;
   additional_notes?: string | null;
 }

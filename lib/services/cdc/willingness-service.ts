@@ -89,7 +89,20 @@ export interface LearnerWillingnessSnapshot {
   is_eligible: boolean;
   /** Why not eligible — surfaced verbatim to the learner. */
   ineligible_reason: string | null;
+  /** True when the drive has institution+semester targeting (else legacy program_ids). */
+  uses_semester_targeting: boolean;
+  /** computeWillingnessWindowState(drive) — the single source of "can I respond". */
+  window_state: WillingnessWindowState;
   is_window_open: boolean;
+  /** willingness_window_close_at is in the past. */
+  deadline_passed: boolean;
+}
+
+export interface DeclareWillingnessInput {
+  intent: 'willing' | 'decline';
+  additional_mobile?: string | null;
+  /** Learner ticked the data-consent statement (required for intent='willing'). */
+  data_consent?: boolean;
 }
 
 export class CdcWillingnessService {
@@ -232,8 +245,22 @@ export class CdcWillingnessService {
     if (willingnessRes.error) throw willingnessRes.error;
 
     const eligibility = (eligibilityRes.data ?? null) as CdcDriveEligibility | null;
-    const is_eligible = computeIsEligible(eligibility, learner.program_id);
-    const is_window_open = drive.status === 'willingness_open';
+    const { is_eligible, reason } = computeEligibility(drive, eligibility, learner);
+    const window_state = computeWillingnessWindowState(drive);
+    const is_window_open = window_state === 'open';
+    const closeAt = drive.willingness_window_close_at
+      ? new Date(drive.willingness_window_close_at)
+      : null;
+    const deadline_passed =
+      !!closeAt && !Number.isNaN(closeAt.getTime()) && closeAt.getTime() < Date.now();
+
+    const missing_profile_fields: LearnerWillingnessSnapshot['missing_profile_fields'] = [];
+    if (!learner.full_name) missing_profile_fields.push('full_name');
+    if (!learner.email) missing_profile_fields.push('email');
+    if (!learner.mobile) missing_profile_fields.push('mobile');
+
+    const academic =
+      opts.includeAcademic === false ? null : await this.loadAcademic(learner);
 
     return {
       drive,
@@ -257,7 +284,10 @@ export class CdcWillingnessService {
       willingness: (willingnessRes.data ?? null) as CdcDriveWillingness | null,
       is_eligible,
       ineligible_reason: is_eligible ? null : reason,
+      uses_semester_targeting: hasSemesterTargeting(drive),
+      window_state,
       is_window_open,
+      deadline_passed,
     };
   }
 
@@ -288,9 +318,7 @@ export class CdcWillingnessService {
     });
     if (!snapshot) throw new Error('Drive not found');
     if (!snapshot.is_window_open) {
-      throw new Error(
-        `Willingness window is not open for this drive (status: ${snapshot.drive.status})`
-      );
+      throw new Error(describeClosedWindow(snapshot.window_state, snapshot.drive.status));
     }
     if (!snapshot.is_eligible) {
       throw new Error(snapshot.ineligible_reason ?? 'You are not in the audience for this drive');

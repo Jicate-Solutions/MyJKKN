@@ -35,6 +35,86 @@ import {
 import { normalizeInstitutionSemesters } from './drive-targeting';
 
 // =====================================================================================
+// Error mapping
+// =====================================================================================
+
+/** Translate Postgres constraint errors on cdc_drives writes into copy a coordinator can act on. */
+function friendlyDriveError(error: { code?: string; message?: string; details?: string } & Partial<Error>): Error {
+  const code = error.code ?? '';
+  const message = error.message ?? 'Unknown database error';
+  if (code === '23503') {
+    if (/recruiter/i.test(message)) return new Error('The selected recruiter no longer exists.');
+    if (/drive_type/i.test(message)) return new Error('The selected drive type no longer exists.');
+    return new Error('A linked record for this drive no longer exists.');
+  }
+  if (code === '23505') return new Error('A drive with these details already exists.');
+  if (code === '23514') return new Error(`The drive failed a validation rule: ${message}`);
+  if (code === '42703' || code === 'PGRST204') {
+    return new Error(
+      'The database is missing a column this drive needs. Apply the latest CDC migration (20260915100000).'
+    );
+  }
+  return error instanceof Error ? error : new Error(message);
+}
+
+// =====================================================================================
+// Circular (Google Drive reference stored as flat cdc_drives.circular_* columns)
+// =====================================================================================
+
+/** Project the flat `circular_*` columns of a drive row into a CdcDriveCircular (null when none attached). */
+export function driveCircularOf(
+  drive: Pick<
+    CdcDrive,
+    | 'circular_drive_file_id'
+    | 'circular_file_name'
+    | 'circular_mime_type'
+    | 'circular_size_bytes'
+    | 'circular_uploaded_at'
+    | 'circular_uploaded_by'
+  > & { id?: string }
+): CdcDriveCircular | null {
+  if (!drive.circular_drive_file_id) return null;
+  return {
+    drive_file_id: drive.circular_drive_file_id,
+    file_name: drive.circular_file_name ?? 'circular',
+    mime_type: drive.circular_mime_type ?? 'application/octet-stream',
+    size_bytes: drive.circular_size_bytes ?? null,
+    url: drive.id ? `/api/cdc/drives/${drive.id}/circular` : null,
+    uploaded_at: drive.circular_uploaded_at ?? null,
+    uploaded_by: drive.circular_uploaded_by ?? null,
+  };
+}
+
+/**
+ * Inverse of driveCircularOf: the column set to write for a create/update payload.
+ * `undefined` → no change (empty object); `null` → clear every column; object → set all.
+ */
+function circularColumns(
+  circular: CdcDriveCircular | null | undefined,
+  actorId: string | null | undefined
+): Record<string, unknown> {
+  if (circular === undefined) return {};
+  if (circular === null) {
+    return {
+      circular_drive_file_id: null,
+      circular_file_name: null,
+      circular_mime_type: null,
+      circular_size_bytes: null,
+      circular_uploaded_at: null,
+      circular_uploaded_by: null,
+    };
+  }
+  return {
+    circular_drive_file_id: circular.drive_file_id,
+    circular_file_name: circular.file_name,
+    circular_mime_type: circular.mime_type,
+    circular_size_bytes: circular.size_bytes ?? null,
+    circular_uploaded_at: circular.uploaded_at ?? new Date().toISOString(),
+    circular_uploaded_by: circular.uploaded_by ?? actorId ?? null,
+  };
+}
+
+// =====================================================================================
 // List filters
 // =====================================================================================
 
