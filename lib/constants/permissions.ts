@@ -3690,9 +3690,7 @@ export const PERMISSION_CATEGORIES = [
         label: 'Write and approve the weekly highlights shown on What\'s New',
       },
     ],
-  }
-    ]
-  }
+  },
 ];
 
 export const PERMISSIONS = {
