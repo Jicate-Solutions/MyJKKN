@@ -14,7 +14,14 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Check, Eye, PhoneCall, X } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Check, Eye, MoreHorizontal, PhoneCall, X } from 'lucide-react';
 import type { GatePassListRow, GatePassStatus } from '@/types/campus-living';
 
 /** One vocabulary for the seven statuses, used by the queue and the detail page. */
@@ -87,14 +94,17 @@ export function getGatePassColumns({
       accessorKey: 'learner_name',
       header: 'Learner',
       cell: ({ row }) => (
-        <div className="min-w-0">
+        <Link
+          href={`/campus-living/gate-passes/${row.original.id}`}
+          className="block min-w-0 hover:underline"
+        >
           <p className="truncate font-medium">{row.original.learner_name}</p>
           {row.original.learner_email && (
             <p className="truncate text-xs text-muted-foreground">
               {row.original.learner_email}
             </p>
           )}
-        </div>
+        </Link>
       ),
     },
     {
@@ -194,39 +204,46 @@ export function getGatePassColumns({
       enableHiding: false,
       cell: ({ row }) => {
         const isPending = row.original.status === 'requested';
+        const showDecide = canDecide && isPending;
         return (
-          <div className="flex items-center justify-end gap-1">
-            {/* Approve and Reject are shortcuts, not the main path. The
-                decision the warden is meant to take is on the detail page,
-                where the learner's dossier and the parent's number are. */}
-            {canDecide && isPending && (
-              <>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-8 text-green-700 hover:bg-green-50 dark:hover:bg-green-950/30"
-                  onClick={() => onApprove(row.original)}
-                >
-                  <Check className="h-4 w-4" />
-                  <span className="sr-only">Approve</span>
+          <div className="flex items-center justify-end">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Gate pass actions">
+                  <MoreHorizontal className="h-4 w-4" />
                 </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-8 text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
-                  onClick={() => onReject(row.original)}
-                >
-                  <X className="h-4 w-4" />
-                  <span className="sr-only">Reject</span>
-                </Button>
-              </>
-            )}
-            <Button size="sm" variant="ghost" className="h-8" asChild>
-              <Link href={`/campus-living/gate-passes/${row.original.id}`}>
-                <Eye className="mr-1 h-4 w-4" />
-                View
-              </Link>
-            </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem asChild>
+                  <Link href={`/campus-living/gate-passes/${row.original.id}`}>
+                    <Eye className="mr-2 h-4 w-4" />
+                    View details
+                  </Link>
+                </DropdownMenuItem>
+                {/* Shortcuts, not the main path. The decision the warden is
+                    meant to take is on the detail page, where the learner's
+                    dossier and the parent's number are. */}
+                {showDecide && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="text-green-700 focus:text-green-700 dark:text-green-400"
+                      onClick={() => onApprove(row.original)}
+                    >
+                      <Check className="mr-2 h-4 w-4" />
+                      Approve
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="text-red-700 focus:text-red-700 dark:text-red-400"
+                      onClick={() => onReject(row.original)}
+                    >
+                      <X className="mr-2 h-4 w-4" />
+                      Reject
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         );
       },
