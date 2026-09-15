@@ -165,9 +165,39 @@ export class BillingReceiptService {
       return receipt;
     } catch (error) {
       logger.error('billing/receipts', 'Error creating receipt', error);
-      throw new Error(
-        error instanceof Error ? error.message : 'Failed to create receipt'
-      );
+
+      // A PostgREST/RPC rejection is a PLAIN OBJECT ({ code, message, details,
+      // hint }), not an Error instance — the same fact voidBillingReceipt notes
+      // below. So `error instanceof Error` was false for every server-side
+      // failure on this path, and the ternary replaced the server's real code,
+      // message, details and hint with the literal string 'Failed to create
+      // receipt'. That is all the operator, the console and the API route saw.
+      //
+      // A genuine Error (e.g. the 'Receipt creation returned no receipt' guard
+      // above, or a throw from the bill-status / invoice helpers) is re-thrown
+      // as-is so its stack survives.
+      if (error instanceof Error) {
+        throw error;
+      }
+
+      // Covers null/undefined and non-object throws without touching them.
+      const pgError = (
+        typeof error === 'object' && error !== null ? error : {}
+      ) as { code?: string; message?: string; details?: string; hint?: string };
+
+      const serverMessage = pgError.message || 'Failed to create receipt';
+      const wrapped = new Error(
+        pgError.code ? `[${pgError.code}] ${serverMessage}` : serverMessage
+      ) as Error & { code?: string; details?: string; hint?: string };
+
+      // Carried as properties so a caller can branch on the SQLSTATE / PostgREST
+      // code (e.g. '42501' insufficient privilege, 'PGRST301') instead of
+      // string-matching the message.
+      wrapped.code = pgError.code;
+      wrapped.details = pgError.details;
+      wrapped.hint = pgError.hint;
+
+      throw wrapped;
     }
   }
 
