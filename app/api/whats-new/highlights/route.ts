@@ -7,11 +7,10 @@
 //                                              signed-in reader. NOT week-bound
 //                                              — see "THE WINDOW" below.
 //   GET  /api/whats-new/highlights?queue=1   → the approver's queue: this week's
-//                                              candidates PLUS every write-up
-//                                              the strip is currently
-//                                              rendering (`live`), each with the
-//                                              sentence saying why it was picked,
-//                                              merged
+//                                              candidates PLUS every approved
+//                                              write-up in the backlog window
+//                                              (`live`), each with the sentence
+//                                              saying why it was picked, merged
 //                                              with whatever has been written so
 //                                              far. Needs the manage permission.
 //   PUT  /api/whats-new/highlights           → save, approve or skip ONE
@@ -36,9 +35,11 @@
 // The queue's SELECTION stays weekly — it is a person's workload, not a
 // reader's page — but its REVIEW does not, because it cannot. A write-up with
 // no card in the queue has no Edit and no set-back-to-draft, and that is the
-// only way to withdraw text the writer published unreviewed. So the queue runs
-// the strip's own walk and carries every row it returns; see "the approver's
-// queue" below.
+// only way to withdraw text the writer published unreviewed. So the queue reads
+// the SAME backlog window the writer writes into (WRITEUP_BACKLOG_FLOOR) and
+// carries every write-up in it; see "the approver's queue" below. Until
+// 2026-09-15 it carried only the strip's ten: the other ~465 backlog write-ups
+// were on nobody's page and could not be withdrawn from anywhere.
 //
 // WHY THIS IS A SEPARATE ROUTE FROM /api/whats-new. That route's `?part=` payload
 // shapes are a contract two suites assert on (__tests__/lib/changelog/
@@ -76,17 +77,20 @@ export const dynamic = 'force-dynamic';
 type Db = Awaited<ReturnType<typeof createClient>>;
 
 /**
- * The QUEUE's row budget for one week. The strip has its own — STRIP_PAGE and
- * STRIP_MAX_PAGES below — because it no longer reads a week.
+ * The QUEUE's read of the backlog window, in pages.
  *
- * PostgREST's default `db-max-rows` is 1,000 and it truncates SILENTLY. One
- * week held 222 user-facing entries on 2026-09-12, so this has four times the
- * headroom it needs — but a week that somehow exceeded it would drop the OLDEST
- * entries of that week, the order being newest-first, and the queue would
- * simply offer fewer candidates. Stated so a future reader knows which way it
- * fails.
+ * PostgREST's default `db-max-rows` is 1,000 and it truncates SILENTLY, so the
+ * window — ~800 entries a month on 2026-09-13, and widening by a day every day
+ * because the floor is fixed — is read a page at a time, the same way the cron
+ * reads it. The order is newest-first, so if the page cap were ever reached it
+ * is the OLDEST entries that fall off, and the queue would simply carry fewer
+ * backlog cards. Stated so a future reader knows which way it fails.
  */
-const WEEK_ROWS = 1000;
+const QUEUE_PAGE = 1000;
+
+/** Stop after this many pages: room for a year of busy months and a hard stop
+ *  on a filter that has gone wrong, rather than an unbounded loop. */
+const QUEUE_MAX_PAGES = 5;
 
 /** `.in()` travels in the URL. Chunked so a busy week cannot build one too long. */
 const IN_CHUNK = 200;
@@ -201,9 +205,16 @@ async function readEntryPage(
   return (data as EntryRow[] | null) ?? [];
 }
 
-/** This week's entries, scoped to the caller's modules — the queue's read. */
-async function readWeekEntries(supabase: Db, from: string, visible: string[]): Promise<EntryRow[]> {
-  return readEntryPage(supabase, from, visible, 0, WEEK_ROWS);
+/** Every entry in the backlog window, scoped to the caller's modules — the
+ *  queue's read. Paged, newest first. */
+async function readWindowEntries(supabase: Db, from: string, visible: string[]): Promise<EntryRow[]> {
+  const rows: EntryRow[] = [];
+  for (let page = 0; page < QUEUE_MAX_PAGES; page++) {
+    const batch = await readEntryPage(supabase, from, visible, page * QUEUE_PAGE, QUEUE_PAGE);
+    rows.push(...batch);
+    if (batch.length < QUEUE_PAGE) break;
+  }
+  return rows;
 }
 
 /** The highlight rows for a set of entries. RLS decides which of them come back. */
@@ -409,32 +420,23 @@ export async function GET(request: Request) {
     // page, and offering a month of unwritten changes at once would make the
     // queue unreadable.
     //
-    // REVIEW is not. Every write-up the strip can render must have a row here,
-    // or it has no Edit, no set-back-to-draft, no Live badge and no place to
-    // show that readers flagged it. Before the strip reached the backlog that
-    // held BY CONSTRUCTION — everything renderable was in the current week —
-    // and widening the reader's window alone would have quietly ended it. The
-    // writer publishes UNREVIEWED twice an hour (ruling 1, 2026-09-13) and this
-    // screen is the withdrawal path for that text, so the property is now BUILT
-    // rather than inherited: the queue reads exactly what the strip renders and
-    // carries every one of those rows, whichever week they fall in.
+    // REVIEW is the whole backlog window. Every write-up the writer has
+    // published must have a row here, or it has no Edit, no set-back-to-draft,
+    // no Live badge and no place to show that readers flagged it. #3760 widened
+    // the reader's strip to the backlog and carried the strip's ten into the
+    // queue; the other ~465 approved write-ups in the window (2026-09-15) were
+    // readable by nobody and reviewable from nowhere — the writer publishes
+    // UNREVIEWED twice an hour and this screen is the only withdrawal path for
+    // that text. So the queue now reads from the SAME floor the writer writes
+    // from, WRITEUP_BACKLOG_FLOOR, and carries every row it finds.
     const from = weekStart(istToday());
-    const weekEntries = await readWeekEntries(supabase, from, visible);
+    const windowEntries = await readWindowEntries(supabase, WRITEUP_BACKLOG_FLOOR, visible);
+    const weekEntries = windowEntries.filter((e) => e.entry_date >= from);
     // The same walk, with the same arguments, the reader's strip just made —
-    // so this is what is on the page, not a second guess at it.
+    // so `liveCount` is what is on the page, not a second guess at it.
     const onStrip = await readStripEntries(supabase, visible);
 
-    // This week's entries, plus any entry on the strip that this week does not
-    // already hold. Deduplicated on (app_key, sha), the key both tables join on.
-    const entries = [...weekEntries];
-    const seenEntry = new Set(weekEntries.map((e) => `${e.app_key}:${e.sha}`));
-    for (const { entry } of onStrip) {
-      const key = `${entry.app_key}:${entry.sha}`;
-      if (seenEntry.has(key)) continue;
-      seenEntry.add(key);
-      entries.push(entry);
-    }
-
+    const entries = windowEntries;
     const highlights = await readHighlights(
       supabase,
       entries.map((e) => e.sha)
@@ -482,25 +484,31 @@ export async function GET(request: Request) {
     });
 
     /**
-     * The rows the strip is rendering that selection did not offer — the whole
-     * of the gap described above.
+     * Every APPROVED write-up in the window that selection did not offer — the
+     * whole of the gap described above, newest first.
      *
      * Two ways a card lands here, and both are real: the change is older than
      * this week (the ordinary case now the writer works a month of backlog),
      * or it is in this week but fell outside WEEKLY_CAP when selection sliced
-     * by score. The second one predates this change; the union closes both,
-     * because the test is "is it on the page", never "how did it get there".
+     * by score. The union closes both, because the test is "is it published",
+     * never "how did it get there". The strip's ten are the newest of these;
+     * the rest are published just the same — the strip walks the same rows and
+     * stops at ten — and a super admin withdraws them from this list.
      *
      * Nothing is re-derived here. The sentence saying why it was picked, and
      * the "who it affects" line, are read back off the saved row rather than
      * recomputed from the module — a live write-up already has a person's (or
      * a model's) words and guessing new ones would put a second answer on the
      * screen. `score` is 0 because these are not competing for a slot: they
-     * already have one, on the reader's page.
+     * already have one.
      */
     const offered = new Set(candidates.map((c) => c.entry.h));
-    const live = onStrip
-      .filter(({ entry }) => !offered.has(entry.sha))
+    const approvedByKey = new Map(
+      highlights.filter((h) => h.status === 'approved').map((h) => [`${h.app_key}:${h.sha}`, h])
+    );
+    const live = entries
+      .map((entry) => ({ entry, highlight: approvedByKey.get(`${entry.app_key}:${entry.sha}`) }))
+      .filter((p): p is { entry: EntryRow; highlight: HighlightRow } => !!p.highlight && !offered.has(p.entry.sha))
       .map(({ entry, highlight }) => ({
         sha: entry.sha,
         date: entry.entry_date,
@@ -518,14 +526,15 @@ export async function GET(request: Request) {
     return NextResponse.json(
       {
         weekFrom: from,
+        // The review window: every card below is on or after this date.
+        from: WRITEUP_BACKLOG_FLOOR,
         // What is ACTUALLY on the reader's page, counted by the same walk that
         // builds it. The screen used to count approved rows in `saved`, which
         // was this week's rows only — it would now say 6 while 10 were live.
         liveCount: onStrip.length,
-        // Every write-up behind a card on this screen — this week's, and the
-        // older ones the strip is rendering — so work in progress shows, an
-        // approved one can be edited or set back to draft, and the Live badge
-        // has a row to read.
+        // Every write-up behind a card on this screen — the whole backlog
+        // window — so work in progress shows, an approved one can be edited or
+        // set back to draft, and the Live badge has a row to read.
         saved: highlights.map((h) => ({
           sha: h.sha,
           headline: h.headline,
@@ -659,6 +668,14 @@ export async function PUT(request: Request) {
         affects,
         action,
         status,
+        // WHY a skipped row is skipped, as a queryable value. A person's hide
+        // is 'person'; the column was never set on this path until 2026-09-15,
+        // so 95 skipped rows carried NULL and a human hide was indistinguishable
+        // from the writer's own refusal — which is what ruling 5's never-rewrite
+        // rule has to tell apart. On approve or draft the key is OMITTED, not
+        // nulled: skip_reason is the record of the LAST takedown and is kept
+        // through a restore on purpose (20261216113700).
+        ...(status === 'skipped' ? { skip_reason: 'person' } : {}),
         selection_reason: text(body?.selection_reason),
         // A person writing through this route OWNS the row from now on, even if
         // a model wrote it first. This is not bookkeeping: the review-stamp

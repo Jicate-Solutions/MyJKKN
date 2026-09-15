@@ -105,6 +105,12 @@ You are given ONE change that shipped. Write the three lines a reader needs.
    - No jargon: no RLS, no SECURITY DEFINER, no RPC, no migration, no endpoint, no null, no enum, no schema, no cache, no refactor. If the change is about one of those, say what a PERSON would notice instead.
    - One sentence. Write it from the reader's side ("Your dashboard now...", "Fee receipts now...").
 
+JKKN VOCABULARY — ZERO TOLERANCE, in every one of the three lines:
+   - Never write student or students. Write learner or learners.
+   - Never write faculty. Write Senior Learners (that is the teaching role).
+   - Never write staff. Write team members.
+   These words are forbidden even when the change itself uses them. A line carrying any of them is rejected and never published.
+
 2. "affects" — who will notice this.
    - Name the ROLE, never a person. "Principals and HODs", "Anyone who takes attendance", "Learners on a hostel plan", "Office team members who raise invoices".
    - NEVER write a human name, even if one appears in the change. Do not write "raised by Dr Priya" or "suggested by the Principal of Dental". Say "raised by a HOD" or just name the role that benefits.
@@ -115,6 +121,8 @@ You are given ONE change that shipped. Write the three lines a reader needs.
    - If there is nothing to click and the change simply takes effect, say that plainly ("Nothing to do — it applies the next time you open a receipt.").
 
 WHEN THERE IS NOTHING TO SAY, SAY THAT. Most engineering work is invisible to a reader: an internal function renamed, a type corrected, a build gate added, a test fixed, a database column tidied. If this change has no effect a reader could notice, DO NOT invent one. Return the refusal shape instead. A refusal is a correct and expected answer here — it is much better than a confident sentence about an effect that does not exist.
+
+A FIX THAT CLOSES AN ACCESS HOLE HAS NO USER-VISIBLE EFFECT. If the change says that something was reachable, readable, editable or callable by people who should not have been able to, or that a permission check was missing or bypassed, REFUSE. The people who were doing the right thing notice nothing, and telling every reader where the hole was is not a highlight. Return the refusal shape.
 
 Return ONLY valid JSON. No markdown, no code fences, no commentary.
 
@@ -134,7 +142,13 @@ You return:
 Change: "refactor(core): extract useDebounce hook and drop the duplicate implementation"
 Area: Platform · Kind: this change FIXED something that was behaving wrongly.
 You return:
-{"no_user_visible_effect": true, "reason": "Internal code tidy-up — nothing on any screen changes."}`;
+{"no_user_visible_effect": true, "reason": "Internal code tidy-up — nothing on any screen changes."}
+
+─── WORKED EXAMPLE 3 — a fix that closes an access hole ───
+Change: "fix(meetings): calendar-lock RPCs were callable by any logged-in user"
+Area: Meetings · Kind: this change FIXED something that was behaving wrongly.
+You return:
+{"no_user_visible_effect": true, "reason": "Closes an access hole — people doing the right thing notice nothing."}`;
 
 /**
  * Assemble the full prompt for ONE change.
@@ -142,7 +156,14 @@ You return:
  * The result is what goes in payload.prompt; the runner substitutes it into the
  * type's single `{{prompt}}` slot and sends nothing else.
  */
-export function buildHighlightPrompt(s: HighlightSubject): string {
+export function buildHighlightPrompt(
+  s: HighlightSubject,
+  opts: {
+    /** The forbidden words the model's FIRST answer used. Present only on the
+     *  one retry the cron allows; the block it adds names them outright. */
+    rewriteWithout?: ReadonlyArray<string>;
+  } = {}
+): string {
   const lines = [
     `Change: "${s.subject}"`,
     `Area: ${s.moduleLabel}`,
@@ -165,7 +186,81 @@ export function buildHighlightPrompt(s: HighlightSubject): string {
     );
   }
 
+  if (opts.rewriteWithout && opts.rewriteWithout.length > 0) {
+    // THE ONE RETRY. The first answer was rejected by the vocabulary gate, and
+    // this names the words so the model is correcting a stated fault rather
+    // than guessing what was wrong with an answer it cannot see.
+    lines.push(
+      `YOUR PREVIOUS ANSWER WAS REJECTED because it used these forbidden words: ${[...opts.rewriteWithout].join(', ')}. ` +
+        'Write all three lines again without any of them. ' +
+        'Say learner or learners, Senior Learners, and team members instead. ' +
+        'If the change cannot be described without them, return the refusal shape.'
+    );
+  }
+
   return `${INSTRUCTIONS}\n\n─── THE CHANGE TO WRITE UP ───\n${lines.join('\n')}\n\nReturn the JSON now.`;
+}
+
+// ───────────────────────── THE OUTPUT GATE ──────────────────────────────────
+//
+// Measured on production 2026-09-15: 64 of 475 write-ups (13%) used a
+// forbidden word, every one of them written AFTER the vocabulary was put in the
+// prompt. An instruction the model follows 87% of the time is not a rule; the
+// rule is the check below, which runs on what the model RETURNED and decides
+// whether it may be published. The prompt still carries the words so the
+// ordinary case costs one round trip and not two.
+
+/**
+ * The words no published line may carry, as one word-boundary pattern.
+ *
+ * Plural-aware where the plural is a different word (students), and exactly the
+ * three families the Director named as zero-tolerance for this page. The full
+ * dictionary in .claude/skills/jkkn-terminologies is wider; this gate is
+ * deliberately narrow so a hit is unarguable.
+ */
+const FORBIDDEN_WORD_RE = /\b(students?|faculty|staff)\b/gi;
+
+/**
+ * The forbidden words a draft uses, lower-cased and de-duplicated, in the order
+ * first met. Empty means the draft may be published.
+ *
+ * All three lines are scanned. A headline that says learner while the affects
+ * line says staff is still a published line that says staff.
+ */
+export function forbiddenVocabulary(draft: HighlightDraft): string[] {
+  const seen = new Set<string>();
+  for (const line of [draft.headline, draft.affects, draft.action]) {
+    for (const m of line.matchAll(FORBIDDEN_WORD_RE)) {
+      seen.add(m[0].toLowerCase());
+    }
+  }
+  return [...seen];
+}
+
+/**
+ * Access-hole language in a commit SUBJECT.
+ *
+ * The phrases a developer writes when a fix closes a hole rather than changes
+ * a feature. Matched against the subject and NOT the model's answer, because
+ * the model was asked to refuse these and on 2026-09-15 it wrote one up anyway
+ * (49ae115: the whole platform was told which calendar RPC any signed-in user
+ * could call). The Director's rule is that a security line reaches super
+ * admins only; that rule keys on kind = 'security' and the commit was typed
+ * fix, so this is the check that does not depend on how the commit was typed.
+ *
+ * Kept to phrases that only ever describe a hole. "permission" alone would
+ * match a feature that ADDS a permission; "without permission" does not.
+ */
+const ACCESS_HOLE_RE =
+  /\b(bypass(?:ed|es|ing)?|callable by any(?:one|body)?|could (?:see|read|edit|change|delete) (?:other|any|every)|without (?:a |the |any )?permission|without (?:a |the |any )?(?:check|guard)|RLS|SECURITY DEFINER|privilege escalation|any (?:logged[- ]in|signed[- ]in|authenticated) user)\b/i;
+
+/**
+ * The access-hole phrase this subject carries, or null when it carries none.
+ * The phrase itself is returned so the audit line can quote what was matched.
+ */
+export function accessHoleLanguage(subject: string): string | null {
+  const m = subject.match(ACCESS_HOLE_RE);
+  return m ? m[0] : null;
 }
 
 /** Trim, and treat a whitespace-only string as absent. */

@@ -191,4 +191,49 @@ describe('withCronRun', () => {
     expect(res.status).toBe(200);
     expect(rpc).toHaveBeenCalledTimes(1); // open attempted, close skipped
   });
+
+  // ── THE LEDGER HOOK (2026-09-15) ────────────────────────────────────────
+  // cron_run_log.meta read `{}` for every run of whats-new-highlight-drafts:
+  // the RPC has always merged p_meta, and nothing ever sent one. A handler's
+  // summary now travels under a top-level `meta` key in the body it already
+  // returns, and the close call carries it — on success AND on failure, since
+  // a failed run's partial counts are the ones worth having.
+  it('carries a top-level `meta` object from the body into the close call', async () => {
+    const meta = { published: 3, retracted: [{ sha: 'abc', reason: 'reverted' }] };
+    const handler = vi.fn(async () => NextResponse.json({ ok: true, meta }));
+
+    await withCronRun('demo-job', handler)(req({ secret: SECRET }));
+
+    const [, closeArgs] = rpc.mock.calls[1];
+    expect(closeArgs.p_meta).toEqual(meta);
+  });
+
+  it('carries `meta` on a failed run too, alongside the error', async () => {
+    const handler = vi.fn(async () =>
+      NextResponse.json({ ok: false, error: 'seat gone', meta: { enqueued: 0 } }, { status: 500 }),
+    );
+
+    await withCronRun('demo-job', handler)(req({ secret: SECRET }));
+
+    const [, closeArgs] = rpc.mock.calls[1];
+    expect(closeArgs).toMatchObject({ p_ok: false, p_error: 'seat gone', p_meta: { enqueued: 0 } });
+  });
+
+  it('records no meta when the body has none, or when it is not a plain object', async () => {
+    for (const body of [{ ok: true }, { ok: true, meta: 'nope' }, { ok: true, meta: [1, 2] }]) {
+      rpc.mockClear();
+      const handler = vi.fn(async () => NextResponse.json(body));
+      await withCronRun('demo-job', handler)(req({ secret: SECRET }));
+      const [, closeArgs] = rpc.mock.calls[1];
+      expect(closeArgs.p_meta).toBeNull();
+    }
+  });
+
+  it('leaves the response body intact for the caller after peeking at meta', async () => {
+    const handler = vi.fn(async () => NextResponse.json({ ok: true, meta: { published: 1 } }));
+
+    const res = await withCronRun('demo-job', handler)(req({ secret: SECRET }));
+
+    await expect(res.json()).resolves.toEqual({ ok: true, meta: { published: 1 } });
+  });
 });
