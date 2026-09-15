@@ -128,12 +128,17 @@ interface BugCluster {
   sample_description: string;
   module_names: string[];
   status: 'proposed' | 'confirmed' | 'dismissed';
+  /** 'scan' = the nightly scan grouped 2+ reports; 'single' = a person put a
+   *  one-report bug into the loop (fn_bug_cluster_ensure_single). */
+  origin?: 'scan' | 'single';
   first_seen_at: string;
   last_scan_at: string;
   members: ClusterMember[] | null;
   fixability?: Fixability | null;
   verify?: VerifyState | null;
 }
+
+const reporterCount = (n: number) => (n === 1 ? 'the reporter' : `all ${n} reporters`);
 
 const fetchClusters = async (status: string): Promise<BugCluster[]> => {
   const response = await fetch(`/api/bug-reports/clusters?status=${status}`);
@@ -358,8 +363,13 @@ export function BugGroupsTab() {
                   <div className='min-w-0'>
                     <div className='flex flex-wrap items-center gap-2'>
                       <Badge className='bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-900 dark:text-purple-200'>
-                        {cluster.member_count} reports
+                        {cluster.member_count} {cluster.member_count === 1 ? 'report' : 'reports'}
                       </Badge>
+                      {cluster.origin === 'single' && (
+                        <Badge variant='outline' className='text-xs'>
+                          single report
+                        </Badge>
+                      )}
                       {cluster.module_names.map((m) => (
                         <Badge key={m} variant='outline' className='text-xs'>
                           {m}
@@ -379,21 +389,25 @@ export function BugGroupsTab() {
                     // border at 320px. Shrinkable + wrapping stacks them only
                     // when they genuinely don't fit; ≥414px is unchanged.
                     <div className='flex flex-wrap items-center gap-2'>
-                      <Button
-                        size='sm'
-                        onClick={() => {
-                          setActingOn(cluster.id);
-                          actionMutation.mutate({ clusterId: cluster.id, action: 'confirm' });
-                        }}
-                        disabled={actionMutation.isPending && actingOn === cluster.id}
-                      >
-                        {actionMutation.isPending && actingOn === cluster.id ? (
-                          <Loader2 className='w-4 h-4 mr-1 animate-spin' />
-                        ) : (
-                          <Check className='w-4 h-4 mr-1' />
-                        )}
-                        Confirm group
-                      </Button>
+                      {/* A 1-report group has nothing to park as a duplicate —
+                          Confirm appears once the scan merges a second report. */}
+                      {cluster.member_count > 1 && (
+                        <Button
+                          size='sm'
+                          onClick={() => {
+                            setActingOn(cluster.id);
+                            actionMutation.mutate({ clusterId: cluster.id, action: 'confirm' });
+                          }}
+                          disabled={actionMutation.isPending && actingOn === cluster.id}
+                        >
+                          {actionMutation.isPending && actingOn === cluster.id ? (
+                            <Loader2 className='w-4 h-4 mr-1 animate-spin' />
+                          ) : (
+                            <Check className='w-4 h-4 mr-1' />
+                          )}
+                          Confirm group
+                        </Button>
+                      )}
                       <Button
                         size='sm'
                         variant='outline'
@@ -1006,7 +1020,9 @@ function LoopStepper({
               Diagnose (AI reads the code)
             </Button>
             <span className='text-[11px] text-muted-foreground'>
-              Says whether these {cluster.member_count} reports share one cause.
+              {cluster.member_count === 1
+                ? 'Finds the cause behind this report.'
+                : `Says whether these ${cluster.member_count} reports share one cause.`}
             </span>
           </div>
         )}
@@ -1035,7 +1051,9 @@ function LoopStepper({
                   className='bg-green-100 text-green-800 border-green-300 dark:bg-green-900 dark:text-green-200'
                 >
                   <Wrench className='w-3.5 h-3.5 mr-1' />
-                  One fix can resolve all {cluster.member_count}
+                  {cluster.member_count === 1
+                    ? 'One fix can resolve this report'
+                    : `One fix can resolve all ${cluster.member_count}`}
                 </Badge>
               ) : (
                 <Badge
@@ -1296,7 +1314,13 @@ function LoopStepper({
         )}
       </StepShell>
 
-      <StepShell n={5} state={s5} title='Ask the reporters' dashed lockedReason={s5Reason}>
+      <StepShell
+        n={5}
+        state={s5}
+        title={cluster.member_count === 1 ? 'Ask the reporter' : 'Ask the reporters'}
+        dashed
+        lockedReason={s5Reason}
+      >
         {s5 === 'active' && (
           <div className='mt-1 flex flex-wrap items-center gap-2'>
             <Button size='sm' variant='outline' onClick={() => feedbackMutation.mutate('prepare')} disabled={fbBusy}>
@@ -1377,8 +1401,8 @@ function LoopStepper({
             {fb.no > 0
               ? 'A reporter says this is still broken — review before resolving.'
               : fb.yes > 0
-                ? `Reporters confirm it's fixed — resolve when ready. Resolving emails all ${cluster.member_count} reporters.`
-                : `Answers are still arriving — resolving now would email all ${cluster.member_count} reporters before they've confirmed.`}
+                ? `${cluster.member_count === 1 ? 'The reporter confirms' : 'Reporters confirm'} it's fixed — resolve when ready. Resolving emails ${reporterCount(cluster.member_count)}.`
+                : `Answers are still arriving — resolving now would email ${reporterCount(cluster.member_count)} before they've confirmed.`}
           </p>
         )}
       </StepShell>
