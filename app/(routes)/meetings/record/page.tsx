@@ -9,9 +9,9 @@
 // own Gemini notes have nothing for those slots either. A notetaker that joins
 // calls cannot hear a room, and most of JKKN's meetings happen in one.
 //
-// Gated by name, not by role (Director, 15 Sep). fn_may_record_meetings() answers
-// only about the caller, so this page can ask "may I?" without being able to read
-// who else may.
+// Gated by name, not by role (Director, 15 Sep). fn_may_record_meetings() runs as
+// the caller, so row-level security is what keeps the answer to their own row —
+// this page can ask "may I?" and cannot learn who else may.
 //
 // Follows rule #27: a person without permission sees an explicit explanation,
 // never a silent redirect that leaves them guessing.

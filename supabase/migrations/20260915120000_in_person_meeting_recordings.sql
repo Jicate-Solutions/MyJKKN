@@ -153,12 +153,20 @@ REVOKE ALL ON public.meeting_recordings FROM anon, PUBLIC;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.meeting_recordings TO authenticated;
 
 -- ── may I record? ────────────────────────────────────────────────────────────
--- One question the record page asks before showing the button. SECURITY DEFINER
--- so a caller can learn about THEMSELVES without being able to read the list.
+-- One question the record page asks before showing the button.
+--
+-- SECURITY INVOKER, deliberately. The first draft made this SECURITY DEFINER to
+-- "answer about the caller without exposing the list" — and CI was right to
+-- reject it: a definer function callable by every signed-in user with no check
+-- in its body is exactly the shape that shipped in PR #3130. It was also
+-- unnecessary. The mral_self_read policy already restricts a reader to their own
+-- row, so under INVOKER this returns true only for the caller's own membership
+-- and cannot see anyone else's — enforced by RLS rather than by the discipline
+-- of whoever edits this function next.
 CREATE OR REPLACE FUNCTION public.fn_may_record_meetings()
 RETURNS boolean
 LANGUAGE sql
-SECURITY DEFINER
+SECURITY INVOKER
 STABLE
 SET search_path = public
 AS $$
@@ -172,7 +180,7 @@ REVOKE ALL ON FUNCTION public.fn_may_record_meetings() FROM anon, PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fn_may_record_meetings() TO authenticated;
 
 COMMENT ON FUNCTION public.fn_may_record_meetings() IS
-  'True when the signed-in person is on meeting_recorder_allowlist. SECURITY DEFINER so it answers about the caller only — it never exposes who else is on the list.';
+  'True when the signed-in person is on meeting_recorder_allowlist. SECURITY INVOKER: RLS (mral_self_read) is what keeps a caller to their own row, so this can never report on anyone else.';
 
 -- ── seed: the person who asked for this ──────────────────────────────────────
 -- An allow-list that ships empty ships a dead feature: the button is hidden for

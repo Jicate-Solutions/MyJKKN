@@ -11,7 +11,8 @@
  * pretending otherwise is how a recording gets stapled onto the wrong meeting.
  * `booking_id` stays available for the day a room meeting was in fact booked.
  *
- * GATE: meeting_recorder_allowlist, read through fn_may_record_meetings().
+ * GATE: meeting_recorder_allowlist, read through fn_may_record_meetings() — a
+ * SECURITY INVOKER function, so RLS keeps the answer to the caller's own row.
  * Recording a room of colleagues is granted by name (Director, 15 Sep), so a
  * caller who is not on the list gets 403 and the page never shows the button.
  */
