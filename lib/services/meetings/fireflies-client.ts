@@ -44,6 +44,14 @@ export interface FirefliesTranscript {
   transcriptUrl: string | null;
   recordingUrl: string | null;
   summary: string | null;
+  /** Fireflies' one-paragraph version of the same meeting. */
+  shortSummary: string | null;
+  /**
+   * The follow-ups Fireflies extracted, as it returns them: a markdown-ish
+   * block with a bold speaker name and that speaker's actions beneath it.
+   * Parsed by the caller, not here — this module's job is to fetch faithfully.
+   */
+  actionItemsRaw: string | null;
   /** ISO 8601, or null when the payload carried no usable date. */
   occurredAt: string | null;
   durationMinutes: number | null;
@@ -106,7 +114,7 @@ const TRANSCRIPTS_QUERY = `
       video_url
       duration
       dateString
-      summary { overview }
+      summary { overview short_summary action_items }
       meeting_attendees { email displayName }
     }
   }
@@ -155,11 +163,16 @@ function normaliseTranscript(node: Record<string, unknown>): FirefliesTranscript
     participants.push({ email, displayName: asString(row.displayName) });
   }
 
-  const summaryNode = node.summary;
-  const summary =
-    summaryNode && typeof summaryNode === 'object'
-      ? asString((summaryNode as Record<string, unknown>).overview)
+  const summaryNode =
+    node.summary && typeof node.summary === 'object'
+      ? (node.summary as Record<string, unknown>)
       : null;
+  const summary = summaryNode ? asString(summaryNode.overview) : null;
+  const shortSummary = summaryNode ? asString(summaryNode.short_summary) : null;
+  // `action_items` arrives as one string, not a list. Fireflies returns an
+  // empty string for a meeting with no follow-ups, which asString turns into
+  // null — the right reading: "none" and "we never asked" must not look alike.
+  const actionItemsRaw = summaryNode ? asString(summaryNode.action_items) : null;
 
   return {
     id,
@@ -169,6 +182,8 @@ function normaliseTranscript(node: Record<string, unknown>): FirefliesTranscript
     // Fireflies exposes both; either is "the recording" for our purposes.
     recordingUrl: asString(node.video_url) ?? asString(node.audio_url),
     summary,
+    shortSummary,
+    actionItemsRaw,
     occurredAt: asIsoDate(node.dateString),
     durationMinutes: asDurationMinutes(node.duration),
     participants,
