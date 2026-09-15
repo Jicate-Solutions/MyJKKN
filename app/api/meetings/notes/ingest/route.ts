@@ -34,6 +34,12 @@
 // ── CONFIGURATION ───────────────────────────────────────────────────────────
 //   FIREFLIES_API_KEY  — required; absent means 503 with a plain sentence
 //   CRON_SECRET        — optional; enables the Vercel cron trigger
+//
+// ── SCHEDULE ────────────────────────────────────────────────────────────────
+// vercel.json runs this at :23 and :53. Note the path carries NO `?secret=`,
+// unlike its 68 siblings: this route reads the cron secret from the
+// Authorization header Vercel sends on its own, and the AUTH note above is
+// explicit that a token must never travel in a URL.
 
 import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
@@ -213,8 +219,17 @@ export async function GET(request: NextRequest) {
   }
 
   const limitParam = Number(request.nextUrl.searchParams.get('limit') ?? '25');
+  // `skip` pages BACKWARDS through the provider's history. Without it this
+  // endpoint can only ever see the newest page, so everything older than that
+  // is unreachable — 1,533 of 1,583 transcripts on the day this was added.
+  // The scheduled call never passes it (it only needs what is new); a one-off
+  // backfill walks it up by hand. The upsert is keyed on (provider,
+  // provider_ref), so overlapping pages re-write the same rows rather than
+  // duplicating them, and a page that is walked twice costs nothing.
+  const skipParam = Number(request.nextUrl.searchParams.get('skip') ?? '0');
   const result = await fetchRecentFirefliesTranscripts({
     limit: Number.isFinite(limitParam) ? limitParam : 25,
+    skip: Number.isFinite(skipParam) ? skipParam : 0,
   });
 
   if (!result.ok) {
