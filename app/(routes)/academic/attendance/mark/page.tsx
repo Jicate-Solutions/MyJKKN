@@ -622,9 +622,19 @@ export default function AttendanceMarkPage() {
           semester_id: sectionData?.semester_id || timetable.semester_id,
           section_id: resolvedSectionId,
           // Updated: 2025-10-08 - Properly handle section_ids for multi-section slots
+          // Updated: BUG-003206 - A slot's section_ids array is a JSONB snapshot with
+          // no FK, so once the sections it names are recreated/deleted (verified on
+          // production: a "3rd year Additional 2 THEORY" slot still carried 8 section
+          // ids from March 2026, none of which exist in `sections` anymore), passing
+          // slotSectionIds straight through matched zero learners and rendered a
+          // permanently blank roster. slotSections is the subset of those ids that
+          // still resolve (fetched above via .in('id', slotSectionIds)); using it here
+          // instead lets fn_attendance_roster's own degree/program/semester fallback
+          // take over when nothing resolves — the same fallback already built for a
+          // slot with no section_ids at all (see loadStudents below).
           section_ids:
             slotSectionIds.length > 0
-              ? slotSectionIds
+              ? slotSections.map((s: any) => s.id)
               : resolvedSectionId
               ? [resolvedSectionId]
               : [], // Empty array for multi-section slots without resolved section
