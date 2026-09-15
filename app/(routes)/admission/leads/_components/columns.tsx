@@ -183,7 +183,7 @@ export function getLeadColumns(
         <div className="flex flex-col gap-1">
           <Link
             href={`/admission/leads/${lead.id}`}
-            className="flex items-center gap-2 hover:text-primary font-medium"
+            className="flex items-center min-h-[44px] gap-2 hover:text-primary font-medium"
           >
             <span>{lead.full_name || 'Unknown'}</span>
             {lead.is_hot_lead && (

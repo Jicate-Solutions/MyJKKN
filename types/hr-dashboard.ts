@@ -40,7 +40,6 @@ export type DashboardKPIName =
   | 'active_staff'
   // Director: Leave Health
   | 'overdue_approvals'
-  | 'emergency_leave_fy'
   // Director: Compliance
   | 'active_blackouts_compliance'
   | 'pending_encashments'

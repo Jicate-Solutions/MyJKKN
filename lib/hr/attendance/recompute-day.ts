@@ -192,6 +192,76 @@ export async function recomputeAttendanceDay(
 }
 
 /**
+ * Reverse the attendance stamp of a REVOKED leave / comp-off booking (2026-09-12).
+ *
+ * The approval stamped LEAVE or HALF_DAY over every covered day
+ * (fn_recompute_attendance_on_leave_approval). That trigger fires only on the
+ * transition INTO 'approved', so nothing puts the day back — and the monthly
+ * report and payroll read hr_attendance_records and nothing else.
+ *
+ * The reversal re-derives each day through recomputeAttendanceDay, the SAME
+ * evaluator the importer and the short-time-off path use. It is not a fourth
+ * copy of the rule and it is not a restore from the audit log: shift timings,
+ * work patterns and declared holidays may all have moved since the approval, and
+ * the evaluator knows about every one of them. Its `source = 'biometric'` filter
+ * still matches, because the leave stamp only rewrites status_type_id.
+ *
+ * UNLIKE the approval stamp this cannot be a database trigger — evaluateDay is
+ * TypeScript. It is therefore AWAITED by the route handler and its failures are
+ * RETURNED, never swallowed: ~199 HR staff have no biometric mapping at all, so
+ * "no record for that day" is a real outcome that has to reach the approver
+ * rather than leave a day quietly reading LEAVE.
+ *
+ * Hourly requests are excluded for the same reason the approval stamp excludes
+ * them: a permission is measured in minutes and never owned the day's verdict.
+ */
+export async function recomputeForRevokedLeave(app: {
+  id: string;
+  employee_id: string;
+  start_date: string;
+  end_date: string;
+  duration_type: string;
+  leave_type_id: string;
+}): Promise<{ days: number; changed: number; problems: string[] }> {
+  const svc = createServiceRoleClient();
+  const { data: type } = await svc
+    .from('hr_leave_types')
+    .select('request_category')
+    .eq('id', app.leave_type_id)
+    .maybeSingle();
+
+  const category = (type as { request_category?: string } | null)?.request_category;
+  if (category !== 'leave' && category !== 'compensatory_off') {
+    return { days: 0, changed: 0, problems: [] };
+  }
+  if (app.duration_type === 'hourly') return { days: 0, changed: 0, problems: [] };
+
+  const problems: string[] = [];
+  let days = 0;
+  let changed = 0;
+
+  // Dates walked as parts, never through a Date arithmetic loop on a parsed
+  // 'YYYY-MM-DD': that string parses as UTC midnight and drifts a day behind IST.
+  for (
+    let d = new Date(`${app.start_date}T12:00:00`);
+    d <= new Date(`${app.end_date}T12:00:00`);
+    d.setDate(d.getDate() + 1)
+  ) {
+    const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    days += 1;
+    try {
+      const result = await recomputeAttendanceDay(app.employee_id, ymd);
+      if (result.changed) changed += 1;
+      else if (result.reason) problems.push(`${ymd}: ${result.reason}`);
+    } catch (err) {
+      problems.push(`${ymd}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  return { days, changed, problems };
+}
+
+/**
  * Recompute only when the decided application is a short-time-off one.
  * Never throws: a decision must not fail because attendance could not be
  * re-judged. The caller has already committed the decision.

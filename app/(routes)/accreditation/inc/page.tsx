@@ -410,8 +410,12 @@ export default function INCDashboardPage() {
               <code>iqac_code=&apos;NURS&apos;</code>.
             </p>
             <p>
-              <strong>Coverage formula (placeholder):</strong>{' '}
-              <code>evidence_rows / metrics_seeded</code>. The real INC
+              {/* Was "evidence_rows / metrics_seeded" — rows over metrics, clamped
+                  to 100%. Fixed 2026-09-07; see coverage-measure.ts. */}
+              <strong>Coverage:</strong> distinct metrics carrying evidence ÷
+              active metrics in this platform&apos;s INC catalogue, which today
+              holds 2 placeholder entries and not the full INC schedule.
+              The real INC
               inspection scoring rubric (INC Regulations 2021) lands when the
               full INC catalog is seeded in a later PR alongside the fan-out
               triggers from faculty, clinical placement, and curriculum modules.

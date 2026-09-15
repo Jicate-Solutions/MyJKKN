@@ -38,6 +38,12 @@ import toast from 'react-hot-toast';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import {
+  fallbackSummaryLine,
+  institutionsFallingBack,
+  loopOwnerStatusWarning,
+  type LoopOwnerStatus,
+} from '@/lib/services/loops/loop-owner-fallback';
 
 export interface OwnerPanelRow {
   loop_key: string;
@@ -59,12 +65,22 @@ export interface ScopedOwnerRow {
   institution_id: string;
   institution_name: string;
   owner_email: string;
+  /**
+   * Whether an alert can reach this address, resolved server-side in
+   * ../page.tsx from the same rule the notification route applies
+   * (classifyLoopOwnerProfiles). Absent when unknown — a row just saved
+   * through this panel, or a profiles read that failed — and then no warning
+   * is shown; a reload resolves it.
+   */
+  owner_status?: LoopOwnerStatus;
 }
 
 /** An institution the "add" control can scope a loop to. */
 export interface InstitutionOption {
   id: string;
   name: string;
+  /** institutions.entity_type — the fallback line counts colleges/schools only. */
+  entity_type: string;
 }
 
 /** The two editable fields, as the inputs hold them (always strings). */
@@ -200,7 +216,7 @@ export function OwnersPanel({
    */
   async function saveScope(
     row: OwnerPanelRow,
-    institution: InstitutionOption,
+    institution: Pick<InstitutionOption, 'id' | 'name'>,
     email: string
   ): Promise<boolean> {
     const key = scopeKey(row.loop_key, institution.id);
@@ -321,6 +337,11 @@ export function OwnersPanel({
                 const rowScopes = scopesFor(row.loop_key);
                 const scopedIds = new Set(rowScopes.map((s) => s.institution_id));
                 const addable = institutions.filter((i) => !scopedIds.has(i.id));
+                // Fallback visibility (2026-09-13): the active colleges with no
+                // scope row for this loop — they are owned by the registry
+                // owner above. Computed from the same rows the list renders
+                // from, so removing an owner moves that college here at once.
+                const fallingBack = institutionsFallingBack(row.loop_key, scopes, institutions);
                 const add = addDraftFor(row.loop_key);
                 const addBusy =
                   busyScopeKey === scopeKey(row.loop_key, add.institution_id);
@@ -415,6 +436,7 @@ export function OwnersPanel({
                                 id: s.institution_id,
                                 name: s.institution_name,
                               };
+                              const ownerWarning = loopOwnerStatusWarning(s.owner_status);
                               return (
                                 <li
                                   key={key}
@@ -452,6 +474,19 @@ export function OwnersPanel({
                                         ? 'Remove'
                                         : 'Save'}
                                   </Button>
+                                  {/* Quiet, read-only: the address is saved,
+                                      but the notification route would not
+                                      admit it (no active account, several,
+                                      or one the risk row policy declines). */}
+                                  {ownerWarning !== null && (
+                                    <span
+                                      role="note"
+                                      data-testid={`owner-status-${key}`}
+                                      className="basis-full text-[11px] text-amber-800 dark:text-amber-300"
+                                    >
+                                      {ownerWarning}
+                                    </span>
+                                  )}
                                 </li>
                               );
                             })}
@@ -512,6 +547,20 @@ export function OwnersPanel({
                               </li>
                             )}
                           </ul>
+                          {fallingBack.length > 0 && (
+                            <p
+                              className="mt-1.5 text-[11px] text-muted-foreground"
+                              data-testid={`owner-fallback-${row.loop_key}`}
+                            >
+                              {/* Same line the weekly summary carries — a
+                                  blank registry owner reads "to nobody",
+                                  never an empty span. */}
+                              <span className="font-mono">
+                                {fallbackSummaryLine(fallingBack.length, row.owner_email)}
+                              </span>
+                              : {fallingBack.map((i) => i.name).join(', ')}
+                            </p>
+                          )}
                         </div>
                       </td>
                     </tr>

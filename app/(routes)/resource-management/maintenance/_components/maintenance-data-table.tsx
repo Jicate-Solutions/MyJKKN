@@ -1,6 +1,7 @@
 'use client';
 
 import { DataTable } from '@/components/data-table/data-table';
+import { maintenanceLogRowHref } from '@/components/data-table/utils/list-row-hrefs';
 import { columns } from './columns';
 import { Button } from '@/components/ui/button';
 import { Plus, TrashIcon, Loader2 } from 'lucide-react';
@@ -175,6 +176,7 @@ export function MaintenanceDataTable({
           headers: []
         }}
         idField='id'
+        rowHref={maintenanceLogRowHref}
         config={{
           enableUrlState: false,
           enableDateFilter: false,

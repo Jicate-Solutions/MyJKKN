@@ -84,8 +84,28 @@ export function eventStatusLabel(event: Event): string {
     : (EVENT_STATUS_LABELS[event.status as EventStatus] ?? event.status);
 }
 
-/** Green-tinted badge for anything that isn't a draft. */
+/** Green-tinted badge for anything that is neither a draft nor cancelled. */
 export const isEventOpen = (event: Event) => isGeneralEventActive(event.status);
+
+/**
+ * Does this row belong under the chosen status filter?
+ * Filter values: 'all' | 'active' | 'draft' | 'cancelled', matching the
+ * SelectItems in events-data-table.tsx.
+ *
+ * THREE buckets, not two, and that is the whole point. The filter used to be
+ * `isEventOpen(e) === (filter === 'active')`, so "Draft" meant "not open" —
+ * which was the same thing until `cancelled` stopped counting as open. A
+ * cancelled event then landed in the Draft list wearing a "Cancelled" badge:
+ * the list said one thing and the badge said another. Cancelled now has its own
+ * option, and Draft means draft.
+ */
+export function matchesEventStatusFilter(event: Event, filter: string): boolean {
+  if (filter === 'all') return true;
+  if (filter === 'cancelled') return event.status === 'cancelled';
+  if (filter === 'active') return isEventOpen(event);
+  // 'draft' — everything that is neither open nor cancelled.
+  return !isEventOpen(event) && event.status !== 'cancelled';
+}
 
 /** Events store a single date OR a start/end range depending on the format. */
 export const eventDateValue = (event: Event) => event.event_date ?? event.start_date ?? null;

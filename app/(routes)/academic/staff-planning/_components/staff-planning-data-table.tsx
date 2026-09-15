@@ -1,6 +1,7 @@
 'use client';
 
 import { DataTable } from '@/components/data-table/data-table';
+import { staffPlanningRowHref } from '@/components/data-table/utils/list-row-hrefs';
 import { getColumns } from './columns';
 import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import type { StaffPlanningSearchParams } from './data-table-schema';
@@ -242,6 +243,7 @@ export function StaffPlanningDataTable({
           headers: []
         }}
         idField='id'
+        rowHref={staffPlanningRowHref}
         config={{
           enableUrlState: true,
           enableDateFilter: false,

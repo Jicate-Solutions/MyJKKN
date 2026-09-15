@@ -23,6 +23,11 @@ import type {
   CdcRecruiter,
 } from '@/types/cdc';
 import { canTransition, CDC_DRIVE_STATUS_LABELS } from '@/types/cdc';
+import {
+  CdcEligibilityService,
+  ELIGIBILITY_REQUIRED_MESSAGE,
+  isEligibilityReadyForWillingness,
+} from '@/lib/services/cdc/eligibility-service';
 
 // =====================================================================================
 // List filters
@@ -214,6 +219,22 @@ export class CdcDriveService {
       throw new Error(
         `Invalid transition: ${CDC_DRIVE_STATUS_LABELS[drive.status]} → ${CDC_DRIVE_STATUS_LABELS[payload.to_status]} not allowed`
       );
+    }
+
+    // Eligibility guard (2026-09-12). Opening a drive for willingness fires
+    // fn_cdc_emit_drive_notification, whose `willingness_open` branch INNER JOINs
+    // cdc_drive_eligibility to build its recipient list. With no eligibility row
+    // (or one with an empty program_ids) that join returns nothing, the function
+    // treats it as "nobody to notify" and RETURNs without an error — so the drive
+    // opens, looks healthy, and reaches zero learners. It also leaves the learner
+    // willingness page reporting "not eligible" for everyone, because
+    // computeIsEligible(null, …) is false. Refuse the transition instead of
+    // letting it succeed silently.
+    if (payload.to_status === 'willingness_open') {
+      const eligibility = await CdcEligibilityService.getEligibility(supabase, driveId);
+      if (!isEligibilityReadyForWillingness(eligibility)) {
+        throw new Error(ELIGIBILITY_REQUIRED_MESSAGE);
+      }
     }
 
     const now = new Date().toISOString();

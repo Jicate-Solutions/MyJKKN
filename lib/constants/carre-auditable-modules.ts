@@ -70,6 +70,7 @@ export const CARRE_AUDITABLE_MODULES: CarreAuditableModule[] = [
   { key: 'billing', label: 'Billing' },
   { key: 'service-requests', label: 'Service Requests' },
   { key: 'resource-management', label: 'Resources' }, // booking / requesting resources
+  { key: 'instasolver', label: 'InstaSolver' }, // the one front door for reporting a problem — every login files here (spec I1)
 ];
 
 // Explicitly EXCLUDED slugs — infra / back-office / system tooling that no

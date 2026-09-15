@@ -417,3 +417,224 @@ describe('checkExistingTimetable - semester-level rows conflict on dates, not on
     expect(result.conflictScope).toBe('section');
   });
 });
+
+/**
+ * OVERLAPPING DATES ALONE ARE NOT A CONFLICT - THE SECTIONS MUST OVERLAP TOO.
+ *
+ * A semester-level timetable does NOT cover its whole semester. It covers the
+ * sections it names, and since 2026-09-11 it says so in `section_ids`. The
+ * date-only rule made the first timetable of a semester reserve every section
+ * in it.
+ *
+ * That is the JKKN Dental case exactly: 4th Year BDS holds 24 sections in three
+ * PARALLEL GROUPS - A..H, ADD 4A..ADD 4H, TROIZ A..TROIZ H - each needing its
+ * own timetable on the SAME academic year and the SAME dates. The live
+ * 'DRAVENCOREZ THEORY' names the eight A..H ids on every slot, so it covers 8 of
+ * 24, yet it refused the ADD and TROIZ timetables that share not one section
+ * with it.
+ *
+ * These tests pin BOTH halves. Dropping the date half would let a group hold two
+ * timetables at once; dropping the section half restores the bug.
+ */
+describe('checkExistingTimetable - semester-level rows also need their sections to intersect', () => {
+  const GROUP_PLAIN = [
+    'c0000000-0000-0000-0000-0000000000a1',
+    'c0000000-0000-0000-0000-0000000000a2'
+  ];
+  const GROUP_ADD = [
+    'c0000000-0000-0000-0000-0000000000b1',
+    'c0000000-0000-0000-0000-0000000000b2'
+  ];
+
+  /** The live THEORY row, now declaring the plain A..H group. */
+  const THEORY = {
+    id: 't0000000-0000-0000-0000-000000000009',
+    timetable_name: '4th Year 2026-2027 DRAVENCOREZ THEORY',
+    start_date: '2026-01-05',
+    end_date: '2027-01-05',
+    section_ids: GROUP_PLAIN,
+    semesters: { semester_name: '4 Year' },
+    sections: null
+  };
+
+  /** Same semester, same dates - only the group differs. */
+  const ADD_GROUP_REQUEST = {
+    ...FULL_SCOPE,
+    section_id: undefined,
+    section_ids: GROUP_ADD,
+    start_date: '2026-01-05',
+    end_date: '2027-01-05'
+  };
+
+  /**
+   * The service resolves the shared section NAMES for its message with a second
+   * query, against `sections` rather than `timetables`. A single-table mock
+   * would hand that query the timetable rows back and the message would name
+   * nonsense, so the table is dispatched on here.
+   */
+  function makeScopeClient(timetableRows: any[], sectionRows: any[] = []) {
+    const from = vi.fn((table: string) => {
+      const builder: any = {};
+      builder.select = vi.fn(() => builder);
+      builder.eq = vi.fn(() => builder);
+      builder.is = vi.fn(() => builder);
+      builder.neq = vi.fn(() => builder);
+      builder.not = vi.fn(() => builder);
+      builder.in = vi.fn(() => builder);
+      builder.order = vi.fn(() => builder);
+      builder.then = (res: any, rej: any) =>
+        Promise.resolve({
+          data: table === 'sections' ? sectionRows : timetableRows,
+          error: null
+        }).then(res, rej);
+      return builder;
+    });
+    return { from } as any;
+  }
+
+  it('allows a parallel group on identical dates when no section is shared', async () => {
+    (TimetableService as any).supabase = makeScopeClient([THEORY]);
+
+    const result = await TimetableService.checkExistingTimetable(
+      ADD_GROUP_REQUEST
+    );
+
+    // This is the whole point. Before 2026-09-11 this returned exists: true.
+    expect(result.exists).toBe(false);
+  });
+
+  it('still refuses a second timetable that shares even one section', async () => {
+    (TimetableService as any).supabase = makeScopeClient(
+      [THEORY],
+      [{ section_name: 'B' }]
+    );
+
+    const result = await TimetableService.checkExistingTimetable({
+      ...ADD_GROUP_REQUEST,
+      // One foot in the plain group - that section would end up covered by
+      // two timetables at once and only ever see one of them.
+      section_ids: [...GROUP_ADD, GROUP_PLAIN[1]]
+    });
+
+    expect(result.exists).toBe(true);
+    expect(result.conflictScope).toBe('semester');
+  });
+
+  it('names the shared sections, and points at them rather than at the dates', async () => {
+    (TimetableService as any).supabase = makeScopeClient(
+      [THEORY],
+      [{ section_name: 'B' }]
+    );
+
+    const result = await TimetableService.checkExistingTimetable({
+      ...ADD_GROUP_REQUEST,
+      section_ids: [...GROUP_ADD, GROUP_PLAIN[1]]
+    });
+
+    // The remedy has to be the one that works. Telling this operator to move
+    // the dates would have them shift a whole year to dodge one section.
+    expect(result.message).toContain('B');
+    expect(result.message).toContain('Untick');
+    expect(result.message).toContain('DRAVENCOREZ THEORY');
+  });
+
+  it('keeps the date half of the rule - a disjoint range never conflicts', async () => {
+    (TimetableService as any).supabase = makeScopeClient([
+      { ...THEORY, start_date: '2025-01-05', end_date: '2025-12-31' }
+    ]);
+
+    const result = await TimetableService.checkExistingTimetable({
+      ...ADD_GROUP_REQUEST,
+      // Identical group to the existing row, but a spent range.
+      section_ids: GROUP_PLAIN
+    });
+
+    expect(result.exists).toBe(false);
+  });
+
+  it('reports the row that clashes on BOTH halves, not merely the first returned', async () => {
+    (TimetableService as any).supabase = makeScopeClient(
+      [
+        // Overlapping dates, but a different group entirely.
+        {
+          ...THEORY,
+          id: 'x',
+          timetable_name: 'Wrong group - TROIZ',
+          section_ids: ['c0000000-0000-0000-0000-0000000000c1']
+        },
+        THEORY
+      ],
+      [{ section_name: 'A' }]
+    );
+
+    const result = await TimetableService.checkExistingTimetable({
+      ...ADD_GROUP_REQUEST,
+      section_ids: GROUP_PLAIN
+    });
+
+    expect(result.exists).toBe(true);
+    expect(result.message).toContain('DRAVENCOREZ THEORY');
+    expect(result.message).not.toContain('Wrong group');
+  });
+
+  /**
+   * FAIL CLOSED. An undeclared scope on either side means 'the whole semester',
+   * which is the pre-2026-09-11 reading. Failing OPEN would let two genuinely
+   * overlapping timetables through and make one of them invisible - the precise
+   * outcome the rule exists to prevent.
+   */
+  it('treats an existing row with no declared scope as covering everything', async () => {
+    (TimetableService as any).supabase = makeScopeClient([
+      { ...THEORY, section_ids: null }
+    ]);
+
+    const result = await TimetableService.checkExistingTimetable(
+      ADD_GROUP_REQUEST
+    );
+
+    expect(result.exists).toBe(true);
+  });
+
+  it('treats a request with no declared scope as covering everything', async () => {
+    (TimetableService as any).supabase = makeScopeClient([THEORY]);
+
+    const result = await TimetableService.checkExistingTimetable({
+      ...ADD_GROUP_REQUEST,
+      section_ids: undefined
+    });
+
+    expect(result.exists).toBe(true);
+  });
+
+  it('falls back to the date-led wording when no section name can be named', async () => {
+    (TimetableService as any).supabase = makeScopeClient([
+      { ...THEORY, section_ids: null }
+    ]);
+
+    const result = await TimetableService.checkExistingTimetable(
+      ADD_GROUP_REQUEST
+    );
+
+    expect(result.message).toContain('does not declare which sections it covers');
+  });
+
+  /**
+   * The section branch is untouched by any of this. Its key is section_id, and
+   * a section-level row that also carries a scope must not start comparing sets.
+   */
+  it('does not apply the section-set test to a section-scoped timetable', async () => {
+    (TimetableService as any).supabase = makeScopeClient([
+      { ...EXISTING_ROW, section_ids: GROUP_PLAIN }
+    ]);
+
+    const result = await TimetableService.checkExistingTimetable({
+      ...FULL_SCOPE,
+      // A disjoint scope would clear a SEMESTER-level conflict. It must not
+      // clear a section one: that section is taken and nothing excuses it.
+      section_ids: GROUP_ADD
+    });
+
+    expect(result.exists).toBe(true);
+    expect(result.conflictScope).toBe('section');
+  });
+});

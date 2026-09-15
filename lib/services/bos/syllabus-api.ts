@@ -19,6 +19,7 @@ import {
 } from '@/lib/utils/bos/syllabus-pdf-html';
 import { renderSyllabusPdf, SyllabusRendererUnavailableError } from '@/lib/pdf/syllabus-pdf';
 import { syllabusEtag, syllabusPdfFilename } from '@/lib/services/bos/syllabus-lookup';
+import { isEngineeringSyllabus, buildEngineeringSyllabusPdf } from '@/lib/services/bos/syllabus-engineering-pdf';
 import type { BosCourseSyllabus } from '@/types/bos';
 
 const MODULE = 'academic' as const;
@@ -142,14 +143,48 @@ export async function respondWithSyllabusPdf(
   const display = await courseDisplayFor(doc);
   const forPdf: BosCourseSyllabus = { ...doc, course_code: display.course_code, course_name: display.course_name };
 
-  let institutionName: string | undefined;
-  if (opts.format === 'v35') {
-    const { data: inst } = await ctx.supabase
+  // Letterhead + running footer context. Each lookup is best-effort: a missing
+  // row only drops that line from the document, never the document itself.
+  const [{ data: inst }, { data: reg }] = await Promise.all([
+    ctx.supabase
       .from('institutions')
-      .select('name')
+      .select('name, display_name, city, state, institution_type, accredited_by')
       .eq('id', doc.institutions_id)
-      .maybeSingle();
-    institutionName = (inst?.name as string | undefined) ?? undefined;
+      .maybeSingle(),
+    doc.regulation_id
+      ? ctx.supabase.from('regulations').select('regulation_code').eq('id', doc.regulation_id).maybeSingle()
+      : Promise.resolve({ data: null as { regulation_code?: string | null } | null }),
+  ]);
+  const instRow = inst as { name?: string; display_name?: string | null; city?: string | null; state?: string | null; institution_type?: string | null; accredited_by?: string | null } | null;
+  const institutionName = (instRow?.display_name || instRow?.name || undefined) ?? undefined;
+
+  // Engineering (CET) syllabi: the college's own jsPDF document — the same one
+  // the BoS screen downloads (letterhead, L-T-P-C, units with periods, CO–PO
+  // matrix, sign-off) — so the COE receives the syllabus the college prints.
+  // Its own ETag suffix, so a client holding the old HTML-layout ETag is not
+  // answered 304 with a stale document.
+  if (opts.format === 'official' && isEngineeringSyllabus(forPdf, institutionName)) {
+    const engEtag = etag.replace(/"$/, ':engineering"');
+    const engHeaders = { ...baseHeaders, ETag: engEtag, 'X-Syllabus-Layout': 'engineering' };
+    if (request.headers.get('if-none-match') === engEtag) {
+      return new NextResponse(null, { status: 304, headers: engHeaders });
+    }
+    try {
+      const bytes = await buildEngineeringSyllabusPdf(ctx.supabase, forPdf);
+      const filename = syllabusPdfFilename(forPdf.course_code, opts.format, forPdf.version_number);
+      return new NextResponse(new Uint8Array(bytes), {
+        status: 200,
+        headers: {
+          ...engHeaders,
+          'Content-Type': 'application/pdf',
+          'Content-Length': String(bytes.byteLength),
+          'Content-Disposition': `${opts.disposition}; filename="${filename}"`,
+        },
+      });
+    } catch (err) {
+      // Never a blank answer: fall through to the HTML layout and say why.
+      console.warn('[syllabus-api] engineering PDF failed, falling back to the HTML layout:', err);
+    }
   }
 
   const html = buildSyllabusHtml(forPdf, opts.format, {
@@ -157,12 +192,18 @@ export async function respondWithSyllabusPdf(
     includeReferences: opts.includeReferences,
     includePedagogy: opts.includePedagogy,
     institutionName,
+    institution: institutionName
+      ? { name: institutionName, city: instRow?.city, state: instRow?.state, institutionType: instRow?.institution_type, accreditedBy: instRow?.accredited_by }
+      : undefined,
+    regulationCode: (reg as { regulation_code?: string | null } | null)?.regulation_code ?? null,
     forPrint: true,
   });
 
   let pdf: Buffer;
   try {
-    pdf = await renderSyllabusPdf(html);
+    pdf = await renderSyllabusPdf(html, {
+      footerText: [forPdf.course_code, forPdf.course_name, institutionName].filter(Boolean).join(' · '),
+    });
   } catch (err) {
     if (err instanceof SyllabusRendererUnavailableError) {
       return apiError('RENDERER_UNAVAILABLE', 'PDF renderer is unavailable, retry shortly', 503);

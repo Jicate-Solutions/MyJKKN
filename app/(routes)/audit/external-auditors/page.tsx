@@ -45,9 +45,24 @@ function formatDateTime(iso: string | null): string {
   }
 }
 
+// 'expired' now actually happens (migration 20261201130000 created the column
+// it depends on), so it has to read as a warning rather than as the muted
+// `secondary` grey it used to be — grey next to a green "Active" is a
+// difference an admin scanning the table will not register. Amber at the 700
+// weight in light / 400 in dark per design-system/MASTER.md §6: the 600 ramp
+// measures 3.19:1 on white and fails 4.5:1 at this badge's text-xs size.
 function statusBadge(status: 'active' | 'expired' | 'revoked') {
   if (status === 'active') return <Badge className="bg-emerald-600 hover:bg-emerald-600">Active</Badge>;
-  if (status === 'expired') return <Badge variant="secondary">Expired</Badge>;
+  if (status === 'expired') {
+    return (
+      <Badge
+        variant="outline"
+        className="border-amber-500 bg-amber-50 font-semibold text-amber-700 dark:border-amber-500/60 dark:bg-amber-950/40 dark:text-amber-400"
+      >
+        Expired
+      </Badge>
+    );
+  }
   return <Badge variant="destructive">Revoked</Badge>;
 }
 
@@ -73,8 +88,18 @@ export default function ExternalAuditorsPage() {
 
   const handleExtend = async (userId: string) => {
     try {
-      await extendMutation.mutateAsync({ userId, extendDays: 7 });
-      toast.success('Extended by 7 days');
+      // Report what actually changed. This used to say "Extended by 7 days"
+      // unconditionally while the underlying write matched zero rows — the
+      // column it wrote did not exist. `extended: 0` is a real answer.
+      const result = await extendMutation.mutateAsync({ userId, extendDays: 7 });
+      const extended = result?.data?.extended ?? 0;
+      if (extended === 0) {
+        toast.error('Nothing to extend — this auditor holds no institution access.');
+      } else {
+        toast.success(
+          `Extended ${extended} ${extended === 1 ? 'grant' : 'grants'} by 7 days`
+        );
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to extend');
     }
@@ -227,13 +252,14 @@ export default function ExternalAuditorsPage() {
         </Card>
 
         <Alert>
-          <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Substrate note</AlertTitle>
+          <ShieldCheck className="h-4 w-4" />
+          <AlertTitle>How the time-box is enforced</AlertTitle>
           <AlertDescription className="text-sm">
-            Time-box enforcement depends on <code>user_institution_access.expires_at</code>. If
-            that column is not yet on production, revoke still works (via <code>is_active=false</code>
-            ) but auto-expiry is not honored. Add the column via a one-line migration before
-            relying on the timestamp.
+            Expiry and revoke both <strong>remove</strong> the auditor&apos;s institution access
+            rows outright — they are not marked inactive and left in place. An hourly sweep
+            deletes every grant whose expiry has passed, so <strong>Expired</strong> is a brief
+            state that becomes <strong>Revoked</strong> once the sweep runs; extend before then to
+            keep the auditor working. Every removal is recorded in the role audit log.
           </AlertDescription>
         </Alert>
       </div>

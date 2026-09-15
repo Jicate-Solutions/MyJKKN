@@ -122,11 +122,43 @@ export class StudentTimetableService {
         return null;
       }
 
-      // Step 3: Pick the best timetable — prefer one whose date range covers today
+      // Step 3: Pick the PRIMARY timetable — the one whose range covers today,
+      // most recently created. It still names the view (header, format, dates).
       const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
       const timetableResult = this.selectBestTimetable(candidates, today);
 
-      // Get periods
+      /**
+       * Step 4: SHOW EVERY TIMETABLE THAT COVERS TODAY, NOT JUST THE BEST ONE.
+       * Fixed: 2026-09-11.
+       *
+       * A learner routinely sits under more than one at once. JKKN Dental's 4th
+       * Year BDS section A has a semester-level "DRAVENCOREZ THEORY" grid AND a
+       * section-level "DRAVENCOREZ CLINICAL" one, both running 2026-01-05 to
+       * 2027-01-05 — two halves of one week, not two answers to one question.
+       * selectBestTimetable gathered both and returned whichever was created
+       * last, so every CLINICAL row (all created after THEORY) hid the THEORY
+       * periods outright. The learner saw a half-empty week with nothing on
+       * screen to say a whole timetable had been dropped.
+       *
+       * Merging is safe because enrichTimetableSlots already normalises BOTH
+       * grid shapes onto a common {day, period_id}: a 'regular' grid keyed by
+       * weekday and a 'batch' grid keyed by ISO date both come out the same way.
+       * THEORY is regular, CLINICAL is batch, and they compose.
+       */
+      const coversToday = (t: any) => {
+        const startOk = !t.start_date || t.start_date <= today;
+        const endOk = !t.end_date || t.end_date >= today;
+        return startOk && endOk;
+      };
+
+      // If nothing covers today the primary is the only sensible answer — a
+      // future or spent timetable is better than an empty week.
+      const liveTimetables = candidates.filter(coversToday);
+      const sourceTimetables =
+        liveTimetables.length > 0 ? liveTimetables : [timetableResult];
+
+      // Periods are per institution, and a learner's timetables all belong to
+      // one, so the primary's institution covers every source.
       const { data: periods, error: periodsError } = await supabase
         .from('periods')
         .select('*')
@@ -138,12 +170,35 @@ export class StudentTimetableService {
         return null;
       }
 
-      // Parse timetable_data and enrich slots
-      const enrichedSlots = await this.enrichTimetableSlots(
-        timetableResult.timetable_data,
-        periods || [],
-        supabase
+      // Parse timetable_data and enrich slots, tagging each with its origin so
+      // the attendance link and the "which timetable is this" label resolve to
+      // the right row once the grids are mixed together.
+      const enrichedPerTimetable = await Promise.all(
+        sourceTimetables.map(async (t: any) => {
+          const slots = await this.enrichTimetableSlots(
+            t.timetable_data,
+            periods || [],
+            supabase
+          );
+          return slots.map((slot) => ({
+            ...slot,
+            timetable_id: t.id,
+            timetable_name: t.timetable_name
+          }));
+        })
       );
+
+      // Deduplicate on the same key enrichTimetableSlots uses internally, so a
+      // period that genuinely exists in two timetables is shown once. Two
+      // DIFFERENT courses in the same hour both survive — that is a real
+      // clash the learner needs to see, not something to silently collapse.
+      const seenAcrossTimetables = new Set<string>();
+      const enrichedSlots = enrichedPerTimetable.flat().filter((slot) => {
+        const key = `${slot.day}|${slot.period_id}|${slot.course?.course_id || ''}`;
+        if (seenAcrossTimetables.has(key)) return false;
+        seenAcrossTimetables.add(key);
+        return true;
+      });
 
       // Get section and semester names
       const { data: section } = await supabase
@@ -158,13 +213,31 @@ export class StudentTimetableService {
         .eq('id', semesterId)
         .single();
 
+      // The union, not the primary's own list: a day that only the CLINICAL
+      // timetable teaches would otherwise be hidden from the day picker even
+      // though its slots are right there in `slots`.
+      const mergedSelectedDays = Array.from(
+        new Set(
+          sourceTimetables.flatMap((t: any) =>
+            Array.isArray(t.selected_days) ? t.selected_days : []
+          )
+        )
+      );
+
       return {
         timetable_id: timetableResult.id,
         timetable_name: timetableResult.timetable_name,
         timetable_format: timetableResult.timetable_format,
+        source_timetables: sourceTimetables.map((t: any) => ({
+          id: t.id,
+          name: t.timetable_name
+        })),
         periods: periods || [],
         slots: enrichedSlots,
-        selected_days: timetableResult.selected_days,
+        selected_days:
+          mergedSelectedDays.length > 0
+            ? (mergedSelectedDays as any)
+            : timetableResult.selected_days,
         start_date: timetableResult.start_date,
         end_date: timetableResult.end_date,
         student_info: {

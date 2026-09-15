@@ -714,13 +714,111 @@ ORDER BY i.name, p.program_name, clp.current_semester;
 -- Reading the columns back is the only way to be certain.
 --   * View already exists  -> reuse ITS OWN column list verbatim. The result is
 --     identical to what consumers see today, and because the definition is now
---     explicit the view can never silently gain a column again.
+--     explicit the view can never silently gain a column again. EXCEPT when that
+--     list already carries a cancellation column — see "REPAIR BEFORE PIN"
+--     below; that view is dropped and rebuilt rather than pinned, because
+--     CREATE OR REPLACE VIEW cannot drop a column and pinning would make the
+--     exposure permanent.
 --   * View does not exist (fresh rebuild from setup) -> every column on
---     public.events EXCEPT the three institutional-numbering columns.
+--     public.events EXCEPT the three institutional-numbering columns and the
+--     three cancellation columns.
+--
+-- THE CANCELLATION COLUMNS ARE EXCLUDED BY NAME (2026-09-13) — DEFENCE IN DEPTH, and
+-- the rebuild half of the migration's repair path.
+--
+-- The Director's second ruling that day was "keep the reason out of the public table
+-- entirely", so `cancellation_reason` / `cancelled_at` / `cancelled_by` are NOT columns
+-- on `public.events` at all any more: they are `public.event_cancellations`, which anon
+-- holds no grant on (migration 20261204113700). This branch therefore cannot pick them
+-- up on a correct database, and the exclusion below is belt and braces against someone
+-- putting them back.
+--
+-- It is not dead code. A database that applied the EARLIER, column-based draft of that
+-- migration still carries them, and the migration's section 0 refuses to drop them
+-- while a view like this one still publishes them — it names the view and stops rather
+-- than CASCADEing. The operator drops this view and re-runs; THIS file then rebuilds it
+-- from the exclusion list, without the three columns. Excluding them costs the marathon
+-- site nothing: it has never read them, and no marathon flow writes a reason.
+--
+-- NOTE, out of scope for the exclusion above and NOT fixed here: this view carries no
+-- `security_invoker`. Counted from the catalog rather than asserted: exactly three
+-- marathon_* views lack it — marathon_events, marathon_categories and
+-- marathon_registrations, the three 2026-04-09 compat views defined in THIS file — and
+-- all eight added later by migration (marathon_sponsors, marathon_budget_items,
+-- marathon_committees, marathon_tasks, marathon_incidents, marathon_volunteer_checkins,
+-- marathon_sponsor_deliverables, marathon_sponsor_activity_log) set it. Without it the
+-- view runs as OWNER and does NOT apply `events_public_read`'s `status NOT IN ('draft',
+-- 'cancelled')` filter, so a cancelled marathon row is readable through it when it is
+-- not readable through the base table. Adding security_invoker would change what the
+-- live external marathon site can see and needs its own PR and its own verification.
 DO $marathon_events_pin$
 DECLARE
   v_cols TEXT;
+  v_viewdef TEXT;
 BEGIN
+  -- REPAIR BEFORE PIN. A marathon_events that ALREADY carries a cancellation
+  -- column is the drifted state the exclusion below exists to end — an
+  -- environment that applied 20261204113700 and then rebuilt this view before
+  -- this fix landed. Reusing such a view's own list verbatim would FREEZE the
+  -- exposure permanently, and filtering the list instead would only error:
+  -- CREATE OR REPLACE VIEW may append columns, never drop them. So the view is
+  -- dropped and rebuilt from `public.events` by the branch below.
+  --
+  -- No CASCADE, deliberately. Nothing in this repository reads marathon_events
+  -- (it serves an external public marathon site over PostgREST; grep of app
+  -- code and of every other view returns nothing), so if some object does
+  -- depend on it the DROP must fail LOUDLY rather than silently take that
+  -- object with it. The GRANTs at the end of this marathon block re-issue the
+  -- view's ACL, which a DROP would otherwise discard.
+  --
+  -- ORDER MATTERS: the replacement column list is computed and PROVED non-empty
+  -- BEFORE the DROP. Dropping first and discovering afterwards that `events`
+  -- reports no columns would leave a live anon-facing relation deleted with its
+  -- GRANTs gone and nothing to roll back to if this file is executed statement
+  -- by statement rather than in one transaction.
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'marathon_events'
+       AND column_name IN ('cancellation_reason', 'cancelled_at', 'cancelled_by')
+  ) THEN
+    SELECT string_agg(format('e.%I', column_name), ', ' ORDER BY ordinal_position)
+      INTO v_cols
+      FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'events'
+       AND column_name NOT IN ('event_number', 'event_number_year', 'event_number_seq',
+                               'cancellation_reason', 'cancelled_at', 'cancelled_by');
+
+    IF v_cols IS NULL THEN
+      RAISE EXCEPTION 'marathon_events carries a cancellation column but public.events reports none — refusing to drop a live anon view with nothing to rebuild it from';
+    END IF;
+
+    -- THE REBUILD MUST NOT WIDEN WHAT ANON SEES. The CREATE below hardcodes
+    -- `WHERE e.event_type = 'marathon'`. If the live view's own predicate were
+    -- ever narrower — also filtering is_public or status, say — rebuilding from
+    -- the hardcoded one would silently publish MORE rows to the anonymous
+    -- internet, and the original definition is destroyed by the DROP a few lines
+    -- down, so nobody could tell afterwards. Read it back first and stop if it
+    -- is not the predicate this block knows how to reproduce.
+    SELECT pg_get_viewdef('public.marathon_events'::regclass, true) INTO v_viewdef;
+    IF v_viewdef !~ 'WHERE\s+e?\.?event_type\s*=\s*''marathon''::text\s*;?\s*$' THEN
+      RAISE EXCEPTION
+        'marathon_events has a predicate this rebuild does not reproduce, so dropping it could widen what anon reads. Definition: %',
+        v_viewdef;
+    END IF;
+
+    RAISE WARNING 'marathon_events published a cancellation column to anon — dropping and rebuilding it without one';
+    DROP VIEW public.marathon_events;
+
+    EXECUTE format(
+      'CREATE OR REPLACE VIEW public.marathon_events AS SELECT %s FROM public.events e WHERE e.event_type = ''marathon''',
+      v_cols
+    );
+    -- Re-issued HERE, not only at the end of this block: a DROP discards the
+    -- ACL, and if anything between here and the GRANT section fails the view
+    -- would otherwise sit unreadable by the site it exists to serve.
+    GRANT SELECT ON public.marathon_events TO anon, authenticated;
+  END IF;
+
   SELECT string_agg(format('e.%I', column_name), ', ' ORDER BY ordinal_position)
     INTO v_cols
     FROM information_schema.columns
@@ -731,7 +829,8 @@ BEGIN
       INTO v_cols
       FROM information_schema.columns
      WHERE table_schema = 'public' AND table_name = 'events'
-       AND column_name NOT IN ('event_number', 'event_number_year', 'event_number_seq');
+       AND column_name NOT IN ('event_number', 'event_number_year', 'event_number_seq',
+                               'cancellation_reason', 'cancelled_at', 'cancelled_by');
   END IF;
 
   IF v_cols IS NULL THEN

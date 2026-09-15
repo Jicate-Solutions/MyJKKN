@@ -116,6 +116,17 @@ body {
 .q .body { min-width: 0; }
 .q .lang + .lang { margin-top: 5pt; }
 .q .stem { text-align: left; }
+/* ---------- figures (Wave 3 Lane D) ----------
+   One picture, once, between the stems and the options, never wider than the
+   text column and never taller than a third of the page — a diagram that
+   pushed the options onto the next sheet would break the board layout. */
+.figures { margin: 5pt 0 4pt; text-align: center; break-inside: avoid; }
+.figure { margin: 0 auto; }
+.figure + .figure { margin-top: 5pt; }
+.figure img { display: block; margin: 0 auto; max-width: 100%; max-height: 78mm; height: auto; }
+.figure.missing {
+  border: 0.6pt dashed #000; padding: 4pt 6pt; font-size: 9.5pt; font-style: italic; text-align: left;
+}
 .opts { margin-top: 2pt; }
 .opts.inline_4 { display: grid; grid-template-columns: repeat(4, 1fr); column-gap: 8pt; }
 .opts.inline_2x2 { display: grid; grid-template-columns: repeat(2, 1fr); column-gap: 12pt; row-gap: 1pt; }
@@ -132,6 +143,10 @@ u.target { text-decoration: underline; text-underline-offset: 2pt; font-weight: 
    keeps every non-Latin script out of KaTeX; this chain is the belt to that
    brace, so a stray \\text{} code point still meets an embedded face. */
 .katex { font-size: 1.02em; font-family: KaTeX_Main, 'Tinos', 'Noto Sans Tamil', serif; }
+/* The "[?]" notation.ts prints for a character no embedded face carries. Set
+   in Tinos explicitly: inside a KaTeX leaf the inherited face (KaTeX_Math)
+   has no brackets or question mark of its own. */
+.glyph-missing { font-family: 'Tinos', serif; font-style: normal; font-weight: 400; }
 .end-mark { text-align: center; margin-top: 16pt; letter-spacing: 0.3em; }
 
 /* ---------- answer key ---------- */

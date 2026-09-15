@@ -2,17 +2,22 @@
 /**
  * Invoice Actions Client Component
  *
- * Interactive action buttons for invoice operations (send, download, delete).
+ * Interactive action buttons for invoice operations (download, delete).
  * Uses server actions with optimistic UI updates.
+ *
+ * 2026-09-11: "Send Email" showed a success message but nothing was ever
+ * emailed. The button now says emailing is not available yet and offers
+ * Download instead. "Download PDF" saved a web page (.html), not a PDF, so it
+ * is now labelled "Download (web page)".
  */
 
 
-import { useState, useTransition } from 'react';
+import { useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   Download,
-  Send,
+  Mail,
   Edit,
   Trash2,
   ArrowLeft
@@ -30,11 +35,14 @@ import {
   AlertDialogTrigger
 } from '@/components/ui/alert-dialog';
 import toast from 'react-hot-toast';
-import {
-  sendInvoice,
-  deleteInvoice
-} from '../../../_actions/invoice-actions';
+import { deleteInvoice } from '../../../_actions/invoice-actions';
 import { useDownloadInvoicePDF } from '@/hooks/billing/use-billing-invoices';
+import {
+  EMAIL_NOT_AVAILABLE_LABEL,
+  INVOICE_EMAIL_NOT_AVAILABLE
+} from '@/lib/services/billing/email-not-available';
+import { INVOICE_DOWNLOAD_LABEL } from '@/lib/services/billing/print-and-download-text';
+import { showEmailNotAvailable } from '@/components/billing/email-not-available-toast';
 import type { BillingInvoice } from '@/types/billing-schedule';
 
 interface InvoiceActionsClientProps {
@@ -48,27 +56,7 @@ export function InvoiceActionsClient({
 }: InvoiceActionsClientProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [sendLoading, setSendLoading] = useState(false);
   const { downloadPDF, loading: downloadLoading } = useDownloadInvoicePDF();
-
-  const handleSendInvoice = async () => {
-    if (!invoice.student?.college_email) {
-      toast.error('No email address available for this student');
-      return;
-    }
-
-    setSendLoading(true);
-    startTransition(async () => {
-      const result = await sendInvoice(invoice.id, invoice.student.college_email);
-      setSendLoading(false);
-
-      if (result.success) {
-        toast.success('Invoice sent successfully');
-      } else {
-        toast.error(result.error || 'Failed to send invoice');
-      }
-    });
-  };
 
   const handleDownloadPDF = async () => {
     try {
@@ -108,18 +96,18 @@ export function InvoiceActionsClient({
           disabled={isPending || downloadLoading}
         >
           <Download className='mr-2 h-4 w-4' />
-          {downloadLoading ? 'Downloading...' : 'Download PDF'}
+          {downloadLoading ? 'Downloading...' : INVOICE_DOWNLOAD_LABEL}
         </Button>
 
         {invoice.student?.college_email && (
           <Button
             variant='outline'
             size='sm'
-            onClick={handleSendInvoice}
-            disabled={isPending || sendLoading}
+            onClick={() => showEmailNotAvailable('invoice', handleDownloadPDF)}
+            title={INVOICE_EMAIL_NOT_AVAILABLE}
           >
-            <Send className='mr-2 h-4 w-4' />
-            {sendLoading ? 'Sending...' : 'Send Email'}
+            <Mail className='mr-2 h-4 w-4' />
+            {EMAIL_NOT_AVAILABLE_LABEL}
           </Button>
         )}
 

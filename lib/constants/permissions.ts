@@ -953,6 +953,13 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.leave.view', label: 'View Leave Applications' },
       { key: 'hr.leave.apply', label: 'Apply for Leave' },
       { key: 'hr.leave.approve', label: 'Approve Leave Applications' },
+      // Taking an APPROVED decision back. Deliberately separate from
+      // hr.leave.approve: the final approver of a request may revoke it on chain
+      // membership alone (fn_hr_leave_revoke_block_reason), and this key is the
+      // second, independent lane that lets HR act on a request they are not on
+      // the chain of. Granted in 20260912100000 to hr_head, managing_director,
+      // principal, cao, vice_principal, hod.
+      { key: 'hr.leave.revoke', label: 'Revoke an Approved Leave Decision' },
       { key: 'hr.leave.cancel', label: 'Cancel Own Leave Pre-Approval' },
       { key: 'hr.leave.withdraw', label: 'Withdraw Own Leave Post-Approval' },
       { key: 'hr.leave.balance.view', label: 'View Leave Balances' },
@@ -1964,6 +1971,23 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
+    // InstaSolver — the ONE front door for "something is wrong here".
+    // Spec: specs/instasolver-2026-09-14.md, decision I1 ("everyone with a
+    // login can file") and I3 ("one button; the first screen asks what kind").
+    //
+    // Deliberately a SINGLE key. InstaSolver owns no data of its own — it is a
+    // chooser that hands the filer to the lane which already owns the work
+    // (broken things -> Campus Walk's task engine, complaints -> the grievance
+    // spine, purchases -> Procurement). Each destination keeps its own keys and
+    // its own server-side gate, so a second InstaSolver key would grant nothing
+    // the destination does not re-check.
+    name: 'InstaSolver',
+    key: 'instasolver',
+    permissions: [
+      { key: 'instasolver.view', label: 'InstaSolver — raise an issue' }
+    ]
+  },
+  {
     // Permission keys mirror MENU_PERMISSIONS entries in lib/sidebarMenuLink.ts
     // for every /solutions/* route on production (jicate/main). Scope is
     // read/view today — write actions are guarded at the service layer.
@@ -2727,7 +2751,24 @@ export const PERMISSION_CATEGORIES = [
       // event-type list and the outcome/impact taxonomy. Both ship EMPTY —
       // their content is a Director decision against the JKKN IQAC SOP — so
       // this key opens an editor for lists that do not exist yet, on purpose.
-      { key: 'events.catalogues.manage', label: 'Maintain Event Type & Impact Catalogues' }
+      { key: 'events.catalogues.manage', label: 'Maintain Event Type & Impact Catalogues' },
+      // Instagram reception (2026-09-09). Grants writing event_ig_posts — the
+      // claim that a given Instagram post covered a given event. Reading an
+      // event's reception rides events.view, exactly as target classes do:
+      // whoever can see the event can see how it was received, and only
+      // ASSERTING the coverage needs this key. It is separate because the
+      // claim is a judgement call that accreditation evidence may later lean
+      // on, and because linking reaches data (ig_posts) that the events
+      // permissions otherwise say nothing about.
+      { key: 'events.social.manage', label: 'Link Instagram Posts to an Event' },
+      // Review Comments on an event console (2026-09-11). Super admin, the
+      // event's creator and its in-charge see the thread without a key; these
+      // admit everyone else, over institutions they can reach. Replaced the
+      // hardcoded admin/administrator/event_coordinator role names in
+      // fn_can_read_event_review_comments / fn_is_event_review_admin
+      // (20261130090000). Never fold into events.view — students hold it.
+      { key: 'events.review_comments.view', label: 'View & Reply to Event Review Comments' },
+      { key: 'events.review_comments.resolve', label: "Resolve Others' Event Review Comments" }
     ]
   },
   // Course Events (2026-08-13). Paid, multi-session learning courses open to
@@ -3607,6 +3648,31 @@ export const PERMISSION_CATEGORIES = [
       { key: 'network.audit.view', label: 'View the Wi-Fi Audit Trail' },
       { key: 'network.settings.manage', label: 'Manage Wi-Fi Settings (sign-in methods, speed tiers, block reasons)' },
       { key: 'network.panic.manage', label: 'Emergency Open Wi-Fi (panic switch)' }
+    ]
+  },
+  {
+    // Added 2026-09-12 — the What's New weekly highlights strip
+    // (migration 20261203120000_changelog_highlights.sql). ONE key, because
+    // there is one thing to decide: may this person write and approve the
+    // plain-English write-ups that appear above the changelog.
+    //
+    // READING What's New is deliberately NOT here. It is open to everyone
+    // signed in (Director, 2026-09-05) and is mapped to the universal
+    // `view_profile` sentinel in lib/sidebarMenuLink.ts; what a reader SEES is
+    // scoped by module through fn_changelog_visible_modules(), not by a key of
+    // its own. Approved highlights inherit exactly that scope.
+    //
+    // No role carries this key today, so in practice the queue resolves to
+    // super admins (user_has_permission() bypasses for them) until someone
+    // grants it here. That is the point of cataloguing it: granting it becomes
+    // a Role Management decision rather than a code change.
+    name: "What's New",
+    key: 'whats_new',
+    permissions: [
+      {
+        key: 'whats_new.highlights.manage',
+        label: "Write and approve the weekly highlights shown on What's New"
+      }
     ]
   }
 ];

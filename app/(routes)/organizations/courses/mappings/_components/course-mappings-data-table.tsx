@@ -1,6 +1,7 @@
 'use client';
 
 import { DataTable } from '@/components/data-table/data-table';
+import { courseMappingRowHref } from '@/components/data-table/utils/list-row-hrefs';
 import { getCourseMappingColumns } from './columns';
 import type { CourseMappingsSearchParams } from './data-table-schema';
 import { Button } from '@/components/ui/button';
@@ -416,6 +417,7 @@ export function CourseMappingsDataTable({
           headers: []
         }}
         idField='id'
+        rowHref={courseMappingRowHref}
         config={{
           enableUrlState: true,
           enableDateFilter: false,

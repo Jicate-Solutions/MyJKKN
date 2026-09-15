@@ -189,7 +189,7 @@ export function PendingAttendanceDataTable({
           size='sm'
           disabled={props.selectedRows.length === 0}
           className='gap-2'
-          onClick={() => toast.error('Bulk reminder feature coming soon!')}
+          onClick={() => toast.error('Sending reminders from this dashboard is not available yet.')}
         >
           <Bell className='h-4 w-4' />
           Send Reminders ({props.selectedRows.length})

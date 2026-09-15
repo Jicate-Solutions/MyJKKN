@@ -12,6 +12,8 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { ACCREDITATION_BODIES } from '@/lib/types/accreditation';
+import { measureCoverage, tallyEvidence } from './coverage-measure';
+import type { CatalogueIndex, EvidenceRef } from './coverage-measure';
 import type {
   AccreditationBodyCode,
   BodyScoreboard,
@@ -29,54 +31,119 @@ import type {
  */
 const BODY_ORDER: AccreditationBodyCode[] = ACCREDITATION_BODIES.map((b) => b.code);
 
+/**
+ * PostgREST's configured `max_rows` on this project. A plain `.select()` stops
+ * silently at this many rows — no error, no flag, just a short array.
+ *
+ * This is not hypothetical here: quality_evidence_mappings held 11,703 rows on
+ * 2026-09-07, so the single unpaged select these dashboards used to run was
+ * dropping ~1,700 of them and reporting the remainder as the total. The clamp
+ * on the old coverage formula hid it, because 10,000 rows over 17 metrics and
+ * 11,703 rows over 17 metrics both rendered as 100%.
+ */
+const PAGE_SIZE = 10000;
+
+/**
+ * Hard stop on the paging loop. At PAGE_SIZE this covers 500,000 evidence
+ * rows — about 43× today's volume. It exists so that a server that answers
+ * every range with the same rows cannot spin this dashboard forever; a
+ * dashboard that under-reports is a bug, one that never returns is an outage.
+ */
+const MAX_PAGES = 50;
+
 export class AccreditationService {
   private static supabase = createClientSupabaseClient();
 
   /**
-   * One row per body for the landing page scoreboard cards.
-   * Aggregates: metric count from sh_accreditation_metrics + evidence row
-   * count from quality_evidence_mappings + coarse coverage %.
+   * Every evidence mapping, paged past PostgREST's row cap.
    *
-   * Coverage formula: evidence_rows / metrics_seeded (both per body), capped
-   * at 100%. Placeholder — real weighted coverage (per docs §8) lands in
-   * per-body dashboards when each body's full catalog is seeded.
+   * Two round trips at today's volume, not one — worth it, because the
+   * alternative is a dashboard that under-reports evidence and cannot say by
+   * how much. Ordered by `id` so the pages partition the table rather than
+   * overlapping: without an ORDER BY, `range()` offsets are only as stable as
+   * the planner feels like being.
+   */
+  private static async fetchAllEvidence(): Promise<EvidenceRef[]> {
+    const all: EvidenceRef[] = [];
+    let from = 0;
+    for (let page = 0; page < MAX_PAGES; page += 1) {
+      const { data, error } = await (this.supabase as any)
+        .from('quality_evidence_mappings')
+        .select('body_code, metric_code, institution_id')
+        .order('id', { ascending: true })
+        .range(from, from + PAGE_SIZE - 1);
+      if (error) throw error;
+      const rows = (data ?? []) as EvidenceRef[];
+      if (rows.length === 0) break;
+      all.push(...rows);
+      // Advance by what actually came back, not by PAGE_SIZE. The server is
+      // free to return fewer rows than asked for — max_rows is server-side
+      // configuration this file cannot see — and a loop that assumed it got a
+      // full page would step straight over the remainder and call it the end
+      // of the table, which is the silent truncation being fixed here.
+      from += rows.length;
+    }
+    return all;
+  }
+
+  /**
+   * The active framework catalogue, as a set of metric codes per body.
+   *
+   * A set rather than a count, because coverage needs both halves of it: the
+   * size is the denominator, and membership is what filters evidence down to
+   * metrics that actually exist in the catalogue. Rows with a blank code are
+   * excluded — a metric with no code cannot be tagged, so it can never be
+   * answered, and counting it in the denominator would report a gap nobody is
+   * able to close.
+   */
+  private static async fetchCatalogue(): Promise<CatalogueIndex> {
+    const { data, error } = await (this.supabase as any)
+      .from('sh_accreditation_metrics')
+      .select('metric_type, metric_code')
+      .eq('is_active', true)
+      .not('metric_code', 'is', null)
+      .neq('metric_code', '');
+    if (error) throw error;
+
+    const catalogue: Record<string, Set<string>> = {};
+    for (const row of (data ?? []) as { metric_type: string; metric_code: string }[]) {
+      (catalogue[row.metric_type] ??= new Set<string>()).add(row.metric_code);
+    }
+    return catalogue;
+  }
+
+  /**
+   * One row per body for the landing page scoreboard cards.
+   *
+   * COVERAGE IS METRICS ANSWERED, NOT ROWS FILED. It used to be
+   * `evidence_rows / metrics_seeded`, which divided a count of rows by a count
+   * of metrics and then clamped the result to 100%. On prod that read NAAC,
+   * NIRF and NBA at a flat 100% while 48 of 69 NAAC metrics, 13 of 17 NIRF
+   * metrics and 8 of 9 NBA metrics had never been touched. See
+   * ./coverage-measure.ts for the measure and why the clamp hid it.
+   *
+   * `evidence_rows` is still reported — it is the honest answer to "how much
+   * material is on file", which is a different question from "how much of the
+   * framework is answered", and both belong on the card.
    */
   static async getLandingScoreboard(): Promise<BodyScoreboard[]> {
-    // Metrics count per body
-    const { data: metrics, error: metricsError } = await (this.supabase as any)
-      .from('sh_accreditation_metrics')
-      .select('metric_type')
-      .eq('is_active', true);
-
-    if (metricsError) throw metricsError;
-
-    const metricCounts = (metrics ?? []).reduce<Record<string, number>>((acc, row: any) => {
-      acc[row.metric_type] = (acc[row.metric_type] ?? 0) + 1;
-      return acc;
-    }, {});
-
-    // Evidence row count per body
-    const { data: evidence, error: evidenceError } = await (this.supabase as any)
-      .from('quality_evidence_mappings')
-      .select('body_code');
-
-    if (evidenceError) throw evidenceError;
-
-    const evidenceCounts = (evidence ?? []).reduce<Record<string, number>>((acc, row: any) => {
-      acc[row.body_code] = (acc[row.body_code] ?? 0) + 1;
-      return acc;
-    }, {});
+    const catalogue = await this.fetchCatalogue();
+    const evidence = await this.fetchAllEvidence();
+    const byBody = tallyEvidence(evidence, catalogue, (row) => row.body_code);
 
     return BODY_ORDER.map((body_code) => {
-      const metrics_seeded = metricCounts[body_code] ?? 0;
-      const evidence_rows = evidenceCounts[body_code] ?? 0;
-      // Placeholder coverage: 0% if no evidence, else clamped.
-      // Real formula per docs §8 lands with per-body dashboards.
-      const coverage_pct =
-        metrics_seeded === 0
-          ? 0
-          : Math.min(100, Math.round((evidence_rows / Math.max(metrics_seeded, 1)) * 100));
-      return { body_code, metrics_seeded, evidence_rows, coverage_pct };
+      const tally = byBody[body_code];
+      const measure = measureCoverage(
+        catalogue[body_code]?.size ?? 0,
+        tally?.metricsWithEvidence ?? 0,
+      );
+      return {
+        body_code,
+        metrics_seeded: measure.catalogueSize,
+        metrics_with_evidence: measure.metricsWithEvidence,
+        evidence_rows: tally?.evidenceRows ?? 0,
+        coverage_pct: measure.coveragePct,
+      };
     });
   }
 
@@ -84,13 +151,14 @@ export class AccreditationService {
    * Per-(body, institution) coverage breakdown for the /accreditation/coverage
    * dashboard. Only returns rows where the body is relevant to the institution
    * (e.g., DCI returns one row — JKKN Dental College — not all 8).
+   *
+   * The denominator is the body's whole active catalogue, the same one the
+   * landing card uses — not the metrics this particular college happens to
+   * have tagged. A college that has answered 13 of NAAC's 69 metrics reads
+   * 19%, where the row-count formula read it as 100% off 112 evidence rows.
    */
   static async getCoverageMatrix(): Promise<CoverageMatrixRow[]> {
-    // Evidence by (body_code, institution_id)
-    const { data: evidence, error: evidenceError } = await (this.supabase as any)
-      .from('quality_evidence_mappings')
-      .select('body_code, institution_id');
-    if (evidenceError) throw evidenceError;
+    const evidence = await this.fetchAllEvidence();
 
     // All JKKN institutions with their names + iqac_code
     const { data: institutions, error: instError } = await (this.supabase as any)
@@ -99,43 +167,34 @@ export class AccreditationService {
       .not('iqac_code', 'is', null);
     if (instError) throw instError;
 
-    // Metric counts per body (reused from scoreboard logic)
-    const { data: metrics } = await (this.supabase as any)
-      .from('sh_accreditation_metrics')
-      .select('metric_type')
-      .eq('is_active', true);
+    const catalogue = await this.fetchCatalogue();
 
-    const metricCounts = (metrics ?? []).reduce<Record<string, number>>((acc, row: any) => {
-      acc[row.metric_type] = (acc[row.metric_type] ?? 0) + 1;
-      return acc;
-    }, {});
-
-    // Group evidence by (body, institution)
-    const evidenceGrouped: Record<string, number> = {};
-    for (const e of evidence ?? []) {
-      const key = `${e.body_code}::${e.institution_id}`;
-      evidenceGrouped[key] = (evidenceGrouped[key] ?? 0) + 1;
-    }
+    // Same tally as the landing scoreboard, one grain finer.
+    const byCell = tallyEvidence(
+      evidence,
+      catalogue,
+      (e) => `${e.body_code}::${e.institution_id}`,
+    );
 
     // Build matrix — only include (body × institution) pairs that have evidence
     const matrix: CoverageMatrixRow[] = [];
-    for (const [key, evidence_rows] of Object.entries(evidenceGrouped)) {
+    for (const [key, tally] of Object.entries(byCell)) {
       const [body_code, institution_id] = key.split('::');
       const inst = (institutions ?? []).find((i: any) => i.id === institution_id);
       if (!inst) continue;
-      const metrics_seeded = metricCounts[body_code] ?? 0;
-      const coverage_pct =
-        metrics_seeded === 0
-          ? 0
-          : Math.min(100, Math.round((evidence_rows / Math.max(metrics_seeded, 1)) * 100));
+      const measure = measureCoverage(
+        catalogue[body_code!]?.size ?? 0,
+        tally.metricsWithEvidence,
+      );
       matrix.push({
         body_code: body_code as AccreditationBodyCode,
-        institution_id,
+        institution_id: institution_id!,
         institution_name: inst.name,
         iqac_code: inst.iqac_code,
-        evidence_rows,
-        metrics_seeded,
-        coverage_pct,
+        evidence_rows: tally.evidenceRows,
+        metrics_seeded: measure.catalogueSize,
+        metrics_with_evidence: measure.metricsWithEvidence,
+        coverage_pct: measure.coveragePct,
       });
     }
 
