@@ -278,7 +278,25 @@ export class FacultyAttendanceService {
           degrees(id, degree_name)
         `)
         .in('institution_id', teachingInstitutionIds)
-        .eq('is_active', true)) as { data: TimetableWithRelations[] | null; error: any };
+        .eq('is_active', true)
+        // 2026-09-15: gate on the target date IN THE QUERY, not only in
+        // isDateInTimetableRange() below. Without this every active timetable
+        // across every institution the staff teaches in — full timetable_data
+        // JSON plus five joins, most of it semesters that ended long ago — was
+        // downloaded on each My Classes load. Under load that fetch never
+        // settled, so the page sat on "Loading your schedule..." and faculty
+        // could not mark attendance (BUG-004809 / BUG-004870 / BUG-005018).
+        // The disjunction keeps exactly the rows the in-app gate can still
+        // accept: a start/end window covering the date, an open bound (batch
+        // timetables scoped by selected_dates), or specific-dates, whose
+        // validity ignores start/end entirely. Rows dropped here would have
+        // been rejected by isDateInTimetableRange() anyway.
+        .or(
+          `and(start_date.lte.${targetDate},end_date.gte.${targetDate}),start_date.is.null,end_date.is.null,timetable_format.eq.specific-dates`
+        )
+        // A stalled request must settle into the caller's Retry path instead
+        // of spinning forever.
+        .abortSignal(AbortSignal.timeout(30_000))) as { data: TimetableWithRelations[] | null; error: any };
 
       // Distinguish a real fetch failure (throw → caller shows a Retry) from a
       // legitimately empty timetable set (return empty → "No classes scheduled").
