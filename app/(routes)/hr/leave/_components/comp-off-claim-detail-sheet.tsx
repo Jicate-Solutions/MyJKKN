@@ -93,6 +93,9 @@ export function CompOffClaimDetailSheet({
         status?: CompOffCreditStatus;
         decided_at?: string | null;
         rejection_reason?: string | null;
+        /** Set when an APPROVED claim was taken back; status reads 'rejected'. */
+        revoked_at?: string | null;
+        revoke_reason?: string | null;
       })
     | null;
   /** The viewer's own claim — RLS blocks self-approval, so say it up front. */
@@ -136,7 +139,7 @@ export function CompOffClaimDetailSheet({
                 <span className="font-mono">{claim.employee_code ?? 'no staff ID'}</span>
               </SheetDescription>
               <div className="flex flex-wrap items-center gap-1.5">
-                <StatusBadge status={BADGE_STATUS[status]} />
+                <StatusBadge status={BADGE_STATUS[status]} revoked={Boolean(claim.revoked_at)} />
                 {status === 'consumed' && (
                   <Badge variant="outline" className="font-normal text-muted-foreground">used</Badge>
                 )}

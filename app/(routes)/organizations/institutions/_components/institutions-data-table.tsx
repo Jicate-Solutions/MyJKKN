@@ -347,6 +347,9 @@ export function InstitutionsDataTable({ search }: InstitutionsDataTableProps) {
           headers: []
         }}
         idField='id'
+        rowHref={(institution) =>
+          `/organizations/institutions/${institution.id}`
+        }
         config={{
           enableUrlState: true,
           enableDateFilter: false,

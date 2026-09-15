@@ -127,6 +127,9 @@ export interface BookingBoardRow extends CleaningBooking {
   block_name: string | null;
   has_before_photo: boolean;
   has_after_photo: boolean;
+  /** A phase holds as many photos as were uploaded — the table shows the count. */
+  before_photo_count: number;
+  after_photo_count: number;
   feedback_count: number;
   average_rating: number | null;
 }

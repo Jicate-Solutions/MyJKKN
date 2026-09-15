@@ -410,13 +410,41 @@ BULK_RE = re.compile(
 )
 
 
+def table_privs(privs):
+    """The privilege string to hand has_table_privilege() for a GRANT/REVOKE.
+
+    It takes a comma-separated LIST, so pass what the statement actually named
+    instead of guessing one. Two shapes must never reach it verbatim, and both
+    fail the same way -- 22023 unrecognized privilege type, which aborts the whole
+    round-trip and makes the gate report GATE ERROR instead of a verdict:
+
+      "SELECT, INSERT" -- the old code took .split()[0] = "SELECT," (comma kept).
+                          Postgres splits on the comma, finds an empty second
+                          privilege, and errors with an empty name. Seen for real
+                          on 2026-09-09 against 20261122103000_accreditation_-
+                          ownership_trail.sql, whose GRANT is "SELECT, INSERT".
+      "ALL PRIVILEGES" -- != "ALL", so the old code passed "ALL" through, which
+                          Postgres also rejects here.
+
+    ALL/ALL PRIVILEGES keeps the pre-existing representative check (SELECT): the
+    point is that the grant reached the role, not to enumerate every bit.
+    """
+    toks = [t for t in privs.replace(",", " , ").split() if t != ","]
+    toks = [t for t in toks if t and t != "PRIVILEGES"]
+    if not toks or "ALL" in toks:
+        return "SELECT"
+    return ", ".join(toks)
+
+
 def extract_grants(body):
     """Parse literal GRANT/REVOKE statements into verifiable privilege checks.
 
     Anything privilege-shaped that cannot be resolved to a concrete object is
     returned as `unparsed` so the caller can refuse to pass it silently.
     """
-    checks, unparsed = [], []
+    # dict, not list: a later GRANT/REVOKE on the same (role, object) REPLACES the
+    # earlier one, because that is what Postgres does when the file runs.
+    checks, unparsed = {}, []
 
     # Privilege statements assembled at runtime carry no static signature.
     for m in re.finditer(
@@ -445,9 +473,7 @@ def extract_grants(body):
             unparsed.append(f"{verb} ... ON {kind} {target}")
             continue
         schema, obj = qualify(target)
-        priv = "EXECUTE" if kind in ("FUNCTION", "PROCEDURE", "ROUTINE") else (
-            privs.split()[0] if privs and privs != "ALL" else "SELECT"
-        )
+        priv = "EXECUTE" if kind in ("FUNCTION", "PROCEDURE", "ROUTINE") else table_privs(privs)
         for role in roles:
             want = "true" if verb == "GRANT" else "false"
             is_public = role.upper() == "PUBLIC"
@@ -509,13 +535,21 @@ def extract_grants(body):
                         f"coalesce((select has_table_privilege({lit(role)}, c.oid, {lit(priv)}) "
                         f"from pg_class c where c.oid = to_regclass({ident})), false) = {want})"
                     )
-            checks.append(
-                Check(
-                    f"grant {role} {'has' if want == 'true' else 'lacks'} {priv} on {schema}.{obj}",
-                    expr,
-                )
+            # SQL runs in order and the last statement on a (role, object) wins.
+            # These migrations use the REVOKE-then-GRANT hardening idiom --
+            #   REVOKE ALL ... FROM anon, authenticated, PUBLIC;
+            #   GRANT  SELECT, INSERT ... TO authenticated;
+            # -- so asserting every statement independently makes the file
+            # contradict itself and the gate reports a GAP that production does not
+            # have. (2026-09-09: exactly this fired on 20261122103000, claiming
+            # "authenticated lacks SELECT" while prod correctly had SELECT+INSERT.)
+            # Keep only the final statement per (role, object).
+            key = (role.upper(), kind, schema, obj)
+            checks[key] = Check(
+                f"grant {role} {'has' if want == 'true' else 'lacks'} {priv} on {schema}.{obj}",
+                expr,
             )
-    return checks, unparsed
+    return list(checks.values()), unparsed
 
 
 # ---------------------------------------------------------------------- main

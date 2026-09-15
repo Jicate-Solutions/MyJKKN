@@ -9,6 +9,7 @@
 
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTransition } from 'react';
+import { useDebounce } from '@/hooks/use-debounce';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import {
@@ -42,6 +43,14 @@ export function ReceiptsFiltersClient() {
       router.push(`/billing/receipts?${params.toString()}`);
     });
   };
+
+  // The search box pushes a new URL, and each push is a full RSC round-trip of
+  // a count: 'exact' query over every receipt — far too expensive to fire on
+  // every keystroke. 300ms, matching the other filter bars in this codebase
+  // (application-hub, users, staff/category, notifications/admin).
+  const handleSearchChange = useDebounce((value: string) => {
+    handleFilterChange('search', value || undefined);
+  }, 300);
 
   const handleClearFilters = () => {
     const params = new URLSearchParams();
@@ -98,10 +107,12 @@ export function ReceiptsFiltersClient() {
               id='search'
               placeholder='Receipt number, student...'
               defaultValue={searchParams.get('search') || ''}
-              onChange={(e) =>
-                handleFilterChange('search', e.target.value || undefined)
-              }
-              disabled={isPending}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              // Deliberately NOT disabled while the transition is pending: the
+              // debounced push lands ~300ms after the user stops typing, so
+              // disabling here would swallow the keystrokes of anyone who
+              // keeps typing through the round-trip. The selects below can
+              // safely stay disabled — they are not typed into.
               className='pl-9'
             />
           </div>

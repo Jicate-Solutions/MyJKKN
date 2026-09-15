@@ -114,7 +114,6 @@ export function ApplyCompOffDrawer({
         start_time: null,
         end_time: null,
         reason: reason.trim(),
-        is_emergency: false,
         documents: [],
         applied_by: '',
         department_id: null,

@@ -13,7 +13,8 @@ export interface HrDecisionEmail {
   id: string;
   leave_application_id: string | null;
   comp_off_credit_id: string | null;
-  decision: 'approved' | 'rejected';
+  /** 'revoked' = an approval taken back (approved → rejected), 2026-09-12. */
+  decision: 'approved' | 'rejected' | 'revoked';
   /** staff.institution_email at decision time; null when there was none (skipped). */
   to_email: string | null;
   status: DecisionEmailStatus;

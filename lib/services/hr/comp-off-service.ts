@@ -191,7 +191,7 @@ export class CompOffService {
     since.setMonth(since.getMonth() - 12);
     const { data, error } = await supabase
       .from('hr_comp_off_credits')
-      .select(`${CLAIM_SELECT}, status, approved_at, rejection_reason`)
+      .select(`${CLAIM_SELECT}, status, approved_at, rejection_reason, revoked_at, revoke_reason`)
       .or(`status.eq.pending,created_at.gte.${since.toISOString().slice(0, 10)}`)
       .order('worked_date', { ascending: true });
     if (error) throw error;
@@ -203,6 +203,8 @@ export class CompOffService {
         status: row.status as CompOffClaimQueueRow['status'],
         decided_at: (row.approved_at as string | null) ?? null,
         rejection_reason: (row.rejection_reason as string | null) ?? null,
+        revoked_at: (row.revoked_at as string | null) ?? null,
+        revoke_reason: (row.revoke_reason as string | null) ?? null,
       };
     });
   }
@@ -253,20 +255,76 @@ export class CompOffService {
     }
   }
 
+  /**
+   * `.eq('status','pending')` added 2026-09-12. Without it this method would
+   * decide a claim in ANY state — including flipping an approved one to
+   * 'rejected', which is a revocation and has its own gate below. A decision is
+   * a decision on an UNDECIDED claim; anything else goes through revokeClaim.
+   */
   static async decideClaim(
     supabase: SupabaseClient,
     creditId: string,
     decision: 'approved' | 'rejected',
     rejectionReason?: string
   ): Promise<void> {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('hr_comp_off_credits')
       .update({
         status: decision,
         approved_at: new Date().toISOString(),
         rejection_reason: decision === 'rejected' ? (rejectionReason ?? null) : null,
       })
-      .eq('id', creditId);
+      .eq('id', creditId)
+      .eq('status', 'pending')
+      .select('id');
     if (error) throw error;
+    if (!data || data.length === 0) {
+      throw new Error('This claim is no longer pending — it may have just been decided.');
+    }
+  }
+
+  /**
+   * Take an APPROVED claim back (2026-09-12).
+   *
+   * A comp-off claim has no approval chain, so the refusal has nothing to do with
+   * a step — but it is still asked of Postgres rather than decided here, for the
+   * one rule a client cannot see: a credit already SPENT by a booked leave
+   * ('consumed') must not be taken back on its own, or that leave is left
+   * standing on a credit that no longer exists. fn_hr_comp_off_revoke_block_reason
+   * names the leave to revoke first; revoking THAT returns the credit through
+   * hr_trig_comp_off_consume.
+   */
+  static async revokeClaim(
+    supabase: SupabaseClient,
+    creditId: string,
+    reason: string
+  ): Promise<void> {
+    const trimmed = reason.trim();
+    if (!trimmed) throw new Error('A reason is required to revoke an approved claim.');
+
+    const { data: blockReason, error: blockError } = await supabase.rpc(
+      'fn_hr_comp_off_revoke_block_reason',
+      { p_credit_id: creditId }
+    );
+    if (blockError) throw blockError;
+    if (blockReason) throw new Error(blockReason as string);
+
+    // revoked_at / revoked_by are stamped by trg_hcoc_revoke_gate, which also
+    // re-runs the predicate above — this read is the friendly message, not the
+    // wall.
+    const { data, error } = await supabase
+      .from('hr_comp_off_credits')
+      .update({
+        status: 'rejected',
+        rejection_reason: trimmed,
+        revoke_reason: trimmed,
+      })
+      .eq('id', creditId)
+      .eq('status', 'approved')
+      .select('id');
+    if (error) throw error;
+    if (!data || data.length === 0) {
+      throw new Error('This claim is no longer approved — it may have just changed.');
+    }
   }
 }

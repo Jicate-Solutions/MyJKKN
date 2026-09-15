@@ -9,8 +9,13 @@ import { HealthScoreService } from '@/lib/services/analytics/health-score-servic
  * Returns institution health scores
  *
  * Query params:
- * - institution_id: Optional UUID filter
+ * - institution_id: Optional UUID filter. A super admin may name any
+ *   institution; a principal, HOD, admin or accounts user only their own.
+ *   Any other institution is a 403 with a plain message.
  * - score_date: Optional ISO date (defaults to today)
+ *
+ * With no institution_id, a super admin gets every institution and everyone
+ * else only their own.
  */
 export async function GET(request: NextRequest) {
   await connection();
@@ -44,9 +49,19 @@ export async function GET(request: NextRequest) {
     }
 
     const searchParams = request.nextUrl.searchParams;
+    const institutionId = searchParams.get('institution_id') || undefined;
+
+    // Refuse an institution outside the viewer's scope with a plain 403 before
+    // any health score row is read, never an empty list (the service checks
+    // again and filters).
+    const access = await HealthScoreService.checkAccess(user.id, institutionId);
+    if (!access.allowed) {
+      return NextResponse.json({ error: access.reason }, { status: access.status });
+    }
+
     const data = await HealthScoreService.getHealthScores(
       user.id,
-      searchParams.get('institution_id') || undefined,
+      institutionId,
       searchParams.get('score_date') || undefined
     );
 

@@ -1,0 +1,106 @@
+name: List row tap targets
+
+# One check: a list page that opted its rows into navigation must also give its
+# own name link a 44px tap target, and each row must still open the right path.
+#
+# WHY THIS EXISTS — the tests were written, and nothing ran them.
+#   __tests__/data-table/ has held row-navigation.test.ts since #3738 and
+#   list-row-hrefs.test.ts since #3750. Checked before merge: no workflow in this
+#   repository referenced either. package.json has no `test` script and every
+#   vitest workflow here names its files by explicit path — nothing globs
+#   __tests__/**. So both sat in the tree looking like coverage while never
+#   executing on a single PR. This workflow names the directory, which covers
+#   those two and the tap-target guard added alongside it.
+#
+# WHAT IS AT STAKE — the bug this catches already shipped, twice green.
+#   #3750 had four steps; the fourth — give each page's existing link the 44px
+#   treatment — is applied by hand, once per page, and was missed on three of the
+#   fourteen. Every gate passed, because nothing in this repository measures a tap
+#   target. Measured in a real browser at 390px: billing/schedule's link rendered
+#   at 17px and admission/applications' learner-name link at 20px, under half the
+#   minimum, inside a PR whose entire subject was tap targets.
+#
+#   The guard asserts over SOURCE TEXT, which is crude — it cannot see a rendered
+#   box, and a class arriving through cn() or a variable slips past it. It is
+#   nonetheless the only thing here that can catch a missed page. Its page list is
+#   derived from the `rowHref=` wirings on disk rather than hardcoded, so the next
+#   page to opt in is measured the day it lands.
+#
+#   Mutation-tested before merge: stripping the treatment from each of the three
+#   repaired pages in turn failed 2 assertions each, naming the page.
+#
+# SCOPE. Runs one vitest directory and nothing else — no database, no secrets, no
+# network, no browser. Kept as its own workflow so it reports as its own status
+# check and cannot change the meaning of an existing one.
+#
+# NOTE the workflow `name:` and the job `name:` are the status-check identity that
+# branch protection matches on. Renaming either silently orphans a rule pointing
+# at the old name.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      # The guards themselves.
+      - '__tests__/data-table/**'
+      - '.github/workflows/list-row-tap-targets.yml'
+      # The code they assert over: every list page's columns and its table, plus
+      # the shared table that reads rowHref.
+      - 'app/(routes)/**/_components/columns.tsx'
+      - 'app/(routes)/**/_components/*-data-table.tsx'
+      - 'components/data-table/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: list-row-tap-targets-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guards:
+    name: List rows stay tappable and land where they say
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --fund=false
+
+      - name: Run the list-row guards
+        run: npx vitest run __tests__/data-table/
+
+      - name: Explain a failure
+        if: failure()
+        run: |
+          echo "::error::A list page's row tap target, or a row's destination, regressed."
+          echo ""
+          echo "TAP TARGET (list-row-tap-targets.test.ts). A page that wires rowHref="
+          echo "must give its own name link the 44px treatment. Copy it verbatim from"
+          echo "app/(routes)/organizations/programs/_components/columns.tsx:"
+          echo ""
+          echo "  className='inline-flex items-center min-h-[44px] font-medium hover:text-primary hover:underline'"
+          echo ""
+          echo "Where the hover classes sit on the wrapping element instead, the link"
+          echo "takes className='inline-flex items-center min-h-[44px]' on its own —"
+          echo "see app/(routes)/billing/schedule/_components/columns.tsx."
+          echo ""
+          echo "Do NOT gate it behind max-md:. The 44px minimum applies at every width;"
+          echo "a width-gated target gives the desktop pointer a box the thumb never gets."
+          echo ""
+          echo "DESTINATION (list-row-hrefs.test.ts). Each builder in"
+          echo "components/data-table/utils/list-row-hrefs.ts must return the path that"
+          echo "page's own name link already points at, and null when the row carries no"
+          echo "identifier. A row that looks tappable and opens a 404 is the same bug as"
+          echo "an untappable row."
+          echo ""
+          echo "Do NOT fix a failure by deleting the assertion. If a change is genuinely"
+          echo "intended, change the test deliberately and say why in the PR body."

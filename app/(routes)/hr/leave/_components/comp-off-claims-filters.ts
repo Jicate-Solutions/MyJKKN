@@ -98,7 +98,9 @@ export function toTableRow(
     location_label: formatWorkLocation(row.work_location, row.source),
     biometric_status: check?.status ?? null,
     biometric_label: check ? describeBiometric(check)?.label ?? '' : '',
-    status_label: STATUS_LABEL[row.status] ?? row.status,
+    // A revoked claim stores status='rejected'; the label has to say which of
+    // the two happened, because only one of them was ever granted.
+    status_label: row.revoked_at ? 'Revoked' : STATUS_LABEL[row.status] ?? row.status,
   };
 }
 

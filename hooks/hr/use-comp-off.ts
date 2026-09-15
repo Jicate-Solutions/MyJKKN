@@ -82,6 +82,51 @@ export function useDecideCompOffClaim() {
   });
 }
 
+/**
+ * Take an APPROVED claim back. Same invalidations as a decision — a released
+ * credit changes what can be booked — plus the decision-email ping, because the
+ * revocation queues a 'revoked' row in hr_decision_emails by trigger.
+ */
+export function useRevokeCompOffClaim() {
+  const qc = useQueryClient();
+  const supabase = createClientSupabaseClient();
+  return useMutation({
+    mutationFn: ({ creditId, reason }: { creditId: string; reason: string }) =>
+      CompOffService.revokeClaim(supabase, creditId, reason),
+    onSuccess: (_data, { creditId }) => {
+      qc.invalidateQueries({ queryKey: [KEY] });
+      qc.invalidateQueries({ queryKey: [CLAIMS_KEY] });
+      qc.invalidateQueries({ queryKey: ['hr-leave-applications'] });
+      void fetch(`/api/hr/comp-off/claims/${creditId}/decision-email`, { method: 'POST' }).catch(
+        () => undefined
+      );
+    },
+  });
+}
+
+/**
+ * Why may this caller NOT revoke this approved claim? null = they may.
+ *
+ * Asked of Postgres, not answered here: the one rule a client cannot see is that
+ * a credit already SPENT by a booked leave must not be taken back on its own, and
+ * the message has to name the leave to revoke first.
+ */
+export function useCompOffRevokeBlockReason(creditId: string | undefined) {
+  const supabase = createClientSupabaseClient();
+  return useQuery({
+    queryKey: ['hr-comp-off-revoke-block-reason', creditId ?? null],
+    enabled: Boolean(creditId),
+    queryFn: async () => {
+      const { data, error } = await (supabase as any).rpc('fn_hr_comp_off_revoke_block_reason', {
+        p_credit_id: creditId,
+      });
+      if (error) throw error;
+      return (data as string | null) ?? null;
+    },
+    staleTime: 0,
+  });
+}
+
 const CLAIMS_KEY = 'hr-comp-off-pending-claims';
 
 /**

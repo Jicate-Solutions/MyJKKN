@@ -35,10 +35,12 @@ import type {
   CdcDrive,
   CdcDriveCircular,
   CdcDriveEligibility,
+  CdcDriveStatus,
   CdcDriveType,
   CdcDriveWillingness,
   CdcRecruiter,
 } from '@/types/cdc';
+import { isWindowOpen } from '@/lib/services/courses/application-window';
 import { CdcDriveService, driveCircularOf } from './drive-service';
 import { hasSemesterTargeting, isLearnerTargeted } from './drive-targeting';
 import { fetchLearnerResultView, type ResultViewSource } from '@/lib/services/coe/learner-result-view';
@@ -88,17 +90,6 @@ export interface LearnerWillingnessSnapshot {
   /** Why not eligible — surfaced verbatim to the learner. */
   ineligible_reason: string | null;
   is_window_open: boolean;
-  /** Set when the drive is willingness_open but willingness_window_close_at has passed. */
-  deadline_passed: boolean;
-  /** true when the drive uses institution + semester targeting (vs legacy program eligibility). */
-  uses_semester_targeting: boolean;
-}
-
-export interface DeclareWillingnessInput {
-  intent: 'willing' | 'decline';
-  additional_mobile?: string | null;
-  /** Learner permits CDC to use profile + academic details for this drive. Required for 'willing'. */
-  data_consent?: boolean;
 }
 
 export class CdcWillingnessService {
@@ -241,25 +232,8 @@ export class CdcWillingnessService {
     if (willingnessRes.error) throw willingnessRes.error;
 
     const eligibility = (eligibilityRes.data ?? null) as CdcDriveEligibility | null;
-    const uses_semester_targeting =
-      Array.isArray(drive.institution_semesters) && drive.institution_semesters.length > 0;
-    const { is_eligible, reason } = computeEligibility(drive, eligibility, learner);
-    const deadlinePassed =
-      !!drive.willingness_window_close_at &&
-      new Date(drive.willingness_window_close_at).getTime() < Date.now();
-    const is_window_open = drive.status === 'willingness_open' && !deadlinePassed;
-
-    const missing_profile_fields: Array<'full_name' | 'email' | 'mobile'> = [];
-    if (!learner.full_name) missing_profile_fields.push('full_name');
-    if (!learner.email) missing_profile_fields.push('email');
-    if (!learner.mobile) missing_profile_fields.push('mobile');
-
-    // Academic figures are fetched only when the learner can actually act
-    // (eligible + window open) — no COE call for a read-only view.
-    const academic =
-      opts.includeAcademic !== false && is_eligible && is_window_open
-        ? await this.loadAcademic(learner)
-        : null;
+    const is_eligible = computeIsEligible(eligibility, learner.program_id);
+    const is_window_open = drive.status === 'willingness_open';
 
     return {
       drive,
@@ -284,8 +258,6 @@ export class CdcWillingnessService {
       is_eligible,
       ineligible_reason: is_eligible ? null : reason,
       is_window_open,
-      deadline_passed: deadlinePassed,
-      uses_semester_targeting,
     };
   }
 
@@ -295,6 +267,11 @@ export class CdcWillingnessService {
    * - intent='willing':  INSERT or UPDATE → status='willing', clear withdrawn_*,
    *                      snapshot profile + academic details (requires data_consent)
    * - intent='decline':  INSERT or UPDATE → status='withdrawn', set withdrawn_at + reason
+   *
+   * Guards (caller is the learner whose auth.uid() resolved to learner.id):
+   * - drive.status must be 'willingness_open'
+   * - learner.program_id must be in eligibility.program_ids[]
+   * - eligibility row must exist (otherwise we can't snapshot)
    *
    * Idempotent: re-asserting the same intent succeeds and returns the row.
    * One row per (drive, learner) — enforced by the DB UNIQUE constraint.
@@ -312,9 +289,7 @@ export class CdcWillingnessService {
     if (!snapshot) throw new Error('Drive not found');
     if (!snapshot.is_window_open) {
       throw new Error(
-        snapshot.deadline_passed
-          ? 'The willingness deadline for this drive has passed'
-          : `Willingness window is not open for this drive (status: ${snapshot.drive.status})`
+        `Willingness window is not open for this drive (status: ${snapshot.drive.status})`
       );
     }
     if (!snapshot.is_eligible) {
@@ -506,4 +481,71 @@ export function computeIsEligible(
   if (!learnerProgramId) return false;
   if (!Array.isArray(eligibility.program_ids)) return false;
   return eligibility.program_ids.includes(learnerProgramId);
+}
+
+/**
+ * Why a drive is or is not accepting declarations right now.
+ *
+ * A drive carries TWO independent switches: its `status`, and the optional
+ * `willingness_window_open_at` / `_close_at` pair. Until now only `status` was
+ * ever consulted, so a coordinator who set a closing date got a drive that
+ * advertised "closes today" on the learner's dashboard and then went on
+ * accepting answers indefinitely. The courses module met the same question and
+ * answered it by keeping only the dates (see application-window.ts); CDC's
+ * state machine genuinely needs the status, so here both must agree.
+ *
+ * - 'open'         — status is willingness_open AND we are inside the window
+ * - 'status'       — the drive is not in willingness_open at all
+ * - 'not_yet_open' — status is right, but the window has not started
+ * - 'closed'       — status is right, but the window has ended
+ */
+export type WillingnessWindowState = 'open' | 'status' | 'not_yet_open' | 'closed';
+
+/**
+ * The ONE place the window is decided. The learner page, `declareWillingness`
+ * and the dashboard card must all call this — a card that offered a drive whose
+ * own page then refused it is precisely the mismatch this avoids (the same
+ * reasoning as computeIsEligible below).
+ *
+ * A NULL bound means "no limit on that side", so a drive with no dates behaves
+ * exactly as it did before this predicate existed.
+ */
+export function computeWillingnessWindowState(
+  drive: Pick<
+    CdcDrive,
+    'status' | 'willingness_window_open_at' | 'willingness_window_close_at'
+  >,
+  now: Date = new Date()
+): WillingnessWindowState {
+  if (drive.status !== 'willingness_open') return 'status';
+  if (isWindowOpen(drive.willingness_window_open_at, drive.willingness_window_close_at, now)) {
+    return 'open';
+  }
+  // Inside willingness_open but outside the dates — which side?
+  const opensAt = drive.willingness_window_open_at
+    ? new Date(drive.willingness_window_open_at)
+    : null;
+  if (opensAt && !Number.isNaN(opensAt.getTime()) && now < opensAt) return 'not_yet_open';
+  return 'closed';
+}
+
+/**
+ * Plain-English reason a declaration was refused. Kept beside the predicate so
+ * a new window state cannot be added without a message for it.
+ */
+export function describeClosedWindow(
+  state: WillingnessWindowState,
+  status: CdcDriveStatus
+): string {
+  switch (state) {
+    case 'not_yet_open':
+      return 'This drive is not accepting responses yet — the willingness window has not opened.';
+    case 'closed':
+      return 'The willingness window for this drive has closed.';
+    case 'status':
+      return `Willingness window is not open for this drive (status: ${status})`;
+    case 'open':
+      // Unreachable — callers only ask when the window is shut.
+      return 'The willingness window for this drive is not open.';
+  }
 }

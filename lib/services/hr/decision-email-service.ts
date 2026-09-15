@@ -85,7 +85,7 @@ async function leaveDetails(supabase: SupabaseClient, row: QueueRow): Promise<De
   const { data: app, error } = await supabase
     .from('hr_leave_applications')
     .select(
-      'id, leave_type_id, start_date, end_date, start_time, end_time, duration_type, duration_minutes, total_days, rejection_reason, final_approver_id'
+      'id, leave_type_id, start_date, end_date, start_time, end_time, duration_type, duration_minutes, total_days, rejection_reason, final_approver_id, revoked_by, revoke_reason'
     )
     .eq('id', row.leave_application_id as string)
     .single();
@@ -100,9 +100,15 @@ async function leaveDetails(supabase: SupabaseClient, row: QueueRow): Promise<De
 
   const isShort = type?.request_category === 'short_time_off';
   const duration = app.duration_type as LeaveDurationType | null;
+  // 'revoked' is carried through verbatim. Collapsing it to 'rejected' here —
+  // which this line used to do for anything that was not 'approved' — would send
+  // somebody whose leave was granted last week a mail headed "Rejected".
+  const decision: DecisionEmailDetails['decision'] =
+    row.decision === 'approved' ? 'approved' : row.decision === 'revoked' ? 'revoked' : 'rejected';
+
   return {
     kind: isShort ? 'short_time_off' : 'leave',
-    decision: row.decision === 'approved' ? 'approved' : 'rejected',
+    decision,
     staffName: await staffName(supabase, row.employee_id),
     typeName: type?.leave_type_name ?? null,
     startDate: app.start_date,
@@ -114,7 +120,9 @@ async function leaveDetails(supabase: SupabaseClient, row: QueueRow): Promise<De
     durationLabel:
       !isShort && duration && duration !== 'full' ? LEAVE_DURATION_LABELS[duration] ?? null : null,
     decidedBy: await profileName(supabase, app.final_approver_id),
-    rejectionReason: app.rejection_reason,
+    revokedBy:
+      decision === 'revoked' ? await profileName(supabase, app.revoked_by) : null,
+    rejectionReason: decision === 'revoked' ? app.revoke_reason : app.rejection_reason,
     link: appLink(`/hr/leave/${app.id}`),
   };
 }
@@ -122,14 +130,17 @@ async function leaveDetails(supabase: SupabaseClient, row: QueueRow): Promise<De
 async function compOffDetails(supabase: SupabaseClient, row: QueueRow): Promise<DecisionEmailDetails> {
   const { data: credit, error } = await supabase
     .from('hr_comp_off_credits')
-    .select('worked_date, expires_on, credit_days, work_location, work_place, rejection_reason, approved_by')
+    .select('worked_date, expires_on, credit_days, work_location, work_place, rejection_reason, approved_by, revoked_by, revoke_reason')
     .eq('id', row.comp_off_credit_id as string)
     .single();
   if (error) throw error;
 
+  const decision: DecisionEmailDetails['decision'] =
+    row.decision === 'approved' ? 'approved' : row.decision === 'revoked' ? 'revoked' : 'rejected';
+
   return {
     kind: 'comp_off',
-    decision: row.decision === 'approved' ? 'approved' : 'rejected',
+    decision,
     staffName: await staffName(supabase, row.employee_id),
     workedDate: credit.worked_date,
     workLocation: credit.work_location
@@ -139,7 +150,9 @@ async function compOffDetails(supabase: SupabaseClient, row: QueueRow): Promise<
     expiresOn: credit.expires_on,
     creditDays: credit.credit_days,
     decidedBy: await profileName(supabase, credit.approved_by),
-    rejectionReason: credit.rejection_reason,
+    revokedBy:
+      decision === 'revoked' ? await profileName(supabase, credit.revoked_by) : null,
+    rejectionReason: decision === 'revoked' ? credit.revoke_reason : credit.rejection_reason,
     link: appLink('/hr/leave/compensatory-off'),
   };
 }

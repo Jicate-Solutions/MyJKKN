@@ -19,7 +19,7 @@
 // page number.
 
 import { useCallback, useMemo, type ReactNode } from 'react';
-import { Clock, FileText } from 'lucide-react';
+import { FileText } from 'lucide-react';
 
 import { DataTable, type DataFetchParams } from '@/components/data-table/data-table';
 import type { PeriodRange } from './period-filter';
@@ -52,7 +52,6 @@ export interface ApprovalFilterState {
     | 'cancelled';
   /** Only rows whose CURRENT step routes to me. */
   mineOnly: boolean;
-  emergencyOnly: boolean;
   period: PeriodRange;
 }
 
@@ -62,7 +61,6 @@ export const emptyApprovalFilters = (period: PeriodRange): ApprovalFilterState =
   leaveTypeId: 'any',
   status: 'open',
   mineOnly: false,
-  emergencyOnly: false,
   period,
 });
 
@@ -73,7 +71,6 @@ export function approvalFiltersActive(f: ApprovalFilterState): boolean {
     f.leaveTypeId !== 'any' ||
     f.status !== 'open' ||
     f.mineOnly ||
-    f.emergencyOnly ||
     f.period.preset !== 'all'
   );
 }
@@ -114,7 +111,6 @@ export function matchesApprovalFilters(
     return false;
   }
   if (f.mineOnly && !r.waiting_on_me) return false;
-  if (f.emergencyOnly && !r.is_emergency) return false;
 
   const q = search.trim().toLowerCase();
   if (q && !haystack(r).includes(q)) return false;
@@ -235,11 +231,6 @@ export function ApprovalsDataTable({
               ? `View ${r.documents.length} documents`
               : 'View document'}
           </button>
-        ) : r.is_emergency ? (
-          <p className="inline-flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400">
-            <Clock className="h-3.5 w-3.5" />
-            Document awaited
-          </p>
         ) : null}
         {r.reason && <p className="text-xs text-muted-foreground">{r.reason}</p>}
         <div className="flex justify-end">

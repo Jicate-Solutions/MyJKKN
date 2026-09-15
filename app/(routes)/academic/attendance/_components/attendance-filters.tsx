@@ -38,6 +38,11 @@ import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 // Module-level constant → stable reference, so it doesn't re-trigger the hook's fetch each render.
 const INSTITUTION_ENTITY_TYPES: EntityType[] = ['institution', 'school'];
 
+// These lookup services page at 10 rows by default, which silently truncates a
+// dropdown into looking like the data is missing (e.g. a 5-year program's later
+// semesters falling past the first 10 rows returned).
+const HIERARCHY_DROPDOWN_LIMIT = 1000;
+
 interface AttendanceFiltersProps {
   searchContext: AttendanceSearchContext;
   onContextChange: (context: Partial<AttendanceSearchContext>) => void;
@@ -75,21 +80,23 @@ export function AttendanceFilters({
   );
 
   const { data: degreesData, refetch: fetchDegrees } = useDegrees({
-    institution_id: searchContext.institution_id || undefined
+    institution_id: searchContext.institution_id || undefined,
+    limit: HIERARCHY_DROPDOWN_LIMIT
   });
   const degrees = degreesData?.data ?? [];
 
   const { data: programsData, refetch: fetchPrograms } = usePrograms({
     institution_id: searchContext.institution_id || undefined,
     degree_id: searchContext.degree_id || undefined,
-    department_id: searchContext.department_id || undefined
+    department_id: searchContext.department_id || undefined,
+    limit: HIERARCHY_DROPDOWN_LIMIT
   });
   const programs = programsData?.data ?? [];
 
   const { data: departmentsData, refetch: fetchDepartments } = useDepartments({
     institution_id: searchContext.institution_id || undefined,
     degree_id: searchContext.degree_id || undefined,
-    limit: 100 // Fetch all departments for the filter dropdown
+    limit: HIERARCHY_DROPDOWN_LIMIT // Fetch all departments for the filter dropdown
   });
   const departments = departmentsData?.data ?? [];
 
@@ -97,7 +104,8 @@ export function AttendanceFilters({
     institution_id: searchContext.institution_id || undefined,
     degree_id: searchContext.degree_id || undefined,
     program_id: searchContext.program_id || undefined,
-    department_id: searchContext.department_id || undefined
+    department_id: searchContext.department_id || undefined,
+    limit: HIERARCHY_DROPDOWN_LIMIT
   });
   const semesters = semestersData?.data ?? [];
 
@@ -107,7 +115,7 @@ export function AttendanceFilters({
     program_id: searchContext.program_id || undefined,
     department_id: searchContext.department_id || undefined,
     semester_id: searchContext.semester_id || undefined,
-    limit: 1000 // Fixed: 2025-01-30 - Fetch all sections for attendance marking
+    limit: HIERARCHY_DROPDOWN_LIMIT // Fixed: 2025-01-30 - Fetch all sections for attendance marking
   });
   const sections = sectionsData?.data ?? [];
 

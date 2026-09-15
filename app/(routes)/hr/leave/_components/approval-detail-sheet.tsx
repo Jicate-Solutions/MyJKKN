@@ -19,7 +19,7 @@
 // Nothing links to it any more, so it is reachable by URL only.
 
 import { useState } from 'react';
-import { Check, Loader2, X } from 'lucide-react';
+import { Check, Loader2, RotateCcw, X } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -139,10 +139,7 @@ export function ApprovalDetailSheet({
                   : ''}
               </SheetDescription>
               <div className="flex flex-wrap items-center gap-1.5">
-                <StatusBadge status={row.status} />
-                {row.is_emergency && (
-                  <Badge variant="outline" className="border-red-300 text-red-700">Emergency</Badge>
-                )}
+                <StatusBadge status={row.status} revoked={row.revoked_at !== null} />
                 {row.is_own && (
                   <Badge variant="outline" className="border-amber-300 text-amber-800">Yours</Badge>
                 )}
@@ -214,10 +211,6 @@ export function ApprovalDetailSheet({
                   (staleTime is 5 min and nothing refetches on focus). */}
               <LeaveDocumentList
                 documents={row.documents ?? app?.documents}
-                outstanding={
-                  (row.documents?.length ?? app?.documents?.length ?? 0) === 0 &&
-                  row.is_emergency
-                }
                 hideWhenEmpty
                 viewerTitle={[row.staff_name, row.leave_type_name].filter(Boolean).join(' · ')}
               />
@@ -278,11 +271,37 @@ export function ApprovalDetailSheet({
               {/* A decided row is undecidable for everyone — the "your own
                   request" explanation below is only right on OPEN rows. */}
               {row.status !== 'pending' && row.status !== 'escalated' ? (
-                <div className="min-w-0 space-y-1">
-                  <p className="text-xs text-muted-foreground">
-                    Already decided{row.final_approver_name ? ` by ${row.final_approver_name}` : ''}.
-                  </p>
-                  <DecisionEmailStatus target={{ leaveApplicationId: row.id }} />
+                <div className="flex w-full flex-wrap items-end justify-between gap-3">
+                  <div className="min-w-0 space-y-1">
+                    {row.revoked_at ? (
+                      <p className="text-xs text-amber-700 dark:text-amber-400">
+                        Approval revoked
+                        {row.revoked_by_name ? ` by ${row.revoked_by_name}` : ''} on{' '}
+                        {new Date(row.revoked_at).toLocaleDateString('en-GB')}
+                        {row.revoke_reason ? ` — ${row.revoke_reason}` : ''}.
+                      </p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        Already decided
+                        {row.final_approver_name ? ` by ${row.final_approver_name}` : ''}.
+                      </p>
+                    )}
+                    <DecisionEmailStatus target={{ leaveApplicationId: row.id }} />
+                  </div>
+                  {/* The only action a decided row still has. Same cheap test as
+                      the row menu; the dialog asks the database whether this
+                      caller and this month actually allow it. */}
+                  {row.status === 'approved' && row.revoked_at === null && !row.is_own && (
+                    <Button
+                      variant="outline"
+                      className="border-amber-600/40 text-amber-700 hover:bg-amber-600/10 hover:text-amber-700 dark:text-amber-400"
+                      disabled={handlers.isPending}
+                      onClick={() => { handlers.onRevoke(row); onOpenChange(false); }}
+                    >
+                      <RotateCcw className="mr-1 h-4 w-4" />
+                      Revoke approval…
+                    </Button>
+                  )}
                 </div>
               ) : row.can_decide ? (
                 <>

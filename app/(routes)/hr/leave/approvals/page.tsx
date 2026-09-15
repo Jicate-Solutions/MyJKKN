@@ -40,7 +40,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { AlertCircle, Check, RotateCw, ShieldAlert, UserCheck, X, Zap } from 'lucide-react';
+import { AlertCircle, Check, RotateCw, ShieldAlert, UserCheck, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 import { Button } from '@/components/ui/button';
@@ -62,14 +62,17 @@ import {
 } from '../_components/approvals-data-table';
 import type { ApprovalColumnActions } from '../_components/approval-queue-columns';
 import {
-  ApproveRequestsDialog, RejectRequestsDialog, type ApprovalDecision,
+  ApproveRequestsDialog, RejectRequestsDialog, RevokeRequestDialog,
+  type ApprovalDecision,
 } from '../_components/approval-decision-dialogs';
 import {
   describeApprovalSkipped, splitBulkApprove, splitBulkReject,
 } from '../_components/approval-bulk';
-import { useDecideApplication } from '@/hooks/hr/use-leave';
+import { useDecideApplication, useRevokeApplication } from '@/hooks/hr/use-leave';
 import { useCanApproveLeave } from '@/hooks/hr/use-hr-leave-types';
-import { useLeaveApprovalQueue } from '@/hooks/hr/use-leave-approval-flows';
+import {
+  useLeaveApprovalQueue, useLeaveRevokeBlockReason,
+} from '@/hooks/hr/use-leave-approval-flows';
 import { usePendingCompOffClaims } from '@/hooks/hr/use-comp-off';
 import { getErrorMessage } from '@/lib/utils';
 import { isReviewStep } from '../_components/format';
@@ -84,6 +87,7 @@ export default function LeaveApprovalsPage() {
   const { data: queue, error: queueError, isLoading, refetch, isFetching, dataUpdatedAt } =
     useLeaveApprovalQueue(canApprove === true);
   const decide = useDecideApplication();
+  const revoke = useRevokeApplication();
   const { data: claims } = usePendingCompOffClaims(canApprove === true);
 
   /**
@@ -122,6 +126,9 @@ export default function LeaveApprovalsPage() {
   /** What the approve / reject confirmation is about. null = closed. */
   const [approving, setApproving] = useState<ApprovalDecision | null>(null);
   const [rejecting, setRejecting] = useState<ApprovalDecision | null>(null);
+  /** The approved request whose revocation is being confirmed. null = closed. */
+  const [revoking, setRevoking] = useState<HRLeaveApprovalQueueRow | null>(null);
+  const [revokeReason, setRevokeReason] = useState('');
   const [bulkBusy, setBulkBusy] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   /** A single decision's refusal, shown inside its still-open dialog. */
@@ -193,6 +200,18 @@ export default function LeaveApprovalsPage() {
     setDialogError(null);
     setRejectReason('');
     setTimeout(() => setRejecting({ kind: 'single', row }), 0);
+  }, []);
+
+  /**
+   * Revoking undoes a grant the applicant has already been told about. Deferred
+   * by a tick for the same Radix reason onView is — this is opened from inside a
+   * DropdownMenu, and stacking an overlay inside another's close handler is the
+   * documented cause of the stuck `pointer-events: none` body.
+   */
+  const confirmRevoke = useCallback((row: HRLeaveApprovalQueueRow) => {
+    setDialogError(null);
+    setRevokeReason('');
+    setTimeout(() => setRevoking(row), 0);
   }, []);
 
   /**
@@ -288,6 +307,33 @@ export default function LeaveApprovalsPage() {
     reportBulk('Rejected', ok, failures);
   };
 
+  // Asked per row, on demand: the queue RPC deliberately carries no can_revoke.
+  const { data: revokeBlockReason, isFetching: checkingRevokeBlock } =
+    useLeaveRevokeBlockReason(revoking?.id);
+
+  const runRevoke = async () => {
+    const reason = revokeReason.trim();
+    if (!revoking || !reason) return;
+    setError(null);
+    setDialogError(null);
+    try {
+      const { warning } = await revoke.mutateAsync({ applicationId: revoking.id, reason });
+      toast.success(`Approval revoked — ${revoking.staff_name ?? 'request'}`);
+      // The revoke stuck but a day could not be re-judged. NOT swallowed and not
+      // reported as a failure either: both would be lies about what happened.
+      if (warning) {
+        toast(warning, { duration: 8000, icon: '⚠️' });
+        setError(warning);
+      }
+      setRevoking(null);
+      setRevokeReason('');
+    } catch (err) {
+      const msg = getErrorMessage(err);
+      setDialogError(msg);
+      toast.error(msg);
+    }
+  };
+
   const actions: ApprovalColumnActions = useMemo(
     () => ({
       // Both open an overlay from inside a DropdownMenu. Deferring by a tick
@@ -301,9 +347,10 @@ export default function LeaveApprovalsPage() {
       onViewDocuments: (row) => setDocsRow(row),
       onApprove: confirmApprove,
       onReject: confirmReject,
-      isPending: decide.isPending,
+      onRevoke: confirmRevoke,
+      isPending: decide.isPending || revoke.isPending,
     }),
-    [confirmApprove, confirmReject, decide.isPending]
+    [confirmApprove, confirmReject, confirmRevoke, decide.isPending, revoke.isPending]
   );
 
   if (gateLoading) {
@@ -468,16 +515,6 @@ export default function LeaveApprovalsPage() {
 
       <Button
         size="sm"
-        className="h-8"
-        variant={filters.emergencyOnly ? 'default' : 'outline'}
-        onClick={() => set('emergencyOnly', !filters.emergencyOnly)}
-      >
-        <Zap className="mr-2 h-4 w-4" />
-        Emergency
-      </Button>
-
-      <Button
-        size="sm"
         variant="outline"
         className="h-8"
         onClick={() => refetch()}
@@ -581,6 +618,18 @@ export default function LeaveApprovalsPage() {
         onReasonChange={setRejectReason}
         onCancel={() => setRejecting(null)}
         onConfirm={() => { void runReject(); }}
+      />
+
+      <RevokeRequestDialog
+        row={revoking}
+        busy={revoke.isPending}
+        blockReason={revokeBlockReason ?? null}
+        checkingBlock={checkingRevokeBlock}
+        error={dialogError}
+        reason={revokeReason}
+        onReasonChange={setRevokeReason}
+        onCancel={() => { setRevoking(null); setRevokeReason(''); }}
+        onConfirm={() => { void runRevoke(); }}
       />
 
       <ApprovalDetailSheet

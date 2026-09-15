@@ -139,6 +139,94 @@ export function ApproveClaimsDialog({
   );
 }
 
+/**
+ * Take an APPROVED claim back (2026-09-12). Single claim only — never bulk.
+ *
+ * `blockReason` is fn_hr_comp_off_revoke_block_reason verbatim, the SAME sentence
+ * trg_hcoc_revoke_gate raises. Its most important answer is the one a client
+ * cannot work out: this credit has already been SPENT by a booked leave, and that
+ * leave has to be revoked first.
+ */
+export function RevokeClaimDialog({
+  row,
+  busy,
+  blockReason,
+  checkingBlock,
+  error,
+  reason,
+  onReasonChange,
+  onCancel,
+  onConfirm,
+}: {
+  row: CompOffClaimTableRow | null;
+  busy: boolean;
+  /** null = revocable. Non-null = the database's refusal, verbatim. */
+  blockReason: string | null;
+  checkingBlock: boolean;
+  error: string | null;
+  reason: string;
+  onReasonChange: (v: string) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const blocked = Boolean(blockReason);
+
+  return (
+    <Dialog open={Boolean(row)} onOpenChange={(v) => { if (!v && !busy) onCancel(); }}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Revoke this approval?</DialogTitle>
+          <DialogDescription>
+            The claim goes back to <strong>rejected</strong> and the credit stops counting
+            towards what this person can book. A reason is required and is shown to them.
+          </DialogDescription>
+        </DialogHeader>
+
+        {row && <ClaimSummary row={row} />}
+
+        {checkingBlock && (
+          <p className="text-xs text-muted-foreground">Checking whether this can still be revoked…</p>
+        )}
+
+        {blockReason && (
+          <p className="rounded-md border border-amber-600/40 bg-amber-600/10 p-3 text-sm text-amber-800 dark:text-amber-400">
+            {blockReason}
+          </p>
+        )}
+
+        <div>
+          <Label htmlFor="revokeClaimReason">
+            Reason <span className="text-destructive">*</span>
+          </Label>
+          <Textarea
+            id="revokeClaimReason"
+            className="mt-1"
+            rows={3}
+            value={reason}
+            disabled={blocked}
+            onChange={(e) => onReasonChange(e.target.value)}
+            placeholder="Why is this approval being taken back?"
+          />
+        </div>
+
+        {error && <p className="text-sm text-destructive">{error}</p>}
+
+        <DialogFooter>
+          <Button variant="outline" disabled={busy} onClick={onCancel}>Cancel</Button>
+          <Button
+            variant="destructive"
+            disabled={!reason.trim() || busy || blocked || checkingBlock}
+            onClick={onConfirm}
+          >
+            {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Revoke approval
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function RejectClaimsDialog({
   decision,
   busy,

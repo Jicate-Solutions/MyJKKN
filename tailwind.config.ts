@@ -189,6 +189,19 @@ const config: Config = {
         'body[data-scroll-locked]:has([role$="dialog"][data-state="open"]) &'
       );
     }),
+    // `submenu-open:` — sibling of `modal-open:` for the one opener it cannot
+    // see. A bottom-nav TAB submenu (the icon grid that unfolds above the bar)
+    // is not a dialog: it renders inside the z-[80] nav with a z-[75]
+    // backdrop, so `modal-open:` never matches and the z-[95]/[100] FABs
+    // painted straight over it — on a phone the bug-reporter button sat on
+    // top of the Admission submenu's "Consultations" item (measured live
+    // 2026-09-14). The nav exposes its state as data-submenu-open="true".
+    plugin(({ addVariant }) => {
+      addVariant(
+        'submenu-open',
+        'body:has([data-bottom-nav][data-submenu-open="true"]) &'
+      );
+    }),
     // `scrolling-down:` — sibling of `modal-open:`. Matches while the user is
     // scrolling DOWN the page on a mobile-width viewport, so the floating stack
     // can retract out of the way of the content it is parked over.

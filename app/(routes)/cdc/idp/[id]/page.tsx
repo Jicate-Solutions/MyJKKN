@@ -14,8 +14,12 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
 import { useIdpById, useUpdateIdp, useApproveIdp } from '@/hooks/cdc/use-cdc-idp';
-import type { CdcIdpResponse } from '@/types/cdc/idp';
+import type { CdcIdpAspirations, CdcIdpResponse } from '@/types/cdc/idp';
+import { IDP_LEARNING_STYLE_OPTIONS } from '@/types/cdc/idp';
 import { BeatLoader } from 'react-spinners';
 import { X, Plus, ArrowLeft, CheckCircle2, Loader2 } from 'lucide-react';
 
@@ -55,6 +59,12 @@ function IdpDetailContent({ params }: PageProps) {
   const [clubPicks, setClubPicks] = useState<string[]>([]);
   const [skillInput, setSkillInput] = useState('');
   const [skills, setSkills] = useState<string[]>([]);
+  // Self-profile answers stored inside the `aspirations` jsonb
+  // (BUG-004064 / BUG-004068 / BUG-004069).
+  const [learningStyle, setLearningStyle] = useState('');
+  const [personalStrengths, setPersonalStrengths] = useState('');
+  const [dreamCompanyInput, setDreamCompanyInput] = useState('');
+  const [dreamCompanies, setDreamCompanies] = useState<string[]>([]);
   const [shortTermGoal, setShortTermGoal] = useState('');
   const [longTermGoal, setLongTermGoal] = useState('');
   const [freeNotes, setFreeNotes] = useState('');
@@ -64,6 +74,10 @@ function IdpDetailContent({ params }: PageProps) {
     setInterests((idp.interests as string[]) ?? []);
     setClubPicks(idp.club_picks ?? []);
     setSkills((idp.skills_self_attribution as string[]) ?? []);
+    const asp = (idp.aspirations ?? {}) as CdcIdpAspirations;
+    setLearningStyle(asp.learning_style ?? '');
+    setPersonalStrengths(asp.personal_strengths ?? '');
+    setDreamCompanies(Array.isArray(asp.aspiring_companies) ? asp.aspiring_companies : []);
     const plan = idp.three_year_plan as Record<string, string>;
     setShortTermGoal(plan?.short_term_goal ?? '');
     setLongTermGoal(plan?.long_term_goal ?? '');
@@ -76,6 +90,14 @@ function IdpDetailContent({ params }: PageProps) {
       interests,
       club_picks: clubPicks,
       skills_self_attribution: skills,
+      // Spread the saved object so keys this form does not edit (e.g. imported
+      // preferred_sectors / google_form_raw) survive the save.
+      aspirations: {
+        ...((idp?.aspirations ?? {}) as CdcIdpAspirations),
+        learning_style: learningStyle as CdcIdpAspirations['learning_style'],
+        personal_strengths: personalStrengths.trim(),
+        aspiring_companies: dreamCompanies,
+      },
       three_year_plan: { short_term_goal: shortTermGoal, long_term_goal: longTermGoal },
       free_text_notes: freeNotes || undefined,
     });
@@ -113,6 +135,9 @@ function IdpDetailContent({ params }: PageProps) {
 
   const learner = idp.learner as { name?: string; roll_number?: string } | null;
   const plan = idp.three_year_plan as Record<string, string>;
+  const asp = (idp.aspirations ?? {}) as CdcIdpAspirations;
+  const savedDreamCompanies = Array.isArray(asp.aspiring_companies) ? asp.aspiring_companies : [];
+  const savedLearningStyle = IDP_LEARNING_STYLE_OPTIONS.find(o => o.value === asp.learning_style)?.label;
   const status = idp.submission_status ?? 'draft';
   const statusMeta = IDP_STATUS_META[status];
 
@@ -213,6 +238,31 @@ function IdpDetailContent({ params }: PageProps) {
             </Card>
 
             <Card>
+              <CardHeader><CardTitle className="text-base">My Preferred Learning Style</CardTitle></CardHeader>
+              <CardContent className="text-sm text-gray-600">
+                {savedLearningStyle ?? <span className="text-gray-400">None recorded</span>}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader><CardTitle className="text-base">My Personal Strengths</CardTitle></CardHeader>
+              <CardContent className="text-sm text-gray-600 whitespace-pre-wrap">
+                {asp.personal_strengths || <span className="text-gray-400">None recorded</span>}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader><CardTitle className="text-base">Dream Companies or Projects that Inspire Me</CardTitle></CardHeader>
+              <CardContent className="flex flex-wrap gap-2">
+                {savedDreamCompanies.length === 0
+                  ? <p className="text-gray-400 text-sm">None recorded</p>
+                  : savedDreamCompanies.map(d => (
+                    <Badge key={d} variant="secondary">{d}</Badge>
+                  ))}
+              </CardContent>
+            </Card>
+
+            <Card>
               <CardHeader><CardTitle className="text-base">3-Year Plan</CardTitle></CardHeader>
               <CardContent className="space-y-3 text-sm">
                 <div>
@@ -301,6 +351,58 @@ function IdpDetailContent({ params }: PageProps) {
                   {skills.map(s => (
                     <Badge key={s} variant="secondary" className="gap-1">{s}
                       <button type="button" onClick={() => removeTag(s, skills, setSkills)}><X className="w-3 h-3" /></button>
+                    </Badge>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* My Preferred Learning Style (BUG-004064) — VARK */}
+            <Card>
+              <CardHeader><CardTitle className="text-base">My Preferred Learning Style</CardTitle></CardHeader>
+              <CardContent className="space-y-1">
+                <Label>How does the learner learn best? (VARK)</Label>
+                <Select value={learningStyle} onValueChange={setLearningStyle}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a preferred learning style" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {IDP_LEARNING_STYLE_OPTIONS.map(o => (
+                      <SelectItem key={o.value} value={o.value}>{o.label} — {o.hint}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </CardContent>
+            </Card>
+
+            {/* My Personal Strengths (BUG-004068) */}
+            <Card>
+              <CardHeader><CardTitle className="text-base">My Personal Strengths</CardTitle></CardHeader>
+              <CardContent>
+                <Textarea value={personalStrengths} onChange={e => setPersonalStrengths(e.target.value)} rows={4} />
+              </CardContent>
+            </Card>
+
+            {/* Dream Companies or Projects (BUG-004069) */}
+            <Card>
+              <CardHeader><CardTitle className="text-base">Dream Companies or Projects that Inspire Me</CardTitle></CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex gap-2">
+                  <Input
+                    value={dreamCompanyInput}
+                    onChange={e => setDreamCompanyInput(e.target.value)}
+                    placeholder="Add a company or project and press Enter"
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addTag(dreamCompanyInput, setDreamCompanyInput, dreamCompanies, setDreamCompanies); } }}
+                  />
+                  <Button type="button" variant="outline" size="icon"
+                    onClick={() => addTag(dreamCompanyInput, setDreamCompanyInput, dreamCompanies, setDreamCompanies)}>
+                    <Plus className="w-4 h-4" />
+                  </Button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {dreamCompanies.map(d => (
+                    <Badge key={d} variant="secondary" className="gap-1">{d}
+                      <button type="button" onClick={() => removeTag(d, dreamCompanies, setDreamCompanies)}><X className="w-3 h-3" /></button>
                     </Badge>
                   ))}
                 </div>

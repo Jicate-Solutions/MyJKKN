@@ -15,6 +15,25 @@
  * profile details auto-filled from the learner profile (name / email / mobile,
  * never typed) → optional additional mobile → CGPA + arrears from COE →
  * data-permission checkbox → confirm. One response per learner per drive.
+ *
+ * 2026-05-21 — INTENTIONALLY not wrapped in <PermissionGuard module="cdc.drives" action="view">
+ *   because this is a learner self-service surface. Students typically lack
+ *   cdc.drives.view (that's the coordinator dashboard) but must be able to
+ *   respond to the willingness invite they received. Access is enforced at the
+ *   RLS layer: the willingness service queries the row keyed on
+ *   `learner_id = auth.uid()`, so unauthorized users get a "not eligible" view
+ *   instead of data leakage.
+ *
+ * Behavior matrix:
+ *   - drive not willingness_open  → "drive not currently open" message
+ *   - willingness window not yet started / already ended (the drive's optional
+ *     willingness_window_open_at / _close_at dates) → same closed treatment,
+ *     but the copy names the date rather than the status
+ *   - learner not eligible        → friendly explainer, no submit buttons
+ *   - no existing willingness     → show "I'm in" + "I decline"
+ *   - existing status='willing'   → show "You're in" + "Withdraw"
+ *   - existing status='withdrawn' → show "You declined" + "Change to I'm in"
+ *   - existing status='confirmed' → show locked badge (post-window state)
  */
 
 import Link from 'next/link';
@@ -63,6 +82,24 @@ import type { CdcDriveWillingness } from '@/types/cdc';
 import { CDC_DRIVE_STATUS_LABELS } from '@/types/cdc';
 
 const API_BASE = '/api/cdc/drives';
+
+/**
+ * A willingness-window bound, for a learner to read. Falls back to vaguer
+ * wording rather than printing "Invalid Date" when the drive has no bound set
+ * (which is legitimate — a NULL bound means no limit on that side).
+ */
+function formatWindowMoment(iso: string | null): string {
+  if (!iso) return 'an unspecified time';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return 'an unspecified time';
+  return d.toLocaleString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
 
 function useLearnerWillingnessSnapshot(driveId: string) {
   return useQuery({
@@ -185,6 +222,7 @@ export default function CdcDriveWillingnessPage({ params }: { params: Promise<{ 
 
   const {
     drive,
+  const {
     circular,
     recruiter,
     drive_type,
@@ -197,6 +235,7 @@ export default function CdcDriveWillingnessPage({ params }: { params: Promise<{ 
     is_window_open,
     deadline_passed,
     eligibility,
+    window_state,
   } = snapshot;
   const hasCriteria =
     !!eligibility &&
@@ -256,7 +295,11 @@ export default function CdcDriveWillingnessPage({ params }: { params: Promise<{ 
                   ) : null}
                 </div>
                 <Badge variant={is_window_open ? 'default' : 'secondary'}>
-                  {CDC_DRIVE_STATUS_LABELS[drive.status]}
+                  {window_state === 'closed'
+                    ? 'Willingness Closed'
+                    : window_state === 'not_yet_open'
+                      ? 'Willingness Not Yet Open'
+                      : CDC_DRIVE_STATUS_LABELS[drive.status]}
                 </Badge>
               </div>
             </CardHeader>
@@ -507,11 +550,33 @@ export default function CdcDriveWillingnessPage({ params }: { params: Promise<{ 
               {!is_window_open ? (
                 <Alert>
                   <Info className="h-4 w-4" />
-                  <AlertTitle>{deadline_passed ? 'The willingness deadline has passed' : 'Not open for willingness right now'}</AlertTitle>
+              {!is_window_open ? (
+                <Alert>
+                  <Info className="h-4 w-4" />
+                  <AlertTitle>
+                    {window_state === 'closed'
+                      ? 'The window for responding has closed.'
+                      : window_state === 'not_yet_open'
+                        ? 'This drive is not accepting responses yet.'
+                        : deadline_passed
+                          ? 'The willingness deadline has passed'
+                          : 'Not open for willingness right now'}
+                  </AlertTitle>
                   <AlertDescription>
-                    {deadline_passed
-                      ? `Responses closed on ${new Date(drive.willingness_window_close_at!).toLocaleString()}. Contact the placement team if you still want to take part.`
-                      : `Current status: ${CDC_DRIVE_STATUS_LABELS[drive.status]}. You cannot declare or change your response.`}
+                    {window_state === 'closed'
+                      ? 'Responses closed on ' +
+                        formatWindowMoment(drive.willingness_window_close_at) +
+                        '. Contact the Career Development Centre if you still want to take part.'
+                      : window_state === 'not_yet_open'
+                        ? 'You can respond from ' +
+                          formatWindowMoment(drive.willingness_window_open_at) +
+                          '.'
+                        : deadline_passed
+                          ? `Responses closed on ${new Date(drive.willingness_window_close_at!).toLocaleString()}. Contact the placement team if you still want to take part.`
+                          : `Current status: ${CDC_DRIVE_STATUS_LABELS[drive.status]}. You cannot declare or change your response.`}
+                  </AlertDescription>
+                </Alert>
+              ) : null}
                   </AlertDescription>
                 </Alert>
               ) : null}

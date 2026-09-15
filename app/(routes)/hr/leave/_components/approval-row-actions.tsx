@@ -15,7 +15,7 @@
 // dialog, the detail sheet and the React Query invalidation. This component
 // owns only the menu.
 
-import { Check, Eye, MoreHorizontal, X } from 'lucide-react';
+import { Check, Eye, MoreHorizontal, RotateCcw, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -34,6 +34,8 @@ export interface ApprovalRowActionHandlers {
   onView: (row: HRLeaveApprovalQueueRow) => void;
   onApprove: (row: HRLeaveApprovalQueueRow) => void;
   onReject: (row: HRLeaveApprovalQueueRow) => void;
+  /** Opens the revoke confirmation for an APPROVED row. */
+  onRevoke: (row: HRLeaveApprovalQueueRow) => void;
   /** True while any decision is in flight — disables every menu at once. */
   isPending: boolean;
 }
@@ -89,6 +91,32 @@ export function ApprovalRowActions({
           self-approval bar, so hiding these on is_own would block exactly the
           person the database lets through.
         */}
+        {/*
+          REVOKE — the one action a decided row still has.
+
+          Offered on the cheap test only: approved, not already revoked, not your
+          own. Whether THIS caller is the final approver depends on a chain step
+          usually routed to a role, and custom_roles is unreadable client-side —
+          the confirmation asks Postgres (fn_hr_leave_revoke_block_reason) and
+          shows the answer, including "that month is closed". Deciding it here
+          would either grey out the right person or need a per-row role lookup
+          across every approved row, which is what timed the queue RPC out in
+          Sep 2026.
+        */}
+        {row.status === 'approved' && row.revoked_at === null && !row.is_own && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              disabled={handlers.isPending}
+              onClick={() => handlers.onRevoke(row)}
+              className="text-amber-700 focus:text-amber-700 dark:text-amber-400"
+            >
+              <RotateCcw className="mr-2 h-4 w-4" />
+              Revoke approval…
+            </DropdownMenuItem>
+          </>
+        )}
+
         {isDecided ? null : row.can_decide ? (
           <>
             <DropdownMenuSeparator />

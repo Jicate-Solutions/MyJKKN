@@ -68,6 +68,25 @@ describe('leave', () => {
     expect(buildDecisionEmail(leave({ decision: 'rejected' })).text).toContain('Reason: No reason given');
   });
 
+  it('revoked does not read as a rejection', () => {
+    // The whole reason 'revoked' exists as its own decision: this person was
+    // told last week that their leave was approved. A mail headed "Rejected"
+    // reads as a system error, not as news.
+    const e = buildDecisionEmail(
+      leave({
+        decision: 'revoked',
+        revokedBy: 'Dr S. Principal',
+        rejectionReason: 'Approved in error',
+      })
+    );
+    expect(e.subject).toBe('Approval revoked: Casual Leave, 14–15 Sep 2026');
+    expect(e.subject).not.toContain('Rejected');
+    expect(e.text).toContain('has been approved and has now been revoked');
+    expect(e.text).toContain('Revoked by: Dr S. Principal');
+    expect(e.text).toContain('Reason: Approved in error');
+    expect(e.text).toContain('the leave balance has been returned');
+  });
+
   it('no link, no button', () => {
     expect(buildDecisionEmail(leave({ link: null })).html).not.toContain('View in MyJKKN');
   });

@@ -27,67 +27,12 @@ import type {
   CdcRecruiter,
 } from '@/types/cdc';
 import { canTransition, CDC_DRIVE_STATUS_LABELS } from '@/types/cdc';
+import {
+  CdcEligibilityService,
+  ELIGIBILITY_REQUIRED_MESSAGE,
+  isEligibilityReadyForWillingness,
+} from '@/lib/services/cdc/eligibility-service';
 import { normalizeInstitutionSemesters } from './drive-targeting';
-
-/** Map the flat circular_* columns to the API's CdcDriveCircular shape (null when none). */
-export function driveCircularOf(drive: CdcDrive): CdcDriveCircular | null {
-  if (!drive.circular_drive_file_id) return null;
-  return {
-    drive_file_id: drive.circular_drive_file_id,
-    file_name: drive.circular_file_name ?? 'circular',
-    mime_type: drive.circular_mime_type ?? 'application/octet-stream',
-    size_bytes: drive.circular_size_bytes ?? null,
-    url: drive.campus_circular_url ?? null,
-    uploaded_at: drive.circular_uploaded_at ?? null,
-    uploaded_by: drive.circular_uploaded_by ?? null,
-  };
-}
-
-/** Map cdc_drives CHECK-constraint violations to messages a coordinator can act on. */
-function friendlyDriveError(error: { code?: string; message?: string }): Error {
-  const msg = error.message ?? '';
-  if (error.code === '23514') {
-    if (msg.includes('cdc_drives_drive_times_sane')) {
-      return new Error('End time must be after the start time');
-    }
-    if (msg.includes('cdc_drives_willingness_window_sane')) {
-      return new Error('Willingness window close must be after its open time');
-    }
-    if (msg.includes('rounds_count')) {
-      return new Error('Rounds count must be between 1 and 10');
-    }
-    if (msg.includes('min_cgpa')) return new Error('Minimum CGPA must be between 0 and 10');
-    if (msg.includes('arrears')) return new Error('Maximum arrears cannot be negative');
-  }
-  return error instanceof Error ? error : Object.assign(new Error(msg || 'Database error'), error);
-}
-
-function circularColumns(
-  circular: CdcDriveCircular | null | undefined,
-  actorId: string
-): Record<string, unknown> {
-  if (circular === undefined) return {};
-  if (circular === null) {
-    return {
-      circular_drive_file_id: null,
-      circular_file_name: null,
-      circular_mime_type: null,
-      circular_size_bytes: null,
-      circular_uploaded_at: null,
-      circular_uploaded_by: null,
-      campus_circular_url: null,
-    };
-  }
-  return {
-    circular_drive_file_id: circular.drive_file_id,
-    circular_file_name: circular.file_name,
-    circular_mime_type: circular.mime_type,
-    circular_size_bytes: circular.size_bytes ?? null,
-    circular_uploaded_at: circular.uploaded_at ?? new Date().toISOString(),
-    circular_uploaded_by: circular.uploaded_by ?? actorId,
-    campus_circular_url: circular.url ?? null,
-  };
-}
 
 // =====================================================================================
 // List filters
@@ -460,6 +405,22 @@ export class CdcDriveService {
       throw new Error(
         `Invalid transition: ${CDC_DRIVE_STATUS_LABELS[drive.status]} → ${CDC_DRIVE_STATUS_LABELS[payload.to_status]} not allowed`
       );
+    }
+
+    // Eligibility guard (2026-09-12). Opening a drive for willingness fires
+    // fn_cdc_emit_drive_notification, whose `willingness_open` branch INNER JOINs
+    // cdc_drive_eligibility to build its recipient list. With no eligibility row
+    // (or one with an empty program_ids) that join returns nothing, the function
+    // treats it as "nobody to notify" and RETURNs without an error — so the drive
+    // opens, looks healthy, and reaches zero learners. It also leaves the learner
+    // willingness page reporting "not eligible" for everyone, because
+    // computeIsEligible(null, …) is false. Refuse the transition instead of
+    // letting it succeed silently.
+    if (payload.to_status === 'willingness_open') {
+      const eligibility = await CdcEligibilityService.getEligibility(supabase, driveId);
+      if (!isEligibilityReadyForWillingness(eligibility)) {
+        throw new Error(ELIGIBILITY_REQUIRED_MESSAGE);
+      }
     }
 
     const now = new Date().toISOString();

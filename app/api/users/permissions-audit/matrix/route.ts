@@ -5,6 +5,11 @@ import { cookies } from 'next/headers';
 import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { PERMISSION_CATEGORIES } from '@/lib/constants/permissions';
+import {
+  collectPermissionKeys,
+  getPermissionValue,
+  getRoleUserCounts
+} from '@/lib/permissions-audit/role-user-counts';
 
 export async function GET(request: NextRequest) {
   await connection();
@@ -64,58 +69,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ roles: [], roleMeta: {}, matrix: {} });
     }
 
-    // 2. Count users per role from BOTH user_roles AND legacy profiles.role.
-    // Why both: user_has_permission() in 02_functions.sql falls back to
-    // profiles.role when no user_roles entries exist for the user. Counting
-    // only user_roles understated faculty by 38, hod by 3, admission by 1, etc.
-    // — the audit dashboard needs to reflect EFFECTIVE access. We union both
-    // sources and dedup by user_id so a user with both a user_roles row and
-    // a matching profiles.role isn't double-counted.
-    const userRolesSet: Record<string, Set<string>> = {};
-
-    const { data: userRoleRows, error: countsError } = await supabase
-      .from('user_roles')
-      .select('user_id, custom_roles(role_key)');
-
-    if (countsError) {
-      console.error('[permissions-audit/matrix] Error fetching user role counts:', countsError);
-    }
-
-    if (userRoleRows) {
-      for (const ur of userRoleRows as unknown as Array<{ user_id: string; custom_roles: { role_key: string } | null }>) {
-        const roleKey = ur.custom_roles?.role_key;
-        if (!roleKey || !ur.user_id) continue;
-        if (!userRolesSet[roleKey]) userRolesSet[roleKey] = new Set();
-        userRolesSet[roleKey].add(ur.user_id);
-      }
-    }
-
-    // Pull legacy profiles.role into the same map. Only count where the
-    // legacy role string matches an actual custom_roles.role_key — keeps
-    // typos/orphans out of the count.
-    const knownRoleKeys = new Set(customRoles.map((r) => r.role_key));
-    const { data: legacyRoleRows, error: legacyError } = await supabase
-      .from('profiles')
-      .select('id, role')
-      .not('role', 'is', null);
-
-    if (legacyError) {
-      console.error('[permissions-audit/matrix] Error fetching legacy profile roles:', legacyError);
-    }
-
-    if (legacyRoleRows) {
-      for (const p of legacyRoleRows as Array<{ id: string; role: string | null }>) {
-        if (!p.role || !knownRoleKeys.has(p.role)) continue;
-        if (!userRolesSet[p.role]) userRolesSet[p.role] = new Set();
-        userRolesSet[p.role].add(p.id);
-      }
-    }
-
-    // Build count map: role_key -> distinct-user count
-    const roleUserCounts: Record<string, number> = {};
-    for (const [roleKey, userSet] of Object.entries(userRolesSet)) {
-      roleUserCounts[roleKey] = userSet.size;
-    }
+    // 2. Count users per role. The union of user_roles and legacy
+    // profiles.role lives in lib/permissions-audit/role-user-counts.ts so this
+    // endpoint and /page-access cannot report different counts for one role —
+    // they are rendered side by side in the same tab.
+    const roleUserCounts = await getRoleUserCounts(
+      supabase,
+      new Set(customRoles.map((r) => r.role_key))
+    );
 
     // 3. Collect all unique permission keys and build role list + meta.
     // Seed with the canonical permission catalog so modules declared in
@@ -166,50 +127,4 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-/**
- * Recursively collect all permission keys from a nested permissions object.
- * Keys are flattened with dot notation: e.g. { users: { view: true } } -> "users.view"
- */
-function collectPermissionKeys(
-  obj: Record<string, any>,
-  prefix: string,
-  keys: Set<string>
-): void {
-  for (const [key, value] of Object.entries(obj)) {
-    const fullKey = prefix ? `${prefix}.${key}` : key;
-    if (typeof value === 'boolean') {
-      keys.add(fullKey);
-    } else if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-      collectPermissionKeys(value, fullKey, keys);
-    }
-  }
-}
-
-/**
- * Get a permission value for a dot-notation key. Permissions may be stored EITHER
- * as a FLAT dotted key ({ "id_cards.jobs.manage": true }) OR nested
- * ({ id_cards: { jobs: { manage: true } } }) — real data has both shapes. The
- * flat form must be checked FIRST: without it, a role that flat-stores
- * "id_cards.jobs.manage" was reported as NOT granting it (the nested walk looks
- * for obj.id_cards → undefined), so the audit lens under-reported which roles
- * hold flat-keyed permissions (e.g. it claimed "Only super admins have this"
- * when Registrar & Admission Officer actually did). Fixed 2026-07-26.
- * e.g. getPermissionValue({ "users.view": true }, "users.view") -> true
- *      getPermissionValue({ users: { view: true } }, "users.view") -> true
- */
-function getPermissionValue(obj: Record<string, any>, dotKey: string): boolean {
-  // Flat dotted key stored directly on the object.
-  if (obj[dotKey] === true) return true;
-  // Otherwise walk the nested structure.
-  const parts = dotKey.split('.');
-  let current: any = obj;
-  for (const part of parts) {
-    if (current === null || current === undefined || typeof current !== 'object') {
-      return false;
-    }
-    current = current[part];
-  }
-  return current === true;
 }

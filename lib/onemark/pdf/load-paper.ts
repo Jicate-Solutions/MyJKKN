@@ -18,7 +18,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { OneMarkExamKeys } from '@/types/onemark';
-import type { PaperItem, PaperModel, PaperOption, PaperSubject } from './types';
+import { ONEMARK_ASSET_BUCKET, mimeForStoragePath } from '@/lib/onemark/assets/constants';
+import type { PaperAsset, PaperItem, PaperModel, PaperOption, PaperSubject } from './types';
 
 /** Grouped directives the English board paper prints above a run of items
  *  (PRD English §4.2). Derived from the tag; never stored on the item. */
@@ -185,6 +186,74 @@ export interface LoadPaperOptions {
   admin?: SupabaseClient;
 }
 
+/**
+ * Wave 3 Lane D — the pictures on a paper, inlined.
+ *
+ * SERVICE-ROLE, like the items themselves: onemark_question_assets is gated to
+ * foundation.items.*, which a Senior Learner who only builds papers does not
+ * hold, and the bucket is private. Each object is read once and turned into a
+ * data: URI, so the document Chromium prints has no network dependency at all.
+ *
+ * NOTHING HERE THROWS. A missing bucket (Lane S3 not yet applied), a deleted
+ * object or a storage hiccup leaves `dataUri: null` on that asset, and
+ * document.ts prints the alt text in its place. A paper is never refused
+ * because a diagram would not load — the caption is the fallback the ruling
+ * asks for on screen, and it is the right fallback on paper too.
+ */
+export async function loadItemAssets(
+  admin: SupabaseClient,
+  itemIds: string[],
+): Promise<Map<string, PaperAsset[]>> {
+  const byItem = new Map<string, PaperAsset[]>();
+  if (itemIds.length === 0) return byItem;
+
+  let rows: any[] = [];
+  try {
+    const { data, error } = await (admin as any)
+      .from('onemark_question_assets')
+      .select('id, item_id, asset_type, storage_path, alt_text, sort_order')
+      .in('item_id', itemIds)
+      .neq('asset_type', 'katex_block')
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: true });
+    if (error) {
+      console.warn('[onemark/paper] could not read question pictures:', error.message);
+      return byItem;
+    }
+    rows = data ?? [];
+  } catch (err) {
+    console.warn('[onemark/paper] could not read question pictures:', err);
+    return byItem;
+  }
+
+  for (const row of rows) {
+    let dataUri: string | null = null;
+    const path: string | null = row.storage_path ?? null;
+    if (path) {
+      try {
+        const { data: blob, error } = await (admin as any).storage.from(ONEMARK_ASSET_BUCKET).download(path);
+        if (error || !blob) {
+          console.warn(`[onemark/paper] picture ${path} could not be read:`, error?.message ?? 'no body');
+        } else {
+          const bytes = Buffer.from(await blob.arrayBuffer());
+          dataUri = `data:${mimeForStoragePath(path)};base64,${bytes.toString('base64')}`;
+        }
+      } catch (err) {
+        console.warn(`[onemark/paper] picture ${path} could not be read:`, err);
+      }
+    }
+    const list = byItem.get(row.item_id) ?? [];
+    list.push({
+      id: row.id,
+      dataUri,
+      alt: (row.alt_text ?? '').trim(),
+      sortOrder: typeof row.sort_order === 'number' ? row.sort_order : 1,
+    });
+    byItem.set(row.item_id, list);
+  }
+  return byItem;
+}
+
 /** Null when the assessment is not visible to the caller (RLS) or has no items. */
 export async function loadPaperModel(assessmentId: string, opts: LoadPaperOptions): Promise<PaperModel | null> {
   const session = opts.session ?? ((await createClient()) as unknown as SupabaseClient);
@@ -240,6 +309,11 @@ export async function loadPaperModel(assessmentId: string, opts: LoadPaperOption
     }
   }
 
+  const assetsByItem = await loadItemAssets(
+    admin,
+    rows.filter((r: any) => r.item?.id).map((r: any) => r.item.id as string),
+  );
+
   const items: PaperItem[] = rows
     .filter((r: any) => r.item)
     .map((r: any, idx: number) => {
@@ -262,6 +336,7 @@ export async function loadPaperModel(assessmentId: string, opts: LoadPaperOption
         topicLabel: it.topic?.display_name ?? null,
         topicKey: it.topic?.config_key ?? null,
         directive: directiveForTags(examKey, tags),
+        assets: assetsByItem.get(it.id) ?? [],
       };
       return applyOverride(base, overrides[it.id], opts.includeAnswers);
     });

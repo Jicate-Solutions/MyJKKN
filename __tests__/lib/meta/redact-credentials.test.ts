@@ -15,9 +15,9 @@ import { redactCredentials } from '@/lib/meta/graph-api-client';
 describe('redactCredentials', () => {
   it('removes the Bearer token that Headers.append puts in its own error', () => {
     const real =
-      'Meta Graph request failed: Headers.append: "Bearer EAAGNeb4CWZCUBRgixZCZAioTE3vC1OAzhpG0VE8IF8DEBFFGa3bFw9pZA0biHtWayFOo" is an invalid header value.';
+      'Meta Graph request failed: Headers.append: "Bearer EAAFakeTokenForUnitTestsOnlyNotARealMetaCredentialXXXXXXXXXXXXXXXXXXX" is an invalid header value.';
     const out = redactCredentials(real);
-    expect(out).not.toContain('EAAGNeb4CWZCUBRgixZCZAioTE3vC1OAzhpG0VE8');
+    expect(out).not.toContain('EAAFakeTokenForUnitTestsOnlyNotARealMeta');
     // Marker prefix, not the exact string: the Headers rule now substitutes the
     // whole quoted value as [REDACTED_HEADER_VALUE]. The security property this
     // test guards — the token is gone — is unchanged and asserted above.
@@ -25,8 +25,8 @@ describe('redactCredentials', () => {
   });
 
   it('redacts a bare Meta token with no Bearer prefix', () => {
-    const out = redactCredentials('token EAAGNeb4CWZCUBRgixZCZAioTE3vC1OAzhpG0 rejected');
-    expect(out).not.toContain('EAAGNeb4CWZCUBRgixZCZAioTE3vC1OAzhpG0');
+    const out = redactCredentials('token EAAFakeTokenForUnitTestsOnlyNotARealM rejected');
+    expect(out).not.toContain('EAAFakeTokenForUnitTestsOnlyNotARealM');
     expect(out).toContain('[REDACTED_META_TOKEN]');
   });
 
@@ -46,9 +46,9 @@ describe('redactCredentials', () => {
   // anchored on Bearer stopped at the break and left the tail in the clear.
   it('redacts a Bearer token that a line break splits in two', () => {
     const real =
-      'Meta Graph request failed: Headers.append: "Bearer EAAGNeb4CWZCUBRgixZCZAioTE3vC1OA\nzhpG0VE8IF8DEBFFGa3bFw9pZA0biHtWayFOoZD" is an invalid header value.';
+      'Meta Graph request failed: Headers.append: "Bearer EAAFakeTokenForUnitTestsOnlyNotA\nzhpG0VE8IF8DEBFFGa3bFw9pZA0biHtWayFOoZD" is an invalid header value.';
     const out = redactCredentials(real);
-    expect(out).not.toContain('EAAGNeb4CWZCUBRgixZCZAioTE3vC1OA');
+    expect(out).not.toContain('EAAFakeTokenForUnitTestsOnlyNotA');
     expect(out).not.toContain('zhpG0VE8IF8DEBFFGa3bFw9pZA0biHtWayFOoZD');
     expect(out).toContain('[REDACTED');
   });

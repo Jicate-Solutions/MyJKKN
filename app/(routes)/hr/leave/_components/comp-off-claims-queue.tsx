@@ -43,6 +43,7 @@ import { CompOffClaimFilterControls } from './comp-off-claims-toolbar';
 import {
   ApproveClaimsDialog,
   RejectClaimsDialog,
+  RevokeClaimDialog,
   type ClaimDecision,
 } from './comp-off-claim-decision-dialogs';
 import {
@@ -58,7 +59,9 @@ import {
 import {
   useCompOffClaimsBiometric,
   useCompOffClaimsQueue,
+  useCompOffRevokeBlockReason,
   useDecideCompOffClaim,
+  useRevokeCompOffClaim,
 } from '@/hooks/hr/use-comp-off';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
 import { getErrorMessage } from '@/lib/utils';
@@ -67,6 +70,7 @@ export function CompOffClaimsQueue() {
   const ctx = useTimeOffContext();
   const { data, isLoading, error, refetch, isFetching, dataUpdatedAt } = useCompOffClaimsQueue();
   const decide = useDecideCompOffClaim();
+  const revoke = useRevokeCompOffClaim();
 
   // The LOCAL (IST) date, matching trg_hcoc_block_expired_approval and the
   // nightly auto-reject. toISOString() is UTC and ran 5½ hours behind them.
@@ -83,6 +87,10 @@ export function CompOffClaimsQueue() {
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
   const [detailRow, setDetailRow] = useState<CompOffClaimTableRow | null>(null);
+  /** The approved claim whose revocation is being confirmed. null = closed. */
+  const [revoking, setRevoking] = useState<CompOffClaimTableRow | null>(null);
+  const [revokeReason, setRevokeReason] = useState('');
+  const [revokeError, setRevokeError] = useState<string | null>(null);
   /** Whose proof the viewer is showing. null = closed. */
   const [proofRow, setProofRow] = useState<CompOffClaimTableRow | null>(null);
 
@@ -130,12 +138,36 @@ export function CompOffClaimsQueue() {
         setRejectError(null);
         setRejecting({ kind: 'single', row: r });
       },
-      isPending: busy,
+      onRevoke: (r) => {
+        setRevokeReason('');
+        setRevokeError(null);
+        setRevoking(r);
+      },
+      isPending: busy || revoke.isPending,
       today,
       ownStaffId: ctx.employeeId,
     }),
-    [busy, today, ctx.employeeId]
+    [busy, revoke.isPending, today, ctx.employeeId]
   );
+
+  // Asked per row, on demand — a consumed credit and a closed month are both
+  // facts the queue payload does not carry.
+  const { data: revokeBlockReason, isFetching: checkingRevokeBlock } =
+    useCompOffRevokeBlockReason(revoking?.id);
+
+  const runRevoke = async () => {
+    const reason = revokeReason.trim();
+    if (!revoking || !reason) return;
+    setRevokeError(null);
+    try {
+      await revoke.mutateAsync({ creditId: revoking.id, reason });
+      toast.success(`Approval revoked — ${revoking.employee_name}`);
+      setRevoking(null);
+      setRevokeReason('');
+    } catch (err) {
+      setRevokeError(getErrorMessage(err));
+    }
+  };
 
   const setFilter = <K extends keyof CompOffClaimFilterState>(k: K, v: CompOffClaimFilterState[K]) =>
     setFilters((f) => ({ ...f, [k]: v }));
@@ -353,6 +385,18 @@ export function CompOffClaimsQueue() {
         error={approveError}
         onCancel={() => setApproving(null)}
         onConfirm={() => { void runApprove(); }}
+      />
+
+      <RevokeClaimDialog
+        row={revoking}
+        busy={revoke.isPending}
+        blockReason={revokeBlockReason ?? null}
+        checkingBlock={checkingRevokeBlock}
+        error={revokeError}
+        reason={revokeReason}
+        onReasonChange={setRevokeReason}
+        onCancel={() => { setRevoking(null); setRevokeReason(''); }}
+        onConfirm={() => { void runRevoke(); }}
       />
 
       <RejectClaimsDialog

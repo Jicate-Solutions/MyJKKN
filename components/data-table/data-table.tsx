@@ -14,6 +14,7 @@ import {
   type ColumnDef,
   type ColumnResizeMode
 } from '@tanstack/react-table';
+import { useRouter } from 'next/navigation';
 import { useEffect, useCallback, useMemo, useRef, useState } from 'react';
 
 import {
@@ -51,7 +52,12 @@ import {
   createSortingState
 } from './utils/table-state-handlers';
 import { createKeyboardNavigationHandler } from './utils/keyboard-navigation';
+import { getRowNavigationProps } from './utils/row-navigation';
 import { createConditionalStateHook } from './utils/conditional-state';
+import {
+  shouldResetPageOnFilterKeyChange,
+  shouldResetPageOnSearchChange
+} from './utils/page-reset';
 import {
   initializeColumnSizes,
   trackColumnResizing,
@@ -94,6 +100,20 @@ type RowSelectionUpdater = (
   prev: Record<string, boolean>
 ) => Record<string, boolean>;
 
+// PostgREST answers "Requested range not satisfiable" (PGRST103) when the
+// requested offset lies past the end of the result set. In a table that
+// happens when the user is on page N and the result set shrinks under them —
+// a fresh search, a filter, a deleted row — so page N no longer exists.
+const isRangeNotSatisfiable = (err: unknown): boolean => {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as { code?: unknown; message?: unknown };
+  return (
+    e.code === 'PGRST103' ||
+    (typeof e.message === 'string' &&
+      e.message.includes('Requested range not satisfiable'))
+  );
+};
+
 interface DataTableProps<TData extends ExportableData, TValue> {
   // Allow overriding the table configuration
   config?: Partial<TableConfig>;
@@ -107,6 +127,19 @@ interface DataTableProps<TData extends ExportableData, TValue> {
   // screens narrower than md (768 px) and hides the table. The table is still
   // rendered (but hidden) so TanStack Table's pagination state is shared.
   renderMobileRow?: (item: TData) => React.ReactNode;
+
+  // Optional: make the whole row open a destination, the way a phone list
+  // behaves. Return the href for a row, or null for a row with nowhere to go.
+  //
+  // OMIT IT and nothing changes — the row renders the exact props it rendered
+  // before this prop existed (no `cursor-pointer`, no click handler beyond the
+  // pre-existing `enableClickRowSelect` one, no key handler). Every table that
+  // does not pass `rowHref` is therefore untouched.
+  //
+  // Taps that start on a link, button, tick box or menu still belong to that
+  // control; modified clicks (cmd/ctrl/shift/alt/middle) are left to the
+  // browser so open-in-new-tab keeps working on the real <a> in the row.
+  rowHref?: (row: TData) => string | null;
 
   // Data fetching function
   fetchDataFn:
@@ -169,6 +202,15 @@ interface DataTableProps<TData extends ExportableData, TValue> {
 
   // Optional refetch trigger - increment this value to force a data refetch
   refetchKey?: number;
+
+  // Optional signature of the filters the OWNER of this table keeps outside the
+  // table (page-level search boxes, dropdowns in the URL, …). When it changes,
+  // the table goes back to page 1 before the next fetch, because a narrower
+  // filter set usually returns fewer rows and the old offset would then be past
+  // the end of the result (PostgREST answers 416 / PGRST103, not data).
+  // Tables that keep every filter inside the toolbar omit this and behave
+  // exactly as before — `undefined` never compares unequal to itself.
+  pageResetKey?: string | number;
 }
 
 export function DataTable<TData extends ExportableData, TValue>({
@@ -183,8 +225,11 @@ export function DataTable<TData extends ExportableData, TValue>({
   pageSizeOptions,
   renderToolbarContent,
   renderMobileRow,
-  refetchKey = 0
+  rowHref,
+  refetchKey = 0,
+  pageResetKey
 }: DataTableProps<TData, TValue>) {
+  const router = useRouter();
   // Load table configuration with any overrides
   const tableConfig = useTableConfig(config);
 
@@ -219,6 +264,20 @@ export function DataTable<TData extends ExportableData, TValue>({
   const [columnFilters, setColumnFilters] = useConditionalUrlState<
     Array<{ id: string; value: unknown }>
   >('columnFilters', []);
+
+  // External filters changed -> go back to page 1 (see utils/page-reset.ts).
+  // This is deliberately a render-phase update, not an effect: the fetch effect
+  // below would otherwise run FIRST, with the stale page, and that request is
+  // the one that fails with PGRST103. Adjusting state during render makes React
+  // re-render with page 1 before any effect runs, so exactly one fetch is sent.
+  // Inert for every table that does not pass `pageResetKey`.
+  const [seenPageResetKey, setSeenPageResetKey] = useState(pageResetKey);
+  if (pageResetKey !== seenPageResetKey) {
+    setSeenPageResetKey(pageResetKey);
+    if (shouldResetPageOnFilterKeyChange(seenPageResetKey, pageResetKey, page)) {
+      setPage(1);
+    }
+  }
 
   // Internal states
   const [isLoading, setIsLoading] = useState(true);
@@ -549,6 +608,16 @@ export function DataTable<TData extends ExportableData, TValue>({
           setIsError(false);
           setError(null);
         } catch (err) {
+          // The page-validation effect below cannot rescue this case: the
+          // failed fetch never lands a new total_pages, so the stale page
+          // number survives and every retry fails the same way. Snap back
+          // to page 1 and let the effect refetch, instead of pinning the
+          // table on "Failed to load data" until the user pages backwards
+          // by hand (BUG-006061, student billing search).
+          if (isRangeNotSatisfiable(err) && page > 1) {
+            setPage(1);
+            return;
+          }
           setIsError(true);
           setError(err instanceof Error ? err : new Error('Unknown error'));
           console.error('Error fetching data:', err);
@@ -559,7 +628,7 @@ export function DataTable<TData extends ExportableData, TValue>({
 
       fetchData();
     }
-  }, [page, pageSize, search, dateRange, sortBy, sortOrder, fetchDataFn, refetchKey]);
+  }, [page, pageSize, search, dateRange, sortBy, sortOrder, fetchDataFn, refetchKey, setPage]);
 
   // If fetchDataFn is a React Query hook, call it directly with parameters
   const queryResult =
@@ -601,6 +670,11 @@ export function DataTable<TData extends ExportableData, TValue>({
         setError(null);
       }
       if (queryResult.isError) {
+        // Same out-of-range rescue as the fetchDataFn path above.
+        if (isRangeNotSatisfiable(queryResult.error) && page > 1) {
+          setPage(1);
+          return;
+        }
         setIsError(true);
         setError(
           queryResult.error instanceof Error
@@ -609,7 +683,7 @@ export function DataTable<TData extends ExportableData, TValue>({
         );
       }
     }
-  }, [queryResult]);
+  }, [queryResult, page, setPage]);
 
   // Memoized pagination state
   const pagination = useMemo(
@@ -702,6 +776,30 @@ export function DataTable<TData extends ExportableData, TValue>({
       }
     },
     [page, pageSize, setPage, setPageSize]
+  );
+
+  // The toolbar's search box (and its Reset button) commit through here rather
+  // than straight into `setSearch`, so that a NEW search term always lands on
+  // page 1. Without this the table kept its page counter across the search
+  // change and asked for an offset the shortened result set does not have —
+  // PostgREST answers 416 / PGRST103 and the table renders its error state.
+  // Both setters run in the same tick (the toolbar's debounce timer), so React
+  // batches them into one render and only one fetch is issued. Re-committing an
+  // unchanged term leaves the page alone — see utils/page-reset.ts.
+  const handleSearchChange = useCallback(
+    (value: string | ((prev: string) => string)) => {
+      const nextSearch =
+        typeof value === 'function'
+          ? (value as (prev: string) => string)(search)
+          : value;
+
+      setSearch(nextSearch);
+
+      if (shouldResetPageOnSearchChange(search, nextSearch, page)) {
+        setPage(1);
+      }
+    },
+    [search, setSearch, page, setPage]
   );
 
   const handleColumnSizingChange = useCallback(
@@ -932,24 +1030,27 @@ export function DataTable<TData extends ExportableData, TValue>({
                 </span>
               </div>
 
-              <div className='flex items-center gap-2'>
-                <Badge variant='secondary' className='ml-2'>
-                  {data?.pagination.total_items &&
-                    data.pagination.total_items > 0 && (
-                      <span className='ml-2 text-black font-medium'>
-                        {Math.round(
-                          (Math.min(
-                            page * pageSize,
-                            data.pagination.total_items
-                          ) /
-                            data.pagination.total_items) *
-                            100
-                        )}
-                        % of total
-                      </span>
-                    )}
-                </Badge>
-              </div>
+              {/* The whole pill is conditional, not just its text: with the
+                  Badge always mounted, an empty result set rendered a bare
+                  "0" inside it — `0 && …` is the number 0 to React, not
+                  false. Seen live on an empty institutions search. */}
+              {data && data.pagination.total_items > 0 && (
+                <div className='flex items-center gap-2'>
+                  <Badge variant='secondary' className='ml-2'>
+                    <span className='font-medium'>
+                      {Math.round(
+                        (Math.min(
+                          page * pageSize,
+                          data.pagination.total_items
+                        ) /
+                          data.pagination.total_items) *
+                          100
+                      )}
+                      % of total
+                    </span>
+                  </Badge>
+                </div>
+              )}
 
               {totalSelectedItems > 0 && (
                 <div className='flex items-center gap-2'>
@@ -981,7 +1082,7 @@ export function DataTable<TData extends ExportableData, TValue>({
       {tableConfig.enableToolbar && (
         <DataTableToolbar
           table={table}
-          setSearch={setSearch}
+          setSearch={handleSearchChange}
           setDateRange={setDateRange}
           totalSelectedItems={totalSelectedItems}
           deleteSelection={clearAllSelections}
@@ -1168,44 +1269,55 @@ export function DataTable<TData extends ExportableData, TValue>({
               ))
             ) : table.getRowModel().rows?.length ? (
               // Data rows
-              table.getRowModel().rows.map((row, rowIndex) => (
-                <TableRow
-                  key={row.id}
-                  id={`row-${rowIndex}`}
-                  data-row-index={rowIndex}
-                  data-state={row.getIsSelected() ? 'selected' : undefined}
-                  tabIndex={0}
-                  aria-selected={row.getIsSelected()}
-                  onClick={
-                    tableConfig.enableClickRowSelect
-                      ? () => row.toggleSelected()
-                      : undefined
-                  }
-                  onFocus={(e) => {
-                    // Add a data attribute to the currently focused row
-                    for (const el of document.querySelectorAll(
-                      '[data-focused="true"]'
-                    )) {
-                      el.removeAttribute('data-focused');
-                    }
-                    e.currentTarget.setAttribute('data-focused', 'true');
-                  }}
-                >
-                  {row.getVisibleCells().map((cell, cellIndex) => (
-                    <TableCell
-                      className='px-4 py-2 truncate max-w-0 text-left'
-                      key={cell.id}
-                      id={`cell-${rowIndex}-${cellIndex}`}
-                      data-cell-index={cellIndex}
-                    >
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext()
-                      )}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
+              table.getRowModel().rows.map((row, rowIndex) => {
+                // No `rowHref` -> `{ onClick: toggleSelected }` or `{}`, i.e.
+                // exactly the props this row carried before row navigation
+                // existed. Only a table that opts in gets the rest.
+                const rowNavProps = getRowNavigationProps({
+                  href: rowHref ? rowHref(row.original) : null,
+                  navigate: (href) => router.push(href),
+                  onSelect: tableConfig.enableClickRowSelect
+                    ? () => row.toggleSelected()
+                    : undefined
+                });
+
+                return (
+                  <TableRow
+                    key={row.id}
+                    id={`row-${rowIndex}`}
+                    data-row-index={rowIndex}
+                    data-state={row.getIsSelected() ? 'selected' : undefined}
+                    tabIndex={0}
+                    aria-selected={row.getIsSelected()}
+                    className={rowNavProps.className}
+                    onClick={rowNavProps.onClick}
+                    onKeyDown={rowNavProps.onKeyDown}
+                    onFocus={(e) => {
+                      // Add a data attribute to the currently focused row
+                      for (const el of document.querySelectorAll(
+                        '[data-focused="true"]'
+                      )) {
+                        el.removeAttribute('data-focused');
+                      }
+                      e.currentTarget.setAttribute('data-focused', 'true');
+                    }}
+                  >
+                    {row.getVisibleCells().map((cell, cellIndex) => (
+                      <TableCell
+                        className='px-4 py-2 truncate max-w-0 text-left'
+                        key={cell.id}
+                        id={`cell-${rowIndex}-${cellIndex}`}
+                        data-cell-index={cellIndex}
+                      >
+                        {flexRender(
+                          cell.column.columnDef.cell,
+                          cell.getContext()
+                        )}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                );
+              })
             ) : (
               // No results
               <TableRow>

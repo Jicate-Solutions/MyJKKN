@@ -268,6 +268,11 @@ export function DataTableToolbar<TData extends ExportableData>({
     searchDebounceTimerRef.current = setTimeout(() => {
       // Trim whitespace before sending to backend API
       const trimmedValue = value.trim();
+      // Committing a new term also sends the table back to page 1: the setter
+      // handed down by DataTable does both in this same tick (one batched
+      // render, one fetch). It has to, because the shortened result set will
+      // not have the offset the current page asks for — PostgREST answers
+      // 416 / PGRST103. Do NOT swap this for a bare search setter.
       setSearch(trimmedValue);
       searchDebounceTimerRef.current = null;
 

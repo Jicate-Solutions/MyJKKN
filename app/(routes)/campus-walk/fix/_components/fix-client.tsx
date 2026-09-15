@@ -60,6 +60,14 @@ export interface FixTicket {
   kind: 'symptom' | 'system_gap' | string | null;
   /** D6 urgent lane. */
   unsafe: boolean;
+  /**
+   * How the condition reached MyJKKN — `metadata.attribution`. A CHANNEL, never
+   * a person (D10): 'Management walk' for the Director's own observation,
+   * 'Reported via InstaSolver' for one a learner or staff member sent in. The
+   * badge used to be the hardcoded string 'Management walk', which told a fixer
+   * the Director had personally stood there even when he had not.
+   */
+  attribution: string | null;
   dueDate: string | null;
   statusKey: string;
   isBlocked: boolean;
@@ -357,8 +365,8 @@ export function FixClient({ ticket }: FixClientProps) {
       <Card>
         <CardContent className="space-y-4 pt-6">
           <div className="flex flex-wrap items-center gap-2">
-            {/* D10: the ticket is attributed to the walk, never to a person. */}
-            <Badge variant="secondary">Management walk</Badge>
+            {/* D10: the ticket is attributed to the channel, never to a person. */}
+            <Badge variant="secondary">{ticket.attribution ?? 'Management walk'}</Badge>
             {ticket.unsafe && (
               <Badge variant="destructive" className="gap-1">
                 <ShieldAlert className="h-3 w-3" />

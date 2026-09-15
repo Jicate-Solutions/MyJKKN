@@ -18,8 +18,16 @@
 //   its own embedded faces — see styles.ts), which is also what PRD Physics
 //   §5.2 requires ("All inline mathematics renders via KaTeX … MUST NOT be
 //   rasterised"). A character NEITHER family can set is reported by
-//   uncoveredGlyphs() / paperGlyphGaps() and the render REFUSES (render.ts →
-//   route 422 naming the item and the glyph) rather than printing a box.
+//   uncoveredGlyphs() / paperGlyphGaps() and printed as the visible marker
+//   MISSING_GLYPH_HTML ("[?]", set in Tinos) — never a font-fallback box, and
+//   never a failed paper. Until 2026-09-12 the render refused instead (route
+//   422); the Wave 3 try-out showed that one ε₀εᵣ in an explanation then took
+//   the whole answer key down, so the paper now prints and render.ts names the
+//   gap in the server log.
+//
+//   Modifier and subscript LETTERS (εᵣ, xᵢ, aⱼ, eˣ …) are not a gap: they are
+//   notation, mapped to their base letter in a KaTeX script, so ᵣ prints as a
+//   smaller, lowered r exactly where the author typed it.
 //
 // THE INLINE MARKUP CONTRACT (what an item string may contain)
 //   $…$            an explicit TeX run, e.g. $\frac{N_0}{\sqrt 2}$ or ${}^{7}_{3}\mathrm{Li}$.
@@ -49,9 +57,21 @@ import {
 } from './fonts';
 import type { PaperModel } from './types';
 
+// Script characters → the TeX that goes inside ^{…} / _{…}. The modifier
+// letters (Phonetic Extensions U+1D2C–U+1DBF, Spacing Modifier Letters ʰ ʲ ʳ ʷ ʸ
+// ˡ ˢ ˣ, Latin Extended-C ⱼ ⱽ) are in no embedded face; as scripts they print
+// as the ordinary letter, smaller and raised or lowered — εᵣ → \varepsilon_{r}.
+// A Greek value ends in a space so the next script letter cannot fuse with the
+// macro name (ᵦₓ → _{\beta x}, not _{\betax}).
 const SUPERSCRIPTS: Record<string, string> = {
   '⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4', '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9',
   '⁺': '+', '⁻': '-', '⁼': '=', '⁽': '(', '⁾': ')', 'ⁿ': 'n', 'ⁱ': 'i',
+  'ᵃ': 'a', 'ᵇ': 'b', 'ᶜ': 'c', 'ᵈ': 'd', 'ᵉ': 'e', 'ᶠ': 'f', 'ᵍ': 'g', 'ʰ': 'h', 'ʲ': 'j', 'ᵏ': 'k',
+  'ˡ': 'l', 'ᵐ': 'm', 'ᵒ': 'o', 'ᵖ': 'p', 'ʳ': 'r', 'ˢ': 's', 'ᵗ': 't', 'ᵘ': 'u', 'ᵛ': 'v', 'ʷ': 'w',
+  'ˣ': 'x', 'ʸ': 'y', 'ᶻ': 'z',
+  'ᴬ': 'A', 'ᴮ': 'B', 'ᴰ': 'D', 'ᴱ': 'E', 'ᴳ': 'G', 'ᴴ': 'H', 'ᴵ': 'I', 'ᴶ': 'J', 'ᴷ': 'K', 'ᴸ': 'L',
+  'ᴹ': 'M', 'ᴺ': 'N', 'ᴼ': 'O', 'ᴾ': 'P', 'ᴿ': 'R', 'ᵀ': 'T', 'ᵁ': 'U', 'ⱽ': 'V', 'ᵂ': 'W',
+  'ᵅ': '\\alpha ', 'ᵝ': '\\beta ', 'ᵞ': '\\gamma ', 'ᵟ': '\\delta ', 'ᶿ': '\\theta ', 'ᵠ': '\\phi ', 'ᵡ': '\\chi ',
 };
 
 const SUBSCRIPTS: Record<string, string> = {
@@ -59,6 +79,8 @@ const SUBSCRIPTS: Record<string, string> = {
   '₊': '+', '₋': '-', '₌': '=', '₍': '(', '₎': ')',
   'ₐ': 'a', 'ₑ': 'e', 'ₒ': 'o', 'ₓ': 'x', 'ₕ': 'h', 'ₖ': 'k', 'ₗ': 'l', 'ₘ': 'm', 'ₙ': 'n',
   'ₚ': 'p', 'ₛ': 's', 'ₜ': 't',
+  'ᵢ': 'i', 'ᵣ': 'r', 'ᵤ': 'u', 'ᵥ': 'v', 'ⱼ': 'j',
+  'ᵦ': '\\beta ', 'ᵧ': '\\gamma ', 'ᵨ': '\\rho ', 'ᵩ': '\\phi ', 'ᵪ': '\\chi ',
 };
 
 const GREEK: Record<string, string> = {
@@ -353,7 +375,7 @@ function convertRun(run: string): string {
     // Anything else goes through \text so KaTeX never throws. Its leaf span has
     // no font class, so it inherits the .katex chain (KaTeX_Main → Tinos → Noto
     // Sans Tamil); a code point none of those carry is reported by
-    // uncoveredGlyphs() and the render refuses.
+    // uncoveredGlyphs() and printed as MISSING_GLYPH_HTML.
     out += `\\text{${escapeTexText(ch)}}`;
     i += 1;
   }
@@ -418,10 +440,23 @@ const TRAIL_PUNCT = /[)\]”"',.;:?!]+$/;
  * nothing on Vercel). Reviewer-B finding, 2026-09-04.
  */
 
-/** The code-point ranges above, for an audit that walks every one of them. */
-export const NOTATION_REPERTOIRE_RANGES: ReadonlyArray<readonly [number, number]> = [
+const REPERTOIRE_BLOCKS: ReadonlyArray<readonly [number, number]> = [
   [0x20, 0x7e], [0xa0, 0x24f], [0x300, 0x36f], [0x370, 0x3ff], [0x2000, 0x206f], [0x2070, 0x209f],
   [0x1e00, 0x1eff], [0x20d0, 0x20ff], [0x2100, 0x214f], [0x2190, 0x21ff], [0x2200, 0x22ff], [0x2300, 0x23ff],
+];
+
+/** The code-point ranges above, for an audit that walks every one of them —
+ *  plus, one code point each, every script character the SUPERSCRIPTS /
+ *  SUBSCRIPTS tables know that lies outside those blocks (the modifier
+ *  letters). Without them `ε₀εᵣ` split at ᵣ, the letter fell to the body fonts
+ *  as text, and the answer key of a live Physics paper returned 422. */
+export const NOTATION_REPERTOIRE_RANGES: ReadonlyArray<readonly [number, number]> = [
+  ...REPERTOIRE_BLOCKS,
+  ...[...Object.keys(SUPERSCRIPTS), ...Object.keys(SUBSCRIPTS)]
+    .map((ch) => ch.codePointAt(0)!)
+    .filter((n) => !REPERTOIRE_BLOCKS.some(([a, b]) => n >= a && n <= b))
+    .sort((a, b) => a - b)
+    .map((n) => [n, n] as const),
 ];
 
 const NOTATION_REPERTOIRE = new RegExp(`[${NOTATION_REPERTOIRE_RANGES.map(([a, b]) => cpRange(a, b)).join('')}]`);
@@ -592,9 +627,15 @@ export function segmentItemText(text: string | null | undefined): ItemSegment[] 
 function renderSegment(seg: ItemSegment): string {
   switch (seg.kind) {
     case 'text':
-      return escapeHtml(seg.value);
-    case 'tex':
-      return renderTex(seg.value);
+      return printableText(seg.value);
+    case 'tex': {
+      const html = renderTex(seg.value);
+      if (html.startsWith('<span class="tex-error">')) {
+        // Printed as its source in the body font — the body rule applies.
+        return `<span class="tex-error">${printableText(seg.value)}</span>`;
+      }
+      return katexHtmlWithPlaceholders(html);
+    }
     case 'u-open':
       return '<u class="target">';
     case 'u-close':
@@ -694,6 +735,52 @@ function uncoveredKatexGlyphs(html: string): string[] {
   return missing;
 }
 
+/**
+ * What prints in place of a character no embedded face can set: a bracketed
+ * question mark in Tinos (styles.ts `.glyph-missing`), so the reader sees that
+ * a symbol is missing and the paper still prints. The question paper and the
+ * answer key both render through renderSegment(), so they share this rule.
+ */
+export const MISSING_GLYPH_HTML = '<span class="glyph-missing">[?]</span>';
+
+/** Body text → HTML with every character no embedded body face carries
+ *  replaced by MISSING_GLYPH_HTML. An unreadable cmap replaces nothing. */
+export function printableText(text: string): string {
+  let out = '';
+  for (const ch of Array.from(text)) {
+    out += !IGNORABLE.test(ch) && bodyFontCovers(ch.codePointAt(0)!) === false ? MISSING_GLYPH_HTML : escapeHtml(ch);
+  }
+  return out;
+}
+
+/** KaTeX HTML with every leaf character its bound face (the same class rule
+ *  uncoveredKatexGlyphs applies) cannot set replaced by MISSING_GLYPH_HTML.
+ *  Only text between tags is rewritten; tags — spans, the SVG of √ and v⃗ —
+ *  pass through untouched. */
+function katexHtmlWithPlaceholders(html: string): string {
+  const stack: string[][] = [];
+  return html.replace(/<[^>]*>|[^<]+/g, (tok) => {
+    if (tok.startsWith('<')) {
+      const span = tok.match(/^<(\/?)span\b([^>]*)>$/);
+      if (span?.[1] === '/') stack.pop();
+      else if (span) stack.push((span[2].match(/class="([^"]*)"/)?.[1] ?? '').split(/\s+/).filter(Boolean));
+      return tok;
+    }
+    const classes = stack.flat().reverse();
+    let out = '';
+    let replaced = false;
+    for (const ch of Array.from(decodeEntities(tok))) {
+      if (!IGNORABLE.test(ch) && katexSpanCovers(classes, ch.codePointAt(0)!) === false) {
+        out += MISSING_GLYPH_HTML;
+        replaced = true;
+      } else {
+        out += escapeHtml(ch);
+      }
+    }
+    return replaced ? out : tok;
+  });
+}
+
 function label(ch: string): string {
   return `${ch} U+${ch.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}`;
 }
@@ -750,7 +837,8 @@ export function paperStrings(model: PaperModel): Array<{ itemId: string; text: s
   return out;
 }
 
-/** The glyphs of a paper no embedded face can print, grouped by item. */
+/** The glyphs of a paper no embedded face can print, grouped by item — the
+ *  places the documents print MISSING_GLYPH_HTML. render.ts logs this. */
 export function paperGlyphGaps(model: PaperModel): GlyphGap[] {
   const byItem = new Map<string, Set<string>>();
   for (const { itemId, text } of paperStrings(model)) {
@@ -761,19 +849,4 @@ export function paperGlyphGaps(model: PaperModel): GlyphGap[] {
     byItem.set(itemId, set);
   }
   return Array.from(byItem.entries()).map(([itemId, glyphs]) => ({ itemId, glyphs: Array.from(glyphs) }));
-}
-
-/** Thrown by render.ts instead of printing a box. The route turns it into a
- *  422 that names the item and the glyph. */
-export class GlyphCoverageError extends Error {
-  readonly gaps: GlyphGap[];
-  constructor(gaps: GlyphGap[]) {
-    super(
-      `The paper contains characters none of the embedded fonts can print: ${gaps
-        .map((g) => `${g.itemId}: ${g.glyphs.join(' ')}`)
-        .join('; ')}`,
-    );
-    this.name = 'GlyphCoverageError';
-    this.gaps = gaps;
-  }
 }

@@ -156,6 +156,14 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   // Campus Walk writes project_tasks under CAMPUS-OPS, so it rolls up into the
   // existing Projects module rather than introducing a new canonical module.
   ['/campus-walk', 'Projects'],
+  // InstaSolver — the chooser at /instasolver and the lanes behind it
+  // (spec: specs/instasolver-2026-09-14.md). Same reasoning as Campus Walk
+  // directly above: decision I4 routes "something is broken" into Campus
+  // Walk's project_tasks under CAMPUS-OPS, so InstaSolver rolls up into the
+  // existing Projects module rather than minting a new canonical one. The
+  // permission audit then reports its routes under the module that actually
+  // holds the work.
+  ['/instasolver', 'Projects'],
   // My Kit — store-kit self view (PR-K2 2026-07-12); module home is IMS
   ['/my-kit', 'IMS'],
   // /admin/* — sub-prefixes first

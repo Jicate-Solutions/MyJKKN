@@ -9,6 +9,7 @@ import {
   type VerifiedTokenUser
 } from './lib/auth/token-validation-cache';
 import { routeMatcher } from './lib/auth/route-matcher';
+import { resolveLegacyRedirect } from './lib/auth/legacy-redirects';
 import { routeAllowedByHandover } from './lib/auth/handover-route-access';
 import { FEATURE_FLAGS } from './lib/config/feature-flags';
 import { StudentValidationService } from './lib/services/auth/student-validation-service';
@@ -201,6 +202,14 @@ const PUBLIC_PATHS_SET = new Set([
   //                makes a page reachable — this allowlist is, and '/verify/' and
   //                '/r/' below each shipped 307ing to login by omitting it. Caught
   //                here before merge by fetching the URL with no session.
+  '/events-at-jkkn', // Public events listing — the index that answers "what is on?"
+  //                for somebody who was never sent a registration link. Lives
+  //                under app/(public)/events-at-jkkn/. Spelled out rather than
+  //                '/events' because app/(routes)/events is the AUTHENTICATED
+  //                module and owns that path — the same collision already
+  //                documented for '/course/' and '/learn/' below. Listed as an
+  //                EXACT path, not a prefix: '/events' as a prefix would
+  //                unauthenticate the entire module.
   '/employers/submit', // CDC employer self-submit vacancy form — public, no login
   '/api/admission/leads/refer', // Agent referral API
   '/api/admission/leads/inbound' // Inbound webhook API
@@ -304,27 +313,19 @@ const isPublicPath = (path: string): boolean => {
 // sidebar's copy, so the gate and the nav can't drift apart.
 // Spec: specs/pre-onboarding-induction-access-2026-06-29.md
 
-// Legacy drip-sequence routes relocated to /automations/ (2026-05-12).
-// Keep these 301s for at least one release cycle / 90 days so external
-// bookmarks and stale links resolve.
-const LEGACY_CAMPAIGN_REDIRECTS: Record<string, string> = {
-  '/admission/marketing/campaigns/monitoring':
-    '/admission/marketing/automations/monitoring',
-  '/admission/marketing/campaigns/roi':
-    '/admission/marketing/automations/roi',
-  '/admission/marketing/campaigns/segments':
-    '/admission/marketing/automations/segments',
-};
-
 export async function proxy(request: NextRequest) {
   try {
     const currentPath = request.nextUrl.pathname;
 
-    const legacyTarget = LEGACY_CAMPAIGN_REDIRECTS[currentPath];
-    if (legacyTarget) {
+    // Legacy path redirects live here, not in next.config.ts — a config redirect
+    // costs one of Vercel's 2048 routes per deployment, a middleware redirect costs
+    // none (2026-09-14: the build hit 2061 and failed). Table + rules:
+    // lib/auth/legacy-redirects.ts. Query string travels with the URL clone.
+    const legacy = resolveLegacyRedirect(currentPath);
+    if (legacy) {
       const url = request.nextUrl.clone();
-      url.pathname = legacyTarget;
-      return NextResponse.redirect(url, 301);
+      url.pathname = legacy.pathname;
+      return NextResponse.redirect(url, legacy.status);
     }
 
     // Parent Portal — fully isolated dual-auth domain. Gate /parent/* with the

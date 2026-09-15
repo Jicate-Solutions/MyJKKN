@@ -35,12 +35,18 @@ const LOG = 'campus-living/housekeeping-bookings';
 function toBoardRow(row: any): BookingBoardRow {
   const photos = (row.photos ?? []) as Array<{ phase: PhotoPhase }>;
   const feedback = (row.feedback ?? []) as Array<{ rating: number }>;
+  // A phase can hold several photos, so the booleans are derived from the counts
+  // rather than measured separately — they cannot then disagree.
+  const beforeCount = photos.filter((p) => p.phase === 'before').length;
+  const afterCount = photos.filter((p) => p.phase === 'after').length;
   return {
     ...(row as CleaningBooking),
     room_number: row.room?.room_number ?? null,
     block_name: row.block?.name ?? null,
-    has_before_photo: photos.some((p) => p.phase === 'before'),
-    has_after_photo: photos.some((p) => p.phase === 'after'),
+    has_before_photo: beforeCount > 0,
+    has_after_photo: afterCount > 0,
+    before_photo_count: beforeCount,
+    after_photo_count: afterCount,
     feedback_count: feedback.length,
     average_rating:
       feedback.length > 0

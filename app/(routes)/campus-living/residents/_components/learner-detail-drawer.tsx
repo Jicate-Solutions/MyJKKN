@@ -446,7 +446,7 @@ export function LearnerDetailDrawer({
                       {data.recentGatePasses.map((gp: LearnerGatePassSummary) => (
                         <li key={gp.id} className='flex items-center justify-between gap-2'>
                           <span className='truncate text-foreground'>
-                            {gp.purpose ?? gp.pass_number ?? '(no purpose)'}
+                            {gp.destination ?? gp.pass_number ?? '(no destination)'}
                           </span>
                           <span className='flex items-center gap-2 shrink-0'>
                             <Badge variant='outline' className='text-[10px] capitalize'>

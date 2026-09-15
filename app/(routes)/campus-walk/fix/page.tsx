@@ -360,6 +360,10 @@ export default async function CampusWalkFixPage({ searchParams }: PageProps) {
     category: typeof metadata.category === 'string' ? metadata.category : null,
     kind: typeof metadata.kind === 'string' ? metadata.kind : null,
     unsafe: Boolean(metadata.unsafe),
+    attribution:
+      typeof metadata.attribution === 'string' && metadata.attribution.trim()
+        ? metadata.attribution
+        : null,
     dueDate: (task.due_date as string | null) ?? null,
     statusKey: (task.status_key as string) ?? 'todo',
     isBlocked: Boolean(task.is_blocked),
@@ -467,7 +471,11 @@ async function MyOpenJobs({
             <Card className="transition-colors hover:bg-accent">
               <CardContent className="space-y-2 py-4">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="secondary">Management walk</Badge>
+                  <Badge variant="secondary">
+                    {typeof meta.attribution === 'string' && meta.attribution.trim()
+                      ? meta.attribution
+                      : 'Management walk'}
+                  </Badge>
                   {meta.unsafe && (
                     <Badge variant="destructive" className="gap-1">
                       <ShieldAlert className="h-3 w-3" />

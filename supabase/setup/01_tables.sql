@@ -4333,6 +4333,14 @@ CREATE TABLE IF NOT EXISTS public.hr_recruitment_candidates (
   rejection_reason        text,
   expected_joining_date   date,
   actual_joining_date     date,
+  -- Updated: 2026-09-12 (20261202090000_fn_my_desk_waiting_offer_issued.sql) —
+  -- record WHEN the offer went out and WHO sent it. Nullable, NOT backfilled:
+  -- rows that reached 'offer_issued' before the Issue Offer control existed have
+  -- no such moment to record. fn_my_desk_waiting's offer branch reads
+  -- COALESCE(offer_issued_at, submitted_at) as waiting_since, so an issued
+  -- offer's age on the desk restarts from the day it was issued.
+  offer_issued_at         timestamptz,
+  offer_issued_by         uuid REFERENCES public.profiles(id),
   submitted_by            uuid NOT NULL REFERENCES public.profiles(id),
   submitted_at            timestamptz NOT NULL DEFAULT now(),
   created_at              timestamptz NOT NULL DEFAULT now(),
@@ -9878,3 +9886,250 @@ CREATE INDEX IF NOT EXISTS hr_decision_emails_employee_idx
 CREATE INDEX IF NOT EXISTS hr_decision_emails_due_idx
   ON public.hr_decision_emails (next_attempt_at)
   WHERE status = 'pending';
+
+
+-- =====================================================================================
+-- Mirrored from supabase/migrations/20260912100000_hr_leave_revoke_approved_decision.sql  (2026-09-12)
+-- Revoking an APPROVED leave / short-time-off / comp-off-claim decision.
+-- A revocation stores status='rejected'; revoked_at is what tells the two apart.
+-- =====================================================================================
+-- -------------------------------------------------------------------------------------
+-- 1. Audit columns
+--
+-- The status stays 'rejected' — inside the existing CHECK, understood by every trigger,
+-- report and filter already written. `revoked_at IS NOT NULL` is the ONE fact that
+-- separates "approved, then taken back" from "refused on day one", which are materially
+-- different things to the applicant and must not render identically.
+-- -------------------------------------------------------------------------------------
+ALTER TABLE public.hr_leave_applications
+  ADD COLUMN IF NOT EXISTS revoked_at    timestamptz,
+  ADD COLUMN IF NOT EXISTS revoked_by    uuid REFERENCES public.profiles(id),
+  ADD COLUMN IF NOT EXISTS revoke_reason text;
+
+ALTER TABLE public.hr_comp_off_credits
+  ADD COLUMN IF NOT EXISTS revoked_at    timestamptz,
+  ADD COLUMN IF NOT EXISTS revoked_by    uuid REFERENCES public.profiles(id),
+  ADD COLUMN IF NOT EXISTS revoke_reason text;
+
+COMMENT ON COLUMN public.hr_leave_applications.revoked_at IS
+  'Set when an APPROVED request was taken back. status is ''rejected''; this is what tells a revocation apart from an ordinary rejection.';
+COMMENT ON COLUMN public.hr_comp_off_credits.revoked_at IS
+  'Set when an APPROVED credit claim was taken back. status is ''rejected''.';
+
+ALTER TABLE public.hr_decision_emails
+  DROP CONSTRAINT IF EXISTS hr_decision_emails_decision_check;
+ALTER TABLE public.hr_decision_emails
+  ADD CONSTRAINT hr_decision_emails_decision_check
+  CHECK (decision = ANY (ARRAY['approved'::text, 'rejected'::text, 'revoked'::text]));
+
+-- =====================================================================================
+-- WhatsApp campus bridge — outbox / inbound / heartbeat  (2026-09-13)
+-- Source of truth: supabase/migrations/20261211090000_wa_bridge_outbox.sql
+--
+-- The bridge is a Go process on a Windows box behind campus NAT, so it POLLS us
+-- rather than being called. `type` is EXACTLY ('text','media') — the sender lane
+-- writes 'media', and a list of image/document/video/audio would fail every media
+-- send at the INSERT. The body cap is 4096 CHARACTERS, never bytes: a Tamil
+-- character is three bytes in UTF-8 and a byte cap silently refuses a Tamil parent
+-- at a third of the length it allows an English one.
+-- =====================================================================================
+CREATE TABLE IF NOT EXISTS public.wa_bridge_outbox (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  to_phone        TEXT NOT NULL,
+  body            TEXT,
+  type            TEXT NOT NULL DEFAULT 'text',
+  media_url       TEXT,
+
+  -- pending  → waiting to be claimed by a poll
+  -- sending  → claimed by a poll, outcome not yet acknowledged
+  -- sent     → the bridge acknowledged delivery to WhatsApp
+  -- failed   → the bridge acknowledged failure and the row is out of attempts
+  status          TEXT NOT NULL DEFAULT 'pending',
+
+  attempts        INTEGER NOT NULL DEFAULT 0,
+  wa_message_id   TEXT,
+  error           TEXT,
+
+  lead_id         UUID,
+  institution_id  UUID,
+  created_by      UUID,
+
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  sent_at         TIMESTAMPTZ,
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  -- The rows this table points at. Bare UUIDs with no FK would let a deleted
+  -- lead, institution or member of staff leave an id here that resolves to
+  -- nothing — and a message queued against a lead that no longer exists is a
+  -- message nobody can explain. ON DELETE SET NULL everywhere: the MESSAGE
+  -- record is the thing worth keeping, and losing its link is survivable where
+  -- losing the row (CASCADE) or blocking the delete (RESTRICT) is not.
+  CONSTRAINT wa_bridge_outbox_lead_fk
+    FOREIGN KEY (lead_id) REFERENCES public.admission_leads(id) ON DELETE SET NULL,
+  CONSTRAINT wa_bridge_outbox_institution_fk
+    FOREIGN KEY (institution_id) REFERENCES public.institutions(id) ON DELETE SET NULL,
+  CONSTRAINT wa_bridge_outbox_created_by_fk
+    FOREIGN KEY (created_by) REFERENCES public.profiles(id) ON DELETE SET NULL,
+
+  CONSTRAINT wa_bridge_outbox_status_chk
+    CHECK (status IN ('pending', 'sending', 'sent', 'failed')),
+
+  -- EXACTLY 'text' and 'media', and getting this list right is a contract, not
+  -- a preference. The sender lane writes type='media' for every image, document
+  -- and audio send; a constraint listing image/document/video/audio instead
+  -- would reject 'media' and fail 100% of media sends at the INSERT, before any
+  -- of this queue's machinery ever ran. The bridge takes a URL and lets
+  -- WhatsApp decide how to render it, so four names would be four names for one
+  -- behaviour.
+  CONSTRAINT wa_bridge_outbox_type_chk
+    CHECK (type IN ('text', 'media')),
+
+  -- Canonical E.164, DIGITS ONLY — no '+', no separators, no '@s.whatsapp.net'.
+  -- Enforced in the column rather than only in TypeScript because this table has
+  -- more than one writer, and a number the bridge cannot dial would otherwise be
+  -- claimed, fail three times and land in `failed`, where it reads as "WhatsApp
+  -- refused it" instead of "we wrote a bad number".
+  CONSTRAINT wa_bridge_outbox_to_phone_chk
+    CHECK (to_phone ~ '^[1-9][0-9]{7,14}$'),
+
+  -- Binds the payload to the type. Without this a row with type='text' and
+  -- body NULL is claimable: the bridge is handed a text message with nothing in
+  -- it, and the failure surfaces on a Windows box rather than at the INSERT that
+  -- caused it. A media row must carry a URL; its body is the optional caption.
+  CONSTRAINT wa_bridge_outbox_payload_chk
+    CHECK (
+      (type = 'text'
+        AND body IS NOT NULL AND btrim(body) <> ''
+        AND media_url IS NULL)
+      OR
+      (type = 'media'
+        AND media_url IS NOT NULL AND btrim(media_url) <> '')
+    ),
+
+  -- 4096 CHARACTERS, which is what WhatsApp itself counts. char_length() counts
+  -- characters; octet_length() would count bytes, and a byte cap refuses a Tamil
+  -- message at roughly a third of the length it refuses an English one, because
+  -- a Tamil character is three bytes in UTF-8. JKKN's families write in Tamil.
+  CONSTRAINT wa_bridge_outbox_body_len_chk
+    CHECK (body IS NULL OR char_length(body) <= 4096)
+);
+
+COMMENT ON TABLE public.wa_bridge_outbox IS
+  'Work queue the on-campus WhatsApp bridge polls. One row per message MyJKKN wants sent. The bridge claims rows (status pending → sending) and posts the outcome back; nothing in MyJKKN ever calls the bridge directly, because it sits behind campus NAT.';
+COMMENT ON COLUMN public.wa_bridge_outbox.status IS
+  'pending = unclaimed. sending = claimed by a poll, outcome unknown. sent = the bridge confirmed WhatsApp accepted it. failed = the bridge reported failure and attempts is exhausted. A failure with attempts still under the cap returns to pending rather than staying failed.';
+COMMENT ON COLUMN public.wa_bridge_outbox.attempts IS
+  'Acknowledged attempts, incremented by the ack, not by the claim. A row claimed by a poll that then died is left in sending and is NOT counted — see the stale-claim note on fn_wa_bridge_claim_pending.';
+COMMENT ON COLUMN public.wa_bridge_outbox.institution_id IS
+  'The institution this message belongs to, used by RLS. NULL means platform-wide and is readable ONLY by a super admin or an admin — the SELECT policy requires institution_id IS NOT NULL before it consults role_has_institution_access(), because that function returns TRUE for a NULL argument and would otherwise show every platform-wide message to everyone holding admission.settings.whatsapp.view. The bridge does not read through RLS at all.';
+
+-- The pending poll is the only hot query: status = 'pending' ORDER BY created_at.
+CREATE INDEX IF NOT EXISTS idx_wa_bridge_outbox_status_created
+  ON public.wa_bridge_outbox (status, created_at);
+
+-- ---------------------------------------------------------------------------
+-- 2. Inbound — what the bridge heard
+-- ---------------------------------------------------------------------------
+-- A SEPARATE table rather than wa_personal_message_logs. That table is keyed to
+-- a wa_personal_connections row (department_id, connection_id, both NOT NULL in
+-- practice for every reader of it), and the bridge has no connection row and no
+-- department — it is one campus device, not a department's BYOW session.
+-- Writing bridge traffic into it would either need invented department ids or
+-- NULLs that the existing inbox UI does not expect.
+CREATE TABLE IF NOT EXISTS public.wa_bridge_inbound (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  -- The bridge's own WhatsApp message id. UNIQUE, and it is the whole reason
+  -- this table can be retried into: the bridge re-posts anything it is not sure
+  -- we received, so a duplicate must collapse onto the first row instead of
+  -- creating a second record of one message a person sent once.
+  wa_message_id   TEXT NOT NULL,
+
+  from_phone      TEXT NOT NULL,
+  sender_name     TEXT,
+  body            TEXT,
+  type            TEXT NOT NULL DEFAULT 'text',
+  is_group        BOOLEAN NOT NULL DEFAULT false,
+
+  -- Resolved at write time by matching from_phone against admission_leads.
+  -- NULL means EITHER the number belongs to nobody we know OR it belongs to
+  -- more than one person — match_status is what tells those apart.
+  lead_id         UUID,
+
+  -- ⚠️ SIBLINGS SHARE A PARENT'S PHONE AT JKKN. Two admission leads carrying one
+  -- number is ordinary data, and picking one of them would file a parent's reply
+  -- against the wrong child's admission record with nothing anywhere recording
+  -- that a guess was made. So more than one candidate attaches to NONE of them:
+  --   matched    -> exactly one lead carries this number; lead_id is set
+  --   unmatched  -> no lead carries it; the message is kept anyway
+  --   ambiguous  -> several do; lead_id is NULL and a person decides
+  match_status          TEXT    NOT NULL DEFAULT 'unmatched',
+  match_candidate_count INTEGER NOT NULL DEFAULT 0,
+
+  received_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  CONSTRAINT uq_wa_bridge_inbound_wa_message_id UNIQUE (wa_message_id),
+
+  CONSTRAINT wa_bridge_inbound_lead_fk
+    FOREIGN KEY (lead_id) REFERENCES public.admission_leads(id) ON DELETE SET NULL,
+
+  CONSTRAINT wa_bridge_inbound_match_status_chk
+    CHECK (match_status IN ('matched', 'unmatched', 'ambiguous')),
+  CONSTRAINT wa_bridge_inbound_candidates_chk
+    CHECK (match_candidate_count >= 0),
+
+  -- One-directional on purpose. An ambiguous message must NEVER carry a lead —
+  -- that is the whole point of the state. The reverse ('matched' implies a
+  -- lead_id) is deliberately NOT asserted, because ON DELETE SET NULL above can
+  -- legitimately empty lead_id later, and a two-way CHECK would then block the
+  -- deletion of any lead that had ever replied.
+  CONSTRAINT wa_bridge_inbound_ambiguous_has_no_lead_chk
+    CHECK (match_status <> 'ambiguous' OR lead_id IS NULL)
+);
+
+COMMENT ON TABLE public.wa_bridge_inbound IS
+  'Messages the on-campus WhatsApp bridge received, one row per WhatsApp message. Separate from wa_personal_message_logs because the bridge has no wa_personal_connections row and no department. UNIQUE on wa_message_id so the bridge''s retries cannot double-record one message.';
+
+CREATE INDEX IF NOT EXISTS idx_wa_bridge_inbound_lead
+  ON public.wa_bridge_inbound (lead_id, received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wa_bridge_inbound_received
+  ON public.wa_bridge_inbound (received_at DESC);
+
+-- The human-resolution queue: everything a person still has to file. Partial,
+-- because in steady state nearly every row is 'matched' and none of those
+-- belong in this list.
+CREATE INDEX IF NOT EXISTS idx_wa_bridge_inbound_needs_attention
+  ON public.wa_bridge_inbound (match_status, received_at DESC)
+  WHERE match_status <> 'matched';
+
+COMMENT ON COLUMN public.wa_bridge_inbound.match_status IS
+  'matched = exactly one admission lead carries this number. unmatched = none does. ambiguous = several do (siblings sharing a parent''s phone is normal at JKKN) and the message was deliberately attached to NONE of them, for a person to file. The two non-matched states need different actions, which is why they are not one "unresolved".';
+COMMENT ON COLUMN public.wa_bridge_inbound.match_candidate_count IS
+  'How many admission leads carry this number. 0 or 1 for matched/unmatched; more than 1 for ambiguous. Recorded so the person resolving it knows how many records they are choosing between before opening anything.';
+
+-- ---------------------------------------------------------------------------
+-- 3. Heartbeat — is the bridge alive, and is it still logged in
+-- ---------------------------------------------------------------------------
+-- ONE row, enforced by the primary key rather than by convention: the id is a
+-- fixed literal and a CHECK refuses any other value, so a second bridge cannot
+-- quietly append a second row that half the readers then miss. If a second
+-- campus device is ever added this table has to change shape, which is the
+-- correct amount of friction for that decision.
+CREATE TABLE IF NOT EXISTS public.wa_bridge_status (
+  id                TEXT PRIMARY KEY DEFAULT 'bridge',
+  connected         BOOLEAN NOT NULL DEFAULT false,
+  logged_in         BOOLEAN NOT NULL DEFAULT false,
+  phone_number      TEXT,
+  version           TEXT,
+  last_heartbeat_at TIMESTAMPTZ,
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  CONSTRAINT wa_bridge_status_singleton_chk CHECK (id = 'bridge')
+);
+
+COMMENT ON TABLE public.wa_bridge_status IS
+  'Single-row heartbeat for the on-campus WhatsApp bridge. connected = the process is running and talking to us; logged_in = its WhatsApp session is still authenticated. The two differ, and the difference is the whole value: a bridge that is running but logged out looks healthy from the outside while sending nothing.';
+
+-- ---------------------------------------------------------------------------

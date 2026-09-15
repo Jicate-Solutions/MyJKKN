@@ -62,6 +62,7 @@ import {
   CircleDot,
   TrendingUp,
   Wrench,
+  LifeBuoy,
   FileBarChart2,
   History,
   Sparkles,
@@ -73,6 +74,7 @@ import {
   PhoneCall,
   Target,
   Megaphone,
+  PenLine,
   Workflow,
   MessagesSquare,
   Radio,
@@ -202,6 +204,29 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/foundation/onemark/paper': 'foundation.assessments.manage',
   '/foundation/onemark/review': 'foundation.items.manage',
   '/foundation/onemark/practice': 'foundation.practice.take',
+  // Wave 3 doors (specs/onemark-wave3-2026-09-06.md, Lane N).
+  //
+  // Results (Lane A, PR #3338) — the cohort sheet, the score list and one
+  // learner's report all live under this one trie node, so the whole subtree
+  // is gated by the key that opens the operator surface. Two consequences,
+  // both deliberate:
+  //   * /foundation/onemark/results/learner/<id> is an OPERATOR screen. A
+  //     learner reads their own record through the "My progress" card on
+  //     /foundation/onemark/practice (Lane L), which calls the same API — the
+  //     RPC's own gate (fn_fp_can_view_student) admits them there.
+  //   * DISCLOSED EDGE, ruling #1 of 2026-09-06: an active school_jkkn_owners
+  //     row alone grants a principal the READ at the RPC, with no
+  //     assessments.manage. The proxy trie can only reason about permission
+  //     keys, so a principal holding ONLY an owner row is stopped at this door
+  //     before the RPC is ever asked. In practice the provisioning path hands
+  //     out the owner row and school_faculty together (ruling #6), so that
+  //     population does hold the key; a key-less owner row needs a
+  //     route-matcher change, which is outside this lane. Tracked in the PR.
+  '/foundation/onemark/results': 'foundation.assessments.manage',
+  // Unit list (Lane U, PR #3339) — adding or retiring a unit changes what a
+  // question may be written against, so it takes the same key as the review
+  // queue rather than a new one.
+  '/foundation/onemark/units': 'foundation.items.manage',
 
   // Cohorts — the top-level section for the shared cohort spine. Its first
   // screen appoints coordinators for every programme on that spine. Mapped to
@@ -265,6 +290,22 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // AI Assistant
   '/ai-query': 'ai_query.view', // AI Query System access
 
+  // ======================================================================
+  // InstaSolver — the ONE front door for "something is wrong here".
+  // Spec: specs/instasolver-2026-09-14.md (decisions I1 / I2 / I3).
+  //
+  // ONE key across all four routes, because the chooser and the three lanes
+  // behind it are one journey, not four permissions. instasolver.view is
+  // granted to EVERY role by migration 20261212120000 (decision I1:
+  // "everyone with a login can file"), so the row is near the top for
+  // everyone. Each destination re-checks its OWN key server-side — holding
+  // instasolver.view lets you ASK, never bypasses the lane that answers.
+  // ======================================================================
+  '/instasolver': 'instasolver.view',
+  '/instasolver/broken': 'instasolver.view',
+  '/instasolver/complaint': 'instasolver.view',
+  '/instasolver/track/[token]': 'instasolver.view',
+
   // Profile
   '/profile': 'view_profile', // All users should be able to view their own profile
 
@@ -305,6 +346,15 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // with no mapping is silently super-admin-only. The page scopes its own
   // CONTENT by role.
   '/whats-new': 'view_profile',
+  // The weekly highlights queue — where a person writes up and approves the few
+  // changes that get a plain-English write-up above the plain list. Gated on its
+  // own key rather than left unmapped: an unmapped route is silently
+  // super-admin-only in the sidebar (the default-deny above), which is the exact
+  // bug that once hid /whats-new itself, and it would also make the gate
+  // invisible to Role Management. No role holds this key today, so it resolves
+  // to super admins until one is granted it — the difference is that granting it
+  // is now a Role Management decision instead of a code change.
+  '/whats-new/highlights': 'whats_new.highlights.manage',
 
   // Bug Reports (Student Self-Service)
   '/my-bug-reports': 'learners.bug_reports.view',
@@ -1041,6 +1091,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/consultants/commissions': 'admission.consultants.commissions.view',
   '/admission/consultants/referral-rates': 'admission.consultants.commissions.view',
   '/admission/consultants/unlinked-referrals': 'admission.consultants.commissions.view',
+  // Added 2026-09-12 — the mirror image of Unlinked Referrals: credits that name
+  // an agency but no learner. Read-only; same commission read permission as the
+  // rest of the module, matching its RPC.
+  '/admission/consultants/attribution-orphans': 'admission.consultants.commissions.view',
   '/admission/consultants/import': 'admission.consultants.commissions.view',
   '/admission/consultants/payouts': 'admission.consultants.commissions.view',
   // Added 2026-08-17 — which agencies cannot be paid at all, ordered by the
@@ -1319,6 +1373,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Campus gate (all learners + staff), fed by Service Requests gate-pass types.
   '/gate-security': 'gate_security.scan.view',
   '/reports/gate-in-out': 'gate_security.reports.view',
+  // The learner's lane. `.create` is the "Request Gate Pass" key, held by
+  // student among others.
+  '/campus-living/gate-passes/request': 'campus_living.gate_passes.create',
+  // The staff lane, gated on .approve rather than inheriting .view from the
+  // parent path: submitting this form issues an ALREADY-APPROVED pass, so it
+  // is the same decision the Approve button takes.
+  '/campus-living/gate-passes/new': 'campus_living.gate_passes.approve',
   '/campus-living/mess': 'campus_living.mess.view',
   '/campus-living/mess/menu': 'campus_living.mess.menu.view',
   '/campus-living/mess/meals': 'campus_living.mess.meals.view',
@@ -1682,6 +1743,18 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // something every meetings user should see by default.
   '/meetings/series': 'meetings.series.view',
   '/meetings/series/rules': 'meetings.series.view',
+  // The proposed month (piece 4a) reads the same configuration, so it reuses the
+  // same key rather than inventing one that nobody could be granted.
+  '/meetings/slate': 'meetings.series.view',
+
+  // Unmatched meeting notes — notes that arrived from Fireflies carrying no
+  // identifier MyJKKN recognises, waiting for a human to say which meeting they
+  // belong to. Gated on .manage rather than .view: reaching this screen means
+  // reading the contents of meetings you may not have been in, which is the
+  // unavoidable cost of being the person who identifies them. The same key is
+  // what the RLS policy on meeting_notes admits to an unmatched row and what
+  // fn_link_meeting_note() checks before it writes.
+  '/meetings/notes': 'meetings.series.manage',
 
   // Online Meetings — dynamic team meetings with the AI Pulse engagement layer
   // and external-guest support. Separate module from /meetings above; see the
@@ -1975,6 +2048,24 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          // InstaSolver — spec specs/instasolver-2026-09-14.md.
+          // Immediately after Dashboard on purpose: decision I1 gives every
+          // login instasolver.view, so this is the one row the whole
+          // institution shares, and reporting a broken tap should never be a
+          // scavenger hunt down the sidebar.
+          //
+          // NO SUBMENUS, deliberately. Decision I3 is "one button whose first
+          // screen asks what kind" — the chooser page IS the submenu. Hanging
+          // the three lanes here would also break the sidebar filter: a parent
+          // with submenus renders only when one of its children is permitted,
+          // and the lanes carry their own destination keys.
+          href: '/instasolver',
+          label: 'InstaSolver',
+          active: pathname === '/instasolver' || pathname.startsWith('/instasolver/'),
+          icon: LifeBuoy,
+          submenus: []
+        },
+        {
           href: '/ai-query',
           label: 'AI Assistant',
           active: pathname === '/ai-query',
@@ -1998,6 +2089,24 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: "What's New",
           active: pathname === '/whats-new',
           icon: Megaphone,
+          submenus: []
+        },
+        {
+          // Write highlights — the approval screen behind the weekly strip on
+          // What's New. Gated on whats_new.highlights.manage, so it is invisible
+          // to everyone except a super admin until Role Management grants that
+          // key; the page and the API refuse the same key server-side.
+          //
+          // A SIBLING ROW, NOT A SUBMENU OF WHAT'S NEW, and that is load-bearing:
+          // the filter above short-circuits on `menu.submenus.length > 0` and
+          // then shows a parent ONLY when one of its submenus is permitted. Hang
+          // this under What's New and What's New itself — open to everyone signed
+          // in by the Director's decision of 2026-09-05 — would disappear for
+          // every reader who cannot write highlights, which is all of them.
+          href: '/whats-new/highlights',
+          label: 'Write highlights',
+          active: pathname === '/whats-new/highlights',
+          icon: PenLine,
           submenus: []
         },
         {
@@ -2227,6 +2336,13 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/foundation/console', label: 'Console', active: pathname.startsWith('/foundation/console') },
             { href: '/foundation/onemark/paper', label: 'OneMark: Build a Paper', active: pathname.startsWith('/foundation/onemark/paper') },
             { href: '/foundation/onemark/review', label: 'OneMark: Review Drafts', active: pathname.startsWith('/foundation/onemark/review') },
+            // Wave 3 (Lane N). Both nest here rather than becoming top-level
+            // rows: the Academic group is at 14 and the validator's hard cap
+            // is 15. Each is gated by its own MENU_PERMISSIONS key, so the
+            // children-decide-the-parent rule keeps the accordion off anyone
+            // who holds neither.
+            { href: '/foundation/onemark/results', label: 'OneMark: Results', active: pathname.startsWith('/foundation/onemark/results') },
+            { href: '/foundation/onemark/units', label: 'OneMark: Unit List', active: pathname.startsWith('/foundation/onemark/units') },
           ]
         },
         {
@@ -2261,6 +2377,19 @@ export function GetPages(pathname: string): MenuGroup[] {
           // learner never holds the operator keys that render that parent.
           // This makes the Academic group 14 top-level rows — ONE below the
           // sidebar validator's hard cap; the next entry must nest.
+          //
+          // Wave 3 Lane N asked for a flat learner door to the hub
+          // '/foundation/onemark' alongside this row. It is NOT here, and the
+          // spec's own stop condition is why: a 15th top-level row makes
+          // validateSidebar() raise a BLOCKING issue (ERROR_THRESHOLD = 15,
+          // `topLevelCount >= ERROR_THRESHOLD`) and check:sidebar fails the
+          // build for every module, not just this one. The alternative the
+          // spec offered — the mobile module tabs — is not an independent
+          // door either: components/BottomNav reads MODULES only for section
+          // identity, icon and order, and takes its actual rows from
+          // GetRoleBasedPages, so a MODULES entry would render nothing new.
+          // Reported rather than forced. See the PR for the two ways out
+          // (nest the hub under this row, or restructure the Academic group).
           href: '/foundation/onemark/practice',
           label: 'OneMark Practice',
           active: pathname.startsWith('/foundation/onemark/practice'),
@@ -2547,6 +2676,15 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admission/consultants/unlinked-referrals',
               label: 'Unlinked Referrals',
               active: pathname === '/admission/consultants/unlinked-referrals'
+            },
+            {
+              // Added 2026-09-12 — sits next to Unlinked Referrals because it is
+              // the same cleanup from the other end: there the learner is known
+              // and the agency is not, here the agency is known and the learner
+              // is not.
+              href: '/admission/consultants/attribution-orphans',
+              label: 'Attribution Orphans',
+              active: pathname === '/admission/consultants/attribution-orphans'
             },
             {
               href: '/admission/consultants/import',
@@ -3517,7 +3655,14 @@ export function GetPages(pathname: string): MenuGroup[] {
             // no nav-config, so a tier-N+1 chip is never rendered for it and the
             // reachability gate reports the rules screen as unreachable otherwise.
             { href: '/meetings/series/rules', label: 'Scheduling Rules', active: pathname.startsWith('/meetings/series/rules') },
+            { href: '/meetings/slate', label: 'Proposed Month', active: pathname.startsWith('/meetings/slate') },
             { href: '/meetings/inbox', label: 'Inbox', active: pathname.startsWith('/meetings/inbox') },
+            // Listed here for the same reason as /meetings/series/rules above:
+            // /meetings has no nav-config.ts, so nothing renders a tier-N+1 chip
+            // and the reachability gate would report this page as unreachable.
+            // It is not decoration — a queue nobody can navigate to is a queue
+            // nobody drains, and these notes sit unread until somebody links them.
+            { href: '/meetings/notes', label: 'Unmatched Notes', active: pathname.startsWith('/meetings/notes') },
             { href: '/meetings/routing-forms', label: 'Routing Forms', active: pathname.startsWith('/meetings/routing-forms') },
             { href: '/meetings/workflows', label: 'Workflows', active: pathname.startsWith('/meetings/workflows') },
             { href: '/meetings/polls', label: 'Polls', active: pathname.startsWith('/meetings/polls') },
@@ -3650,6 +3795,29 @@ export function GetPages(pathname: string): MenuGroup[] {
     {
       groupLabel: 'Events',
       menus: [
+        {
+          // Event feedback the attendee owes — the general-events equivalent of
+          // /learners/my-induction. Its absence IS why 54 of 55 events collected
+          // nothing: /events/[id]/feedback/respond had no entry point at all, so
+          // the only way in was somebody pasting the link.
+          //
+          // NOT under /learners/my-*. That prefix is matched by
+          // isStudentPortalRoute(), which renders the row for role_key
+          // 'student' ONLY and strips it from super admin outright — a faculty
+          // member or HOD who attends an FDP would have been left in exactly
+          // the dead end this entry exists to remove. An event is attended by
+          // every kind of person the platform has, so the route sits at the top
+          // level and the filter below treats it like /my-induction-sessions:
+          // ALWAYS VISIBLE, no MENU_PERMISSIONS entry, self-scoped by its RPC
+          // (fn_my_pending_event_feedback reads auth.uid() and takes no
+          // argument), so anyone with nothing to answer sees an empty state
+          // rather than a refusal.
+          href: '/my-event-feedback',
+          label: 'Event Feedback',
+          active: pathname.startsWith('/my-event-feedback'),
+          icon: MessageSquare,
+          submenus: []
+        },
         {
           href: '/events',
           label: 'Events',
@@ -4297,6 +4465,18 @@ export function GetRoleBasedPages(
           // 2026-07-03: presenter couldn't discover his own feedback + live-pulse
           // page). Always visible, same pattern as /guide.
           if (menu.href === '/my-induction-sessions') return true;
+
+          // "Event Feedback" is SELF-SCOPED the same way: its RPC
+          // (fn_my_pending_event_feedback) takes no argument, reads auth.uid()
+          // and returns only forms the caller may actually submit, so a person
+          // with nothing to answer sees an empty state. It deliberately has no
+          // MENU_PERMISSIONS entry, and the default-deny below would otherwise
+          // hide it from every non-super-admin — which is the whole population
+          // it is for. Events are attended by learners, faculty, team members,
+          // HODs and principals alike, so this row must not be gated on a role
+          // or on a permission nobody holds. Always visible, same pattern as
+          // /guide and /my-induction-sessions.
+          if (menu.href === '/my-event-feedback') return true;
 
           // Check if menu requires super admin
           if ((menu as any).requiresSuperAdmin) {

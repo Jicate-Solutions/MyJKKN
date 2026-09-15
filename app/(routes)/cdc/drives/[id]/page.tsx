@@ -42,6 +42,8 @@ import {
   useUpdateCdcDrive,
   cdcDriveResponsesExportUrl,
 } from '@/hooks/cdc/use-cdc-drives';
+import { useCdcDriveEligibility } from '@/hooks/cdc/use-cdc-drive-eligibility';
+import { DriveEligibilityCard } from './_components/eligibility-card';
 import type { CdcDriveStatus } from '@/types/cdc';
 import { CDC_DRIVE_STATE_GRAPH, CDC_DRIVE_STATUS_LABELS } from '@/types/cdc';
 import { driveCircularOf } from '@/lib/services/cdc/drive-service';
@@ -84,6 +86,7 @@ export default function CdcDriveDetailPage(props: { params: Promise<{ id: string
 function CdcDriveDetailContent({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { data, isLoading, error } = useCdcDrive(id);
+  const { data: eligibilityData } = useCdcDriveEligibility(id);
   const transition = useTransitionCdcDriveWithNotify();
   const updateDrive = useUpdateCdcDrive();
 
@@ -133,6 +136,11 @@ function CdcDriveDetailContent({ params }: { params: Promise<{ id: string }> }) 
       if (s === 'results_announced' || s === 'closed') allowedNext.add(s as CdcDriveStatus);
     });
   }
+
+  // The server refuses willingness_open without eligibility criteria (see
+  // CdcDriveService.transitionDrive). Mirror that here so the button explains
+  // itself instead of failing after the click.
+  const hasEligibility = (eligibilityData?.data?.program_ids?.length ?? 0) > 0;
 
   async function handleTransition(toStatus: CdcDriveStatus) {
     setTransitionError(null);
@@ -358,30 +366,9 @@ function CdcDriveDetailContent({ params }: { params: Promise<{ id: string }> }) 
             </CardContent>
           </Card>
 
-          {/* Eligibility criteria */}
-          {eligibility && (eligibility.min_cgpa != null || eligibility.max_arrears != null || eligibility.additional_notes || eligibility.passed_out_allowed) ? (
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <GraduationCap className="h-4 w-4 text-muted-foreground" />
-                  Eligibility criteria
-                </CardTitle>
-                <CardDescription>Shown to learners on the willingness page.</CardDescription>
-              </CardHeader>
-              <CardContent className="grid gap-2 md:grid-cols-3 text-sm">
-                {eligibility.min_cgpa != null ? (
-                  <div><span className="text-muted-foreground">Minimum CGPA</span><p className="font-medium">{eligibility.min_cgpa}</p></div>
-                ) : null}
-                {eligibility.max_arrears != null ? (
-                  <div><span className="text-muted-foreground">Maximum arrears</span><p className="font-medium">{eligibility.max_arrears}</p></div>
-                ) : null}
-                <div><span className="text-muted-foreground">Passed-out learners</span><p className="font-medium">{eligibility.passed_out_allowed ? 'Allowed' : 'Not allowed'}</p></div>
-                {eligibility.additional_notes ? (
-                  <p className="md:col-span-3 text-muted-foreground">{eligibility.additional_notes}</p>
-                ) : null}
-              </CardContent>
-            </Card>
-          ) : null}
+          {/* Eligibility criteria — the record the notification and the learner
+              willingness page both read. */}
+          <DriveEligibilityCard driveId={id} canEdit />
 
           {/* Circular */}
           <Card>
@@ -522,12 +509,92 @@ function CdcDriveDetailContent({ params }: { params: Promise<{ id: string }> }) 
                     .filter(Boolean)
                     .join(' · ')}
                 </p>
-              ) : null}
-              <Button asChild variant="outline" size="sm" className="w-full justify-start">
-                <Link href={`/cdc/drives/${id}/notifications`}>
-                  <Bell className="h-4 w-4 mr-2" /> Notification log & diagnosis
-                </Link>
-              </Button>
+              ) : pendingStatus ? (
+                <div className="space-y-3">
+                  <p className="text-sm">
+                    Move from <strong>{CDC_DRIVE_STATUS_LABELS[drive.status]}</strong> to{' '}
+                    <strong>{CDC_DRIVE_STATUS_LABELS[pendingStatus]}</strong>?
+                  </p>
+                  <div>
+                    <Label htmlFor="transition-reason">
+                      Reason {pendingStatus === 'cancelled' ? '(required)' : '(optional)'}
+                    </Label>
+                    <Textarea
+                      id="transition-reason"
+                      value={transitionReason}
+                      onChange={(e) => setTransitionReason(e.target.value)}
+                      rows={3}
+                      placeholder={
+                        pendingStatus === 'cancelled'
+                          ? 'Why is this drive being cancelled?'
+                          : 'Optional context for the audit trail'
+                      }
+                    />
+                  </div>
+                  {transitionError ? (
+                    <p className="text-xs text-destructive">{transitionError}</p>
+                  ) : null}
+                  <div className="flex items-center gap-2">
+                    <Button
+                      onClick={() => handleTransition(pendingStatus)}
+                      disabled={
+                        transition.isPending ||
+                        (pendingStatus === 'cancelled' && !transitionReason.trim())
+                      }
+                      variant={pendingStatus === 'cancelled' ? 'destructive' : 'default'}
+                      size="sm"
+                    >
+                      {transition.isPending ? 'Working…' : 'Confirm'}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setPendingStatus(null);
+                        setTransitionReason('');
+                        setTransitionError(null);
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {Array.from(allowedNext).map((nextStatus) => {
+                    const blocked = nextStatus === 'willingness_open' && !hasEligibility;
+                    return (
+                      <div key={nextStatus} className="space-y-1">
+                        <Button
+                          onClick={() => setPendingStatus(nextStatus)}
+                          variant={nextStatus === 'cancelled' ? 'destructive' : 'default'}
+                          size="sm"
+                          className="w-full justify-start"
+                          disabled={blocked}
+                        >
+                          {nextStatus === 'cancelled' ? (
+                            <XCircle className="h-4 w-4 mr-2" />
+                          ) : (
+                            <ArrowRight className="h-4 w-4 mr-2" />
+                          )}
+                          {CDC_DRIVE_STATUS_LABELS[nextStatus]}
+                        </Button>
+                        {blocked ? (
+                          <p className="text-xs text-muted-foreground">
+                            Set the eligibility criteria first — without them no learner is
+                            notified and none can declare interest.
+                          </p>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                  <Button asChild variant="outline" size="sm" className="w-full justify-start">
+                    <Link href={`/cdc/drives/${id}/notifications`}>
+                      <Bell className="h-4 w-4 mr-2" /> Notification log & diagnosis
+                    </Link>
+                  </Button>
+                </div>
+              )
             </CardContent>
           </Card>
 

@@ -243,4 +243,10 @@ export interface CompOffClaimQueueRow extends PendingCompOffClaim {
   /** When it was approved or rejected (the column is named approved_at). */
   decided_at: string | null;
   rejection_reason: string | null;
+  /**
+   * Set when an APPROVED claim was taken back. `status` is 'rejected' either
+   * way — this is what separates it from a claim refused on day one.
+   */
+  revoked_at: string | null;
+  revoke_reason: string | null;
 }

@@ -387,13 +387,20 @@ export interface LearnerCurrentAllocation {
   status: AllocationStatus;
 }
 
+// Columns only. `in_time` and `purpose` were listed here and selected by
+// learner-hostelite-service, and neither has ever been a column on
+// hostel_gate_passes — the select failed with 42703 inside a Promise.all, so
+// the residents drawer's gate-pass slice was broken outright.
 export interface LearnerGatePassSummary {
   id: string;
   pass_number: string | null;
   status: string;
+  /** Planned departure, as requested. */
+  planned_out_at: string | null;
+  /** Actual departure, recorded at the gate. */
   out_time: string | null;
-  in_time: string | null;
-  purpose: string | null;
+  actual_return: string | null;
+  destination: string | null;
   created_at: string;
 }
 
@@ -1002,52 +1009,201 @@ export interface AttendanceFilters {
 // ─── Hostel Gate Passes ────────────────────────────────────────────────
 // Mirrors `hostel_gate_passes` table + supabase.ts enums.
 
+// The full lifecycle, in the order gate_pass_status_enum declares it. All seven
+// labels are live on the database — `requested` and `rejected` were added by
+// 20260907020000 and were simply missing from this union, which is why the
+// service had to cast every status write to `any`.
 export type GatePassStatus =
+  | 'requested'
   | 'issued'
   | 'active'
   | 'returned'
   | 'overdue'
-  | 'cancelled';
+  | 'cancelled'
+  | 'rejected';
 
+/**
+ * RETIRED, kept only for the published API contract.
+ *
+ * A pass is classified by `leave_type_id` — the same per-institution
+ * hostel_leave_types list /campus-living/settings/policies-workflows configures
+ * (16 types, each carrying real policy flags). This four-value enum could never
+ * express that, and no UI writes it any more. The column stayed nullable rather
+ * than being dropped because /api/api-management/campus-living/gate-passes
+ * accepts and returns it.
+ */
 export type GatePassType =
   | 'regular_out'
   | 'overnight'
   | 'emergency'
   | 'visitor_accompanied';
 
+/**
+ * Mirrors `hostel_gate_passes` as it stands after 20260912120000.
+ *
+ * Nullability here is the DATABASE's, not the happy path's: pass_number,
+ * qr_code and approved_by have been nullable since the request workflow landed
+ * (a pass that has only been asked for has no number and no approver), and
+ * typing them as `string` is what forced `as any` through the whole service.
+ */
 export interface HostelGatePass {
   id: string;
   institution_id: string;
   learner_id: string;
-  approved_by: string;
-  pass_number: string;
-  pass_type: GatePassType;
+  /** Stamped from the learner's active allocation. Storage only — never a policy predicate. */
+  block_id: string | null;
+
+  // ── What was asked for ──────────────────────────────────────────
+  /** hostel_leave_types.id — the classification every screen reads. */
+  leave_type_id: string | null;
   destination: string;
+  reason: string | null;
+  /** Planned departure. The gate records the real one in `out_time`. */
+  planned_out_at: string | null;
+  /** Planned return — the single due-back timestamp everything downstream reads. */
   expected_return: string;
-  actual_return: string | null;
+  transport_mode: string | null;
+  accompanying_person: string | null;
+  attachment_url: string | null;
+
+  // ── The decision ────────────────────────────────────────────────
+  status: GatePassStatus;
+  pass_number: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  rejected_by: string | null;
+  rejected_at: string | null;
+  rejection_reason: string | null;
+  cancelled_by: string | null;
+  cancellation_reason: string | null;
+
+  /** The warden's phone call to the parent. Advisory — it never blocks approval. */
+  parent_confirmed_at: string | null;
+  parent_confirmed_by: string | null;
+  parent_confirmed_number: string | null;
+
+  // ── What actually happened at the gate ──────────────────────────
   out_time: string | null;
-  gate_security_in: string | null;
+  actual_return: string | null;
   gate_security_out: string | null;
+  gate_security_in: string | null;
+
   leave_request_id: string | null;
   parent_notified: boolean | null;
-  qr_code: string;
-  status: GatePassStatus;
+  /** Retired: the gate scans the learner's permanent MyJKKN QR, not a per-pass code. */
+  qr_code: string | null;
+  /** @deprecated see {@link GatePassType} */
+  pass_type: GatePassType | null;
   created_at: string | null;
   updated_at: string | null;
 }
 
+/** What a learner submits at /campus-living/gate-passes/request. */
+export interface GatePassRequestDTO {
+  institution_id: string;
+  /** A learners_profiles.id OR a profiles.id — the service resolves either. */
+  learner_id: string;
+  leave_type_id: string;
+  reason: string;
+  destination: string;
+  /** ISO. Composed from the form's out date + out time. */
+  planned_out_at: string;
+  /** ISO. Composed from the form's return date + return time. */
+  expected_return: string;
+  transport_mode?: string | null;
+  accompanying_person?: string | null;
+  attachment_url?: string | null;
+}
+
+/** What a warden issues directly at /campus-living/gate-passes/new. */
 export interface CreateHostelGatePassDTO {
   institution_id: string;
   learner_id: string;
   approved_by: string;
-  pass_number: string;
-  pass_type: GatePassType;
+  leave_type_id: string;
   destination: string;
+  planned_out_at?: string | null;
   expected_return: string;
+  reason?: string | null;
+  transport_mode?: string | null;
+  accompanying_person?: string | null;
   leave_request_id?: string | null;
-  parent_notified?: boolean | null;
-  qr_code: string;
+  pass_number?: string | null;
   status?: GatePassStatus;
+}
+
+/**
+ * The learner dossier the warden decides from. Every field is auto-fetched —
+ * `v_learner_hostelites_scoped` for all but three, then `institutions.name`,
+ * `departments.department_name` and `sections.section_name` for the ids the
+ * view does not resolve.
+ *
+ * The SCOPED view, not the base one: `v_learner_hostelites` bypasses RLS and
+ * must never be queried from a browser client.
+ */
+export interface GatePassLearnerDossier {
+  learner_profile_id: string;
+  full_name: string;
+  roll_number: string | null;
+  photo_url: string | null;
+  institution_name: string | null;
+  degree_name: string | null;
+  department_name: string | null;
+  programme_name: string | null;
+  semester_name: string | null;
+  section_name: string | null;
+  academic_year_name: string | null;
+  year_of_study: number | null;
+  student_mobile: string | null;
+  father_mobile: string | null;
+  mother_mobile: string | null;
+  block_name: string | null;
+  room_number: string | null;
+  bed_number: string | null;
+  lifecycle_status: string | null;
+}
+
+/** One phone number the warden can tap to call, labelled by whose it is. */
+export interface GatePassContactNumber {
+  label: 'Student' | 'Father' | 'Mother';
+  number: string;
+}
+
+/** Everything /campus-living/gate-passes/[id] renders, in one read. */
+export interface GatePassDetail {
+  pass: HostelGatePass;
+  leaveType: {
+    id: string;
+    leave_type_name: string;
+    leave_type_code: string;
+    color_code: string;
+    requires_attachment: boolean;
+  } | null;
+  learner: GatePassLearnerDossier | null;
+  contacts: GatePassContactNumber[];
+  approverName: string | null;
+  rejectorName: string | null;
+  parentConfirmedByName: string | null;
+}
+
+/** A row on the warden queue — the pass, flattened for the DataTable. */
+export interface GatePassListRow {
+  id: string;
+  pass_number: string | null;
+  status: GatePassStatus;
+  learner_name: string;
+  learner_email: string | null;
+  leave_type_name: string;
+  destination: string;
+  reason: string | null;
+  planned_out_at: string | null;
+  expected_return: string;
+  out_time: string | null;
+  actual_return: string | null;
+  parent_confirmed_at: string | null;
+  created_at: string | null;
+  /** Index signature so DataTable's ExportableData constraint accepts rows. */
+  [key: string]: string | number | boolean | null | undefined;
 }
 
 // ─── Hostel Visitors + Known Visitors ──────────────────────────────────

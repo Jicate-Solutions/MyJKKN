@@ -186,7 +186,7 @@ export function WorkPulseFab() {
             // mount alongside this button on every authenticated page.
             // `modal-open:hidden` (tailwind.config.ts) keeps this z-[100]
             // button from painting over a modal bottom sheet.
-            className="fixed right-4 bottom-nav-safe-4 lg:bottom-20 z-[100] modal-open:hidden"
+            className="fixed right-4 bottom-nav-safe-4 lg:bottom-20 z-[100] modal-open:hidden submenu-open:hidden"
           >
             <Button
               onClick={() => setIsOpen(true)}

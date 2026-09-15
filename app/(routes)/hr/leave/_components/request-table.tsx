@@ -54,8 +54,29 @@ const STATUS_STYLE: Record<
   },
 };
 
-export function StatusBadge({ status }: { status: LeaveApplicationStatus }) {
-  const s = STATUS_STYLE[status] ?? STATUS_STYLE.pending;
+/**
+ * A revocation stores status='rejected' — every trigger, filter and report that
+ * already understands "an approval undone" understands that value, and inventing
+ * a seventh status would have meant touching all of them. But the two are NOT
+ * the same fact to the person reading the row: one was refused on day one, the
+ * other was granted and then taken back after they had planned around it. The
+ * badge is where that difference has to show.
+ */
+const REVOKED_STYLE = {
+  label: 'Revoked',
+  badge: 'border-amber-600/40 bg-amber-600/10 text-amber-800 dark:text-amber-400',
+  rail: 'bg-amber-600',
+};
+
+export function StatusBadge({
+  status,
+  revoked = false,
+}: {
+  status: LeaveApplicationStatus;
+  /** True when the row carries a revoked_at — see REVOKED_STYLE. */
+  revoked?: boolean;
+}) {
+  const s = revoked ? REVOKED_STYLE : (STATUS_STYLE[status] ?? STATUS_STYLE.pending);
   return (
     <span
       className={cn(
@@ -68,23 +89,26 @@ export function StatusBadge({ status }: { status: LeaveApplicationStatus }) {
   );
 }
 
-export function statusRail(status: LeaveApplicationStatus): string {
-  return (STATUS_STYLE[status] ?? STATUS_STYLE.pending).rail;
+export function statusRail(status: LeaveApplicationStatus, revoked = false): string {
+  return revoked ? REVOKED_STYLE.rail : (STATUS_STYLE[status] ?? STATUS_STYLE.pending).rail;
 }
 
 /** Row wrapper that paints the left status rail. */
 export function RequestRow({
   status,
+  revoked = false,
   children,
 }: {
   status: LeaveApplicationStatus;
+  /** True when the row carries a revoked_at — amber rail, not the refusal red. */
+  revoked?: boolean;
   children: ReactNode;
 }) {
   return (
     <TableRow className="relative">
       {/* aria-hidden: the StatusBadge in the row already conveys this. */}
       <td className="w-0 p-0" aria-hidden>
-        <span className={cn('absolute inset-y-0 left-0 w-1', statusRail(status))} />
+        <span className={cn('absolute inset-y-0 left-0 w-1', statusRail(status, revoked))} />
       </td>
       {children}
     </TableRow>

@@ -76,7 +76,7 @@ export const columns: ColumnDef<AdmissionLead>[] = [
       return (
         <Link
           href={`/admission/leads/${lead.id}`}
-          className="hover:text-primary font-medium"
+          className="inline-flex items-center min-h-[44px] hover:text-primary font-medium"
         >
           {lead.application_number || '-'}
         </Link>
@@ -96,7 +96,7 @@ export const columns: ColumnDef<AdmissionLead>[] = [
         <div className="flex flex-col">
           <Link
             href={`/admission/leads/${lead.id}`}
-            className="hover:text-primary font-medium"
+            className="inline-flex items-center min-h-[44px] hover:text-primary font-medium"
           >
             {lead.full_name || '-'}
           </Link>

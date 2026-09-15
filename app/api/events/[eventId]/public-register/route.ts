@@ -18,6 +18,14 @@ export const dynamic = 'force-dynamic';
 // `institutionIdOverride: ev.institution_id` — so money settles into the college
 // that is running the event, never the registrant's own college (guests have
 // none at all). Identical to what the tournament route does with a division fee.
+//
+// A FULL EVENT. `events.cap_behavior = 'waitlist'` (every event's default, read
+// here for the first time) queues the next person instead of refusing them —
+// but ONLY a signed-in person, and ONLY on a form that charges nothing. Both
+// limits are deliberate and are the next two PRs, not oversights: money on a
+// held place and identity for somebody with no account are each their own
+// problem (see the header of migration 20261212100000). Everybody else at a
+// full event meets exactly the 422 they have always met.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
@@ -29,6 +37,20 @@ import {
   isFormOpen,
   type FormWindowLike,
 } from '@/types/tournament';
+import {
+  MODULE,
+  WaitlistReadError,
+  claimOffer,
+  closeWaitingRowsFor,
+  countTaken,
+  deliverPendingOffers,
+  findLiveRegistration,
+  findOutstandingOffer,
+  joinWaitlist,
+  queuedMessage,
+  settleQueue,
+} from '@/lib/services/events/waitlist-service';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 /**
  * Event fees resolve the host institution's 'tuition' account, the same slot
@@ -104,7 +126,7 @@ export async function POST(
     const { data: ev } = await (svc as any)
       .from('events')
       .select(
-        'id, event_type, status, registration_open_date, registration_close_date, institution_id, max_registrations'
+        'id, event_type, status, registration_open_date, registration_close_date, institution_id, max_registrations, cap_behavior'
       )
       .eq('id', eventId)
       .maybeSingle();
@@ -128,9 +150,12 @@ export async function POST(
     if (ev.registration_open_date && now < new Date(ev.registration_open_date)) {
       return NextResponse.json({ error: 'Registration has not opened yet' }, { status: 422 });
     }
-    if (ev.registration_close_date && now > new Date(ev.registration_close_date)) {
-      return NextResponse.json({ error: 'Registration has closed' }, { status: 422 });
-    }
+    // DEFERRED, NOT DROPPED. A place offered while the window was open is
+    // still being held after it shuts, so its holder is let through a few
+    // checks further down; everybody else is refused exactly as before.
+    const registrationClosed = Boolean(
+      ev.registration_close_date && now > new Date(ev.registration_close_date)
+    );
 
     // ---- resolve the form; NEVER trust the posted id blindly ----
     // Without the event_id check a caller could point a submission at another
@@ -206,31 +231,26 @@ export async function POST(
       return NextResponse.json({ error: customFieldsError }, { status: 422 });
     }
 
-    // ---- capacity ----
-    if (ev.max_registrations) {
-      const { count } = await (svc as any)
-        .from('events_registrations')
-        .select('id', { count: 'exact', head: true })
-        .eq('event_id', eventId)
-        .neq('status', 'cancelled');
-      if ((count ?? 0) >= ev.max_registrations) {
-        return NextResponse.json({ error: 'This event is full.' }, { status: 422 });
-      }
-    }
-
     // ---- identity: link a signed-in JKKN user, else treat as a guest ----
+    // Resolved BEFORE capacity (it used to come after) because a person who
+    // ends up on the waiting list is stored WITH their account, and an offer
+    // is recognised by that account.
     const auth = await createClient();
     const {
       data: { user },
     } = await auth.auth.getUser();
     let selfLearnerId: string | null = null;
     let selfInstitutionId: string | null = null;
+    // event_registration_waitlist.profile_id is NOT NULL and a FOREIGN KEY to
+    // profiles(id): only an identity the waiting list can store is claimed.
+    let selfProfileId: string | null = null;
     if (user) {
       const { data: profile } = await (svc as any)
         .from('profiles')
-        .select('learner_id, institution_id')
+        .select('id, learner_id, institution_id')
         .eq('id', user.id)
         .maybeSingle();
+      selfProfileId = profile?.id ?? null;
       selfLearnerId = profile?.learner_id ?? null;
       selfInstitutionId = profile?.institution_id ?? null;
     }
@@ -243,6 +263,113 @@ export async function POST(
     // organizer had switched off.
     const fee = effectiveFee(formRow);
     const paymentStatus = fee > 0 ? 'pending' : 'not_required';
+
+    // ---- the waiting list, and whether this caller is holding a place ----
+    // The queue engages only for a signed-in person on a free form of a capped
+    // event whose switch says 'waitlist'. NO MONEY: on a paid form a held place
+    // would have to be paid for at claim time, which is PR 2, so a paid form
+    // ignores the queue entirely and behaves as today.
+    const queueEngaged = Boolean(
+      ev.max_registrations && ev.cap_behavior === 'waitlist' && fee <= 0 && selfProfileId
+    );
+    let heldOffer: Awaited<ReturnType<typeof findOutstandingOffer>> = null;
+    if (queueEngaged) {
+      // Lapse any stale hold and offer every free place before deciding
+      // anything — there is no cron, so this request is when it happens.
+      const settled = await settleQueue(svc as any, eventId);
+      if (settled.error) logger.warn(MODULE, 'settle pass failed', settled.error);
+      // Announce offers made since anybody last looked. Awaited (a voided
+      // fanout on a lambda that freezes at response time half-writes the
+      // inbox), capped, and it never throws.
+      await deliverPendingOffers(svc as any, eventId, 3);
+      heldOffer = await findOutstandingOffer(svc as any, eventId, selfProfileId!, formRow.id);
+    }
+
+    // Everybody who is not holding a place meets the closed window here.
+    if (registrationClosed && !heldOffer) {
+      return NextResponse.json({ error: 'Registration has closed' }, { status: 422 });
+    }
+
+    // ---- capacity ----
+    // A held place is already counted as taken, so its holder skips this.
+    // `taken` = non-cancelled registrations + offers still within their
+    // deadline; before the migration is applied the second term is zero.
+    if (!heldOffer && ev.max_registrations) {
+      const taken = await countTaken(svc as any, eventId);
+      if (taken >= ev.max_registrations) {
+        // strict_cap, allow_overflow, a paid form, or no account: today's
+        // behaviour, unchanged.
+        if (!queueEngaged) {
+          return NextResponse.json({ error: 'This event is full.' }, { status: 422 });
+        }
+
+        const queued = await joinWaitlist(svc as any, {
+          eventId,
+          formId: formRow.id,
+          participantName: dto.participant_name.trim(),
+          participantEmail: dto.participant_email?.trim() || null,
+          participantPhone: dto.participant_phone?.trim() || null,
+          profileId: selfProfileId!,
+          learnerId: selfLearnerId,
+          institutionId: selfInstitutionId,
+          customFields: dto.custom_fields ?? null,
+        });
+
+        // The waiting list is not there yet (the migration is applied at
+        // merge, after this code deploys). Behave exactly as before.
+        if (queued.outcome === 'not_available') {
+          return NextResponse.json({ error: 'This event is full.' }, { status: 422 });
+        }
+        // They already have a registration for this form — a refresh, a back
+        // button. Not "number 4 on the waiting list" for an event they are
+        // going to. Their own account matched, so their own id is returned.
+        if (queued.outcome === 'already_registered') {
+          return NextResponse.json(
+            { already_registered: true, registration_id: queued.registrationId, paid_required: false },
+            { status: 200 }
+          );
+        }
+        // A real write failure must not wear "This event is full." as a coat.
+        if (queued.outcome === 'error') {
+          logger.error(MODULE, 'joinWaitlist failed', queued.message);
+          return NextResponse.json(
+            {
+              error:
+                'This event is full and the waiting list could not be updated. Please try again in a moment.',
+            },
+            { status: 500 }
+          );
+        }
+
+        return NextResponse.json(
+          {
+            waitlisted: true,
+            already_waitlisted: queued.already,
+            waitlist_id: queued.id,
+            position: queued.position,
+            message: queuedMessage(queued.position, queued.already),
+          },
+          { status: 202 }
+        );
+      }
+    }
+
+    // A holder who already has a live registration for this form (written at
+    // the desk, say) gets no second one: the offer is closed against the
+    // registration they have.
+    if (heldOffer) {
+      const live = await findLiveRegistration(svc as any, eventId, formRow.id, selfProfileId!);
+      if (live) {
+        const closed = await claimOffer(svc as any, heldOffer.id, heldOffer.claimCode, live.id);
+        if (closed !== 'claimed') {
+          logger.warn(MODULE, `could not close offer ${heldOffer.id} against existing registration ${live.id}: ${closed}`);
+        }
+        return NextResponse.json(
+          { already_registered: true, registration_id: live.id, paid_required: false },
+          { status: 200 }
+        );
+      }
+    }
 
     // ---- registration ----
     const { data: reg, error: regErr } = await (svc as any)
@@ -274,6 +401,27 @@ export async function POST(
         { error: regErr?.message || 'Failed to register' },
         { status: 500 }
       );
+    }
+
+    // ---- the queue row this registration settles ----
+    // REGISTRATION FIRST, CLAIM SECOND. While the registration was being
+    // written the offer still counted as taken, so nobody could read capacity
+    // one low and slip into the held place. The claim presents the row's code
+    // and names the registration in ONE statement; the database refuses any
+    // other exit from 'offered' and consumes the code, so it cannot be used
+    // twice. A lost claim means the hold lapsed in this very instant; the
+    // registration stands and the settle pass reconciles capacity from here.
+    if (heldOffer) {
+      const claim = await claimOffer(svc as any, heldOffer.id, heldOffer.claimCode, reg.id);
+      if (claim !== 'claimed') {
+        logger.error(MODULE, `offer ${heldOffer.id} was not claimed by registration ${reg.id}: ${claim}`);
+      }
+    } else if (selfProfileId) {
+      // A signed-in person who was waiting and got in through the ordinary
+      // door (a place freed before the queue reached them) leaves the queue,
+      // so a later freed place is not held for somebody already going.
+      // WAITING rows only — an offered row leaves only by its code.
+      await closeWaitingRowsFor(svc as any, eventId, selfProfileId, formRow.id, reg.id);
     }
 
     // ---- payment ----
@@ -323,6 +471,12 @@ export async function POST(
       { status: 201 }
     );
   } catch (err) {
+    // No database text to a stranger: WaitlistReadError carries a fixed public
+    // sentence and keeps the database's words in `detail` for the log.
+    if (err instanceof WaitlistReadError) {
+      logger.error(MODULE, err.detail, err);
+      return NextResponse.json({ error: err.message }, { status: 500 });
+    }
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Failed to register' },
       { status: 500 }

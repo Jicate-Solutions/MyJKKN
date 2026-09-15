@@ -48,7 +48,7 @@ const baseColumns: ColumnDef<Application>[] = [
         <div className='flex items-center gap-2 font-medium'>
           <Link
             href={`/applications/${app.id}`}
-            className='hover:text-primary hover:underline'
+            className='inline-flex items-center min-h-[44px] hover:text-primary hover:underline'
           >
             {app.name}
           </Link>

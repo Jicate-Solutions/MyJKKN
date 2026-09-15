@@ -11,6 +11,8 @@ import type {
 import { logger } from '@/lib/utils/enhanced-logger';
 import { trackUsage } from '@/lib/utils/track-usage';
 import { logActivityForCurrentUser, BillingActivityTemplates } from '@/lib/utils/activity-logger-client';
+import { RECEIPT_EMAIL_NOT_AVAILABLE } from '@/lib/services/billing/email-not-available';
+import { RECEIPT_PRINT_NOT_AVAILABLE } from '@/lib/services/billing/print-and-download-text';
 
 export class BillingReceiptService {
   private static supabase = createClientSupabaseClient();
@@ -165,9 +167,39 @@ export class BillingReceiptService {
       return receipt;
     } catch (error) {
       logger.error('billing/receipts', 'Error creating receipt', error);
-      throw new Error(
-        error instanceof Error ? error.message : 'Failed to create receipt'
-      );
+
+      // A PostgREST/RPC rejection is a PLAIN OBJECT ({ code, message, details,
+      // hint }), not an Error instance — the same fact voidBillingReceipt notes
+      // below. So `error instanceof Error` was false for every server-side
+      // failure on this path, and the ternary replaced the server's real code,
+      // message, details and hint with the literal string 'Failed to create
+      // receipt'. That is all the operator, the console and the API route saw.
+      //
+      // A genuine Error (e.g. the 'Receipt creation returned no receipt' guard
+      // above, or a throw from the bill-status / invoice helpers) is re-thrown
+      // as-is so its stack survives.
+      if (error instanceof Error) {
+        throw error;
+      }
+
+      // Covers null/undefined and non-object throws without touching them.
+      const pgError = (
+        typeof error === 'object' && error !== null ? error : {}
+      ) as { code?: string; message?: string; details?: string; hint?: string };
+
+      const serverMessage = pgError.message || 'Failed to create receipt';
+      const wrapped = new Error(
+        pgError.code ? `[${pgError.code}] ${serverMessage}` : serverMessage
+      ) as Error & { code?: string; details?: string; hint?: string };
+
+      // Carried as properties so a caller can branch on the SQLSTATE / PostgREST
+      // code (e.g. '42501' insufficient privilege, 'PGRST301') instead of
+      // string-matching the message.
+      wrapped.code = pgError.code;
+      wrapped.details = pgError.details;
+      wrapped.hint = pgError.hint;
+
+      throw wrapped;
     }
   }
 
@@ -459,36 +491,20 @@ export class BillingReceiptService {
     }
   }
 
-  static async printReceipt(id: string): Promise<void> {
-    try {
-      // Implementation for printing receipt
-      // This would typically generate a PDF and trigger print dialog
-      const receipt = await this.getBillingReceipt(id);
-
-      // TODO: Implement actual printing logic
-      console.log('Printing receipt:', receipt);
-    } catch (error) {
-      console.error('Error printing receipt:', error);
-      throw new Error(
-        error instanceof Error ? error.message : 'Failed to print receipt'
-      );
-    }
+  // Printing is NOT built. This used to fetch the receipt, log it and resolve,
+  // so the receipts list showed a success message while nothing printed.
+  // It now rejects with a message pointing staff to Download.
+  // Real printing can reuse generateReceiptPdf (lib/utils/billing/receipt-pdf)
+  // the way printSchoolReceiptPdf does (autoPrint + open in a new tab).
+  static async printReceipt(_id: string): Promise<void> {
+    throw new Error(RECEIPT_PRINT_NOT_AVAILABLE);
   }
 
-  static async emailReceipt(id: string, email: string): Promise<void> {
-    try {
-      // Implementation for emailing receipt
-      // This would typically send an email with the receipt PDF
-      const receipt = await this.getBillingReceipt(id);
-
-      // TODO: Implement actual email sending logic
-      console.log('Emailing receipt to:', email, receipt);
-    } catch (error) {
-      console.error('Error emailing receipt:', error);
-      throw new Error(
-        error instanceof Error ? error.message : 'Failed to email receipt'
-      );
-    }
+  // Emailing is NOT built. This used to log and resolve, so the receipts list
+  // showed a success message while nothing was sent. It now
+  // rejects with a message pointing staff to Download.
+  static async emailReceipt(_id: string, _email: string): Promise<void> {
+    throw new Error(RECEIPT_EMAIL_NOT_AVAILABLE);
   }
 
   static async downloadReceiptPDF(id: string): Promise<void> {
