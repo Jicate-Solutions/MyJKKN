@@ -462,14 +462,23 @@ export function ModulePageTree({ moduleKey }: { moduleKey: string }) {
                   {page.roles.length} role{page.roles.length !== 1 ? 's' : ''} ·{' '}
                   {page.totalUsers} user{page.totalUsers !== 1 ? 's' : ''}
                 </span>
-                <Link
-                  href={page.url}
-                  onClick={(e) => e.stopPropagation()}
-                  className='shrink-0 text-muted-foreground hover:text-foreground'
-                  title='Open this page'
-                >
-                  <ExternalLink className='h-3.5 w-3.5' />
-                </Link>
+                {page.url.includes('[') ? (
+                  <span
+                    className='shrink-0 text-muted-foreground/40'
+                    title='Dynamic route — open it from a record, there is no literal URL to link to'
+                  >
+                    <ExternalLink className='h-3.5 w-3.5' />
+                  </span>
+                ) : (
+                  <Link
+                    href={page.url}
+                    onClick={(e) => e.stopPropagation()}
+                    className='shrink-0 text-muted-foreground hover:text-foreground'
+                    title='Open this page'
+                  >
+                    <ExternalLink className='h-3.5 w-3.5' />
+                  </Link>
+                )}
               </button>
 
               {isOpen && (
