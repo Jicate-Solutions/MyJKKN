@@ -43,9 +43,17 @@
 //
 // Pure, no I/O, no clock. The caller does the database work.
 
-/** Why a published write-up came down. Mirrors the CHECK on
- *  changelog_highlights.skip_reason — keep the two in step. */
-export type SkipReason = 'reverted' | 'reported' | 'person' | 'ai_refused';
+/** Why a write-up is 'skipped'. Mirrors the CHECK on
+ *  changelog_highlights.skip_reason — keep the two in step.
+ *    reverted   — the change is no longer on the branch (ruling 6)
+ *    reported   — enough distinct readers flagged it (2026-09-13 22:20 ruling)
+ *    person     — a super admin hid it from the queue
+ *    ai_refused — the writer said the change has no user-visible effect
+ *    vocab      — the writer used a forbidden word twice; never published
+ *    security   — the commit describes an access hole; never published
+ *  Since 2026-09-15 every 'skipped' row MUST carry one of these — the CHECK
+ *  changelog_highlights_skipped_has_reason_check refuses a NULL. */
+export type SkipReason = 'reverted' | 'reported' | 'person' | 'ai_refused' | 'vocab' | 'security';
 
 /** A write-up that must come down, and why. */
 export interface Takedown {

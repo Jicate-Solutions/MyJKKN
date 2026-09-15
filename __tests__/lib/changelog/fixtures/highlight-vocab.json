@@ -1,0 +1,54 @@
+{
+  "_": "Fixtures for the What's New output gate. These carry the FORBIDDEN words on purpose — they are what the gate must reject — and live in JSON so the terminology gate (scripts/ci/check-terminology-delta.py) does not scan them as copy.",
+  "clean": {
+    "headline": "Your fee receipts now open in one tap",
+    "affects": "Learners on a hostel plan and office team members who raise invoices",
+    "action": "Open Billing → Receipts."
+  },
+  "staff_in_affects": {
+    "headline": "Admission forms now save as you type",
+    "affects": "Admission staff and counsellors",
+    "action": "Open Admission → Applications."
+  },
+  "student_in_headline": {
+    "headline": "Capture a snapshot of what a student experienced",
+    "affects": "Principals and HODs",
+    "action": "Open Analytics → Engagement."
+  },
+  "plural_students_in_action": {
+    "headline": "Attendance now closes on time",
+    "affects": "Anyone who takes attendance",
+    "action": "Open Academic → Attendance; Students see the closed session."
+  },
+  "faculty_uppercase": {
+    "headline": "FACULTY can now see their own timetable",
+    "affects": "Senior Learners",
+    "action": "Open Academic → Timetables."
+  },
+  "three_words_across_lines": {
+    "headline": "Every student gets a mentor",
+    "affects": "Faculty and staff",
+    "action": "Open Mentoring."
+  },
+  "near_misses": {
+    "headline": "Staffing levels are shown on the studio card",
+    "affects": "The learners-council advisor role and studentships",
+    "action": "Open Organisation → Departments."
+  },
+  "subjects": {
+    "access_hole_49ae115": "Calendar-lock RPCs were callable by ANY logged-in user",
+    "without_permission": "Learners could open a report without permission",
+    "could_see_other": "A HOD could see other departments' marks",
+    "rls_named": "Tighten RLS on meeting_minutes",
+    "bypassed": "The approval step could be bypassed from the mobile app",
+    "benign_permission_feature": "Add a permission for exporting attendance",
+    "benign_fix": "Fee receipts now open in one tap",
+    "benign_any": "Any learner can now download their own transcript"
+  },
+  "model_answers": {
+    "clean": "{\"headline\": \"Your fee receipts now open in one tap\", \"affects\": \"Learners on a hostel plan\", \"action\": \"Open Billing → Receipts.\"}",
+    "with_staff": "{\"headline\": \"Admission forms now save as you type\", \"affects\": \"Admission staff and counsellors\", \"action\": \"Open Admission → Applications.\"}",
+    "with_students_and_faculty": "{\"headline\": \"Students and faculty now share one calendar\", \"affects\": \"Everyone signed in\", \"action\": \"Open Calendar.\"}",
+    "refusal": "{\"no_user_visible_effect\": true, \"reason\": \"Internal code tidy-up — nothing on any screen changes.\"}"
+  }
+}

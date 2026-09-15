@@ -273,3 +273,72 @@ describe('the queue covers every write-up the strip renders', () => {
     expect(body.liveCount).toBe(0);
   });
 });
+
+// ── 2026-09-15: THE QUEUE REACHES THE WHOLE BACKLOG, NOT THE STRIP'S TEN ──────
+// #3760 carried the strip's ten into the queue. The writer had by then
+// published ~475 write-ups into the backlog window, and the other ~465 were on
+// nobody's page: readable by no reader (the strip stops at ten) and reviewable
+// from nowhere (no card, so no Edit and no set-back-to-draft). The queue now
+// reads from WRITEUP_BACKLOG_FLOOR — the same floor the writer writes from.
+describe('the queue reaches every write-up in the backlog window', () => {
+  // Fifteen approved write-ups, all last week, so this week's selection offers
+  // none of them and the strip's cap (10) leaves five with no card anywhere.
+  const MANY = 15;
+  const entries = Array.from({ length: MANY }, (_, i) => entry(`bl${i}`, LAST_WEEK_OLDEST));
+  const highlights = entries.map((e) => approved(e.sha));
+  const opts: ClientOpts = { visible: ['billing'], entries, highlights };
+
+  it('the fixture really does exceed what the strip shows', async () => {
+    const strip = (await call(BASE, opts)).body;
+    expect(strip.highlights.length).toBeLessThan(MANY);
+  });
+
+  it('gives EVERY backlog write-up a card, including the ones past the strip', async () => {
+    const { body } = await call(`${BASE}?queue=1`, opts);
+    expect(body.candidates).toEqual([]);
+    const cards = (body.live ?? []).map((c: any) => c.sha).sort();
+    expect(cards).toEqual(entries.map((e) => e.sha).sort());
+  });
+
+  it('carries the saved row for each, so Edit and withdraw work on all of them', async () => {
+    const { body } = await call(`${BASE}?queue=1`, opts);
+    const saved = new Map<string, any>(body.saved.map((s: any) => [s.sha, s]));
+    for (const e of entries) {
+      expect(saved.get(e.sha)?.status).toBe('approved');
+      expect(saved.get(e.sha)?.headline).toBe(`Headline ${e.sha}`);
+    }
+  });
+
+  it('still reports liveCount as what the strip actually renders', async () => {
+    const strip = (await call(BASE, opts)).body;
+    const queue = (await call(`${BASE}?queue=1`, opts)).body;
+    expect(queue.liveCount).toBe(strip.highlights.length);
+  });
+
+  it('names the window it read, and keeps weekFrom for the week it selects from', async () => {
+    const { body } = await call(`${BASE}?queue=1`, opts);
+    expect(body.from).toBe(WRITEUP_BACKLOG_FLOOR);
+    expect(body.weekFrom).toBe(THIS_WEEK);
+  });
+
+  it('carries a skipped backlog write-up in saved (so it can be restored) but not in live', async () => {
+    const { body } = await call(`${BASE}?queue=1`, {
+      ...opts,
+      highlights: [...highlights.slice(1), approved('bl0', { status: 'skipped', headline: 'SET ASIDE' })],
+    });
+    const saved = new Map<string, any>(body.saved.map((s: any) => [s.sha, s]));
+    expect(saved.get('bl0')?.status).toBe('skipped');
+    expect((body.live ?? []).map((c: any) => c.sha)).not.toContain('bl0');
+  });
+
+  it('never reaches below the floor', async () => {
+    const { body } = await call(`${BASE}?queue=1`, {
+      ...opts,
+      entries: [...entries, entry('too-old', shiftDays(WRITEUP_BACKLOG_FLOOR, -1))],
+      highlights: [...highlights, approved('too-old')],
+    });
+    const cards = [...body.candidates, ...(body.live ?? [])].map((c: any) => c.sha);
+    expect(cards).not.toContain('too-old');
+    expect(body.saved.map((s: any) => s.sha)).not.toContain('too-old');
+  });
+});
