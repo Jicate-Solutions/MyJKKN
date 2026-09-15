@@ -25,13 +25,13 @@ describe('buildReceiptSearchOr', () => {
     );
   });
 
-  it('OR-s in the resolved learners, so a student match widens the result', () => {
+  it('OR-s in the resolved learners, so a learner match widens the result', () => {
     expect(buildReceiptSearchOr('aadhi', ['id-1', 'id-2'])).toBe(
       'receipt_number.ilike.%aadhi%,payer_name.ilike.%aadhi%,student_id.in.(id-1,id-2)'
     );
   });
 
-  it('omits the student clause entirely when no learner matched', () => {
+  it('omits the learner clause entirely when no learner matched', () => {
     expect(buildReceiptSearchOr('zzz', [])).not.toContain('student_id');
   });
 });

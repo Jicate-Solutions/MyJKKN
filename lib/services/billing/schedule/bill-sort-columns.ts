@@ -70,18 +70,31 @@ const BILL_SORT_COLUMN_SET: ReadonlySet<string> = new Set(BILL_SORT_COLUMNS);
  * Learner-name sorts get a (first_name, last_name) pair because the cell
  * renders "first last".
  */
+/**
+ * The select string's alias for the learners_profiles embed. It is a query
+ * identifier fixed by StudentBillService's select, not user-facing copy.
+ */
+export const LEARNER_EMBED_ALIAS = 'student';
+
+/** `alias(column)` order path on the learner embed. */
+export const learnerSortPath = (column: string) =>
+  `${LEARNER_EMBED_ALIAS}(${column})`;
+
+const LEARNER_FIRST_LAST = [learnerSortPath('first_name'), learnerSortPath('last_name')];
+const LEARNER_LAST_FIRST = [learnerSortPath('last_name'), learnerSortPath('first_name')];
+
 const EMBEDDED_SORT_PATHS = new Map<string, readonly string[]>([
   // Learner name — the data table's column id, plus the variants the old
   // mapper accepted, so no caller regresses.
-  ['student_name', ['student(first_name)', 'student(last_name)']],
-  ['student', ['student(first_name)', 'student(last_name)']],
-  ['student.name', ['student(first_name)', 'student(last_name)']],
-  ['first_name', ['student(first_name)', 'student(last_name)']],
-  ['student.first_name', ['student(first_name)', 'student(last_name)']],
-  ['last_name', ['student(last_name)', 'student(first_name)']],
-  ['student.last_name', ['student(last_name)', 'student(first_name)']],
+  ['student_name', LEARNER_FIRST_LAST],
+  [LEARNER_EMBED_ALIAS, LEARNER_FIRST_LAST],
+  [`${LEARNER_EMBED_ALIAS}.name`, LEARNER_FIRST_LAST],
+  ['first_name', LEARNER_FIRST_LAST],
+  [`${LEARNER_EMBED_ALIAS}.first_name`, LEARNER_FIRST_LAST],
+  ['last_name', LEARNER_LAST_FIRST],
+  [`${LEARNER_EMBED_ALIAS}.last_name`, LEARNER_LAST_FIRST],
   // Other sortable table columns that live on an embed, not on the bill.
-  ['lifecycle_status', ['student(lifecycle_status)']],
+  ['lifecycle_status', [learnerSortPath('lifecycle_status')]],
   ['institution_name', ['institution(name)']],
   ['institution.name', ['institution(name)']],
   ['item_category_category_name', ['item_category(category_name)']],

@@ -2,8 +2,13 @@ import { describe, it, expect } from 'vitest';
 import {
   BILL_SORT_COLUMNS,
   DEFAULT_BILL_SORT,
+  LEARNER_EMBED_ALIAS,
+  learnerSortPath,
   resolveBillSortPaths
 } from '@/lib/services/billing/schedule/bill-sort-columns';
+
+const FIRST_LAST = [learnerSortPath('first_name'), learnerSortPath('last_name')];
+const LAST_FIRST = [learnerSortPath('last_name'), learnerSortPath('first_name')];
 
 describe('resolveBillSortPaths', () => {
   it('defaults to created_at when nothing is requested', () => {
@@ -20,38 +25,33 @@ describe('resolveBillSortPaths', () => {
     }
   });
 
+  it('orders on the PostgREST alias(column) path of the learner embed', () => {
+    expect(learnerSortPath('first_name')).toBe(`${LEARNER_EMBED_ALIAS}(first_name)`);
+  });
+
   // BUG-005360 / BUG-003999: this is the exact value the "Student" header
   // sends, and ordering the raw table by it was a 400 / 42703.
   it('never orders the bill table by the non-existent student_name column', () => {
-    expect(resolveBillSortPaths('student_name')).toEqual([
-      'student(first_name)',
-      'student(last_name)'
-    ]);
+    expect(resolveBillSortPaths('student_name')).toEqual(FIRST_LAST);
   });
 
   it('maps every learner-name variant onto the embedded learner columns', () => {
     for (const key of [
-      'student',
-      'student.name',
+      LEARNER_EMBED_ALIAS,
+      `${LEARNER_EMBED_ALIAS}.name`,
       'first_name',
-      'student.first_name'
+      `${LEARNER_EMBED_ALIAS}.first_name`
     ]) {
-      expect(resolveBillSortPaths(key)).toEqual([
-        'student(first_name)',
-        'student(last_name)'
-      ]);
+      expect(resolveBillSortPaths(key)).toEqual(FIRST_LAST);
     }
-    for (const key of ['last_name', 'student.last_name']) {
-      expect(resolveBillSortPaths(key)).toEqual([
-        'student(last_name)',
-        'student(first_name)'
-      ]);
+    for (const key of ['last_name', `${LEARNER_EMBED_ALIAS}.last_name`]) {
+      expect(resolveBillSortPaths(key)).toEqual(LAST_FIRST);
     }
   });
 
   it('maps the other embedded table columns to their order paths', () => {
     expect(resolveBillSortPaths('lifecycle_status')).toEqual([
-      'student(lifecycle_status)'
+      learnerSortPath('lifecycle_status')
     ]);
     expect(resolveBillSortPaths('institution_name')).toEqual([
       'institution(name)'

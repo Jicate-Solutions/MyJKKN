@@ -507,6 +507,7 @@
     "billing.payment_accounts.view",
     "billing.receipts.view",
     "billing.refunds.view",
+    "billing.reports.export",
     "billing.reports.view",
     "billing.schedule.view",
     "billing.transport.view",
