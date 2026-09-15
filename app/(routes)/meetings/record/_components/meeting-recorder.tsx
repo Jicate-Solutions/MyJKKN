@@ -28,7 +28,7 @@
 // records that he confirmed it, and says plainly on screen that recording is on.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 type Phase = 'idle' | 'starting' | 'recording' | 'finishing' | 'done' | 'unsupported';
 
@@ -139,7 +139,7 @@ export function MeetingRecorder({ canRecord }: { canRecord: boolean }) {
             data: { path: string; token: string };
           };
 
-          const supabase = createClient();
+          const supabase = createClientSupabaseClient();
           const { error } = await supabase.storage
             .from('meeting-audio')
             .uploadToSignedUrl(data.path, data.token, blob);
