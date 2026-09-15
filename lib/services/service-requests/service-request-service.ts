@@ -27,7 +27,7 @@ const getSupabase = async () => await createServerSupabaseClient() as any;
 // Select string for request queries with common joins
 const REQUEST_SELECT = `
   *,
-  service_type:service_types(id, name, slug, icon, color),
+  service_type:service_types(id, name, slug, icon, color, issues_gate_pass),
   requester:profiles!requester_id(id, full_name, email, avatar_url),
   institution:institutions(id, name)
 `;
@@ -314,6 +314,16 @@ export class ServiceRequestService {
       });
       if (error) {
         console.error('[service-requests] Auto-approve bus-pass sync failed:', error);
+      }
+    }
+
+    // Gate Pass category with zero approval steps: issue on auto-approval too.
+    if (serviceType.issues_gate_pass) {
+      const { error } = await supabase.rpc('issue_gate_pass_for_service_request', {
+        p_request_id: requestId,
+      });
+      if (error) {
+        console.error('[service-requests] Auto-approve gate pass issue failed:', error);
       }
     }
   }

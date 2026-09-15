@@ -68,6 +68,11 @@ function buildDynamicSchema(fields: ServiceTypeField[]) {
           ? z.string().min(1, `${field.field_label} is required`)
           : z.string().optional();
         break;
+      case 'time':
+        schema = field.is_required
+          ? z.string().regex(/^\d{2}:\d{2}$/, `${field.field_label} is required`)
+          : z.string().regex(/^(\d{2}:\d{2})?$/, 'Use HH:MM').optional();
+        break;
       case 'tms_route':
       case 'tms_route_stop':
         schema = field.is_required
@@ -432,6 +437,27 @@ export function DynamicRequestForm({
             <Input
               id={field.field_key}
               type="date"
+              {...register(field.field_key)}
+            />
+            {field.help_text && (
+              <p className="text-xs text-muted-foreground">{field.help_text}</p>
+            )}
+            {errorMessage && (
+              <p className="text-xs text-red-500">{errorMessage}</p>
+            )}
+          </div>
+        );
+
+      case 'time':
+        return (
+          <div key={field.field_key} className="space-y-2">
+            <Label htmlFor={field.field_key}>
+              {field.field_label}
+              {field.is_required && <span className="text-red-500 ml-1">*</span>}
+            </Label>
+            <Input
+              id={field.field_key}
+              type="time"
               {...register(field.field_key)}
             />
             {field.help_text && (

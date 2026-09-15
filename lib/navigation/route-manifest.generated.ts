@@ -3772,6 +3772,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     ]
   },
   {
+    "path": "/gate-security",
+    "label": "Gate Security",
+    "iconName": "FileText",
+    "children": []
+  },
+  {
     "path": "/guide",
     "label": "Guide",
     "iconName": "FileText",
@@ -6560,6 +6566,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "label": "Reference",
     "iconName": "FileText",
     "children": []
+  },
+  {
+    "path": "/reports",
+    "label": "Reports",
+    "iconName": "FileBarChart",
+    "children": [
+      {
+        "path": "/reports/gate-in-out",
+        "label": "Gate In Out",
+        "iconName": "FileBarChart",
+        "children": []
+      }
+    ]
   },
   {
     "path": "/resource-management",

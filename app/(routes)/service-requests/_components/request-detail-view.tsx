@@ -1,6 +1,7 @@
 'use client';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { GATE_PASS_FIELD_LABELS } from '@/lib/gate-security/gate-pass-form-fields';
 import { Separator } from '@/components/ui/separator';
 import { RequestTimeline } from './request-timeline';
 import { RequestApprovalPanel } from './request-approval-panel';
@@ -46,7 +47,8 @@ interface RequestDetailViewProps {
 
 /** Maps field_key → field_label using the service type's field definitions */
 function buildFieldLabelMap(request: ServiceRequest): Record<string, string> {
-  const map: Record<string, string> = {};
+  // Built-in Gate Pass block keys have no service_type_fields row.
+  const map: Record<string, string> = { ...GATE_PASS_FIELD_LABELS };
   if (request.service_type?.fields) {
     for (const field of request.service_type.fields) {
       map[field.field_key] = field.field_label;

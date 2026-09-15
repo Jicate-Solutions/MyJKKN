@@ -98,6 +98,10 @@ export const CATEGORY_ONLY_MODULES: ReadonlyArray<readonly [string, string]> = [
   // PERMISSION_CATEGORIES entry + sidebar route; fp_* tables not yet in
   // table-module-map, so it's category-only like Calendar/Feedback above.
   ['Foundation Programme', 'foundation'],
+  // Gate Security (2026-09): has the 'gate_security' PERMISSION_CATEGORIES
+  // entry + sidebar routes; movement tables not yet in table-module-map, so
+  // it is category-only like Calendar/Feedback above.
+  ['Gate Security', 'gate_security'],
   // Centralized Procurement (2026-07): has the 'procurement' PERMISSION_CATEGORIES
   // entry + sidebar routes; procurement_* tables aren't in table-module-map, so
   // it's category-only like the entries above.
@@ -273,6 +277,10 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   // sub-routes (accounts, posts, audits, dormant queue, alerts) all roll up
   // into the Instagram module. Listed before broader prefixes to be safe.
   ['/social/instagram', 'Instagram'],
+  // Gate Security (gate_security.* perms): scanner page + the gate in/out report.
+  // Listed before any broader /reports prefix so the report rolls up here.
+  ['/reports/gate-in-out', 'Gate Security'],
+  ['/gate-security', 'Gate Security'],
   ['/hr', 'Staff'],
 
   // Single-segment dashboards — keep last to avoid swallowing nested paths.

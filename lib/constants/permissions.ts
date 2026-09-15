@@ -3619,6 +3619,22 @@ export const PERMISSION_CATEGORIES = [
       { key: 'network.settings.manage', label: 'Manage Wi-Fi Settings (sign-in methods, speed tiers, block reasons)' },
       { key: 'network.panic.manage', label: 'Emergency Open Wi-Fi (panic switch)' }
     ]
+  },
+  {
+    // Gate Security — the campus-gate workflow (2026-09-15). Gate passes are
+    // issued by the Service Requests module (service_types.issues_gate_pass);
+    // these keys cover the security screen, the OUT/IN write, and the CAO
+    // report. The DEFINER RPCs (gate_can_scan / gate_can_record) also honour
+    // campus_living.gate_passes.edit, so existing gate_security holders work
+    // before any regrant.
+    name: 'Gate Security',
+    key: 'gate_security',
+    permissions: [
+      { key: 'gate_security.scan.view', label: 'Gate Security screen (scan + search)' },
+      { key: 'gate_security.movements.record', label: 'Record OUT / IN at the gate' },
+      { key: 'gate_security.reports.view', label: 'View Gate In/Out Report (CAO)' },
+      { key: 'gate_security.reports.export', label: 'Export Gate In/Out Report to Excel' }
+    ]
   }
 ];
 

@@ -15,14 +15,79 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
   CdcDrive,
+  CdcDriveCircular,
+  CdcDriveEligibility,
+  CdcDriveEligibilityInput,
   CdcDriveInsert,
   CdcDriveStatus,
   CdcDriveStateTransition,
   CdcDriveType,
   CdcDriveTransitionPayload,
+  CdcDriveUpdate,
   CdcRecruiter,
 } from '@/types/cdc';
 import { canTransition, CDC_DRIVE_STATUS_LABELS } from '@/types/cdc';
+import { normalizeInstitutionSemesters } from './drive-targeting';
+
+/** Map the flat circular_* columns to the API's CdcDriveCircular shape (null when none). */
+export function driveCircularOf(drive: CdcDrive): CdcDriveCircular | null {
+  if (!drive.circular_drive_file_id) return null;
+  return {
+    drive_file_id: drive.circular_drive_file_id,
+    file_name: drive.circular_file_name ?? 'circular',
+    mime_type: drive.circular_mime_type ?? 'application/octet-stream',
+    size_bytes: drive.circular_size_bytes ?? null,
+    url: drive.campus_circular_url ?? null,
+    uploaded_at: drive.circular_uploaded_at ?? null,
+    uploaded_by: drive.circular_uploaded_by ?? null,
+  };
+}
+
+/** Map cdc_drives CHECK-constraint violations to messages a coordinator can act on. */
+function friendlyDriveError(error: { code?: string; message?: string }): Error {
+  const msg = error.message ?? '';
+  if (error.code === '23514') {
+    if (msg.includes('cdc_drives_drive_times_sane')) {
+      return new Error('End time must be after the start time');
+    }
+    if (msg.includes('cdc_drives_willingness_window_sane')) {
+      return new Error('Willingness window close must be after its open time');
+    }
+    if (msg.includes('rounds_count')) {
+      return new Error('Rounds count must be between 1 and 10');
+    }
+    if (msg.includes('min_cgpa')) return new Error('Minimum CGPA must be between 0 and 10');
+    if (msg.includes('arrears')) return new Error('Maximum arrears cannot be negative');
+  }
+  return error instanceof Error ? error : Object.assign(new Error(msg || 'Database error'), error);
+}
+
+function circularColumns(
+  circular: CdcDriveCircular | null | undefined,
+  actorId: string
+): Record<string, unknown> {
+  if (circular === undefined) return {};
+  if (circular === null) {
+    return {
+      circular_drive_file_id: null,
+      circular_file_name: null,
+      circular_mime_type: null,
+      circular_size_bytes: null,
+      circular_uploaded_at: null,
+      circular_uploaded_by: null,
+      campus_circular_url: null,
+    };
+  }
+  return {
+    circular_drive_file_id: circular.drive_file_id,
+    circular_file_name: circular.file_name,
+    circular_mime_type: circular.mime_type,
+    circular_size_bytes: circular.size_bytes ?? null,
+    circular_uploaded_at: circular.uploaded_at ?? new Date().toISOString(),
+    circular_uploaded_by: circular.uploaded_by ?? actorId,
+    campus_circular_url: circular.url ?? null,
+  };
+}
 
 // =====================================================================================
 // List filters
@@ -97,7 +162,7 @@ export class CdcDriveService {
     const drive = await this.getDrive(supabase, id);
     if (!drive) return null;
 
-    const [transitionsRes, willingnessRes, recruiterRes, driveTypeRes] = await Promise.all([
+    const [transitionsRes, willingnessRes, willingRes, institutionsRes, recruiterRes, driveTypeRes, eligibilityRes, logRes] = await Promise.all([
       supabase
         .from('cdc_drive_state_transitions')
         .select('*')
@@ -108,6 +173,14 @@ export class CdcDriveService {
         .select('*', { count: 'exact', head: true })
         .eq('drive_id', id),
       supabase
+        .from('cdc_drive_willingness')
+        .select('*', { count: 'exact', head: true })
+        .eq('drive_id', id)
+        .in('status', ['willing', 'confirmed']),
+      drive.institutions.length > 0
+        ? supabase.from('institutions').select('id, name').in('id', drive.institutions)
+        : Promise.resolve({ data: [] as Array<{ id: string; name: string }>, error: null }),
+      supabase
         .from('cdc_recruiters')
         .select('*')
         .eq('id', drive.recruiter_id)
@@ -117,14 +190,49 @@ export class CdcDriveService {
         .select('*')
         .eq('id', drive.drive_type_id)
         .maybeSingle(),
+      supabase.from('cdc_drive_eligibility').select('*').eq('drive_id', id).maybeSingle(),
+      supabase
+        .from('cdc_drive_notification_log')
+        .select('status, push_status, sent_at')
+        .eq('drive_id', id)
+        .eq('notification_type', 'cdc.drive.willingness_open')
+        .limit(50000),
     ]);
+
+    const notification_summary = {
+      sent: 0,
+      no_profile: 0,
+      push_delivered: 0,
+      push_failed: 0,
+      no_subscription: 0,
+      last_sent_at: null as string | null,
+    };
+    for (const r of (logRes.data ?? []) as Array<{ status: string; push_status: string | null; sent_at: string }>) {
+      if (r.status === 'sent') notification_summary.sent += 1;
+      if (r.status === 'no_profile') notification_summary.no_profile += 1;
+      if (r.push_status === 'delivered') notification_summary.push_delivered += 1;
+      if (r.push_status === 'failed' || r.push_status === 'stale_removed') notification_summary.push_failed += 1;
+      if (r.push_status === 'no_subscription' || r.push_status === 'opted_out') notification_summary.no_subscription += 1;
+      if (!notification_summary.last_sent_at || r.sent_at > notification_summary.last_sent_at) {
+        notification_summary.last_sent_at = r.sent_at;
+      }
+    }
+
+    const institution_names: Record<string, string> = {};
+    for (const row of (institutionsRes.data ?? []) as Array<{ id: string; name: string }>) {
+      institution_names[row.id] = row.name;
+    }
 
     return {
       data: drive,
       state_transitions: (transitionsRes.data ?? []) as CdcDriveStateTransition[],
       willingness_count: willingnessRes.count ?? 0,
+      willing_count: willingRes.count ?? 0,
       recruiter: (recruiterRes.data ?? null) as CdcRecruiter | null,
       drive_type: (driveTypeRes.data ?? null) as CdcDriveType | null,
+      institution_names,
+      eligibility: (eligibilityRes.data ?? null) as CdcDriveEligibility | null,
+      notification_summary,
     };
   }
 
@@ -149,6 +257,11 @@ export class CdcDriveService {
       title: payload.title,
       description: payload.description ?? null,
       institutions: payload.institutions,
+      institution_semesters: normalizeInstitutionSemesters(
+        payload.institution_semesters,
+        payload.institutions
+      ),
+      ...circularColumns(payload.circular, createdBy),
       status: 'draft',
       rounds_count: payload.rounds_count ?? 1,
       // Venue mode (BUG-004045) + off-campus live-location link (BUG-004096).
@@ -174,8 +287,141 @@ export class CdcDriveService {
       .insert(insertPayload)
       .select()
       .single();
-    if (error) throw error;
-    return data as CdcDrive;
+    if (error) throw friendlyDriveError(error);
+    const created = data as CdcDrive;
+    if (payload.eligibility) {
+      await this.upsertEligibility(supabase, created.id, payload.eligibility, createdBy);
+    }
+    return created;
+  }
+
+  // ----- Update (audience / circular / details) -----
+
+  /**
+   * Partial update. Institutions + semester targeting may change in any
+   * non-terminal state; when the drive is already open for willingness the
+   * caller (PATCH route) notifies ONLY the newly eligible learners
+   * (cdc_drive_notification_log is the duplicate guard). The circular can be
+   * replaced / removed at any time. RLS (cdc_drives_write -> is_cdc_staff)
+   * still gates the write.
+   */
+  static async updateDrive(
+    supabase: SupabaseClient,
+    driveId: string,
+    payload: CdcDriveUpdate,
+    updatedBy: string
+  ): Promise<{ drive: CdcDrive; targeting_changed: boolean }> {
+    const drive = await this.getDrive(supabase, driveId);
+    if (!drive) throw new Error('Drive not found');
+    if (drive.status === 'closed' || drive.status === 'cancelled') {
+      throw new Error(`A ${CDC_DRIVE_STATUS_LABELS[drive.status].toLowerCase()} drive cannot be edited`);
+    }
+
+    const update: Record<string, unknown> = {
+      updated_at: new Date().toISOString(),
+      updated_by: updatedBy,
+    };
+
+    let targeting_changed = false;
+    if (payload.institutions !== undefined || payload.institution_semesters !== undefined) {
+      const institutions = payload.institutions ?? drive.institutions;
+      if (!institutions || institutions.length === 0) {
+        throw new Error('Drive must target at least one institution');
+      }
+      const nextTargeting = normalizeInstitutionSemesters(
+        payload.institution_semesters ?? drive.institution_semesters,
+        institutions
+      );
+      targeting_changed =
+        JSON.stringify([...institutions].sort()) !== JSON.stringify([...drive.institutions].sort()) ||
+        JSON.stringify(nextTargeting) !==
+          JSON.stringify(normalizeInstitutionSemesters(drive.institution_semesters, drive.institutions));
+      update.institutions = institutions;
+      update.institution_semesters = nextTargeting;
+    }
+
+    if (payload.title !== undefined) {
+      if (!payload.title.trim()) throw new Error('Title is required');
+      update.title = payload.title.trim();
+    }
+    if (payload.recruiter_id !== undefined) update.recruiter_id = payload.recruiter_id;
+    if (payload.drive_type_id !== undefined) update.drive_type_id = payload.drive_type_id;
+    if (payload.description !== undefined) update.description = payload.description;
+    if (payload.rounds_count !== undefined) update.rounds_count = payload.rounds_count;
+    if (payload.drive_mode !== undefined) {
+      update.drive_mode = payload.drive_mode;
+      update.location_url = payload.drive_mode === 'off_campus' ? (payload.location_url ?? drive.location_url) : null;
+    } else if (payload.location_url !== undefined) {
+      update.location_url = payload.location_url;
+    }
+    if (payload.drive_date !== undefined) update.drive_date = payload.drive_date;
+    if (payload.drive_start_time !== undefined) update.drive_start_time = payload.drive_start_time;
+    if (payload.drive_end_time !== undefined) update.drive_end_time = payload.drive_end_time;
+    if (payload.willingness_window_close_at !== undefined) {
+      update.willingness_window_close_at = payload.willingness_window_close_at;
+    }
+    if (payload.venue_label !== undefined) update.venue_label = payload.venue_label;
+    if (payload.expected_package_lpa !== undefined) update.expected_package_lpa = payload.expected_package_lpa;
+    if (payload.job_role_title !== undefined) update.job_role_title = payload.job_role_title;
+    if (payload.job_location !== undefined) update.job_location = payload.job_location;
+    Object.assign(update, circularColumns(payload.circular, updatedBy));
+
+    const { data, error } = await supabase
+      .from('cdc_drives')
+      .update(update)
+      .eq('id', driveId)
+      .select()
+      .single();
+    if (error) throw friendlyDriveError(error);
+
+    if (payload.eligibility !== undefined) {
+      await this.upsertEligibility(supabase, driveId, payload.eligibility, updatedBy);
+    }
+
+    return { drive: data as CdcDrive, targeting_changed };
+  }
+
+  /**
+   * Eligibility thresholds (cdc_drive_eligibility, UNIQUE per drive). These are
+   * informational for learners on the willingness page; the AUDIENCE is
+   * institution_semesters. program_ids stays as-is (legacy drives) or empty.
+   */
+  static async upsertEligibility(
+    supabase: SupabaseClient,
+    driveId: string,
+    input: CdcDriveEligibilityInput | null,
+    actorId: string
+  ): Promise<void> {
+    if (input === null) {
+      const { error } = await supabase.from('cdc_drive_eligibility').delete().eq('drive_id', driveId);
+      if (error) throw error;
+      return;
+    }
+    const { data: existing } = await supabase
+      .from('cdc_drive_eligibility')
+      .select('id, program_ids')
+      .eq('drive_id', driveId)
+      .maybeSingle();
+    const now = new Date().toISOString();
+    const row: Record<string, unknown> = {
+      drive_id: driveId,
+      min_cgpa: input.min_cgpa ?? null,
+      max_arrears: input.max_arrears ?? null,
+      min_semester: input.min_semester ?? null,
+      passed_out_allowed: input.passed_out_allowed ?? false,
+      additional_notes: input.additional_notes ?? null,
+      updated_at: now,
+      updated_by: actorId,
+    };
+    if (existing) {
+      const { error } = await supabase.from('cdc_drive_eligibility').update(row).eq('id', existing.id);
+      if (error) throw friendlyDriveError(error);
+    } else {
+      const { error } = await supabase
+        .from('cdc_drive_eligibility')
+        .insert({ ...row, program_ids: [], created_by: actorId });
+      if (error) throw friendlyDriveError(error);
+    }
   }
 
   // ----- State transitions (state-machine guarded) -----
