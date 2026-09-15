@@ -12,13 +12,16 @@
 -- function must find the right row itself. Preferring the row that carries
 -- the caller changes nothing for theory sessions (one row per key) and, for
 -- a caller on no row, falls back to exactly the previous order — so every
--- existing error path keeps its message. The teacher resolved further down
+-- existing error path keeps its message. The Senior Learner resolved further down
 -- (fn_attendance_slot_faculty) now comes from the caller's own batch row,
--- which is the teacher who actually took that batch.
+-- which is the Senior Learner who actually took that batch.
 --
 -- Body below is the live production definition (2026-09-15) with only the
 -- ORDER BY changed; grants re-stated so a replace can never widen them.
 -- ============================================================================
+-- ci:allow-secdef-authenticated Learner self-service: called from the browser as the signed-in
+-- learner; the body itself resolves auth.uid() to the caller's learners_profiles row and refuses
+-- anyone who is not a learner, is not on the session's roster, or was not marked Present.
 
 CREATE OR REPLACE FUNCTION public.fn_scf_submit_feedback(p_attendance_date date, p_timetable_id uuid, p_period_id text, p_understood smallint, p_checklist jsonb DEFAULT '{}'::jsonb, p_free_text text DEFAULT NULL::text, p_source text DEFAULT 'async'::text)
  RETURNS session_feedback
