@@ -1635,7 +1635,10 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
   return (
     <Form {...form}>
       <form
-        onSubmit={form.handleSubmit(onSubmit, onInvalid)}
+        // Wrapped so react-hook-form's second argument (the submit event) is
+        // not passed in as onSubmit's `opts`. Enter-to-submit keeps the
+        // default, strict, behaviour.
+        onSubmit={form.handleSubmit((values) => onSubmit(values as FormValues), onInvalid)}
         className='space-y-6'
         suppressHydrationWarning
       >

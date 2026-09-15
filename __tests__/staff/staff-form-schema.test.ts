@@ -72,7 +72,7 @@ function staffRecord(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe('staff edit form resolver (BUG-005982, BUG-005983)', () => {
+describe('team member edit form resolver (BUG-005982, BUG-005983)', () => {
   it('does not block a save on public-profile repeater fields', () => {
     const result = buildStaffSchema(false).safeParse(staffRecord());
     expect(result.success).toBe(true);
