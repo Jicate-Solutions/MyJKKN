@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { UserActivityLeaderboard } from './user-activity-leaderboard';
 import { DailyActivityBreakdown } from './daily-activity-breakdown';
+import type { DrilldownScope } from './_utils';
 import type {
   BillingUserActivityRow,
   BillingDailyActivityRow,
@@ -20,11 +21,14 @@ export function AccountsTeamActivity({
   userLoading,
   dailyActivity,
   dailyLoading,
+  scope,
 }: {
   userActivity?: BillingUserActivityRow[];
   userLoading: boolean;
   dailyActivity?: BillingDailyActivityRow[];
   dailyLoading: boolean;
+  /** Active institution + date window, carried into every drill-down link. */
+  scope: DrilldownScope;
 }) {
   return (
     <Card>
@@ -41,9 +45,14 @@ export function AccountsTeamActivity({
           <TabsContent value='daily'>
             <p className='text-muted-foreground mb-2 text-xs'>
               Bills created, receipts generated and amount collected per day —
-              expand a day for the institution-wise split.
+              expand a day for the institution-wise split, or click a figure
+              to open its list.
             </p>
-            <DailyActivityBreakdown data={dailyActivity} loading={dailyLoading} />
+            <DailyActivityBreakdown
+              data={dailyActivity}
+              loading={dailyLoading}
+              scope={scope}
+            />
           </TabsContent>
 
           <TabsContent value='members'>
@@ -51,7 +60,11 @@ export function AccountsTeamActivity({
               Actions logged and payments collected per user in the selected
               range.
             </p>
-            <UserActivityLeaderboard data={userActivity} loading={userLoading} />
+            <UserActivityLeaderboard
+              data={userActivity}
+              loading={userLoading}
+              scope={scope}
+            />
           </TabsContent>
         </Tabs>
       </CardContent>

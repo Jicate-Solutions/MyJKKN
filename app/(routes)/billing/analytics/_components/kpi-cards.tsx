@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -14,9 +15,16 @@ import {
   Building2,
   Landmark,
   HelpCircle,
+  ArrowUpRight,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { formatINRCompact, formatCurrency, num } from './_utils';
+import {
+  formatINRCompact,
+  formatCurrency,
+  num,
+  drilldown,
+  type DrilldownScope,
+} from './_utils';
 import type {
   BillingAnalyticsOverview,
   BillingCollectionSplit,
@@ -29,6 +37,8 @@ interface KpiCardProps {
   icon: LucideIcon;
   tone?: 'default' | 'success' | 'warning' | 'danger';
   title?: string;
+  /** Where the figure drills down to. Every card links somewhere (BUG-006102). */
+  href: string;
 }
 
 const TONE: Record<NonNullable<KpiCardProps['tone']>, string> = {
@@ -38,22 +48,41 @@ const TONE: Record<NonNullable<KpiCardProps['tone']>, string> = {
   danger: 'text-red-600 bg-red-50',
 };
 
-function KpiCard({ label, value, sub, icon: Icon, tone = 'default', title }: KpiCardProps) {
+function KpiCard({
+  label,
+  value,
+  sub,
+  icon: Icon,
+  tone = 'default',
+  title,
+  href,
+}: KpiCardProps) {
   return (
-    <Card>
-      <CardContent className='flex items-start justify-between gap-3 p-4'>
-        <div className='min-w-0'>
-          <p className='text-muted-foreground text-xs font-medium'>{label}</p>
-          <p className='mt-1 truncate text-2xl font-bold' title={title}>
-            {value}
-          </p>
-          {sub && <p className='text-muted-foreground mt-0.5 text-xs'>{sub}</p>}
-        </div>
-        <span className={`rounded-md p-2 ${TONE[tone]}`}>
-          <Icon className='h-5 w-5' />
-        </span>
-      </CardContent>
-    </Card>
+    <Link
+      href={href}
+      aria-label={`${label}: ${value}. View details`}
+      className='group block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
+    >
+      <Card className='h-full cursor-pointer transition-all group-hover:-translate-y-0.5 group-hover:border-primary/40 group-hover:shadow-md'>
+        <CardContent className='flex items-start justify-between gap-3 p-4'>
+          <div className='min-w-0'>
+            <p className='text-muted-foreground flex items-center gap-1 text-xs font-medium'>
+              {label}
+              <ArrowUpRight className='h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100' />
+            </p>
+            <p className='mt-1 truncate text-2xl font-bold' title={title}>
+              {value}
+            </p>
+            {sub && (
+              <p className='text-muted-foreground mt-0.5 text-xs'>{sub}</p>
+            )}
+          </div>
+          <span className={`rounded-md p-2 ${TONE[tone]}`}>
+            <Icon className='h-5 w-5' />
+          </span>
+        </CardContent>
+      </Card>
+    </Link>
   );
 }
 
@@ -61,11 +90,14 @@ export function KpiCards({
   data,
   loading,
   split,
+  scope,
 }: {
   data?: BillingAnalyticsOverview;
   loading: boolean;
   /** Management / Government / Unallocated breakdown of the Collected figure. */
   split?: BillingCollectionSplit;
+  /** Active institution + date window, carried into every drill-down link. */
+  scope: DrilldownScope;
 }) {
   if (loading && !data) {
     return (
@@ -94,6 +126,7 @@ export function KpiCards({
           icon={FileText}
           tone='default'
           title={formatCurrency(billed)}
+          href={drilldown.bills(scope)}
         />
         <KpiCard
           label='Collected'
@@ -102,6 +135,7 @@ export function KpiCards({
           icon={TrendingUp}
           tone='success'
           title={formatCurrency(collected)}
+          href={drilldown.receipts(scope)}
         />
         <KpiCard
           label='Outstanding (now)'
@@ -112,6 +146,7 @@ export function KpiCards({
           icon={AlertTriangle}
           tone='danger'
           title={formatCurrency(outstanding)}
+          href={drilldown.bills(scope, { status: 'unpaid' })}
         />
         <KpiCard
           label='Collection Rate'
@@ -119,6 +154,7 @@ export function KpiCards({
           sub={`${num(data.bills_paid).toLocaleString('en-IN')} bills fully paid`}
           icon={Percent}
           tone={rate >= 60 ? 'success' : rate >= 30 ? 'warning' : 'danger'}
+          href={drilldown.bills(scope, { status: 'paid' })}
         />
       </div>
 
@@ -128,6 +164,7 @@ export function KpiCards({
           value={num(data.students_billed).toLocaleString('en-IN')}
           icon={Users}
           tone='default'
+          href={drilldown.students(scope)}
         />
         <KpiCard
           label='Net Collected'
@@ -136,6 +173,7 @@ export function KpiCards({
           icon={Wallet}
           tone='success'
           title={formatCurrency(num(data.net_collected))}
+          href={drilldown.receipts(scope)}
         />
         <KpiCard
           label='Discounts'
@@ -143,6 +181,7 @@ export function KpiCards({
           icon={BadgePercent}
           tone='warning'
           title={formatCurrency(num(data.total_discounts))}
+          href={drilldown.discounts()}
         />
         <KpiCard
           label='Refunds'
@@ -150,6 +189,7 @@ export function KpiCards({
           icon={Undo2}
           tone='warning'
           title={formatCurrency(num(data.total_refunds))}
+          href={drilldown.refunds(scope)}
         />
       </div>
 
@@ -162,6 +202,7 @@ export function KpiCards({
             icon={Building2}
             tone='success'
             title={formatCurrency(num(split.management_collected))}
+            href={drilldown.receipts(scope, { collection_type: 'management' })}
           />
           <KpiCard
             label='Government Collection'
@@ -170,6 +211,7 @@ export function KpiCards({
             icon={Landmark}
             tone='warning'
             title={formatCurrency(num(split.government_collected))}
+            href={drilldown.receipts(scope, { collection_type: 'government' })}
           />
           <KpiCard
             label='Unallocated'
@@ -178,6 +220,7 @@ export function KpiCards({
             icon={HelpCircle}
             tone='default'
             title={formatCurrency(num(split.unallocated_collected))}
+            href={drilldown.receipts(scope)}
           />
         </div>
       )}

@@ -1,10 +1,17 @@
 'use client';
 
+import Link from 'next/link';
+import type { ReactNode } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { ChevronRight, X } from 'lucide-react';
-import { formatINRCompact, num } from './_utils';
+import {
+  formatINRCompact,
+  num,
+  drilldown,
+  type DrilldownScope,
+} from './_utils';
 import type { BillingInstitutionAnalytics } from '@/types/billing-analytics';
 
 function rateTone(rate: number): string {
@@ -13,16 +20,47 @@ function rateTone(rate: number): string {
   return 'bg-red-100 text-red-700';
 }
 
+/**
+ * A figure inside a clickable row. The row itself focuses the dashboard on
+ * the institution; the figure opens the list behind it, so the click must not
+ * bubble up and also toggle the focus.
+ */
+function CellLink({
+  href,
+  label,
+  children,
+  className = '',
+}: {
+  href: string;
+  label: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <Link
+      href={href}
+      onClick={(e) => e.stopPropagation()}
+      aria-label={label}
+      className={`rounded px-1 underline-offset-2 hover:underline ${className}`}
+    >
+      {children}
+    </Link>
+  );
+}
+
 export function InstitutionComparison({
   data,
   loading,
   selectedInstitution,
   onSelect,
+  scope,
 }: {
   data?: BillingInstitutionAnalytics[];
   loading: boolean;
   selectedInstitution?: string;
   onSelect: (institutionId: string | null) => void;
+  /** Active date window, carried into every drill-down link. */
+  scope: DrilldownScope;
 }) {
   const rows = data ?? [];
   const maxOutstanding = Math.max(1, ...rows.map((r) => num(r.total_outstanding)));
@@ -30,7 +68,14 @@ export function InstitutionComparison({
   return (
     <Card>
       <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-        <CardTitle className='text-base'>Institution Comparison</CardTitle>
+        <div>
+          <CardTitle className='text-base'>Institution Comparison</CardTitle>
+          {rows.length > 0 && (
+            <p className='text-muted-foreground mt-1 text-xs'>
+              Click a row to focus the dashboard, or a figure to open its list.
+            </p>
+          )}
+        </div>
         {selectedInstitution && (
           <button
             onClick={() => onSelect(null)}
@@ -65,6 +110,10 @@ export function InstitutionComparison({
                 {rows.map((r) => {
                   const outstanding = num(r.total_outstanding);
                   const isSelected = selectedInstitution === r.institution_id;
+                  const rowScope: DrilldownScope = {
+                    ...scope,
+                    institutionId: r.institution_id,
+                  };
                   return (
                     <tr
                       key={r.institution_id}
@@ -87,30 +136,57 @@ export function InstitutionComparison({
                         </div>
                       </td>
                       <td className='px-2 py-2 text-right'>
-                        {formatINRCompact(r.total_billed)}
-                      </td>
-                      <td className='px-2 py-2 text-right text-green-700'>
-                        {formatINRCompact(r.total_collected)}
-                      </td>
-                      <td className='px-2 py-2 text-right font-medium text-red-700'>
-                        {formatINRCompact(outstanding)}
-                      </td>
-                      <td className='px-2 py-2 text-right'>
-                        <span className='font-medium text-red-700'>
-                          {num(r.students_with_dues).toLocaleString('en-IN')}
-                        </span>
-                        <span className='text-muted-foreground text-xs'>
-                          {' '}
-                          of {num(r.student_count).toLocaleString('en-IN')}
-                        </span>
-                      </td>
-                      <td className='px-2 py-2 text-right'>
-                        <Badge
-                          variant='secondary'
-                          className={`font-normal ${rateTone(num(r.collection_rate))}`}
+                        <CellLink
+                          href={drilldown.bills(rowScope)}
+                          label={`View ${r.institution_name} bills`}
                         >
-                          {num(r.collection_rate).toFixed(0)}%
-                        </Badge>
+                          {formatINRCompact(r.total_billed)}
+                        </CellLink>
+                      </td>
+                      <td className='px-2 py-2 text-right'>
+                        <CellLink
+                          href={drilldown.receipts(rowScope)}
+                          label={`View ${r.institution_name} receipts`}
+                          className='text-green-700'
+                        >
+                          {formatINRCompact(r.total_collected)}
+                        </CellLink>
+                      </td>
+                      <td className='px-2 py-2 text-right'>
+                        <CellLink
+                          href={drilldown.bills(rowScope, { status: 'unpaid' })}
+                          label={`View ${r.institution_name} unpaid bills`}
+                          className='font-medium text-red-700'
+                        >
+                          {formatINRCompact(outstanding)}
+                        </CellLink>
+                      </td>
+                      <td className='px-2 py-2 text-right'>
+                        <CellLink
+                          href={drilldown.students(rowScope)}
+                          label={`View ${r.institution_name} learners`}
+                        >
+                          <span className='font-medium text-red-700'>
+                            {num(r.students_with_dues).toLocaleString('en-IN')}
+                          </span>
+                          <span className='text-muted-foreground text-xs'>
+                            {' '}
+                            of {num(r.student_count).toLocaleString('en-IN')}
+                          </span>
+                        </CellLink>
+                      </td>
+                      <td className='px-2 py-2 text-right'>
+                        <CellLink
+                          href={drilldown.bills(rowScope, { status: 'paid' })}
+                          label={`View ${r.institution_name} paid bills`}
+                        >
+                          <Badge
+                            variant='secondary'
+                            className={`font-normal ${rateTone(num(r.collection_rate))}`}
+                          >
+                            {num(r.collection_rate).toFixed(0)}%
+                          </Badge>
+                        </CellLink>
                       </td>
                       <td className='text-muted-foreground'>
                         <ChevronRight className='h-4 w-4' />

@@ -1,10 +1,11 @@
 'use client';
 
+import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { IndianRupee, Radio } from 'lucide-react';
-import { formatCurrency, formatINRCompact, num } from './_utils';
+import { IndianRupee, Radio, ChevronRight } from 'lucide-react';
+import { formatCurrency, formatINRCompact, num, drilldown } from './_utils';
 import type { BillingTodayCollections } from '@/types/billing-analytics';
 
 function timeAgo(iso: string): string {
@@ -16,13 +17,27 @@ function timeAgo(iso: string): string {
   return `${hrs}h ago`;
 }
 
+/** Local YYYY-MM-DD for "today" — matches presetRange('today') in _utils. */
+function todayIso(): string {
+  const d = new Date();
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+    .toISOString()
+    .slice(0, 10);
+}
+
 export function TodayCollectionsPanel({
   data,
   loading,
+  institutionId,
 }: {
   data?: BillingTodayCollections;
   loading: boolean;
+  /** Active institution filter, carried into the receipt-list links. */
+  institutionId?: string;
 }) {
+  const today = todayIso();
+  const todayScope = { institutionId, date_from: today, date_to: today };
+
   return (
     <Card className='h-full'>
       <CardHeader className='pb-3'>
@@ -42,22 +57,37 @@ export function TodayCollectionsPanel({
           <Skeleton className='h-24 w-full' />
         ) : (
           <>
-            <div>
-              <p className='text-3xl font-bold text-green-700'>
+            <Link
+              href={drilldown.receipts(todayScope)}
+              className='group block rounded-md -m-1 p-1 transition-colors hover:bg-muted/60'
+              aria-label="View today's receipts"
+            >
+              <p className='text-3xl font-bold text-green-700 group-hover:underline'>
                 {formatCurrency(num(data?.today_total), { showDecimals: false })}
               </p>
               <p className='text-muted-foreground text-xs'>
                 {num(data?.today_count)} receipt
                 {num(data?.today_count) === 1 ? '' : 's'} today
               </p>
-            </div>
+            </Link>
 
             {data && data.by_mode.length > 0 && (
               <div className='flex flex-wrap gap-2'>
                 {data.by_mode.map((m) => (
-                  <Badge key={m.payment_mode} variant='secondary' className='font-normal'>
-                    {m.payment_mode}: {formatINRCompact(m.amount)} ({m.count})
-                  </Badge>
+                  <Link
+                    key={m.payment_mode}
+                    href={drilldown.receipts(todayScope, {
+                      payment_mode: m.payment_mode,
+                    })}
+                    aria-label={`View today's ${m.payment_mode} receipts`}
+                  >
+                    <Badge
+                      variant='secondary'
+                      className='cursor-pointer font-normal transition-colors hover:bg-primary/15'
+                    >
+                      {m.payment_mode}: {formatINRCompact(m.amount)} ({m.count})
+                    </Badge>
+                  </Link>
                 ))}
               </div>
             )}
@@ -69,24 +99,34 @@ export function TodayCollectionsPanel({
               {data && data.recent.length > 0 ? (
                 <ul className='divide-y'>
                   {data.recent.map((r) => (
-                    <li
-                      key={r.id}
-                      className='flex items-center justify-between gap-2 py-2 text-sm'
-                    >
-                      <div className='min-w-0'>
-                        <p className='truncate font-medium'>{r.payer_name || '—'}</p>
-                        <p className='text-muted-foreground truncate text-xs'>
-                          {r.receipt_number} · {r.institution_name}
-                        </p>
-                      </div>
-                      <div className='shrink-0 text-right'>
-                        <p className='font-semibold'>
-                          {formatCurrency(num(r.payment_amount), { showDecimals: false })}
-                        </p>
-                        <p className='text-muted-foreground text-xs'>
-                          {timeAgo(r.created_at)}
-                        </p>
-                      </div>
+                    <li key={r.id}>
+                      <Link
+                        href={drilldown.receipt(r.id)}
+                        className='group -mx-1 flex items-center justify-between gap-2 rounded-md px-1 py-2 text-sm transition-colors hover:bg-muted/60'
+                        aria-label={`Open receipt ${r.receipt_number}`}
+                      >
+                        <div className='min-w-0'>
+                          <p className='truncate font-medium'>
+                            {r.payer_name || '—'}
+                          </p>
+                          <p className='text-muted-foreground truncate text-xs'>
+                            {r.receipt_number} · {r.institution_name}
+                          </p>
+                        </div>
+                        <div className='flex shrink-0 items-center gap-1 text-right'>
+                          <div>
+                            <p className='font-semibold'>
+                              {formatCurrency(num(r.payment_amount), {
+                                showDecimals: false,
+                              })}
+                            </p>
+                            <p className='text-muted-foreground text-xs'>
+                              {timeAgo(r.created_at)}
+                            </p>
+                          </div>
+                          <ChevronRight className='text-muted-foreground h-4 w-4 opacity-0 transition-opacity group-hover:opacity-100' />
+                        </div>
+                      </Link>
                     </li>
                   ))}
                 </ul>
