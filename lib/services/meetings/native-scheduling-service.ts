@@ -211,6 +211,27 @@ export class NativeSchedulingService {
    * without the show_note_in_title column — the migration is Director-gated —
    * fails only this flag to false and never disturbs provider resolution.
    */
+  /**
+   * Whether this host wants their Google Meet to record itself. Opt-in, default
+   * false (migration 20260915060000; recording is the host's consent decision,
+   * never a deploy's).
+   *
+   * Read on its own — like resolveShowNoteInTitle — so a database without the
+   * auto_record column fails only this flag to false and never disturbs
+   * provider resolution or the booking itself.
+   */
+  private static async resolveAutoRecord(
+    supabase: SupabaseClient,
+    hostProfileId: string,
+  ): Promise<boolean> {
+    const { data } = await (supabase as any)
+      .from('meeting_host_integration_prefs')
+      .select('auto_record')
+      .eq('host_profile_id', hostProfileId)
+      .maybeSingle();
+    return data?.auto_record === true;
+  }
+
   private static async resolveShowNoteInTitle(
     supabase: SupabaseClient,
     hostProfileId: string,
@@ -930,6 +951,17 @@ export class NativeSchedulingService {
         ? await this.resolveShowNoteInTitle(supabase, primaryHost)
         : false;
 
+      // Recording: make the Meet space OURSELVES, with auto recording on, and
+      // hand that link to the calendar event. Google then records the meeting
+      // itself — no notetaker bot joins the room — and the file lands in the
+      // host's Drive for the meetings/notes ingest to transcribe. Opt-in per
+      // host; null on every other path, which simply means Calendar mints an
+      // ordinary Meet link exactly as before.
+      const recordedMeetUri =
+        wantsVideo && provider === 'google' && (await this.resolveAutoRecord(supabase, primaryHost))
+          ? await GoogleCalendarService.createRecordedMeetSpace(supabase, primaryHost)
+          : null;
+
       const event = await GoogleCalendarService.createEvent(supabase, primaryHost, {
         summary: bookingEventTitle({
           attendeeName: input.attendeeName,
@@ -951,6 +983,7 @@ export class NativeSchedulingService {
         attendees: [{ email: input.attendeeEmail, displayName: input.attendeeName }],
         withMeet: wantsVideo && provider === 'google',
         location: venueForAttendee ?? undefined,
+        existingMeetUri: recordedMeetUri ?? undefined,
       });
       if (event) {
         googleEventId = event.eventId;

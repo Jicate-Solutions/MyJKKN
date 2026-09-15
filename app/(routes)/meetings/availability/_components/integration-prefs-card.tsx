@@ -84,6 +84,8 @@ export function IntegrationPrefsCard({ initial }: { initial: IntegrationPrefsSta
   const [saved, setSaved] = useState<VideoProvider>(initial.videoProvider);
   const [noteInTitle, setNoteInTitle] = useState(initial.showNoteInTitle);
   const [savedNoteInTitle, setSavedNoteInTitle] = useState(initial.showNoteInTitle);
+  const [autoRecord, setAutoRecord] = useState(initial.autoRecord);
+  const [savedAutoRecord, setSavedAutoRecord] = useState(initial.autoRecord);
   const [isSaving, startSave] = useTransition();
 
   const avail = initial.availability;
@@ -94,6 +96,7 @@ export function IntegrationPrefsCard({ initial }: { initial: IntegrationPrefsSta
   const dirty =
     selected !== saved ||
     (initial.noteInTitleSupported && noteInTitle !== savedNoteInTitle) ||
+    (initial.autoRecordSupported && autoRecord !== savedAutoRecord) ||
     (selected !== 'google' && identity.trim() !== (initial.providerHostIdentity ?? ''));
 
   function onSave() {
@@ -106,6 +109,7 @@ export function IntegrationPrefsCard({ initial }: { initial: IntegrationPrefsSta
         videoProvider: selected,
         providerHostIdentity: selected === 'google' ? undefined : identity,
         showNoteInTitle: initial.noteInTitleSupported ? noteInTitle : undefined,
+        autoRecord: initial.autoRecordSupported ? autoRecord : undefined,
       });
       if (res.success && res.data) {
         setSaved(res.data.videoProvider);
@@ -113,6 +117,8 @@ export function IntegrationPrefsCard({ initial }: { initial: IntegrationPrefsSta
         setIdentity(res.data.providerHostIdentity ?? '');
         setNoteInTitle(res.data.showNoteInTitle);
         setSavedNoteInTitle(res.data.showNoteInTitle);
+        setAutoRecord(res.data.autoRecord);
+        setSavedAutoRecord(res.data.autoRecord);
         toast.success('Saved. Your online meetings will use this provider.');
       } else {
         toast.error(res.error ?? 'Could not save your video settings.');
@@ -225,6 +231,32 @@ export function IntegrationPrefsCard({ initial }: { initial: IntegrationPrefsSta
               id="ip-note-title"
               checked={noteInTitle}
               onCheckedChange={setNoteInTitle}
+            />
+          </div>
+        )}
+
+        {/* Google records the meeting itself when we create the Meet link with
+            recording switched on — no notetaker bot sits in the room. Opt-in,
+            because recording a conversation is the host's decision. */}
+        {initial.autoRecordSupported && selected === 'google' && (
+          <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/30 px-3 py-2.5">
+            <div className="min-w-0 space-y-0.5">
+              <Label htmlFor="ip-auto-record" className="text-sm">
+                Record my Google Meet automatically
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Google records and transcribes the meeting on its own, and the
+                file lands in your Drive — nothing joins the call as a guest.
+                Everyone in the meeting is told it is being recorded. Needs a
+                Google licence that allows recording; without one the meeting
+                still runs normally, there is just no file. If you connected
+                Google before this setting existed, reconnect above first.
+              </p>
+            </div>
+            <Switch
+              id="ip-auto-record"
+              checked={autoRecord}
+              onCheckedChange={setAutoRecord}
             />
           </div>
         )}
