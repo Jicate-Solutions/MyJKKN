@@ -69,7 +69,7 @@ export class BillingDiscountService {
               student_email
             )
           ),
-          authorizer:profiles (
+          authorizer:profiles!fk_billing_discounts_authorizer (
             id,
             full_name
           )
@@ -130,7 +130,7 @@ export class BillingDiscountService {
               student_email
             )
           ),
-          authorizer:profiles (
+          authorizer:profiles!fk_billing_discounts_authorizer (
             id,
             full_name
           )
@@ -198,7 +198,7 @@ export class BillingDiscountService {
               student_email
             )
           ),
-          authorizer:profiles (
+          authorizer:profiles!fk_billing_discounts_authorizer (
             id,
             full_name
           )
@@ -284,7 +284,7 @@ export class BillingDiscountService {
               student_email
             )
           ),
-          authorizer:profiles (
+          authorizer:profiles!fk_billing_discounts_authorizer (
             id,
             full_name
           )
@@ -376,7 +376,7 @@ export class BillingDiscountService {
               student_email
             )
           ),
-          authorizer:profiles (
+          authorizer:profiles!fk_billing_discounts_authorizer (
             id,
             full_name
           )
@@ -475,7 +475,7 @@ export class BillingDiscountService {
               student_email
             )
           ),
-          authorizer:profiles (
+          authorizer:profiles!fk_billing_discounts_authorizer (
             id,
             full_name
           )
@@ -568,7 +568,7 @@ export class BillingDiscountService {
               student_email
             )
           ),
-          authorizer:profiles (
+          authorizer:profiles!fk_billing_discounts_authorizer (
             id,
             full_name
           )

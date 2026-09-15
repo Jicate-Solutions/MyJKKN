@@ -24,6 +24,8 @@ import {
   History,
   Repeat,
   Video,
+  FileText,
+  ExternalLink,
 } from 'lucide-react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -118,6 +120,27 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
   if (!booking) {
     notFound();
   }
+
+  // The meeting note, if one has been attached to this booking.
+  //
+  // WHY THIS READS THROUGH THE USER'S CLIENT, not the service role: the SELECT
+  // policy on meeting_notes already answers "may this person read this note"
+  // via fn_can_view_meeting_note(booking_id) — MyJKKN's own invited set for the
+  // booking. Reading as the service role here would hand the note to anyone who
+  // can open the page, which is a wider set than the people who were in the
+  // room. An empty result is the correct outcome for someone outside it.
+  //
+  // Until this existed, a MATCHED note had nowhere to appear: the unmatched
+  // queue at /meetings/notes filters on `booking_id IS NULL` on purpose, so the
+  // moment the ingest matched a note correctly it dropped out of the only list
+  // that rendered one.
+  const { data: meetingNote } = await supabase
+    .from('meeting_notes')
+    .select('id, title, summary, transcript_url, recording_url, duration_minutes, occurred_at')
+    .eq('booking_id', booking.id)
+    .order('occurred_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
   // host display info (native bookings store the profile id only)
   const { data: host } = await supabase
@@ -323,6 +346,49 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
             ) : null}
           </CardContent>
         </Card>
+
+        {/* Directly under Schedule, because "what was said" is the next thing
+            somebody opening a finished meeting wants. Absent when no note has
+            been attached — a meeting nobody recorded should look like a meeting
+            nobody recorded, not like a feature that is failing. */}
+        {meetingNote ? (
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-muted-foreground" aria-hidden />
+                  Meeting notes
+                </CardTitle>
+                {meetingNote.duration_minutes ? (
+                  <Badge variant="outline">
+                    {meetingNote.duration_minutes}{' '}
+                    {meetingNote.duration_minutes === 1 ? 'minute' : 'minutes'} recorded
+                  </Badge>
+                ) : null}
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              {meetingNote.summary ? (
+                <div className="whitespace-pre-wrap leading-relaxed">{meetingNote.summary}</div>
+              ) : (
+                <p className="text-muted-foreground">
+                  This meeting was recorded, but no summary came across with it.
+                </p>
+              )}
+              {meetingNote.transcript_url ? (
+                <a
+                  href={meetingNote.transcript_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-primary underline-offset-4 hover:underline"
+                >
+                  Read the full transcript
+                  <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                </a>
+              ) : null}
+            </CardContent>
+          </Card>
+        ) : null}
 
         <Card>
           <CardHeader className="pb-3">

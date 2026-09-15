@@ -96,6 +96,20 @@ type RowSelectionUpdater = (
   prev: Record<string, boolean>
 ) => Record<string, boolean>;
 
+// PostgREST answers "Requested range not satisfiable" (PGRST103) when the
+// requested offset lies past the end of the result set. In a table that
+// happens when the user is on page N and the result set shrinks under them —
+// a fresh search, a filter, a deleted row — so page N no longer exists.
+const isRangeNotSatisfiable = (err: unknown): boolean => {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as { code?: unknown; message?: unknown };
+  return (
+    e.code === 'PGRST103' ||
+    (typeof e.message === 'string' &&
+      e.message.includes('Requested range not satisfiable'))
+  );
+};
+
 interface DataTableProps<TData extends ExportableData, TValue> {
   // Allow overriding the table configuration
   config?: Partial<TableConfig>;
@@ -566,6 +580,16 @@ export function DataTable<TData extends ExportableData, TValue>({
           setIsError(false);
           setError(null);
         } catch (err) {
+          // The page-validation effect below cannot rescue this case: the
+          // failed fetch never lands a new total_pages, so the stale page
+          // number survives and every retry fails the same way. Snap back
+          // to page 1 and let the effect refetch, instead of pinning the
+          // table on "Failed to load data" until the user pages backwards
+          // by hand (BUG-006061, student billing search).
+          if (isRangeNotSatisfiable(err) && page > 1) {
+            setPage(1);
+            return;
+          }
           setIsError(true);
           setError(err instanceof Error ? err : new Error('Unknown error'));
           console.error('Error fetching data:', err);
@@ -576,7 +600,7 @@ export function DataTable<TData extends ExportableData, TValue>({
 
       fetchData();
     }
-  }, [page, pageSize, search, dateRange, sortBy, sortOrder, fetchDataFn, refetchKey]);
+  }, [page, pageSize, search, dateRange, sortBy, sortOrder, fetchDataFn, refetchKey, setPage]);
 
   // If fetchDataFn is a React Query hook, call it directly with parameters
   const queryResult =
@@ -618,6 +642,11 @@ export function DataTable<TData extends ExportableData, TValue>({
         setError(null);
       }
       if (queryResult.isError) {
+        // Same out-of-range rescue as the fetchDataFn path above.
+        if (isRangeNotSatisfiable(queryResult.error) && page > 1) {
+          setPage(1);
+          return;
+        }
         setIsError(true);
         setError(
           queryResult.error instanceof Error
@@ -626,7 +655,7 @@ export function DataTable<TData extends ExportableData, TValue>({
         );
       }
     }
-  }, [queryResult]);
+  }, [queryResult, page, setPage]);
 
   // Memoized pagination state
   const pagination = useMemo(
@@ -949,24 +978,27 @@ export function DataTable<TData extends ExportableData, TValue>({
                 </span>
               </div>
 
-              <div className='flex items-center gap-2'>
-                <Badge variant='secondary' className='ml-2'>
-                  {data?.pagination.total_items &&
-                    data.pagination.total_items > 0 && (
-                      <span className='font-medium'>
-                        {Math.round(
-                          (Math.min(
-                            page * pageSize,
-                            data.pagination.total_items
-                          ) /
-                            data.pagination.total_items) *
-                            100
-                        )}
-                        % of total
-                      </span>
-                    )}
-                </Badge>
-              </div>
+              {/* The whole pill is conditional, not just its text: with the
+                  Badge always mounted, an empty result set rendered a bare
+                  "0" inside it — `0 && …` is the number 0 to React, not
+                  false. Seen live on an empty institutions search. */}
+              {data && data.pagination.total_items > 0 && (
+                <div className='flex items-center gap-2'>
+                  <Badge variant='secondary' className='ml-2'>
+                    <span className='font-medium'>
+                      {Math.round(
+                        (Math.min(
+                          page * pageSize,
+                          data.pagination.total_items
+                        ) /
+                          data.pagination.total_items) *
+                          100
+                      )}
+                      % of total
+                    </span>
+                  </Badge>
+                </div>
+              )}
 
               {totalSelectedItems > 0 && (
                 <div className='flex items-center gap-2'>
