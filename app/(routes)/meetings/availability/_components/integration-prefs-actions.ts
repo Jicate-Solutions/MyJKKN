@@ -96,32 +96,37 @@ export async function getIntegrationPrefs(): Promise<ActionResult<IntegrationPre
     // Ask for show_note_in_title first; a database where migration
     // 20260813000000 has not been applied answers 42703, and we re-read without
     // it so the rest of the card keeps working.
-    let noteInTitleSupported = true;
-    let autoRecordSupported = true;
-    let { data, error } = await supabase
-      .from('meeting_host_integration_prefs')
-      .select('video_provider, provider_host_identity, show_note_in_title, auto_record')
-      .eq('host_profile_id', user.id)
-      .maybeSingle();
+    // Two optional columns, each added by its own Director-gated migration, so
+    // any of the four combinations can be live. A single 42703 does not say
+    // WHICH column is missing — so narrow one at a time and let the query that
+    // finally succeeds name what this database actually has. Cost: extra round
+    // trips only on a database that is behind, none on a current one.
+    const BASE = 'video_provider, provider_host_identity';
+    const attempts: Array<{ cols: string; note: boolean; rec: boolean }> = [
+      { cols: `${BASE}, show_note_in_title, auto_record`, note: true, rec: true },
+      { cols: `${BASE}, auto_record`, note: false, rec: true },
+      { cols: `${BASE}, show_note_in_title`, note: true, rec: false },
+      { cols: BASE, note: false, rec: false },
+    ];
 
-    // Each optional column is dropped in turn, newest first, so a database
-    // missing either migration still renders the rest of the card.
-    if (error?.code === UNDEFINED_COLUMN) {
-      autoRecordSupported = false;
-      ({ data, error } = await supabase
-        .from('meeting_host_integration_prefs')
-        .select('video_provider, provider_host_identity, show_note_in_title')
-        .eq('host_profile_id', user.id)
-        .maybeSingle());
-    }
+    let noteInTitleSupported = false;
+    let autoRecordSupported = false;
+    let data: Record<string, unknown> | null = null;
+    let error: { code?: string; message: string } | null = null;
 
-    if (error?.code === UNDEFINED_COLUMN) {
-      noteInTitleSupported = false;
-      ({ data, error } = await supabase
+    for (const attempt of attempts) {
+      ({ data, error } = (await supabase
         .from('meeting_host_integration_prefs')
-        .select('video_provider, provider_host_identity')
+        .select(attempt.cols)
         .eq('host_profile_id', user.id)
-        .maybeSingle());
+        .maybeSingle()) as {
+        data: Record<string, unknown> | null;
+        error: { code?: string; message: string } | null;
+      });
+      if (error?.code === UNDEFINED_COLUMN) continue;
+      noteInTitleSupported = attempt.note;
+      autoRecordSupported = attempt.rec;
+      break;
     }
 
     if (error) {
@@ -135,7 +140,7 @@ export async function getIntegrationPrefs(): Promise<ActionResult<IntegrationPre
       success: true,
       data: {
         videoProvider: VALID_PROVIDERS.includes(provider) ? provider : 'google',
-        providerHostIdentity: data?.provider_host_identity ?? null,
+        providerHostIdentity: (data?.provider_host_identity as string | null) ?? null,
         availability: {
           google: isGoogleCalConfigured(),
           zoom: isZoomConfigured(),
