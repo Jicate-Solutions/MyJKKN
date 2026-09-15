@@ -3,6 +3,7 @@
 
 import { useMutation, useQuery } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
+import { paymentStatusPollInterval } from '@/lib/billing/payment-status-flow';
 import type {
   CreatePaymentSessionDto,
   PaymentSessionResponse,
@@ -83,22 +84,26 @@ export function usePaymentStatus(transactionId: string | null, enabled: boolean 
     queryFn: () => checkPaymentStatus(transactionId!),
     enabled: enabled && !!transactionId,
     refetchInterval: (query) => {
-      // Stop refetching if payment is in a final state
-      if (query.state.data?.status && ['success', 'failed', 'cancelled', 'refunded'].includes(query.state.data.status)) {
-        return false;
-      }
-      // Stop once the endpoint itself is failing. This condition keys off
-      // `data`, which stays undefined while every request errors, so a
-      // persistently failing status check used to poll forever: 4 requests
-      // (1 + `retry`) every 3 seconds for as long as the tab stayed open. That
-      // is what the learner-403 bug looked like from the network panel.
-      // Give up after a couple of failed rounds and let the render show the
-      // pending state instead of hammering the route.
-      if (query.state.status === 'error' && query.state.errorUpdateCount >= 2) {
-        return false;
-      }
-      // Refetch every 3 seconds for pending payments
-      return 3000;
+      // All three stop conditions live in `paymentStatusPollInterval`:
+      //
+      //  1. Terminal status. This used to be an inline allow-list of
+      //     ['success','failed','cancelled','refunded'] that omitted `expired`
+      //     — 33% of production rows — so an expired transaction polled
+      //     forever AND re-fired the success page's redirect on every tick.
+      //     The shared classifier is exhaustive over `PaymentStatus`.
+      //  2. A persistently failing endpoint. This condition keys off `data`,
+      //     which stays undefined while every request errors, so a failing
+      //     status check used to poll forever: 4 requests (1 + `retry`) every
+      //     3 seconds for as long as the tab stayed open. That is what the
+      //     learner-403 bug looked like from the network panel.
+      //  3. A hard ceiling on total fetches, so an unrecognised status can
+      //     never reopen the endless-poll hole.
+      return paymentStatusPollInterval({
+        status: query.state.data?.status,
+        isErrored: query.state.status === 'error',
+        errorUpdateCount: query.state.errorUpdateCount,
+        fetchCount: query.state.dataUpdateCount + query.state.errorUpdateCount,
+      });
     },
     retry: 3,
   });
