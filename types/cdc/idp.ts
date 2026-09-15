@@ -6,6 +6,37 @@
 // The plan stays editable by the learner until it is approved.
 export type IdpSubmissionStatus = 'draft' | 'submitted' | 'approved';
 
+// VARK learning-style answer to "My Preferred Learning Style" (BUG-004064).
+export type IdpLearningStyle =
+  | 'visual'
+  | 'auditory'
+  | 'reading_writing'
+  | 'kinesthetic'
+  | 'multimodal';
+
+export const IDP_LEARNING_STYLE_OPTIONS: ReadonlyArray<{
+  value: IdpLearningStyle;
+  label: string;
+  hint: string;
+}> = [
+  { value: 'visual', label: 'Visual', hint: 'I learn best from diagrams, charts and pictures' },
+  { value: 'auditory', label: 'Auditory', hint: 'I learn best by listening and discussing' },
+  { value: 'reading_writing', label: 'Reading / Writing', hint: 'I learn best from text, notes and lists' },
+  { value: 'kinesthetic', label: 'Kinesthetic', hint: 'I learn best by doing, practising and experimenting' },
+  { value: 'multimodal', label: 'Multimodal', hint: 'A mix — no single style dominates' },
+];
+
+// Keys the IDP forms read/write inside the `aspirations` jsonb column. The
+// column is the row's free-form self-profile slot (the schema comment reserves
+// `aspiring_companies`; the Google Form backfill also writes `preferred_sectors`
+// and `google_form_raw`), so forms MUST spread the existing object when saving
+// rather than replace it. BUG-004064 / BUG-004068 / BUG-004069.
+export interface CdcIdpAspirations extends Record<string, unknown> {
+  aspiring_companies?: string[];   // "Dream Companies or Projects that Inspire Me"
+  learning_style?: IdpLearningStyle | ''; // "My Preferred Learning Style" (VARK)
+  personal_strengths?: string;     // "My Personal Strengths" (free text)
+}
+
 export interface CdcIdpResponse {
   id: string;
   learner_id: string;
@@ -27,7 +58,7 @@ export interface CdcIdpResponse {
   // { interests: 'prior_idp', club_picks: 'cdc_club_memberships' }). Empty {}
   // for fully hand-typed rows. Lets CDC report "% machine-suggested".
   prefill_sources: Record<string, string>;
-  source: 'native_form' | 'google_form_import';
+  source: 'native_form' | 'google_form_import' | 'google_form_migration';
   source_response_id: string | null;
   // Self-submit workflow (BUG-004298). NOT NULL DEFAULT 'draft' at the DB level;
   // '' is never valid. Rows created before this column read as 'draft' via default.
