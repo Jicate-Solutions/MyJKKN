@@ -220,12 +220,22 @@ export function OnboardingDataTable() {
   // Filter selected to those that don't already have bills AND are in 'account'
   // status. Admitted/reserved learners are visible for tracking but must go
   // through account transition before bills can be generated.
+  //
+  // These three groups are counted separately so the toolbar can state the real
+  // reason a selected learner won't be billed. Previously everything ineligible
+  // was reported as "already have bills", which contradicted the "Not Generated"
+  // badge shown on those same rows and sent accounts staff chasing phantom bugs.
   const selectedLearners = learners.filter((l) => selectedIds.has(l.id));
   const selectedEligible = selectedLearners.filter(
     (l) => l.bills.length === 0 && l.lifecycle_status === 'account'
   );
   const selectedWithoutBills = selectedEligible;
-  const selectedAlreadyBilled = selectedLearners.length - selectedWithoutBills.length;
+  const selectedAlreadyBilled = selectedLearners.filter(
+    (l) => l.bills.length > 0
+  ).length;
+  const selectedNotAccount = selectedLearners.filter(
+    (l) => l.bills.length === 0 && l.lifecycle_status !== 'account'
+  ).length;
 
   const handleBulkGenerate = async () => {
     if (selectedIds.size === 0) return;
@@ -281,7 +291,13 @@ export function OnboardingDataTable() {
             </span>
             {selectedAlreadyBilled > 0 && (
               <span className="text-xs text-muted-foreground">
-                {selectedAlreadyBilled} already have bills and will be skipped.
+                {selectedAlreadyBilled} already {selectedAlreadyBilled === 1 ? 'has' : 'have'} bills and will be skipped.
+              </span>
+            )}
+            {selectedNotAccount > 0 && (
+              <span className="text-xs text-amber-600">
+                {selectedNotAccount} {selectedNotAccount === 1 ? 'is' : 'are'} not yet in Account status and cannot be
+                billed here — use &quot;Send to Accounts&quot; on the row menu first.
               </span>
             )}
           </div>

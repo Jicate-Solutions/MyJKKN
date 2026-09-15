@@ -32,6 +32,7 @@ import { OrganizationService } from '@/lib/services/organization/organization-se
 import { BillingReceiptService } from '@/lib/services/billing/receipts/billing-receipt-service';
 import type { CreateReceiptDto } from '@/types/billing-schedule';
 import { KeyboardSelect } from './keyboard-select';
+import { pendingAmountFor, toPaise } from '@/lib/billing/receipt-allocation';
 
 const PAYMENT_MODE_OPTIONS = [
   { value: 'cash', label: 'Cash' },
@@ -136,6 +137,29 @@ export function ReceiptEntryForm({
   const hasAutoFocused = useRef(false);
 
   /**
+   * Bills the operator has typed an amount into by hand. The auto-split holds
+   * these fixed and redeals only the rest, so entering a per-bill amount and
+   * then adjusting the total no longer discards what was typed.
+   */
+  const manuallyAllocated = useRef<Set<string>>(new Set());
+
+  /**
+   * Raw text of the amount inputs, so a part-typed decimal survives a render.
+   * A controlled numeric input re-renders "4500." as "4500" and swallows the
+   * point, which is why a paise amount could never be typed at all.
+   *
+   * The text is only trusted while it still represents the committed number;
+   * once an amount is changed programmatically (auto-split, Fill Full Pending,
+   * Clear All) it no longer matches and the number wins.
+   */
+  const [amountText, setAmountText] = useState<Record<string, string>>({});
+  const displayAmount = (key: string, committed: number): string => {
+    const raw = amountText[key];
+    if (raw !== undefined && toPaise(parseFloat(raw) || 0) === committed) return raw;
+    return committed ? String(committed) : '';
+  };
+
+  /**
    * Received From / Payer Contact are PREFILLED from the learner on the bill,
    * but they stay editable — the person at the counter is often a parent, and
    * the number on the profile is not always the one that should print on the
@@ -166,7 +190,7 @@ export function ReceiptEntryForm({
   );
   const totalPendingAmount = selectedBills.reduce(
     (sum, bill) =>
-      sum + (bill.balance_amount > 0 ? bill.balance_amount : bill.final_amount),
+      sum + pendingAmountFor(bill),
     0
   );
   const totalPayAmount = Object.values(billPayAmounts).reduce(
@@ -179,8 +203,7 @@ export function ReceiptEntryForm({
     if (selectedBills.length === 0 || paymentAmount <= 0) return [];
 
     return selectedBills.map((bill) => {
-      const balance =
-        bill.balance_amount > 0 ? bill.balance_amount : bill.final_amount;
+      const balance = pendingAmountFor(bill);
       const allocated = billPayAmounts[bill.id] || 0;
       return {
         id: bill.id,
@@ -281,6 +304,7 @@ export function ReceiptEntryForm({
         initialPayAmounts[bill.id] = 0;
       });
       setBillPayAmounts(initialPayAmounts);
+      manuallyAllocated.current.clear();
 
       const firstBill = bills[0];
 
@@ -358,22 +382,42 @@ export function ReceiptEntryForm({
 
     // When payment_amount changes, redistribute across selected bills using
     // waterfall allocation: smallest bill first → largest, until funds run out.
+    //
+    // Rows the operator has typed into are held fixed and their amounts come off
+    // the top; only the untouched rows are redealt. This used to replace the
+    // whole map, so entering per-bill amounts and then adjusting the total threw
+    // those entries away and re-dealt everything smallest-first — which is how a
+    // small transport bill ended up absorbing a payment meant for tuition.
     if (field === 'payment_amount' && selectedBills.length > 0) {
-      let remaining = Number(value) || 0;
+      const total = toPaise(Number(value) || 0);
       const newPayAmounts: Record<string, number> = {};
 
-      const sorted = [...selectedBills].sort((a, b) => {
-        const balA = a.balance_amount > 0 ? a.balance_amount : a.final_amount;
-        const balB = b.balance_amount > 0 ? b.balance_amount : b.final_amount;
-        return balA - balB;
-      });
+      const isManual = (bill: any) =>
+        manuallyAllocated.current.has(String(bill.id)) &&
+        (billPayAmounts[bill.id] || 0) > 0;
+
+      let manualTotal = 0;
+      for (const bill of selectedBills) {
+        if (!isManual(bill)) continue;
+        const held = Math.min(
+          billPayAmounts[bill.id] || 0,
+          pendingAmountFor(bill)
+        );
+        newPayAmounts[String(bill.id)] = held;
+        manualTotal = toPaise(manualTotal + held);
+      }
+
+      let remaining = Math.max(0, toPaise(total - manualTotal));
+
+      const sorted = [...selectedBills]
+        .filter((bill) => !isManual(bill))
+        .sort((a, b) => pendingAmountFor(a) - pendingAmountFor(b));
 
       for (const bill of sorted) {
-        const billBalance =
-          bill.balance_amount > 0 ? bill.balance_amount : bill.final_amount;
-        const allocated = Math.min(remaining, billBalance);
+        const billBalance = pendingAmountFor(bill);
+        const allocated = toPaise(Math.min(remaining, billBalance));
         newPayAmounts[String(bill.id)] = allocated;
-        remaining -= allocated;
+        remaining = toPaise(remaining - allocated);
       }
 
       setBillPayAmounts(newPayAmounts);
@@ -386,6 +430,7 @@ export function ReceiptEntryForm({
     const nextBills = selectedBills.filter((b) => b.id !== id);
     const nextAmounts = { ...billPayAmounts };
     delete nextAmounts[id];
+    manuallyAllocated.current.delete(String(id));
     setSelectedBills(nextBills);
     setBillPayAmounts(nextAmounts);
     setFormData((prev) => ({
@@ -421,8 +466,7 @@ export function ReceiptEntryForm({
     }
 
     for (const bill of selectedBills) {
-      const balance =
-        bill.balance_amount > 0 ? bill.balance_amount : bill.final_amount;
+      const balance = pendingAmountFor(bill);
       const allocated = billPayAmounts[bill.id] || 0;
       if (allocated > balance) {
         const desc =
@@ -534,10 +578,7 @@ export function ReceiptEntryForm({
               </TableHeader>
               <TableBody>
                 {selectedBills.map((bill) => {
-                  const balance =
-                    bill.balance_amount > 0
-                      ? bill.balance_amount
-                      : bill.final_amount;
+                  const balance = pendingAmountFor(bill);
                   const payAmount = billPayAmounts[bill.id] || 0;
                   const isOverPay = payAmount > balance;
                   return (
@@ -560,18 +601,20 @@ export function ReceiptEntryForm({
                       <TableCell className='text-right'>
                         <Input
                           type='text'
-                          inputMode='numeric'
-                          pattern='[0-9]*'
+                          inputMode='decimal'
+                          pattern='[0-9]*\.?[0-9]*'
                           aria-label={`Pay amount for ${bill.item_category?.category_name || bill.bill_description}`}
                           className={`ml-auto w-[140px] text-right ${isOverPay ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
-                          value={payAmount || ''}
+                          value={displayAmount(String(bill.id), payAmount)}
                           placeholder='0'
                           onChange={(e) => {
-                            const val = Math.max(
-                              0,
-                              Math.round(parseFloat(e.target.value) || 0)
-                            );
+                            const raw = e.target.value;
+                            setAmountText((t) => ({ ...t, [String(bill.id)]: raw }));
+                            const val = Math.max(0, toPaise(parseFloat(raw) || 0));
                             const capped = Math.min(val, Number(balance));
+                            // This row now carries an explicit operator entry,
+                            // so the auto-split must not redeal it.
+                            manuallyAllocated.current.add(String(bill.id));
                             // Annotated: `bill` is `any`, so an un-annotated
                             // computed key widens this object and
                             // Object.values() degrades to unknown[].
@@ -655,11 +698,10 @@ export function ReceiptEntryForm({
               onClick={() => {
                 const newAmounts: Record<string, number> = {};
                 selectedBills.forEach((bill) => {
-                  newAmounts[String(bill.id)] =
-                    bill.balance_amount > 0
-                      ? bill.balance_amount
-                      : bill.final_amount;
+                  newAmounts[String(bill.id)] = pendingAmountFor(bill);
                 });
+                // Explicit "set every row" — supersedes prior manual entries.
+                manuallyAllocated.current.clear();
                 setBillPayAmounts(newAmounts);
                 setFormData((prev) => ({
                   ...prev,
@@ -681,6 +723,7 @@ export function ReceiptEntryForm({
                 selectedBills.forEach((bill) => {
                   newAmounts[String(bill.id)] = 0;
                 });
+                manuallyAllocated.current.clear();
                 setBillPayAmounts(newAmounts);
                 setFormData((prev) => ({ ...prev, payment_amount: 0 }));
               }}
@@ -749,12 +792,14 @@ export function ReceiptEntryForm({
               id='payment_amount'
               ref={amountInputRef}
               type='text'
-              inputMode='numeric'
-              pattern='[0-9]*'
+              inputMode='decimal'
+              pattern='[0-9]*\.?[0-9]*'
               placeholder='Enter total amount received'
-              value={formData.payment_amount || ''}
+              value={displayAmount('__total__', formData.payment_amount || 0)}
               onChange={(e) => {
-                const val = Math.round(parseFloat(e.target.value) || 0);
+                const raw = e.target.value;
+                setAmountText((t) => ({ ...t, __total__: raw }));
+                const val = toPaise(parseFloat(raw) || 0);
                 const capped =
                   totalPendingAmount > 0
                     ? Math.min(val, totalPendingAmount)

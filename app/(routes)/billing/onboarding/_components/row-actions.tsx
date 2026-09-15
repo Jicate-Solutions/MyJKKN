@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { MoreHorizontal, CheckCircle, Eye, RotateCcw, ReceiptIndianRupee } from 'lucide-react';
+import { MoreHorizontal, CheckCircle, Eye, RotateCcw, ReceiptIndianRupee, Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -23,7 +23,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useMarkAsApproved, useRevertToApproved } from '@/hooks/billing/use-onboarding';
+import { useMarkAsAccount, useMarkAsApproved, useRevertToApproved } from '@/hooks/billing/use-onboarding';
 import type { OnboardingLearner } from '@/lib/services/billing/onboarding/onboarding-service';
 
 interface OnboardingRowActionsProps {
@@ -35,14 +35,26 @@ export function OnboardingRowActions({ learner, returnToUrl }: OnboardingRowActi
   const router = useRouter();
   const [approveDialogOpen, setApproveDialogOpen] = useState(false);
   const [revertDialogOpen, setRevertDialogOpen] = useState(false);
+  const [accountDialogOpen, setAccountDialogOpen] = useState(false);
   const { canAccess, isSuperAdmin, isLoading } = usePermissions();
 
+  const accountM = useMarkAsAccount();
   const approveM = useMarkAsApproved();
   const revertM = useRevertToApproved();
 
   const hasApprovePermission = !isLoading && (isSuperAdmin || canAccess('billing.onboarding', 'approve'));
   const isFullyPaid = learner.total_balance === 0 && learner.total_fees > 0;
   const isAccountStatus = learner.lifecycle_status === 'account';
+
+  // Learners sit at 'admitted' or 'reserved' on this page but can only be billed
+  // once they reach 'account'. Without an action here, accounts staff had no way
+  // to move them and repeatedly filed "bills not generated" reports instead.
+  // The transition RPC's from-status allow-list accepts 'admitted' but rejects
+  // 'reserved', so only 'admitted' gets an actionable item.
+  const canSendToAccounts =
+    hasApprovePermission && learner.lifecycle_status === 'admitted' && learner.bills.length === 0;
+  const isReservedUnbilled =
+    learner.lifecycle_status === 'reserved' && learner.bills.length === 0;
 
   return (
     <>
@@ -63,6 +75,17 @@ export function OnboardingRowActions({ learner, returnToUrl }: OnboardingRowActi
             <ReceiptIndianRupee className="mr-2 h-4 w-4" />
             View Bills
           </DropdownMenuItem>
+          {canSendToAccounts && (
+            <DropdownMenuItem onClick={() => setAccountDialogOpen(true)}>
+              <Send className="mr-2 h-4 w-4" />
+              Send to Accounts
+            </DropdownMenuItem>
+          )}
+          {isReservedUnbilled && (
+            <DropdownMenuItem disabled className="text-xs">
+              Reserved learners cannot be billed here
+            </DropdownMenuItem>
+          )}
           {hasApprovePermission && isAccountStatus && isFullyPaid && (
             <DropdownMenuItem onClick={() => setApproveDialogOpen(true)}>
               <CheckCircle className="mr-2 h-4 w-4" />
@@ -80,6 +103,34 @@ export function OnboardingRowActions({ learner, returnToUrl }: OnboardingRowActi
           )}
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <AlertDialog open={accountDialogOpen} onOpenChange={setAccountDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Send to Accounts for billing?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This moves {learner.first_name} {learner.last_name || ''} from Admitted to Account
+              status and generates their bills from the matching fee structure. If no fee structure
+              matches, or required documents are missing, the transition will be refused and the
+              reason shown.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={accountM.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                try {
+                  await accountM.mutateAsync(learner.id);
+                  setAccountDialogOpen(false);
+                } catch {}
+              }}
+              disabled={accountM.isPending}
+            >
+              {accountM.isPending ? 'Sending...' : 'Send to Accounts'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={approveDialogOpen} onOpenChange={setApproveDialogOpen}>
         <AlertDialogContent>

@@ -889,6 +889,12 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.coverage.view', label: 'View Bill Coverage' },
       { key: 'billing.coverage.export', label: 'Export Bill Coverage' },
       { key: 'billing.reports.view', label: 'View Billing Reports' },
+      // The reports page has gated its CSV download on billing.reports.export
+      // since it was built, but the key was never registered — and an
+      // unregistered key cannot be granted to a role, so the Export button was
+      // invisible to everyone except the super-admin bypass on all six tabs.
+      // Declaring it only makes the lane grantable; it grants nothing today.
+      { key: 'billing.reports.export', label: 'Export Billing Reports' },
       { key: 'billing.analytics.view', label: 'View Billing Analytics' },
       { key: 'billing.analytics.export', label: 'Export Billing Analytics' },
       { key: 'billing.payment.view', label: 'View Payments' },

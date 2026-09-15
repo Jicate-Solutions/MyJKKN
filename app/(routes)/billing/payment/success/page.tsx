@@ -4,7 +4,7 @@
 // Route: /billing/payment/success?transaction_id=xxx&receipt_id=xxx
 // Purpose: Display payment success confirmation with enhanced UI
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,11 @@ import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'motion/react';
 import { usePaymentStatus } from '@/hooks/billing/use-payment-gateway';
+import {
+  buildPaymentRedirectUrl,
+  shouldRedirectToFailedPage,
+} from '@/lib/billing/payment-status-flow';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 // Success Animation Component
 function SuccessAnimation() {
@@ -137,21 +142,56 @@ export default function PaymentSuccessPage() {
   // Real payment timestamp from the verified DB row; fall back to now only if absent.
   const paidAt = verifiedStatus?.payment_date ? new Date(verifiedStatus.payment_date) : new Date();
 
-  // Redirect to failed page if database status shows non-success payment
+  // One-shot latch for the hand-off to /failed.
+  //
+  // `usePaymentStatus` polls every 3s and hands back a NEW object identity on
+  // every refetch, so an effect that depended on `verifiedStatus` re-ran — and
+  // re-pushed — every 3 seconds for as long as the status stayed outside the
+  // old allow-list. `expired` did exactly that. The latch plus the VALUE-based
+  // dependency below make the redirect fire at most once per mount.
+  const hasRedirectedRef = useRef(false);
+
+  const redirectToFailed = useCallback(
+    (reason: string, detail: string) => {
+      if (hasRedirectedRef.current || !transactionId) return;
+      hasRedirectedRef.current = true;
+      logger.log('billing/payment-success', `Redirecting to failed page (${reason})`, detail);
+      // Preserve the query string so the failed page keeps amount/provider/
+      // receipt context instead of rebuilding a bare URL.
+      router.replace(
+        buildPaymentRedirectUrl(
+          '/billing/payment/failed',
+          transactionId,
+          searchParams.toString(),
+          // The callback's success verdict must not travel to the failed page.
+          ['verified', 'verified_status']
+        )
+      );
+    },
+    [router, searchParams, transactionId]
+  );
+
+  // Depend on the status VALUE, never on the polled object identity.
+  const verifiedStatusValue = verifiedStatus?.status ?? null;
+
+  // Redirect to failed page if database status shows the payment did not go through
   useEffect(() => {
-    if (verifiedStatus && !isVerifying) {
-      // If database status is not success/processing/initiated, redirect to failed page
-      if (!['success', 'processing', 'initiated'].includes(verifiedStatus.status)) {
-        console.log('[billing/payment-success] Redirecting to failed page - DB status:', verifiedStatus.status);
-        router.push(`/billing/payment/failed?transaction_id=${transactionId}`);
-        return;
-      }
-      // If database confirms success, update local state
-      if (verifiedStatus.status === 'success') {
-        setPaymentStatus('success');
-      }
+    if (isVerifying || !verifiedStatusValue) return;
+
+    // Only a genuinely unsuccessful status (failed/cancelled/expired/refunded)
+    // moves the learner off this page. `initiated`/`processing` wait here, and
+    // an unrecognised status also waits — a learner must never be shown
+    // "failed" for a payment that actually succeeded.
+    if (shouldRedirectToFailedPage(verifiedStatusValue)) {
+      redirectToFailed('db-status', verifiedStatusValue);
+      return;
     }
-  }, [verifiedStatus, isVerifying, transactionId, router]);
+
+    // If database confirms success, update local state
+    if (verifiedStatusValue === 'success') {
+      setPaymentStatus('success');
+    }
+  }, [verifiedStatusValue, isVerifying, redirectToFailed]);
 
   useEffect(() => {
     // Check payment status based on the callback's verdict (initial check from
@@ -162,11 +202,11 @@ export default function PaymentSuccessPage() {
       setPaymentStatus('success');
     } else if (hdfcStatus === 'FAILED' || hdfcStatus === 'DECLINED') {
       // Redirect non-success payments to failed page
-      router.push(`/billing/payment/failed?transaction_id=${transactionId}`);
+      redirectToFailed('hdfc-status', hdfcStatus);
       return;
     } else if (hdfcStatus && !['CHARGED', 'SUCCESS', 'COMPLETED', 'processing'].includes(hdfcStatus)) {
       // For cancelled, expired, new, etc. - redirect to failed page
-      router.push(`/billing/payment/failed?transaction_id=${transactionId}`);
+      redirectToFailed('hdfc-status', hdfcStatus);
       return;
     }
 
@@ -202,7 +242,7 @@ export default function PaymentSuccessPage() {
       clearTimeout(timer1);
       clearTimeout(timer2);
     };
-  }, [hdfcStatus, receiptId, callbackConfirmedSuccess]);
+  }, [hdfcStatus, receiptId, callbackConfirmedSuccess, redirectToFailed]);
 
   if (!transactionId) {
     return (
