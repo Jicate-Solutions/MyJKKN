@@ -21,7 +21,7 @@ export function PushNotificationBanner() {
 
   const [snoozed, setSnoozed] = useState(true); // Start hidden to avoid flash
   const [showReady, setShowReady] = useState(false); // Delay showing to avoid flicker
-  const showTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const showTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // Check snooze state on mount
   useEffect(() => {
