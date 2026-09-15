@@ -23,6 +23,22 @@ export interface PaperOption {
   text: string;
 }
 
+/** A picture printed with a question (Wave 3 Lane D).
+ *
+ *  `dataUri` is the WHOLE image, inlined. The renderer hands Chromium one
+ *  self-contained document and waits only for `load`; a network URL — even a
+ *  signed one — would race that wait and print a hole, and the bucket is
+ *  private on purpose. `alt` is mandatory on every stored row (ruling #4) and
+ *  is what prints when the bytes could not be read. */
+export interface PaperAsset {
+  id: string;
+  /** `data:image/png;base64,…` or `data:image/svg+xml;base64,…`. Null when the
+   *  object could not be read — the caption prints alone. */
+  dataUri: string | null;
+  alt: string;
+  sortOrder: number;
+}
+
 /** One question as the renderer sees it — bilingual text, resolved layout, the
  *  canonical answer key (only present when the caller asked for the key). */
 export interface PaperItem {
@@ -51,6 +67,10 @@ export interface PaperItem {
   /** A grouped section directive this item sits under (English Q1–3 / Q4–6,
    *  PRD English §4.2). Null for self-directing items. */
   directive: string | null;
+  /** Pictures printed with this question, in sort order. Absent or empty on
+   *  every item that has none — which is every item the bank holds today, so
+   *  the no-picture render path is byte-identical to what Lane P shipped. */
+  assets?: PaperAsset[];
 }
 
 /** Which subject profile drives the header, part label and totals. */

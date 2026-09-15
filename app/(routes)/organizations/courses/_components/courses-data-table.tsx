@@ -1,6 +1,7 @@
 'use client';
 
 import { DataTable } from '@/components/data-table/data-table';
+import { courseRowHref } from '@/components/data-table/utils/list-row-hrefs';
 import { getCourseColumns } from './columns';
 import type { CoursesSearchParams } from './data-table-schema';
 import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
@@ -432,6 +433,7 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
           headers: []
         }}
         idField='id'
+        rowHref={courseRowHref}
         config={{
           enableUrlState: true,
           enableDateFilter: false,

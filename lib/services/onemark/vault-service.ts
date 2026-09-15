@@ -103,6 +103,9 @@ export interface OneMarkSitting {
   optionsShuffled?: boolean;
   resumed: boolean;
   alreadyAnswered: string[];
+  /** Timed sittings whose clock had run out and were submitted as they stood
+   *  when this one opened (defect 3). Absent or empty on every other tap. */
+  expiredClosed?: string[];
   /** Asked for vs served. A vault review may be shorter than requested by
    *  design (60% single-chapter cap, never padded — decision 13). */
   requested?: number;

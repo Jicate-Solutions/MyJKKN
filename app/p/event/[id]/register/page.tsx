@@ -17,9 +17,19 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { createClient as createAnonOrService } from '@supabase/supabase-js';
 import { createClient as createSessionClient } from '@/lib/supabase/server';
-import { CalendarClock, CalendarDays, MapPin, Ticket } from 'lucide-react';
+import { Ban, CalendarClock, CalendarDays, MapPin, Ticket } from 'lucide-react';
 import { effectiveFee, formRegistrationState, isFormOpen } from '@/types/tournament';
+import {
+  countTaken,
+  findOutstandingOffer,
+  isWaitlistAvailable,
+} from '@/lib/services/events/waitlist-service';
 import { EventRegisterForm } from './_components/event-register-form';
+import {
+  PUBLIC_CANCELLATION_CONTACT_EMAIL,
+  PUBLIC_CANCELLATION_NOTICE,
+  PUBLIC_EVENT_COLUMNS,
+} from './_lib/cancellation';
 
 export const dynamic = 'force-dynamic';
 
@@ -93,15 +103,76 @@ export default async function PublicEventRegisterPage({
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );
 
+  // PUBLIC_EVENT_COLUMNS names only columns that exist on production TODAY, and
+  // this is now the page's ONLY read of `events` — the cancellation columns are
+  // not read here at all. See ./_lib/cancellation.ts for why one missing column
+  // would otherwise break public registration for every event.
   const { data: ev } = await svc
     .from('events')
-    .select(
-      'id, name, event_type, status, event_date, start_date, venue, venue_text, registration_open_date, registration_close_date, max_registrations'
-    )
+    .select(PUBLIC_EVENT_COLUMNS)
     .eq('id', id)
     .maybeSingle();
 
-  if (!ev || ['draft', 'cancelled'].includes(ev.status)) {
+  if (!ev) {
+    return <Empty title="Registration not available" msg="This event is not open for registration." />;
+  }
+
+  // A CANCELLED event says so, by name — in a STANDARD line, not in the
+  // organiser's own words.
+  //
+  // Checked BEFORE every other branch: someone holding this link was told about
+  // this event, and "not open for registration" — the generic answer this page
+  // gave until this state existed — reads as a closed window they might have
+  // missed rather than as an event that is not happening. No redirect and no
+  // 404: the page exists, and the answer is just no.
+  //
+  // WHY NO REASON HERE (Director's ruling, 13 Sep: "Short public line, full
+  // reason kept inside"). `cancellation_reason` is free text typed by an
+  // organiser at the worst moment of an event's life, with no review step
+  // between the textarea and every person holding the link. It is still
+  // required, still stored exactly as typed, and still shown IN FULL on
+  // /events/[id] to colleagues at the institution who can open the event — it
+  // just stops being published. What the public needs from this page is the
+  // fact and a way to ask; both are here.
+  //
+  // Registration is not stopped HERE, and no second mechanism is added: this
+  // page and /api/events/[eventId]/public-register have always refused a
+  // `cancelled` event, exactly as they refuse a closed registration window. This
+  // branch only replaces a silent-shaped refusal with an explicit one.
+  if (ev.status === 'cancelled') {
+    return (
+      <main className="mx-auto max-w-xl px-4 py-16">
+        <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-6 text-center">
+          <Ban className="mx-auto mb-3 h-10 w-10 text-red-600 dark:text-red-400" />
+          <h1 className="text-xl font-semibold">{PUBLIC_CANCELLATION_NOTICE.headline}</h1>
+          <p className="mt-1 text-sm font-medium">{ev.name}</p>
+          <p className="mt-4 text-sm">{PUBLIC_CANCELLATION_NOTICE.body}</p>
+          <p className="mt-2 text-sm">{PUBLIC_CANCELLATION_NOTICE.alreadyRegistered}</p>
+          {/* The subject line is the whole of this address's routing. It goes to
+              ONE institution-wide mailbox for every cancelled event at every
+              college (see PUBLIC_CANCELLATION_CONTACT_EMAIL), so a bare mailto
+              arrives with nothing saying which event it is about. Stamping the
+              event's name and id into the subject costs nothing, needs no
+              schema, and is what makes the reply possible — the reader can look
+              the event up instead of asking which one it was. */}
+          <p className="mt-4 text-xs text-muted-foreground">
+            {PUBLIC_CANCELLATION_NOTICE.contactPrompt}{' '}
+            <a
+              className="font-medium underline underline-offset-2"
+              href={`mailto:${PUBLIC_CANCELLATION_CONTACT_EMAIL}?subject=${encodeURIComponent(
+                `Cancelled event: ${ev.name} (${id})`
+              )}`}
+            >
+              {PUBLIC_CANCELLATION_CONTACT_EMAIL}
+            </a>
+            .
+          </p>
+        </div>
+      </main>
+    );
+  }
+
+  if (ev.status === 'draft') {
     return <Empty title="Registration not available" msg="This event is not open for registration." />;
   }
 
@@ -139,6 +210,31 @@ export default async function PublicEventRegisterPage({
     );
   }
 
+  // THIS visitor's account, resolved early: the two gates below need to know
+  // whether a place is being held for them. A guest has no session and meets
+  // every gate exactly as before.
+  let viewerProfileId: string | null = null;
+  let signedInName: string | null = null;
+  let signedInEmail: string | null = null;
+  try {
+    const session = await createSessionClient();
+    const {
+      data: { user },
+    } = await session.auth.getUser();
+    if (user) {
+      const { data: profile } = await svc
+        .from('profiles')
+        .select('id, full_name')
+        .eq('id', user.id)
+        .maybeSingle();
+      viewerProfileId = profile?.id ?? null;
+      signedInName = profile?.full_name ?? user.email ?? null;
+      signedInEmail = user.email ?? null;
+    }
+  } catch {
+    /* no session — guest flow */
+  }
+
   const now = new Date();
   if (ev.registration_open_date && now < new Date(ev.registration_open_date)) {
     return (
@@ -148,8 +244,21 @@ export default async function PublicEventRegisterPage({
       />
     );
   }
+  /** The window has shut, but a place is being held for this very visitor. */
+  let windowClosedButHoldsAPlace = false;
   if (ev.registration_close_date && now > new Date(ev.registration_close_date)) {
-    return <Empty title="Registration closed" msg="The registration window for this event has closed." />;
+    // The route defers its close-date refusal for a caller holding a live
+    // offer. This page is the route's only caller, so it must defer too, or
+    // the held place is unreachable — the mistake #3714 made twice. Because
+    // this queue is for signed-in people, the page can ask the precise
+    // question about THIS visitor rather than an identity-free one.
+    const held = viewerProfileId
+      ? await findOutstandingOffer(svc as never, id, viewerProfileId, null).catch(() => null)
+      : null;
+    if (!held) {
+      return <Empty title="Registration closed" msg="The registration window for this event has closed." />;
+    }
+    windowClosedButHoldsAPlace = true;
   }
 
   // WHICH form? Same resolution rules as the tournament page, deliberately —
@@ -233,45 +342,43 @@ export default async function PublicEventRegisterPage({
     fields: (rawFields ?? []).filter((f) => f.section_id === s.id),
   }));
 
-  // Capacity is enforced server-side on submit too; this only avoids showing a
-  // form that cannot be submitted.
-  if (ev.max_registrations) {
-    const { count } = await svc
-      .from('events_registrations')
-      .select('id', { count: 'exact', head: true })
-      .eq('event_id', id)
-      .neq('status', 'cancelled');
-    if ((count ?? 0) >= ev.max_registrations) {
-      return <Empty title="Registration full" msg="This event has reached its maximum number of registrations." />;
-    }
-  }
-
-  // Hybrid identity: a signed-in JKKN user is linked to their record; a guest
-  // supplies contact details.
-  let signedInName: string | null = null;
-  let signedInEmail: string | null = null;
-  try {
-    const session = await createSessionClient();
-    const {
-      data: { user },
-    } = await session.auth.getUser();
-    if (user) {
-      const { data: profile } = await svc
-        .from('profiles')
-        .select('full_name')
-        .eq('id', user.id)
-        .maybeSingle();
-      signedInName = profile?.full_name ?? user.email ?? null;
-      signedInEmail = user.email ?? null;
-    }
-  } catch {
-    /* no session — guest flow */
-  }
-
   // effectiveFee applies BOTH gates (switched on AND priced) and does the
   // string→number coercion PostgREST forces on numeric. Testing either field
   // alone here is how a form with the fee switched off would still charge.
   const fee = effectiveFee(formRow);
+
+  // ---- capacity: what a FULL event does is the event's own decision ----
+  // Capacity is enforced server-side on submit too; this only decides what the
+  // visitor is shown. `events.cap_behavior = 'waitlist'` keeps the form open
+  // for a SIGNED-IN visitor on a FREE form — the only people the route will
+  // queue — so that sending it joins the queue, or takes up a place being held
+  // for them. This page is the route's only caller: a gate here that the route
+  // does not have makes the queue unreachable. Everybody else sees exactly what
+  // they always saw. And it only offers a queue that exists: before the
+  // migration is applied this shows the refusal it has always shown.
+  let full = false;
+  if (ev.max_registrations) {
+    let taken: number;
+    try {
+      // strictOffers=false: this page only picks copy; the door re-checks.
+      taken = await countTaken(svc as never, id, false);
+    } catch {
+      return <Empty title="Registration full" msg="This event has reached its maximum number of registrations." />;
+    }
+    if (taken >= ev.max_registrations) {
+      const queues =
+        ev.cap_behavior === 'waitlist' &&
+        fee <= 0 &&
+        Boolean(viewerProfileId) &&
+        (await isWaitlistAvailable(svc as never));
+      if (!queues) {
+        return <Empty title="Registration full" msg="This event has reached its maximum number of registrations." />;
+      }
+      full = true;
+    }
+  }
+  if (windowClosedButHoldsAPlace) full = true;
+
   const when = ev.event_date ?? ev.start_date;
   const where = ev.venue || ev.venue_text;
 
@@ -328,6 +435,8 @@ export default async function PublicEventRegisterPage({
         feeLabel={formRow.fee_label ?? null}
         signedInName={signedInName}
         signedInEmail={signedInEmail}
+        full={full}
+        claimOnly={windowClosedButHoldsAPlace}
         sections={sections as never}
       />
 

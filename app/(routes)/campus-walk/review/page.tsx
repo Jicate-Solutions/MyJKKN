@@ -364,6 +364,10 @@ export default async function CampusWalkReviewPage() {
       category: typeof meta.category === 'string' ? meta.category : null,
       kind: typeof meta.kind === 'string' ? meta.kind : null,
       unsafe: Boolean(meta.unsafe),
+      attribution:
+        typeof meta.attribution === 'string' && meta.attribution.trim()
+          ? meta.attribution
+          : null,
       dueDate: (t.due_date as string | null) ?? null,
       statusKey: (t.status_key as string) ?? 'review',
       isBlocked: Boolean(t.is_blocked),

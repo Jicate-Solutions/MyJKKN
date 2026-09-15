@@ -126,6 +126,7 @@ import {
 } from '@/components/ui/table';
 import {
   UserCheck,
+  UserX,
   Users,
   Inbox,
   Loader2,
@@ -156,6 +157,13 @@ import {
   type ResolvedOwner,
   type AssignmentStatus,
 } from './_lib/owner-inheritance';
+import {
+  describeOwnershipGaps,
+  gapHeadline,
+  type BodyOwnerRow,
+  type DeclaredBodyRow,
+  type OwnershipGapReport,
+} from './_lib/unowned-pairs';
 import {
   isMissingRelation,
   sortEventsNewestFirst,
@@ -341,6 +349,78 @@ function useInstitutions() {
       return (data ?? []) as InstitutionRow[];
     },
     staleTime: 30 * 60 * 1000,
+  });
+}
+
+/**
+ * The two cross-campus reads behind the "nobody accountable" card.
+ *
+ * Every other read on this page is scoped to ONE campus, which is right for
+ * assigning and wrong for noticing: 21 of the 35 declared pairs have no owner,
+ * and finding that out today means selecting each campus in turn and
+ * remembering what the last one said.
+ *
+ * `ids` comes from {@link useInstitutions}, which has already narrowed to
+ * `_user_accessible_institutions()`. That matters twice over. It is the same
+ * predicate both tables' SELECT policies use — `role_has_institution_access
+ * (institution_id)` — so every id passed here is one whose rows RLS will
+ * actually return, and a short result therefore means "no rows", not "denied".
+ * A wider list would reintroduce the silent-refusal trap this page already
+ * guards against everywhere else: RLS returns NOTHING rather than an error, and
+ * "nobody is accountable" is precisely the wrong thing to render about a campus
+ * we simply cannot read.
+ *
+ * Both reads therefore THROW on error rather than falling back to an empty
+ * array. An unread campus must produce a visible "could not read" panel, never
+ * a confident list of gaps.
+ *
+ * The owner read asks only for the body-level slot (`metric_code IS NULL AND
+ * programme_id IS NULL`) — the row that answers "who is accountable for this
+ * body here", and the row the invitation and the accept/decline buttons act on.
+ * `describeOwnershipGaps` re-checks both columns anyway, so the SQL filter is an
+ * optimisation and not the guarantee.
+ */
+function useOwnershipGapInputs(institutions: InstitutionRow[] | undefined) {
+  // Keyed on a STABLE joined string so a fresh array each render never re-fires
+  // the query — the same trick useAssignedOwnerNames uses next door.
+  const ids = useMemo(
+    () => (institutions ?? []).map((i) => i.id).sort(),
+    [institutions],
+  );
+  const key = ids.join(',');
+
+  return useQuery({
+    queryKey: ['accreditation', 'ownership-gaps', key],
+    enabled: ids.length > 0,
+    queryFn: async (): Promise<{
+      declared: DeclaredBodyRow[];
+      owners: BodyOwnerRow[];
+    }> => {
+      const sb = createClientSupabaseClient() as any;
+
+      const { data: declared, error: declaredError } = await sb
+        .from('institution_accreditation_bodies')
+        .select('institution_id, body_code, is_active')
+        .in('institution_id', ids)
+        .eq('is_active', true);
+      if (declaredError) throw declaredError;
+
+      const { data: owners, error: ownersError } = await sb
+        .from('accreditation_metric_owners')
+        .select(
+          'institution_id, body_code, metric_code, programme_id, assignment_status',
+        )
+        .in('institution_id', ids)
+        .is('metric_code', null)
+        .is('programme_id', null);
+      if (ownersError) throw ownersError;
+
+      return {
+        declared: (declared ?? []) as DeclaredBodyRow[],
+        owners: (owners ?? []) as BodyOwnerRow[],
+      };
+    },
+    staleTime: 15 * 1000,
   });
 }
 
@@ -636,7 +716,15 @@ export default function AccreditationOwnersPage() {
   const [trailBody, setTrailBody] = useState<string | null>(null);
   const [trailMetric, setTrailMetric] = useState<string>(ALL_METRICS_VALUE);
 
-  const { data: institutions } = useInstitutions();
+  // isLoading and isError are read for the cross-campus card below: that card
+  // describes the accessible-campus set itself, so a set that has not arrived —
+  // or could not be read — must render as loading or as a failure, never as
+  // "nothing is recorded".
+  const {
+    data: institutions,
+    isLoading: institutionsLoading,
+    isError: institutionsUnread,
+  } = useInstitutions();
   const { data: framework, isLoading: frameworkLoading } = useFramework();
 
   // Default to the viewer's own campus; fall back to the first they can read.
@@ -658,6 +746,23 @@ export default function AccreditationOwnersPage() {
     institutions.length > 0 &&
     activeInstitution != null &&
     !institutions.some((i) => i.id === activeInstitution);
+
+  // Cross-campus, and deliberately independent of the campus picker above: the
+  // whole point is the pairs a one-campus-at-a-time view cannot show.
+  const {
+    data: gapInputs,
+    isLoading: gapsLoading,
+    isError: gapsUnread,
+  } = useOwnershipGapInputs(institutions);
+  const gapReport = useMemo(
+    () =>
+      describeOwnershipGaps(
+        institutions ?? [],
+        gapInputs?.declared ?? [],
+        gapInputs?.owners ?? [],
+      ),
+    [institutions, gapInputs],
+  );
 
   const { data: ownerRows, isLoading: ownersLoading } =
     useOwnerRows(activeInstitution);
@@ -1464,6 +1569,23 @@ export default function AccreditationOwnersPage() {
           </CardContent>
         </Card>
 
+        {/* ---------------------------------------------------------------- */}
+        {/* Which bodies have NOBODY — across every campus, not one at a time.
+            Sits outside the noBodiesApply guard on purpose: selecting Main
+            Office (which answers to no body) must not hide the cluster's 21
+            empty slots, and the card describes no single campus. */}
+        <UnownedBodiesCard
+          report={gapReport}
+          /* The campus list is an input to the report, so the card is still
+             loading while that list is. Without this the card would print
+             "no campus has recorded which bodies it answers to" for the second
+             or two before the list arrives — a claim, made about nothing. */
+          loading={institutionsLoading || gapsLoading}
+          unread={institutionsUnread || gapsUnread}
+          selectedInstitutionId={activeInstitution}
+          onSelectInstitution={setInstitutionId}
+        />
+
         {/* Everything below answers "who owns which metric". For an entity
             that answers to no awarding body there are no metrics to own, and
             the three tables would each render their own flavour of nothing —
@@ -1940,6 +2062,187 @@ export default function AccreditationOwnersPage() {
         )}
       </div>
     </ContentLayout>
+  );
+}
+
+// ----------------------------------------------------------------------------
+/**
+ * Where the ownership gap is across EVERY campus this reader can open.
+ *
+ * The rest of the page answers one campus at a time, so an absence spread over
+ * ten dropdown selections is an absence nobody sees. On production 21 of the 35
+ * declared pairs have nobody, and three colleges have nobody for any body they
+ * answer to — a fact no existing screen states.
+ *
+ * NO NAMES ARE PROPOSED. The card shows the empty slot and stops there; who
+ * fills it is a decision IQAC makes about a person, and a screen that suggested
+ * a name would be making it. There is likewise no percentage and no ranking of
+ * colleges — a "40% covered" over a list of college names reads as a score for
+ * the colleges, and this desk does not score them.
+ *
+ * Rendered to everyone who can open the page, not only to `.manage`. Somebody
+ * who can assign must be able to see everything they could assign, and a
+ * view-only IQAC member is exactly who notices the gap and asks for it to be
+ * filled. Gating it on manage would repeat the mistake the page header records:
+ * a control shipped to an audience of one.
+ */
+function UnownedBodiesCard({
+  report,
+  loading,
+  unread,
+  selectedInstitutionId,
+  onSelectInstitution,
+}: {
+  report: OwnershipGapReport;
+  loading: boolean;
+  /** The cross-campus read failed. Say so; claim nothing. */
+  unread: boolean;
+  selectedInstitutionId: string | null;
+  onSelectInstitution: (id: string) => void;
+}) {
+  const gaps = report.unowned.length;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+          <UserX className="h-5 w-5 text-muted-foreground" />
+          Bodies with nobody accountable
+          <Badge variant="outline" className="font-normal">
+            every campus you can see
+          </Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {loading ? (
+          <Skeleton className="h-24 w-full" />
+        ) : unread ? (
+          /* A failed read is not a finding. Rendering "nobody is accountable"
+             here would state the opposite of what we know, about campuses we
+             could not read at all. */
+          <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/40">
+            <div className="font-medium">
+              Ownership across your campuses could not be read
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">
+              This is not a statement that any body is unowned — it means this
+              card could not check. Reload the page, and tell your IQAC
+              coordinator if it keeps happening.
+            </p>
+          </div>
+        ) : (
+          <>
+            <p
+              className={`text-sm font-medium ${
+                gaps > 0 ? 'text-amber-700 dark:text-amber-300' : 'text-foreground'
+              }`}
+            >
+              {gapHeadline(report)}
+            </p>
+
+            {gaps > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Every entry below is an empty slot, not a suggestion — who fills
+                it is IQAC&apos;s decision to make about a person. Choose a
+                campus to name somebody for it.
+              </p>
+            )}
+
+            {gaps > 0 && (
+              <div className="flex flex-col gap-2">
+                {report.campuses.map((campus) => {
+                  const isSelected = campus.institutionId === selectedInstitutionId;
+                  return (
+                    <div
+                      key={campus.institutionId}
+                      className={`rounded-md border p-3 ${
+                        isSelected ? 'border-indigo-300 dark:border-indigo-900' : ''
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        {/* Selecting the campus drives the tables below, so the
+                            gap and the control that closes it are one click
+                            apart rather than on two different screens. */}
+                        <Button
+                          variant="link"
+                          className="h-auto p-0 text-sm font-medium"
+                          onClick={() => onSelectInstitution(campus.institutionId)}
+                        >
+                          {campus.institutionName}
+                        </Button>
+                        {campus.nobodyAtAll ? (
+                          <Badge className="border-amber-300 bg-amber-50 font-normal text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+                            nobody for any of its {campus.declared}
+                          </Badge>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">
+                            {campus.unowned.length} of {campus.declared}
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {campus.unowned.map((pair) => (
+                          <Badge
+                            key={pair.bodyCode}
+                            variant="outline"
+                            className="border-amber-300 font-normal text-amber-700 dark:border-amber-900 dark:text-amber-300"
+                          >
+                            {pair.bodyCode}
+                            {/* A refusal on the record is a different fact from
+                                never having been asked, and needs a different
+                                next step — reassign, not a first ask. */}
+                            {pair.reason === 'declined' && (
+                              <span className="ml-1 text-red-700 dark:text-red-300">
+                                declined
+                              </span>
+                            )}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {report.byBody.length > 1 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-xs text-muted-foreground">
+                  Campuses missing an owner, by body
+                </span>
+                {report.byBody.map((b) => (
+                  <Badge key={b.bodyCode} variant="outline" className="font-normal">
+                    {b.bodyCode} {b.count}
+                  </Badge>
+                ))}
+              </div>
+            )}
+
+            {/* A campus with no mapping is UNKNOWN, not "answers to nobody", so
+                it is in neither number above. Saying the denominator is short
+                is honest; silently leaving these out would imply it is whole. */}
+            {report.unmappedInstitutions.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {report.unmappedInstitutions.length} campus
+                {report.unmappedInstitutions.length === 1 ? '' : 'es'} you can see
+                {report.unmappedInstitutions.length === 1 ? ' has' : ' have'} not
+                recorded which awarding bodies apply, so{' '}
+                {report.unmappedInstitutions.length === 1 ? 'it is' : 'they are'}{' '}
+                not counted here:{' '}
+                {report.unmappedInstitutions.map((i) => i.name).join(', ')}.{' '}
+                <Link
+                  href="/accreditation/manage/bodies"
+                  className="underline underline-offset-2"
+                >
+                  Record them
+                </Link>
+                .
+              </p>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

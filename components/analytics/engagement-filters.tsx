@@ -29,6 +29,15 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
+import { useEngagementScope } from '@/hooks/analytics/use-engagement-scope';
+import {
+  ALL_INSTITUTIONS_ID,
+  NO_ENGAGEMENT_SCOPE_REASON,
+  allChoiceAllowed,
+  choicesHaveUnits,
+  levelOpenToScope,
+  type EngagementAllChoice
+} from '@/lib/services/analytics/engagement-scope';
 
 interface EngagementFiltersProps {
   onFilterChange: (filters: {
@@ -38,6 +47,8 @@ interface EngagementFiltersProps {
     dateTo: string;
   }) => void;
   onExport?: () => void;
+  /** Disables the Export Data button (e.g. while rows are loading or there are none). */
+  exportDisabled?: boolean;
   /** Shown instead of the Export button when export is not available on this screen yet. */
   exportUnavailableReason?: string;
 }
@@ -48,7 +59,7 @@ interface FilterOption {
 }
 
 // Special values for "all" selections
-const ALL_VALUE = 'all';
+const ALL_VALUE = ALL_INSTITUTIONS_ID;
 const ALL_DEPARTMENTS = 'all_departments';
 const ALL_PROGRAMS = 'all_programs';
 const ALL_SEMESTERS = 'all_semesters';
@@ -57,8 +68,16 @@ const ALL_SECTIONS = 'all_sections';
 export function EngagementFilters({
   onFilterChange,
   onExport,
+  exportDisabled = false,
   exportUnavailableReason
 }: EngagementFiltersProps) {
+  // The viewer's own institution / department(s) / sections. Every picker below
+  // is limited to it and "All ..." is only offered when the viewer may open the
+  // level it leads to. The engagement routes enforce the same scope (403).
+  const { data: scope, error: scopeError } = useEngagementScope();
+  const allowAll = (choice: EngagementAllChoice) =>
+    !!scope && allChoiceAllowed(scope.type, choice);
+
   const [level, setLevel] = useState<OrganizationalLevel>('institution');
   const [selectedInstitution, setSelectedInstitution] = useState<string>(ALL_VALUE);
   const [selectedDepartment, setSelectedDepartment] = useState<string>(ALL_DEPARTMENTS);
@@ -95,10 +114,11 @@ export function EngagementFilters({
     onFilterChangeRef.current = onFilterChange;
   }, [onFilterChange]);
 
-  // Load institutions on mount
+  // Load institutions once the viewer's scope is known
   useEffect(() => {
-    loadInstitutions();
-  }, []);
+    if (scope) loadInstitutions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scope]);
 
   // Load departments when institution changes
   useEffect(() => {
@@ -158,9 +178,16 @@ export function EngagementFilters({
     }
   }, [level, selectedInstitution, selectedDepartment, selectedProgram, selectedSemester, selectedSection]);
 
-  // Trigger filter change when selections or dates change
+  // Trigger filter change when selections or dates change. Nothing is sent until
+  // the scope is known, nor for a level or "All Institutions" the viewer cannot
+  // open (e.g. an HOD while their department is still being picked), so the
+  // screen never asks for data it would be refused.
   useEffect(() => {
+    if (!scope || !levelOpenToScope(scope.type, level)) return;
     const currentId = getCurrentId();
+    if (level === 'institution' && currentId === ALL_VALUE && !allChoiceAllowed(scope.type, 'institutions')) {
+      return;
+    }
     if (currentId) {
       onFilterChangeRef.current({
         level,
@@ -169,18 +196,75 @@ export function EngagementFilters({
         dateTo
       });
     }
-  }, [level, getCurrentId, dateFrom, dateTo]);
+  }, [scope, level, getCurrentId, dateFrom, dateTo]);
+
+  // Picking a value, from a user's click or automatically when "All ..." is not
+  // offered. Same level rules as before; functional updates so an automatic
+  // pick after an async load reads the current level.
+  const chooseInstitution = (value: string) => {
+    setSelectedInstitution(value);
+    setSelectedDepartment(ALL_DEPARTMENTS);
+    setSelectedProgram(ALL_PROGRAMS);
+    setSelectedSemester(ALL_SEMESTERS);
+    setSelectedSection(ALL_SECTIONS);
+    setLevel('institution');
+  };
+
+  const chooseDepartment = (value: string) => {
+    setSelectedDepartment(value);
+    if (value === ALL_DEPARTMENTS) {
+      setSelectedProgram(ALL_PROGRAMS);
+      setSelectedSemester(ALL_SEMESTERS);
+      setSelectedSection(ALL_SECTIONS);
+      setLevel('institution');
+    } else {
+      setLevel((current) => (current === 'institution' ? 'department' : current));
+    }
+  };
+
+  const chooseProgram = (value: string) => {
+    setSelectedProgram(value);
+    if (value === ALL_PROGRAMS) {
+      setSelectedSemester(ALL_SEMESTERS);
+      setSelectedSection(ALL_SECTIONS);
+      setLevel('department');
+    } else {
+      setLevel((current) =>
+        current === 'institution' || current === 'department' ? 'program' : current
+      );
+    }
+  };
+
+  const chooseSemester = (value: string) => {
+    setSelectedSemester(value);
+    if (value === ALL_SEMESTERS) {
+      setSelectedSection(ALL_SECTIONS);
+      setLevel('program');
+    } else {
+      setLevel((current) =>
+        current === 'institution' || current === 'department' || current === 'program'
+          ? 'semester'
+          : current
+      );
+    }
+  };
+
+  const chooseSection = (value: string) => {
+    setSelectedSection(value);
+    setLevel(value === ALL_SECTIONS ? 'semester' : 'section');
+  };
 
   const loadInstitutions = async () => {
     setLoading(prev => ({ ...prev, institutions: true }));
     try {
-      const { data } = await supabase
-        .from('institutions')
-        .select('id, name')
-        .order('name')
-        .returns<FilterOption[]>();
-      setInstitutions(data || []);
-      setSelectedInstitution(ALL_VALUE);
+      let query = supabase.from('institutions').select('id, name').order('name');
+      if (scope?.institutionIds) query = query.in('id', scope.institutionIds);
+      const { data } = await query.returns<FilterOption[]>();
+      const list = data || [];
+      setInstitutions(list);
+      setSelectedInstitution(
+        allowAll('institutions') ? ALL_VALUE : (list[0]?.id ?? ALL_VALUE)
+      );
     } finally {
       setLoading(prev => ({ ...prev, institutions: false }));
     }
@@ -190,11 +274,13 @@ export function EngagementFilters({
     setLoading(prev => ({ ...prev, departments: true }));
     try {
       console.log('[EngagementFilters] Loading departments for institution:', institutionId);
-      const { data, error } = await supabase
+      let query = supabase
         .from('departments')
         .select('id, department_name')
         .eq('institution_id', institutionId)
         .order('department_name');
+      if (scope?.departmentIds) query = query.in('id', scope.departmentIds);
+      const { data, error } = await query;
 
       if (error) {
         console.error('[EngagementFilters] Error loading departments:', error);
@@ -202,7 +288,10 @@ export function EngagementFilters({
         console.log('[EngagementFilters] Departments loaded:', data);
       }
 
-      setDepartments(data?.map((d: any) => ({ id: d.id, name: d.department_name })) || []);
+      const list: FilterOption[] =
+        data?.map((d: any) => ({ id: d.id, name: d.department_name })) || [];
+      setDepartments(list);
+      if (!allowAll('departments') && list.length > 0) chooseDepartment(list[0].id);
     } finally {
       setLoading(prev => ({ ...prev, departments: false }));
     }
@@ -212,12 +301,14 @@ export function EngagementFilters({
     setLoading(prev => ({ ...prev, programs: true }));
     try {
       console.log('[EngagementFilters] Loading programs for department:', departmentId);
-      const { data, error } = await supabase
+      let query = supabase
         .from('programs')
         .select('id, program_name')
         .eq('department_id', departmentId)
         .eq('is_active', true)
         .order('program_name');
+      if (scope?.programIds) query = query.in('id', scope.programIds);
+      const { data, error } = await query;
 
       if (error) {
         console.error('[EngagementFilters] Error loading programs:', error);
@@ -232,6 +323,7 @@ export function EngagementFilters({
       })) || [];
 
       setPrograms(mappedData);
+      if (!allowAll('programs') && mappedData.length > 0) chooseProgram(mappedData[0].id);
     } finally {
       setLoading(prev => ({ ...prev, programs: false }));
     }
@@ -241,12 +333,14 @@ export function EngagementFilters({
     setLoading(prev => ({ ...prev, semesters: true }));
     try {
       console.log('[EngagementFilters] Loading semesters for program:', programId);
-      const { data, error } = await supabase
+      let query = supabase
         .from('semesters')
         .select('id, semester_name')
         .eq('program_id', programId)
         .eq('is_active', true)
         .order('semester_order', { ascending: true });
+      if (scope?.semesterIds) query = query.in('id', scope.semesterIds);
+      const { data, error } = await query;
 
       if (error) {
         console.error('[EngagementFilters] Error loading semesters:', error);
@@ -261,6 +355,7 @@ export function EngagementFilters({
       })) || [];
 
       setSemesters(mappedData);
+      if (!allowAll('semesters') && mappedData.length > 0) chooseSemester(mappedData[0].id);
     } finally {
       setLoading(prev => ({ ...prev, semesters: false }));
     }
@@ -270,12 +365,14 @@ export function EngagementFilters({
     setLoading(prev => ({ ...prev, sections: true }));
     try {
       console.log('[EngagementFilters] Loading sections for semester:', semesterId);
-      const { data, error } = await supabase
+      let query = supabase
         .from('sections')
         .select('id, section_name')
         .eq('semester_id', semesterId)
         .eq('is_active', true)
         .order('section_name');
+      if (scope?.sectionIds) query = query.in('id', scope.sectionIds);
+      const { data, error } = await query;
 
       if (error) {
         console.error('[EngagementFilters] Error loading sections:', error);
@@ -290,6 +387,7 @@ export function EngagementFilters({
       })) || [];
 
       setSections(mappedData);
+      if (!allowAll('sections') && mappedData.length > 0) chooseSection(mappedData[0].id);
     } finally {
       setLoading(prev => ({ ...prev, sections: false }));
     }
@@ -318,13 +416,21 @@ export function EngagementFilters({
   };
 
   const clearFilters = () => {
-    setSelectedDepartment(ALL_DEPARTMENTS);
+    // Reset to default date range
+    handleDatePreset('last30');
+    // A viewer scoped to sections has nothing above their section to reset to.
+    if (!scope || scope.type === 'section') return;
     setSelectedProgram(ALL_PROGRAMS);
     setSelectedSemester(ALL_SEMESTERS);
     setSelectedSection(ALL_SECTIONS);
-    setLevel('institution');
-    // Reset to default date range
-    handleDatePreset('last30');
+    if (allowAll('departments')) {
+      setSelectedDepartment(ALL_DEPARTMENTS);
+      setLevel('institution');
+    } else {
+      // An HOD goes back to their (first) department, not to the institution.
+      setSelectedDepartment(departments[0]?.id ?? ALL_DEPARTMENTS);
+      setLevel('department');
+    }
   };
 
   const getLevelIcon = (currentLevel: OrganizationalLevel) => {
@@ -365,6 +471,21 @@ export function EngagementFilters({
   return (
     <Card className="shadow-sm border-gray-200">
       <CardContent className="p-4 sm:p-6 space-y-6">
+        {scopeError && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              Could not load which institutions you can view. Refresh the page to try again.
+            </AlertDescription>
+          </Alert>
+        )}
+        {scope && !choicesHaveUnits(scope) && (
+          <Alert>
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{NO_ENGAGEMENT_SCOPE_REASON}</AlertDescription>
+          </Alert>
+        )}
+
         {/* Current Level Badge */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -391,21 +512,16 @@ export function EngagementFilters({
             </Label>
             <Select
               value={selectedInstitution}
-              onValueChange={(value) => {
-                setSelectedInstitution(value);
-                setSelectedDepartment(ALL_DEPARTMENTS);
-                setSelectedProgram(ALL_PROGRAMS);
-                setSelectedSemester(ALL_SEMESTERS);
-                setSelectedSection(ALL_SECTIONS);
-                setLevel('institution');
-              }}
-              disabled={loading.institutions}
+              onValueChange={chooseInstitution}
+              disabled={loading.institutions || !scope}
             >
               <SelectTrigger id="institution" className="transition-all">
                 <SelectValue placeholder="Select institution..." />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL_VALUE}>All Institutions</SelectItem>
+                {allowAll('institutions') && (
+                  <SelectItem value={ALL_VALUE}>All Institutions</SelectItem>
+                )}
                 {institutions.map((inst) => (
                   <SelectItem key={inst.id} value={inst.id}>
                     {inst.name}
@@ -425,24 +541,16 @@ export function EngagementFilters({
               </Label>
               <Select
                 value={selectedDepartment}
-                onValueChange={(value) => {
-                  setSelectedDepartment(value);
-                  if (value === ALL_DEPARTMENTS) {
-                    setSelectedProgram(ALL_PROGRAMS);
-                    setSelectedSemester(ALL_SEMESTERS);
-                    setSelectedSection(ALL_SECTIONS);
-                    setLevel('institution');
-                  } else if (level === 'institution') {
-                    setLevel('department');
-                  }
-                }}
+                onValueChange={chooseDepartment}
                 disabled={loading.departments}
               >
                 <SelectTrigger id="department" className="transition-all">
                   <SelectValue placeholder="Select department..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={ALL_DEPARTMENTS}>All Departments</SelectItem>
+                  {allowAll('departments') && (
+                    <SelectItem value={ALL_DEPARTMENTS}>All Departments</SelectItem>
+                  )}
                   {departments.map((dept) => (
                     <SelectItem key={dept.id} value={dept.id}>
                       {dept.name}
@@ -463,23 +571,16 @@ export function EngagementFilters({
               </Label>
               <Select
                 value={selectedProgram}
-                onValueChange={(value) => {
-                  setSelectedProgram(value);
-                  if (value === ALL_PROGRAMS) {
-                    setSelectedSemester(ALL_SEMESTERS);
-                    setSelectedSection(ALL_SECTIONS);
-                    setLevel('department');
-                  } else if (level === 'institution' || level === 'department') {
-                    setLevel('program');
-                  }
-                }}
+                onValueChange={chooseProgram}
                 disabled={loading.programs}
               >
                 <SelectTrigger id="program" className="transition-all">
                   <SelectValue placeholder="Select program..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={ALL_PROGRAMS}>All Programs</SelectItem>
+                  {allowAll('programs') && (
+                    <SelectItem value={ALL_PROGRAMS}>All Programs</SelectItem>
+                  )}
                   {programs.length === 0 && !loading.programs ? (
                     <div className="px-2 py-1.5 text-sm text-gray-500 italic">
                       No programs found for this department
@@ -512,22 +613,16 @@ export function EngagementFilters({
               </Label>
               <Select
                 value={selectedSemester}
-                onValueChange={(value) => {
-                  setSelectedSemester(value);
-                  if (value === ALL_SEMESTERS) {
-                    setSelectedSection(ALL_SECTIONS);
-                    setLevel('program');
-                  } else if (level === 'institution' || level === 'department' || level === 'program') {
-                    setLevel('semester');
-                  }
-                }}
+                onValueChange={chooseSemester}
                 disabled={loading.semesters}
               >
                 <SelectTrigger id="semester" className="transition-all">
                   <SelectValue placeholder="Select semester..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={ALL_SEMESTERS}>All Semesters</SelectItem>
+                  {allowAll('semesters') && (
+                    <SelectItem value={ALL_SEMESTERS}>All Semesters</SelectItem>
+                  )}
                   {semesters.map((sem) => (
                     <SelectItem key={sem.id} value={sem.id}>
                       {sem.name}
@@ -548,21 +643,16 @@ export function EngagementFilters({
               </Label>
               <Select
                 value={selectedSection}
-                onValueChange={(value) => {
-                  setSelectedSection(value);
-                  if (value === ALL_SECTIONS) {
-                    setLevel('semester');
-                  } else {
-                    setLevel('section');
-                  }
-                }}
+                onValueChange={chooseSection}
                 disabled={loading.sections}
               >
                 <SelectTrigger id="section" className="transition-all">
                   <SelectValue placeholder="Select section..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={ALL_SECTIONS}>All Sections</SelectItem>
+                  {allowAll('sections') && (
+                    <SelectItem value={ALL_SECTIONS}>All Sections</SelectItem>
+                  )}
                   {sections.map((sec) => (
                     <SelectItem key={sec.id} value={sec.id}>
                       {sec.name}
@@ -650,6 +740,7 @@ export function EngagementFilters({
             <Button
               variant="default"
               onClick={onExport}
+              disabled={exportDisabled}
               className="bg-green-600 hover:bg-green-700 transition-all"
             >
               <Download className="h-4 w-4 mr-2" />

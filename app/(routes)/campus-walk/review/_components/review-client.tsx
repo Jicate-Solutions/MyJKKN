@@ -52,6 +52,11 @@ export interface ReviewItem {
   kind: 'symptom' | 'system_gap' | string | null;
   /** D6 urgent lane. */
   unsafe: boolean;
+  /**
+   * `metadata.attribution` — the CHANNEL the report arrived through, never a
+   * person (D10). 'Management walk' or 'Reported via InstaSolver'.
+   */
+  attribution: string | null;
   dueDate: string | null;
   statusKey: string;
   isBlocked: boolean;
@@ -227,8 +232,8 @@ function ReviewCard({
     <Card className={item.unsafe ? 'border-red-300' : undefined}>
       <CardContent className="space-y-4 pt-6">
         <div className="flex flex-wrap items-center gap-2">
-          {/* D10: the ticket is attributed to the walk, never to a person. */}
-          <Badge variant="secondary">Management walk</Badge>
+          {/* D10: the ticket is attributed to the channel, never to a person. */}
+          <Badge variant="secondary">{item.attribution ?? 'Management walk'}</Badge>
           {item.unsafe && (
             <Badge variant="destructive" className="gap-1">
               <ShieldAlert className="h-3 w-3" />

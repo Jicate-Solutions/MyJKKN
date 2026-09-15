@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useCallback, useEffect, useRef } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
   Clock,
@@ -16,7 +16,22 @@ import { RichTextDisplay } from '@/components/ui/rich-text-editor';
 import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
 import { usePermissions } from '@/hooks/use-permissions';
-import type { UnacknowledgedNotification, VerificationQuestion } from '@/types/notifications';
+import {
+  useNotificationPulse,
+  invalidateNotificationPulse
+} from '@/hooks/notification/use-notification-pulse';
+import type { UnacknowledgedNotification } from '@/types/notifications';
+
+// Shape of metadata.verification_question as this gate reads it (question,
+// options, correct_index). types/notifications never exported a
+// VerificationQuestion, so the old import was a standing type error in this
+// file; declared here so the PR-scoped typecheck can pass on a file this PR
+// has to touch. Type-only — no behaviour change.
+interface VerificationQuestion {
+  question: string;
+  options: string[];
+  correct_index: number;
+}
 
 /**
  * AcknowledgmentGate — The core component that replaces Google Chat's voluntary 🙏
@@ -50,20 +65,14 @@ function AcknowledgmentGateInner({ children }: { children: React.ReactNode }) {
   // otherwise the gate treats a not-yet-known super admin as a regular user.
   const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
 
-  // Fetch unacknowledged notifications — disabled for super admins so we don't
-  // waste a request every 60s for a value we'll never act on. Also gated on
-  // permissions being LOADED: firing while isSuperAdmin is still defaulting to
-  // false is what flashed the modal for exempt super admins on load.
-  const { data, isLoading } = useQuery({
-    queryKey: ['unacknowledged-notifications'],
-    queryFn: async () => {
-      const res = await fetch('/api/notifications/acknowledge');
-      if (!res.ok) return { unacknowledged: [], count: 0, has_pending: false };
-      return res.json();
-    },
-    enabled: !isSuperAdmin && !permissionsLoading,
-    refetchInterval: 60000, // Check every minute for new mandatory notifications
-    refetchOnWindowFocus: true
+  // Fetch unacknowledged notifications via the shared pulse poll (one request
+  // per cycle for this gate AND the dashboard widget; 60 s while active, 5 min
+  // idle, nothing while hidden). Disabled for super admins so we don't waste a
+  // request for a value we'll never act on. Also gated on permissions being
+  // LOADED: firing while isSuperAdmin is still defaulting to false is what
+  // flashed the modal for exempt super admins on load.
+  const { data, isLoading } = useNotificationPulse({
+    enabled: !isSuperAdmin && !permissionsLoading
   });
 
   const notifications: UnacknowledgedNotification[] =
@@ -82,9 +91,7 @@ function AcknowledgmentGateInner({ children }: { children: React.ReactNode }) {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ['unacknowledged-notifications']
-      });
+      invalidateNotificationPulse(queryClient);
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
     }
   });
@@ -174,7 +181,8 @@ function calculateReadTimeSeconds(body: string): number {
 }
 
 // ─── The actual modal with read-time + scroll enforcement ───
-function AcknowledgmentModal({
+// Exported for the component test only; the app renders it through the gate.
+export function AcknowledgmentModal({
   current,
   isOverdue,
   timeLeft,
@@ -197,6 +205,13 @@ function AcknowledgmentModal({
 }) {
   const [readTimeLeft, setReadTimeLeft] = useState<number>(-1);
   const [hasScrolledToBottom, setHasScrolledToBottom] = useState(false);
+  // Whether the notice is taller than its scroll box. Held in STATE, not read
+  // off contentRef during render: the ref is null on the first render, so a
+  // render-time read evaluated to `false` and nothing re-rendered afterwards
+  // for a long notice — the button then showed "Read carefully (-1s)" (the
+  // -1 sentinel, never started) instead of the scroll cue. Seen live on
+  // every long mandatory notice on a phone, 2026-09-14.
+  const [needsScroll, setNeedsScroll] = useState(false);
   const [timerStarted, setTimerStarted] = useState(false);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [answerStatus, setAnswerStatus] = useState<'pending' | 'correct' | 'wrong'>('pending');
@@ -204,23 +219,30 @@ function AcknowledgmentModal({
   const requiredReadTime = calculateReadTimeSeconds(current.body);
   const verificationQ: VerificationQuestion | undefined = current.metadata?.verification_question;
 
-  // Reset state when notification changes
-  useEffect(() => {
+  // Reset state when notification changes. A layout effect like the scroll
+  // check below, so the two keep their declaration order (reset, then
+  // measure) — a passive effect here would run after the measurement and
+  // undo it on mount.
+  useLayoutEffect(() => {
     setReadTimeLeft(-1);
     setHasScrolledToBottom(false);
+    setNeedsScroll(false);
     setTimerStarted(false);
     setSelectedAnswer(null);
     setAnswerStatus('pending');
   }, [current.notification_id]);
 
-  // Check if content needs scrolling
-  useEffect(() => {
+  // Check if content needs scrolling. useLayoutEffect: it reads layout
+  // (scrollHeight) and decides the label, so measure before the first paint —
+  // no frame ever shows the wrong branch.
+  useLayoutEffect(() => {
     const el = contentRef.current;
     if (!el) return;
 
     // If content fits without scrolling, mark as scrolled and start timer immediately
-    const needsScroll = el.scrollHeight > el.clientHeight + 20;
-    if (!needsScroll) {
+    const tallerThanBox = el.scrollHeight > el.clientHeight + 20;
+    setNeedsScroll(tallerThanBox);
+    if (!tallerThanBox) {
       setHasScrolledToBottom(true);
       if (!timerStarted) {
         setTimerStarted(true);
@@ -270,9 +292,6 @@ function AcknowledgmentModal({
   const timerDone = readTimeLeft === 0;
   const quizPassed = verificationQ ? answerStatus === 'correct' : true;
   const canAcknowledge = timerDone && hasScrolledToBottom && quizPassed;
-  const needsScroll = contentRef.current
-    ? contentRef.current.scrollHeight > contentRef.current.clientHeight + 20
-    : false;
   const disabledLabel = !canAcknowledge;
 
   // Check answer handler

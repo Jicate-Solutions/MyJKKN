@@ -4835,14 +4835,30 @@ CREATE POLICY "events_reg_admin_update" ON public.events_registrations
     is_super_admin() OR get_current_user_role() = ANY(ARRAY['super_admin','admin','administrator','event_coordinator'])
   );
 
--- Updated: 2026-04-12 - Any authenticated user can update registrations for public active events
--- This enables event-day ops (check-in, t-shirt, certificate) by committee members of any role
-CREATE POLICY "events_reg_public_event_update" ON public.events_registrations
-  FOR UPDATE TO authenticated USING (
-    event_id IN (
-      SELECT id FROM public.events
-      WHERE is_public = true AND status NOT IN ('draft', 'cancelled')
-    )
+-- Updated: 2026-09-13 - Replaced "events_reg_public_event_update" with an ownership-scoped
+-- policy. See migration 20261206093000_events_registrations_scoped_update.sql.
+--
+-- The policy this replaces was added on 2026-04-12 (a marathon event day) to unblock
+-- event-day ops, and its comment here said it was for "committee members of any role".
+-- It did not say that: its only condition was that the EVENT is public and not a draft,
+-- which is a property of the event and never of the caller. With no ownership,
+-- institution or committee test, and with every policy on this table being PERMISSIVE
+-- (so they OR together), it let anyone holding a login update any registration on any
+-- public event — contact details, payment_status, checked_in, bib_number.
+--
+-- Committee access, which is what it was meant to provide, is already granted correctly
+-- by "events_reg_committee_member_update" immediately below.
+CREATE POLICY "events_reg_scoped_update" ON public.events_registrations
+  FOR UPDATE TO authenticated
+  USING (
+    profile_id = (SELECT auth.uid())          -- the person's own registration
+    OR fn_is_event_incharge(event_id)          -- events.config -> 'incharges' -> [].member_id
+    OR fn_is_event_creator(event_id)           -- events.created_by
+  )
+  WITH CHECK (
+    profile_id = (SELECT auth.uid())
+    OR fn_is_event_incharge(event_id)
+    OR fn_is_event_creator(event_id)
   );
 
 -- Updated: 2026-04-12 - Committee members (any role, including students) can update registrations
@@ -10977,4 +10993,52 @@ CREATE POLICY hcoc_update ON public.hr_comp_off_credits
          OR (SELECT public.user_has_permission('hr.leave.revoke')))
         AND hr_organization_id IN (SELECT unnest(public.fn_my_hr_organization_ids()))
         AND NOT (employee_id IN (SELECT unnest(public.fn_my_staff_ids()))))
+  );
+
+-- =====================================================================================
+-- WhatsApp campus bridge — read-only RLS  (2026-09-13)
+-- Source of truth: supabase/migrations/20261211090000_wa_bridge_outbox.sql
+--
+-- `institution_id IS NOT NULL` in the outbox policy is LOAD-BEARING.
+-- public.role_has_institution_access(uuid) returns TRUE for a NULL argument
+-- (`IF check_institution_id IS NULL THEN RETURN true`), so without that guard every
+-- platform-wide message is readable by every holder of
+-- admission.settings.whatsapp.view, at every college — the opposite of what the
+-- column's own COMMENT promised. Proven, with a negative control, by
+-- supabase/tests/wa-bridge/run.sh.
+-- =====================================================================================
+DROP POLICY IF EXISTS wa_bridge_outbox_select ON public.wa_bridge_outbox;
+CREATE POLICY wa_bridge_outbox_select ON public.wa_bridge_outbox
+  FOR SELECT
+  USING (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR (
+      institution_id IS NOT NULL
+      AND public.user_has_permission('admission.settings.whatsapp.view')
+      AND public.role_has_institution_access(institution_id)
+    )
+  );
+
+-- wa_bridge_inbound has no institution_id: an inbound message arrives from a
+-- phone number, and until it is matched to a lead there is no institution to
+-- attribute it to. Scoping it by the matched lead's institution would hide
+-- every UNMATCHED message from everyone, which is the opposite of useful — an
+-- unmatched message is the one most likely to be someone nobody has answered.
+DROP POLICY IF EXISTS wa_bridge_inbound_select ON public.wa_bridge_inbound;
+CREATE POLICY wa_bridge_inbound_select ON public.wa_bridge_inbound
+  FOR SELECT
+  USING (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR public.user_has_permission('admission.settings.whatsapp.view')
+  );
+
+DROP POLICY IF EXISTS wa_bridge_status_select ON public.wa_bridge_status;
+CREATE POLICY wa_bridge_status_select ON public.wa_bridge_status
+  FOR SELECT
+  USING (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR public.user_has_permission('admission.settings.whatsapp.view')
   );

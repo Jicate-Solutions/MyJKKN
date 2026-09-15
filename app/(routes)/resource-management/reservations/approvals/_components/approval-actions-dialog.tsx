@@ -2,6 +2,7 @@
 // app/(routes)/resource-management/reservations/approvals/_components/approval-actions-dialog.tsx
 
 import { useState } from 'react';
+import { format } from 'date-fns';
 import { CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -123,6 +124,19 @@ export function ApprovalActionsDialog({
                 <p className='text-muted-foreground'>Requested By</p>
                 <p className='font-medium'>
                   {reservation.user?.full_name || 'Unknown'}
+                </p>
+              </div>
+              {/* BUG-005910: the decision is made here, not in the table, so
+                  the booking's date and time must be visible here too. Same
+                  formats as the queue's Date & Time column. */}
+              <div className='col-span-2'>
+                <p className='text-muted-foreground'>Date &amp; Time</p>
+                <p className='font-medium'>
+                  {format(new Date(reservation.start_time), 'MMM dd, yyyy')}
+                </p>
+                <p className='text-muted-foreground'>
+                  {format(new Date(reservation.start_time), 'hh:mm a')} -{' '}
+                  {format(new Date(reservation.end_time), 'hh:mm a')}
                 </p>
               </div>
               <div className='col-span-2'>

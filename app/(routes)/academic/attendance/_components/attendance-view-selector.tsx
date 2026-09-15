@@ -93,8 +93,11 @@ export function AttendanceViewSelector({
   // Updated: 2026-06-22 — HODs and principals are also teaching staff. Resolve
   // their staff record too so they can reach the "My Classes" tab for the
   // periods they personally teach, in addition to the dept/institution search.
-  const shouldCheckStaff =
-    (isFaculty || isHOD || isPrincipal) && !isUserSuperAdmin;
+  // Updated: 2026-09-15 (BUG-004170, BUG-004204) — any non-admin role. The
+  // server (canMarkAttendanceForSlot) lets ANY staff member assigned to a slot
+  // mark it, whatever their profile role or permission set, so the staff record
+  // must be resolved for every non-admin user, not only faculty/hod/principal.
+  const shouldCheckStaff = !isUserSuperAdmin && !isAdmin;
 
   const [loadingStaffId, setLoadingStaffId] = useState(shouldCheckStaff);
   // Tracks whether the staff-record lookup has finished. Permission-based faculty
@@ -199,11 +202,11 @@ export function AttendanceViewSelector({
       // Updated: 2026-06-22 — HODs and principals are included so their teaching
       // staff record resolves, unlocking the "My Classes" tab. A non-teaching
       // HOD/principal simply gets a null staffId and falls back to the search.
-      if (
-        isUserSuperAdmin ||
-        isAdmin ||
-        (!isFaculty && !isHOD && !isPrincipal)
-      ) {
+      // Updated: 2026-09-15 (BUG-004170, BUG-004204) — no longer skipped for
+      // other roles: a staff member whose profile role is neither faculty nor
+      // hod/principal, and who was not granted academic.attendance.mark, still
+      // has timetable slots assigned and may mark them server-side.
+      if (isUserSuperAdmin || isAdmin) {
         setLoadingStaffId(false);
         setStaffChecked(true);
         return;
@@ -370,7 +373,7 @@ export function AttendanceViewSelector({
     checkingIncharge ||
     // Permission-based faculty (non-admin): wait for the staff lookup to finish
     // so we don't flash a denial before staffId resolves. Added: 2026-06-17.
-    (isFaculty && !isUserSuperAdmin && !isAdmin && !isHOD && !staffChecked)
+    (!isUserSuperAdmin && !isAdmin && !isHOD && !staffChecked)
   ) {
     return (
       <div className='flex items-center justify-center py-8'>

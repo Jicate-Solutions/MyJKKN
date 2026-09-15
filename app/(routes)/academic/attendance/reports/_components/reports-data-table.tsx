@@ -1,6 +1,7 @@
 'use client';
 
 import { DataTable } from '@/components/data-table/data-table';
+import { attendanceReportRowHref } from '@/components/data-table/utils/list-row-hrefs';
 import { columns } from './columns';
 import type { AttendanceReportsSearchParams } from './data-table-schema';
 import { Button } from '@/components/ui/button';
@@ -224,6 +225,7 @@ export function AttendanceReportsDataTable({
       getColumns={getColumns}
       fetchDataFn={fetchDataFn}
       idField='id'
+      rowHref={attendanceReportRowHref}
       config={{
         enableUrlState: true,
         enableDateFilter: false,

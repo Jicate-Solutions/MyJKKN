@@ -49,6 +49,7 @@ import {
   validatePeople,
 } from '@/components/events/shared/event-people-fields';
 import { useUpdateGeneralEvent } from '@/hooks/events/use-general-events';
+import { useEventAcademicTypes } from '@/hooks/events/use-event-academic-types';
 
 /** ISO timestamp / date string → yyyy-MM-dd for <input type="date">. */
 const toDateInput = (v: string | null | undefined) => (v ? v.slice(0, 10) : '');
@@ -129,9 +130,25 @@ function EditGeneralEventForm({ event, onClose }: { event: Event; onClose: () =>
     // event-people-fields.tsx. In-charge is an ACCESS GRANT
     // (fn_is_event_incharge reads config->incharges[].member_id); chief guest
     // is display data.
+    // What KIND of academic activity this was, from event_academic_types.
+    // Distinct from event_type, which routes the event to its console.
+    academic_type_id:
+      (event as unknown as { academic_type_id?: string | null }).academic_type_id ?? '',
     incharges: parseIncharges(event.config as Record<string, unknown> | null),
     chief_guests: parseChiefGuestDrafts(event.config as Record<string, unknown> | null),
   });
+
+  // Saving the form does NOT confirm the academic type — only touching the
+  // field itself does (Director's decision 2026-09-13). Somebody fixing a typo
+  // in the title has not checked what kind of activity the event was, and
+  // 'a person confirmed this' has to keep meaning that to an assessor.
+  const [typeTouched, setTypeTouched] = useState(false);
+  const academicTypes = useEventAcademicTypes(
+    (event as unknown as { institution_id?: string | null }).institution_id ?? null,
+  );
+  const typeIsAutoFilled =
+    (event as unknown as { academic_type_source?: string | null }).academic_type_source ===
+    'machine_inferred';
 
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -183,6 +200,17 @@ function EditGeneralEventForm({ event, onClose }: { event: Event; onClose: () =>
           is_public: form.is_public,
           allow_external_registration: form.allow_external_registration,
           naac_criteria: form.naac_criteria,
+          // Spread, not two plain keys: an untouched save must leave both
+          // columns exactly as they were. Sending academic_type_source
+          // unconditionally would stamp 'human_confirmed' on someone who only
+          // corrected a spelling — and the pairing CHECK in the database means
+          // these two can never be sent apart.
+          ...(typeTouched
+            ? {
+                academic_type_id: form.academic_type_id || null,
+                academic_type_source: form.academic_type_id ? 'human_confirmed' : null,
+              }
+            : {}),
           // MERGE, never replace. `config` is one jsonb column and
           // EventBaseService.updateEvent is a raw passthrough, so sending a bare
           // { incharges, chief_guests } here would silently discard `home`,
@@ -214,6 +242,47 @@ function EditGeneralEventForm({ event, onClose }: { event: Event; onClose: () =>
               value={form.name}
               onChange={(e) => set('name', e.target.value)}
             />
+          </div>
+
+          {/* Kind of academic activity — event_academic_types, NOT event_type.
+              event_type routes the event to its console; this answers "what
+              kind of academic activity was this" for the report and for
+              accreditation evidence. */}
+          <div className="space-y-1.5">
+            <Label htmlFor="ge-academic-type">Kind of academic activity</Label>
+            <Select
+              value={form.academic_type_id || undefined}
+              onValueChange={(v) => {
+                setTypeTouched(true);
+                set('academic_type_id', v);
+              }}
+            >
+              <SelectTrigger id="ge-academic-type">
+                <SelectValue
+                  placeholder={
+                    academicTypes.isLoading ? 'Loading…' : 'Choose the kind of activity'
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {(academicTypes.data ?? []).map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {t.label}
+                    {t.isOwnCollege ? ' · your college' : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {typeIsAutoFilled && !typeTouched ? (
+              <p className="text-xs text-amber-600 dark:text-amber-500">
+                Auto-filled from the event type — please confirm it is right.
+              </p>
+            ) : null}
+            {academicTypes.isError ? (
+              <p className="text-xs text-destructive">
+                Could not load the list of activity kinds. Your other changes will still save.
+              </p>
+            ) : null}
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
