@@ -41,6 +41,7 @@ function mount(onPage2: () => never) {
   render(
     <DataTable<Row, unknown>
       config={config}
+      idField='id'
       fetchDataFn={fetchFn as any}
       getColumns={() => columns as any}
       exportConfig={{ entityName: 'rows', columnMapping: { name: 'Name' } } as any}
