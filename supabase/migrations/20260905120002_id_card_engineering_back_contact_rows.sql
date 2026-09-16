@@ -22,7 +22,7 @@
 --   • every line starts at min(heading.x) + icon_gutter = 44 + 80 = 124
 --     (17px clear of the widest icon)
 --
--- SCOPE. Only templates using THIS artwork (asset id in the URL). Idempotent.
+-- SCOPE. Every template with back artwork (all institutions share the design). Idempotent.
 -- APPLY. `supabase db push` is broken in this repo — run by hand in the SQL
 -- editor, then Back side tab → "Preview with a learner".
 -- ============================================================================
@@ -44,8 +44,12 @@ SET back_layout_json = back_layout_json
     {"x":44,"y":856,"color":"#111827","field":"institution_website","width":556,"font_size":20,"font_weight":700}
   ]'::jsonb),
   updated_at = now()
+-- 2026-09-16: applied to EVERY template that has back artwork ("same as all
+-- institutions template"). All colleges + the school share the Engineering
+-- back design (same icon rows); a template whose artwork differs can set its
+-- own element y values afterwards.
 WHERE back_layout_json IS NOT NULL
-  AND back_layout_json->>'background_image' LIKE '%ad0642ec-10c5-4b06-859e-7006734eb8f8%';
+  AND coalesce(back_layout_json->>'background_image', '') <> '';
 
 -- The three institution_* rows print whatever the Institution tab holds for the
 -- template: Contact number(s) → institution_phone, Email → institution_email,

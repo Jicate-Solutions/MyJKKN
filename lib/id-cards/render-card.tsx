@@ -761,6 +761,25 @@ function identityLine(person: CardPersonData): string {
   return person.designation ?? '';
 }
 
+/** School vocabulary for authored heading text: "COURSE :" -> "CLASS :" etc. */
+export function schoolHeading(text: string): string {
+  const swaps: Array<[RegExp, string]> = [
+    [/\bROLL\s*NO\.?\b/g, 'ADMISSION NUMBER'],
+    [/\bRoll\s*No\.?\b/g, 'Admission Number'],
+    [/\bCOURSES\b/g, 'SUBJECTS'],
+    [/\bCOURSE\b/g, 'CLASS'],
+    [/\bDEPARTMENT\b/g, 'WING'],
+    [/\bDEPT\b/g, 'WING'],
+    [/\bSEMESTER\b/g, 'TERM'],
+    [/\bPROGRAM(?:ME)?\b/g, 'CLASS'],
+    [/\bCourse\b/g, 'Class'],
+    [/\bDepartment\b/g, 'Wing'],
+    [/\bSemester\b/g, 'Term'],
+    [/\bProgram(?:me)?\b/g, 'Class']
+  ];
+  return swaps.reduce((out, [re, to]) => out.replace(re, to), text);
+}
+
 function courseLine(person: CardPersonData): string {
   return [person.courseName, person.departmentName].filter(Boolean).join('   •   ');
 }
@@ -768,6 +787,37 @@ function courseLine(person: CardPersonData): string {
 // ─────────────────────────────────────────────────────────────────────────────
 // Default design
 // ─────────────────────────────────────────────────────────────────────────────
+
+/** The MyJKKN ID the QR encodes, centred right under it (bare value); nothing when only a UUID was available. */
+function qrIdLine(person: CardPersonData, width: number): ReactElement | null {
+  if (!person.qrId) return null;
+  const text = person.qrId;
+  const fit = fitText(text, {
+    maxWidth: width,
+    maxFontSize: 16,
+    minFontSize: 11,
+    maxLines: 1,
+    lineHeight: VALUE_LINE_HEIGHT,
+    bold: true
+  });
+  return (
+    <div
+      style={{
+        display: 'flex',
+        justifyContent: 'center',
+        width,
+        marginTop: 0,
+        fontSize: fit.fontSize,
+        lineHeight: VALUE_LINE_HEIGHT,
+        fontWeight: 700,
+        letterSpacing: 1,
+        color: '#111827'
+      }}
+    >
+      {fit.text}
+    </div>
+  );
+}
 
 /**
  * Principal signature + name/designation from the template institution block.
@@ -995,18 +1045,21 @@ function defaultDesign(input: CardRenderInput, headerOverrides?: FrontLayout['he
             </div>
 
             {qrDataUrl ? (
-              <img
-                src={qrDataUrl}
-                alt=""
-                width={150}
-                height={150}
-                style={{
-                  width: 150,
-                  height: 150,
-                  borderRadius: 8,
-                  border: '4px solid #e5e7eb'
-                }}
-              />
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <img
+                  src={qrDataUrl}
+                  alt=""
+                  width={150}
+                  height={150}
+                  style={{
+                    width: 150,
+                    height: 150,
+                    borderRadius: 8,
+                    border: '4px solid #e5e7eb'
+                  }}
+                />
+                {qrIdLine(person, 150)}
+              </div>
             ) : null}
           </div>
         </div>
@@ -1026,7 +1079,10 @@ function elementValue(
   const { person, mappings, validUntilLabel } = input;
   switch (element.field) {
     case 'static_text':
-      return element.text ?? '';
+      // Authored headings follow the school vocabulary on school cards
+      // (COURSE → CLASS, DEPARTMENT → WING, SEMESTER → TERM), same swap as
+      // lib/utils/school-label-adapter.ts; punctuation like " :" is kept.
+      return person.isSchool ? schoolHeading(element.text ?? '') : (element.text ?? '');
     case 'name_line_1':
       return resolveMappedValue('name_line_1', mappings, person.valueBag, person.fullName);
     case 'roll_number':
@@ -1216,20 +1272,60 @@ function customDesign(
           }}
         />
       );
+      // "QR ID: <MyJKKN ID>" directly under the QR, same width, centred.
+      if (person.qrId) {
+        children.push(
+          <div
+            key={`${key}-id`}
+            style={{
+              display: 'flex',
+              position: 'absolute',
+              left: element.x - 20,
+              top: element.y + size - 2,
+              width: size + 40,
+              justifyContent: 'center'
+            }}
+          >
+            {qrIdLine(person, size + 40)}
+          </div>
+        );
+      }
       return;
     }
     const value = elementValue(element, input).trim();
     if (value === '') return;
-    // Static labels keep their authored size; data values size to their box.
+    // Static labels keep their authored size — unless the school vocabulary
+    // swap made the heading wider than its box ("ADMISSION NUMBER :" in a box
+    // authored for "ROLL NO :"), in which case it shrinks to fit one line.
     const sized =
       element.field === 'static_text'
-        ? {
-            text: truncateForCard(value, 80),
-            fontSize: element.font_size ?? 26,
-            fontWeight: element.font_weight ?? 400,
-            width: element.width ?? 0,
-            lines: 1
-          }
+        ? (() => {
+            const authored = element.font_size ?? 26;
+            if (person.isSchool && element.width !== undefined && value !== (element.text ?? '')) {
+              const fit = fitText(value, {
+                maxWidth: element.width,
+                maxFontSize: authored,
+                minFontSize: 12,
+                maxLines: 1,
+                lineHeight: VALUE_LINE_HEIGHT,
+                bold: (element.font_weight ?? 400) >= 600
+              });
+              return {
+                text: fit.text,
+                fontSize: fit.fontSize,
+                fontWeight: element.font_weight ?? 400,
+                width: element.width,
+                lines: 1
+              };
+            }
+            return {
+              text: truncateForCard(value, 80),
+              fontSize: authored,
+              fontWeight: element.font_weight ?? 400,
+              width: element.width ?? 0,
+              lines: 1
+            };
+          })()
         : fitElementText(element, value, layout.elements ?? [], width, height);
     children.push(
       <div
@@ -1288,8 +1384,10 @@ function customDesign(
 
 /** Label + value line for the portrait default design (fail-soft). */
 function portraitFieldRow(key: string, label: string, value: string): ReactElement {
+  // Label column fits the label ("ADMISSION NUMBER" is wider than "ROLL NO").
+  const labelWidth = Math.max(150, Math.ceil(label.length * 12.5));
   // Value column: portrait canvas - body padding (2x32) - field padding (2x42) - label.
-  const valueWidth = PORTRAIT_WIDTH - 64 - 84 - 150;
+  const valueWidth = PORTRAIT_WIDTH - 64 - 84 - labelWidth;
   const fit = fitText(value, {
     maxWidth: valueWidth,
     maxFontSize: 27,
@@ -1303,7 +1401,7 @@ function portraitFieldRow(key: string, label: string, value: string): ReactEleme
       <div
         style={{
           display: 'flex',
-          width: 150,
+          width: labelWidth,
           flexShrink: 0,
           fontSize: 18,
           fontWeight: 700,
@@ -1347,7 +1445,10 @@ function portraitDefaultDesign(input: CardRenderInput): ReactElement {
 
   const fieldRows: ReactElement[] = [];
   if (person.kind === 'learner') {
-    if (person.rollNumber) fieldRows.push(portraitFieldRow('roll', 'ROLL NO', person.rollNumber));
+    if (person.rollNumber)
+      fieldRows.push(
+        portraitFieldRow('roll', person.isSchool ? 'ADMISSION NUMBER' : 'ROLL NO', person.rollNumber)
+      );
     // A school's "programme" IS a class (Standard 12), so a school card that
     // printed "COURSE: Standard 12" read as nonsense. The value is right either
     // way; only the label changes. Mirrors lib/utils/school-label-adapter.ts,
@@ -1554,21 +1655,23 @@ function portraitDefaultDesign(input: CardRenderInput): ReactElement {
           </div>
         </div>
 
-        {/* QR bottom area */}
+        {/* QR bottom area + "QR ID: <MyJKKN ID>" beneath */}
         {qrDataUrl ? (
-          <img
-            src={qrDataUrl}
-            alt=""
-            width={150}
-            height={150}
-            style={{
-              width: 150,
-              height: 150,
-              borderRadius: 8,
-              border: '4px solid #e5e7eb',
-              marginBottom: 26
-            }}
-          />
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 20 }}>
+            <img
+              src={qrDataUrl}
+              alt=""
+              width={150}
+              height={150}
+              style={{
+                width: 150,
+                height: 150,
+                borderRadius: 8,
+                border: '4px solid #e5e7eb'
+              }}
+            />
+            {qrIdLine(person, 150)}
+          </div>
         ) : (
           <div style={{ display: 'flex', height: 26 }} />
         )}

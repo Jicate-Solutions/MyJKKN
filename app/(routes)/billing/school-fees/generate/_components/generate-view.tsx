@@ -24,7 +24,12 @@ import {
   Loader2,
 } from 'lucide-react';
 
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+
+import { SECTION_THEMES } from '../../_components/section-theme';
+
+const T = SECTION_THEMES.generate;
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -167,6 +172,7 @@ export function GenerateView() {
   return (
     <div className="space-y-6">
       <SchoolYearPicker
+        section="generate"
         title="Generate for"
         institutions={institutions}
         institutionId={institutionId}
@@ -231,10 +237,15 @@ export function GenerateView() {
             </Alert>
           ) : null}
 
-          <Card>
-            <CardHeader className="pb-3">
+          <Card className={T.cardBorder}>
+            <CardHeader className={cn('pb-3', T.cardHeader)}>
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <CardTitle className="text-base">Per class</CardTitle>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <span className={cn('flex h-6 w-6 items-center justify-center rounded-md', T.iconTileSm)}>
+                    <T.icon className="h-3.5 w-3.5" />
+                  </span>
+                  Per class
+                </CardTitle>
                 <div className="flex flex-wrap items-center gap-2">
                   <Button variant="outline" size="sm" onClick={() => dryRun()} disabled={running}>
                     <PlayCircle className="h-4 w-4 mr-1" />
@@ -242,6 +253,7 @@ export function GenerateView() {
                   </Button>
                   <Button
                     size="sm"
+                    className={T.button}
                     disabled={!canGenerate || running || nothingToDo}
                     onClick={() => {
                       setConfirmText('');
@@ -254,7 +266,7 @@ export function GenerateView() {
               </div>
             </CardHeader>
 
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-4 pt-4">
               {nothingToDo ? (
                 <Alert>
                   <Info className="h-4 w-4" />
@@ -324,16 +336,16 @@ export function GenerateView() {
               Reads billing_student_bills, so it reports what was actually
               generated — available whether or not a run happened this session,
               which is what makes it useful for checking an earlier run. */}
-          <Card>
-            <CardHeader className="pb-3">
+          <Card className={T.cardBorder}>
+            <CardHeader className={cn('pb-3', T.cardHeader)}>
               <CardTitle className="text-base flex items-center gap-2">
-                <span className="flex h-6 w-6 items-center justify-center rounded-md bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300">
+                <span className={cn('flex h-6 w-6 items-center justify-center rounded-md', T.iconTileSm)}>
                   <FileSpreadsheet className="h-3.5 w-3.5" />
                 </span>
                 Learner-wise fee details
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="space-y-3 pt-4">
               <p className="text-sm text-muted-foreground">
                 Every generated bill for {institutionName} in {yearName}, learner by learner.
                 Excel carries a column per fee head and term plus a raw detail sheet; the PDF is
@@ -391,17 +403,19 @@ export function GenerateView() {
           </Card>
 
           {runs.length > 0 ? (
-            <Card>
-              <CardHeader className="pb-3">
+            <Card className={T.cardBorder}>
+              <CardHeader className={cn('pb-3', T.cardHeader)}>
                 <CardTitle className="text-base flex items-center gap-2">
-                  <History className="h-4 w-4" />
+                  <span className={cn('flex h-6 w-6 items-center justify-center rounded-md', T.iconTileSm)}>
+                    <History className="h-3.5 w-3.5" />
+                  </span>
                   Recent runs
                 </CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="pt-4">
                 <div className="rounded-md border overflow-x-auto">
                   <Table>
-                    <TableHeader>
+                    <TableHeader className={T.tableHeader}>
                       <TableRow>
                         <TableHead className="min-w-[180px]">When</TableHead>
                         <TableHead className="w-[110px]">Mode</TableHead>
@@ -510,9 +524,19 @@ function Stat({
   emphasis?: boolean;
 }) {
   return (
-    <div className="rounded-md border p-3">
+    <div
+      className={cn(
+        'rounded-xl border bg-background p-3 shadow-sm',
+        emphasis && 'border-orange-200 bg-orange-50 dark:border-orange-900 dark:bg-orange-950/40',
+      )}
+    >
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className={`tabular-nums ${emphasis ? 'text-lg font-bold' : 'text-base font-semibold'}`}>
+      <div
+        className={cn(
+          'tabular-nums',
+          emphasis ? 'text-xl font-bold text-orange-700 dark:text-orange-300' : 'text-base font-semibold',
+        )}
+      >
         {value}
       </div>
       {hint ? <div className="text-xs text-muted-foreground">{hint}</div> : null}

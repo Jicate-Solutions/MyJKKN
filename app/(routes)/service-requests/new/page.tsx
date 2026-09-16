@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -50,6 +50,20 @@ export default function NewServiceRequestPage() {
   const { data: serviceTypes, isLoading: typesLoading } = useServiceTypes({ is_active: true, scope: 'user' });
   const { data: typeDetail } = useServiceType(selectedType?.id || '');
   const createRequest = useCreateServiceRequest();
+
+  // Deep link: /service-requests/new?type=<slug> (e.g. the "My Gate Pass"
+  // page sends learners straight to the Gate Pass type).
+  const searchParams = useSearchParams();
+  const wantedSlug = searchParams.get('type');
+  useEffect(() => {
+    if (!wantedSlug || selectedType || !serviceTypes) return;
+    const match = serviceTypes.find((t) => t.slug === wantedSlug);
+    if (match) {
+      setSelectedType(match);
+      setStep(2);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantedSlug, serviceTypes]);
 
   const handleSelectType = (type: ServiceType) => {
     setSelectedType(type);

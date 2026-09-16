@@ -53,6 +53,20 @@ export interface StaffSnapshot {
   /** Direction of the last movement recorded TODAY, or null. */
   last_direction: 'in' | 'out' | null;
   last_movement_at: string | null;
+  /** Latest live staff pass (reason entered by the team member), or null. */
+  open_pass: StaffPass | null;
+}
+
+export interface StaffPass {
+  id: string;
+  pass_number: string;
+  qr_code?: string;
+  reason: string;
+  status: 'open' | 'out' | 'completed' | 'cancelled';
+  created_at: string;
+  out_time: string | null;
+  in_time?: string | null;
+  service_request_id?: string | null;
 }
 
 export interface SearchHit {
@@ -111,11 +125,14 @@ export type GateSubject =
       decision: GateDecision;
       approvedBy: string | null;
     }
-  | { kind: 'staff'; snapshot: StaffSnapshot };
+  | { kind: 'staff'; snapshot: StaffSnapshot; staffPassId: string | null };
 
 export const STAFF_REASONS = ['Official Duty', 'Late Arrival', 'Personal Work', 'Emergency', 'Other'] as const;
 
-const sb = () => createClientSupabaseClient();
+// Untyped on purpose: the gate RPCs / gate_staff_passes are newer than
+// types/supabase.ts (regenerate to tighten). Every result is cast explicitly.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const sb = (): any => createClientSupabaseClient();
 
 function rpcError(error: { message?: string } | null, fallback: string): never {
   const msg = (error?.message || fallback).replace(/^gate:\s*/i, '');
@@ -159,12 +176,12 @@ export const GateSecurityService = {
     const code = (rawCode ?? '').trim();
     if (!code) return null;
 
-    if (/^(GS:|QR-|GP-)/i.test(code)) {
+    if (/^(GS:|QR-|GP-|SP-)/i.test(code)) {
       const { data, error } = await sb().rpc('gate_resolve_token', { p_token: code });
       if (error) rpcError(error, 'Could not read that code');
-      const t = data as { kind: 'staff' | 'pass'; staff_id?: string; profile_id?: string } | null;
+      const t = data as { kind: 'staff' | 'pass'; staff_id?: string; profile_id?: string; staff_pass_id?: string } | null;
       if (!t) return null;
-      if (t.kind === 'staff' && t.staff_id) return this.resolveStaff(t.staff_id);
+      if (t.kind === 'staff' && t.staff_id) return this.resolveStaff(t.staff_id, t.staff_pass_id ?? null);
       if (t.kind === 'pass' && t.profile_id) return this.resolveLearner(t.profile_id);
       return null;
     }
@@ -190,10 +207,10 @@ export const GateSecurityService = {
     return this.buildLearnerSubject(learner);
   },
 
-  async resolveStaff(staffId: string): Promise<GateSubject | null> {
+  async resolveStaff(staffId: string, staffPassId: string | null = null): Promise<GateSubject | null> {
     const snapshot = await this.staffSnapshot(staffId);
     if (!snapshot) return null;
-    return { kind: 'staff', snapshot };
+    return { kind: 'staff', snapshot, staffPassId: staffPassId ?? snapshot.open_pass?.id ?? null };
   },
 
   async staffByProfile(profileId: string): Promise<string | null> {
@@ -242,13 +259,20 @@ export const GateSecurityService = {
     return data as { movement_id: string; recorded_at: string; pass_status: string };
   },
 
-  async recordStaffMovement(staffId: string, direction: 'in' | 'out', reason?: string | null, gateLocation?: string) {
+  async recordStaffMovement(
+    staffId: string,
+    direction: 'in' | 'out',
+    reason?: string | null,
+    gateLocation?: string,
+    staffPassId?: string | null
+  ) {
     const { data, error } = await sb().rpc('gate_record_movement', {
       p_direction: direction,
       p_gate_pass_id: null,
       p_staff_id: staffId,
       p_gate_location: gateLocation ?? null,
       p_reason: reason ?? null,
+      p_staff_pass_id: staffPassId ?? null,
     });
     if (error) rpcError(error, 'Could not record the movement');
     return data as { movement_id: string; recorded_at: string };
@@ -273,6 +297,23 @@ export const GateSecurityService = {
     });
     if (error) rpcError(error, 'Could not load the report');
     return (data ?? []) as ReportRow[];
+  },
+
+  /** Team member self-service: reason in, QR out. No approval. */
+  async createStaffPass(reason: string): Promise<StaffPass> {
+    const { data, error } = await sb().rpc('gate_create_staff_pass', { p_reason: reason });
+    if (error) rpcError(error, 'Could not create the gate pass');
+    return data as StaffPass;
+  },
+
+  async myStaffPasses(limit = 10): Promise<StaffPass[]> {
+    const { data, error } = await sb()
+      .from('gate_staff_passes')
+      .select('id, pass_number, qr_code, reason, status, created_at, out_time, in_time, service_request_id')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) rpcError(error, 'Could not load your gate passes');
+    return (data ?? []) as StaffPass[];
   },
 
   /** Today's movements for the requester (staff self-view / reason edit). */

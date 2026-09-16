@@ -50,6 +50,7 @@ import {
   PlusCircle,
   Clock,
   RefreshCw,
+  QrCode,
   Bug,
   CalendarX2,
   UserCheck,
@@ -1373,6 +1374,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Campus gate (all learners + staff), fed by Service Requests gate-pass types.
   '/gate-security': 'gate_security.scan.view',
   '/reports/gate-in-out': 'gate_security.reports.view',
+  // Every signed-in person can raise their own pass (learners are routed to
+  // the Gate Pass service request; team members get a QR immediately).
+  '/gate-pass': 'view_profile',
   // The learner's lane. `.create` is the "Request Gate Pass" key, held by
   // student among others.
   '/campus-living/gate-passes/request': 'campus_living.gate_passes.create',
@@ -2521,6 +2525,13 @@ export function GetPages(pathname: string): MenuGroup[] {
     {
       groupLabel: 'Gate Security',
       menus: [
+        {
+          href: '/gate-pass',
+          label: 'My Gate Pass',
+          active: pathname === '/gate-pass' || pathname.startsWith('/gate-pass/'),
+          icon: QrCode,
+          submenus: []
+        },
         {
           href: '/gate-security',
           label: 'Gate Security',

@@ -9,6 +9,7 @@
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
+import { cn } from '@/lib/utils';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -20,6 +21,8 @@ import { useSchoolClasses } from '@/hooks/school-fees/use-school-fee-plans';
 import { useAcademicYearsByInstitution } from '@/hooks/academic/use-academic-years';
 
 import { SchoolFeesBreadcrumb } from '../_components/school-fees-breadcrumb';
+import { SchoolFeeSectionHeader } from '../_components/school-fee-section-header';
+import { SECTION_THEMES } from '../_components/section-theme';
 import { PlanForm } from '../_components/plan-form';
 
 function NewPlanContent() {
@@ -93,16 +96,15 @@ export default function NewSchoolFeePlanPage() {
   return (
     <PermissionGuard module="school_fees" action="manage">
       <ContentLayout title="New School Fee Plan">
-        <div className="space-y-4">
+        <div className={cn('space-y-4 rounded-2xl p-3 sm:p-4', SECTION_THEMES.plans.pageBg)}>
           <SchoolFeesBreadcrumb leaf="New plan" />
 
-          <div>
-            <h1 className="text-2xl font-bold py-1">New Fee Plan</h1>
-            <p className="text-sm sm:text-base text-muted-foreground">
-              Build the fee head × term grid. Leave a cell blank where a head is not charged that
-              term.
-            </p>
-          </div>
+          <SchoolFeeSectionHeader
+            section="plans"
+            title="New Fee Plan"
+            description="Build the fee head × term grid. Leave a cell blank where a head is not charged that term."
+            hideNav
+          />
 
           <NewPlanContent />
         </div>
