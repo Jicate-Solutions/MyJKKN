@@ -12,10 +12,10 @@
 --   learner-only transitions   willingness_open, attendance_day, results_announced
 --                              -> '/cdc/drives/<id>/willingness'   (the learner page,
 --                                 deliberately ungated — see its header comment)
---   staff-only transitions     announced, eligibility_locked, closed
+--   team-only transitions     announced, eligibility_locked, closed
 --                              -> '/cdc/drives/<id>'               (unchanged)
 --   cancelled                  BOTH audiences in one row before; now one row per
---                              audience, each with a page it can open. The staff
+--                              audience, each with a page it can open. The team member
 --                              row keeps the original idempotency key so a
 --                              cancellation already sent is never re-sent; the
 --                              learner row is keyed '<key>.learners'.
@@ -45,7 +45,7 @@ DECLARE
   -- coordinator page at v_drive_url shows them an inline "no access" notice.
   v_learner_url    text;
   -- cancelled goes to two audiences that can open different pages.
-  v_staff_ids      uuid[];
+  v_team_ids      uuid[];
   v_learner_ids    uuid[];
 BEGIN
   -- Resolve drive title + URL once.
@@ -80,9 +80,9 @@ BEGIN
   IF p_to_state = 'cancelled' THEN
     -- * → cancelled: coordinators + heads, AND any learner who declared.
     -- Two rows, not one: a single row can carry only one URL, and the two
-    -- audiences cannot open the same page. The staff row keeps the original
+    -- audiences cannot open the same page. The team member row keeps the original
     -- idempotency key so a cancellation already sent is never sent twice.
-    SELECT array_agg(DISTINCT ur.user_id) INTO v_staff_ids
+    SELECT array_agg(DISTINCT ur.user_id) INTO v_team_ids
     FROM public.user_roles ur
     JOIN public.custom_roles cr ON cr.id = ur.role_id
     WHERE cr.role_key IN ('cdc_coordinator', 'cdc_head')
@@ -100,17 +100,17 @@ BEGIN
     v_body  := 'The drive "' || v_drive_title || '" has been cancelled. '
             || 'See the drive page for the cancellation reason.';
 
-    IF v_staff_ids IS NOT NULL AND array_length(v_staff_ids, 1) IS NOT NULL THEN
+    IF v_team_ids IS NOT NULL AND array_length(v_team_ids, 1) IS NOT NULL THEN
       INSERT INTO public.notifications (
         title, body, url, created_by, targeting, priority, category, kind,
         metadata, idempotency_key
       ) VALUES (
         v_title, v_body, v_drive_url, v_actor,
-        jsonb_build_object('user_ids', to_jsonb(v_staff_ids)),
+        jsonb_build_object('user_ids', to_jsonb(v_team_ids)),
         'normal', 'cdc.drive.cancelled', 'work_item',
         jsonb_build_object(
           'drive_id', p_drive_id, 'from_state', p_from_state, 'to_state', p_to_state,
-          'audience', 'staff', 'recipient_count', array_length(v_staff_ids, 1)
+          'audience', 'team', 'recipient_count', array_length(v_team_ids, 1)
         ),
         v_idempotency
       )

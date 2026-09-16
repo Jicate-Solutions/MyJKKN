@@ -58,9 +58,9 @@ const DRIVE = '00000000-0000-4000-8000-0000000000d1';
 const PROGRAM = '00000000-0000-4000-8000-0000000000a1';
 const ACTOR = '00000000-0000-4000-8000-0000000000c9';
 
-// Staff: one coordinator, one head, on the two custom roles the emitter names.
+// Team member: one coordinator, one head, on the two custom roles the emitter names.
 const ROLE = { coordinator: '00000000-0000-4000-8000-0000000000e1', head: '00000000-0000-4000-8000-0000000000e2' };
-const STAFF = { coordinator: '00000000-0000-4000-8000-0000000000b1', head: '00000000-0000-4000-8000-0000000000b2' };
+const TEAM = { coordinator: '00000000-0000-4000-8000-0000000000b1', head: '00000000-0000-4000-8000-0000000000b2' };
 
 // Learners: profile id (what notifications target) + learners_profiles id.
 const L = {
@@ -117,7 +117,7 @@ INSERT INTO public.cdc_drives (id, title, created_by) VALUES ('${DRIVE}', 'Foxco
 INSERT INTO public.custom_roles (id, role_key) VALUES
   ('${ROLE.coordinator}', 'cdc_coordinator'), ('${ROLE.head}', 'cdc_head');
 INSERT INTO public.user_roles (user_id, role_id) VALUES
-  ('${STAFF.coordinator}', '${ROLE.coordinator}'), ('${STAFF.head}', '${ROLE.head}');
+  ('${TEAM.coordinator}', '${ROLE.coordinator}'), ('${TEAM.head}', '${ROLE.head}');
 
 INSERT INTO public.learners_profiles (id, program_id, lifecycle_status) VALUES
   ('${L.willing.learner}',   '${PROGRAM}', 'active'),
@@ -161,7 +161,7 @@ async function emit(from: string, to: string, fn = 'fn_cdc_emit_drive_notificati
 }
 
 const ids = (r: Row) => r.targeting.user_ids.slice().sort();
-const allStaff = [STAFF.coordinator, STAFF.head].sort();
+const allTeam = [TEAM.coordinator, TEAM.head].sort();
 const declared = [L.willing.profile, L.confirmed.profile].sort();
 
 beforeAll(async () => {
@@ -214,50 +214,50 @@ describe('learner-only transitions send learners to their own page', () => {
   });
 });
 
-describe('staff-only transitions are untouched', () => {
+describe('team-only transitions are untouched', () => {
   it.each([
     ['draft', 'announced'],
     ['willingness_open', 'eligibility_locked'],
-  ])('%s → %s still points staff at the coordinator page', async (from, to) => {
+  ])('%s → %s still points team members at the coordinator page', async (from, to) => {
     const [row] = await emit(from, to);
     expect(row.url).toBe(COORD_URL);
-    expect(ids(row)).toEqual(allStaff);
+    expect(ids(row)).toEqual(allTeam);
   });
 
   it('closed still reaches the head only, at the coordinator page', async () => {
     const [row] = await emit('results_announced', 'closed');
     expect(row.url).toBe(COORD_URL);
-    expect(ids(row)).toEqual([STAFF.head]);
+    expect(ids(row)).toEqual([TEAM.head]);
   });
 });
 
 describe('cancelled — one row per audience', () => {
-  it('writes a staff row and a learner row, each with a page it can open', async () => {
+  it('writes a team row and a learner row, each with a page it can open', async () => {
     const rows = await emit('willingness_open', 'cancelled');
     expect(rows).toHaveLength(2);
 
-    const staff = rows.find((r) => r.metadata.audience === 'staff')!;
+    const team = rows.find((r) => r.metadata.audience === 'team')!;
     const learners = rows.find((r) => r.metadata.audience === 'learners')!;
 
-    expect(staff.url).toBe(COORD_URL);
-    expect(ids(staff)).toEqual(allStaff);
+    expect(team.url).toBe(COORD_URL);
+    expect(ids(team)).toEqual(allTeam);
 
     expect(learners.url).toBe(LEARNER_URL);
     expect(ids(learners)).toEqual(declared);
     expect(ids(learners)).not.toContain(L.withdrawn.profile);
   });
 
-  it('keeps the original key on the staff row so an old cancellation is never re-sent', async () => {
+  it('keeps the original key on the team row so an old cancellation is never re-sent', async () => {
     const rows = await emit('willingness_open', 'cancelled');
     const keys = rows.map((r) => r.idempotency_key).sort();
     expect(keys).toEqual([`cdc.drive.${DRIVE}.cancelled`, `cdc.drive.${DRIVE}.cancelled.learners`]);
   });
 
-  it('writes only the staff row when nobody had declared', async () => {
+  it('writes only the team row when nobody had declared', async () => {
     await db.query(`DELETE FROM public.cdc_drive_willingness`);
     const rows = await emit('willingness_open', 'cancelled');
     expect(rows).toHaveLength(1);
-    expect(rows[0].metadata.audience).toBe('staff');
+    expect(rows[0].metadata.audience).toBe('team');
   });
 
   it('is idempotent — emitting twice still leaves two rows', async () => {
@@ -291,7 +291,7 @@ describe('control — what production does today', () => {
   it('crams both cancellation audiences into one row with one URL', async () => {
     const rows = await emit('willingness_open', 'cancelled', 'fn_ctl_live_emit');
     expect(rows).toHaveLength(1);
-    expect(ids(rows[0])).toEqual([...allStaff, ...declared].sort());
+    expect(ids(rows[0])).toEqual([...allTeam, ...declared].sort());
     expect(rows[0].url).toBe(COORD_URL);
   });
 });
