@@ -37,7 +37,7 @@ export function useCreateQuotation() {
 
 export function useCreateVendor() {
   return useMutation({
-    mutationFn: (input: { institution_id: string; name: string; code?: string | null; email?: string | null }) =>
+    mutationFn: (input: Parameters<typeof ProcurementQuotationService.createVendor>[0]) =>
       ProcurementQuotationService.createVendor(input),
   });
 }

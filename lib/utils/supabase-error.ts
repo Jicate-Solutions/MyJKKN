@@ -45,7 +45,10 @@ export function errorMessage(e: unknown, fallback: string): string {
   // 42501 — row-level security refused the write. The Postgres wording ("new row
   // violates row-level security policy for table ...") reads as a system fault
   // rather than a permissions one, so say what it means.
-  if (code === '42501') {
+  // A function that raises 42501 with its own sentence (ims_create_reorder_request,
+  // fn_procurement_guard_approval) already says what is wrong — keep that wording.
+  const isPolicyWording = /row-level security|^permission denied/i.test(message);
+  if (code === '42501' && (isPolicyWording || !message)) {
     const table = tableFrom(message);
     return table
       ? `You do not have access to these records for this institution (${table}).`

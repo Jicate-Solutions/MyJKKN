@@ -245,7 +245,18 @@ export class ImsInventoryService {
 
       const { data, error, count } = await query;
 
-      if (error) throw error;
+      if (error) {
+        // PGRST103: the page no longer exists — the list shrank under the caller
+        // (an item deleted off the last page, another user's edit). PostgREST says
+        // how many rows there are ("...but there are only 2 rows"); serve the last
+        // real page instead of failing the whole list.
+        if (error.code === 'PGRST103' && page > 1) {
+          const total = Number(/only (\d+) rows?/.exec(String(error.details ?? ''))?.[1]);
+          const lastPage = Number.isFinite(total) ? Math.max(1, Math.ceil(total / limit)) : 1;
+          if (lastPage < page) return this.getItems({ ...filters, page: lastPage });
+        }
+        throw error;
+      }
 
       // Enrich items with stock data from ims_stock_summary
       let enrichedData = (data || []) as any[];
@@ -358,7 +369,9 @@ export class ImsInventoryService {
         // by a guess about the code — especially now that codes are generated and
         // a code collision is nearly impossible.
         if (error.code === '23505') {
-          throw new Error(error.message || 'This item already exists');
+          throw Object.assign(new Error(error.message || 'This item already exists'), {
+            isDuplicate: true,
+          });
         }
         throw error;
       }
@@ -390,7 +403,11 @@ export class ImsInventoryService {
 
       return item as ImsItem;
     } catch (error) {
-      console.error('[ImsInventoryService] Error in createItem:', error);
+      // A duplicate is the user's answer, not a fault: the toast already names the
+      // existing item. Only log what nobody expected.
+      if (!(error as { isDuplicate?: boolean })?.isDuplicate) {
+        console.error('[ImsInventoryService] Error in createItem:', error);
+      }
       throw error;
     }
   }
