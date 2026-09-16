@@ -120,6 +120,10 @@ export interface BugReport {
   console_logs?: any[] | null;
   status: BugReportStatus;
   resolved_at?: string | null;
+  /** Profile that marked this bug resolved. Null for bugs resolved before 2026-09-16. */
+  resolved_by?: string | null;
+  resolved_by_name?: string | null;
+  resolved_by_email?: string | null;
   /** Canonical bug this report duplicates (self-FK). Non-null iff marked duplicate. */
   duplicate_of?: string | null;
   /** display_id (BUG-xxxxx) of the canonical bug, from bug_reports_with_details. */
@@ -208,6 +212,8 @@ export interface BugReportFilters {
   /** Inclusive resolved_at bounds, YYYY-MM-DD in India time. */
   resolved_from?: string;
   resolved_to?: string;
+  /** Profile id of the person who marked the bug resolved. */
+  resolved_by?: string;
   category?: BugReportCategory;
   institution_id?: string;
   department_id?: string;

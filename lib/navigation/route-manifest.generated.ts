@@ -3391,6 +3391,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "label": "New",
             "iconName": "Plus",
             "children": []
+          },
+          {
+            "path": "/cdc/drives/willingness",
+            "label": "Willingness",
+            "iconName": "Users",
+            "children": []
           }
         ]
       },
@@ -5732,6 +5738,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/meetings/polls",
         "label": "Polls",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/meetings/record",
+        "label": "Record",
         "iconName": "FileText",
         "children": []
       },

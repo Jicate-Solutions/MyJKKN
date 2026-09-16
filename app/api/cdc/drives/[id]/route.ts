@@ -6,7 +6,8 @@ import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
 import { CdcDriveService } from '@/lib/services/cdc/drive-service';
-import { notifyDriveWillingnessOpen } from '@/lib/services/cdc/drive-notifications';
+import { notifyDriveWillingnessOpen, type DriveNotifyResult } from '@/lib/services/cdc/drive-notifications';
+import { currentCycle } from '@/lib/services/cdc/willingness-cycles';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import type { CdcDriveNotifySummary, CdcDriveUpdate } from '@/types/cdc';
 
@@ -112,7 +113,14 @@ export async function PATCH(
     let notify_error: string | undefined;
     if (targeting_changed && drive.status === 'willingness_open') {
       try {
-        const result = await notifyDriveWillingnessOpen(createServiceRoleClient(), drive, user.id);
+        const service = createServiceRoleClient();
+        // Delta send belongs to the current cycle; a cycle whose open time has
+        // not arrived is left to the cron so nobody is notified early.
+        const cycle = await currentCycle(service, id);
+        const cycleDue = !cycle || (cycle.notification_sent && new Date(cycle.open_at).getTime() <= Date.now());
+        const result = cycleDue
+          ? await notifyDriveWillingnessOpen(service, drive, user.id, cycle?.cycle_no ?? 1)
+          : { targeted_learners: 0, unlinked_learners: 0, already_notified: 0, notified: 0, skipped: 'scheduled' as const } as unknown as DriveNotifyResult;
         notify = {
           targeted_learners: result.targeted_learners,
           unlinked_learners: result.unlinked_learners,

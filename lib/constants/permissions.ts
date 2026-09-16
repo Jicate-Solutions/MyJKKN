@@ -3211,6 +3211,10 @@ export const PERMISSION_CATEGORIES = [
       { key: 'cdc.drives.create', label: 'Create Campus Drives' },
       { key: 'cdc.drives.edit', label: 'Edit Campus Drives' },
       { key: 'cdc.drives.delete', label: 'Delete Campus Drives' },
+      // 2026-09-15 — assigned-learner willingness tracker (/cdc/drives/[id]/willingness
+      // for staff + /cdc/drives/willingness index). Profile contact columns are
+      // additionally gated by learners.profiles.view inside the API.
+      { key: 'cdc.drives.willingness.view', label: 'View Assigned Learners & Willingness Tracker (incl. Excel)' },
 
       // Placements
       { key: 'cdc.placements.view', label: 'View Placements' },

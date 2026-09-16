@@ -7,7 +7,8 @@ export const dynamic = 'force-dynamic';
  *                                         targeting eligibility + learner profile
  *                                         details + CGPA/arrears + existing response)
  * POST /api/cdc/drives/[id]/willingness  → { intent: 'willing'|'decline',
- *                                            additional_mobile?, data_consent? }
+ *                                            additional_mobile?, data_consent?,
+ *                                            cgpa, arrears_count (mandatory for 'willing') }
  *
  * Auth: caller is an authenticated learner. We resolve auth.uid() to learners_profiles.id
  * server-side and never trust client-supplied learner_id. RLS on cdc_drive_willingness
@@ -49,7 +50,7 @@ async function getClient() {
 }
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   await connection();
@@ -76,13 +77,18 @@ export async function GET(
       );
     }
 
-    const snapshot = await CdcWillingnessService.getLearnerWillingnessSnapshot(
-      supabase,
-      id,
-      learner
-    );
+    // COE results are slow (REST → DB fallback, no learner-visible value until
+    // the response panel). The page loads without them; the client asks for
+    // ?include=academic in a second request once the page is up.
+    const includeAcademic = request.nextUrl.searchParams.get('include') === 'academic';
+    const snapshot = await CdcWillingnessService.getLearnerWillingnessSnapshot(supabase, id, learner, {
+      includeAcademic,
+    });
     if (!snapshot) {
       return NextResponse.json({ error: 'Drive not found' }, { status: 404 });
+    }
+    if (includeAcademic) {
+      return NextResponse.json({ academic: snapshot.academic }, { headers: { 'Cache-Control': 'no-store' } });
     }
     return NextResponse.json(snapshot, { headers: { 'Cache-Control': 'no-store' } });
   } catch (err) {
@@ -141,6 +147,18 @@ export async function POST(
         additional_mobile:
           typeof body.additional_mobile === 'string' ? body.additional_mobile.trim() || null : null,
         data_consent: body.data_consent === true,
+        cgpa:
+          typeof body.cgpa === 'number'
+            ? body.cgpa
+            : typeof body.cgpa === 'string' && body.cgpa.trim()
+              ? Number(body.cgpa)
+              : null,
+        arrears_count:
+          typeof body.arrears_count === 'number'
+            ? body.arrears_count
+            : typeof body.arrears_count === 'string' && body.arrears_count.trim()
+              ? Number(body.arrears_count)
+              : null,
       }
     );
     return NextResponse.json({ data: willingness });
