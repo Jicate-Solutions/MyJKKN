@@ -25,7 +25,32 @@ import type { Paise } from '../amount';
 import type { PaymentModule } from '../provider';
 import type { RazorpayQrCode, RazorpayPayment } from './types';
 import type { RazorpayApiAuth } from './credentials';
-import { razorpayRequest } from './client';
+import { razorpayRequest, RazorpayApiError } from './client';
+
+/**
+ * Does a failed QR call mean "this MERCHANT ACCOUNT does not have the QR product",
+ * as opposed to "this request was wrong"?
+ *
+ * QR Codes is provisioned per account, so a caller that can also collect another way
+ * wants to fall back rather than fail. But the distinction decides whether an error
+ * is SWALLOWED or SURFACED, so it is drawn narrowly:
+ *
+ *   - 404 — the observed shape of an unprovisioned product: the route itself is
+ *     absent. This is what produced "The requested URL was not found on the server."
+ *     against the common env account on 2026-07-30.
+ *   - 400 — only when Razorpay's own description names the feature. A 400 about the
+ *     amount, the close_by or a note is OUR bug, and silently collecting through a
+ *     different instrument would hide it behind a working-but-wrong flow forever.
+ *   - anything else (401 bad keys, 429, 5xx) is a real failure and must propagate.
+ */
+export function isQrProductUnavailable(err: unknown): boolean {
+  if (!(err instanceof RazorpayApiError)) return false;
+  if (err.status === 404) return true;
+  if (err.status !== 400) return false;
+  return /not\s+(enabled|activated|available|supported|allowed)|feature|not\s+subscribed|access\s+denied/i.test(
+    err.message,
+  );
+}
 
 /** Razorpay caps a note VALUE at 256 chars and the number of notes at 15. */
 const NOTE_VALUE_MAX = 240;
@@ -59,7 +84,12 @@ export async function createQrCode(
   // single_use is load-bearing: it is what makes a second payment against the same
   // QR impossible at the gateway.
   params.set('usage', 'single_use');
-  params.set('fixed_amount', 'true');
+  // '1', NOT 'true'. This body is form-encoded, so every value reaches Razorpay as a
+  // string, and their validator (Laravel) accepts only true/false/1/0/"1"/"0" for a
+  // boolean — the string "true" is rejected with "The fixed amount field must be true
+  // or false.", which reads like it is telling you to send exactly what you just sent.
+  // create-order.ts has always sent payment_capture as '1' for the same reason.
+  params.set('fixed_amount', '1');
   params.set('payment_amount', String(args.amountPaise));
   params.set('close_by', String(args.closeBy));
   if (args.description) params.set('description', clampNote(args.description));

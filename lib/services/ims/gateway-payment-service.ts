@@ -8,13 +8,30 @@
 // merchant account we can query: Razorpay reports the credit itself, and tells us
 // the amount it actually captured.
 //
-// HOW THE MONEY IS COLLECTED. Through an ORDER and Razorpay's hosted checkout —
-// not the QR Codes API. That API is not provisioned on this merchant account
-// (a bare parameterless GET /payments/qr_codes fails exactly as the POST does,
-// while /orders answers 200), and neither are Payment Links or Virtual Accounts.
-// Orders are the one collection product the account has, and the one billing has
-// used for every Razorpay payment since 2026-06-04. The customer still scans a UPI
-// QR — Razorpay's hosted page renders one — so the counter experience survives.
+// HOW THE MONEY IS COLLECTED. Two instruments, tried in that order:
+//
+//   1. THE QR CODES API (/payments/qr_codes). Preferred, because the QR renders on
+//      the till's own screen: the modal never unmounts, the cart never leaves the
+//      page, and the customer pays from their own phone while the cashier keeps
+//      their session. `usage=single_use` + `fixed_amount` mean the gateway itself
+//      prevents a double charge and an edited amount.
+//
+//   2. AN ORDER + HOSTED CHECKOUT. The fallback. Razorpay's page renders a UPI QR
+//      too, so the counter experience survives — but the browser has to leave the
+//      POS and come back via /ims/sales?gp=<id>.
+//
+// WHY A FALLBACK AND NOT A CHOICE. QR Codes is provisioned PER MERCHANT ACCOUNT,
+// and this application resolves a different account per institution and fee head.
+// An account that has it and one that does not are both normal. A 2026-07-30
+// attempt 404'd here and the conclusion drawn was "the QR API is not provisioned" —
+// but that row carries razorpay_account_id = NULL, i.e. it was the common ENV
+// account, and the Dental ims_pos live account did not exist until the next day. So
+// the capability was never actually established for the accounts now in use.
+//
+// Rather than encode a guess, ask: try the QR, and if THIS account refuses it for a
+// capability reason, open an order instead and tell the caller which it got. The
+// answer is per-account and self-correcting — the day Razorpay enables QR on an
+// account, that counter starts rendering QRs with no code change and no redeploy.
 //
 // Two rules shape everything below:
 //
@@ -31,6 +48,8 @@
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { getPaymentProvider } from '@/lib/services/payments/factory';
 import { RazorpayProvider } from '@/lib/services/payments/razorpay/razorpay-provider';
+import { isQrProductUnavailable } from '@/lib/services/payments/razorpay/qr-code';
+import type { RazorpayApiError } from '@/lib/services/payments/razorpay/client';
 import { IMS_POS_FEE_HEAD } from '@/lib/services/payments/fee-heads';
 import { payerDetailsFrom } from '@/lib/services/payments/razorpay/payer-details';
 import { toPaise } from '@/lib/services/payments/amount';
@@ -40,6 +59,17 @@ import { logger } from '@/lib/utils/enhanced-logger';
 
 /** How long a counter QR stays payable. Razorpay enforces its own minimum too. */
 const QR_TTL_SECONDS = 15 * 60;
+/**
+ * Extra life given to Razorpay's `close_by` beyond our own counter window.
+ *
+ * Razorpay rejects a close_by that is not comfortably in the future, and our TTL
+ * sits exactly on its documented 15-minute floor — asking for precisely the minimum
+ * is how you get an intermittent BAD_REQUEST at 14:59.9. So the gateway's window is
+ * deliberately the LONGER of the two, and `expires_at` (ours) is what the counter
+ * screen counts down. Closing explicitly on cancel/expiry is what makes the two
+ * agree; see closeQrCode's note.
+ */
+const QR_CLOSE_BUFFER_SECONDS = 5 * 60;
 /** Razorpay's own floor for a UPI collection. */
 const MIN_AMOUNT_PAISE = 100;
 /** Counter ceiling. Replaces the bare `100000` literal the manual QR route used. */
@@ -72,6 +102,14 @@ export interface GatewayCartLine {
   discount_percent?: number;
 }
 
+/**
+ * Which collection instrument the session ended up using.
+ *
+ * 'qr'       — a Razorpay QR the till renders itself; the modal stays open.
+ * 'checkout' — an order; the browser leaves for Razorpay's hosted page.
+ */
+export type GatewayInstrument = 'qr' | 'checkout';
+
 export interface CreateGatewayPaymentInput {
   storeId: string;
   institutionId: string;
@@ -80,6 +118,13 @@ export interface CreateGatewayPaymentInput {
   customerType?: string;
   customerName?: string | null;
   customerPhone?: string | null;
+  /**
+   * What the counter would LIKE. Not a guarantee: 'qr' silently degrades to
+   * 'checkout' when the resolved merchant account has no QR Codes product. The
+   * response says which was actually opened, so the screen can render the right
+   * thing rather than assume.
+   */
+  prefer?: GatewayInstrument;
 }
 
 export interface GatewayPaymentStatus {
@@ -400,20 +445,87 @@ export class ImsGatewayPaymentService {
         purpose: 'create-order',
       })) as RazorpayProvider;
 
+      // The notes both instruments carry. notes.module is what the webhook routes
+      // on; the extras are what let a handler find OUR row even in the window where
+      // Razorpay accepted the instrument but our follow-up write had not landed.
+      const notes = {
+        gateway_payment_id: row.id as string,
+        store_id: input.storeId,
+        store_code: storeCode,
+        institution_id: institutionId,
+      };
+
+      // ── Instrument 1: a QR the till renders itself ─────────────────────────
+      if (input.prefer !== 'checkout') {
+        try {
+          const qr = await provider.createQrCode({
+            transactionRef,
+            amountPaise,
+            module: 'ims',
+            // Razorpay's window is deliberately longer than ours — see the constant.
+            closeBy: Math.floor(Date.now() / 1000) + QR_TTL_SECONDS + QR_CLOSE_BUFFER_SECONDS,
+            // What the customer sees in their UPI app, and on their bank statement.
+            name: storeName,
+            description: `${storeCode} · ${transactionRef}`,
+            notes,
+          });
+
+          const linkedQr = await this.writeRow(
+            service,
+            row.id,
+            {
+              razorpay_qr_code_id: qr.id,
+              qr_image_url: qr.image_url,
+              gateway_response: qr as unknown as Record<string, unknown>,
+              updated_at: new Date().toISOString(),
+            },
+            'attach razorpay_qr_code_id',
+          );
+
+          // A live QR nothing points at is the one outcome worse than no QR. The
+          // notes carry gateway_payment_id so the webhook could still find the row,
+          // but we close it rather than leave a payable QR we failed to record.
+          if (!linkedQr) {
+            await provider.closeQrCode(qr.id).catch(() => {});
+            throw new Error('Could not record the payment QR — please try again');
+          }
+
+          return {
+            id: row.id as string,
+            mode: 'qr' as GatewayInstrument,
+            transactionRef,
+            amount: priced.total_amount,
+            amountPaise,
+            qrImageUrl: qr.image_url,
+            storeName,
+            description: `${storeCode} · ${transactionRef}`,
+            expiresAt: expiresAt.toISOString(),
+          };
+        } catch (qrErr) {
+          if (!isQrProductUnavailable(qrErr)) throw qrErr;
+          // This account has no QR product. Not an error the counter should see —
+          // fall through and collect through an order instead.
+          logger.info(
+            'ims/gateway-payment',
+            'QR Codes unavailable on this account — falling back to hosted checkout',
+            {
+              id: row.id,
+              accountId: creds.accountId ?? 'env',
+              keyId: creds.keyId,
+              status: (qrErr as RazorpayApiError).status,
+              reason: (qrErr as Error).message,
+            },
+          );
+        }
+      }
+
+      // ── Instrument 2: an order + hosted checkout ───────────────────────────
       const order = await provider.createOrder({
         transactionRef,
         amountPaise,
         currency: 'INR',
         module: 'ims',
-        notes: {
-          // notes.module is what the webhook routes on; these extras are what let
-          // the handlers find OUR row even in the window where Razorpay accepted
-          // the order but our follow-up write of razorpay_order_id had not landed.
-          gateway_payment_id: row.id,
-          store_id: input.storeId,
-          store_code: storeCode,
-          institution_id: institutionId,
-        },
+        notes,
       });
 
       // If THIS write is rejected we have a live order nothing points at. The
@@ -435,6 +547,7 @@ export class ImsGatewayPaymentService {
 
       return {
         id: row.id as string,
+        mode: 'checkout' as GatewayInstrument,
         transactionRef,
         amount: priced.total_amount,
         amountPaise,
@@ -466,6 +579,117 @@ export class ImsGatewayPaymentService {
       logger.error('ims/gateway-payment', 'createOrder failed', err);
       throw err;
     }
+  }
+
+  /**
+   * The cashier pressed Cancel on a QR that is still on screen.
+   *
+   * THE PROBLEM. Cancel is not free at a counter: the customer may have scanned
+   * already and be approving in their UPI app right now. Two obvious behaviours are
+   * both wrong on their own —
+   *
+   *   - Close and mark 'cancelled'. But 'cancelled' is in the ims webhook's
+   *     terminalStatuses, so a credit landing a second later would be SKIPPED by
+   *     handleQrCodeCredited. We would have taken the money and recorded a
+   *     cancellation. That is the one outcome this module exists to prevent.
+   *
+   *   - Leave it payable and just stop looking. Then an unattended QR for the last
+   *     customer's basket is live at the till for another quarter of an hour.
+   *
+   * WHAT THIS DOES INSTEAD: let the gateway be the arbiter. closeQrCode both stops
+   * the QR and reports, in the same response, whether anything was ever credited to
+   * it. Closing first is what makes that answer trustworthy — no payment can START
+   * after it. So:
+   *
+   *   - nothing credited  → mark 'cancelled'. Safe; there is no money to lose.
+   *   - something credited → do NOT cancel. Leave the row open and let the poll and
+   *     the webhook resolve it into a paid sale exactly as if Cancel had never been
+   *     pressed. The screen is told `payment_in_flight` so it can say so.
+   *
+   * RESIDUAL RISK, stated rather than hidden: a payment AUTHORIZED but not yet
+   * captured at the instant of close may not be counted in payments_count_received.
+   * That window is small and it fails in the recoverable direction — the row is
+   * 'cancelled', but a late qr_code.credited is the same shape as any other late
+   * credit and shows up in reconciliation rather than vanishing. It is not silently
+   * treated as a completed sale.
+   */
+  static async cancel(
+    paymentId: string,
+    userId: string,
+  ): Promise<{ cancelled: boolean; reason: string }> {
+
+    const supabase = (await createServerSupabaseClient()) as any;
+
+    // Read through the caller's session so RLS scopes this to their institution —
+    // one counter must not be able to cancel another's payment.
+    const { data: row } = await supabase
+      .from('ims_gateway_payments')
+      .select('*')
+      .eq('id', paymentId)
+      .maybeSingle();
+
+    if (!row) throw new Error('Payment not found');
+
+    // Already resolved. Never walk a terminal row backwards — least of all a paid
+    // one, where 'cancelled' would contradict money we hold.
+    if (!['initiated', 'expired'].includes(row.status)) {
+      return { cancelled: false, reason: row.status };
+    }
+
+    const service = createServiceRoleClient() as any;
+
+    // No QR to close — a hosted-checkout session. Nothing is payable on our screen,
+    // so cancelling is just bookkeeping.
+    if (!row.razorpay_qr_code_id) {
+      await this.writeRow(
+        service,
+        row.id,
+        { status: 'cancelled', updated_at: new Date().toISOString() },
+        'mark cancelled (no qr)',
+        ['initiated', 'expired'],
+      );
+      return { cancelled: true, reason: 'cancelled' };
+    }
+
+    let credited = false;
+    try {
+      const provider = (await getPaymentProvider('ims', {
+        accountId: row.razorpay_account_id,
+        institutionId: row.institution_id,
+        feeHead: IMS_POS_FEE_HEAD,
+      })) as RazorpayProvider;
+
+      const closed = await provider.closeQrCode(row.razorpay_qr_code_id);
+      credited =
+        Number(closed?.payments_count_received ?? 0) > 0 ||
+        Number(closed?.payments_amount_received ?? 0) > 0 ||
+        closed?.close_reason === 'paid';
+    } catch (err) {
+      // We could not close it, so we do not know whether it is payable or paid.
+      // Refuse to record a cancellation we cannot stand behind: leave the row open
+      // and let the poll keep watching. Our own expires_at still bounds it.
+      logger.error('ims/gateway-payment', 'could not close the QR — leaving it open', {
+        id: row.id, qr: row.razorpay_qr_code_id, error: err,
+      });
+      return { cancelled: false, reason: 'close_failed' };
+    }
+
+    if (credited) {
+      logger.warn('ims/gateway-payment', 'cancel raced a payment — keeping the row open', {
+        id: row.id, qr: row.razorpay_qr_code_id,
+      });
+      return { cancelled: false, reason: 'payment_in_flight' };
+    }
+
+    await this.writeRow(
+      service,
+      row.id,
+      { status: 'cancelled', updated_at: new Date().toISOString() },
+      'mark cancelled (qr closed, nothing credited)',
+      ['initiated', 'expired'],
+    );
+
+    return { cancelled: true, reason: 'cancelled' };
   }
 
   /**
