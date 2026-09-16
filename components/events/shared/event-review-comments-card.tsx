@@ -100,7 +100,7 @@ export function EventReviewCommentsCard({ eventId }: { eventId: string }) {
           Remarks from the reviewing authority on this event, and the
           coordinator&apos;s replies. Only super admins, this event&apos;s
           creator and in-charge, roles granted Review Comments access, and
-          staff tagged here can see this — participants and learners never do.
+          team members tagged here can see this — participants and learners never do.
           Type @ or use Tag people to bring someone in.
         </>
       }

@@ -122,7 +122,7 @@ export async function POST(
     return NextResponse.json(
       {
         success: false,
-        error: 'Only staff can be tagged in review comments — learners never see this thread.',
+        error: 'Only team members can be tagged in review comments — learners never see this thread.',
         skipped: ineligible.map((id) => names.get(id) ?? 'Unknown'),
       },
       { status: 400 },

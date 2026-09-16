@@ -62,7 +62,7 @@ export function useCreateReviewComment(eventId: string) {
             );
           }
           if (result.skipped.length > 0) {
-            toast.error(`Not tagged (not staff): ${result.skipped.join(', ')}`);
+            toast.error(`Not tagged (not a team member): ${result.skipped.join(', ')}`);
           }
         } catch (e) {
           toast.error(

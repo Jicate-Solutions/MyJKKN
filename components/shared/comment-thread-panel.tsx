@@ -320,7 +320,7 @@ function Composer({
           }}
           rows={3}
           autoFocus={autoFocus}
-          placeholder={peopleSearch ? `${placeholder} Type @ to tag staff.` : placeholder}
+          placeholder={peopleSearch ? `${placeholder} Type @ to tag team members.` : placeholder}
           value={body}
           onChange={(e) => {
             const next = e.target.value;
@@ -377,11 +377,11 @@ function Composer({
           >
             {query !== null && query.length < 2 ? (
               <p className="px-2 py-1.5 text-xs text-muted-foreground">
-                Keep typing a name to tag staff…
+                Keep typing a name to tag team members…
               </p>
             ) : failed ? (
               <p className="px-2 py-1.5 text-xs text-destructive">
-                The staff directory could not be searched.
+                The team member directory could not be searched.
               </p>
             ) : searching && results.length === 0 ? (
               <p className="flex items-center gap-1.5 px-2 py-1.5 text-xs text-muted-foreground">
@@ -389,7 +389,7 @@ function Composer({
               </p>
             ) : results.length === 0 ? (
               <p className="px-2 py-1.5 text-xs text-muted-foreground">
-                No staff match &ldquo;{query}&rdquo;.
+                No team members match &ldquo;{query}&rdquo;.
               </p>
             ) : (
               results.map((p, i) => (
