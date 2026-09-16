@@ -44,6 +44,9 @@ function mapResource(row: any): CatalogItem {
     spec: row.description ?? null,
     unitLabel: 'unit',
     isChemical: false, // RM never carries chemicals — those belong to IMS (batch/expiry).
+    // Default hint only — a brand-new item still sits in the generic "Pending
+    // setup" subcategory, so the receiver can still override at GRN time.
+    requiresSerialNumber: row.resource_sub_categories?.requires_serial_number ?? false,
     costPrice: null,
     currentStock: USABLE_STATUSES.has(row.status)
       ? Number(row.current_stock_quantity ?? 0)
@@ -60,7 +63,9 @@ export const resourceMgmtAdapter: ProcurementDomainAdapter = {
   async searchItems(query: string, ctx: DomainCtx): Promise<CatalogItem[]> {
     let q = db()
       .from('resources')
-      .select('id,name,resource_code,description,status,current_stock_quantity')
+      .select(
+        'id,name,resource_code,description,status,current_stock_quantity,resource_sub_categories(requires_serial_number)'
+      )
       .eq('institution_id', ctx.institutionId)
       // NULL status must stay visible: `status not in (...)` is NULL for unset
       // rows and would silently drop them from the picker.
@@ -83,7 +88,9 @@ export const resourceMgmtAdapter: ProcurementDomainAdapter = {
   async getItem(domainItemId: string, ctx: DomainCtx): Promise<CatalogItem | null> {
     const { data, error } = await db()
       .from('resources')
-      .select('id,name,resource_code,description,status,current_stock_quantity')
+      .select(
+        'id,name,resource_code,description,status,current_stock_quantity,resource_sub_categories(requires_serial_number)'
+      )
       .eq('id', domainItemId)
       .eq('institution_id', ctx.institutionId)
       .maybeSingle();
@@ -105,6 +112,7 @@ export const resourceMgmtAdapter: ProcurementDomainAdapter = {
       p_resource_id: line.domainItemId,
       p_quantity: line.acceptedQuantity,
       p_total_value: totalValue,
+      p_serial_numbers: line.serialNumbers?.length ? line.serialNumbers : null,
     });
     if (error) throw error;
   },

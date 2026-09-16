@@ -469,8 +469,8 @@ export default function NewQuotationPage() {
 
   return (
     <ContentLayout title="Add Vendor Quotation">
-      <div className="space-y-6 max-w-5xl">
-        <div className="flex items-center gap-3">
+      <div className="space-y-4 sm:space-y-6 max-w-5xl">
+        <div className="flex items-center gap-2 sm:gap-3">
           <Button
             variant="ghost"
             size="sm"
@@ -480,7 +480,7 @@ export default function NewQuotationPage() {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div className="min-w-0">
-            <h2 className="text-2xl font-bold tracking-tight">Add Vendor Quotation</h2>
+            <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Add Vendor Quotation</h2>
             <p className="text-muted-foreground">
               {rfq.rfq_number} · {rfq.items.length} item{rfq.items.length === 1 ? '' : 's'}
             </p>
@@ -637,7 +637,7 @@ export default function NewQuotationPage() {
                     </Button>
                   )}
                 </div>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="hidden text-[11px] text-muted-foreground sm:block">
                   Attach a PDF and the AI can fill the prices below for you to review. Anything you
                   have already typed is always kept.
                 </p>
