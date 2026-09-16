@@ -176,16 +176,27 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
     const [{ data: candidateRows }, { data: jobRows }] = await Promise.all([
       supabase
         .from('hr_recruitment_candidates')
-        .select('id, name, role_title')
+        // role_specific_details carries the job the candidate was promoted
+        // against (soft link stamped at promote-time; there is no FK). It is
+        // read so the form can fill the post in rather than ask a second time
+        // for something Recruitment already knows.
+        .select('id, name, role_title, role_specific_details')
         .order('created_at', { ascending: false })
         .limit(200),
       supabase.from('hr_recruitment_jobs').select('id, title').limit(200),
     ]);
-    candidateOptions = ((candidateRows ?? []) as Array<Record<string, unknown>>).map((r) => ({
-      id: r.id as string,
-      name: (r.name as string) ?? 'Unnamed candidate',
-      roleTitle: (r.role_title as string | null) ?? null,
-    }));
+    candidateOptions = ((candidateRows ?? []) as Array<Record<string, unknown>>).map((r) => {
+      // Defensive on both shapes: the column is JSONB and rows written before
+      // the promote bridge existed have no job_id, or no object at all.
+      const details = (r.role_specific_details ?? null) as Record<string, unknown> | null;
+      const jobId = typeof details?.job_id === 'string' ? (details.job_id as string) : null;
+      return {
+        id: r.id as string,
+        name: (r.name as string) ?? 'Unnamed candidate',
+        roleTitle: (r.role_title as string | null) ?? null,
+        jobId,
+      };
+    });
     jobOptions = ((jobRows ?? []) as Array<Record<string, unknown>>)
       .filter((r) => typeof r.title === 'string' && (r.title as string).trim() !== '')
       .map((r) => ({ id: r.id as string, title: r.title as string }));
