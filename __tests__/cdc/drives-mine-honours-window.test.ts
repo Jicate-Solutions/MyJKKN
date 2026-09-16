@@ -1,14 +1,21 @@
 /**
- * The learner's dashboard card never lists a drive whose window has shut.
+ * `/api/cdc/drives/mine` tells the truth about the willingness window.
  *
- * `/api/cdc/drives/mine` feeds the "Campus drives open to you" card. It used to
- * select on `status = 'willingness_open'` alone, while the learner's own page —
- * and the declaration guard behind it — also honour the drive's optional
- * `willingness_window_open_at` / `_close_at`. The gap was a card that offered a
- * drive whose page then said the window had closed: exactly the mismatch the
- * shared-predicate rule exists to prevent.
+ * The route feeds the "Campus drives open to you" dashboard card and the
+ * learner's /cdc/drives list. It used to select on `status = 'willingness_open'`
+ * alone, while the learner's own page — and the declaration guard behind it —
+ * also honour the drive's optional `willingness_window_open_at` / `_close_at`.
+ * The gap was a card that offered a drive whose page then said the window had
+ * closed: exactly the mismatch the shared-predicate rule exists to prevent.
  *
- * Auth and the Supabase reads are faked; only the route's filtering is under
+ * 2026-09-16 (direct push 6bcf5b7890): the route became "every drive this
+ * learner is ASSIGNED to", so a drive outside its window is still listed — the
+ * learner can find a past answer on /cdc/drives — and each row carries
+ * `is_open`, computed by the SAME predicate the willingness page uses. The
+ * guarantee therefore moved: the route must flag a shut drive as not open, and
+ * the card must not show one (campus-drives-card-honours-window.test.tsx).
+ *
+ * Auth and the Supabase reads are faked; only the route's flagging is under
  * test. The window predicate itself is pinned in willingness-window.test.ts.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -77,6 +84,14 @@ async function listed(): Promise<string[]> {
   return body.drives.map((d) => d.id).sort();
 }
 
+/** id → is_open, as the card and the list page read it. */
+async function openness(): Promise<Record<string, boolean>> {
+  const res = await GET();
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { drives: { id: string; is_open: boolean }[] };
+  return Object.fromEntries(body.drives.map((d) => [d.id, d.is_open]));
+}
+
 beforeEach(() => {
   drives = [];
 });
@@ -87,26 +102,27 @@ describe('/api/cdc/drives/mine honours the willingness window', () => {
     expect(await listed()).toEqual(['no-window']);
   });
 
-  it('drops a drive whose closing date has passed, even though its status is still open', async () => {
-    // Transition and non-transition together: the open one must survive the
-    // same filter that removes the closed one, or "closed is hidden" could be
-    // true because everything is hidden.
+  it('flags a drive whose closing date has passed as not open, even though its status is still open', async () => {
+    // Open and closed together: the open one must stay open under the same
+    // predicate that closes the other, or "closed is flagged" could be true
+    // because everything is flagged.
     drives = [drive('no-window'), drive('closed-yesterday', { willingness_window_close_at: PAST })];
-    expect(await listed()).toEqual(['no-window']);
+    expect(await openness()).toEqual({ 'no-window': true, 'closed-yesterday': false });
   });
 
-  it('drops a drive whose window has not started yet', async () => {
+  it('flags a drive whose window has not started yet as not open', async () => {
     drives = [drive('no-window'), drive('opens-later', { willingness_window_open_at: FUTURE })];
-    expect(await listed()).toEqual(['no-window']);
+    expect(await openness()).toEqual({ 'no-window': true, 'opens-later': false });
   });
 
-  it('keeps a drive that is inside its window', async () => {
+  it('keeps a drive that is inside its window, and flags it open', async () => {
     drives = [drive('inside', { willingness_window_open_at: PAST, willingness_window_close_at: FUTURE })];
     expect(await listed()).toEqual(['inside']);
+    expect(await openness()).toEqual({ inside: true });
   });
 
-  it('returns an empty list, not an error, when every open drive is outside its window', async () => {
+  it('still answers 200 with the drive flagged closed, not an error, when every open drive is outside its window', async () => {
     drives = [drive('closed-yesterday', { willingness_window_close_at: PAST })];
-    expect(await listed()).toEqual([]);
+    expect(await openness()).toEqual({ 'closed-yesterday': false });
   });
 });
