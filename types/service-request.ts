@@ -29,7 +29,9 @@ export type ServiceFieldType =
   | 'file'
   | 'tms_route'
   | 'tms_route_stop'
-  | 'passenger_type';
+  | 'passenger_type'
+  /** Time of day (HH:MM). Used by the built-in Gate Pass block; not a DB enum value. */
+  | 'time';
 
 export type ServiceRequestPriority = 'low' | 'normal' | 'high' | 'urgent';
 
@@ -120,6 +122,12 @@ export interface ServiceType {
    * generate once a request of this type is approved. Empty = none.
    */
   certificate_template_keys: CertificateTemplateKey[];
+  /**
+   * Gate Pass category. The request form gains the built-in Gate Pass block
+   * (date, exit/return time, reason) and final approval issues a
+   * hostel_gate_passes row with a pass number and QR for the requester.
+   */
+  issues_gate_pass: boolean;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -274,6 +282,7 @@ export interface CreateServiceTypeDto {
   department_ids?: string[];
   program_ids?: string[];
   certificate_template_keys?: CertificateTemplateKey[];
+  issues_gate_pass?: boolean;
   fields: CreateServiceTypeFieldDto[];
   approval_steps: CreateApprovalStepDto[];
 }
@@ -426,8 +435,13 @@ export const createServiceTypeSchema = z.object({
   certificate_template_keys: z
     .array(z.enum(CERTIFICATE_TEMPLATE_KEYS as [CertificateTemplateKey, ...CertificateTemplateKey[]]))
     .default([]),
-  fields: z.array(serviceTypeFieldSchema).min(1, 'At least one field required'),
+  issues_gate_pass: z.boolean().default(false),
+  // A Gate Pass type carries its own built-in block, so it needs no custom fields.
+  fields: z.array(serviceTypeFieldSchema),
   approval_steps: z.array(approvalStepSchema).min(1, 'At least one approval step required'),
+}).refine((data) => data.issues_gate_pass || data.fields.length > 0, {
+  message: 'At least one field required',
+  path: ['fields'],
 }).refine((data) => {
   if (data.scope_level === 'common') return true;
   if (data.scope_level === 'institution') return data.institution_ids && data.institution_ids.length > 0;

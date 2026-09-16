@@ -8,6 +8,10 @@ import {
   cascadeStatusToDuplicates,
   recordClusterOutcome
 } from '@/lib/bug-reports/resolve-cascade';
+import {
+  resolvedByForStatus,
+  updateWithResolvedBy
+} from '@/lib/api/bug-reports/resolved-by';
 
 const updateStatusSchema = z.object({
   status: z.enum(['new', 'seen', 'in_progress', 'resolved', 'wont_fix', 'duplicate']),
@@ -134,8 +138,11 @@ export async function PATCH(
     const updateData: {
       status: string;
       resolved_at?: string | null;
+      resolved_by?: string | null;
       duplicate_of?: string | null;
-    } = { status };
+      // Who resolved it: the admin acting here. Sent on every status change so
+      // a reopen or a re-classification clears the previous resolver.
+    } = { status, resolved_by: resolvedByForStatus(status, user.id) };
 
     if (status === 'duplicate') {
       // --- Mark-as-duplicate: validate the canonical target -----------------
@@ -199,11 +206,13 @@ export async function PATCH(
       updateData.resolved_at = null;
     }
 
-    const { data, error } = await (adminSupabase.from('bug_reports') as any)
-      .update(updateData)
-      .eq('id', reportId)
-      .select()
-      .single();
+    const { data, error } = await updateWithResolvedBy(updateData, (payload) =>
+      (adminSupabase.from('bug_reports') as any)
+        .update(payload)
+        .eq('id', reportId)
+        .select()
+        .single()
+    );
 
     if (error) throw error;
 

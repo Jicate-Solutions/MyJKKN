@@ -88,6 +88,57 @@ export function StudentDataTable({ search }: StudentDataTableProps) {
     );
   }, [search]);
 
+  // Signature of every filter this page keeps in the URL (i.e. OUTSIDE the
+  // table). The table's page counter is plain React state here — `config` sets
+  // enableUrlState: false — so the `page=1` this page writes into the URL on a
+  // filter change never reaches it. Handed to DataTable as `pageResetKey` so
+  // that a new search lands on page 1 instead of re-requesting the old offset
+  // against a shorter result set (PostgREST: 416 / PGRST103).
+  // `scan` and `page` are deliberately absent: neither changes WHICH learners
+  // match, and including `page` would fight the pagination controls.
+  const filterSignature = React.useMemo(
+    () =>
+      JSON.stringify([
+        search.q ?? '',
+        search.first_name ?? '',
+        search.last_name ?? '',
+        search.roll_number ?? '',
+        search.register_number ?? '',
+        search.mobile_number ?? '',
+        search.institution_id ?? '',
+        search.academic_year_id ?? '',
+        search.degree_id ?? '',
+        search.department_id ?? '',
+        search.program_id ?? '',
+        search.semester_id ?? '',
+        search.section_id ?? '',
+        search.accommodation_type ?? '',
+        search.is_profile_complete ?? '',
+        // The institution the fetch falls back to for non-super-admins; it
+        // arrives with the profile, after the first render.
+        isSuperAdmin ? '' : (userProfile?.institution_id ?? '')
+      ]),
+    [
+      search.q,
+      search.first_name,
+      search.last_name,
+      search.roll_number,
+      search.register_number,
+      search.mobile_number,
+      search.institution_id,
+      search.academic_year_id,
+      search.degree_id,
+      search.department_id,
+      search.program_id,
+      search.semester_id,
+      search.section_id,
+      search.accommodation_type,
+      search.is_profile_complete,
+      isSuperAdmin,
+      userProfile
+    ]
+  );
+
   const fetchData = React.useCallback(
     async (params: {
       page: number;
@@ -343,6 +394,7 @@ export function StudentDataTable({ search }: StudentDataTableProps) {
       fetchDataFn={fetchData}
       getColumns={getColumns}
       refetchKey={refetchKey}
+      pageResetKey={filterSignature}
       exportConfig={{
         entityName: 'students-for-billing',
         // `headers` are DATA KEYS; columnMapping supplies the heading. This

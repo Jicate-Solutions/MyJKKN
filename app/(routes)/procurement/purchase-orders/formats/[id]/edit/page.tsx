@@ -47,8 +47,8 @@ export default function EditPoFormatPage() {
 
   return (
     <ContentLayout title={`Edit: ${format.name}`}>
-      <div className="space-y-6 max-w-5xl">
-        <div className="flex items-center gap-3">
+      <div className="space-y-4 sm:space-y-6 max-w-5xl">
+        <div className="flex min-w-0 items-center gap-3">
           <Button
             variant="ghost"
             size="sm"
@@ -57,9 +57,9 @@ export default function EditPoFormatPage() {
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <div>
-            <h2 className="text-2xl font-bold tracking-tight">{format.name}</h2>
-            <p className="text-muted-foreground">
+          <div className="min-w-0">
+            <h2 className="text-2xl font-bold tracking-tight truncate">{format.name}</h2>
+            <p className="hidden text-muted-foreground sm:block">
               Define the header, item columns and footer used when a purchase order is printed.
             </p>
           </div>

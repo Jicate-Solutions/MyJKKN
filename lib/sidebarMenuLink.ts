@@ -50,6 +50,7 @@ import {
   PlusCircle,
   Clock,
   RefreshCw,
+  QrCode,
   Bug,
   CalendarX2,
   UserCheck,
@@ -1370,6 +1371,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Gated on the WRITE key, not .view: the scan screen exists only to record
   // exits and returns, so a read-only holder has nothing to do there.
   '/campus-living/gate-passes/scan': 'campus_living.gate_passes.edit',
+  // Campus gate (all learners + staff), fed by Service Requests gate-pass types.
+  '/gate-security': 'gate_security.scan.view',
+  '/reports/gate-in-out': 'gate_security.reports.view',
+  // Every signed-in person can raise their own pass (learners are routed to
+  // the Gate Pass service request; team members get a QR immediately).
+  '/gate-pass': 'view_profile',
   // The learner's lane. `.create` is the "Request Gate Pass" key, held by
   // student among others.
   '/campus-living/gate-passes/request': 'campus_living.gate_passes.create',
@@ -1714,6 +1721,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/meetings/availability': 'meetings.view',
   '/meetings/manage': 'meetings.view',
   '/meetings/inbox': 'meetings.view',
+  // Recording a meeting held in a ROOM. Same module gate as the rest of
+  // meetings: the page itself asks fn_may_record_meetings(), which is the real
+  // control — recording is granted to named people, not to a role, so a second
+  // permission key here would add role-config burden without adding protection.
+  '/meetings/record': 'meetings.view',
   // "My Meetings" — the meetings the signed-in user is IN, hosting OR
   // attending. Same gate as the inbox: the page only ever reads the caller's
   // own participation, so a separate key would add role-config burden without
@@ -1768,7 +1780,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/cdc/drives': 'cdc.drives.view',
   '/cdc/drives/new': 'cdc.drives.create',
   '/cdc/drives/[id]': 'cdc.drives.view',
-  '/cdc/drives/[id]/willingness': 'cdc.drives.edit',
+  '/cdc/drives/[id]/responses': 'cdc.drives.view',
+  '/cdc/drives/[id]/notifications': 'cdc.drives.view',
+  '/cdc/drives/[id]/edit': 'cdc.drives.edit',
+  // Staff view = assigned-learner willingness tracker; learners reach the same
+  // path by direct link (self-service, no MENU_PERMISSIONS involvement).
+  '/cdc/drives/[id]/willingness': 'cdc.drives.willingness.view',
+  '/cdc/drives/willingness': 'cdc.drives.willingness.view',
 
   // CDC — Placements
   '/cdc/placements': 'cdc.placements.view',
@@ -1918,6 +1936,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ims/stock/adjustments': 'ims.stock.adjust',
   '/ims/stock/batches': 'ims.stock.view',
   '/ims/stock/department': 'ims.stock.view',
+  '/ims/stock/reorder': 'ims.stock.view',
   '/ims/stock/grn': 'ims.stock.grn.view',
   '/ims/stock/grn/new': 'ims.stock.grn.create',
   '/ims/stock/grn/[id]': 'ims.stock.grn.view',
@@ -2502,6 +2521,32 @@ export function GetPages(pathname: string): MenuGroup[] {
           requiresSuperAdmin: true,
           submenus: []
         } as MenuItem & { requiresSuperAdmin: boolean }
+      ]
+    },
+    {
+      groupLabel: 'Gate Security',
+      menus: [
+        {
+          href: '/gate-pass',
+          label: 'My Gate Pass',
+          active: pathname === '/gate-pass' || pathname.startsWith('/gate-pass/'),
+          icon: QrCode,
+          submenus: []
+        },
+        {
+          href: '/gate-security',
+          label: 'Gate Security',
+          active: pathname === '/gate-security' || pathname.startsWith('/gate-security/'),
+          icon: ShieldCheck,
+          submenus: []
+        },
+        {
+          href: '/reports/gate-in-out',
+          label: 'Gate In/Out Report',
+          active: pathname.startsWith('/reports/gate-in-out'),
+          icon: ClipboardList,
+          submenus: []
+        }
       ]
     },
     {
@@ -3374,6 +3419,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/ims/stock/adjustments', label: 'Stock · Adjustments', active: pathname === '/ims/stock/adjustments' },
             { href: '/ims/stock/batches', label: 'Stock · Batches', active: pathname === '/ims/stock/batches' },
             { href: '/ims/stock/department', label: 'Stock · Department', active: pathname === '/ims/stock/department' },
+            { href: '/ims/stock/reorder', label: 'Stock · Reorder', active: pathname === '/ims/stock/reorder' },
             { href: '/ims/indents', label: 'Indents', active: pathname === '/ims/indents' },
             { href: '/ims/indents/new', label: 'Indents · New', active: pathname === '/ims/indents/new' },
             { href: '/ims/indents/pending', label: 'Indents · Pending Approval', active: pathname === '/ims/indents/pending' },
@@ -3632,6 +3678,10 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/meetings/series/rules', label: 'Scheduling Rules', active: pathname.startsWith('/meetings/series/rules') },
             { href: '/meetings/slate', label: 'Proposed Month', active: pathname.startsWith('/meetings/slate') },
             { href: '/meetings/inbox', label: 'Inbox', active: pathname.startsWith('/meetings/inbox') },
+            // Listed explicitly for the same reason as /meetings/series/rules:
+            // /meetings has no nav-config.ts, so nothing renders a tier-N+1 chip
+            // and the reachability gate would report this page as unreachable.
+            { href: '/meetings/record', label: 'Record a Meeting', active: pathname.startsWith('/meetings/record') },
             // Listed here for the same reason as /meetings/series/rules above:
             // /meetings has no nav-config.ts, so nothing renders a tier-N+1 chip
             // and the reachability gate would report this page as unreachable.
@@ -4062,7 +4112,18 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Campus Drives',
           active: pathname.startsWith('/cdc/drives'),
           icon: Briefcase,
-          submenus: []
+          submenus: [
+            {
+              href: '/cdc/drives',
+              label: 'All Drives',
+              active: pathname.startsWith('/cdc/drives') && pathname !== '/cdc/drives/willingness'
+            },
+            {
+              href: '/cdc/drives/willingness',
+              label: 'Willingness Tracker',
+              active: pathname === '/cdc/drives/willingness'
+            }
+          ]
         },
         {
           href: '/cdc/placements',

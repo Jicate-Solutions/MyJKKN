@@ -6,7 +6,10 @@ import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
 import { CdcDriveService } from '@/lib/services/cdc/drive-service';
-import type { CdcDriveStatus } from '@/types/cdc';
+import { dispatchDueCycles, ensureInitialCycle } from '@/lib/services/cdc/willingness-cycles';
+import type { DriveNotifyResult } from '@/lib/services/cdc/drive-notifications';
+import { createServiceRoleClient } from '@/lib/supabase/server';
+import type { CdcDriveNotifySummary, CdcDriveStatus } from '@/types/cdc';
 
 async function getClient() {
   const cookieStore = await cookies();
@@ -65,7 +68,49 @@ export async function POST(
       user.id
     );
 
-    return NextResponse.json({ data: updated });
+    // Willingness opened → start cycle 1 (window = the drive's open/close
+    // columns, open_at defaults to now). If the cycle is already due it is
+    // notified right here through the shared implementation (bell + web push);
+    // a future-dated open is sent by /api/cron/cdc-willingness-cycles. One
+    // send per cycle. Failures are reported, not fatal: the state change has
+    // already been committed.
+    let notify: CdcDriveNotifySummary | undefined;
+    let notify_error: string | undefined;
+    if (updated.status === 'willingness_open') {
+      try {
+        const service = createServiceRoleClient();
+        await ensureInitialCycle(service, updated, user.id);
+        const dispatched = await dispatchDueCycles(service, { driveId: id });
+        const first = dispatched[0];
+        if (first?.error) throw new Error(first.error);
+        const result = first?.notify ?? {
+          targeted_learners: 0,
+          unlinked_learners: 0,
+          already_notified: 0,
+          notified: 0,
+          skipped: 'scheduled' as const,
+        } as unknown as DriveNotifyResult;
+        notify = {
+          targeted_learners: result.targeted_learners,
+          unlinked_learners: result.unlinked_learners,
+          already_notified: result.already_notified,
+          notified: result.notified,
+          skipped: result.skipped,
+          push: result.push
+            ? {
+                sent: result.push.sent,
+                failed: result.push.failed,
+                total_subscriptions: result.push.total_subscriptions,
+              }
+            : undefined,
+        };
+      } catch (err) {
+        console.error('[cdc/drives/[id]/transition] willingness notification failed', err);
+        notify_error = err instanceof Error ? err.message : 'Notification failed';
+      }
+    }
+
+    return NextResponse.json({ data: updated, notify, notify_error });
   } catch (err) {
     console.error('[cdc/drives/[id]/transition] POST error', err);
     return NextResponse.json(

@@ -613,9 +613,10 @@ export async function deliverPendingOffers(
         source: 'events_waitlist_offer',
         metadata: { event_id: eventId, waitlist_id: row.id },
         idempotencyKey: `events_waitlist_offer:${row.id}`,
-        // Legacy column the events read path still filters on, exactly as
-        // app/api/events/notify/route.ts writes it.
-        extraColumns: { type: 'events' },
+        // No `type: 'events'` envelope: public.notifications has no `type`
+        // column (42703, verified 2026-09-16), so sending it made this insert
+        // throw — the held place was never announced and notified_at never
+        // set. The events inbox matches metadata.source instead.
       });
 
       if (result.notified > 0 || result.skipped === 'idempotent') {

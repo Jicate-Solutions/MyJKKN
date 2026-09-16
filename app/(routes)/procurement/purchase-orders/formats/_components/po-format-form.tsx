@@ -74,12 +74,12 @@ export function PoFormatForm({ institutionId, createdBy, initial, onSave }: PoFo
   };
 
   return (
-    <div className="space-y-6 max-w-5xl">
+    <div className="space-y-4 sm:space-y-6 max-w-5xl">
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Format Details</CardTitle>
         </CardHeader>
-        <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
           <div className="space-y-2">
             <Label htmlFor="format-name">
               Name <span className="text-red-500">*</span>
@@ -135,7 +135,7 @@ export function PoFormatForm({ institutionId, createdBy, initial, onSave }: PoFo
         </CardContent>
       </Card>
 
-      <div className="flex justify-end gap-3">
+      <div className="flex justify-end gap-2 sm:gap-3">
         <Button variant="outline" onClick={() => router.push('/procurement/purchase-orders/formats')} disabled={saving}>
           Cancel
         </Button>

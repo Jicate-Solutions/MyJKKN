@@ -7,12 +7,16 @@
 // and register number are given equal weight to the name.
 
 import Image from 'next/image';
-import { User, Phone, X } from 'lucide-react';
+import { User, Phone, X, GraduationCap, CalendarDays, Users, Hash } from 'lucide-react';
 
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
 import type { SchoolLearnerForPayment } from '@/types/school-fees';
+
+import { SECTION_THEMES } from '../../_components/section-theme';
+
+const T = SECTION_THEMES.collect;
 
 export function LearnerCard({
   learner,
@@ -31,26 +35,29 @@ export function LearnerCard({
   const classLine = [learner.class_name, learner.section_name].filter(Boolean).join(' • ');
 
   return (
-    <Card>
-      <CardContent className="p-4">
+    <Card className={cn('overflow-hidden', T.cardBorder)}>
+      {/* Thin section-colour strip along the top — the card reads as part of
+          the Bill Payment screen even when scrolled away from the banner. */}
+      <div className={cn('h-1.5 w-full', T.headerGradient)} />
+      <CardContent className="p-4 sm:p-5">
         <div className="flex items-start gap-4">
           {/* Photo comes from learners_profiles.student_photo_url (Supabase
               Storage). Only ~210 of 805 school learners have one, so the
               fallback is the common case, not the exception — initials rather
               than a generic silhouette, because at a counter the avatar is
               part of confirming you have the right child. */}
-          <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-full border bg-muted">
+          <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-2xl ring-2 ring-teal-200 ring-offset-2 ring-offset-background dark:ring-teal-800">
             {learner.student_photo_url ? (
               <Image
                 src={learner.student_photo_url}
                 alt={fullName}
                 fill
-                sizes="64px"
+                sizes="80px"
                 className="object-cover"
               />
             ) : (
-              <div className="flex h-full w-full items-center justify-center bg-primary/10 text-lg font-semibold text-primary">
-                {initials || <User className="h-7 w-7 text-muted-foreground" />}
+              <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-teal-500 to-cyan-400 text-2xl font-bold text-white">
+                {initials || <User className="h-8 w-8" />}
               </div>
             )}
           </div>
@@ -58,38 +65,51 @@ export function LearnerCard({
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="min-w-0">
-                <h2 className="text-lg font-semibold truncate">{fullName}</h2>
-                <p className="text-sm text-muted-foreground">
-                  Reg No: {learner.register_number || '—'} &nbsp;•&nbsp; Roll No:{' '}
-                  {learner.roll_number || '—'}
+                <p className={cn('text-[11px] font-semibold uppercase tracking-wider', T.text)}>
+                  Learner
                 </p>
+                <h2 className="text-xl font-bold leading-tight truncate sm:text-2xl">{fullName}</h2>
               </div>
 
-              <Button variant="ghost" size="sm" onClick={onClear} className="shrink-0">
+              <Button variant="outline" size="sm" onClick={onClear} className="shrink-0">
                 <X className="h-4 w-4 mr-1" />
                 Change
               </Button>
             </div>
 
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              {classLine ? <Badge variant="outline">{classLine}</Badge> : null}
-              <Badge variant="outline">{academicYearName}</Badge>
-            </div>
-
-            {(learner.father_name || learner.student_mobile) ? (
-              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                {learner.father_name ? <span>Parent/Guardian: {learner.father_name}</span> : null}
-                {learner.student_mobile ? (
-                  <span className="inline-flex items-center gap-1">
-                    <Phone className="h-3 w-3" />
-                    {learner.student_mobile}
-                  </span>
-                ) : null}
-              </div>
-            ) : null}
+            <dl className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+              <Fact icon={GraduationCap} label="Class" value={classLine || '—'} />
+              <Fact icon={CalendarDays} label="Academic year" value={academicYearName} />
+              <Fact icon={Hash} label="Reg No" value={learner.register_number || '—'} />
+              <Fact icon={Hash} label="Roll No" value={learner.roll_number || '—'} />
+              <Fact icon={Users} label="Parent / Guardian" value={learner.father_name || '—'} />
+              <Fact icon={Phone} label="Mobile" value={learner.student_mobile || '—'} />
+            </dl>
           </div>
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function Fact({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-lg border bg-muted/30 px-2.5 py-1.5 min-w-0">
+      <dt className="flex items-center gap-1 text-[11px] text-muted-foreground">
+        <Icon className="h-3 w-3 shrink-0" />
+        {label}
+      </dt>
+      <dd className="text-sm font-medium truncate" title={value}>
+        {value}
+      </dd>
+    </div>
   );
 }

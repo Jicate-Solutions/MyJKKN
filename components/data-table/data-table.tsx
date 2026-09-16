@@ -55,6 +55,10 @@ import { createKeyboardNavigationHandler } from './utils/keyboard-navigation';
 import { getRowNavigationProps } from './utils/row-navigation';
 import { createConditionalStateHook } from './utils/conditional-state';
 import {
+  shouldResetPageOnFilterKeyChange,
+  shouldResetPageOnSearchChange
+} from './utils/page-reset';
+import {
   initializeColumnSizes,
   trackColumnResizing,
   cleanupColumnResizing
@@ -198,6 +202,15 @@ interface DataTableProps<TData extends ExportableData, TValue> {
 
   // Optional refetch trigger - increment this value to force a data refetch
   refetchKey?: number;
+
+  // Optional signature of the filters the OWNER of this table keeps outside the
+  // table (page-level search boxes, dropdowns in the URL, …). When it changes,
+  // the table goes back to page 1 before the next fetch, because a narrower
+  // filter set usually returns fewer rows and the old offset would then be past
+  // the end of the result (PostgREST answers 416 / PGRST103, not data).
+  // Tables that keep every filter inside the toolbar omit this and behave
+  // exactly as before — `undefined` never compares unequal to itself.
+  pageResetKey?: string | number;
 }
 
 export function DataTable<TData extends ExportableData, TValue>({
@@ -213,7 +226,8 @@ export function DataTable<TData extends ExportableData, TValue>({
   renderToolbarContent,
   renderMobileRow,
   rowHref,
-  refetchKey = 0
+  refetchKey = 0,
+  pageResetKey
 }: DataTableProps<TData, TValue>) {
   const router = useRouter();
   // Load table configuration with any overrides
@@ -250,6 +264,20 @@ export function DataTable<TData extends ExportableData, TValue>({
   const [columnFilters, setColumnFilters] = useConditionalUrlState<
     Array<{ id: string; value: unknown }>
   >('columnFilters', []);
+
+  // External filters changed -> go back to page 1 (see utils/page-reset.ts).
+  // This is deliberately a render-phase update, not an effect: the fetch effect
+  // below would otherwise run FIRST, with the stale page, and that request is
+  // the one that fails with PGRST103. Adjusting state during render makes React
+  // re-render with page 1 before any effect runs, so exactly one fetch is sent.
+  // Inert for every table that does not pass `pageResetKey`.
+  const [seenPageResetKey, setSeenPageResetKey] = useState(pageResetKey);
+  if (pageResetKey !== seenPageResetKey) {
+    setSeenPageResetKey(pageResetKey);
+    if (shouldResetPageOnFilterKeyChange(seenPageResetKey, pageResetKey, page)) {
+      setPage(1);
+    }
+  }
 
   // Internal states
   const [isLoading, setIsLoading] = useState(true);
@@ -750,6 +778,30 @@ export function DataTable<TData extends ExportableData, TValue>({
     [page, pageSize, setPage, setPageSize]
   );
 
+  // The toolbar's search box (and its Reset button) commit through here rather
+  // than straight into `setSearch`, so that a NEW search term always lands on
+  // page 1. Without this the table kept its page counter across the search
+  // change and asked for an offset the shortened result set does not have —
+  // PostgREST answers 416 / PGRST103 and the table renders its error state.
+  // Both setters run in the same tick (the toolbar's debounce timer), so React
+  // batches them into one render and only one fetch is issued. Re-committing an
+  // unchanged term leaves the page alone — see utils/page-reset.ts.
+  const handleSearchChange = useCallback(
+    (value: string | ((prev: string) => string)) => {
+      const nextSearch =
+        typeof value === 'function'
+          ? (value as (prev: string) => string)(search)
+          : value;
+
+      setSearch(nextSearch);
+
+      if (shouldResetPageOnSearchChange(search, nextSearch, page)) {
+        setPage(1);
+      }
+    },
+    [search, setSearch, page, setPage]
+  );
+
   const handleColumnSizingChange = useCallback(
     (
       updaterOrValue:
@@ -1030,7 +1082,7 @@ export function DataTable<TData extends ExportableData, TValue>({
       {tableConfig.enableToolbar && (
         <DataTableToolbar
           table={table}
-          setSearch={setSearch}
+          setSearch={handleSearchChange}
           setDateRange={setDateRange}
           totalSelectedItems={totalSelectedItems}
           deleteSelection={clearAllSelections}

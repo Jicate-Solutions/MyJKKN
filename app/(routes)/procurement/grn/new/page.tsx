@@ -90,6 +90,7 @@ export default function NewGrnPage() {
         batch_number: null,
         expiry_date: null,
         manufacturing_date: null,
+        serial_numbers: null,
         cost: null,
       };
     });
@@ -103,6 +104,26 @@ export default function NewGrnPage() {
   };
 
   const num = (v: string) => (v === '' ? 0 : Number(v));
+
+  // Resize a line's serial-number slots to match its current accepted quantity,
+  // keeping whatever the receiver already typed for the slots that still exist.
+  const resizeSerials = (existing: string[], count: number): string[] =>
+    Array.from({ length: Math.max(0, count) }, (_, i) => existing[i] ?? '');
+
+  const setSerialTracking = (idx: number, on: boolean, acceptedQty: number) =>
+    update(idx, { serial_numbers: on ? resizeSerials([], acceptedQty) : null });
+
+  const setSerialAt = (idx: number, unit: number, value: string) => {
+    setLines((prev) => {
+      const base = prev ?? drafts;
+      return base.map((l, i) => {
+        if (i !== idx || !l.serial_numbers) return l;
+        const next = [...l.serial_numbers];
+        next[unit] = value;
+        return { ...l, serial_numbers: next };
+      });
+    });
+  };
 
   if (!poId) {
     return (
@@ -251,11 +272,27 @@ export default function NewGrnPage() {
         batch_number: l.batch_number,
         expiry_date: l.expiry_date,
         manufacturing_date: l.manufacturing_date,
+        serial_numbers: l.serial_numbers,
         cost: l.cost ?? null,
       }));
 
     if (payload.length === 0) {
       toast.error('Enter a received quantity for at least one line.');
+      return;
+    }
+
+    // Serial tracking, once switched on for a line, must name every accepted unit —
+    // a partial list would post units nobody can trace back to a physical asset.
+    const serialGaps = drafts.filter(
+      (l) =>
+        l.serial_numbers !== null &&
+        (l.serial_numbers.length !== Number(l.accepted_quantity) ||
+          l.serial_numbers.some((s) => !s.trim()))
+    );
+    if (serialGaps.length) {
+      toast.error(
+        `Enter a serial number for every accepted unit — ${serialGaps.length} line(s) incomplete.`
+      );
       return;
     }
 
@@ -324,8 +361,8 @@ export default function NewGrnPage() {
 
   return (
     <ContentLayout title="Receive Goods">
-      <div className="space-y-6 max-w-5xl">
-        <div className="flex items-center gap-3">
+      <div className="space-y-4 sm:space-y-6 max-w-5xl">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           <Button
             variant="ghost"
             size="sm"
@@ -334,9 +371,9 @@ export default function NewGrnPage() {
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <div>
-            <h2 className="text-2xl font-bold tracking-tight">Receive against {po.po_number}</h2>
-            <p className="text-muted-foreground">{po.supplier?.name ?? po.supplier_id}</p>
+          <div className="min-w-0">
+            <h2 className="text-xl sm:text-2xl font-bold tracking-tight truncate">Receive against {po.po_number}</h2>
+            <p className="text-muted-foreground truncate">{po.supplier?.name ?? po.supplier_id}</p>
           </div>
         </div>
 
@@ -353,7 +390,7 @@ export default function NewGrnPage() {
                 <Input
                   type="file"
                   accept=".pdf,image/*"
-                  className="max-w-xs"
+                  className="w-full max-w-xs sm:w-auto"
                   onChange={(e) => setInvoiceFile(e.target.files?.[0] ?? null)}
                 />
                 {invoiceFile?.type === 'application/pdf' && (
@@ -363,7 +400,7 @@ export default function NewGrnPage() {
                   </Button>
                 )}
               </div>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="hidden text-[11px] text-muted-foreground sm:block">
                 AI reads the invoice and fills quantity, unit cost, batch no. &amp; expiry below —
                 review and adjust before confirming. The file is stored on the GRN.
               </p>
@@ -405,7 +442,7 @@ export default function NewGrnPage() {
                         value={tolerancePct}
                         onChange={(e) => setTolerancePct(e.target.value)}
                       />
-                      <p className="text-[11px] text-muted-foreground">
+                      <p className="hidden text-[11px] text-muted-foreground sm:block">
                         A price or quantity gap this small is expected, not a mismatch. 0 = exact.
                       </p>
                     </div>
@@ -419,7 +456,7 @@ export default function NewGrnPage() {
                         value={maxInvoiceAgeDays}
                         onChange={(e) => setMaxInvoiceAgeDays(e.target.value)}
                       />
-                      <p className="text-[11px] text-muted-foreground">
+                      <p className="hidden text-[11px] text-muted-foreground sm:block">
                         Warns on a stale or back-dated bill. Never blocks the receipt.
                       </p>
                     </div>
@@ -436,7 +473,7 @@ export default function NewGrnPage() {
                           Require batch &amp; expiry
                         </Label>
                       </div>
-                      <p className="text-[11px] text-muted-foreground">
+                      <p className="hidden text-[11px] text-muted-foreground sm:block">
                         Applies to every accepted line, not just chemicals. Blocks the receipt
                         until filled.
                       </p>
@@ -451,7 +488,7 @@ export default function NewGrnPage() {
                       value={watchFor}
                       onChange={(e) => setWatchFor(e.target.value)}
                     />
-                    <p className="text-[11px] text-muted-foreground">
+                    <p className="hidden text-[11px] text-muted-foreground sm:block">
                       Passed to the AI reader as your instruction, and kept on the GRN for the
                       verifier.
                     </p>
@@ -501,7 +538,7 @@ export default function NewGrnPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Items received</CardTitle>
-            <p className="text-sm text-muted-foreground">
+            <p className="hidden text-sm text-muted-foreground sm:block">
               For each line: <b>Invoice qty</b> is what the supplier billed, <b>Received</b> is what
               you physically counted. Split what arrived into <b>Accepted</b> (goes into stock) and
               <b> Rejected</b> (does not, and can be replaced later) — together these must not exceed
@@ -524,7 +561,7 @@ export default function NewGrnPage() {
               const traceGap = missingTrace(l);
               return (
                 <div key={l.po_item_id} className="rounded-lg border p-4 space-y-3">
-                  <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center justify-between gap-2 sm:gap-3">
                     <div className="min-w-0">
                       <p className="font-medium truncate">{l.item_name}</p>
                       <p className="text-xs text-muted-foreground">
@@ -556,7 +593,13 @@ export default function NewGrnPage() {
                       <Input
                         type="number"
                         value={l.accepted_quantity}
-                        onChange={(e) => update(idx, { accepted_quantity: num(e.target.value) })}
+                        onChange={(e) => {
+                          const qty = num(e.target.value);
+                          update(idx, {
+                            accepted_quantity: qty,
+                            serial_numbers: l.serial_numbers ? resizeSerials(l.serial_numbers, qty) : null,
+                          });
+                        }}
                       />
                     </div>
                     <div className="space-y-1">
@@ -630,6 +673,43 @@ export default function NewGrnPage() {
                     </div>
                   </div>
 
+                  {/* Serial number capture — Resource Management assets only (e.g. laptops).
+                      Optional per line: the receiver decides at the dock, since a brand-new
+                      item has no real category yet to derive this from automatically. */}
+                  {po.domain === 'resource_mgmt' && (
+                    <div className="space-y-2 rounded-md border border-dashed p-3">
+                      <label className="flex items-center gap-2 text-sm">
+                        <Checkbox
+                          checked={l.serial_numbers !== null}
+                          onCheckedChange={(v) =>
+                            setSerialTracking(idx, !!v, Number(l.accepted_quantity) || 0)
+                          }
+                        />
+                        Track individual serial numbers for this line
+                      </label>
+                      {l.serial_numbers !== null && (
+                        <>
+                          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                            {l.serial_numbers.map((s, unit) => (
+                              <Input
+                                key={unit}
+                                placeholder={`Unit ${unit + 1} serial no.`}
+                                value={s}
+                                onChange={(e) => setSerialAt(idx, unit, e.target.value)}
+                                aria-invalid={!s.trim()}
+                              />
+                            ))}
+                          </div>
+                          {l.serial_numbers.length === 0 && (
+                            <p className="hidden text-xs text-muted-foreground sm:block">
+                              Set an accepted quantity above to enter serial numbers.
+                            </p>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+
                   {Number(l.rejected_quantity) > 0 && (
                     <div className="grid gap-3 sm:grid-cols-2 items-end">
                       <div className="space-y-1">
@@ -689,11 +769,11 @@ export default function NewGrnPage() {
         </Card>
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-muted-foreground">
+          <p className="hidden text-sm text-muted-foreground sm:block">
             Nothing reaches inventory yet. The receipt is saved for verification — a Super Admin
             checks it against the order and the invoice, and only then does accepted stock post.
           </p>
-          <div className="flex justify-end gap-3">
+          <div className="flex justify-end gap-2 sm:gap-3">
             <Button variant="outline" onClick={() => router.push(`/procurement/purchase-orders/${po.id}`)}>
               Cancel
             </Button>

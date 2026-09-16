@@ -27,7 +27,7 @@ const getSupabase = async () => await createServerSupabaseClient() as any;
 // Select string for request queries with common joins
 const REQUEST_SELECT = `
   *,
-  service_type:service_types(id, name, slug, icon, color),
+  service_type:service_types(id, name, slug, icon, color, issues_gate_pass),
   requester:profiles!requester_id(id, full_name, email, avatar_url),
   institution:institutions(id, name)
 `;
@@ -262,6 +262,10 @@ export class ServiceRequestService {
     // Pending state is already represented by service_requests.status +
     // current_approval_step; the approvals table is now the action log only.
 
+    if (initialStatus === 'submitted') {
+      await this.issueStaffGatePassOnSubmit(request.id, serviceType, userId);
+    }
+
     const noApprovalSteps = (serviceType.approval_steps || []).length === 0;
     if (initialStatus === 'submitted' && noApprovalSteps && serviceType.auto_fulfill_on_approval) {
       await this.finalizeAutoApproval(request.id, serviceType, userId, 'submitted');
@@ -269,6 +273,34 @@ export class ServiceRequestService {
     }
 
     return request;
+  }
+
+  /**
+   * Gate Pass category, team-member requester: the pass is issued the moment
+   * the request is submitted. Prior approval is not required for staff /
+   * faculty and a configured approval step must never block the gate. The
+   * DEFINER RPC does nothing for learner requesters (they wait for approval)
+   * and is idempotent per request. Logged, never thrown.
+   */
+  private static async issueStaffGatePassOnSubmit(
+    requestId: string,
+    serviceType: any,
+    userId: string
+  ): Promise<void> {
+    if (!serviceType?.issues_gate_pass) return;
+    const supabase = await getSupabase();
+    const { data: me } = await supabase
+      .from('profiles')
+      .select('learner_id')
+      .eq('id', userId)
+      .maybeSingle();
+    if (me?.learner_id) return; // learner: approval path
+    const { error } = await supabase.rpc('issue_gate_pass_for_service_request', {
+      p_request_id: requestId,
+    });
+    if (error) {
+      console.error('[service-requests] Team-member gate pass issue on submit failed:', error);
+    }
   }
 
   /**
@@ -314,6 +346,16 @@ export class ServiceRequestService {
       });
       if (error) {
         console.error('[service-requests] Auto-approve bus-pass sync failed:', error);
+      }
+    }
+
+    // Gate Pass category with zero approval steps: issue on auto-approval too.
+    if (serviceType.issues_gate_pass) {
+      const { error } = await supabase.rpc('issue_gate_pass_for_service_request', {
+        p_request_id: requestId,
+      });
+      if (error) {
+        console.error('[service-requests] Auto-approve gate pass issue failed:', error);
       }
     }
   }
@@ -426,6 +468,8 @@ export class ServiceRequestService {
     );
 
     const st = request.service_type;
+    await this.issueStaffGatePassOnSubmit(id, st, userId);
+
     const noApprovalSteps = (st?.approval_steps || []).length === 0;
     if (noApprovalSteps && st?.auto_fulfill_on_approval) {
       await this.finalizeAutoApproval(id, st, userId, 'submitted');
