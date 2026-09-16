@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { mapBlockingItems } from '@/lib/notifications/blocking-items';
 
 /**
  * POST /api/notifications/acknowledge
@@ -94,8 +95,10 @@ export async function GET() {
     // Use DB function to bypass PostgREST column cache issues
     // PostgREST silently drops filters on unknown columns (acknowledged_at),
     // causing already-acknowledged notifications to reappear
-    const { data: items, error } = await supabase
-      .rpc('get_unacknowledged_notifications', { p_user_id: user.id });
+    // 2026-09-16: same queue as /api/notifications/pulse (ack + must-answer +
+    // due bug-feedback questions, tagged by `kind`).
+    const { data: items, error } = await (supabase as any)
+      .rpc('get_blocking_items', { p_user_id: user.id });
 
     if (error) {
       console.error('Error fetching unacknowledged notifications:', error);
@@ -105,27 +108,7 @@ export async function GET() {
       );
     }
 
-    const now = new Date();
-    const unacknowledged = (items || []).map((item: any) => {
-      const sentAt = new Date(item.sent_at || item.created_at);
-      const deadlineMs = (item.acknowledgment_deadline_hours || 4) * 60 * 60 * 1000;
-      const deadlineAt = new Date(sentAt.getTime() + deadlineMs);
-
-      return {
-        id: item.id,
-        notification_id: item.notification_id,
-        title: item.title,
-        body: item.body,
-        priority: item.priority,
-        category: item.category,
-        url: item.url,
-        created_by_name: item.created_by_name || 'System',
-        sent_at: item.sent_at || item.created_at,
-        deadline_at: deadlineAt.toISOString(),
-        is_overdue: now > deadlineAt,
-        metadata: item.metadata
-      };
-    });
+    const unacknowledged = mapBlockingItems(items, new Date());
 
     return NextResponse.json({
       unacknowledged,

@@ -93,6 +93,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // "Must answer" (2026-09-16): 2-6 short, distinct options, or the request
+    // is refused — a must-answer notice with nothing to pick would block
+    // every recipient forever.
+    const requiresAnswer = notificationData.requires_answer === true;
+    let answerOptions: string[] | null = null;
+    if (requiresAnswer) {
+      const raw = Array.isArray(notificationData.answer_options) ? notificationData.answer_options : [];
+      answerOptions = Array.from(
+        new Set(raw.map((o) => String(o ?? '').trim()).filter((o) => o.length > 0))
+      ).map((o) => o.slice(0, 40));
+      if (answerOptions.length < 2 || answerOptions.length > 6) {
+        return NextResponse.json(
+          { error: 'A must-answer announcement needs between 2 and 6 distinct answer options' },
+          { status: 400 }
+        );
+      }
+    }
+
     // Find target users BEFORE creating the notification row so we don't
     // leave orphan "ghost notifications" in the table when targeting resolves
     // to zero users. This also lets us fail-closed when an audience-only
@@ -149,6 +167,8 @@ export async function POST(request: NextRequest) {
         metadata: notificationData.metadata || {},
         requires_acknowledgment: notificationData.requires_acknowledgment || false,
         acknowledgment_deadline_hours: notificationData.acknowledgment_deadline_hours || 4,
+        requires_answer: requiresAnswer,
+        answer_options: answerOptions,
         action_type: (notificationData as any).action_type || null,
         action_config: (notificationData as any).action_config || null
       })

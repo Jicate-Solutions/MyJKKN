@@ -7,6 +7,7 @@ import {
   createServiceRoleClient
 } from '@/lib/supabase/server';
 import type { PendingAction } from '@/types/notifications';
+import { mapBlockingItems } from '@/lib/notifications/blocking-items';
 
 /**
  * GET /api/notifications/pulse
@@ -53,14 +54,18 @@ export async function GET(request: NextRequest) {
     // does (the function reads across RLS); the user client for the
     // acknowledgment list, exactly as acknowledge/route.ts does.
     const [ackResult, pendingResult] = await Promise.all([
-      supabase.rpc('get_unacknowledged_notifications', { p_user_id: user.id }),
+      // 2026-09-16: get_blocking_items = the old acknowledgment list PLUS
+      // "must answer" announcements and the person's due "is this fixed for
+      // you?" questions, each row tagged with `kind`. Ack rows keep their
+      // field names, so nothing downstream changes for them.
+      (supabase as any).rpc('get_blocking_items', { p_user_id: user.id }),
       wantPending
         ? (createServiceRoleClient() as any).rpc('get_pending_actions', { p_user_id: user.id })
         : Promise.resolve({ data: null, error: null })
     ]);
 
     if (ackResult.error) {
-      console.error('[notifications/pulse] get_unacknowledged_notifications error:', ackResult.error);
+      console.error('[notifications/pulse] get_blocking_items error:', ackResult.error);
       return NextResponse.json(
         { error: 'Failed to fetch unacknowledged notifications' },
         { status: 500 }
@@ -75,28 +80,9 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // --- unacknowledged: same mapping as acknowledge/route.ts GET ---
+    // --- unacknowledged: one shared mapping with acknowledge/route.ts GET ---
     const now = new Date();
-    const unacknowledged = (ackResult.data || []).map((item: any) => {
-      const sentAt = new Date(item.sent_at || item.created_at);
-      const deadlineMs = (item.acknowledgment_deadline_hours || 4) * 60 * 60 * 1000;
-      const deadlineAt = new Date(sentAt.getTime() + deadlineMs);
-
-      return {
-        id: item.id,
-        notification_id: item.notification_id,
-        title: item.title,
-        body: item.body,
-        priority: item.priority,
-        category: item.category,
-        url: item.url,
-        created_by_name: item.created_by_name || 'System',
-        sent_at: item.sent_at || item.created_at,
-        deadline_at: deadlineAt.toISOString(),
-        is_overdue: now > deadlineAt,
-        metadata: item.metadata
-      };
-    });
+    const unacknowledged = mapBlockingItems(ackResult.data, now);
 
     // --- pending: same counts as pending-actions/route.ts; null when not asked ---
     let pending: { actions: PendingAction[]; urgent_count: number; tracked_count: number } | null = null;

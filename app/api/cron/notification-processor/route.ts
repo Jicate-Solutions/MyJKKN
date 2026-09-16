@@ -37,6 +37,10 @@ export async function GET(request: NextRequest) {
   const results = {
     reminders_sent: 0,
     escalations_processed: 0,
+    // 2026-09-16: the bug-feedback step
+    bug_feedback_dropped: 0,
+    bug_feedback_released: 0,
+    bug_feedback_reminders: 0,
     errors: [] as string[],
   };
 
@@ -64,21 +68,18 @@ export async function GET(request: NextRequest) {
       }, { status: 500 });
     }
 
+    // 2026-09-16: no early return here any more — Step 3 (bug-feedback
+    // questions) must run even on an hour with no mandatory notice.
     if (!mandatoryNotifs || mandatoryNotifs.length === 0) {
       console.log('[cron/notification-processor] No mandatory notifications to process');
-      return NextResponse.json({
-        ...results,
-        message: 'No mandatory notifications to process',
-        duration_ms: Date.now() - startTime,
-      });
+    } else {
+      console.log(`[cron/notification-processor] Found ${mandatoryNotifs.length} mandatory notification(s) to check`);
     }
-
-    console.log(`[cron/notification-processor] Found ${mandatoryNotifs.length} mandatory notification(s) to check`);
 
     // ----------------------------------------------------------------
     // Step 2: Process each mandatory notification
     // ----------------------------------------------------------------
-    for (const notif of mandatoryNotifs) {
+    for (const notif of mandatoryNotifs ?? []) {
       try {
         const sentAt = new Date(notif.sent_at);
         const deadlineHours = notif.acknowledgment_deadline_hours || 24;
@@ -213,11 +214,84 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    console.log(`[cron/notification-processor] Complete. Reminders: ${results.reminders_sent}, Escalations: ${results.escalations_processed}, Errors: ${results.errors.length}`);
+    // ----------------------------------------------------------------
+    // Step 3 (2026-09-16): the reporter's "is this fixed for you?" questions.
+    //   ruling 8 — drop rows whose reporter is gone/disabled (no signal)
+    //   E4      — release questions queued by the 3-at-a-time cap
+    //   ruling 3 — ONE push reminder at fix live + 14 days, never repeated
+    //             (reminded_at stamps it). The blocking screen itself is the
+    //             ask; this is only the nudge for someone who has not signed in.
+    // ----------------------------------------------------------------
+    try {
+      const svc = serviceClient as any;
+      const { data: dropRes, error: dropErr } = await svc.rpc('fn_bug_feedback_drop_gone_reporters');
+      if (dropErr) {
+        results.errors.push(`Bug-feedback drop sweep error: ${dropErr.message}`);
+      } else {
+        results.bug_feedback_dropped = Number(dropRes?.dropped ?? 0);
+      }
+
+      const { data: queuedReporters, error: queuedErr } = await svc
+        .from('bug_fix_feedback_requests')
+        .select('reporter_user_id')
+        .eq('status', 'pending_send')
+        .limit(200);
+      if (queuedErr) {
+        results.errors.push(`Bug-feedback queued fetch error: ${queuedErr.message}`);
+      } else {
+        const reporters = Array.from(new Set((queuedReporters ?? []).map((r: any) => r.reporter_user_id).filter(Boolean)));
+        for (const reporterId of reporters) {
+          const { data: released, error: relErr } = await svc.rpc('fn_bug_feedback_release_queued', {
+            p_reporter_user_id: reporterId,
+          });
+          if (relErr) results.errors.push(`Bug-feedback release error for a reporter: ${relErr.message}`);
+          else results.bug_feedback_released += Number(released ?? 0);
+        }
+      }
+
+      const nowIso = now.toISOString();
+      const { data: dueReminders, error: remErr } = await svc
+        .from('bug_fix_feedback_requests')
+        .select('id, reporter_user_id, bug_reports:bug_id (display_id)')
+        .in('status', ['sent', 'delivered'])
+        .lte('remind_at', nowIso)
+        .is('reminded_at', null)
+        .gt('expires_at', nowIso)
+        .limit(200);
+      if (remErr) {
+        results.errors.push(`Bug-feedback reminder fetch error: ${remErr.message}`);
+      } else if (dueReminders && dueReminders.length > 0) {
+        for (const row of dueReminders as any[]) {
+          const displayId = row.bug_reports?.display_id ?? 'a bug you reported';
+          const sent = await sendPushToUsers(serviceClient, [row.reporter_user_id], {
+            title: `Is ${displayId} fixed for you?`,
+            body: 'A problem you reported was fixed two weeks ago. Sign in and tap Fixed or Not fixed — it takes one second and keeps the fixes honest.',
+            icon: '/icons/icon-192x192.png',
+            url: '/my-bug-reports',
+            data: { request_id: row.id, type: 'bug_feedback_reminder' },
+          });
+          results.bug_feedback_reminders += sent;
+          // Stamp regardless of push success: the reminder is offered once.
+          // (No push subscription = nothing to remind through; the blocking
+          // screen still asks on the next sign-in.)
+          const { error: stampErr } = await svc
+            .from('bug_fix_feedback_requests')
+            .update({ reminded_at: nowIso, updated_at: nowIso })
+            .eq('id', row.id);
+          if (stampErr) results.errors.push(`Bug-feedback reminder stamp error: ${stampErr.message}`);
+        }
+      }
+    } catch (bugFeedbackError) {
+      const errMsg = bugFeedbackError instanceof Error ? bugFeedbackError.message : String(bugFeedbackError);
+      console.error('[cron/notification-processor] Bug-feedback step failed:', bugFeedbackError);
+      results.errors.push(`Bug-feedback step error: ${errMsg}`);
+    }
+
+    console.log(`[cron/notification-processor] Complete. Reminders: ${results.reminders_sent}, Escalations: ${results.escalations_processed}, Bug-feedback reminders: ${results.bug_feedback_reminders}, Errors: ${results.errors.length}`);
 
     return NextResponse.json({
       ...results,
-      notifications_checked: mandatoryNotifs.length,
+      notifications_checked: mandatoryNotifs?.length ?? 0,
       duration_ms: Date.now() - startTime,
     });
   } catch (error) {
