@@ -8111,7 +8111,7 @@ CREATE TABLE IF NOT EXISTS public.course_bill_payments (
 -- one row per bill that all share the same payment id. The guarantee is now
 -- "this bill can't be credited twice for this payment", not "this payment
 -- can only ever touch one row". Mirrors migration
--- 20260916120000_course_bill_payments_multi_bill_idempotency.sql.
+-- 20260916161000_course_bill_payments_multi_bill_idempotency.sql.
 CREATE UNIQUE INDEX IF NOT EXISTS course_bill_payments_rzp_payment_bill_uniq
   ON public.course_bill_payments (razorpay_payment_id, bill_id)
   WHERE razorpay_payment_id IS NOT NULL;
