@@ -947,6 +947,7 @@
     "hr.sanctioned_posts.view",
     "hr.shift_timings.manage",
     "hr.shift_timings.view",
+    "hr.staff_photo.review",
     "hr.training.create",
     "hr.training.delete",
     "hr.training.edit",
