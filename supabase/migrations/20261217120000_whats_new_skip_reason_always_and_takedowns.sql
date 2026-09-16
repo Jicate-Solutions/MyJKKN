@@ -1,13 +1,17 @@
 -- =====================================================================
--- What's New — every takedown records why, and two write-ups come down
+-- What's New — the skip reasons the writer needs, the missing reasons
+-- backfilled, and two write-ups taken down
 -- =====================================================================
 -- Created: 2026-09-15 (Director: "fix all issues once and for all")
+-- SPLIT:   2026-09-16 — see "WHAT IS NOT IN THIS FILE" below.
 --
 -- FILE ONLY. The operator applies it at merge. No table is created, no column
--- is added, no policy or grant changes. Four things happen, in this order:
+-- is added, no policy or grant changes. Three things happen, in this order:
 --
 --   (1) The skip_reason CHECK admits two new values, 'vocab' and 'security',
---       which the cron now writes (app/api/cron/whats-new-highlight-drafts).
+--       which the cron writes once this PR's code is deployed
+--       (app/api/cron/whats-new-highlight-drafts). Widening a CHECK never
+--       breaks an older writer, so this is safe ahead of the deploy.
 --   (2) BACKFILL. skip_reason was NULL on all 95 skipped rows on 2026-09-15 —
 --       49 of them written AFTER the column landed — because only the
 --       takedown path ever set it. Before that path existed a row could reach
@@ -23,18 +27,25 @@
 --                 Application Hub apps" — production has ONE app key and
 --                 multi-app display is gated on a usage recorder that is not
 --                 built (Director ruling). skip_reason = 'person'.
---   (4) THE 64 VOCABULARY OFFENDERS ARE RE-RUN, NOT HAND-EDITED. Every
---       machine-written, never-reviewed, approved write-up whose three lines
---       carry student/students/faculty/staff is DELETED. No row means the
---       entry re-qualifies for selection, and the cron writes it up again
---       through the output gate — retry once with the words named, then
---       'skipped' / 'vocab'. A human-written row is never touched, and a row a
---       person has reviewed is never touched (ruling 5).
 --
--- Then the guarantee: a CHECK that a 'skipped' row MUST carry a skip_reason,
--- added only after the backfill has proven there are none left without one.
--- It constrains 'skipped' rows ONLY — a restore (status back to 'approved')
--- keeps its old skip_reason, exactly as 20261216113700 intended.
+-- ---------------------------------------------------------------------
+-- WHAT IS NOT IN THIS FILE, AND WHY (split 2026-09-16)
+-- ---------------------------------------------------------------------
+-- Two further steps were written here and have been MOVED OUT, to
+--   supabase/manual/20261217121000_whats_new_strict_skip_reason_and_vocab_rerun.sql
+-- because neither is safe to apply while the CURRENTLY DEPLOYED code is live:
+--
+--   * changelog_highlights_skipped_has_reason_check — the CHECK that every
+--     skipped row must carry a reason. The deployed cron inserts
+--     status = 'skipped' with no skip_reason field, so this CHECK would make
+--     that insert fail on every run until the deploy carrying this PR lands.
+--   * The DELETE of the machine-written approved write-ups carrying a
+--     forbidden word. Deleting them re-qualifies those entries for selection,
+--     and the deployed writer has no vocabulary gate — it would rewrite them
+--     with the same words and publish them again.
+--
+-- Both belong in the SAME window as the deploy of this PR's code. The moved
+-- file carries the assertions that go with them.
 --
 -- GRANTS, both directions, asserted and not changed. The approval queue
 -- writes as the signed-in user under changelog_highlights_manage and NEEDS
@@ -58,10 +69,10 @@ ALTER TABLE public.changelog_highlights
          OR skip_reason IN ('reverted', 'reported', 'person', 'ai_refused', 'vocab', 'security'));
 
 COMMENT ON COLUMN public.changelog_highlights.skip_reason IS
-  'Why this write-up is (or was last) skipped, as a QUERYABLE value: reverted = the change is no longer on the branch (ruling 6, matched by changelog_entries.reverted_by_sha); reported = enough distinct readers flagged it (Director 2026-09-13 22:20, threshold in platform_policies); person = a super admin hid it; ai_refused = the writer said the change has no user-visible effect; vocab = the writer used a forbidden word (student/faculty/staff) twice and was never published; security = the commit describes a closed access hole and was never published. Since 2026-09-15 a skipped row MUST carry one (changelog_highlights_skipped_has_reason_check). Read WITH status — it is not cleared on restore, on purpose: it is the record of the last takedown.';
+  'Why this write-up is (or was last) skipped, as a QUERYABLE value: reverted = the change is no longer on the branch (ruling 6, matched by changelog_entries.reverted_by_sha); reported = enough distinct readers flagged it (Director 2026-09-13 22:20, threshold in platform_policies); person = a super admin hid it; ai_refused = the writer said the change has no user-visible effect; vocab = the writer used a forbidden word twice and was never published; security = the commit describes a closed access hole and was never published. Becomes MANDATORY on skipped rows (changelog_highlights_skipped_has_reason_check) when supabase/manual/20261217121000 is applied alongside the deploy that carries the output gate — not before, because the currently deployed cron writes skipped rows without one. Read WITH status — it is not cleared on restore, on purpose: it is the record of the last takedown.';
 
 -- ---------------------------------------------------------------------
--- (2) BACKFILL — the 95 skipped rows that never said why
+-- (2) BACKFILL — the skipped rows that never said why
 -- ---------------------------------------------------------------------
 -- Two ways a row could have reached 'skipped' before any takedown path
 -- existed, and reviewed_at tells them apart exactly: the queue's PUT stamps it
@@ -144,69 +155,12 @@ END
 $takedowns$;
 
 -- ---------------------------------------------------------------------
--- (4) THE VOCABULARY OFFENDERS — re-run through the gate, not hand-edited
+-- VERIFY — the end state THIS FILE earns, checked rather than assumed
 -- ---------------------------------------------------------------------
--- The same word-boundary test the cron's forbiddenVocabulary() applies:
--- student, students, faculty, staff — case-insensitive, whole words only, in
--- any of the three lines. \y is Postgres's word boundary.
---
--- DELETED, not skipped: a 'skipped' row is never re-offered to the writer
--- (ruling 5 keys on the row existing), so the only way to re-run these through
--- the gate is for the row not to exist. Reports filed against them survive —
--- changelog_highlight_reports references changelog_entries, not this table.
---
--- ONLY machine-written, never-reviewed, approved rows. A person's words, and a
--- row a person has decided, are theirs (ruling 5) and are counted but left.
-DO $vocab$
-DECLARE
-  n_deleted integer;
-  n_human   integer;
-BEGIN
-  SELECT count(*) INTO n_human FROM public.changelog_highlights
-   WHERE status = 'approved'
-     AND (source = 'human' OR reviewed_at IS NOT NULL)
-     AND (COALESCE(headline, '') || ' ' || COALESCE(affects, '') || ' ' || COALESCE(action, ''))
-         ~* '\y(students?|faculty|staff)\y';
-  IF n_human > 0 THEN
-    RAISE NOTICE 'vocabulary: % person-owned approved row(s) carry a forbidden word — left for the queue, not touched', n_human;
-  END IF;
-
-  DELETE FROM public.changelog_highlights
-   WHERE status = 'approved'
-     AND source = 'ai'
-     AND reviewed_at IS NULL
-     AND (COALESCE(headline, '') || ' ' || COALESCE(affects, '') || ' ' || COALESCE(action, ''))
-         ~* '\y(students?|faculty|staff)\y';
-  GET DIAGNOSTICS n_deleted = ROW_COUNT;
-  RAISE NOTICE 'vocabulary: % machine-written approved row(s) deleted for re-run through the output gate', n_deleted;
-END
-$vocab$;
-
--- ---------------------------------------------------------------------
--- THE GUARANTEE — a skipped row must say why, from here on
--- ---------------------------------------------------------------------
-DO $guard$
-DECLARE
-  n integer;
-BEGIN
-  SELECT count(*) INTO n FROM public.changelog_highlights
-   WHERE status = 'skipped' AND skip_reason IS NULL;
-  IF n > 0 THEN
-    RAISE EXCEPTION '% skipped row(s) still carry no skip_reason after the backfill — the CHECK would fail; aborting', n;
-  END IF;
-END
-$guard$;
-
-ALTER TABLE public.changelog_highlights
-  DROP CONSTRAINT IF EXISTS changelog_highlights_skipped_has_reason_check;
-
-ALTER TABLE public.changelog_highlights
-  ADD CONSTRAINT changelog_highlights_skipped_has_reason_check
-  CHECK (status <> 'skipped' OR skip_reason IS NOT NULL);
-
--- ---------------------------------------------------------------------
--- VERIFY — the end state, checked rather than assumed
--- ---------------------------------------------------------------------
+-- The three assertions that belong to the held half (the strict CHECK exists,
+-- zero skipped rows carry a NULL reason from here on, no machine-written
+-- approved row carries a forbidden word) live in
+-- supabase/manual/20261217121000, with the statements that earn them.
 DO $assert$
 BEGIN
   -- (1) both new reasons are representable, and the old four still are
@@ -224,21 +178,15 @@ BEGIN
     RAISE EXCEPTION 'the skip_reason CHECK does not admit all six reasons';
   END IF;
 
-  -- the guarantee is in place
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-     WHERE conrelid = 'public.changelog_highlights'::regclass
-       AND conname  = 'changelog_highlights_skipped_has_reason_check'
-  ) THEN
-    RAISE EXCEPTION 'changelog_highlights_skipped_has_reason_check is missing';
-  END IF;
-
-  -- (2) zero skipped rows without a reason
+  -- (2) the backfill left no skipped row without a reason AT THIS MOMENT.
+  -- This is not a standing guarantee — the deployed cron still writes skipped
+  -- rows with no reason, and will until this PR's code is deployed. The
+  -- standing guarantee is the CHECK in supabase/manual/20261217121000.
   IF EXISTS (
     SELECT 1 FROM public.changelog_highlights
      WHERE status = 'skipped' AND skip_reason IS NULL
   ) THEN
-    RAISE EXCEPTION 'a skipped row with NULL skip_reason survived';
+    RAISE EXCEPTION 'a skipped row with NULL skip_reason survived the backfill';
   END IF;
 
   -- (3) both named write-ups are down, with their reasons
@@ -253,16 +201,6 @@ BEGIN
      WHERE app_key = 'myjkkn' AND sha LIKE '64116db%' AND status = 'approved'
   ) THEN
     RAISE EXCEPTION '64116db is still approved';
-  END IF;
-
-  -- (4) no machine-written approved row carries a forbidden word
-  IF EXISTS (
-    SELECT 1 FROM public.changelog_highlights
-     WHERE status = 'approved' AND source = 'ai' AND reviewed_at IS NULL
-       AND (COALESCE(headline, '') || ' ' || COALESCE(affects, '') || ' ' || COALESCE(action, ''))
-           ~* '\y(students?|faculty|staff)\y'
-  ) THEN
-    RAISE EXCEPTION 'a machine-written approved write-up still carries a forbidden word';
   END IF;
 
   -- GRANTS, both directions. This file changes none; it proves the queue can
