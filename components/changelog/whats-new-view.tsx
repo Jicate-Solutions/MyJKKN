@@ -460,7 +460,7 @@ export function WhatsNewView() {
   const searchNotice = !wantsWholeHistory
     ? null
     : loadingArchive
-      ? 'Still searching the earlier changes — this count will grow.'
+      ? 'Still searching the earlier changes — more results may appear.'
       : archiveError
         ? 'Earlier changes could not be searched, so some results may be missing.'
         : null;
@@ -706,10 +706,15 @@ export function WhatsNewView() {
         A COUNT THAT IS STILL GROWING HAS TO SAY SO.
 
         The load above takes a second or two, and for that second the reader is
-        looking at a number that is about to change. Letting it grow in silence
-        would be the same lie the half-searched list was — a confident figure
+        looking at a list that is about to get longer. Letting it grow in
+        silence would be the same lie the half-searched list was — an answer
         that turns out not to have been the answer — so the page says plainly
         that it is not finished, and says plainly when it could not finish.
+
+        IT TALKS ABOUT RESULTS, NOT A COUNT, because the count is not on screen:
+        the running total lives only in the screen-reader region below. An
+        earlier draft read "this count will grow", which names something a
+        sighted reader cannot see.
 
         VISIBLE HERE, ANNOUNCED BELOW. This element is conditional, and a live
         region inserted at the moment its text arrives is not reliably read out
