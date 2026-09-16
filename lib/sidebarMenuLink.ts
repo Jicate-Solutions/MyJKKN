@@ -46,6 +46,7 @@ import {
   Flame,
   FolderTree,
   Calendar,
+  Camera,
   FileBarChart,
   PlusCircle,
   Clock,
@@ -468,6 +469,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // The hr.employees.create/edit KEYS stay in lib/constants/permissions.ts —
   // roles still hold them in custom_roles.permissions JSONB, so removing them
   // from the catalog would only hide them from Role Management, not revoke.
+  // The photograph approval queue. Mapped explicitly because without an entry
+  // it would fall through to '/hr' -> 'hr.view', which is far broader than the
+  // act it guards: approving is what puts a face on an identity card.
+  //
+  // Its counterpart /my-photo has NO entry here on purpose — see the sidebar
+  // row below and the page header.
+  '/hr/staff-photos': 'hr.staff_photo.review',
   '/hr/employees': 'hr.employees.view',
   '/hr/employees/[id]': 'hr.employees.view',
   // WHO PAYS each team member. This entry is load-bearing, not decorative:
@@ -3073,6 +3081,11 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: Users,
           submenus: [
             { href: '/staff/list', label: 'Employee List', active: pathname === '/staff/list' },
+            // Approving a photograph is what makes it printable on an identity
+            // card, so it sits with the people records rather than with leave.
+            // Gated on hr.staff_photo.review in MENU_PERMISSIONS, so the 61
+            // roles holding staff.view do not all see it — only reviewers do.
+            { href: '/hr/staff-photos', label: 'Staff Photographs', active: pathname.startsWith('/hr/staff-photos') },
           ]
         },
         {
@@ -3812,6 +3825,20 @@ export function GetPages(pathname: string): MenuGroup[] {
           // (fn_my_pending_event_feedback reads auth.uid() and takes no
           // argument), so anyone with nothing to answer sees an empty state
           // rather than a refusal.
+          // ALWAYS VISIBLE, no MENU_PERMISSIONS entry, self-scoped by its
+          // function (fn_submit_my_staff_photo reads auth.uid() and takes no
+          // person as an argument), for the same reason /my-event-feedback is.
+          // Everyone who carries an identity card needs a way to send a
+          // photograph, including staff whose employment category sets
+          // included_in_hr = false: they take no part in HR and still hold a
+          // card. Putting this under /hr would have hidden it from them.
+          href: '/my-photo',
+          label: 'My Photograph',
+          active: pathname.startsWith('/my-photo'),
+          icon: Camera,
+          submenus: []
+        },
+        {
           href: '/my-event-feedback',
           label: 'Event Feedback',
           active: pathname.startsWith('/my-event-feedback'),
@@ -4477,6 +4504,22 @@ export function GetRoleBasedPages(
           // or on a permission nobody holds. Always visible, same pattern as
           // /guide and /my-induction-sessions.
           if (menu.href === '/my-event-feedback') return true;
+
+          // "My Photograph" is SELF-SCOPED in the strongest sense available:
+          // fn_submit_my_staff_photo() resolves the staff row from auth.uid()
+          // and takes no person as an argument, so a caller can only ever act
+          // on themselves, and a login with no staff record is told so rather
+          // than refused silently.
+          //
+          // It deliberately has no MENU_PERMISSIONS entry. Everyone who carries
+          // an identity card needs a way to send a photograph — including the
+          // staff whose employment category sets included_in_hr = false, who
+          // take no part in HR and still hold a card, and who would therefore
+          // be the first people an HR-tier key excluded. The default-deny below
+          // would hide an unmapped route from every non-super-admin, which is
+          // the entire population this row exists for. Always visible, same
+          // pattern as /guide, /my-induction-sessions and /my-event-feedback.
+          if (menu.href === '/my-photo') return true;
 
           // Check if menu requires super admin
           if ((menu as any).requiresSuperAdmin) {
