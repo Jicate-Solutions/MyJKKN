@@ -129,6 +129,45 @@ export interface ImsStockFilters {
   limit?: number;
 }
 
+/**
+ * Why an item is on a store's reorder list (ims_store_reorder_list).
+ * 'unset_reorder_level' items have no threshold, so they are listed for
+ * configuration rather than ordering.
+ */
+export type ImsReorderStatus = 'out_of_stock' | 'low_stock' | 'unset_reorder_level';
+
+/** One row of ims_store_reorder_list — the store's assortment, not its stock rows. */
+export interface ImsReorderRow {
+  item_id: string;
+  item_code: string | null;
+  item_name: string;
+  category_name: string | null;
+  unit_id: string | null;
+  unit_abbreviation: string | null;
+  on_hand: number;
+  reorder_level: number;
+  max_stock_level: number;
+  status: ImsReorderStatus;
+  /** Top-up to max level (2x reorder level when max is not above it); null when unset. */
+  suggested_quantity: number | null;
+  /** Newest draft/submitted/approved IMS request already carrying this item. */
+  open_request_id: string | null;
+  open_request_number: string | null;
+  open_request_status: string | null;
+}
+
+export interface ImsReorderRequestLine {
+  item_id: string;
+  quantity: number;
+}
+
+export interface ImsReorderRequestResult {
+  id: string;
+  request_number: string;
+  status: 'submitted' | 'draft';
+  item_count: number;
+}
+
 export interface ImsBatchFilters {
   item_id?: string;
   location_type?: ImsLocationType;

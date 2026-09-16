@@ -126,7 +126,7 @@ export function InstitutionDashboard() {
     data: lowStockItems,
     isLoading: lowStockLoading,
     refetch: refetchLowStock,
-  } = useImsLowStockItems(storeId || '', institutionId);
+  } = useImsLowStockItems(storeId || '');
 
   const {
     data: recentActivity,
@@ -297,9 +297,9 @@ export function InstitutionDashboard() {
                         Items below their reorder level
                       </CardDescription>
                     </div>
-                    {(alerts?.low_stock ?? 0) > 0 && (
+                    {(lowStockItems?.length ?? 0) > 0 && (
                       <Badge variant="destructive">
-                        {alerts?.low_stock} items
+                        {lowStockItems?.length} items
                       </Badge>
                     )}
                   </div>
@@ -358,7 +358,7 @@ export function InstitutionDashboard() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => router.push('/ims/stock?filter=low_stock')}
+                            onClick={() => router.push('/ims/stock/reorder')}
                           >
                             View all {lowStockItems.length} items
                             <ArrowRight className="h-4 w-4 ml-1" />
