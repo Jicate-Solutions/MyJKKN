@@ -155,7 +155,7 @@ const STALENESS_FLOOR = 0.9;
  *  colliding with — or being pruned by — any other application that syncs into the
  *  same table. It must match the column's DEFAULT in the migration.
  *
- *  IT MUST ALSO STAY THE DEFAULT. The daily job in whats-new-refresh.yml passes no
+ *  IT MUST ALSO STAY THE DEFAULT. The quarter-hourly job in whats-new-refresh.yml passes no
  *  app key, so changing this silently changes which history the live page shows. */
 export const DEFAULT_APP_KEY = 'myjkkn';
 

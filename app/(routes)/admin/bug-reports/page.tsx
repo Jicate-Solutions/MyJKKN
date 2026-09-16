@@ -326,7 +326,8 @@ function AdminBugReportsContent() {
       search: searchParams.get('search') || undefined,
       resolved_mode: resolvedMode,
       resolved_from: resolvedFrom,
-      resolved_to: resolvedTo
+      resolved_to: resolvedTo,
+      resolved_by: tab === 'resolved' ? searchParams.get('resolved_by') || undefined : undefined
     };
   }, [searchParams]);
 
@@ -375,6 +376,7 @@ function AdminBugReportsContent() {
         }
         if (nf.resolved_from) params.set('resolved_from', nf.resolved_from);
         if (nf.resolved_to) params.set('resolved_to', nf.resolved_to);
+        if (nf.resolved_by) params.set('resolved_by', nf.resolved_by);
       }
       if (nf.page && nf.page !== 1) params.set('page', String(nf.page));
       if (nf.limit && nf.limit !== 10) params.set('limit', String(nf.limit));
@@ -494,6 +496,21 @@ function AdminBugReportsContent() {
         resolved_mode: value === 'resolved' ? prev.resolved_mode : undefined,
         resolved_from: value === 'resolved' ? prev.resolved_from : undefined,
         resolved_to: value === 'resolved' ? prev.resolved_to : undefined,
+        resolved_by: value === 'resolved' ? prev.resolved_by : undefined,
+        page: 1
+      }));
+      setSelectedReports([]);
+    },
+    [setFilters]
+  );
+
+  /** Filter the Resolved tab to one person (or clear it when already active). */
+  const toggleResolverFilter = useCallback(
+    (resolverId: string | null) => {
+      setFilters((prev) => ({
+        ...prev,
+        resolved_by:
+          !resolverId || prev.resolved_by === resolverId ? undefined : resolverId,
         page: 1
       }));
       setSelectedReports([]);
@@ -733,6 +750,18 @@ function AdminBugReportsContent() {
         ]);
       }
 
+      // Who resolved how many, for the same period as the report.
+      const resolverRows = statsData?.resolvers ?? [];
+      if (resolverRows.length > 0) {
+        summary.push([], ['Resolved by', 'Bugs']);
+        for (const resolver of resolverRows) {
+          summary.push([
+            resolver.resolver_name ?? resolver.resolver_email ?? 'Not recorded',
+            resolver.resolved_count
+          ]);
+        }
+      }
+
       const bugRows = rows.map((bug) => ({
         'Bug ID': bug.display_id,
         Category: bug.category ?? '',
@@ -744,6 +773,8 @@ function AdminBugReportsContent() {
         Department: bug.department_name ?? '',
         Created: formatDateTime(bug.created_at),
         Resolved: formatDateTime(bug.resolved_at),
+        'Resolved By': bug.resolved_by_name ?? 'Not recorded',
+        'Resolved By Email': bug.resolved_by_email ?? '',
         Description: bug.description ?? '',
         'Page URL': bug.page_url ?? ''
       }));
@@ -769,7 +800,8 @@ function AdminBugReportsContent() {
     hasResolvedDateFilter,
     institutions,
     departments,
-    tabCountsData?.resolvedMissingDate
+    tabCountsData?.resolvedMissingDate,
+    statsData?.resolvers
   ]);
 
   const handleSelectAll = useCallback(() => {
@@ -930,6 +962,27 @@ function AdminBugReportsContent() {
               )}
           </div>
         )
+      },
+      {
+        // Who marked it resolved. Bugs resolved before this was recorded show "—".
+        accessorKey: 'resolved_by_name',
+        header: 'Resolved By',
+        cell: ({ row }) => {
+          const name = row.original.resolved_by_name;
+          if (!name) {
+            return <span className='text-xs text-muted-foreground'>—</span>;
+          }
+          return (
+            <div className='text-xs sm:text-sm min-w-[120px]'>
+              <div className='font-medium'>{name}</div>
+              {row.original.resolved_by_email && (
+                <div className='text-gray-500 dark:text-gray-400 text-xs truncate max-w-[150px]'>
+                  {row.original.resolved_by_email}
+                </div>
+              )}
+            </div>
+          );
+        }
       },
       {
         id: 'actions',
@@ -1252,7 +1305,7 @@ function AdminBugReportsContent() {
                     <Search className='absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground' />
                     <Input
                       type='text'
-                      placeholder='Search by name or email...'
+                      placeholder='Search by Bug ID, name or email...'
                       value={searchInput}
                       onChange={(e) => setSearchInput(e.target.value)}
                       className='pl-8 pr-8'
@@ -1603,6 +1656,49 @@ function AdminBugReportsContent() {
                           include them.
                         </p>
                       )}
+
+                    {/* Who resolved how many, for the selected period. Click to filter. */}
+                    {(statsData?.resolvers?.length ?? 0) > 0 && (
+                      <div className='flex flex-wrap items-center gap-2 pt-1'>
+                        {statsData?.resolvers?.map((resolver) => {
+                          const isActive =
+                            !!resolver.resolved_by &&
+                            filters.resolved_by === resolver.resolved_by;
+                          const label =
+                            resolver.resolver_name ??
+                            resolver.resolver_email ??
+                            'Not recorded';
+                          return (
+                            <button
+                              key={resolver.resolved_by ?? 'unrecorded'}
+                              type='button'
+                              onClick={() => toggleResolverFilter(resolver.resolved_by)}
+                              disabled={!resolver.resolved_by}
+                              aria-pressed={isActive}
+                              className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                                isActive
+                                  ? 'border-primary bg-primary text-primary-foreground'
+                                  : 'border-green-300 bg-background hover:bg-muted disabled:cursor-default disabled:opacity-70 dark:border-green-800'
+                              }`}
+                            >
+                              {label}
+                              <span className='ml-1 font-semibold'>
+                                {resolver.resolved_count.toLocaleString()}
+                              </span>
+                            </button>
+                          );
+                        })}
+                        {filters.resolved_by && (
+                          <button
+                            type='button'
+                            onClick={() => toggleResolverFilter(null)}
+                            className='text-xs text-muted-foreground underline underline-offset-2'
+                          >
+                            Clear person filter
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <Button
                     variant='outline'

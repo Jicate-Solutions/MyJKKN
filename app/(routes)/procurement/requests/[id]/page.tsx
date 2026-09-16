@@ -93,6 +93,9 @@ export default function PurchaseRequestDetailPage() {
   // Show the Reason column whenever any line is a new item, regardless of the
   // header's request_type summary (a 'mixed' request still has reasons to show).
   const hasNewItemLine = pr.items.some((it) => !it.domain_item_id);
+  // Restock lines carry the stock position captured when the request was raised —
+  // it is the approver's justification for the quantity, so show it.
+  const hasStockSnapshot = pr.items.some((it) => it.current_stock != null || it.reorder_level != null);
 
   // "Draft" tells you the state but not that the request is inert until submitted,
   // nor where it goes next. Rejection already has its own card, so it is skipped.
@@ -115,9 +118,9 @@ export default function PurchaseRequestDetailPage() {
 
   return (
     <ContentLayout title={pr.request_number}>
-      <div className="space-y-6 max-w-5xl">
+      <div className="space-y-4 sm:space-y-6 max-w-5xl">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 items-center gap-3">
             <Button
               variant="ghost"
               size="sm"
@@ -126,9 +129,9 @@ export default function PurchaseRequestDetailPage() {
             >
               <ArrowLeft className="h-4 w-4" />
             </Button>
-            <div>
-              <h2 className="text-2xl font-bold tracking-tight">{pr.request_number}</h2>
-              <p className="text-muted-foreground">
+            <div className="min-w-0">
+              <h2 className="text-xl sm:text-2xl font-bold tracking-tight truncate">{pr.request_number}</h2>
+              <p className="text-muted-foreground break-words">
                 <span className="capitalize">{pr.request_type.replace('_', ' ')}</span>
                 {' · requested by '}
                 {pr.requested_by_profile?.full_name || '—'}
@@ -136,7 +139,11 @@ export default function PurchaseRequestDetailPage() {
               </p>
             </div>
           </div>
-          <StatusBadge status={pr.status} config={PR_STATUS_CONFIG} className="text-sm" />
+          <StatusBadge
+            status={pr.status}
+            config={PR_STATUS_CONFIG}
+            className="self-start shrink-0 text-sm sm:self-auto"
+          />
         </div>
 
         {statusHint && (
@@ -147,16 +154,17 @@ export default function PurchaseRequestDetailPage() {
 
         {/* Actions — affirmative on the left, declining or abandoning on the right,
             so Reject never sits shoulder-to-shoulder with Approve. */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
             {pr.status === 'draft' && isOwner && (
-              <Button onClick={() => run(() => submitPR.mutateAsync(id), 'Submitted for approval')}>
+              <Button className="w-full sm:w-auto" onClick={() => run(() => submitPR.mutateAsync(id), 'Submitted for approval')}>
                 <Send className="mr-2 h-4 w-4" />
                 Submit for approval
               </Button>
             )}
             {editingQty && (
               <Button
+                className="w-full sm:w-auto"
                 disabled={pr.items.some((it) => !(Number(qtyEdits[it.id]) > 0))}
                 onClick={() =>
                   run(async () => {
@@ -175,6 +183,7 @@ export default function PurchaseRequestDetailPage() {
             {!editingQty && pr.status === 'submitted' && canApprove && (
               <>
                 <Button
+                  className="w-full sm:w-auto"
                   onClick={() =>
                     run(() => approvePR.mutateAsync({ id, userId: profile!.id }), 'Request approved')
                   }
@@ -184,6 +193,7 @@ export default function PurchaseRequestDetailPage() {
                 </Button>
                 <Button
                   variant="outline"
+                  className="w-full sm:w-auto"
                   onClick={() => {
                     setQtyEdits(
                       Object.fromEntries(
@@ -200,16 +210,21 @@ export default function PurchaseRequestDetailPage() {
             )}
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+          <div className="flex flex-col gap-2 sm:ml-auto sm:flex-row sm:flex-wrap sm:items-center">
             {editingQty && (
-              <Button variant="ghost" onClick={() => setEditingQty(false)}>
+              <Button
+                variant="outline"
+                size="sm"
+                className="self-start text-muted-foreground sm:self-auto"
+                onClick={() => setEditingQty(false)}
+              >
                 Cancel edit
               </Button>
             )}
             {!editingQty && pr.status === 'submitted' && canApprove && (
               <Button
                 variant="outline"
-                className="text-destructive hover:text-destructive"
+                className="w-full text-destructive hover:text-destructive sm:w-auto"
                 onClick={() => setRejectOpen(true)}
               >
                 <X className="mr-2 h-4 w-4" />
@@ -218,7 +233,9 @@ export default function PurchaseRequestDetailPage() {
             )}
             {(pr.status === 'draft' || pr.status === 'submitted') && isOwner && (
               <Button
-                variant="ghost"
+                variant="outline"
+                size="sm"
+                className="self-start text-muted-foreground sm:self-auto"
                 onClick={() => run(() => cancelPR.mutateAsync(id), 'Request cancelled')}
               >
                 Cancel request
@@ -261,6 +278,12 @@ export default function PurchaseRequestDetailPage() {
                   <TableHead>Specification</TableHead>
                   <TableHead className="text-right">Qty</TableHead>
                   <TableHead>Unit</TableHead>
+                  {hasStockSnapshot && (
+                    <>
+                      <TableHead className="text-right">On hand</TableHead>
+                      <TableHead className="text-right">Reorder level</TableHead>
+                    </>
+                  )}
                   {hasNewItemLine && <TableHead>Reason</TableHead>}
                 </TableRow>
               </TableHeader>
@@ -301,6 +324,16 @@ export default function PurchaseRequestDetailPage() {
                       )}
                     </TableCell>
                     <TableCell>{it.unit_label || '—'}</TableCell>
+                    {hasStockSnapshot && (
+                      <>
+                        <TableCell className="text-right tabular-nums">
+                          {it.current_stock != null ? Number(it.current_stock) : '—'}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {it.reorder_level != null ? Number(it.reorder_level) : '—'}
+                        </TableCell>
+                      </>
+                    )}
                     {hasNewItemLine && (
                       <TableCell className="max-w-[240px] truncate">
                         {it.domain_item_id ? '—' : it.reason || '—'}
@@ -329,11 +362,12 @@ export default function PurchaseRequestDetailPage() {
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRejectOpen(false)}>
+            <Button variant="outline" className="w-full sm:w-auto" onClick={() => setRejectOpen(false)}>
               Cancel
             </Button>
             <Button
               variant="destructive"
+              className="w-full sm:w-auto"
               disabled={!rejectReason.trim()}
               onClick={async () => {
                 await run(

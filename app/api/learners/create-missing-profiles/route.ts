@@ -4,6 +4,14 @@ import { createClient } from '@supabase/supabase-js';
 import { NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { generateTemporaryPassword } from '@/lib/utils/temporary-password';
+import { INDUCTION_ELIGIBLE_LIFECYCLE_STATUSES } from '@/lib/constants/induction-access';
+
+// Must match check-missing-profiles/route.ts and complete-onboarding/route.ts
+// exactly — all three create/preview the same login and must agree on scope.
+const ONBOARDING_ELIGIBLE_LIFECYCLE_STATUSES = [
+  'active',
+  ...INDUCTION_ELIGIBLE_LIFECYCLE_STATUSES,
+] as const;
 
 
 // Create admin client for user management
@@ -86,7 +94,10 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({}));
     const selectedLearnerIds: string[] | undefined = body.learner_ids;
 
-    // 4. Get all active learners with college emails
+    // 4. Get all onboarded-enough learners with college emails — must match
+    // check-missing-profiles/route.ts exactly, or a learner previewed there
+    // (reserved/admitted included, see that file's comment) silently
+    // wouldn't be found here when actually synced.
     // Use .limit(10000) to bypass PostgREST's default 1000-row cap
     const { data: allLearners, error: learnersError } = await supabaseAdmin
       .from('learners_profiles')
@@ -102,7 +113,7 @@ export async function POST(request: Request) {
         lifecycle_status,
         is_profile_complete
       `)
-      .eq('lifecycle_status', 'active')
+      .in('lifecycle_status', ONBOARDING_ELIGIBLE_LIFECYCLE_STATUSES)
       .eq('is_profile_complete', true)
       .not('college_email', 'is', null)
       .not('college_email', 'eq', '')

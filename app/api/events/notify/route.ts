@@ -70,9 +70,9 @@ export async function POST(request: NextRequest) {
 //
 // 2026-06-30: Refactored to delegate to lib/services/_shared/notifications/
 // notify.ts (the canonical fanout helper extracted from the duplicate
-// per-module createNotification pattern). The legacy `type: 'events'`
-// column is preserved via `extraColumns` for inserts that other readers
-// still filter on; everything else moves into the canonical envelope.
+// per-module createNotification pattern). 2026-09-16: the legacy
+// `type: 'events'` extraColumn was removed — notifications has no such column,
+// so it made every insert throw; readers now match metadata.source.
 // Behaviour-preserving wrapper — returns the same `number` callers expect.
 
 async function createNotification(
@@ -88,11 +88,9 @@ async function createNotification(
     userIds,
     source: 'events_notify',
     metadata,
-    // Legacy column preserved for any consumers (e.g.
-    // lib/services/events/notification-service.ts) that still filter on
-    // notifications.type === 'events'. The shared helper's canonical set
-    // doesn't include this column, but the spread allows backward-compat.
-    extraColumns: { type: 'events' },
+    // No `type: 'events'` envelope: public.notifications has no `type` column
+    // (42703, verified 2026-09-16), so sending it made every insert throw. The
+    // events inbox recognises these rows by metadata.source ('events_notify').
   });
   return outcome.notified;
 }

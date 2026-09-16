@@ -135,6 +135,17 @@ export type CardPersonData = {
    * learners_profiles.id for learners, profiles.id for employees. Never blank.
    */
   qrValue: string;
+  /**
+   * The permanent MyJKKN ID (jkkn_ids) when the person has one — printed as
+   * "QR ID: …" under the QR. null when the QR fell back to the UUID.
+   */
+  qrId: string | null;
+  /**
+   * Current academic year label ("2026-2027") from learners_profiles.
+   * academic_year_id → academic_years. Drives the YEAR line on SCHOOL cards
+   * (a school has no batch span); null when the learner carries none.
+   */
+  academicYearLabel: string | null;
   /** Ordered photo fallback chain (absolute URLs / data URLs, nulls removed). */
   photoCandidates: string[];
   /** db_column -> display value, for template field_mappings resolution. */
@@ -392,14 +403,46 @@ export function resolveValidUntilLabel(input: {
  * become "09 Nov 2001"; anything else is returned trimmed as stored (we
  * print what the record says — never invent). Empty → ''.
  */
-export function formatDateLabel(value: string | null | undefined): string {
+const pad2 = (n: number) => String(n).padStart(2, '0');
+
+/**
+ * Parse a stored date into Y/M/D, tolerating two import corruptions seen on
+ * live learner rows:
+ *   • "+042642-01-01" — an Excel serial (42642 = 2016-09-29) written as the
+ *     YEAR of an ISO date (Postgres accepts extended years, so it stuck).
+ *   • "42642" — the bare serial.
+ * null when unparseable (callers print the raw string so the preview flags it).
+ */
+function parseStoredDate(value: string | null | undefined): { y: number; m: number; d: number } | null {
   const s = (value ?? '').trim();
+  const fromSerial = (serial: number) => {
+    if (!Number.isFinite(serial) || serial < 1000 || serial > 80000) return null;
+    const d = new Date(Date.UTC(1899, 11, 30) + serial * 86400000);
+    return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate() };
+  };
+  const ext = /^\+?(\d{5,6})-01-01/.exec(s);
+  if (ext) return fromSerial(Number(ext[1]));
+  if (/^\d{5}$/.test(s)) return fromSerial(Number(s));
   const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
-  if (!match) return s;
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  if (month < 1 || month > 12 || day < 1 || day > 31) return s;
-  return `${match[3]} ${MONTH_LABELS[month - 1]} ${match[1]}`;
+  if (!match) return null;
+  const m = Number(match[2]);
+  const d = Number(match[3]);
+  if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+  return { y: Number(match[1]), m, d };
+}
+
+/** "31 May 2028" — VALID UNTIL and other card dates. Unparseable → as stored. */
+export function formatDateLabel(value: string | null | undefined): string {
+  const p = parseStoredDate(value);
+  if (!p) return (value ?? '').trim();
+  return `${pad2(p.d)} ${MONTH_LABELS[p.m - 1]} ${p.y}`;
+}
+
+/** "29-09-2016" — DATE OF BIRTH on the card back (DD-MM-YYYY, 2026-09-16 decision). */
+export function formatDateDMY(value: string | null | undefined): string {
+  const p = parseStoredDate(value);
+  if (!p) return (value ?? '').trim();
+  return `${pad2(p.d)}-${pad2(p.m)}-${p.y}`;
 }
 
 /** Shape of the joined batches row used to derive the learner study period. */
@@ -819,7 +862,45 @@ export async function resolveBackgroundDataUrl(
     );
     return null;
   }
-  return fetchImageAsDataUrl(url, BACKGROUND_MAX_BYTES);
+  return cachedAsset(url, () => fetchImageAsDataUrl(url, BACKGROUND_MAX_BYTES));
+}
+
+// ── Asset cache ───────────────────────────────────────────────────────────────
+// Template assets (card artwork, logo, principal signature) are the SAME bytes
+// for every card of a template, yet a 60-card batch used to download the
+// ~0.5 MB back artwork 60 times (120 with fronts). Cache the data URL per URL
+// in the server process: 10-minute TTL, 64 entries. Learner photos are NOT
+// cached — one per person, no reuse. Storage URLs carry a unique filename per
+// upload, so a re-uploaded artwork is a new key and never served stale.
+const ASSET_CACHE_TTL_MS = 10 * 60 * 1000;
+const ASSET_CACHE_MAX = 64;
+const assetCache = new Map<string, { at: number; value: string | null; pending?: Promise<string | null> }>();
+
+async function cachedAsset(key: string, load: () => Promise<string | null>): Promise<string | null> {
+  const now = Date.now();
+  const hit = assetCache.get(key);
+  if (hit) {
+    if (hit.pending) return hit.pending;
+    if (now - hit.at < ASSET_CACHE_TTL_MS) return hit.value;
+    assetCache.delete(key);
+  }
+  // Coalesce concurrent misses (a batch fires 4–6 renders at once).
+  const pending = load().then(
+    (value) => {
+      assetCache.set(key, { at: Date.now(), value });
+      if (assetCache.size > ASSET_CACHE_MAX) {
+        const oldest = assetCache.keys().next().value;
+        if (oldest !== undefined) assetCache.delete(oldest);
+      }
+      return value;
+    },
+    (err) => {
+      assetCache.delete(key);
+      throw err;
+    }
+  );
+  assetCache.set(key, { at: now, value: null, pending });
+  return pending;
 }
 
 /** QR PNG as a data URL via the qrcode package; null on failure (fail-soft). */
@@ -935,6 +1016,7 @@ type LearnerRow = {
   // fk_learners_profiles_batch (batch_id → batches.id) — verified in prod
   // pg_constraint 2026-07-25.
   batch: BatchLike | null;
+  academic_year?: { academic_year_name: string | null } | null;
 };
 
 type StaffRow = {
@@ -1018,6 +1100,8 @@ export async function assembleCardData(
   let contactPhone: string | null = null;
   let idCode: string | null = null;
   let studyPeriod: string | null = null;
+  let academicYearLabel: string | null = null;
+  let qrId: string | null = null;
   let staffId: string | null = null;
   let courseEndDate: string | null = null;
   // Which row in jkkn_identities (if any) belongs to this person. Set by
@@ -1048,7 +1132,8 @@ export async function assembleCardData(
          permanent_address_state, permanent_address_pin_code,
          program:programs(program_name, card_short_name),
          department:departments(department_name),
-         batch:batches(batch_name, start_date, end_date)`
+         batch:batches(batch_name, start_date, end_date),
+         academic_year:academic_years(academic_year_name)`
       )
       .eq('id', p.learner_id)
       .maybeSingle();
@@ -1087,7 +1172,7 @@ export async function assembleCardData(
 
       // Back-side data (all fail-soft; blanks stay null → block omitted).
       bloodGroup = learner.blood_group?.trim() || null;
-      dateOfBirthLabel = formatDateLabel(learner.date_of_birth) || null;
+      dateOfBirthLabel = formatDateDMY(learner.date_of_birth) || null;
       guardianName = learner.father_name?.trim() || learner.mother_name?.trim() || null;
       guardianPhone = learner.father_mobile?.trim() || learner.mother_mobile?.trim() || null;
       address =
@@ -1111,6 +1196,7 @@ export async function assembleCardData(
       contactPhone = learner.student_mobile?.trim() || null;
       idCode = learner.roll_number?.trim() || null;
       studyPeriod = deriveStudyPeriodLabel(learner.batch);
+      academicYearLabel = learner.academic_year?.academic_year_name?.trim() || null;
       // Course end date for the VALID UNTIL line. Read straight off the batch
       // row already in hand — batches.end_date is NOT NULL, so a batch row
       // means a real course end. No batch → stays null → the yearly rule.
@@ -1174,7 +1260,7 @@ export async function assembleCardData(
 
       // Back-side data (staff.date_of_birth is a DATE — arrives as ISO text).
       bloodGroup = staffRow.blood_group?.trim() || null;
-      dateOfBirthLabel = formatDateLabel(staffRow.date_of_birth) || null;
+      dateOfBirthLabel = formatDateDMY(staffRow.date_of_birth) || null;
       address = staffRow.address?.trim() || null;
       contactPhone = staffRow.phone?.trim() || null;
       idCode = staffRow.staff_id?.trim() || null;
@@ -1193,7 +1279,9 @@ export async function assembleCardData(
   // not reached yet. qrValue already holds a non-blank UUID at this point, so
   // the QR can never come out empty.
   if (identityLink) {
-    qrValue = pickQrValue(await readActiveJkknId(supabase, identityLink), qrValue);
+    const jkknId = await readActiveJkknId(supabase, identityLink);
+    qrValue = pickQrValue(jkknId, qrValue);
+    qrId = (jkknId ?? '').trim() || null;
   }
 
   // 3. Remaining photo fallbacks (chain: learner photo -> staff picture -> avatar).
@@ -1241,6 +1329,16 @@ export async function assembleCardData(
       };
       institutionName = row.name?.trim() || row.display_name?.trim() || null;
       isSchool = (row.entity_type ?? '').trim() === 'school';
+      // School cards print the CURRENT academic year on the YEAR line (a school
+      // learner has no batch span); colleges keep the batch span.
+      if (isSchool && academicYearLabel) studyPeriod = academicYearLabel;
+      // School ADMISSION NUMBER = learners_profiles.roll_number; a school row
+      // that only carries register_number (the admissions import fills that
+      // column) prints it instead of a blank. Barcode follows the same value.
+      if (isSchool && !rollNumber && registerNumber) {
+        rollNumber = registerNumber;
+        idCode = idCode ?? registerNumber;
+      }
       institutionEmail = row.email?.trim() || null;
       institutionPhone = row.phone?.trim() || null;
       institutionWebsite = row.website?.trim() || null;
@@ -1296,6 +1394,8 @@ export async function assembleCardData(
       principalDesignation,
       principalSignatureUrl,
       qrValue,
+      qrId,
+      academicYearLabel,
       photoCandidates,
       valueBag,
       bloodGroup,

@@ -105,7 +105,17 @@ function num(n: number): string {
 
 function drawLabel(d: HRLeaveLedgerDraw): string {
   if (d.status === 'opening_adjustment') return `Unexplained (${num(d.days)})`;
-  if (d.status === 'manual') return `Recorded by admin (${num(d.days)})`;
+  if (d.status === 'manual') {
+    // The RPC says explicitly whether this sub-event is a real evidence date
+    // (e.g. a biometric LOP day) or the no-evidence remainder — NOT inferred
+    // from the date, because an over-drawn month's FIFO spillover can land a
+    // no-evidence event (dated at its own month's 1st) under a later month's
+    // row, where comparing dates would wrongly read as evidenced there.
+    if (d.evidenced && d.start_date) {
+      return `${fmtDay(d.start_date)} (${num(d.days)}) · payroll-verified`;
+    }
+    return `Recorded by admin (${num(d.days)})`;
+  }
   const when = d.start_date === d.end_date
     ? fmtDay(d.start_date)
     : `${fmtDay(d.start_date)}–${fmtDay(d.end_date)}`;

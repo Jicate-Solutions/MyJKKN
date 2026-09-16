@@ -34,6 +34,13 @@ export interface CandidateOption {
   id: string;
   name: string;
   roleTitle: string | null;
+  /**
+   * The post this candidate was promoted against, when Recruitment recorded
+   * one. Picking the candidate fills the post from this, because asking a
+   * second time for something already on their record is how the two answers
+   * end up disagreeing.
+   */
+  jobId: string | null;
 }
 
 export interface JobOption {
@@ -69,8 +76,28 @@ export function InterviewLinkSection({
 }) {
   const [candidateId, setCandidateId] = useState<string>('');
   const [jobId, setJobId] = useState<string>(NO_JOB);
+  /** True while the post shown is the one the candidate's own record carries. */
+  const [postCameFromCandidate, setPostCameFromCandidate] = useState(false);
   const [saving, startTransition] = useTransition();
   const router = useRouter();
+
+  /**
+   * Choosing the candidate chooses their post. Only a post that is actually in
+   * the list is adopted — Radix renders a value it has no item for as blank,
+   * which would read as "no post chosen" while a real id sat in state.
+   */
+  function chooseCandidate(id: string) {
+    setCandidateId(id);
+    const theirJob = candidates.find((c) => c.id === id)?.jobId ?? null;
+    const known = theirJob && jobs.some((j) => j.id === theirJob) ? theirJob : null;
+    setJobId(known ?? NO_JOB);
+    setPostCameFromCandidate(!!known);
+  }
+
+  function chooseJob(id: string) {
+    setJobId(id);
+    setPostCameFromCandidate(false);
+  }
 
   function link() {
     startTransition(async () => {
@@ -141,7 +168,7 @@ export function InterviewLinkSection({
         into their interview record.
       </p>
       <div className="flex flex-col gap-2 sm:flex-row">
-        <Select value={candidateId} onValueChange={setCandidateId}>
+        <Select value={candidateId} onValueChange={chooseCandidate}>
           <SelectTrigger className="sm:flex-1" aria-label="Candidate">
             <SelectValue placeholder="Choose the candidate" />
           </SelectTrigger>
@@ -155,7 +182,7 @@ export function InterviewLinkSection({
           </SelectContent>
         </Select>
 
-        <Select value={jobId} onValueChange={setJobId}>
+        <Select value={jobId} onValueChange={chooseJob}>
           <SelectTrigger className="sm:flex-1" aria-label="Post">
             <SelectValue placeholder="Post (optional)" />
           </SelectTrigger>
@@ -178,6 +205,12 @@ export function InterviewLinkSection({
           Link
         </Button>
       </div>
+      {postCameFromCandidate ? (
+        <p className="text-muted-foreground">
+          The post came from this candidate&rsquo;s own record. Change it only if this conversation
+          was about a different one.
+        </p>
+      ) : null}
       {candidates.length === 0 ? (
         <p className="text-muted-foreground">
           No candidates to choose from yet. Add the person under Recruitment first.
