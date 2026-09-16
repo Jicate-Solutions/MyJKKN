@@ -28,6 +28,7 @@ export const buildBugReportsQuery = (filters: BugReportFilters): string => {
   if (filters.statuses?.length) params.append('statuses', filters.statuses.join(','));
   if (filters.resolved_from) params.append('resolved_from', filters.resolved_from);
   if (filters.resolved_to) params.append('resolved_to', filters.resolved_to);
+  if (filters.resolved_by) params.append('resolved_by', filters.resolved_by);
   if (filters.category) params.append('category', filters.category);
   if (filters.institution_id) params.append('institution_id', filters.institution_id);
   if (filters.department_id) params.append('department_id', filters.department_id);
@@ -613,6 +614,17 @@ export interface BugReportStats {
   previousReports: number;
   /** Resolved bugs with no resolved_at — a date filter can never include them. */
   resolvedMissingDate: number;
+  /**
+   * Who resolved how many, within the scope. Empty until the resolved_by
+   * migration is applied, and absent entirely in a response cached from before
+   * this field existed — hence optional.
+   */
+  resolvers?: Array<{
+    resolved_by: string | null;
+    resolver_name: string | null;
+    resolver_email: string | null;
+    resolved_count: number;
+  }>;
   reportsTrend: {
     value: string;
     direction: 'up' | 'down' | 'neutral';
