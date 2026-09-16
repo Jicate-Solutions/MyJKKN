@@ -437,6 +437,7 @@
     "admission.voice_memo",
     "admission_documents.manage",
     "admission_fees.read",
+    "adoption.view",
     "aiPulse:absence.escalate",
     "aiPulse:absence.excuse",
     "aiPulse:anomaly.review",
