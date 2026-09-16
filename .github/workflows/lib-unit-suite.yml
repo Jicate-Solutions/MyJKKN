@@ -41,7 +41,18 @@ name: Lib unit suite
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    # ready_for_review is here because of the `if: !draft` guard on the job
+    # below, and removing it re-opens a hole that merged three PRs unchecked
+    # (#3791, #3807, #3821 — each opened as a draft, marked ready, merged with
+    # this suite never having run). A PR opened as a draft fires `opened`, the
+    # guard skips the job, and marking it ready afterwards fires
+    # `ready_for_review` — which is NOT `synchronize`. Without this type the job
+    # never runs at all on any PR that started life as a draft. It does not go
+    # red: it reports "skipped", which GitHub draws on the PR page as a grey
+    # tick that reads exactly like a pass. Nobody ran the tests and the page
+    # implies all is well. That is the same silent non-execution this workflow
+    # exists to end, so the guard and the trigger list have to agree.
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
     paths:
       # The tests themselves.

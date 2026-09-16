@@ -15,13 +15,30 @@ name: Schema-drift guard
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    # ready_for_review is here because of the `if: !draft` guard on the job
+    # below, and removing it re-opens a hole that merged three PRs unchecked
+    # (#3791, #3807, #3821 — each opened as a draft, marked ready, merged with
+    # this guard never having run). A PR opened as a draft fires `opened`, the
+    # guard skips the job, and marking it ready afterwards fires
+    # `ready_for_review` — which is NOT `synchronize`. Without this type the job
+    # never runs at all on any PR that started life as a draft. It does not go
+    # red: it reports "skipped", which GitHub draws on the PR page as a grey
+    # tick that reads exactly like a pass. Nobody ran the guard and the page
+    # implies all is well — for a defect class that has already hard-500'd
+    # production twice. The guard and the trigger list have to agree.
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
     paths:
       - 'lib/services/solutions/**'
       - 'supabase/**'
       - 'scripts/ci/check-schema-drift.mjs'
       - 'scripts/ci/schema-drift-allowlist.json'
+      # This workflow's own file, so that a change to the trigger list above is
+      # tested by the pull request that makes it. Without this line an edit to
+      # the `types:` list — including one that deletes `ready_for_review` again
+      # — runs nothing and cannot be caught. lib-unit-suite.yml already lists
+      # its own file for the same reason.
+      - '.github/workflows/schema-drift-guard.yml'
 
 permissions:
   contents: read
