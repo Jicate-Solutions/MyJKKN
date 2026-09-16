@@ -31,6 +31,39 @@ vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
+// The page's import graph reaches hooks/use-permissions -> RoleService, whose
+// STATIC initialiser builds a browser Supabase client at module load. Without
+// the project's URL and key in the environment that throws while the file is
+// still being imported, so this suite collected 0 tests and reported as a
+// failure with no failing assertion — which is how it read on main from 15 Sep.
+// Stubbed rather than env-injected: the client is never used here (the network
+// is stubbed below), and a fake key in a test file invites someone to copy it.
+// The page reads the signed-in person from useAuth to decide whether it is
+// looking at a learner. Stubbed as a learner, because this file is about what a
+// learner sees when the window is shut — not about who they are. Without it the
+// page throws "useAuth must be used within AuthProvider" and no window copy is
+// ever rendered. (Added 15 Sep with the profile card, 760f08e180.)
+vi.mock('@/hooks/use-auth', () => ({
+  useAuth: () => ({
+    profile: { id: 'profile-1', learner_id: 'learner-1', role: 'student' },
+    isLoading: false,
+  }),
+}));
+
+vi.mock('@/lib/supabase/client', () => {
+  const stub = () => ({
+    from: () => ({
+      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }),
+    }),
+    auth: { getUser: async () => ({ data: { user: null }, error: null }) },
+  });
+  return {
+    createClientSupabaseClient: stub,
+    createAdminClient: stub,
+    getSupabaseClient: stub,
+  };
+});
+
 import CdcDriveWillingnessPage from '@/app/(routes)/cdc/drives/[id]/willingness/page';
 
 const DRIVE_ID = 'drive-1';
@@ -131,7 +164,18 @@ describe('willingness page — window open (the state every production drive is 
       fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === 'POST')
     ).toBeUndefined();
 
+    // Since 15 Sep the consent box is not the only gate: CGPA and arrears are
+    // required too (confirmDisabled reads !consent || profileIncomplete ||
+    // academicIncomplete). A learner whose academic record did not prefill types
+    // them, which is what this does — the lazy academic fetch is deliberately
+    // not stubbed, so this exercises the path a learner without one takes.
     fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.change(document.getElementById('cdc-cgpa') as HTMLInputElement, {
+      target: { value: '8.2' },
+    });
+    fireEvent.change(document.getElementById('cdc-arrears') as HTMLInputElement, {
+      target: { value: '0' },
+    });
     await waitFor(() => expect((yes as HTMLButtonElement).disabled).toBe(false));
 
     fireEvent.click(yes);
@@ -141,7 +185,7 @@ describe('willingness page — window open (the state every production drive is 
         ([, init]) => (init as RequestInit | undefined)?.method === 'POST'
       );
       expect(posted).toBeTruthy();
-      expect(JSON.parse((posted![1] as RequestInit).body as string)).toEqual({
+      expect(JSON.parse((posted![1] as RequestInit).body as string)).toMatchObject({
         intent: 'willing',
         additional_mobile: null,
         data_consent: true,

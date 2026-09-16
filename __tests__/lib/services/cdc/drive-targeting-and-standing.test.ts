@@ -25,10 +25,29 @@ describe('normalizeInstitutionSemesters', () => {
       ],
       [A, B]
     );
+    // program_ids joined this shape on 15 Sep (760f08e180, program-level
+    // targeting). An entry that carries none normalises to [], which reads as
+    // "the whole institution", exactly as an empty semester_orders does.
     expect(out).toEqual([
-      { institution_id: A, semester_orders: [5, 6] },
-      { institution_id: B, semester_orders: [] },
+      { institution_id: A, semester_orders: [5, 6], program_ids: [] },
+      { institution_id: B, semester_orders: [], program_ids: [] },
     ]);
+  });
+
+  it('keeps program ids, deduped, and refuses anything that is not a uuid', () => {
+    const P1 = '44444444-4444-4444-4444-444444444444';
+    const P2 = '55555555-5555-5555-5555-555555555555';
+    const out = normalizeInstitutionSemesters(
+      [
+        {
+          institution_id: A,
+          semester_orders: [3],
+          program_ids: [P1, P1, P2, 'not-a-uuid', 42, null],
+        },
+      ],
+      [A]
+    );
+    expect(out).toEqual([{ institution_id: A, semester_orders: [3], program_ids: [P1, P2] }]);
   });
 
   it('returns [] for garbage input', () => {

@@ -77,6 +77,13 @@ async function listed(): Promise<string[]> {
   return body.drives.map((d) => d.id).sort();
 }
 
+/** id → is_open, which is how the window reaches the learner's screens now. */
+async function openness(): Promise<Record<string, boolean>> {
+  const res = await GET();
+  const body = (await res.json()) as { drives: { id: string; is_open: boolean }[] };
+  return Object.fromEntries(body.drives.map((d) => [d.id, d.is_open]));
+}
+
 beforeEach(() => {
   drives = [];
 });
@@ -87,26 +94,36 @@ describe('/api/cdc/drives/mine honours the willingness window', () => {
     expect(await listed()).toEqual(['no-window']);
   });
 
-  it('drops a drive whose closing date has passed, even though its status is still open', async () => {
-    // Transition and non-transition together: the open one must survive the
-    // same filter that removes the closed one, or "closed is hidden" could be
-    // true because everything is hidden.
+  // ── The contract changed on 15 Sep (760f08e180) ──────────────────────────
+  // This route used to DROP a drive whose window had shut. It now returns every
+  // visible drive and marks each one with is_open, so a learner can still see a
+  // drive they missed. The guarantee that nobody is OFFERED a shut drive did not
+  // disappear with the filter — it moved to the screens, and is pinned there in
+  // __tests__/cdc/campus-drives-student-card.test.tsx. These tests follow the
+  // contract to where it actually lives now.
+
+  it('still lists a drive whose closing date has passed, and marks it shut', async () => {
+    // Both together: the open one must stay open through the same pass that
+    // marks the closed one shut, or "closed is marked" could be true because
+    // everything is marked.
     drives = [drive('no-window'), drive('closed-yesterday', { willingness_window_close_at: PAST })];
-    expect(await listed()).toEqual(['no-window']);
+    expect(await listed()).toEqual(['closed-yesterday', 'no-window']);
+    expect(await openness()).toEqual({ 'no-window': true, 'closed-yesterday': false });
   });
 
-  it('drops a drive whose window has not started yet', async () => {
+  it('marks a drive whose window has not started yet as shut', async () => {
     drives = [drive('no-window'), drive('opens-later', { willingness_window_open_at: FUTURE })];
-    expect(await listed()).toEqual(['no-window']);
+    expect(await openness()).toEqual({ 'no-window': true, 'opens-later': false });
   });
 
-  it('keeps a drive that is inside its window', async () => {
+  it('keeps a drive that is inside its window open', async () => {
     drives = [drive('inside', { willingness_window_open_at: PAST, willingness_window_close_at: FUTURE })];
     expect(await listed()).toEqual(['inside']);
+    expect(await openness()).toEqual({ inside: true });
   });
 
-  it('returns an empty list, not an error, when every open drive is outside its window', async () => {
+  it('returns the drive, marked shut, rather than an empty list, when every one is outside its window', async () => {
     drives = [drive('closed-yesterday', { willingness_window_close_at: PAST })];
-    expect(await listed()).toEqual([]);
+    expect(await openness()).toEqual({ 'closed-yesterday': false });
   });
 });

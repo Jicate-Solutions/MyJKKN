@@ -3,7 +3,7 @@
 /**
  * The learner's campus-drive card.
  *
- * Two behaviours carry real weight and are pinned here:
+ * Three behaviours carry real weight and are pinned here:
  *
  * 1. It must be INVISIBLE unless the learner actually has an open drive. This
  *    card sits on every learner's dashboard; a version that renders an empty
@@ -13,6 +13,14 @@
  *    the card is the entry point to a decision the Career Development Centre
  *    acts on. Showing "tell them you're interested" to someone already signed up
  *    invites a double answer and makes the card untrustworthy.
+ * 3. A drive whose willingness window has SHUT must never be offered as though
+ *    it were open. This guarantee used to live in /api/cdc/drives/mine, which
+ *    dropped closed drives outright. On 15 Sep (760f08e180) the route changed to
+ *    return them flagged with is_open instead, and /cdc/drives was updated to
+ *    read that flag — this card was not, so for a day it listed closed drives
+ *    under "Campus drives open to you" with a button that led to a page which
+ *    then refused. The guarantee did not disappear with the filter; it moved
+ *    here, so it is pinned here.
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
@@ -37,6 +45,10 @@ function drive(over: Partial<MyCdcDrive> = {}): MyCdcDrive {
     expected_package_lpa: 4.5,
     willingness_window_close_at: null,
     willingness_status: null,
+    // Open unless a test says otherwise. Added 16 Sep with the closed-drive
+    // behaviour below — a fixture that omitted it made every drive read as
+    // closed, which is the opposite of what these tests are about.
+    is_open: true,
     ...over,
   };
 }
@@ -66,6 +78,78 @@ describe('CampusDrivesStudentCard — stays out of the way', () => {
       data: undefined,
       isLoading: false,
       error: new Error('boom'),
+    });
+    const { container } = render(<CampusDrivesStudentCard />);
+    expect(container.innerHTML).toBe('');
+  });
+});
+
+describe('CampusDrivesStudentCard — a shut window is never an invitation', () => {
+  it('marks an unanswered closed drive Closed, and offers no way in', () => {
+    // Paired with an open one, because a learner whose ONLY drive is closed and
+    // unanswered sees no card at all (pinned separately below). Pairing them
+    // also proves the open one keeps its button through the same render.
+    useMyCdcDrives.mockReturnValue({
+      data: [drive({ id: 'shut', is_open: false }), drive({ id: 'open' })],
+      isLoading: false,
+      error: null,
+    });
+    render(<CampusDrivesStudentCard />);
+
+    expect(screen.getByText('Closed')).toBeTruthy();
+    expect(screen.getByText(/can no longer be answered/i)).toBeTruthy();
+    // Exactly one link: the open drive's. The willingness page refuses once the
+    // window shuts, so a link on the closed one would be an invitation to be
+    // turned away.
+    const links = screen.getAllByRole('link');
+    expect(links).toHaveLength(1);
+    expect(links[0].getAttribute('href')).toBe('/cdc/drives/open/willingness');
+  });
+
+  it('keeps showing the answer on a closed drive, rather than overwriting it with Closed', () => {
+    // Their answer is the more useful thing to see; the closure is said in
+    // words underneath.
+    useMyCdcDrives.mockReturnValue({
+      data: [drive({ is_open: false, willingness_status: 'willing' })],
+      isLoading: false,
+      error: null,
+    });
+    render(<CampusDrivesStudentCard />);
+
+    expect(screen.getByText(/You're in/i)).toBeTruthy();
+    expect(screen.queryByRole('link')).toBeNull();
+    expect(screen.queryByText(/Change your answer/i)).toBeNull();
+  });
+
+  it('does not count a closed drive as something to answer', () => {
+    useMyCdcDrives.mockReturnValue({
+      data: [drive({ id: 'shut', is_open: false }), drive({ id: 'open' })],
+      isLoading: false,
+      error: null,
+    });
+    render(<CampusDrivesStudentCard />);
+    // One of the two can actually be answered.
+    expect(screen.getByText('1 to answer')).toBeTruthy();
+  });
+
+  it('still shows a closed drive the learner answered, so their answer is visible', () => {
+    useMyCdcDrives.mockReturnValue({
+      data: [drive({ is_open: false, willingness_status: 'confirmed' })],
+      isLoading: false,
+      error: null,
+    });
+    render(<CampusDrivesStudentCard />);
+    expect(screen.getByText('Confirmed')).toBeTruthy();
+    expect(screen.getByText(/with the Career Development Centre/i)).toBeTruthy();
+  });
+
+  it('hides the whole card when everything is closed and nothing was answered', () => {
+    // The self-hiding discipline this card shipped with: a learner with nothing
+    // to do and no answer of their own gets no card at all.
+    useMyCdcDrives.mockReturnValue({
+      data: [drive({ is_open: false })],
+      isLoading: false,
+      error: null,
     });
     const { container } = render(<CampusDrivesStudentCard />);
     expect(container.innerHTML).toBe('');
