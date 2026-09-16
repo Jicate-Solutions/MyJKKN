@@ -3,6 +3,15 @@ export const dynamic = 'force-dynamic';
 import { NextResponse, connection } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { INDUCTION_ELIGIBLE_LIFECYCLE_STATUSES } from '@/lib/constants/induction-access';
+
+// Must match complete-onboarding/route.ts's ONBOARDING_ELIGIBLE_LIFECYCLE_STATUSES
+// exactly — this bulk tool and that single-learner route create the same
+// thing (a login) and must agree on who's eligible.
+const ONBOARDING_ELIGIBLE_LIFECYCLE_STATUSES = [
+  'active',
+  ...INDUCTION_ELIGIBLE_LIFECYCLE_STATUSES,
+] as const;
 
 
 // Create admin client for user management
@@ -82,14 +91,16 @@ export async function GET() {
       );
     }
 
-    // 3. Get all onboarded-enough learners with college emails.
-    // 'reserved'/'admitted' are included alongside 'active': campus-living's
-    // own roster (fn_cl_roster_statuses) already covers them so they can be
-    // pre-allocated a hostel bed ahead of full enrollment, but until this
-    // widened, this was the only place that gap actually bit — a reserved/
-    // admitted learner could be picked in the allocation dialog and then fail
-    // with "No profile bridges learner %" because this tool, the only
-    // self-serve way to create that profile, never looked past 'active'.
+    // 3. Get all onboarding-eligible learners with college emails — the
+    // pre-onboarding statuses too (specs/pre-onboarding-induction-access-
+    // 2026-06-29.md), not just 'active'. Those learners already get real
+    // module access (My Induction, Service Requests, AI Pulse) and can also
+    // be pre-allocated a hostel bed via campus-living's own roster
+    // (fn_cl_roster_statuses), so they need the same login this tool creates
+    // for 'active' learners — without it, a reserved/admitted learner could
+    // be picked in the hostel allocation dialog and fail with "No profile
+    // bridges learner %" because this was the only self-serve way to create
+    // that profile, and it never looked past 'active'.
     // Use .limit(10000) to bypass PostgREST's default 1000-row cap
     const { data: allLearners, error: learnersError } = await supabaseAdmin
       .from('learners_profiles')
@@ -105,7 +116,7 @@ export async function GET() {
         lifecycle_status,
         is_profile_complete
       `)
-      .in('lifecycle_status', ['active', 'reserved', 'admitted'])
+      .in('lifecycle_status', ONBOARDING_ELIGIBLE_LIFECYCLE_STATUSES)
       .eq('is_profile_complete', true)
       .not('college_email', 'is', null)
       .not('college_email', 'eq', '')

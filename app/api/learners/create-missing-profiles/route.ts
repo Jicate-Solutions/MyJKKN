@@ -4,6 +4,14 @@ import { createClient } from '@supabase/supabase-js';
 import { NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { generateTemporaryPassword } from '@/lib/utils/temporary-password';
+import { INDUCTION_ELIGIBLE_LIFECYCLE_STATUSES } from '@/lib/constants/induction-access';
+
+// Must match check-missing-profiles/route.ts and complete-onboarding/route.ts
+// exactly — all three create/preview the same login and must agree on scope.
+const ONBOARDING_ELIGIBLE_LIFECYCLE_STATUSES = [
+  'active',
+  ...INDUCTION_ELIGIBLE_LIFECYCLE_STATUSES,
+] as const;
 
 
 // Create admin client for user management
@@ -105,7 +113,7 @@ export async function POST(request: Request) {
         lifecycle_status,
         is_profile_complete
       `)
-      .in('lifecycle_status', ['active', 'reserved', 'admitted'])
+      .in('lifecycle_status', ONBOARDING_ELIGIBLE_LIFECYCLE_STATUSES)
       .eq('is_profile_complete', true)
       .not('college_email', 'is', null)
       .not('college_email', 'eq', '')
