@@ -25,11 +25,29 @@ import { missingFields, problemFields } from '@/lib/id-cards/field-report';
 import type { CardFieldReport } from '@/types/id-cards';
 
 export type CardSide = 'front' | 'back';
+
+/** base64 PNG → blob: URL (decoded once, held off the JS heap). */
+function pngBlobUrl(base64: string): string {
+  const bin = atob(base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+  return URL.createObjectURL(new Blob([bytes], { type: 'image/png' }));
+}
+
+/** Release the bitmaps of cards that are no longer shown (regenerate / close). */
+export function revokeCardUrls(cards: ReadonlyArray<{ frontDataUrl: string; backDataUrl: string | null }>): void {
+  for (const c of cards) {
+    if (c.frontDataUrl.startsWith('blob:')) URL.revokeObjectURL(c.frontDataUrl);
+    if (c.backDataUrl?.startsWith('blob:')) URL.revokeObjectURL(c.backDataUrl);
+  }
+}
 export type CardOrientationLabel = 'landscape' | 'portrait' | 'portrait-flipped';
 
 type RenderEnvelope = {
   data?: {
     png_base64: string;
+    /** side=both: the back PNG in the same envelope. */
+    back_png_base64?: string;
     back_configured?: boolean;
     fields?: CardFieldReport[];
     front_orientation?: CardOrientationLabel;
@@ -45,6 +63,8 @@ export type RenderSideResult =
   | {
       ok: true;
       pngDataUrl: string;
+      /** Present when requested with side=both and the template has a back. */
+      backPngDataUrl: string | null;
       fields: CardFieldReport[] | null;
       backConfigured: boolean | null;
       frontOrientation: CardOrientationLabel;
@@ -88,7 +108,7 @@ export function rotationFor(orientation: CardOrientationLabel | null | undefined
 export async function renderCardSide(
   templateId: string,
   profileId: string,
-  side: CardSide,
+  side: CardSide | 'both',
   includeFields = false
 ): Promise<RenderSideResult> {
   const params = new URLSearchParams({ profile_id: profileId, side });
@@ -114,7 +134,11 @@ export async function renderCardSide(
     const d = body.data;
     return {
       ok: true,
-      pngDataUrl: `data:image/png;base64,${d.png_base64}`,
+      // Blob URLs, not base64 strings: a 552-learner batch as data URLs put
+      // ~400 MB of strings on the JS heap (Chrome "Aw, Snap — Out of Memory").
+      // Blobs live outside the heap and are released with revokeCardUrls().
+      pngDataUrl: pngBlobUrl(d.png_base64),
+      backPngDataUrl: d.back_png_base64 ? pngBlobUrl(d.back_png_base64) : null,
       fields: d.fields ?? null,
       backConfigured: typeof d.back_configured === 'boolean' ? d.back_configured : null,
       frontOrientation: d.front_orientation ?? 'landscape',
@@ -142,6 +166,9 @@ export interface PreviewLearnerInput {
   templateName?: string | null;
   name: string;
   rollNumber?: string | null;
+  /** Optional grouping (class / programme) carried through to the rendered card. */
+  groupKey?: string | null;
+  groupLabel?: string | null;
 }
 
 export interface RenderedCard {
@@ -151,6 +178,8 @@ export interface RenderedCard {
   templateName: string | null;
   name: string;
   rollNumber: string | null;
+  groupKey: string | null;
+  groupLabel: string | null;
   frontDataUrl: string;
   /** null when the template has no back side configured. */
   backDataUrl: string | null;
@@ -189,7 +218,9 @@ export interface RenderLearnerCardsResult {
 
 // Each render is a server-side composite (~0.3–1 s). Four in flight keeps a
 // 60-card class at a few tens of seconds without hammering the function pool.
-const RENDER_CONCURRENCY = 4;
+// Each card is ONE request (side=both: front + back from one data assembly,
+// template assets served from the server cache). Six in flight.
+const RENDER_CONCURRENCY = 6;
 
 async function mapWithConcurrency<T, R>(
   items: T[],
@@ -225,14 +256,16 @@ export async function renderLearnerCards(
   };
 
   const outcomes = await mapWithConcurrency(learners, RENDER_CONCURRENCY, async (learner) => {
-    const front = await renderCardSide(learner.templateId, learner.profileId, 'front', true);
+    // One round trip: front + back + field report (side=both).
+    const front = await renderCardSide(learner.templateId, learner.profileId, 'both', true);
     if (renderFailed(front)) {
       tick();
       return { failure: { learnerId: learner.learnerId, name: learner.name, message: front.message } };
     }
 
-    let backDataUrl: string | null = null;
-    if (front.backConfigured) {
+    let backDataUrl: string | null = front.backPngDataUrl;
+    if (backDataUrl === null && front.backConfigured) {
+      // Server without side=both → second request, as before.
       const back = await renderCardSide(learner.templateId, learner.profileId, 'back');
       if (renderFailed(back)) {
         if (back.code !== 'back_not_configured') {
@@ -255,6 +288,8 @@ export async function renderLearnerCards(
       templateName: learner.templateName ?? null,
       name: learner.name,
       rollNumber: learner.rollNumber ?? null,
+      groupKey: learner.groupKey ?? null,
+      groupLabel: learner.groupLabel ?? null,
       frontDataUrl: front.pngDataUrl,
       backDataUrl,
       frontRotation: rotationFor(front.frontOrientation),

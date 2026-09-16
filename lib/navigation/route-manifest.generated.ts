@@ -3822,6 +3822,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     ]
   },
   {
+    "path": "/gate-pass",
+    "label": "Gate Pass",
+    "iconName": "FileText",
+    "children": []
+  },
+  {
     "path": "/gate-security",
     "label": "Gate Security",
     "iconName": "FileText",
