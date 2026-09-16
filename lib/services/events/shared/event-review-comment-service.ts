@@ -79,6 +79,8 @@ export interface TagPeopleResult {
   /** Names refused because they are not staff. */
   skipped: string[];
   notified: number;
+  /** Set when the tags saved but the notification could not be sent. */
+  notifyError: string | null;
 }
 
 export class EventReviewCommentService {
@@ -165,10 +167,27 @@ export class EventReviewCommentService {
     });
     const json = await res.json().catch(() => null);
     if (!res.ok || !json?.success) {
-      logger.error(MOD, 'Tagging failed', { eventId, commentId, status: res.status, json });
-      throw new Error(json?.error || 'The people could not be tagged.');
+      // A non-JSON answer is almost always a 404 page (route not deployed, or a
+      // dev server started before the route existed) or a crash page. Say which,
+      // with the status — an empty "{}" in the console helped nobody.
+      const reason =
+        json?.error ??
+        (res.status === 404
+          ? 'the tagging service was not found (HTTP 404) — restart the dev server or redeploy'
+          : `the server answered HTTP ${res.status}`);
+      logger.error(MOD, `Tagging failed: ${reason}`, {
+        eventId,
+        commentId,
+        status: String(res.status),
+      });
+      throw new Error(reason);
     }
-    return { tagged: json.tagged ?? [], skipped: json.skipped ?? [], notified: json.notified ?? 0 };
+    return {
+      tagged: json.tagged ?? [],
+      skipped: json.skipped ?? [],
+      notified: json.notified ?? 0,
+      notifyError: json.notify_error ?? null,
+    };
   }
 
   /** Edit your own words. The trigger refuses anyone else, admin or not. */

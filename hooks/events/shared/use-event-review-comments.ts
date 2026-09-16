@@ -56,6 +56,11 @@ export function useCreateReviewComment(eventId: string) {
           if (result.tagged.length > 0) {
             toast.success(`Tagged ${result.tagged.join(', ')}`);
           }
+          if (result.tagged.length > 0 && result.notifyError) {
+            toast.error(
+              `Tagged, but the notification could not be sent — tell ${result.tagged.join(', ')} directly.`,
+            );
+          }
           if (result.skipped.length > 0) {
             toast.error(`Not tagged (not staff): ${result.skipped.join(', ')}`);
           }
