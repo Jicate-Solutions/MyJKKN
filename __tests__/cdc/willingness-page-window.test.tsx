@@ -18,7 +18,13 @@
  * "Confirm willingness", it stays disabled until the consent box is ticked, and
  * the POST carries `additional_mobile` + `data_consent` alongside `intent`. The
  * fixture and the open-window test follow the shipped page; the closed-window
- * copy is unchanged.
+ * copy is unchanged. Since 2026-09-16 the POST also carries `cgpa` and
+ * `arrears_count`, both mandatory before Confirm enables.
+ *
+ * 2026-09-16 — the page now routes learners to LearnerWillingnessView and
+ * everyone else to a permission-guarded coordinator view (direct push
+ * 6bcf5b7890). The auth and permission hooks are stubbed below so the learner
+ * branch renders; the copy under test did not change.
  */
 
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
@@ -29,6 +35,23 @@ import type { LearnerWillingnessSnapshot } from '@/lib/services/cdc/willingness-
 
 vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
+}));
+
+// 2026-09-16 (direct push 6bcf5b7890) — the page became "one URL, two
+// audiences": it reads useAuth to pick the learner view over the coordinator
+// view, and imports PermissionGuard for the latter. PermissionGuard pulls in
+// usePermissions → RoleService, whose static initialiser builds a browser
+// Supabase client at import time and throws without NEXT_PUBLIC_SUPABASE_URL
+// (CI has none). Both hooks are stubbed: this file tests what a LEARNER sees.
+vi.mock('@/hooks/use-auth', () => ({
+  useAuth: () => ({
+    profile: { id: 'user-1', learner_id: 'l1', role: 'student' },
+    isLoading: false,
+    error: null,
+  }),
+}));
+vi.mock('@/hooks/use-permissions', () => ({
+  usePermissions: () => ({ hasPermission: () => false, isSuperAdmin: false, isLoading: false }),
 }));
 
 import CdcDriveWillingnessPage from '@/app/(routes)/cdc/drives/[id]/willingness/page';
@@ -132,6 +155,18 @@ describe('willingness page — window open (the state every production drive is 
     ).toBeUndefined();
 
     fireEvent.click(screen.getByRole('checkbox'));
+
+    // 2026-09-16 (direct push 6bcf5b7890): CGPA and arrears are mandatory and
+    // travel with the declaration. With no published COE result to pre-fill
+    // them (the fixture's `academic` is null), consent alone must not enable
+    // Confirm — the learner has to type both.
+    expect((yes as HTMLButtonElement).disabled).toBe(true);
+    const cgpa = document.getElementById('cdc-cgpa') as HTMLInputElement | null;
+    const arrears = document.getElementById('cdc-arrears') as HTMLInputElement | null;
+    expect(cgpa).toBeTruthy();
+    expect(arrears).toBeTruthy();
+    fireEvent.change(cgpa!, { target: { value: '8.2' } });
+    fireEvent.change(arrears!, { target: { value: '0' } });
     await waitFor(() => expect((yes as HTMLButtonElement).disabled).toBe(false));
 
     fireEvent.click(yes);
@@ -145,6 +180,8 @@ describe('willingness page — window open (the state every production drive is 
         intent: 'willing',
         additional_mobile: null,
         data_consent: true,
+        cgpa: 8.2,
+        arrears_count: 0,
       });
     });
   });
