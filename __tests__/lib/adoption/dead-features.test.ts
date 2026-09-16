@@ -222,13 +222,30 @@ describe('isDeadFeature', () => {
     ).toBe(false);
   });
 
-  it('counts a feature with nobody intended as dead once it is old enough', () => {
-    // Deliberate, and the reason `measured` is a separate headline: a feature
-    // no living person is intended to use is as dead as one nobody opens. The
-    // pair of numbers is what tells the two cases apart on screen.
+  it('does NOT count a feature with nobody intended as dead — it is unmeasured, a labelling gap', () => {
     const [group] = groupByFeature([row({ intended_count: 0, pct_weekly: 0 })]);
     expect(isMeasured(group)).toBe(false);
-    expect(isDeadFeature(group, NOW)).toBe(true);
+    expect(isDeadFeature(group, NOW)).toBe(false);
+  });
+
+  it('does NOT count an already-retired feature as dead — the Director decided', () => {
+    const [group] = groupByFeature([row({ status: 'retired', intended_count: 40, pct_weekly: 0 })]);
+    expect(isDeadFeature(group, NOW)).toBe(false);
+  });
+
+  it('judges only the roles that have intended people', () => {
+    // One role nobody holds (0 intended) must not drag a working feature down
+    // nor rescue a dead one.
+    const [alive] = groupByFeature([
+      row({ role: 'hod', intended_count: 20, pct_weekly: 40 }),
+      row({ role: 'ghost', intended_count: 0, pct_weekly: 0 }),
+    ]);
+    expect(isDeadFeature(alive, NOW)).toBe(false);
+    const [dead] = groupByFeature([
+      row({ role: 'hod', intended_count: 20, pct_weekly: 1 }),
+      row({ role: 'ghost', intended_count: 0, pct_weekly: 0 }),
+    ]);
+    expect(isDeadFeature(dead, NOW)).toBe(true);
   });
 });
 
@@ -269,8 +286,8 @@ describe('summariseAdoption', () => {
         row({ feature_key: 'billing.receipt', pct_weekly: 61, intended_count: 12 }),
         // Shipped this week, nobody yet → too young to judge.
         row({ feature_key: 'cdc.willingness', shipped_at: shippedDaysAgo(3), pct_weekly: 0 }),
-        // Labelled, but nobody is intended to use it → not measured, and old
-        // enough to read as dead.
+        // Labelled, but nobody is intended to use it → not measured, so NOT
+        // dead either: a labelling gap, not a retirement question.
         row({ feature_key: 'hr.norms', intended_count: 0, pct_weekly: 0 }),
         // The app-wide line is never a feature.
         row({ feature_key: APP_WIDE_FEATURE_KEY }),
@@ -280,7 +297,7 @@ describe('summariseAdoption', () => {
 
     expect(summary.labelled).toBe(4);
     expect(summary.measured).toBe(3);
-    expect(summary.dead).toBe(2);
+    expect(summary.dead).toBe(1);
     expect(summary.groups.map((g) => g.feature_key)).toEqual([
       'gate.pass_issue',
       'billing.receipt',

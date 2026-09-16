@@ -157,19 +157,22 @@ export function isOldEnoughToJudge(group: FeatureGroup, now: Date = new Date()):
 }
 
 /**
- * Dead: shipped at least DEAD_AFTER_DAYS ago AND every intended role is under
- * the bar this week. One role above the bar keeps the feature alive — it is
- * working for somebody, and the answer is targeting, not retirement.
+ * Dead: shipped at least DEAD_AFTER_DAYS ago, MEASURED (somebody is intended
+ * to use it), not already retired, and every intended role is under the bar
+ * this week. One role above the bar keeps the feature alive — it is working
+ * for somebody, and the answer is targeting, not retirement.
  *
- * Note the literal consequence: a feature with NO intended people scores 0%
- * on every row and reads as dead once it is old enough. That is deliberate —
- * a feature nobody can reach is as dead as one nobody opens — but it is why
- * `measured` is a separate headline number beside it.
+ * Two things are deliberately NOT dead: a feature with nobody intended (it is
+ * "not measured" — a labelling gap, shown by the `measured` headline, not a
+ * retirement question), and a feature the Director already retired (the
+ * decision was taken; counting it again would nag him about his own call).
  */
 export function isDeadFeature(group: FeatureGroup, now: Date = new Date()): boolean {
   if (!isOldEnoughToJudge(group, now)) return false;
-  if (group.rows.length === 0) return false;
-  return group.rows.every((row) => toNumber(row.pct_weekly) < DEAD_WEEKLY_PCT);
+  if (group.status === 'retired') return false;
+  const measured = group.rows.filter((row) => toNumber(row.intended_count) > 0);
+  if (measured.length === 0) return false;
+  return measured.every((row) => toNumber(row.pct_weekly) < DEAD_WEEKLY_PCT);
 }
 
 /** Is the feature old enough for the why-not question? Mirrors the RPC's own
