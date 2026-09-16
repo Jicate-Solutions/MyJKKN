@@ -82,7 +82,14 @@ export async function GET() {
       );
     }
 
-    // 3. Get all active learners with college emails
+    // 3. Get all onboarded-enough learners with college emails.
+    // 'reserved'/'admitted' are included alongside 'active': campus-living's
+    // own roster (fn_cl_roster_statuses) already covers them so they can be
+    // pre-allocated a hostel bed ahead of full enrollment, but until this
+    // widened, this was the only place that gap actually bit — a reserved/
+    // admitted learner could be picked in the allocation dialog and then fail
+    // with "No profile bridges learner %" because this tool, the only
+    // self-serve way to create that profile, never looked past 'active'.
     // Use .limit(10000) to bypass PostgREST's default 1000-row cap
     const { data: allLearners, error: learnersError } = await supabaseAdmin
       .from('learners_profiles')
@@ -98,7 +105,7 @@ export async function GET() {
         lifecycle_status,
         is_profile_complete
       `)
-      .eq('lifecycle_status', 'active')
+      .in('lifecycle_status', ['active', 'reserved', 'admitted'])
       .eq('is_profile_complete', true)
       .not('college_email', 'is', null)
       .not('college_email', 'eq', '')
