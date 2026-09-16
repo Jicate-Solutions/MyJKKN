@@ -12,7 +12,7 @@
  * rest of the app uses — this screen invents no access rules of its own.
  */
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   Sparkles,
@@ -290,6 +290,57 @@ export function WhatsNewView() {
     return (path: string) => readerCanOpen(path, permissions, isSuperAdmin, role);
   }, [permissions, isSuperAdmin, userProfile?.role]);
 
+  /**
+   * A SEARCH MUST REACH THE WHOLE HISTORY, so typing one pulls the archive in.
+   *
+   * THE BUG THIS FIXES, measured against production on 2026-09-16. The page
+   * paints the last 90 days — 2,538 of 5,079 entries — and the older 2,541 load
+   * only when the reader clicks for them. `filtered` below has always filtered
+   * whatever `entries` currently holds, so a search silently answered from half
+   * the changelog: "Instagram" returned 7 of its 19 matches, with nothing on
+   * screen to suggest the other 12 existed. A confident wrong answer is worse
+   * than no search box, because the reader has no reason to doubt it.
+   *
+   * ONLY A TYPED SEARCH earns the extra ~320 KB. Not first paint, and not the
+   * kind or area filters: those name a slice the reader is already looking at,
+   * while a search is a question about everything.
+   *
+   * ONE LOAD PER SESSION, not one per keystroke. `wantsWholeHistory` is a
+   * boolean, so it flips false→true on the first character and stays true for
+   * the rest of the word: this effect runs once, not eight times. The 300 ms
+   * wait is for the other case — a character typed and immediately deleted
+   * flips it back, the cleanup cancels the timer, and nothing is fetched.
+   * `hasArchive` goes false once the archive is in, which disarms this for
+   * good; the hook's own in-flight latch covers the window in between.
+   *
+   * A FAILURE IS NOT RETRIED HERE. It leaves `hasArchive` true and every
+   * dependency unchanged, so this effect does not re-run — no retry loop
+   * against a failing route while the reader keeps typing. The notice below
+   * says results may be incomplete and offers the retry as a deliberate tap.
+   */
+  const wantsWholeHistory = query.trim().length > 0;
+
+  useEffect(() => {
+    if (!wantsWholeHistory || !hasArchive) return;
+    const t = setTimeout(loadArchive, 300);
+    return () => clearTimeout(t);
+  }, [wantsWholeHistory, hasArchive, loadArchive]);
+
+  /**
+   * Module labels, lower-cased once, for the search below.
+   *
+   * Per-entry rather than per-render work: `filtered` re-runs on every
+   * keystroke over every loaded entry, and re-lower-casing 67 labels five
+   * thousand times a character is work with a known answer.
+   */
+  const moduleLabels = useMemo(() => {
+    const out = new Map<string, string>();
+    if (meta) {
+      for (const [slug, m] of Object.entries(meta.modules)) out.set(slug, m.label.toLowerCase());
+    }
+    return out;
+  }, [meta]);
+
   const filtered = useMemo(() => {
     if (!entries) return [];
     const q = query.trim().toLowerCase();
@@ -300,9 +351,16 @@ export function WhatsNewView() {
         // Exact, because the chips are built by tallying this same field —
         // picking a name can only ever select the rows that minted it.
         (!author || e.a === author) &&
-        (!q || e.s.toLowerCase().includes(q) || e.a.toLowerCase().includes(q))
+        // The module's label is searched as well as the subject and the author,
+        // because it is PRINTED ON EVERY ROW. "Social" sits above thirteen of
+        // the Instagram changes; a reader who types the word they can see and
+        // gets nothing has been told, wrongly, that there is nothing there.
+        (!q ||
+          e.s.toLowerCase().includes(q) ||
+          e.a.toLowerCase().includes(q) ||
+          (moduleLabels.get(e.m)?.includes(q) ?? false))
     );
-  }, [entries, query, kind, moduleSlug, author]);
+  }, [entries, query, kind, moduleSlug, author, moduleLabels]);
 
   /**
    * One section per day, and within a day one group per Keep a Changelog
@@ -390,6 +448,22 @@ export function WhatsNewView() {
   }
 
   const activeModule = moduleSlug === 'all' ? null : meta.modules[moduleSlug];
+
+  /**
+   * What the search is doing about the older half, in one sentence or none.
+   *
+   * Only while a search is typed: the kind and area filters never reach for the
+   * archive, so a notice about it under them would describe something that is
+   * not happening. Null the rest of the time, which is also every state where
+   * the answer on screen IS final.
+   */
+  const searchNotice = !wantsWholeHistory
+    ? null
+    : loadingArchive
+      ? 'Still searching the earlier changes — this count will grow.'
+      : archiveError
+        ? 'Earlier changes could not be searched, so some results may be missing.'
+        : null;
 
   return (
     <div className="space-y-6">
@@ -628,9 +702,44 @@ export function WhatsNewView() {
         </Link>
       )}
 
+      {/*
+        A COUNT THAT IS STILL GROWING HAS TO SAY SO.
+
+        The load above takes a second or two, and for that second the reader is
+        looking at a number that is about to change. Letting it grow in silence
+        would be the same lie the half-searched list was — a confident figure
+        that turns out not to have been the answer — so the page says plainly
+        that it is not finished, and says plainly when it could not finish.
+
+        VISIBLE HERE, ANNOUNCED BELOW. This element is conditional, and a live
+        region inserted at the moment its text arrives is not reliably read out
+        (the same finding as the refresh button's status line). So the words are
+        also written into the always-mounted region underneath, and this copy is
+        aria-hidden so nobody hears it twice. The retry lives where it already
+        lived — the button at the foot of the list, which renders throughout a
+        search and reads "Try again" once the archive has failed.
+      */}
+      {searchNotice && (
+        <p
+          aria-hidden="true"
+          className={cn(
+            'flex items-start gap-2 text-sm',
+            archiveError ? 'text-amber-600 dark:text-amber-500' : 'text-muted-foreground'
+          )}
+        >
+          {loadingArchive ? (
+            <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
+          ) : (
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          )}
+          <span>{searchNotice}</span>
+        </p>
+      )}
+
       {/* Filtering swaps the list out with nothing said. Announce the new
           count, politely, so a screen-reader user knows the search took. */}
       <p className="sr-only" role="status" aria-live="polite">
+        {searchNotice ? `${searchNotice} ` : ''}
         {filtered.length.toLocaleString('en-IN')}{' '}
         {filtered.length === 1 ? 'change' : 'changes'} shown
       </p>

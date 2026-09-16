@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePermissions } from '@/hooks/use-permissions';
 import type { ChangelogEntry, ChangelogMeta, ChangelogModule } from './types';
 
@@ -188,9 +188,18 @@ export function useChangelog() {
     // Clearing archiveError is what makes this a retry rather than a no-op:
     // the catch above set wantArchive back to false, so setting it true here
     // changes the effect's dependency and runs the fetch again.
-    loadArchive: () => {
+    //
+    // MEMOISED, and that is now load-bearing rather than tidiness. The view
+    // calls this from an effect when the reader starts searching, and an effect
+    // re-runs whenever a dependency's identity changes. A fresh arrow every
+    // render would restart that effect on every keystroke — and it is the
+    // effect's own cleanup that cancels the pending load, so the 300 ms wait
+    // would be reset by each character and never elapse for anyone typing
+    // steadily. `set` and `setWantArchive` are useState setters, so there is
+    // nothing for the dependency array to hold.
+    loadArchive: useCallback(() => {
       set((s) => ({ ...s, archiveError: null }));
       setWantArchive(true);
-    },
+    }, []),
   };
 }

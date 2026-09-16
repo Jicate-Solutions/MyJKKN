@@ -593,3 +593,197 @@ describe('WhatsNewView — a link the reader cannot open is not shown', () => {
     ).toHaveAttribute('href', '/admission/consultants/attribution-orphans');
   });
 });
+
+/**
+ * THE DEFECT THIS BLOCK EXISTS FOR, measured on production 2026-09-16.
+ *
+ * The page paints the last 90 days and leaves the older half behind a button.
+ * The search box filtered whatever happened to be loaded, so it answered from
+ * half the changelog and said nothing about it: the Director searched
+ * "Instagram", the page found 7, and 12 more were sitting in the archive. He
+ * had no way to know. A search box that quietly answers from half the data is
+ * worse than no search box, because a reader has no reason to doubt it.
+ *
+ * Every test below would have failed before the fix and passes after it.
+ */
+describe('WhatsNewView — a search must reach the whole history', () => {
+  const META_WITH_ARCHIVE = { ...META, archiveCount: 2, total: 5 };
+
+  const RECENT_IG = [
+    ...RECENT,
+    { h: 'eee5555', d: '2026-09-02', t: 'new', m: 'billing', s: 'Show how an invoice reached us from Instagram', a: 'Janani' },
+  ];
+
+  const ARCHIVE_IG = [
+    { h: 'fff6666', d: '2026-05-30', t: 'new', m: 'billing', s: 'Instagram Graph API client for receipts', a: 'Boobalan' },
+    { h: 'ggg7777', d: '2026-05-30', t: 'fixed', m: 'billing', s: 'Instagram metrics polling cron jobs', a: 'Boobalan' },
+  ];
+
+  /**
+   * Counts archive requests, and can hold one open so the in-flight state is
+   * observable rather than a microtask nobody can catch.
+   */
+  function stubFetch(opts: { fail?: boolean; hold?: boolean } = {}) {
+    const calls = { archive: 0 };
+    let release = () => {};
+    const held = new Promise<void>((r) => {
+      release = () => r();
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('part=archive')) {
+          calls.archive += 1;
+          if (opts.hold) await held;
+          if (opts.fail) {
+            return { ok: false, status: 500, json: async () => ({ error: 'boom' }) } as Response;
+          }
+          return { ok: true, status: 200, json: async () => ARCHIVE_IG } as Response;
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => (url.includes('part=meta') ? META_WITH_ARCHIVE : RECENT_IG),
+        } as Response;
+      })
+    );
+    return { calls, release: () => release() };
+  }
+
+  const search = () => screen.getByRole('textbox', { name: /search changes/i });
+
+  beforeEach(() => {
+    // Super admin: role scoping is tested above and is not what these are about.
+    permissionsMock.current = { permissions: {}, isSuperAdmin: true, isLoading: false };
+  });
+
+  it('finds the archive-only matches the Director could not see', async () => {
+    // THE BUG, in one test. Before the fix the two archive entries were simply
+    // not in `entries`, so the search could not return them and nothing said so.
+    const { calls } = stubFetch();
+    render(<WhatsNewView />);
+    await waitFor(() =>
+      expect(screen.getByText('Show how an invoice reached us from Instagram')).toBeInTheDocument()
+    );
+
+    // Nothing has been fetched from the archive yet — first paint must stay cheap.
+    expect(calls.archive).toBe(0);
+
+    fireEvent.change(search(), { target: { value: 'Instagram' } });
+
+    // Typing the word is what pulls the older half in…
+    await waitFor(() => expect(calls.archive).toBe(1));
+    // …and the answer now includes changes from before the 90-day boundary.
+    await waitFor(() =>
+      expect(screen.getByText('Instagram Graph API client for receipts')).toBeInTheDocument()
+    );
+    expect(screen.getByText('Instagram metrics polling cron jobs')).toBeInTheDocument();
+    // The recent match is still there: this widened the answer, it did not swap it.
+    expect(screen.getByText('Show how an invoice reached us from Instagram')).toBeInTheDocument();
+    // And nothing unrelated came along with it.
+    expect(screen.queryByText('Bulk import for employee records')).not.toBeInTheDocument();
+  });
+
+  it('fetches the archive ONCE for a word typed a letter at a time', async () => {
+    // ~320 KB. A fast typist must not trigger it eight times.
+    const { calls } = stubFetch();
+    render(<WhatsNewView />);
+    await waitFor(() =>
+      expect(screen.getByText('A receipt total ignored the discount')).toBeInTheDocument()
+    );
+
+    for (const v of ['I', 'In', 'Ins', 'Inst', 'Insta', 'Instag', 'Instagr', 'Instagram']) {
+      fireEvent.change(search(), { target: { value: v } });
+    }
+
+    await waitFor(() =>
+      expect(screen.getByText('Instagram Graph API client for receipts')).toBeInTheDocument()
+    );
+    expect(calls.archive).toBe(1);
+  });
+
+  it('does not reach for the archive when only the kind filter changes', async () => {
+    // A kind or area filter narrows the slice already on screen. Only a search
+    // asks a question about everything, so only a search earns the payload.
+    const { calls } = stubFetch();
+    render(<WhatsNewView />);
+    await waitFor(() =>
+      expect(screen.getByText('A receipt total ignored the discount')).toBeInTheDocument()
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /^fixed$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^new$/i }));
+
+    await new Promise((r) => setTimeout(r, 400)); // past the 300 ms wait
+    expect(calls.archive).toBe(0);
+  });
+
+  it('says the count is not final while the older half is still loading', async () => {
+    // A result count that silently grows is the same lie in a new costume.
+    const { calls, release } = stubFetch({ hold: true });
+    render(<WhatsNewView />);
+    await waitFor(() =>
+      expect(screen.getByText('A receipt total ignored the discount')).toBeInTheDocument()
+    );
+
+    fireEvent.change(search(), { target: { value: 'Instagram' } });
+    await waitFor(() => expect(calls.archive).toBe(1));
+
+    // TWICE, and both are required: the visible line the reader sees, and the
+    // copy inside the always-mounted live region, which is what a screen reader
+    // actually hears. A conditionally-mounted live region is not reliably
+    // announced — the same finding the refresh button's status line records.
+    await waitFor(() =>
+      expect(screen.getAllByText(/still searching the earlier changes/i)).toHaveLength(2)
+    );
+
+    release();
+    // Once everything is in, the page stops hedging.
+    await waitFor(() =>
+      expect(screen.getByText('Instagram Graph API client for receipts')).toBeInTheDocument()
+    );
+    expect(screen.queryAllByText(/still searching the earlier changes/i)).toHaveLength(0);
+  });
+
+  it('admits the results may be incomplete when the archive fails, and keeps what loaded', async () => {
+    const { calls } = stubFetch({ fail: true });
+    render(<WhatsNewView />);
+    await waitFor(() =>
+      expect(screen.getByText('A receipt total ignored the discount')).toBeInTheDocument()
+    );
+
+    fireEvent.change(search(), { target: { value: 'Instagram' } });
+    await waitFor(() => expect(calls.archive).toBe(1));
+
+    // Seen and heard, as above.
+    await waitFor(() =>
+      expect(screen.getAllByText(/some results may be missing/i)).toHaveLength(2)
+    );
+    // The half that DID load is still answering the search.
+    expect(screen.getByText('Show how an invoice reached us from Instagram')).toBeInTheDocument();
+
+    // And it does not hammer a failing route while the reader keeps typing.
+    fireEvent.change(search(), { target: { value: 'Instagram p' } });
+    fireEvent.change(search(), { target: { value: 'Instagram po' } });
+    await new Promise((r) => setTimeout(r, 400));
+    expect(calls.archive).toBe(1);
+  });
+
+  it('searches the area name printed on every row, not just the words inside it', async () => {
+    // "HR" appears in no subject and no author in this fixture — only as the
+    // module label above the row. A reader who types a word they can see and is
+    // told there is nothing has been given the same wrong answer as before.
+    stubFetch();
+    render(<WhatsNewView />);
+    await waitFor(() =>
+      expect(screen.getByText('Bulk import for employee records')).toBeInTheDocument()
+    );
+
+    fireEvent.change(search(), { target: { value: 'HR' } });
+
+    await waitFor(() =>
+      expect(screen.queryByText('A receipt total ignored the discount')).not.toBeInTheDocument()
+    );
+    expect(screen.getByText('Bulk import for employee records')).toBeInTheDocument();
+  });
+});
