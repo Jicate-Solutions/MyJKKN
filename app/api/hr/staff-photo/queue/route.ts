@@ -29,17 +29,28 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ success: false, error: 'Please sign in.' }, { status: 401 });
   }
 
-  const status = request.nextUrl.searchParams.get('status') ?? 'pending';
-  if (!['pending', 'approved', 'rejected'].includes(status)) {
+  // A comma list is accepted so a person can be shown their own LATEST
+  // submission whatever became of it. Without that, a rejected photograph
+  // simply vanishes from their screen and they resubmit the same problem —
+  // which is work for them and a second review for HR.
+  const raw = request.nextUrl.searchParams.get('status') ?? 'pending';
+  const statuses = raw.split(',').map((x) => x.trim()).filter(Boolean);
+  const allowed = ['pending', 'approved', 'rejected'];
+  if (statuses.length === 0 || statuses.some((x) => !allowed.includes(x))) {
     return NextResponse.json({ success: false, error: 'Unknown status filter.' }, { status: 400 });
   }
 
   const { data: rows, error } = await supabase
     .from('hr_staff_photo_submissions')
     .select(
-      'id, staff_id, institution_id, storage_path, status, submitted_at, review_note, staff:staff_id (first_name, last_name, profile_picture)',
+      // NOTE staff.staff_id is the TEXT employee code, not a foreign key, and sits
+      // confusingly beside staff.id which is the uuid this row points at. There
+      // is no employee_code column.
+      'id, staff_id, institution_id, storage_path, status, submitted_at, reviewed_at, review_note, staff:staff_id (first_name, last_name, profile_picture, staff_id, designation)',
     )
-    .eq('status', status)
+    .in('status', statuses)
+    // Oldest first for a reviewer working a queue; the caller sorts if it wants
+    // its own most recent instead.
     .order('submitted_at', { ascending: true })
     .limit(200);
 
@@ -75,15 +86,29 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       storage_path: string;
       status: string;
       submitted_at: string;
+      reviewed_at: string | null;
       review_note: string | null;
-      staff: { first_name: string | null; last_name: string | null; profile_picture: string | null } | null;
+      staff: {
+        first_name: string | null;
+        last_name: string | null;
+        profile_picture: string | null;
+        staff_id: string | null;
+        designation: string | null;
+      } | null;
     };
     return {
       id: row.id,
       staff_id: row.staff_id,
       name: [row.staff?.first_name, row.staff?.last_name].filter(Boolean).join(' ') || 'Unnamed',
+      // Shown to the reviewer alongside the face. A central reviewer does not
+      // know 764 people by sight, so the record details are the only other
+      // thing they have to go on — see the header note on what this review can
+      // and cannot establish.
+      employee_code: row.staff?.staff_id ?? null,
+      designation: row.staff?.designation ?? null,
       current_photo: row.staff?.profile_picture ?? null,
       submitted_at: row.submitted_at,
+      reviewed_at: row.reviewed_at,
       status: row.status,
       review_note: row.review_note,
       // Null when the signed link could not be minted — the screen shows the

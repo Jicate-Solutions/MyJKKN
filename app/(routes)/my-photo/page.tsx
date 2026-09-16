@@ -39,6 +39,7 @@ type Mine = {
   id: string;
   status: 'pending' | 'approved' | 'rejected';
   submitted_at: string;
+  reviewed_at: string | null;
   review_note: string | null;
   image_url: string | null;
   current_photo: string | null;
@@ -55,9 +56,20 @@ export default function MyStaffPhotoPage() {
     try {
       // The queue endpoint is scoped by RLS, so for an ordinary staff member it
       // returns exactly their own submissions and nothing else.
-      const res = await fetch('/api/hr/staff-photo/queue?status=pending', { cache: 'no-store' });
+      // Rejected as well as pending. A photograph that was turned down and
+      // then vanished from this screen is how somebody ends up sending the
+      // same unusable picture twice — and HR reviewing it twice.
+      const res = await fetch('/api/hr/staff-photo/queue?status=pending,rejected', {
+        cache: 'no-store',
+      });
       const body = await res.json();
-      setMine(body?.submissions?.[0] ?? null);
+      const rows: Mine[] = body?.submissions ?? [];
+      // The endpoint returns oldest first for a reviewer's queue; a person
+      // wants their latest.
+      const latest = rows.length
+        ? [...rows].sort((a, b) => b.submitted_at.localeCompare(a.submitted_at))[0]
+        : null;
+      setMine(latest);
     } catch {
       // A failed read is not a failed submission — say nothing and let them try.
     } finally {
@@ -133,7 +145,7 @@ export default function MyStaffPhotoPage() {
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" /> Checking…
                   </div>
-                ) : mine ? (
+                ) : mine?.status === 'pending' ? (
                   <div className="flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50/50 p-3">
                     <Clock className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-700" />
                     <div className="text-sm">
@@ -141,6 +153,20 @@ export default function MyStaffPhotoPage() {
                       <p className="text-amber-800">
                         Sent {new Date(mine.submitted_at).toLocaleDateString('en-IN')}. Until it is
                         approved, your card still uses whatever photograph is already on file.
+                      </p>
+                    </div>
+                  </div>
+                ) : mine?.status === 'rejected' ? (
+                  <div className="flex items-start gap-3 rounded-md border border-red-300 bg-red-50/50 p-3">
+                    <XCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-red-700" />
+                    <div className="text-sm">
+                      <p className="font-medium text-red-900">Not accepted — please send another</p>
+                      {/* The reason, verbatim from the reviewer. Without it people
+                          resend the same picture and nothing improves. */}
+                      <p className="text-red-800">
+                        {mine.review_note?.trim()
+                          ? mine.review_note
+                          : 'No reason was given. Take another photograph following the guidance below.'}
                       </p>
                     </div>
                   </div>
@@ -172,9 +198,23 @@ export default function MyStaffPhotoPage() {
             </Card>
 
             <Card className="border-muted">
-              <CardContent className="flex gap-3 pt-6 text-sm text-muted-foreground">
-                <Info className="mt-0.5 h-4 w-4 flex-shrink-0" />
-                <p>
+              <CardContent className="space-y-3 pt-6 text-sm">
+                <div className="flex items-center gap-2 font-medium">
+                  <Info className="h-4 w-4" />
+                  What HR is looking for
+                </div>
+                {/* Passport style, by standing decision. Written out rather than
+                    left to judgement so that 764 people are held to one rule and
+                    a rejected photograph can name which line it missed. */}
+                <ul className="ml-1 list-inside list-disc space-y-1 text-muted-foreground">
+                  <li>Head and shoulders, filling most of the picture</li>
+                  <li>Looking straight at the camera, eyes open, plain expression</li>
+                  <li>Plain, light background — a wall is ideal</li>
+                  <li>No sunglasses, no cap or hat</li>
+                  <li>Even light on your face, no strong shadow and no glare</li>
+                  <li>Nobody else in the picture</li>
+                </ul>
+                <p className="text-muted-foreground">
                   Your photograph is what a person at a gate looks at to check the card belongs to
                   you. That is why someone approves it rather than it going straight on.
                 </p>
