@@ -8,6 +8,7 @@
 import { use } from 'react';
 import Link from 'next/link';
 
+import { cn } from '@/lib/utils';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -18,6 +19,8 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useSchoolFeePlan } from '@/hooks/school-fees/use-school-fee-plans';
 
 import { SchoolFeesBreadcrumb } from '../_components/school-fees-breadcrumb';
+import { SchoolFeeSectionHeader } from '../_components/school-fee-section-header';
+import { SECTION_THEMES } from '../_components/section-theme';
 import { PlanForm } from '../_components/plan-form';
 import { ClassFeePreview } from '../_components/class-fee-preview';
 
@@ -81,16 +84,15 @@ export default function SchoolFeePlanDetailPage({
   return (
     <PermissionGuard module="school_fees" action="read">
       <ContentLayout title="School Fee Plan">
-        <div className="space-y-4">
+        <div className={cn('space-y-4 rounded-2xl p-3 sm:p-4', SECTION_THEMES.plans.pageBg)}>
           <SchoolFeesBreadcrumb leaf="Fee plan" />
 
-          <div>
-            <h1 className="text-2xl font-bold py-1">Fee Plan</h1>
-            <p className="text-sm sm:text-base text-muted-foreground">
-              Fee head × term grid for one class. A blank cell means the head is not charged that
-              term.
-            </p>
-          </div>
+          <SchoolFeeSectionHeader
+            section="plans"
+            title="Fee Plan"
+            description="Fee head × term grid for one class. A blank cell means the head is not charged that term."
+            hideNav
+          />
 
           <PlanDetail id={id} />
         </div>

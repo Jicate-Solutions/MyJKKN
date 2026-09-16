@@ -96,6 +96,59 @@ export async function GET(
     }
   }
 
+  // Team-member requester: the pass lives in gate_staff_passes and is issued
+  // at submit time (no approval needed).
+  if (!pass) {
+    let { data: staffPass } = await db
+      .from('gate_staff_passes')
+      .select('id, pass_number, qr_code, status, reason, out_time, in_time, created_at')
+      .eq('service_request_id', id)
+      .maybeSingle();
+    if (
+      !staffPass &&
+      ['submitted', 'in_review', 'approved', 'fulfilled'].includes(sr.status) &&
+      sr.requester_id === user.id
+    ) {
+      const session = await createServerSupabaseClient();
+      const { error: rpcError } = await (session as any).rpc('issue_gate_pass_for_service_request', {
+        p_request_id: id,
+      });
+      if (rpcError) {
+        console.error('[service-requests/gate-pass] team-member issue failed:', rpcError);
+      } else {
+        ({ data: staffPass } = await db
+          .from('gate_staff_passes')
+          .select('id, pass_number, qr_code, status, reason, out_time, in_time, created_at')
+          .eq('service_request_id', id)
+          .maybeSingle());
+      }
+    }
+    if (staffPass) {
+      return NextResponse.json({
+        issued: true,
+        kind: 'staff',
+        request_status: sr.status,
+        request_number: sr.request_number,
+        pass: {
+          id: staffPass.id,
+          pass_number: staffPass.pass_number,
+          qr_code: staffPass.qr_code,
+          status: staffPass.status,
+          valid_date: null,
+          expected_exit: null,
+          expected_return: null,
+          out_time: staffPass.out_time,
+          actual_return: staffPass.in_time,
+          reason: staffPass.reason,
+          destination: null,
+          alternate_mobile: null,
+          approved_at: staffPass.created_at,
+          approved_by_name: null,
+        },
+      });
+    }
+  }
+
   if (!pass) {
     return NextResponse.json({
       issued: false,
@@ -119,6 +172,7 @@ export async function GET(
   }
   return NextResponse.json({
     issued: true,
+    kind: 'learner',
     request_status: sr.status,
     request_number: sr.request_number,
     pass: { ...rest, approved_by_name: approvedByName },

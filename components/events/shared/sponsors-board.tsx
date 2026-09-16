@@ -22,6 +22,16 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -43,12 +53,14 @@ import {
   User,
   Globe,
   ListChecks,
+  Trash2,
 } from 'lucide-react';
 import {
   useEventSponsors,
   useEventSponsorSummary,
   useCreateEventSponsor,
   useMoveEventSponsorStage,
+  useDeleteEventSponsor,
 } from '@/hooks/events/shared/use-event-sponsors';
 import type {
   MarathonSponsor,
@@ -242,6 +254,8 @@ function SponsorCard({
   showStage: boolean;
 }) {
   const movePipeline = useMoveEventSponsorStage();
+  const deleteSponsor = useDeleteEventSponsor(sponsor.event_id);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const deliverables = (sponsor.deliverables ?? []) as { status?: string }[];
   const completed = deliverables.filter((d) => d.status === 'completed').length;
   const total = deliverables.length;
@@ -273,6 +287,28 @@ function SponsorCard({
                 >
                   <Globe className="h-3.5 w-3.5" />
                 </a>
+              )}
+              {/* Delete sits on the card, not behind a menu: with several
+                  sponsors on screen the only unambiguous way to say WHICH one
+                  is to act on that card. Hidden entirely without canManage
+                  rather than disabled — a greyed button on a read-only board
+                  invites a click that can never work. */}
+              {canManage && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="ml-auto h-6 w-6 shrink-0 p-0 text-muted-foreground hover:text-destructive"
+                  title={`Delete ${sponsor.company_name}`}
+                  aria-label={`Delete ${sponsor.company_name}`}
+                  disabled={deleteSponsor.isPending}
+                  onClick={() => setConfirmDelete(true)}
+                >
+                  {deleteSponsor.isPending ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-3.5 w-3.5" />
+                  )}
+                </Button>
               )}
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -373,6 +409,60 @@ function SponsorCard({
             ))}
           </SelectContent>
         </Select>
+
+        {/* Deleting a sponsor is not just losing a name: event_sponsor_deliverables
+            and event_sponsor_activity_log both reference it ON DELETE CASCADE, so
+            every promised deliverable and the whole contact history go with it.
+            The dialog counts what will actually be lost rather than warning in the
+            abstract, and money already received is called out separately — that is
+            a fact about the world that deleting the row does not undo. */}
+        <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete {sponsor.company_name}?</AlertDialogTitle>
+              <AlertDialogDescription asChild>
+                <div className="space-y-2">
+                  <p>
+                    This removes the sponsor from this event permanently. It cannot be
+                    undone.
+                  </p>
+                  {total > 0 && (
+                    <p>
+                      Its {total} deliverable{total === 1 ? '' : 's'} and its full activity
+                      history are deleted with it.
+                    </p>
+                  )}
+                  {received > 0 && (
+                    <p className="font-medium text-destructive">
+                      {inr(received)} is recorded as already received from this sponsor.
+                      Deleting the record does not reverse the payment — it only removes
+                      the account of it.
+                    </p>
+                  )}
+                </div>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deleteSponsor.isPending}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={deleteSponsor.isPending}
+                onClick={(e) => {
+                  // The dialog closes itself on action; keep it open until the
+                  // delete resolves so a failure is not hidden behind a dismissal.
+                  e.preventDefault();
+                  deleteSponsor.mutate(sponsor.id, {
+                    onSuccess: () => setConfirmDelete(false),
+                    onError: () => setConfirmDelete(false),
+                  });
+                }}
+              >
+                {deleteSponsor.isPending && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
+                Delete sponsor
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </CardContent>
     </Card>
   );

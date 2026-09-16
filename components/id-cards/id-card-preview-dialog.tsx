@@ -62,6 +62,7 @@ import { resolveProfileIdsForLearners } from '@/lib/services/id-cards/print-jobs
 import {
   renderLearnerCards,
   resolveLearnerInstitutions,
+  revokeCardUrls,
   type PreviewLearnerInput,
   type RenderedCard,
   type RenderFailure
@@ -195,11 +196,26 @@ export function IdCardPreviewDialog({
   const isBulk = learners.length > 1;
   const dialogTitle = title ?? (isBulk ? 'Bulk ID Card Print' : 'Preview ID Card');
 
+  // Release the previous batch's bitmaps on regenerate / close / unmount (blob
+  // URLs are not garbage-collected on their own). Explicit, not an effect
+  // cleanup keyed on `cards`: StrictMode's mount→cleanup→mount would revoke
+  // the live batch in development.
+  const cardsRef = useRef<RenderedCard[]>([]);
+  useEffect(() => {
+    cardsRef.current = cards;
+  }, [cards]);
+  useEffect(() => () => revokeCardUrls(cardsRef.current), []);
+  const dropCards = useCallback(() => {
+    revokeCardUrls(cardsRef.current);
+    cardsRef.current = [];
+    setCards([]);
+  }, []);
+
   const reset = useCallback(() => {
     runIdRef.current += 1;
     setPhase('idle');
     setProgress({ done: 0, total: 0 });
-    setCards([]);
+    dropCards();
     setFailed([]);
     setSkippedNoAccount([]);
     setFallbackCount(0);
@@ -216,7 +232,7 @@ export function IdCardPreviewDialog({
     const runId = ++runIdRef.current;
     setPhase('resolving');
     setErrorMessage(null);
-    setCards([]);
+    dropCards();
     setFailed([]);
     setSkippedNoAccount([]);
     setFallbackCount(0);
@@ -268,7 +284,9 @@ export function IdCardPreviewDialog({
         templateId: template.id,
         templateName: template.name,
         name: l.name,
-        rollNumber: l.rollNumber ?? null
+        rollNumber: l.rollNumber ?? null,
+        groupKey: l.groupKey ?? null,
+        groupLabel: l.groupLabel ?? null
       });
     }
     setSkippedNoAccount(skipped);
@@ -387,16 +405,73 @@ export function IdCardPreviewDialog({
     setPdfProgress({ done: 0, total: sideCount });
     try {
       // Loaded on demand — jsPDF is ~300 KB and only this action needs it.
-      const { buildSheetPdf, pdfFileName } = await import('@/lib/id-cards/sheet-pdf');
-      const doc = await buildSheetPdf(pages, {
-        title: documentTitle,
-        onProgress: (done, total) => setPdfProgress({ done, total })
-      });
-      doc.save(pdfFileName(cards.length));
-      toast.success(`PDF ready — ${pages.length} A4 ${pages.length === 1 ? 'sheet' : 'sheets'}.`);
+      const { buildSheetPdf, pdfFileName, chunkCards, PDF_CHUNK_CARDS } = await import(
+        '@/lib/id-cards/sheet-pdf'
+      );
+      // Big batches are saved as numbered parts: one jsPDF document per
+      // ~120 cards keeps memory flat (a single 1,104-side document crashed Chrome).
+      const parts = chunkCards(cards, PDF_CHUNK_CARDS);
+      let doneBefore = 0;
+      for (let i = 0; i < parts.length; i += 1) {
+        const partPages = parts.length === 1 ? pages : buildSheetPages(parts[i], { mode: layoutMode, flip });
+        const doc = await buildSheetPdf(partPages, {
+          title: parts.length === 1 ? documentTitle : `${documentTitle} — part ${i + 1} of ${parts.length}`,
+          onProgress: (done) => setPdfProgress({ done: doneBefore + done, total: sideCount })
+        });
+        doc.save(
+          parts.length === 1
+            ? pdfFileName(cards.length)
+            : pdfFileName(parts[i].length, `id-cards-part-${i + 1}-of-${parts.length}`)
+        );
+        doneBefore += parts[i].length * (hasBacks ? 2 : 1);
+      }
+      toast.success(
+        parts.length === 1
+          ? `PDF ready — ${pages.length} A4 ${pages.length === 1 ? 'sheet' : 'sheets'}.`
+          : `${parts.length} PDF parts downloaded (${PDF_CHUNK_CARDS} cards each).`
+      );
     } catch (err) {
       console.error('[id-cards] PDF build failed:', err);
       toast.error(err instanceof Error ? err.message : 'Could not build the PDF.');
+    } finally {
+      setPdfProgress(null);
+    }
+  };
+
+  /** Distinct class / programme groups among the rendered cards (input order). */
+  const cardGroups = useMemo(() => {
+    const groups = new Map<string, { label: string; cards: RenderedCard[] }>();
+    for (const c of cards) {
+      const key = c.groupKey ?? '__none__';
+      const g = groups.get(key) ?? { label: c.groupLabel ?? 'Ungrouped', cards: [] };
+      g.cards.push(c);
+      groups.set(key, g);
+    }
+    return [...groups.values()];
+  }, [cards]);
+
+  /** One PDF per class / programme, each laid out and named on its own. */
+  const handleDownloadPdfPerGroup = async () => {
+    if (!ready || busy || cardGroups.length < 2) return;
+    const total = cardGroups.reduce((n, g) => n + g.cards.length, 0) * (hasBacks ? 2 : 1);
+    setPdfProgress({ done: 0, total });
+    let doneBefore = 0;
+    try {
+      const { buildSheetPdf } = await import('@/lib/id-cards/sheet-pdf');
+      for (const group of cardGroups) {
+        const groupPages = buildSheetPages(group.cards, { mode: layoutMode, flip });
+        const doc = await buildSheetPdf(groupPages, {
+          title: `${documentTitle} — ${group.label}`,
+          onProgress: (done) => setPdfProgress({ done: doneBefore + done, total })
+        });
+        const slug = group.label.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'class';
+        doc.save(`ID-Cards-${slug}-${group.cards.length}.pdf`);
+        doneBefore += group.cards.length * (hasBacks ? 2 : 1);
+      }
+      toast.success(`${cardGroups.length} PDFs downloaded — one per class.`);
+    } catch (err) {
+      console.error('[id-cards] per-class PDF build failed:', err);
+      toast.error(err instanceof Error ? err.message : 'Could not build the PDFs.');
     } finally {
       setPdfProgress(null);
     }
@@ -683,6 +758,21 @@ export function IdCardPreviewDialog({
               )}
               Download PDF
             </Button>
+            {cardGroups.length > 1 && (
+              <Button
+                variant="outline"
+                onClick={() => void handleDownloadPdfPerGroup()}
+                disabled={!ready || busy}
+                title={cardGroups.map((g) => `${g.label} (${g.cards.length})`).join(', ')}
+              >
+                {pdfProgress ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="mr-2 h-4 w-4" />
+                )}
+                PDF per class ({cardGroups.length})
+              </Button>
+            )}
             <Button onClick={handlePrint} disabled={!ready || busy}>
               {printing ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

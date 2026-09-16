@@ -41,10 +41,10 @@ export function useRecordGateMovement() {
   return useMutation({
     mutationFn: (input:
       | { kind: 'learner'; passId: string; direction: 'in' | 'out'; gateLocation?: string }
-      | { kind: 'staff'; staffId: string; direction: 'in' | 'out'; reason?: string | null; gateLocation?: string }) =>
+      | { kind: 'staff'; staffId: string; direction: 'in' | 'out'; reason?: string | null; gateLocation?: string; staffPassId?: string | null }) =>
       input.kind === 'learner'
         ? GateSecurityService.recordLearnerMovement(input.passId, input.direction, input.gateLocation)
-        : GateSecurityService.recordStaffMovement(input.staffId, input.direction, input.reason, input.gateLocation),
+        : GateSecurityService.recordStaffMovement(input.staffId, input.direction, input.reason, input.gateLocation, input.staffPassId),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: gateSecurityKeys.today() });
       void qc.invalidateQueries({ queryKey: ['gate-passes'] });
@@ -72,6 +72,27 @@ export function useGateReport(filters: ReportFilters, enabled = true) {
     queryFn: () => GateSecurityService.report(filters),
     enabled,
     placeholderData: (prev) => prev,
+  });
+}
+
+export function useMyStaffPasses(enabled = true) {
+  return useQuery({
+    queryKey: [...gateSecurityKeys.all, 'my-staff-passes'] as const,
+    queryFn: () => GateSecurityService.myStaffPasses(),
+    enabled,
+    refetchInterval: 30_000,
+  });
+}
+
+export function useCreateStaffPass() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (reason: string) => GateSecurityService.createStaffPass(reason),
+    onSuccess: () => {
+      toast.success('Gate pass ready. Show the QR at the gate.');
+      void qc.invalidateQueries({ queryKey: gateSecurityKeys.all });
+    },
+    onError: (err: Error) => toast.error(err.message || 'Could not create the gate pass'),
   });
 }
 

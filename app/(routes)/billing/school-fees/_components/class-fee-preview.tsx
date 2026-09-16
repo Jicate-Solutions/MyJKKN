@@ -11,6 +11,11 @@
 
 import { useState } from 'react';
 import { Eye, Users, AlertTriangle } from 'lucide-react';
+import { cn } from '@/lib/utils';
+
+import { SECTION_THEMES } from './section-theme';
+
+const T = SECTION_THEMES.plans;
 
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -53,11 +58,13 @@ export function ClassFeePreview({
   );
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
+    <Card className={T.cardBorder}>
+      <CardHeader className={cn('pb-3', T.cardHeader)}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-base flex items-center gap-2">
-            <Users className="h-4 w-4" />
+            <span className={cn('flex h-6 w-6 items-center justify-center rounded-md', T.iconTileSm)}>
+              <Users className="h-3.5 w-3.5" />
+            </span>
             Learner preview
             {open && !loading ? (
               <Badge variant="secondary">
@@ -75,7 +82,7 @@ export function ClassFeePreview({
         </div>
       </CardHeader>
 
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-4 pt-4">
         {!open ? (
           <p className="text-sm text-muted-foreground">
             Resolve this plan against every enrolled learner in {className} to see the exact amounts

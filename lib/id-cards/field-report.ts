@@ -84,6 +84,9 @@ export function buildFieldReport(input: FieldReportInput): CardFieldReport[] {
   const { person, validUntilLabel, photoResolved, qrResolved, signatureResolved, backConfigured } =
     input;
   const isLearner = person.kind === 'learner';
+  // School vocabulary in the missing-data list too (Program → Class, Department → Wing).
+  const courseLabel = person.isSchool ? 'Class' : 'Course';
+  const departmentLabel = person.isSchool ? 'Wing' : 'Department';
 
   const front: CardFieldReport[] = [
     { key: 'name', label: 'Name', side: 'front', value: present(person.fullName) },
@@ -91,9 +94,9 @@ export function buildFieldReport(input: FieldReportInput): CardFieldReport[] {
       ? { key: 'roll_number', label: 'Roll Number', side: 'front', value: present(person.rollNumber) }
       : { key: 'staff_id', label: 'Team member ID', side: 'front', value: present(person.staffId) },
     isLearner
-      ? { key: 'course', label: 'Course', side: 'front', value: present(person.courseName) }
+      ? { key: 'course', label: courseLabel, side: 'front', value: present(person.courseName) }
       : { key: 'designation', label: 'Designation', side: 'front', value: present(person.designation) },
-    { key: 'department', label: 'Department', side: 'front', value: present(person.departmentName) },
+    { key: 'department', label: departmentLabel, side: 'front', value: present(person.departmentName) },
     { key: 'institution', label: 'Institution', side: 'front', value: present(person.institutionName) },
     ...(isLearner
       ? [{ key: 'study_period', label: 'Study Period', side: 'front' as const, value: present(person.studyPeriod) }]

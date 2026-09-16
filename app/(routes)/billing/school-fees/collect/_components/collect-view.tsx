@@ -10,7 +10,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'react-hot-toast';
-import { History, Info, Printer, Download, Loader2, ReceiptIndianRupee } from 'lucide-react';
+import { History, Info, Printer, Download, Loader2, ReceiptIndianRupee, Search } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -37,6 +38,9 @@ import type { SchoolLearnerForPayment } from '@/types/school-fees';
 import type { BillingReceipt } from '@/types/billing-schedule';
 
 import { SchoolYearPicker } from '../../_components/school-year-picker';
+import { SECTION_THEMES } from '../../_components/section-theme';
+
+const T = SECTION_THEMES.collect;
 import { LearnerSearch } from './learner-search';
 import { LearnerCard } from './learner-card';
 import { OutstandingBills } from './outstanding-bills';
@@ -414,6 +418,7 @@ export function CollectView() {
   return (
     <div className="space-y-4">
       <SchoolYearPicker
+        section="collect"
         title="Collect for"
         institutions={institutions}
         institutionId={institutionId}
@@ -451,11 +456,16 @@ export function CollectView() {
         </Alert>
       ) : (
         <>
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Find learner</CardTitle>
+          <Card className={T.cardBorder}>
+            <CardHeader className={cn('pb-3', T.cardHeader)}>
+              <CardTitle className="text-base flex items-center gap-2">
+                <span className={cn('flex h-6 w-6 items-center justify-center rounded-md', T.iconTileSm)}>
+                  <Search className="h-3.5 w-3.5" />
+                </span>
+                Find learner
+              </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="pt-4">
               <LearnerSearch
                 institutionId={institutionId}
                 academicYearId={academicYearId}
@@ -474,19 +484,19 @@ export function CollectView() {
                   onClear={clearLearner}
                 />
 
-                <Card>
-                  <CardHeader className="pb-3">
+                <Card className="border-amber-200 dark:border-amber-900">
+                  <CardHeader className="pb-3 rounded-t-xl border-b border-amber-100 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/40">
                     <CardTitle className="text-base flex items-center gap-2">
                       <span className="flex h-6 w-6 items-center justify-center rounded-md bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300">
                         <ReceiptIndianRupee className="h-3.5 w-3.5" />
                       </span>
                       Outstanding bills
-                      <span className="ml-1 text-xs font-normal text-muted-foreground">
+                      <Badge className="border-transparent bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200">
                         {yearName}
-                      </span>
+                      </Badge>
                     </CardTitle>
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className="pt-4">
                     <OutstandingBills
                       bills={payment.bills}
                       loading={payment.loadingBills}
@@ -501,19 +511,19 @@ export function CollectView() {
                   </CardContent>
                 </Card>
 
-                <Card>
-                  <CardHeader className="pb-3">
+                <Card className="border-emerald-200 dark:border-emerald-900">
+                  <CardHeader className="pb-3 rounded-t-xl border-b border-emerald-100 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/40">
                     <CardTitle className="text-base flex items-center gap-2">
                       <span className="flex h-6 w-6 items-center justify-center rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
                         <History className="h-3.5 w-3.5" />
                       </span>
                       Payment history
-                      <span className="ml-1 text-xs font-normal text-muted-foreground">
+                      <Badge className="border-transparent bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200">
                         {yearName}
-                      </span>
+                      </Badge>
                     </CardTitle>
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className="pt-4">
                     {payment.loadingHistory ? (
                       <p className="text-sm text-muted-foreground">Loading…</p>
                     ) : payment.historyError ? (
@@ -535,7 +545,7 @@ export function CollectView() {
                         </AlertDescription>
                       </Alert>
                     ) : (
-                      <div className="rounded-md border overflow-x-auto">
+                      <div className="rounded-lg border overflow-x-auto">
                         <Table>
                           {/* Emerald = money RECEIVED, against the amber
                               "owed" table above. See the note there. */}
@@ -566,7 +576,7 @@ export function CollectView() {
                                 <TableCell className="text-xs text-muted-foreground">
                                   {row.payment_reference_number || '—'}
                                 </TableCell>
-                                <TableCell className="text-right tabular-nums">
+                                <TableCell className="text-right tabular-nums font-semibold text-emerald-700 dark:text-emerald-300">
                                   {money(row.amount_allocated)}
                                 </TableCell>
                                 <TableCell className="text-right">
