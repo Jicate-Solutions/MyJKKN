@@ -25,7 +25,10 @@ export const runtime = 'nodejs';
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import type { CdcDriveEligibility, CdcWillingnessStatus } from '@/types/cdc';
-import { computeIsEligible } from '@/lib/services/cdc/willingness-service';
+import {
+  computeIsEligible,
+  computeWillingnessWindowState,
+} from '@/lib/services/cdc/willingness-service';
 
 /**
  * Lifecycle states that may be shown a drive. Mirrors the recipient filter in
@@ -87,14 +90,26 @@ export async function GET(): Promise<NextResponse> {
     const { data: drives, error: drivesErr } = await supabase
       .from('cdc_drives')
       .select(
-        'id, title, drive_date, job_role_title, job_location, expected_package_lpa, willingness_window_close_at, recruiter_id'
+        'id, title, status, drive_date, job_role_title, job_location, expected_package_lpa, willingness_window_open_at, willingness_window_close_at, recruiter_id'
       )
       .eq('status', 'willingness_open')
       .order('drive_date', { ascending: true });
     if (drivesErr) throw drivesErr;
     if (!drives || drives.length === 0) return empty;
 
-    const driveIds = drives.map((d) => (d as { id: string }).id);
+    // Status alone is not the whole rule: a drive may carry a willingness window
+    // and be outside it. computeWillingnessWindowState is the SAME predicate the
+    // learner's page and the declaration guard use, so the card can never offer
+    // a drive whose own page then says the window has shut.
+    const openNow = drives.filter(
+      (d) =>
+        computeWillingnessWindowState(
+          d as Parameters<typeof computeWillingnessWindowState>[0]
+        ) === 'open'
+    );
+    if (openNow.length === 0) return empty;
+
+    const driveIds = openNow.map((d) => (d as { id: string }).id);
 
     // 3. Keep only the drives whose criteria name this learner's program. A drive
     //    with no eligibility row reaches nobody by design (the state-machine guard
@@ -121,7 +136,7 @@ export async function GET(): Promise<NextResponse> {
     if (eligibleDriveIds.size === 0) return empty;
 
     // 4. Recruiter names + this learner's own declarations, in parallel.
-    const visible = drives.filter((d) => eligibleDriveIds.has((d as { id: string }).id));
+    const visible = openNow.filter((d) => eligibleDriveIds.has((d as { id: string }).id));
     const recruiterIds = Array.from(
       new Set(
         visible
