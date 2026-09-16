@@ -85,9 +85,25 @@ export function isLongMeeting(durationMin: number | null | undefined): boolean {
   return contextQuestionsFor(durationMin) === LONG_FORM;
 }
 
-export type ContextCheck =
-  | { ok: true; answers: Record<string, string> }
-  | { ok: false; key: string; error: string };
+/**
+ * ONE shape, not a discriminated union, on purpose.
+ *
+ * `strictNullChecks` is off repo-wide (tsconfig.json), which defeats narrowing
+ * on a boolean discriminant: with `{ ok: true; … } | { ok: false; error }`,
+ * `if (!check.ok) check.error` does not compile — 8 errors of exactly that kind
+ * came back from the PR-scoped typecheck gate. The same trap is documented in
+ * meeting-mode-switch-service.ts, which re-asserts the failure arm locally
+ * instead. A flat shape needs no narrowing at all.
+ */
+export interface ContextCheck {
+  ok: boolean;
+  /** What to store. Empty unless ok. */
+  answers: Record<string, string>;
+  /** Which question was not answered well enough. Null when ok. */
+  key: string | null;
+  /** What to tell the person. Null when ok. */
+  error: string | null;
+}
 
 /**
  * Check what the visitor wrote, and hand back exactly what should be stored.
@@ -109,6 +125,7 @@ export function checkBookingContext(
     if (value.length < q.minChars) {
       return {
         ok: false,
+        answers: {},
         key: q.key,
         error:
           q.minChars <= 1
@@ -121,7 +138,7 @@ export function checkBookingContext(
     answers[q.key] = value.slice(0, 2000);
   }
 
-  return { ok: true, answers };
+  return { ok: true, answers, key: null, error: null };
 }
 
 /** Friendly label for a stored key, for the host's own screens. */

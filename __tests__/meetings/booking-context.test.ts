@@ -16,7 +16,7 @@ import {
 } from '@/lib/services/meetings/booking-context';
 
 const longAnswers = {
-  note: 'I need a decision on whether the AHS block can run the new tutor rota from October, and who signs it off.',
+  note: 'I need a decision on whether the AHS block can run the new lab rota from October, and who signs it off.',
   background:
     'I have spoken to the HOD and to accounts; the rota is drafted and costed, and the only open point is approval.',
   why_this_long: 'Three people have to agree in the same room and the costing needs walking through.',
@@ -51,7 +51,7 @@ describe('checking what was written', () => {
   it('accepts a short booking with one line', () => {
     const res = checkBookingContext(15, { note: 'Admission query for my daughter' });
     expect(res).toMatchObject({ ok: true });
-    if (res.ok) expect(res.answers).toEqual({ note: 'Admission query for my daughter' });
+    expect(res.answers).toEqual({ note: 'Admission query for my daughter' });
   });
 
   it('refuses a short booking with nothing at all — the old browser-only rule', () => {
@@ -72,7 +72,7 @@ describe('checking what was written', () => {
   it('accepts an hour that answers all three', () => {
     const res = checkBookingContext(60, longAnswers);
     expect(res.ok).toBe(true);
-    if (res.ok) expect(Object.keys(res.answers)).toEqual(['note', 'background', 'why_this_long']);
+    expect(Object.keys(res.answers)).toEqual(['note', 'background', 'why_this_long']);
   });
 
   it('drops keys the form did not ask for', () => {
@@ -80,7 +80,7 @@ describe('checking what was written', () => {
     // screen renders these keys back. Anything unasked-for is not stored.
     const res = checkBookingContext(60, { ...longAnswers, injected: 'see me on the host screen' });
     expect(res.ok).toBe(true);
-    if (res.ok) expect(res.answers).not.toHaveProperty('injected');
+    expect(res.answers).not.toHaveProperty('injected');
   });
 
   it('trims, and keeps note first so the calendar description still finds it', () => {
@@ -89,16 +89,14 @@ describe('checking what was written', () => {
       note: `   ${longAnswers.note}   `,
     });
     expect(res.ok).toBe(true);
-    if (res.ok) {
-      expect(res.answers.note).toBe(longAnswers.note);
-      expect(Object.keys(res.answers)[0]).toBe('note');
-    }
+    expect(res.answers.note).toBe(longAnswers.note);
+    expect(Object.keys(res.answers)[0]).toBe('note');
   });
 
   it('caps a very long answer rather than refusing it', () => {
     const res = checkBookingContext(60, { ...longAnswers, background: 'b'.repeat(5000) });
     expect(res.ok).toBe(true);
-    if (res.ok) expect(res.answers.background).toHaveLength(2000);
+    expect(res.answers.background).toHaveLength(2000);
   });
 });
 
