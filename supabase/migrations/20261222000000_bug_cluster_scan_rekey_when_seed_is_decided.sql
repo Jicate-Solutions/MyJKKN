@@ -287,3 +287,14 @@ BEGIN
   );
 END;
 $function$;
+
+-- Grants re-stated so a replace can never widen them. These are the LIVE grants
+-- on production, read from pg_proc.proacl before this file was written:
+--   postgres=X/postgres | service_role=X/postgres
+-- and nothing else. The scan is reached two ways, both of them service-role:
+-- the nightly cron (auth.uid() IS NULL) and the admin route, which uses a
+-- service-role client and does its own super-admin check. No signed-in user
+-- calls it directly, so `authenticated` is revoked too rather than left to a
+-- future default.
+REVOKE EXECUTE ON FUNCTION public.fn_bug_cluster_scan() FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_bug_cluster_scan() TO service_role;
