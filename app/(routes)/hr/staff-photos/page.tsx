@@ -147,7 +147,7 @@ export default function StaffPhotoQueuePage() {
   }
 
   return (
-    <ContentLayout title="Staff photographs">
+    <ContentLayout title="Team member photographs">
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -158,7 +158,7 @@ export default function StaffPhotoQueuePage() {
             <BreadcrumbLink asChild><Link href="/hr">HR</Link></BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
-          <BreadcrumbItem><BreadcrumbPage>Staff photographs</BreadcrumbPage></BreadcrumbItem>
+          <BreadcrumbItem><BreadcrumbPage>Team member photographs</BreadcrumbPage></BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
 

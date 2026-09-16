@@ -37,7 +37,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   if (ctxErr) {
     return NextResponse.json(
-      { success: false, error: 'Could not read your staff record.' },
+      { success: false, error: 'Could not read your team member record.' },
       { status: 500 },
     );
   }
@@ -48,7 +48,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       {
         success: false,
         error:
-          'This login has no staff record, so there is nothing to attach a photograph to. Ask HR to check your employee record.',
+          'This login has no team member record, so there is nothing to attach a photograph to. Ask HR to check your employee record.',
       },
       { status: 403 },
     );

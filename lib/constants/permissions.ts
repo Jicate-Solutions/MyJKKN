@@ -1090,7 +1090,7 @@ export const PERMISSION_CATEGORIES = [
       // self-supplied photograph is not evidence the institution photographed
       // anyone), so THAT is what is gated, and the RLS + the review function
       // both demand this key.
-      { key: 'hr.staff_photo.review', label: 'Approve Staff Photographs' },
+      { key: 'hr.staff_photo.review', label: 'Approve Team Member Photographs' },
       { key: 'hr.attendance.view_all', label: 'View Attendance for Everyone' },
       { key: 'hr.attendance.approve_team', label: 'Approve Attendance for Own Team' },
       { key: 'hr.attendance.regularize_approve', label: 'Approve Attendance Regularization Requests' },

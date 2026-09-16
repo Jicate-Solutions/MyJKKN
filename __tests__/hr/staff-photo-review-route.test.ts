@@ -109,7 +109,7 @@ beforeEach(() => {
   };
 });
 
-describe('staff photo review route', () => {
+describe('team member photo review route', () => {
   it('approves: publishes the picture and clears the pending copy', async () => {
     const res = await POST(req({ submission_id: 'sub-1', approve: true }));
     const body = await res.json();

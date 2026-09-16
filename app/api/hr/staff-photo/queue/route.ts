@@ -46,7 +46,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       // NOTE staff.staff_id is the TEXT employee code, not a foreign key, and sits
       // confusingly beside staff.id which is the uuid this row points at. There
       // is no employee_code column.
-      'id, staff_id, institution_id, storage_path, status, submitted_at, reviewed_at, review_note, staff:staff_id (first_name, last_name, profile_picture, staff_id, designation)',
+      'id, staff_id, institution_id, storage_path, status, submitted_at, reviewed_at, review_note, person:staff_id (first_name, last_name, profile_picture, staff_id, designation)',
     )
     .in('status', statuses)
     // Oldest first for a reviewer working a queue; the caller sorts if it wants
@@ -88,7 +88,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       submitted_at: string;
       reviewed_at: string | null;
       review_note: string | null;
-      staff: {
+      person: {
         first_name: string | null;
         last_name: string | null;
         profile_picture: string | null;
@@ -99,14 +99,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return {
       id: row.id,
       staff_id: row.staff_id,
-      name: [row.staff?.first_name, row.staff?.last_name].filter(Boolean).join(' ') || 'Unnamed',
+      name: [row.person?.first_name, row.person?.last_name].filter(Boolean).join(' ') || 'Unnamed',
       // Shown to the reviewer alongside the face. A central reviewer does not
       // know 764 people by sight, so the record details are the only other
       // thing they have to go on — see the header note on what this review can
       // and cannot establish.
-      employee_code: row.staff?.staff_id ?? null,
-      designation: row.staff?.designation ?? null,
-      current_photo: row.staff?.profile_picture ?? null,
+      employee_code: row.person?.staff_id ?? null,
+      designation: row.person?.designation ?? null,
+      current_photo: row.person?.profile_picture ?? null,
       submitted_at: row.submitted_at,
       reviewed_at: row.reviewed_at,
       status: row.status,

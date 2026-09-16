@@ -3085,7 +3085,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             // card, so it sits with the people records rather than with leave.
             // Gated on hr.staff_photo.review in MENU_PERMISSIONS, so the 61
             // roles holding staff.view do not all see it — only reviewers do.
-            { href: '/hr/staff-photos', label: 'Staff Photographs', active: pathname.startsWith('/hr/staff-photos') },
+            { href: '/hr/staff-photos', label: 'Team Member Photographs', active: pathname.startsWith('/hr/staff-photos') },
           ]
         },
         {

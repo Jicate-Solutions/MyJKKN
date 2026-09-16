@@ -83,6 +83,18 @@ CREATE TRIGGER trg_hr_staff_photo_sub_updated_at
   BEFORE UPDATE ON public.hr_staff_photo_submissions
   FOR EACH ROW EXECUTE FUNCTION public.fn_touch_updated_at();
 
+-- Supabase runs ALTER DEFAULT PRIVILEGES ... GRANT ALL ON TABLES TO anon, so a
+-- new public-schema table arrives readable and writable by the anon key that is
+-- embedded in every page of the site. RLS does not undo that grant, and these
+-- policies carry no TO clause, which means they are TO PUBLIC and anon is a
+-- member of PUBLIC. Lock it explicitly.
+--
+-- authenticated gets SELECT and nothing else on purpose: every write goes
+-- through the two SECURITY DEFINER functions below, which run as the definer,
+-- so no caller needs INSERT or UPDATE on this table to use the feature.
+REVOKE ALL ON TABLE public.hr_staff_photo_submissions FROM anon, PUBLIC;
+GRANT  SELECT ON TABLE public.hr_staff_photo_submissions TO authenticated;
+
 ALTER TABLE public.hr_staff_photo_submissions ENABLE ROW LEVEL SECURITY;
 
 -- ---------------------------------------------------------------------------
@@ -172,6 +184,7 @@ BEGIN
 END;
 $$;
 
+-- ci:allow-secdef-authenticated every signed-in team member may submit THEIR OWN photograph — the function takes no person as an argument, resolves the staff row from auth.uid(), and hard-codes status 'pending', so the only thing a caller can do is queue their own picture for review. An authorization check here would have to be "are you yourself", which is what the auth.uid() lookup already is.
 REVOKE EXECUTE ON FUNCTION public.fn_submit_my_staff_photo(text) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_submit_my_staff_photo(text) TO authenticated;
 

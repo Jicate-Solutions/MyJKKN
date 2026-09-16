@@ -98,7 +98,7 @@ export default function MyStaffPhotoPage() {
       if (res.status === 403) {
         // Having no staff record is a standing condition, not a transient
         // failure, so it becomes a banner rather than a toast that vanishes.
-        setBlocked(body?.error ?? 'This login has no staff record.');
+        setBlocked(body?.error ?? 'This login has no team member record.');
         return;
       }
       if (!res.ok || !body?.success) throw new Error(body?.error ?? 'Could not send the photograph.');
