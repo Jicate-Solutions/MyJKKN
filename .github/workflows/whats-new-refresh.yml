@@ -7,20 +7,36 @@ name: What's New — sync the changelog
 # opened, and no deploy is needed — that machinery all existed only while the
 # entries were a file in the repo, and it went away with the file.
 #
-# Two triggers: every morning, and on demand. The on-demand path is what the
+# Two triggers: on a short cycle, and on demand. The on-demand path is what the
 # super admin's "Check for new changes" button dispatches
 # (app/api/whats-new/refresh/route.ts) — that route names this file, so renaming
 # it means changing the WORKFLOW_FILE constant there too.
+#
+# WHY EVERY 15 MINUTES AND NOT ONCE A MORNING. It ran at 03:17 UTC daily until
+# 2026-09-16. That made the page a lie for most of the working day: anything
+# merged after 08:47 IST sat invisible until 08:47 the NEXT morning, so someone
+# opening /whats-new at 8:23am saw yesterday. Two properties make a short cycle
+# safe rather than wasteful — the repo is public, so Actions minutes are free,
+# and scripts/sync-changelog-db.mjs compares each row before writing and skips
+# what did not change, so a run on a quiet quarter-hour writes nothing at all.
+# A run costs ~70s wall clock, of which the sync itself is ~8s.
+#
+# The minutes are chosen, not arbitrary. :08 and :38 land five minutes before
+# the Vercel cron that drafts the highlight cards (13,43 * * * *), so a commit
+# is in changelog_entries before the writer looks for something to write about.
 
 on:
   schedule:
-    # 03:17 UTC = 08:47 IST, after the overnight merges and before the day starts.
-    # Deliberately off the hour: every scheduled job in the world fires at :00.
-    - cron: '17 3 * * *'
+    # Every 15 minutes, deliberately off the hour: every scheduled job in the
+    # world fires at :00, and GitHub delays the crowd. :08 and :38 are also
+    # five minutes ahead of the highlight writer's :13 and :43.
+    - cron: '8,23,38,53 * * * *'
   workflow_dispatch:
 
 permissions:
   contents: read
+  # The failure alarm below files or comments on an issue.
+  issues: write
 
 concurrency:
   # Two syncs at once would race on the same rows. Never cancel a run in flight:
@@ -60,3 +76,23 @@ jobs:
             exit 1
           fi
           node scripts/sync-changelog-db.mjs
+
+      # A sync that fails silently is worse than one that never ran: the page
+      # keeps showing yesterday and looks fine. Three scheduled runs failed on
+      # 11, 12 and 13 September 2026 (the script wrote a column the table did
+      # not have) and nothing said so. Same shape as loop-watchman.yml — one
+      # open issue that gets a comment per failure, not a new issue each time.
+      - name: File or refresh the alarm issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TITLE="What's New sync is failing — the page is frozen"
+          EXISTING=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$TITLE\" in:title" --json number --jq '.[0].number // empty')
+          BODY="The changelog sync failed at $(date -u '+%Y-%m-%d %H:%MZ'). Until it passes, /whats-new shows only what was already in changelog_entries — it does not go blank, it goes stale, which is why this needs saying out loud. Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. Nothing was written: the whole sync is one transaction."
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body "$BODY"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$BODY"
+          fi
