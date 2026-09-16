@@ -38,6 +38,13 @@ function drive(over: Partial<MyCdcDrive> = {}): MyCdcDrive {
   return {
     id: 'd1',
     title: 'Campus drive',
+    // The three the fixture never carried. They were optional to this file
+    // while nothing typechecked it; the PR-scoped gate compiles a test file the
+    // moment a PR touches it, which is how a fixture that never matched
+    // MyCdcDrive stayed unnoticed.
+    status: 'willingness_open',
+    drive_type_name: null,
+    willingness_window_open_at: null,
     recruiter_name: 'Foxconn India',
     drive_date: '2026-10-01',
     job_role_title: 'Graduate Engineer',
