@@ -18,6 +18,10 @@
   },
   "crons": [
     {
+      "path": "/api/cron/cdc-willingness-cycles?secret=${CRON_SECRET}",
+      "schedule": "3,18,33,48 * * * *"
+    },
+    {
       "path": "/api/cron/ai-routine-dispatcher?secret=${CRON_SECRET}",
       "schedule": "5,20,35,50 * * * *"
     },

@@ -3391,6 +3391,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "label": "New",
             "iconName": "Plus",
             "children": []
+          },
+          {
+            "path": "/cdc/drives/willingness",
+            "label": "Willingness",
+            "iconName": "Users",
+            "children": []
           }
         ]
       },

@@ -1774,7 +1774,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/cdc/drives/[id]/responses': 'cdc.drives.view',
   '/cdc/drives/[id]/notifications': 'cdc.drives.view',
   '/cdc/drives/[id]/edit': 'cdc.drives.edit',
-  '/cdc/drives/[id]/willingness': 'cdc.drives.edit',
+  // Staff view = assigned-learner willingness tracker; learners reach the same
+  // path by direct link (self-service, no MENU_PERMISSIONS involvement).
+  '/cdc/drives/[id]/willingness': 'cdc.drives.willingness.view',
+  '/cdc/drives/willingness': 'cdc.drives.willingness.view',
 
   // CDC — Placements
   '/cdc/placements': 'cdc.placements.view',
@@ -4087,7 +4090,18 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Campus Drives',
           active: pathname.startsWith('/cdc/drives'),
           icon: Briefcase,
-          submenus: []
+          submenus: [
+            {
+              href: '/cdc/drives',
+              label: 'All Drives',
+              active: pathname.startsWith('/cdc/drives') && pathname !== '/cdc/drives/willingness'
+            },
+            {
+              href: '/cdc/drives/willingness',
+              label: 'Willingness Tracker',
+              active: pathname === '/cdc/drives/willingness'
+            }
+          ]
         },
         {
           href: '/cdc/placements',

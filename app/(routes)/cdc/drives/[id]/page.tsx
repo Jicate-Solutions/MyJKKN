@@ -140,7 +140,8 @@ function CdcDriveDetailContent({ params }: { params: Promise<{ id: string }> }) 
   // The server refuses willingness_open without eligibility criteria (see
   // CdcDriveService.transitionDrive). Mirror that here so the button explains
   // itself instead of failing after the click.
-  const hasEligibility = (eligibilityData?.data?.program_ids?.length ?? 0) > 0;
+  const hasEligibility =
+    (eligibilityData?.data?.program_ids?.length ?? 0) > 0 || (drive.institution_semesters?.length ?? 0) > 0;
 
   async function handleTransition(toStatus: CdcDriveStatus) {
     setTransitionError(null);
@@ -208,20 +209,23 @@ function CdcDriveDetailContent({ params }: { params: Promise<{ id: string }> }) 
       <div className="mt-6 grid gap-4 lg:grid-cols-3">
         {/* Left: Details */}
         <div className="lg:col-span-2 space-y-4">
-          <Card>
-            <CardHeader>
+          <Card className="overflow-hidden">
+            <div className="bg-gradient-to-r from-emerald-600 via-teal-600 to-sky-600 px-5 py-5 text-white">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <CardTitle className="text-xl">{drive.title}</CardTitle>
+                  <p className="text-xs font-medium uppercase tracking-wide text-white/80">
+                    {data.recruiter?.name ?? 'Recruiter'} · {data.drive_type?.display_name ?? 'Campus drive'}
+                  </p>
+                  <h2 className="mt-1 text-2xl font-semibold leading-tight">{drive.title}</h2>
                   {drive.description ? (
-                    <p className="text-sm text-muted-foreground mt-1">{drive.description}</p>
+                    <p className="mt-1 text-sm text-white/85 line-clamp-2">{drive.description}</p>
                   ) : null}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  <DriveStatusBadge status={drive.status} />
+                  <DriveStatusBadge status={drive.status} className="bg-white/95 text-foreground border-white/60 dark:bg-white/95" />
                   <PermissionGuard module="cdc.drives" action="edit" fallback={null}>
                     {editable ? (
-                      <Button asChild variant="outline" size="sm">
+                      <Button asChild variant="secondary" size="sm">
                         <Link href={`/cdc/drives/${id}/edit`}>
                           <Pencil className="h-4 w-4 mr-1" /> Edit Drive
                         </Link>
@@ -230,78 +234,56 @@ function CdcDriveDetailContent({ params }: { params: Promise<{ id: string }> }) 
                   </PermissionGuard>
                 </div>
               </div>
-            </CardHeader>
-            <CardContent className="grid gap-3 md:grid-cols-2 text-sm">
-              <div className="flex items-center gap-2">
-                <Building2 className="h-4 w-4 text-muted-foreground" />
-                <span className="font-medium">Recruiter:</span>
-                <span>{data.recruiter?.name ?? '—'}</span>
-              </div>
-              {drive.willingness_window_close_at ? (
-                <div className="flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-muted-foreground" />
-                  <span className="font-medium">Willingness deadline:</span>
-                  <span className={deadlinePassed ? 'text-destructive' : ''}>
-                    {new Date(drive.willingness_window_close_at).toLocaleString()}
-                    {deadlinePassed ? ' (passed)' : ''}
-                  </span>
-                </div>
-              ) : null}
-              {drive.drive_mode ? (
-                <div className="flex items-center gap-2">
-                  <span className="font-medium">Mode:</span>
-                  <span>{{ on_campus: 'On-Campus', off_campus: 'Off-Campus', walk_in: 'Walk-in' }[drive.drive_mode]}</span>
-                  {drive.location_url ? (
-                    <a href={drive.location_url} target="_blank" rel="noopener noreferrer" className="underline inline-flex items-center gap-1">
-                      <ExternalLink className="h-3 w-3" /> map
-                    </a>
-                  ) : null}
-                </div>
-              ) : null}
-              <div className="flex items-center gap-2">
-                <span className="font-medium">Type:</span>
-                <span>{data.drive_type?.display_name ?? '—'}</span>
-              </div>
-              {drive.drive_date ? (
-                <div className="flex items-center gap-2">
-                  <Calendar className="h-4 w-4 text-muted-foreground" />
-                  <span className="font-medium">Date:</span>
-                  <span>
-                    {drive.drive_date}
-                    {drive.drive_start_time ? ` · ${drive.drive_start_time}` : ''}
-                    {drive.drive_end_time ? ` – ${drive.drive_end_time}` : ''}
-                  </span>
-                </div>
-              ) : null}
-              {drive.venue_label ? (
-                <div className="flex items-center gap-2">
-                  <MapPin className="h-4 w-4 text-muted-foreground" />
-                  <span className="font-medium">Venue:</span>
-                  <span>{drive.venue_label}</span>
-                </div>
-              ) : null}
-              <div className="flex items-center gap-2">
-                <span className="font-medium">Rounds:</span>
-                <span>{drive.rounds_count}</span>
-              </div>
-              {drive.expected_package_lpa ? (
-                <div className="flex items-center gap-2">
-                  <span className="font-medium">Expected package:</span>
-                  <span>{drive.expected_package_lpa} LPA</span>
-                </div>
-              ) : null}
-              {drive.job_role_title ? (
-                <div className="flex items-center gap-2">
-                  <span className="font-medium">Role:</span>
-                  <span>{drive.job_role_title}</span>
-                </div>
-              ) : null}
-              {drive.job_location ? (
-                <div className="flex items-center gap-2">
-                  <span className="font-medium">Location:</span>
-                  <span>{drive.job_location}</span>
-                </div>
-              ) : null}
+            </div>
+            <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 pt-4 text-sm">
+              <FactTile icon={<Building2 className="h-4 w-4" />} tone="emerald" label="Recruiter" value={data.recruiter?.name ?? '—'} />
+              <FactTile
+                icon={<Clock className="h-4 w-4" />}
+                tone={deadlinePassed ? 'rose' : 'amber'}
+                label="Willingness deadline"
+                value={
+                  drive.willingness_window_close_at
+                    ? `${new Date(drive.willingness_window_close_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' })}${deadlinePassed ? ' (passed)' : ''}`
+                    : 'No deadline'
+                }
+              />
+              <FactTile
+                icon={<Calendar className="h-4 w-4" />}
+                tone="sky"
+                label="Drive date"
+                value={
+                  drive.drive_date
+                    ? `${drive.drive_date}${drive.drive_start_time ? ` · ${drive.drive_start_time}` : ''}${drive.drive_end_time ? ` – ${drive.drive_end_time}` : ''}`
+                    : 'Not set'
+                }
+              />
+              <FactTile
+                icon={<MapPin className="h-4 w-4" />}
+                tone="violet"
+                label={drive.drive_mode === 'off_campus' ? 'Location' : 'Venue'}
+                value={
+                  <>
+                    {drive.venue_label ?? drive.job_location ?? '—'}
+                    {drive.location_url ? (
+                      <a href={drive.location_url} target="_blank" rel="noopener noreferrer" className="ml-2 underline inline-flex items-center gap-1 text-xs">
+                        <ExternalLink className="h-3 w-3" /> map
+                      </a>
+                    ) : null}
+                  </>
+                }
+              />
+              <FactTile
+                icon={<Users className="h-4 w-4" />}
+                tone="indigo"
+                label="Mode · Rounds"
+                value={`${{ on_campus: 'On-Campus', off_campus: 'Off-Campus', walk_in: 'Walk-in' }[drive.drive_mode] ?? '—'} · ${drive.rounds_count} round${drive.rounds_count === 1 ? '' : 's'}`}
+              />
+              <FactTile
+                icon={<GraduationCap className="h-4 w-4" />}
+                tone="teal"
+                label="Role · Package"
+                value={`${drive.job_role_title ?? '—'}${drive.expected_package_lpa ? ` · ${drive.expected_package_lpa} LPA` : ''}${drive.job_location ? ` · ${drive.job_location}` : ''}`}
+              />
             </CardContent>
           </Card>
 
@@ -333,16 +315,26 @@ function CdcDriveDetailContent({ params }: { params: Promise<{ id: string }> }) 
               ) : (
                 <ul className="divide-y rounded-md border">
                   {drive.institutions.map((instId) => {
-                    const orders = targeting.find((t) => t.institution_id === instId)?.semester_orders ?? [];
+                    const entry = targeting.find((t) => t.institution_id === instId);
+                    const orders = entry?.semester_orders ?? [];
+                    const programCount = entry?.program_ids?.length ?? 0;
                     return (
                       <li key={instId} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm">
-                        <span className="min-w-0 truncate">{data.institution_names[instId] ?? instId}</span>
+                        <span className="min-w-0 truncate flex items-center gap-2">
+                          <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                            <Building2 className="h-3.5 w-3.5" />
+                          </span>
+                          {data.institution_names[instId] ?? instId}
+                        </span>
                         <span className="flex flex-wrap gap-1">
+                          <Badge variant="outline" className="font-normal border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-200">
+                            {programCount === 0 ? 'All programs' : `${programCount} program${programCount === 1 ? '' : 's'}`}
+                          </Badge>
                           {orders.length === 0 ? (
-                            <Badge variant="secondary" className="font-normal">All semesters</Badge>
+                            <Badge variant="outline" className="font-normal border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">All semesters</Badge>
                           ) : (
                             orders.map((o) => (
-                              <Badge key={o} variant="secondary" className="font-normal">
+                              <Badge key={o} variant="outline" className="font-normal border-amber-200 bg-amber-100 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
                                 Sem {o}
                               </Badge>
                             ))
@@ -446,16 +438,17 @@ function CdcDriveDetailContent({ params }: { params: Promise<{ id: string }> }) 
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               <div className="grid grid-cols-2 gap-2">
-                <div className="rounded-md border p-3">
-                  <p className="text-2xl font-semibold leading-none">{data.willing_count}</p>
-                  <p className="text-xs text-muted-foreground mt-1">Willing</p>
-                </div>
-                <div className="rounded-md border p-3">
-                  <p className="text-2xl font-semibold leading-none">{data.willingness_count}</p>
-                  <p className="text-xs text-muted-foreground mt-1">Total responses</p>
-                </div>
+                <StatTile tone="emerald" value={data.willing_count} label="Willing" />
+                <StatTile tone="sky" value={data.willingness_count} label="Total responses" />
               </div>
               <div className="grid gap-2">
+                <PermissionGuard module="cdc.drives" action="willingness.view" fallback={null}>
+                  <Button asChild variant="outline" size="sm" className="justify-start">
+                    <Link href={`/cdc/drives/${id}/willingness`}>
+                      <GraduationCap className="h-4 w-4 mr-2" /> Assigned learners & willingness
+                    </Link>
+                  </Button>
+                </PermissionGuard>
                 <Button asChild variant="outline" size="sm" className="justify-start">
                   <Link href={`/cdc/drives/${id}/responses`}>
                     <Users className="h-4 w-4 mr-2" /> View responses
@@ -490,14 +483,8 @@ function CdcDriveDetailContent({ params }: { params: Promise<{ id: string }> }) 
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               <div className="grid grid-cols-2 gap-2">
-                <div className="rounded-md border p-3">
-                  <p className="text-2xl font-semibold leading-none">{ns.sent}</p>
-                  <p className="text-xs text-muted-foreground mt-1">Notified</p>
-                </div>
-                <div className="rounded-md border p-3">
-                  <p className="text-2xl font-semibold leading-none">{ns.push_delivered}</p>
-                  <p className="text-xs text-muted-foreground mt-1">Push delivered</p>
-                </div>
+                <StatTile tone="indigo" value={ns.sent} label="Notified" />
+                <StatTile tone={ns.push_failed > 0 && ns.push_delivered === 0 ? 'rose' : 'violet'} value={ns.push_delivered} label="Push delivered" />
               </div>
               {ns.no_profile || ns.push_failed || ns.no_subscription ? (
                 <p className="text-xs text-muted-foreground">
@@ -700,5 +687,52 @@ function CdcDriveDetailContent({ params }: { params: Promise<{ id: string }> }) 
       </div>
 
     </ContentLayout>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Small coloured building blocks for the detail page
+// ---------------------------------------------------------------------------
+
+type Tone = 'emerald' | 'sky' | 'amber' | 'violet' | 'indigo' | 'teal' | 'rose';
+
+const TONE_ICON: Record<Tone, string> = {
+  emerald: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
+  sky: 'bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300',
+  amber: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
+  violet: 'bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300',
+  indigo: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300',
+  teal: 'bg-teal-100 text-teal-700 dark:bg-teal-950 dark:text-teal-300',
+  rose: 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300',
+};
+
+const TONE_TILE: Record<Tone, string> = {
+  emerald: 'border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-100',
+  sky: 'border-sky-200 bg-sky-50 text-sky-900 dark:border-sky-900 dark:bg-sky-950/60 dark:text-sky-100',
+  amber: 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/60 dark:text-amber-100',
+  violet: 'border-violet-200 bg-violet-50 text-violet-900 dark:border-violet-900 dark:bg-violet-950/60 dark:text-violet-100',
+  indigo: 'border-indigo-200 bg-indigo-50 text-indigo-900 dark:border-indigo-900 dark:bg-indigo-950/60 dark:text-indigo-100',
+  teal: 'border-teal-200 bg-teal-50 text-teal-900 dark:border-teal-900 dark:bg-teal-950/60 dark:text-teal-100',
+  rose: 'border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-900 dark:bg-rose-950/60 dark:text-rose-100',
+};
+
+function FactTile({ icon, tone, label, value }: { icon: React.ReactNode; tone: Tone; label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-3 rounded-lg border p-3">
+      <span className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${TONE_ICON[tone]}`}>{icon}</span>
+      <div className="min-w-0">
+        <p className="text-xs text-muted-foreground">{label}</p>
+        <p className="font-medium leading-snug break-words">{value}</p>
+      </div>
+    </div>
+  );
+}
+
+function StatTile({ tone, value, label }: { tone: Tone; value: number; label: string }) {
+  return (
+    <div className={`rounded-md border p-3 ${TONE_TILE[tone]}`}>
+      <p className="text-2xl font-semibold leading-none">{value}</p>
+      <p className="text-xs mt-1 opacity-80">{label}</p>
+    </div>
   );
 }
