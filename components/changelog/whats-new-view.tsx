@@ -457,6 +457,8 @@ export function WhatsNewView() {
    * not happening. Null the rest of the time, which is also every state where
    * the answer on screen IS final.
    */
+  const searchStillLoading = wantsWholeHistory && loadingArchive;
+
   const searchNotice = !wantsWholeHistory
     ? null
     : loadingArchive
@@ -703,7 +705,7 @@ export function WhatsNewView() {
       )}
 
       {/*
-        A COUNT THAT IS STILL GROWING HAS TO SAY SO.
+        A LIST THAT IS STILL GROWING HAS TO SAY SO.
 
         The load above takes a second or two, and for that second the reader is
         looking at a list that is about to get longer. Letting it grow in
@@ -753,8 +755,20 @@ export function WhatsNewView() {
       {filtered.length === 0 ? (
         <Card>
           <CardContent className="py-10 text-center">
+            {/*
+              "NO CHANGES MATCH THAT" IS A VERDICT, and mid-load it is the wrong
+              one — this is the defect at its sharpest. A reader searching a word
+              that appears only in the older half sees an empty list before the
+              archive lands; telling them nothing matched, while the line above
+              says more results may appear, is the page contradicting itself and
+              sending them away just before the answer arrives.
+            */}
             <p className="font-medium">
-              {meta.total === 0 ? 'The changelog has not been built yet' : 'No changes match that'}
+              {searchStillLoading
+                ? 'Still looking…'
+                : meta.total === 0
+                  ? 'The changelog has not been built yet'
+                  : 'No changes match that'}
             </p>
             {/* An empty table and an over-narrow filter look identical to a reader,
                 and blaming their search for a list that was simply never synced sends
@@ -767,7 +781,9 @@ export function WhatsNewView() {
                 "try a different area" would send the reader past the filter
                 that is actually in the way. */}
             <p className="mt-1 text-sm text-muted-foreground">
-              {meta.total === 0
+              {searchStillLoading
+                ? 'Nothing in the last 90 days matches. The earlier changes are still loading.'
+                : meta.total === 0
                 ? 'No changes have been loaded yet. This fills in the first time the changelog syncs.'
                 : author
                   ? `${author} has changes, but none that also match the other filters. Select their name again to see everyone.`

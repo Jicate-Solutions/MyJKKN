@@ -787,3 +787,64 @@ describe('WhatsNewView — a search must reach the whole history', () => {
     expect(screen.getByText('Bulk import for employee records')).toBeInTheDocument();
   });
 });
+
+/**
+ * The defect at its sharpest: a word that exists ONLY in the older half.
+ *
+ * The list is empty for the second or two before the archive lands, and the
+ * page used to fill that second with a verdict — "No changes match that" —
+ * which is precisely the wrong answer, delivered just before the right one
+ * arrives. A reader reads it and leaves.
+ */
+describe('WhatsNewView — an empty list mid-search is not a verdict', () => {
+  const META_WITH_ARCHIVE = { ...META, archiveCount: 1, total: 4 };
+  const ARCHIVE_ONLY = [
+    { h: 'hhh8888', d: '2026-05-30', t: 'new', m: 'billing', s: 'Instagram Graph API client for receipts', a: 'Boobalan' },
+  ];
+
+  beforeEach(() => {
+    permissionsMock.current = { permissions: {}, isSuperAdmin: true, isLoading: false };
+    let release = () => {};
+    const held = new Promise<void>((r) => { release = () => r(); });
+    (globalThis as { __release?: () => void }).__release = () => release();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('part=archive')) {
+          await held;
+          return { ok: true, status: 200, json: async () => ARCHIVE_ONLY } as Response;
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => (url.includes('part=meta') ? META_WITH_ARCHIVE : RECENT),
+        } as Response;
+      })
+    );
+  });
+
+  it('says it is still looking, not that nothing matched', async () => {
+    render(<WhatsNewView />);
+    await waitFor(() =>
+      expect(screen.getByText('A receipt total ignored the discount')).toBeInTheDocument()
+    );
+
+    // No recent entry contains this word — the only match is in the archive.
+    fireEvent.change(screen.getByRole('textbox', { name: /search changes/i }), {
+      target: { value: 'Instagram' },
+    });
+
+    await waitFor(() => expect(screen.getByText(/still looking/i)).toBeInTheDocument());
+    // The verdict must NOT be on screen while the answer is still in flight.
+    expect(screen.queryByText('No changes match that')).not.toBeInTheDocument();
+    expect(screen.getByText(/the earlier changes are still loading/i)).toBeInTheDocument();
+
+    (globalThis as { __release?: () => void }).__release?.();
+
+    // And the answer that arrives is the real one.
+    await waitFor(() =>
+      expect(screen.getByText('Instagram Graph API client for receipts')).toBeInTheDocument()
+    );
+    expect(screen.queryByText(/still looking/i)).not.toBeInTheDocument();
+  });
+});
