@@ -2,6 +2,7 @@ import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { updateWithResolvedBy } from '@/lib/api/bug-reports/resolved-by';
 
 /**
  * POST /api/bug-reports/[id]/reopen
