@@ -1370,6 +1370,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Gated on the WRITE key, not .view: the scan screen exists only to record
   // exits and returns, so a read-only holder has nothing to do there.
   '/campus-living/gate-passes/scan': 'campus_living.gate_passes.edit',
+  // Campus gate (all learners + staff), fed by Service Requests gate-pass types.
+  '/gate-security': 'gate_security.scan.view',
+  '/reports/gate-in-out': 'gate_security.reports.view',
   // The learner's lane. `.create` is the "Request Gate Pass" key, held by
   // student among others.
   '/campus-living/gate-passes/request': 'campus_living.gate_passes.create',
@@ -1773,6 +1776,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/cdc/drives': 'cdc.drives.view',
   '/cdc/drives/new': 'cdc.drives.create',
   '/cdc/drives/[id]': 'cdc.drives.view',
+  '/cdc/drives/[id]/responses': 'cdc.drives.view',
+  '/cdc/drives/[id]/notifications': 'cdc.drives.view',
+  '/cdc/drives/[id]/edit': 'cdc.drives.edit',
   '/cdc/drives/[id]/willingness': 'cdc.drives.edit',
 
   // CDC — Placements
@@ -2507,6 +2513,25 @@ export function GetPages(pathname: string): MenuGroup[] {
           requiresSuperAdmin: true,
           submenus: []
         } as MenuItem & { requiresSuperAdmin: boolean }
+      ]
+    },
+    {
+      groupLabel: 'Gate Security',
+      menus: [
+        {
+          href: '/gate-security',
+          label: 'Gate Security',
+          active: pathname === '/gate-security' || pathname.startsWith('/gate-security/'),
+          icon: ShieldCheck,
+          submenus: []
+        },
+        {
+          href: '/reports/gate-in-out',
+          label: 'Gate In/Out Report',
+          active: pathname.startsWith('/reports/gate-in-out'),
+          icon: ClipboardList,
+          submenus: []
+        }
       ]
     },
     {

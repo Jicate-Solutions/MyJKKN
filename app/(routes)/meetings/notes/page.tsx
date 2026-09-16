@@ -49,6 +49,26 @@ const breadcrumbItems = [
 /** How many past/upcoming bookings the picker offers. */
 const BOOKING_CHOICES = 200;
 
+/**
+ * How many unmatched notes one page renders.
+ *
+ * This list had no limit at all, which was correct for the 35 notes it held
+ * and stops being correct the moment a history backfill lands: the ingest can
+ * only reach the provider's newest page at a time, so bringing 1,583 recordings
+ * across leaves roughly a thousand of them unmatched — none of those meetings
+ * was booked through MyJKKN, so there is nothing for them to attach to.
+ *
+ * Rendering a thousand cards, each with a booking picker of 200 options, is a
+ * slow page on a laptop and an unusable one on a phone. Worse, an unlimited
+ * PostgREST select is silently capped by the server's own max-rows setting, so
+ * the list would have quietly shown SOME of them and said nothing — a wrong
+ * answer rather than a slow one.
+ *
+ * So: a page of the most recent, an exact total, and a line saying how many are
+ * not shown. Linking one removes it from the list and the next takes its place.
+ */
+const NOTES_PAGE_SIZE = 50;
+
 interface UnmatchedNote {
   id: string;
   title: string | null;
@@ -117,9 +137,13 @@ export default async function UnmatchedMeetingNotesPage() {
   const [notesResult, bookingsResult] = await Promise.all([
     serviceClient
       .from('meeting_notes')
-      .select('id, title, summary, occurred_at, duration_minutes, transcript_url, recording_url')
+      .select(
+        'id, title, summary, occurred_at, duration_minutes, transcript_url, recording_url',
+        { count: 'exact' },
+      )
       .is('booking_id', null)
-      .order('occurred_at', { ascending: false, nullsFirst: false }),
+      .order('occurred_at', { ascending: false, nullsFirst: false })
+      .limit(NOTES_PAGE_SIZE),
     serviceClient
       .from('meeting_bookings')
       .select(
@@ -130,6 +154,11 @@ export default async function UnmatchedMeetingNotesPage() {
   ]);
 
   const notes = (notesResult.data ?? []) as UnmatchedNote[];
+  // count is the number waiting in total; notes.length is the number on screen.
+  // Falling back to notes.length rather than 0 keeps the sentence truthful if
+  // the count ever comes back null.
+  const totalWaiting = notesResult.count ?? notes.length;
+  const notShown = Math.max(totalWaiting - notes.length, 0);
 
   // A booking row's joined relations arrive as an object or (for some PostgREST
   // shapes) a one-element array. Read both rather than assume, so a picker
@@ -184,7 +213,10 @@ export default async function UnmatchedMeetingNotesPage() {
         ) : (
           <div className="space-y-3">
             <p className="text-xs text-muted-foreground">
-              {notes.length} {notes.length === 1 ? 'note is' : 'notes are'} waiting to be linked.
+              {totalWaiting} {totalWaiting === 1 ? 'note is' : 'notes are'} waiting to be linked.
+              {notShown > 0
+                ? ` Showing the ${notes.length} most recent; link these and the next ${notShown} follow.`
+                : ''}
             </p>
 
             {notes.map((note) => (

@@ -16,86 +16,16 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
-import { CoeRestClient, CoeApiError } from '@/lib/services/coe/coe-rest-client';
-import { isCoeDbConfigured } from '@/lib/services/coe/coe-db-client';
-import { buildStudentResultViewFromDb } from '@/lib/services/coe/build-student-result-view';
-import { resolveCoeInstitutionId } from '@/lib/utils/internal-marks/internal-marks-access';
+import { CoeApiError } from '@/lib/services/coe/coe-rest-client';
+import {
+  emptyResultView,
+  fetchLearnerResultView,
+} from '@/lib/services/coe/learner-result-view';
 import { StudentValidationService } from '@/lib/services/auth/student-validation-service';
-import type {
-  StudentResultView,
-  ResultViewSession,
-  ResultViewCourse,
-} from '@/types/my-marks';
 
-function emptyView(registerNumber: string): StudentResultView {
-  return {
-    student: {
-      student_id: null,
-      register_number: registerNumber,
-      student_name: null,
-      program_code: null,
-      grade_system_code: '',
-    },
-    grade_system: [],
-    sessions: [],
-  };
-}
-
-/**
- * COE is mid-rollout: the endpoint may return the new session-grouped shape
- * (`sessions[]`) OR the older semester-grouped shape (`semesters[]`). We accept
- * either here and normalize to `sessions[]` so the client only ever sees one
- * shape — no lockstep deploy needed between MyJKKN and COE.
- */
-interface RawResultView {
-  student?: StudentResultView['student'];
-  grade_system?: StudentResultView['grade_system'];
-  sessions?: ResultViewSession[];
-  // Legacy semester-grouped shape (each lacks session_code/name but is otherwise
-  // structurally compatible with a session tab).
-  semesters?: Array<
-    Partial<ResultViewSession> & {
-      semester_label: string;
-      semester_index: number;
-      courses: ResultViewCourse[];
-      summary: ResultViewSession['summary'];
-    }
-  >;
-}
-
-function normalizeResultView(
-  raw: RawResultView,
-  registerNumber: string
-): StudentResultView {
-  const sessions: ResultViewSession[] =
-    raw.sessions ??
-    (raw.semesters ?? []).map((sem) => ({
-      examination_session_id: sem.examination_session_id ?? null,
-      session_code: sem.session_code ?? null,
-      session_name: sem.session_name ?? null,
-      session_status: sem.session_status ?? null,
-      result_declaration_date: sem.result_declaration_date ?? null,
-      semester_code: sem.semester_code ?? null,
-      semester_label: sem.semester_label,
-      semester_index: sem.semester_index,
-      courses: (sem.courses ?? []).map((c) => ({
-        ...c,
-        semester_code: c.semester_code ?? sem.semester_code ?? null,
-        semester_index: c.semester_index ?? sem.semester_index ?? null,
-        credit_included: c.credit_included ?? null,
-        examination_session_id:
-          c.examination_session_id ?? sem.examination_session_id ?? null,
-      })),
-      summary: sem.summary,
-    }));
-
-  return {
-    student:
-      raw.student ?? emptyView(registerNumber).student,
-    grade_system: raw.grade_system ?? [],
-    sessions,
-  };
-}
+// The COE access path (REST → DB fallback, 429 soft-fail, legacy shape
+// normalisation) lives in lib/services/coe/learner-result-view.ts and is shared
+// with the CDC willingness flow. This route only authorises the caller.
 
 export async function GET(_request: NextRequest) {
   try {
@@ -145,8 +75,13 @@ export async function GET(_request: NextRequest) {
       );
     }
 
-    const coeInstitutionId = await resolveCoeInstitutionId(institutionId);
-    if (!coeInstitutionId) {
+    const result = await fetchLearnerResultView({
+      learnerId: profile.learner_id,
+      registerNumber,
+      institutionId,
+    });
+
+    if (result.institutionUnmapped) {
       console.warn(
         `[my-marks/result-view] 404 institution-not-mapped: register_number=${registerNumber} myjkkn_institution_id=${institutionId}`
       );
@@ -156,56 +91,35 @@ export async function GET(_request: NextRequest) {
       );
     }
 
-    let view: StudentResultView | null = null;
-
-    // Prefer the live COE REST endpoint; tried first on every request so the
-    // route AUTOMATICALLY returns to the live view once the COE key is restored.
-    try {
-      const client = CoeRestClient.create();
-      const raw = await client.get<RawResultView>('/api/v1/student-result-view', {
-        register_number: registerNumber,
-        institution_id: coeInstitutionId,
-      });
-      view = normalizeResultView(raw, registerNumber);
+    if (result.source === 'rate_limited') {
       console.warn(
-        `[my-marks/result-view] register_number=${registerNumber} COE keys=[${Object.keys(raw ?? {}).join(',')}] sessions=${raw?.sessions?.length ?? 'none'} semesters=${raw?.semesters?.length ?? 'none'} → normalized ${view.sessions.length} tab(s)`
+        '[my-marks/result-view] COE 429 (rate limited) — returning empty view to avoid retry storm'
       );
-    } catch (err) {
-      // Transient rate-limit → empty view (next request retries REST).
-      if (err instanceof CoeApiError && err.status === 429) {
-        console.warn(
-          '[my-marks/result-view] COE 429 (rate limited) — returning empty view to avoid retry storm'
-        );
-        return NextResponse.json({ data: emptyView(registerNumber) });
-      }
-
-      // Any other REST failure (expired/absent key → 401/403, config missing,
-      // 5xx, 404) → read the declared results directly from the COE database.
-      if (isCoeDbConfigured()) {
-        try {
-          view = await buildStudentResultViewFromDb(profile.learner_id, registerNumber);
-          console.warn(
-            `[my-marks/result-view] COE REST unavailable (${
-              err instanceof CoeApiError ? err.status : 'config'
-            }) → served ${view.sessions.length} session(s) from COE DB fallback for ${registerNumber}`
-          );
-        } catch (dbErr) {
-          console.error('[my-marks/result-view] COE DB fallback failed:', dbErr);
-        }
-      }
-
-      if (!view) {
-        if (err instanceof CoeApiError) {
-          return NextResponse.json(
-            { error: err.message, details: err.details },
-            { status: err.status }
-          );
-        }
-        throw err;
-      }
+      return NextResponse.json({ data: emptyResultView(registerNumber) });
     }
 
-    const res = NextResponse.json({ data: view });
+    if (!result.view) {
+      const err = result.error;
+      if (err instanceof CoeApiError) {
+        return NextResponse.json(
+          { error: err.message, details: err.details },
+          { status: err.status }
+        );
+      }
+      throw err ?? new Error('Result view unavailable');
+    }
+
+    if (result.source === 'coe_db') {
+      console.warn(
+        `[my-marks/result-view] COE REST unavailable → served ${result.view.sessions.length} session(s) from COE DB fallback for ${registerNumber}`
+      );
+    } else {
+      console.warn(
+        `[my-marks/result-view] register_number=${registerNumber} → ${result.view.sessions.length} tab(s) from COE REST`
+      );
+    }
+
+    const res = NextResponse.json({ data: result.view });
     // Published results are immutable; cache briefly to ease repeat views.
     res.headers.set(
       'Cache-Control',

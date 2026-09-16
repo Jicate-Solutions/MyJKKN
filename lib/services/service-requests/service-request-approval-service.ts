@@ -200,6 +200,20 @@ export class ServiceRequestApprovalService {
         );
       }
 
+      // Gate Pass category: mint the pass (number + QR) for the requester.
+      // SECURITY DEFINER RPC because the approver holds no hostel_gate_passes
+      // insert lane. Idempotent on the server. Logged, not thrown: the
+      // approval above has already committed.
+      if (request.service_type?.issues_gate_pass) {
+        const { error: gatePassError } = await supabase.rpc(
+          'issue_gate_pass_for_service_request',
+          { p_request_id: request.id }
+        );
+        if (gatePassError) {
+          console.error('[service-requests/approvals] Gate pass issue failed:', gatePassError);
+        }
+      }
+
       // Bus Pass Request: write the approved route/stop onto the learner's
       // profile so the TMS app can read who needs a bus. Privileged cross-table
       // write → SECURITY DEFINER RPC. Failure is logged, not thrown: the

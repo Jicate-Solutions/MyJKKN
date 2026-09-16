@@ -65966,6 +65966,79 @@ $function$;
 REVOKE ALL ON FUNCTION public.hr_leave_approval_queue() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.hr_leave_approval_queue() TO authenticated, service_role;
 
+-- ── hostel_allocations <-> learners_profiles.accommodation_type_id guard ──
+-- Added 20260915180000_hostel_accommodation_type_guard.sql. See that
+-- migration's header comment for the full incident writeup.
+CREATE OR REPLACE FUNCTION public._on_allocation_sync_accommodation_type()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_lp uuid;
+  v_hostel_acc_id uuid;
+BEGIN
+  IF NEW.status NOT IN ('active', 'pending_approval') THEN
+    RETURN NEW;
+  END IF;
+
+  BEGIN
+    SELECT learner_id INTO v_lp FROM profiles WHERE id = NEW.learner_id;
+    IF v_lp IS NULL THEN RETURN NEW; END IF;
+
+    SELECT id INTO v_hostel_acc_id FROM accommodation_types WHERE code = 'hostel';
+    IF v_hostel_acc_id IS NULL THEN RETURN NEW; END IF;
+
+    UPDATE learners_profiles
+       SET accommodation_type_id = v_hostel_acc_id,
+           updated_at = now()
+     WHERE id = v_lp
+       AND accommodation_type_id IS DISTINCT FROM v_hostel_acc_id;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING '_on_allocation_sync_accommodation_type: %', SQLERRM;
+  END;
+
+  RETURN NEW;
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public._guard_accommodation_type_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_hostel_acc_id uuid;
+  v_has_live_bed boolean;
+BEGIN
+  IF NEW.accommodation_type_id IS NOT DISTINCT FROM OLD.accommodation_type_id THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT id INTO v_hostel_acc_id FROM accommodation_types WHERE code = 'hostel';
+  -- Moving INTO hostel, or no hostel type configured: nothing to guard.
+  IF v_hostel_acc_id IS NULL OR NEW.accommodation_type_id = v_hostel_acc_id THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT EXISTS (
+    SELECT 1 FROM hostel_allocations ha
+    JOIN profiles p ON p.id = ha.learner_id
+    WHERE p.learner_id = NEW.id AND ha.status IN ('active', 'pending_approval')
+  ) INTO v_has_live_bed;
+
+  IF v_has_live_bed THEN
+    RAISE EXCEPTION 'Cannot change accommodation type off Hostel: learner still holds an active bed allocation. Vacate the allocation first.'
+      USING ERRCODE = '23514',
+            HINT = 'Vacate (or transfer out) the active hostel_allocations row before removing hostel status.';
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+
 -- =====================================================================================
 -- WhatsApp campus bridge RPCs  (2026-09-13)
 -- Source of truth: supabase/migrations/20261211090000_wa_bridge_outbox.sql

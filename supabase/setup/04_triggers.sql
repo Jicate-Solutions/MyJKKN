@@ -2766,3 +2766,15 @@ CREATE TRIGGER trg_hcoc_zz_decision_email
     )
   )
   EXECUTE FUNCTION public.hr_trig_enqueue_decision_email();
+
+-- ── hostel_allocations <-> learners_profiles.accommodation_type_id guard ──
+-- Added 20260915180000_hostel_accommodation_type_guard.sql.
+CREATE TRIGGER trg_allocation_sync_accommodation_type
+  AFTER INSERT OR UPDATE ON hostel_allocations
+  FOR EACH ROW
+  EXECUTE FUNCTION public._on_allocation_sync_accommodation_type();
+
+CREATE TRIGGER trg_guard_accommodation_type_change
+  BEFORE UPDATE OF accommodation_type_id ON learners_profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION public._guard_accommodation_type_change();

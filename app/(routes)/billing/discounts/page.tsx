@@ -43,7 +43,7 @@ export default function BillingDiscountsPage() {
   // Show loading state while permissions are loading
   if (permissionsLoading) {
     return (
-      <ContentLayout title='Discount Management'>
+      <ContentLayout title='Scholarship Management'>
         <div className='flex items-center justify-center min-h-[400px]'>
           <BeatLoader color='#00e902' />
         </div>

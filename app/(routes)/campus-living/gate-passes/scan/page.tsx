@@ -96,6 +96,24 @@ function initials(name: string): string {
     .join('');
 }
 
+/** Maps a camera-start failure to the specific reason, not one generic toast. */
+function cameraErrorMessage(err: unknown): string {
+  const name = (err as { name?: string } | undefined)?.name;
+  switch (name) {
+    case 'SecurityError':
+      return (err as Error).message;
+    case 'NotAllowedError':
+      return 'Camera permission was denied — allow camera access for this site in your browser settings, then try again.';
+    case 'NotFoundError':
+    case 'OverconstrainedError':
+      return 'No usable rear camera was found on this device.';
+    case 'NotReadableError':
+      return 'The camera is already in use by another app — close it and try again.';
+    default:
+      return (err as { message?: string } | undefined)?.message || 'Camera unavailable — type the ID instead';
+  }
+}
+
 export default function GatePassScanPage() {
   const { canAccess, isSuperAdmin } = usePermissions();
   const canScan = isSuperAdmin || canAccess('campus_living.gate_passes', 'edit');
@@ -180,13 +198,41 @@ export default function GatePassScanPage() {
 
     const start = async () => {
       try {
+        // A phone reaching the dev/staging server over a plain http://
+        // LAN address (not the deployed HTTPS site, not localhost) gets
+        // `navigator.mediaDevices` as undefined entirely — the browser hides
+        // it outside a secure context. Desktop testing against `localhost`
+        // never hits this (browsers treat localhost as secure), which is
+        // exactly why "Start camera" can look broken on mobile only. Fail
+        // with a message that says so instead of falling into the generic
+        // catch below.
+        if (!navigator.mediaDevices?.getUserMedia) {
+          throw new DOMException(
+            'Camera needs a secure connection — open this page over the deployed https:// link, not a plain http:// address.',
+            'SecurityError',
+          );
+        }
+
         const { Html5Qrcode } = await import('html5-qrcode');
         if (cancelled) return;
         scanner = new Html5Qrcode(QR_ELEMENT_ID);
         scannerRef.current = scanner;
         await scanner.start(
           { facingMode: 'environment' },
-          { fps: 10, qrbox: { width: 240, height: 240 } },
+          {
+            fps: 10,
+            // A fixed { width: 240, height: 240 } throws at start() on any
+            // screen where the rendered viewfinder comes back narrower than
+            // 240px — small phones in portrait, mainly — because html5-qrcode
+            // requires the qrbox to fit inside the actual video dimensions.
+            // That throw lands in the catch below and looks identical to a
+            // denied permission. Sizing as a fraction of the real viewfinder
+            // always fits.
+            qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
+              const edge = Math.floor(Math.min(viewfinderWidth, viewfinderHeight) * 0.7);
+              return { width: edge, height: edge };
+            },
+          },
           (decodedText: string) => {
             const now = Date.now();
             // Debounce same-token rescans within 2.5s — a card sitting in
@@ -210,7 +256,11 @@ export default function GatePassScanPage() {
           // typed-code path rather than leaving a dead screen.
           setScanMode('manual');
         }
-        toast.error('Camera unavailable — type the ID instead');
+        // Every failure used to collapse into one generic toast, so a guard
+        // on-site had no way to tell "permission denied" from "camera busy"
+        // from the qrbox bug above — the console.error never reaches a phone.
+        // Surface the real reason instead.
+        toast.error(cameraErrorMessage(err));
       }
     };
 
