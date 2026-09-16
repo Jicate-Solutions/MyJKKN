@@ -1,18 +1,19 @@
 // app/api/cdc/drives/mine/route.ts — the campus drives THIS learner is assigned to.
 //
-// GET → drives whose audience (institution + semester targeting, or the legacy
-//       program eligibility list) includes the caller, each carrying the caller's
-//       own declaration state. Drives the learner already answered stay visible
-//       after the window moves on, so they can always find their response.
+// GET → drives whose audience (institution + program + semester targeting, or the
+//       legacy program eligibility list) includes the caller, each carrying the
+//       caller's own declaration state. Drives the learner already answered stay
+//       visible after the window moves on, so they can always find their response.
 //
 // Why this exists: the notification dropped when a drive opens is one door; a
 // learner who missed it needs a second. /cdc/drives renders this list for
 // learners (the coordinator list is gated on cdc.drives.view) and the learner
 // dashboard card reads it too.
 //
-// Eligibility is decided by computeEligibility — the SAME predicate the
-// learner's willingness page uses — so this list can never offer a drive whose
-// page then says "not in this drive's audience".
+// Eligibility is decided by computeEligibility and the window by
+// computeWillingnessWindowState — the SAME predicates the learner's willingness
+// page uses — so this list can never offer a drive whose page then says "not in
+// this drive's audience" or "the window has shut".
 //
 // Session client for everything the learner may read under RLS (drives,
 // eligibility, own willingness, own profile). The semester lookup runs on the
@@ -25,13 +26,7 @@ export const runtime = 'nodejs';
 import { NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import type { CdcDrive, CdcDriveEligibility, CdcDriveStatus, CdcWillingnessStatus } from '@/types/cdc';
-import { computeEligibility } from '@/lib/services/cdc/willingness-service';
-import { createClient } from '@/lib/supabase/server';
-import type { CdcDriveEligibility, CdcWillingnessStatus } from '@/types/cdc';
-import {
-  computeIsEligible,
-  computeWillingnessWindowState,
-} from '@/lib/services/cdc/willingness-service';
+import { computeEligibility, computeWillingnessWindowState } from '@/lib/services/cdc/willingness-service';
 
 /**
  * Lifecycle states that may be shown a drive. Mirrors the targeting filter in
@@ -48,6 +43,26 @@ const VISIBLE_STATUSES: CdcDriveStatus[] = [
   'results_announced',
 ];
 
+const DRIVE_COLUMNS =
+  'id, title, status, institutions, institution_semesters, drive_date, job_role_title, job_location, expected_package_lpa, willingness_window_open_at, willingness_window_close_at, recruiter_id, drive_type_id';
+
+type DriveRow = Pick<
+  CdcDrive,
+  | 'id'
+  | 'title'
+  | 'status'
+  | 'institutions'
+  | 'institution_semesters'
+  | 'drive_date'
+  | 'job_role_title'
+  | 'job_location'
+  | 'expected_package_lpa'
+  | 'willingness_window_open_at'
+  | 'willingness_window_close_at'
+  | 'recruiter_id'
+  | 'drive_type_id'
+>;
+
 export interface MyCdcDrive {
   id: string;
   title: string;
@@ -58,10 +73,11 @@ export interface MyCdcDrive {
   job_role_title: string | null;
   job_location: string | null;
   expected_package_lpa: number | null;
+  willingness_window_open_at: string | null;
   willingness_window_close_at: string | null;
   /** The caller's own declaration, or null when they have not responded yet. */
   willingness_status: CdcWillingnessStatus | null;
-  /** True while the drive accepts willingness responses. */
+  /** True while the drive accepts willingness responses (status AND window). */
   is_open: boolean;
 }
 
@@ -106,6 +122,7 @@ export async function GET(): Promise<NextResponse> {
 
     let semesterOrder: number | null = null;
     if (row.semester_id) {
+      const { data: sem } = await createServiceRoleClient()
         .from('semesters')
         .select('semester_order')
         .eq('id', row.semester_id)
@@ -129,85 +146,42 @@ export async function GET(): Promise<NextResponse> {
       ((myWillingness ?? []) as { drive_id: string; status: CdcWillingnessStatus }[]).map((w) => [w.drive_id, w.status])
     );
 
-    const DRIVE_COLUMNS =
-      'id, title, status, institutions, institution_semesters, drive_date, job_role_title, job_location, expected_package_lpa, willingness_window_close_at, recruiter_id, drive_type_id';
     let q = supabase.from('cdc_drives').select(DRIVE_COLUMNS).order('drive_date', { ascending: true });
     const answered = Array.from(myStatus.keys());
     q = answered.length
       ? q.or(`status.in.(${VISIBLE_STATUSES.join(',')}),id.in.(${answered.join(',')})`)
       : q.in('status', VISIBLE_STATUSES);
-    const { data: drives, error: drivesErr } = await q;
-    // 2. Drives currently open for willingness.
-    const { data: drives, error: drivesErr } = await supabase
-      .select(
-        'id, title, status, drive_date, job_role_title, job_location, expected_package_lpa, willingness_window_open_at, willingness_window_close_at, recruiter_id'
-      )
-      .eq('status', 'willingness_open')
-      .order('drive_date', { ascending: true });
+    const { data: drivesRaw, error: drivesErr } = await q;
     if (drivesErr) throw drivesErr;
-    if (!drives || drives.length === 0) return empty;
-    // Status alone is not the whole rule: a drive may carry a willingness window
-    // and be outside it. computeWillingnessWindowState is the SAME predicate the
-    // learner's page and the declaration guard use, so the card can never offer
-    // a drive whose own page then says the window has shut.
-    const openNow = drives.filter(
-      (d) =>
-        computeWillingnessWindowState(
-          d as Parameters<typeof computeWillingnessWindowState>[0]
-        ) === 'open'
-    );
-    if (openNow.length === 0) return empty;
-
-    const driveIds = openNow.map((d) => (d as { id: string }).id);
+    const drives = (drivesRaw ?? []) as unknown as DriveRow[];
+    if (drives.length === 0) return empty;
 
     // 3. Legacy program eligibility rows (only consulted for drives with no
     //    institution + semester targeting).
     const { data: eligibility, error: eligErr } = await supabase
       .from('cdc_drive_eligibility')
       .select('*')
-      .in('drive_id', driveIds);
+      .in(
+        'drive_id',
+        drives.map((d) => d.id)
+      );
     if (eligErr) throw eligErr;
-    const eligByDrive = new Map(
-      ((eligibility ?? []) as CdcDriveEligibility[]).map((e) => [e.drive_id, e])
+    const eligByDrive = new Map(((eligibility ?? []) as CdcDriveEligibility[]).map((e) => [e.drive_id, e]));
 
-    // computeIsEligible is the SAME predicate the learner's willingness page uses.
-    // could offer a drive whose page then tells the learner they are not eligible.
-    const eligibleDriveIds = new Set(
-        .filter((e) =>
-          computeIsEligible(
-            { program_ids: e.program_ids ?? [] } as CdcDriveEligibility,
-            row.program_id
-          )
-        )
-        .map((e) => e.drive_id)
-    );
-    if (eligibleDriveIds.size === 0) return empty;
-
-    // 4. Recruiter names + this learner's own declarations, in parallel.
-    const visible = openNow.filter((d) => eligibleDriveIds.has((d as { id: string }).id));
-    const recruiterIds = Array.from(
-      new Set(
-        visible
-          .map((d) => (d as { recruiter_id: string | null }).recruiter_id)
-          .filter((x): x is string => !!x)
-      )
-    );
-
-    const visible = (drives as unknown as Array<Pick<CdcDrive, 'id' | 'institutions' | 'institution_semesters'> & Record<string, unknown>>).filter(
-      (d) => {
-        if (myStatus.has(d.id)) return true; // already answered → always visible
-        return computeEligibility(
-          { institutions: d.institutions ?? [], institution_semesters: d.institution_semesters ?? [] },
-          eligByDrive.get(d.id) ?? null,
-          learnerInput
-        ).is_eligible;
-      }
-    );
+    const visible = drives.filter((d) => {
+      if (myStatus.has(d.id)) return true; // already answered → always visible
+      if (!VISIBLE_STATUSES.includes(d.status)) return false;
+      return computeEligibility(
+        { institutions: d.institutions ?? [], institution_semesters: d.institution_semesters ?? [] },
+        eligByDrive.get(d.id) ?? null,
+        learnerInput
+      ).is_eligible;
+    });
     if (visible.length === 0) return empty;
 
     // 4. Recruiter + drive-type names.
-    const recruiterIds = Array.from(new Set(visible.map((d) => d.recruiter_id as string | null).filter((x): x is string => !!x)));
-    const typeIds = Array.from(new Set(visible.map((d) => d.drive_type_id as string | null).filter((x): x is string => !!x)));
+    const recruiterIds = Array.from(new Set(visible.map((d) => d.recruiter_id).filter((x): x is string => !!x)));
+    const typeIds = Array.from(new Set(visible.map((d) => d.drive_type_id).filter((x): x is string => !!x)));
     const [recruitersRes, typesRes] = await Promise.all([
       recruiterIds.length
         ? supabase.from('cdc_recruiters').select('id, name').in('id', recruiterIds)
@@ -219,25 +193,23 @@ export async function GET(): Promise<NextResponse> {
     const recruiterName = new Map(((recruitersRes.data ?? []) as { id: string; name: string }[]).map((r) => [r.id, r.name]));
     const typeName = new Map(((typesRes.data ?? []) as { id: string; display_name: string }[]).map((t) => [t.id, t.display_name]));
 
-    const result: MyCdcDrive[] = visible.map((d) => {
-      const rid = d.recruiter_id as string | null;
-      const tid = d.drive_type_id as string | null;
-      const status = d.status as CdcDriveStatus;
-      return {
-        id: d.id,
-        title: (d.title as string) ?? 'Campus drive',
-        status,
-        recruiter_name: rid ? recruiterName.get(rid) ?? null : null,
-        drive_type_name: tid ? typeName.get(tid) ?? null : null,
-        drive_date: (d.drive_date as string | null) ?? null,
-        job_role_title: (d.job_role_title as string | null) ?? null,
-        job_location: (d.job_location as string | null) ?? null,
-        expected_package_lpa: (d.expected_package_lpa as number | null) ?? null,
-        willingness_window_close_at: (d.willingness_window_close_at as string | null) ?? null,
-        willingness_status: myStatus.get(d.id) ?? null,
-        is_open: status === 'willingness_open',
-      };
-    });
+    const result: MyCdcDrive[] = visible.map((d) => ({
+      id: d.id,
+      title: d.title ?? 'Campus drive',
+      status: d.status,
+      recruiter_name: d.recruiter_id ? recruiterName.get(d.recruiter_id) ?? null : null,
+      drive_type_name: d.drive_type_id ? typeName.get(d.drive_type_id) ?? null : null,
+      drive_date: d.drive_date ?? null,
+      job_role_title: d.job_role_title ?? null,
+      job_location: d.job_location ?? null,
+      expected_package_lpa: d.expected_package_lpa ?? null,
+      willingness_window_open_at: d.willingness_window_open_at ?? null,
+      willingness_window_close_at: d.willingness_window_close_at ?? null,
+      willingness_status: myStatus.get(d.id) ?? null,
+      // Status alone is not the whole rule: a drive may carry a willingness
+      // window and be outside it.
+      is_open: computeWillingnessWindowState(d) === 'open',
+    }));
 
     return NextResponse.json({ drives: result }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (err) {

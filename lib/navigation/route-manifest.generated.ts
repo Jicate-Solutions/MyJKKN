@@ -5742,6 +5742,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/meetings/record",
+        "label": "Record",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/meetings/routing-forms",
         "label": "Routing Forms",
         "iconName": "FileText",
