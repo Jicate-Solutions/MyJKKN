@@ -85,6 +85,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { ConsultantImportDialog } from './_components/import-dialog';
+import type { ReferrerRow } from '@/app/api/admission/consultants/referrers/route';
 
 const CONSULTANT_STATUS = [
   { value: 'active', label: 'Active' },
@@ -96,7 +97,7 @@ const CONSULTANT_STATUS = [
 
 const CONSULTANT_TYPES = [
   { value: 'external', label: 'External' },
-  { value: 'internal', label: 'Internal' },
+  { value: 'internal', label: 'Internal (Team Member)' },
   { value: 'institutional', label: 'Institutional' },
   { value: 'alumni', label: 'Alumni' },
   { value: 'student', label: 'Student' }
@@ -240,6 +241,43 @@ function ConsultantsPageContent() {
     }
     return m;
   }, [directory]);
+
+  // Student and staff referrers are not education_consultants rows — they are
+  // recorded on the referred learner (referral_type student/faculty). They are
+  // listed under the Student and Internal types from that source instead.
+  const { data: referrerData, isLoading: referrersLoading, error: referrersError } = useQuery<{ referrers: ReferrerRow[] }>({
+    queryKey: ['consultant-referrers', selectedYear],
+    queryFn: async () => {
+      const res = await fetch(`/api/admission/consultants/referrers${selectedYear ? `?year=${selectedYear}` : ''}`);
+      const body = await res.json();
+      if (!res.ok) throw new Error(body?.error || 'Failed to load referrers');
+      return body;
+    },
+  });
+
+  // Every type stays in the dropdown; the count shows which ones are empty
+  // (Institutional has no consultant records yet).
+  const typeParam = searchParams.get('consultant_type');
+  const isReferrerView = typeParam === 'student' || typeParam === 'internal';
+  const typeOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    const bump = (t: string) => counts.set(t, (counts.get(t) ?? 0) + 1);
+    for (const a of directory?.agencies ?? []) if (a.consultant_type) bump(a.consultant_type);
+    for (const r of referrerData?.referrers ?? []) bump(r.type);
+    return CONSULTANT_TYPES.map((t) => ({ ...t, count: counts.get(t.value) ?? 0 }));
+  }, [directory, referrerData]);
+
+  const searchParam = searchParams.get('search')?.toLowerCase().trim() || '';
+  const referrerRows = useMemo(
+    () =>
+      (referrerData?.referrers ?? []).filter(
+        (r) =>
+          r.type === typeParam &&
+          (!searchParam ||
+            [r.name, r.detail, r.email, r.phone].some((v) => v?.toLowerCase().includes(searchParam))),
+      ),
+    [referrerData, typeParam, searchParam],
+  );
 
   const updateFilters = useCallback((newFilters: Partial<ConsultantFilters>) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -436,7 +474,7 @@ function ConsultantsPageContent() {
               </SelectContent>
             </Select>
             <Select
-              value={searchParams.get('consultant_type') || 'all'}
+              value={typeParam || 'all'}
               onValueChange={(value) => updateFilters({ consultant_type: value as ConsultantFilters['consultant_type'] })}
             >
               <SelectTrigger className="w-[160px]">
@@ -444,9 +482,9 @@ function ConsultantsPageContent() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Types</SelectItem>
-                {CONSULTANT_TYPES.map((type) => (
+                {typeOptions.map((type) => (
                   <SelectItem key={type.value} value={type.value}>
-                    {type.label}
+                    {type.label} ({type.count})
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -497,7 +535,80 @@ function ConsultantsPageContent() {
           </div>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          {isReferrerView ? (
+            referrersLoading ? (
+              <ConsultantsTableSkeleton />
+            ) : referrersError ? (
+              <div className="text-center py-8 text-red-600">
+                Error loading referrers. Please try again.
+              </div>
+            ) : referrerRows.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                No {typeParam === 'student' ? 'learner' : 'team member'} referrers match your filters.
+              </div>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground mb-3">
+                  {referrerRows.length} {typeParam === 'student' ? 'learners' : 'team members'} who referred
+                  learners{selectedYear ? ` in ${selectedYear}–${String(selectedYear + 1).slice(2)}` : ''}.
+                  These are recorded on the learner&apos;s referral, not as consultant records.
+                </p>
+                <div className="border rounded-lg overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{typeParam === 'student' ? 'Learner' : 'Team Member'}</TableHead>
+                        <TableHead>Contact</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead className="text-right">Referrals</TableHead>
+                        <TableHead className="text-right">Enrolled</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {referrerRows.map((r) => (
+                        <TableRow key={r.referrer_id}>
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              <Avatar className="h-10 w-10">
+                                <AvatarFallback>
+                                  {r.name.split(' ').map((n) => n[0]).join('').slice(0, 3).toUpperCase()}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div>
+                                <div className="font-medium">{r.name}</div>
+                                {r.detail && <div className="text-sm text-muted-foreground">{r.detail}</div>}
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="space-y-1">
+                              {r.email && (
+                                <div className="flex items-center gap-1 text-sm">
+                                  <Mail className="h-3 w-3 text-muted-foreground" />
+                                  {r.email}
+                                </div>
+                              )}
+                              {r.phone && (
+                                <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                                  <Phone className="h-3 w-3" />
+                                  {r.phone}
+                                </div>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge className={getTypeColor(r.type)}>{r.type}</Badge>
+                          </TableCell>
+                          <TableCell className="text-right">{r.referrals}</TableCell>
+                          <TableCell className="text-right">{r.enrolled}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </>
+            )
+          ) : isLoading ? (
             <ConsultantsTableSkeleton />
           ) : error ? (
             <div className="text-center py-8 text-red-600">
