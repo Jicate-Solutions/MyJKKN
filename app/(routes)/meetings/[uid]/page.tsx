@@ -39,6 +39,7 @@ import { createClient } from '@/lib/supabase/server';
 import { MeetingAgendaService } from '@/lib/services/meetings/meeting-agenda-service';
 import { MeetingActionItemService } from '@/lib/services/meetings/meeting-action-item-service';
 import { MeetingPersonHistoryService } from '@/lib/services/meetings/meeting-person-history-service';
+import { contextLabelFor } from '@/lib/services/meetings/booking-context';
 import {
   effectiveLocationMode,
   switchBackState,
@@ -517,12 +518,18 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
                 </a>
               </div>
             ) : null}
+            {/* What the visitor said when booking. Rendered as readable
+                question-and-answer rather than the raw key: since 16 Sep a long
+                booking must answer three real questions, and three paragraphs
+                squeezed into a grey strip is the same as not showing them. */}
             {Object.keys(answers).length > 0 ? (
-              <div className="rounded-md bg-muted/50 p-2 text-xs space-y-1">
+              <div className="space-y-2 rounded-md bg-muted/50 p-3 text-sm">
                 {Object.entries(answers).map(([q, a]) => (
-                  <div key={q}>
-                    <span className="text-muted-foreground">{q}:</span>{' '}
-                    <span className="font-medium">{a}</span>
+                  <div key={q} className="space-y-0.5">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      {contextLabelFor(q)}
+                    </p>
+                    <p className="whitespace-pre-wrap leading-relaxed">{a}</p>
                   </div>
                 ))}
               </div>
