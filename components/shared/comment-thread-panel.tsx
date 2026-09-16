@@ -26,7 +26,7 @@
 // that. Collapsing them into one "isAdmin" would paint a Delete button that the
 // database then refuses on every click.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ComponentType, ReactNode } from 'react';
 import {
   CheckCircle2,
@@ -39,6 +39,7 @@ import {
   Send,
   ShieldAlert,
   Trash2,
+  AtSign,
   X,
 } from 'lucide-react';
 
@@ -66,10 +67,18 @@ import { Textarea } from '@/components/ui/textarea';
 import { MAX_COMMENT_BODY } from '@/lib/services/shared/comment-threads';
 import type { ThreadComment } from '@/lib/services/shared/comment-threads';
 
+/** Someone who can be tagged, as the tag picker lists them. */
+export interface TaggablePerson {
+  id: string;
+  name: string;
+  subtitle?: string | null;
+}
+
 /** Every write the panel can ask for. Reject to keep the user's text. */
 export interface CommentThreadHandlers {
-  onPost: (body: string) => Promise<unknown>;
-  onReply: (parentId: string, body: string) => Promise<unknown>;
+  /** mentionIds is only ever passed when the panel was given `peopleSearch`. */
+  onPost: (body: string, mentionIds?: string[]) => Promise<unknown>;
+  onReply: (parentId: string, body: string, mentionIds?: string[]) => Promise<unknown>;
   onEdit: (id: string, body: string) => Promise<unknown>;
   onResolve: (id: string, resolved: boolean) => Promise<unknown>;
   onDelete: (id: string) => Promise<unknown>;
@@ -100,6 +109,11 @@ export interface CommentThreadPanelProps {
   /** May delete a comment they did not write. */
   canDeleteAny: boolean;
   handlers: CommentThreadHandlers;
+  /**
+   * Turns tagging ON. Omit it and the composer has no tag control at all —
+   * the reservation thread, which shares this panel, does not support tags.
+   */
+  peopleSearch?: (query: string) => Promise<TaggablePerson[]>;
 }
 
 /** "just now", "2h ago", "12 Sep" — a thread is read by recency. */
@@ -127,21 +141,137 @@ function roleLabel(role: string | null): string | null {
 
 // ── Composer ────────────────────────────────────────────────────────────────
 
+/**
+ * The tag picker: a search box that lists people as you type and adds the one
+ * you click as a chip. Inline under the composer rather than a popover — it has
+ * to work on a phone, and a popover anchored to a textarea near the bottom of a
+ * long console page is exactly the thing that renders off-screen there.
+ */
+function TagPicker({
+  peopleSearch,
+  picked,
+  onPick,
+  onClose,
+}: {
+  peopleSearch: (query: string) => Promise<TaggablePerson[]>;
+  picked: TaggablePerson[];
+  onPick: (person: TaggablePerson) => void;
+  onClose: () => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<TaggablePerson[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) {
+      setResults([]);
+      setFailed(false);
+      return;
+    }
+    // Debounced, and the stale response is dropped: typing "ra" then "raj"
+    // quickly must not let the slower "ra" answer overwrite the "raj" one.
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const hits = await peopleSearch(q);
+        if (!cancelled) {
+          setResults(hits);
+          setFailed(false);
+        }
+      } catch {
+        if (!cancelled) setFailed(true);
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [query, peopleSearch]);
+
+  const pickedIds = new Set(picked.map((p) => p.id));
+
+  return (
+    <div className="space-y-2 rounded-md border bg-muted/30 p-2">
+      <div className="flex items-center gap-2">
+        <AtSign className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <input
+          autoFocus
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') onClose();
+          }}
+          placeholder="Search staff by name or email…"
+          className="h-7 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+        />
+        {searching && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+        <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={onClose} aria-label="Close tag search">
+          <X className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+
+      {query.trim().length < 2 ? (
+        <p className="px-1 text-[11px] text-muted-foreground">
+          Type at least 2 letters. Only staff can be tagged — tagging lets them see and reply in
+          this thread.
+        </p>
+      ) : failed ? (
+        <p className="px-1 text-[11px] text-destructive">The directory could not be searched.</p>
+      ) : !searching && results.length === 0 ? (
+        <p className="px-1 text-[11px] text-muted-foreground">No staff match “{query.trim()}”.</p>
+      ) : (
+        <ul className="max-h-48 space-y-0.5 overflow-y-auto">
+          {results.map((p) => {
+            const already = pickedIds.has(p.id);
+            return (
+              <li key={p.id}>
+                <button
+                  type="button"
+                  disabled={already}
+                  onClick={() => onPick(p)}
+                  className="flex w-full flex-col items-start rounded px-2 py-1 text-left hover:bg-muted disabled:opacity-50"
+                >
+                  <span className="text-sm">
+                    {p.name}
+                    {already && <span className="ml-1 text-[11px] text-muted-foreground">(tagged)</span>}
+                  </span>
+                  {p.subtitle && (
+                    <span className="text-[11px] text-muted-foreground">{p.subtitle}</span>
+                  )}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function Composer({
   placeholder,
   submitLabel,
   autoFocus,
   onSubmit,
   onCancel,
+  peopleSearch,
 }: {
   placeholder: string;
   submitLabel: string;
   autoFocus?: boolean;
-  onSubmit: (body: string) => Promise<unknown>;
+  onSubmit: (body: string, mentionIds?: string[]) => Promise<unknown>;
   onCancel?: () => void;
+  peopleSearch?: (query: string) => Promise<TaggablePerson[]>;
 }) {
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);
+  const [tagging, setTagging] = useState(false);
+  const [tagged, setTagged] = useState<TaggablePerson[]>([]);
   const trimmed = body.trim();
   const tooLong = trimmed.length > MAX_COMMENT_BODY;
 
@@ -153,10 +283,12 @@ function Composer({
     if (!trimmed || tooLong || busy) return;
     setBusy(true);
     try {
-      await onSubmit(trimmed);
+      await onSubmit(trimmed, tagged.length > 0 ? tagged.map((p) => p.id) : undefined);
       setBody('');
+      setTagged([]);
+      setTagging(false);
     } catch {
-      /* text stays put; the toast says why */
+      /* text and tags stay put; the toast says why */
     } finally {
       setBusy(false);
     }
@@ -169,7 +301,13 @@ function Composer({
         autoFocus={autoFocus}
         placeholder={placeholder}
         value={body}
-        onChange={(e) => setBody(e.target.value)}
+        onChange={(e) => {
+          const next = e.target.value;
+          // Typing "@" is the gesture people already know for tagging, so it
+          // opens the picker. The "@" itself stays in the text as typed.
+          if (peopleSearch && next.length > body.length && next.endsWith('@')) setTagging(true);
+          setBody(next);
+        }}
         // Ctrl/Cmd+Enter posts. Plain Enter must stay a newline — these are
         // paragraphs, not chat lines.
         onKeyDown={(e) => {
@@ -177,11 +315,53 @@ function Composer({
         }}
         className="text-sm"
       />
+
+      {tagged.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1">
+          <span className="text-[11px] text-muted-foreground">Tagging:</span>
+          {tagged.map((p) => (
+            <Badge key={p.id} variant="secondary" className="h-5 gap-1 px-1.5 text-[11px] font-normal">
+              @{p.name}
+              <button
+                type="button"
+                aria-label={`Remove ${p.name}`}
+                disabled={busy}
+                onClick={() => setTagged((cur) => cur.filter((x) => x.id !== p.id))}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </Badge>
+          ))}
+        </div>
+      )}
+
+      {peopleSearch && tagging && (
+        <TagPicker
+          peopleSearch={peopleSearch}
+          picked={tagged}
+          onPick={(p) => setTagged((cur) => (cur.some((x) => x.id === p.id) ? cur : [...cur, p]))}
+          onClose={() => setTagging(false)}
+        />
+      )}
+
       <div className="flex flex-wrap items-center justify-end gap-2">
         {tooLong && (
           <span className="mr-auto text-xs text-destructive">
             {trimmed.length} characters — the limit is {MAX_COMMENT_BODY}.
           </span>
+        )}
+        {peopleSearch && !tagging && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className={`h-8 gap-1.5 ${tooLong ? '' : 'mr-auto'}`}
+            onClick={() => setTagging(true)}
+            disabled={busy}
+          >
+            <AtSign className="h-3.5 w-3.5" />
+            Tag people
+          </Button>
         )}
         {onCancel && (
           <Button variant="ghost" size="sm" className="h-8" onClick={onCancel} disabled={busy}>
@@ -289,6 +469,17 @@ function CommentBody({
         <p className="whitespace-pre-wrap break-words text-sm text-foreground">{comment.body}</p>
       )}
 
+      {!editing && comment.mentions && comment.mentions.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1">
+          <AtSign className="h-3 w-3 text-muted-foreground" />
+          {comment.mentions.map((m) => (
+            <Badge key={m.id} variant="outline" className="h-5 px-1.5 text-[11px] font-normal">
+              {m.name}
+            </Badge>
+          ))}
+        </div>
+      )}
+
       {!editing && (isMine || canDelete) && (
         <div className="flex gap-1">
           {isMine && (
@@ -328,6 +519,7 @@ function Thread({
   replyPlaceholder,
   handlers,
   onRequestDelete,
+  peopleSearch,
 }: {
   thread: ThreadComment;
   myId: string | null;
@@ -337,6 +529,7 @@ function Thread({
   replyPlaceholder: string;
   handlers: CommentThreadHandlers;
   onRequestDelete: (comment: ThreadComment) => void;
+  peopleSearch?: (query: string) => Promise<TaggablePerson[]>;
 }) {
   const [replying, setReplying] = useState(false);
   const [resolving, setResolving] = useState(false);
@@ -431,8 +624,9 @@ function Thread({
             placeholder={replyPlaceholder}
             submitLabel="Reply"
             onCancel={() => setReplying(false)}
-            onSubmit={(body) =>
-              handlers.onReply(thread.id, body).then((r) => {
+            peopleSearch={peopleSearch}
+            onSubmit={(body, mentionIds) =>
+              handlers.onReply(thread.id, body, mentionIds).then((r) => {
                 setReplying(false);
                 return r;
               })
@@ -472,6 +666,7 @@ export function CommentThreadPanel({
   canResolveAny,
   canDeleteAny,
   handlers,
+  peopleSearch,
 }: CommentThreadPanelProps) {
   const [showResolved, setShowResolved] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<ThreadComment | null>(null);
@@ -487,6 +682,7 @@ export function CommentThreadPanel({
     replyPlaceholder,
     handlers,
     onRequestDelete: setPendingDelete,
+    peopleSearch,
   };
 
   return (
@@ -509,6 +705,7 @@ export function CommentThreadPanel({
           placeholder={placeholder}
           submitLabel="Post comment"
           onSubmit={handlers.onPost}
+          peopleSearch={peopleSearch}
         />
 
         {isLoading && (

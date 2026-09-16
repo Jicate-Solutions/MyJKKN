@@ -34,7 +34,14 @@ import type { RawThreadRow, ThreadComment } from '@/lib/services/shared/comment-
 
 const MOD = 'events/review-comments';
 const TABLE = 'event_review_comments';
-const SELECT_COLUMNS = threadSelectColumns(TABLE);
+// The tag embed is appended HERE, not in threadSelectColumns(): tagging is an
+// event-review feature, and the reservation thread shares that helper. The FK
+// constraint is named because mentions reference profiles twice.
+const SELECT_COLUMNS = `${threadSelectColumns(TABLE)},
+    mentions:event_review_comment_mentions (
+      mentioned_user_id,
+      person:profiles!event_review_comment_mentions_mentioned_user_id_fkey (full_name)
+    )`;
 
 /** A comment on an event, i.e. a thread comment that knows which event it is on. */
 export interface EventReviewComment extends ThreadComment {
@@ -51,9 +58,28 @@ export interface CreateReviewCommentDto {
 
 interface RawRow extends RawThreadRow {
   event_id: string;
+  mentions?: { mentioned_user_id: string; person?: { full_name: string | null } | null }[] | null;
 }
 
-const toComment = (row: RawRow) => toThreadComment(row) as EventReviewComment;
+const toComment = (row: RawRow): EventReviewComment => {
+  const { mentions, ...rest } = row;
+  // Via unknown: the raw `mentions` shape is stripped above and the resolved
+  // one assigned below, which TS cannot follow through toThreadComment's generic.
+  const comment = toThreadComment(rest) as unknown as EventReviewComment;
+  comment.mentions = (mentions ?? []).map((m) => ({
+    id: m.mentioned_user_id,
+    name: m.person?.full_name?.trim() || 'Unknown',
+  }));
+  return comment;
+};
+
+export interface TagPeopleResult {
+  /** Names newly tagged (and notified) by this call. */
+  tagged: string[];
+  /** Names refused because they are not staff. */
+  skipped: string[];
+  notified: number;
+}
 
 export class EventReviewCommentService {
   private static supabase = createClientSupabaseClient();
@@ -121,6 +147,28 @@ export class EventReviewCommentService {
       logger.error(MOD, 'Unexpected error in createComment', error);
       throw error;
     }
+  }
+
+  /**
+   * Tag staff on a comment you wrote, and notify them.
+   *
+   * Goes through /api/events/[eventId]/review-mentions rather than a direct
+   * insert, but only because the NOTIFICATION needs a service-role client. The
+   * tag itself is still written with the caller's session inside that route, so
+   * RLS and the guard trigger remain the authority on who may tag whom.
+   */
+  static async tagPeople(eventId: string, commentId: string, userIds: string[]): Promise<TagPeopleResult> {
+    const res = await fetch(`/api/events/${eventId}/review-mentions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ comment_id: commentId, user_ids: userIds }),
+    });
+    const json = await res.json().catch(() => null);
+    if (!res.ok || !json?.success) {
+      logger.error(MOD, 'Tagging failed', { eventId, commentId, status: res.status, json });
+      throw new Error(json?.error || 'The people could not be tagged.');
+    }
+    return { tagged: json.tagged ?? [], skipped: json.skipped ?? [], notified: json.notified ?? 0 };
   }
 
   /** Edit your own words. The trigger refuses anyone else, admin or not. */
