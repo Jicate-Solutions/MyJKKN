@@ -266,6 +266,10 @@
       "schedule": "17 3 * * *"
     },
     {
+      "path": "/api/cron/meeting-audio-retention?secret=${CRON_SECRET}",
+      "schedule": "43 3 * * *"
+    },
+    {
       "schedule": "35 20 * * *",
       "path": "/api/cron/billing/learner-status-sweep?secret=${CRON_SECRET}"
     },
