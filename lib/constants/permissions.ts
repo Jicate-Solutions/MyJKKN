@@ -889,6 +889,12 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.coverage.view', label: 'View Bill Coverage' },
       { key: 'billing.coverage.export', label: 'Export Bill Coverage' },
       { key: 'billing.reports.view', label: 'View Billing Reports' },
+      // The reports page has gated its CSV download on billing.reports.export
+      // since it was built, but the key was never registered — and an
+      // unregistered key cannot be granted to a role, so the Export button was
+      // invisible to everyone except the super-admin bypass on all six tabs.
+      // Declaring it only makes the lane grantable; it grants nothing today.
+      { key: 'billing.reports.export', label: 'Export Billing Reports' },
       { key: 'billing.analytics.view', label: 'View Billing Analytics' },
       { key: 'billing.analytics.export', label: 'Export Billing Analytics' },
       { key: 'billing.payment.view', label: 'View Payments' },
@@ -3645,6 +3651,22 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
+    // Gate Security — the campus-gate workflow (2026-09-15). Gate passes are
+    // issued by the Service Requests module (service_types.issues_gate_pass);
+    // these keys cover the security screen, the OUT/IN write, and the CAO
+    // report. The DEFINER RPCs (gate_can_scan / gate_can_record) also honour
+    // campus_living.gate_passes.edit, so existing gate_security holders work
+    // before any regrant.
+    name: 'Gate Security',
+    key: 'gate_security',
+    permissions: [
+      { key: 'gate_security.scan.view', label: 'Gate Security screen (scan + search)' },
+      { key: 'gate_security.movements.record', label: 'Record OUT / IN at the gate' },
+      { key: 'gate_security.reports.view', label: 'View Gate In/Out Report (CAO)' },
+      { key: 'gate_security.reports.export', label: 'Export Gate In/Out Report to Excel' },
+    ],
+  },
+  {
     // Added 2026-09-12 — the What's New weekly highlights strip
     // (migration 20261203120000_changelog_highlights.sql). ONE key, because
     // there is one thing to decide: may this person write and approve the
@@ -3660,15 +3682,15 @@ export const PERMISSION_CATEGORIES = [
     // super admins (user_has_permission() bypasses for them) until someone
     // grants it here. That is the point of cataloguing it: granting it becomes
     // a Role Management decision rather than a code change.
-    name: "What's New",
+    name: 'What\'s New',
     key: 'whats_new',
     permissions: [
       {
         key: 'whats_new.highlights.manage',
-        label: "Write and approve the weekly highlights shown on What's New"
-      }
-    ]
-  }
+        label: 'Write and approve the weekly highlights shown on What\'s New',
+      },
+    ],
+  },
 ];
 
 export const PERMISSIONS = {

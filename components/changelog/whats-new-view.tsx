@@ -569,7 +569,36 @@ export function WhatsNewView() {
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-8">
+        /*
+          max-lg:pr-14 IS THE PHONE-OVERLAP FIX FOR THE TEXT, and it is spatial
+          for the same reason the link's `basis-full` wrapper below is: three
+          floating controls stack `fixed right-4`, 48px wide, on every
+          authenticated page, so the column owns x ∈ [329, 377] on a 393px
+          screen for the bottom ~316px of it, at every scroll offset. Moving the
+          link (#3761) cleared the one CONTROL on the row; the words did not
+          move. A card here spans the full content width (px-4 → [16, 377]) and
+          pads by 12px, so a title that wraps runs to x = 364 — 35px inside the
+          column. Verified live on production 2026-09-15 as a super admin: the
+          share button sat on top of "…uses to" at the end of a title
+          (.screenshots/wn2-superadmin-phone-link.png).
+
+          56px of right padding on this wrapper ends the cards at x = 321 and
+          their text at x = 308: 21px clear of the column, and the card border
+          itself stops 8px short of the buttons rather than touching them.
+
+          ON THE WRAPPER, NOT THE CARD, for a cascade reason: the card's
+          `sm:p-4` is a padding SHORTHAND that Tailwind emits AFTER every
+          `max-lg:` utility, so a `max-lg:pr-14` on the <li> would be silently
+          overwritten between 640px and 1023px and read as working on a phone
+          only. Measured with the project's own Tailwind 3.4 CLI.
+
+          max-lg rather than max-sm because the column has the same geometry at
+          every width below `lg` (bottom-nav-safe-* slots): at 640–1023px the
+          page's px-8 still leaves the text 16px under the buttons. From `lg`
+          the sidebar takes the left 288px and the stack drops to the corner
+          (`lg:bottom-4/20/36`), which is the same trade every page makes.
+        */
+        <div className="space-y-8 max-lg:pr-14">
           {days.map(({ day, groups }) => (
             <section key={day}>
               {/*

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query/query-keys';
+import { classifyBugFixRisk, riskPathsForCluster, type BugFixRisk } from '@/lib/bug-reports/fix-risk';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -26,7 +27,10 @@ import {
   ScanSearch,
   MessageCircleQuestion,
   Send,
-  UserRound
+  UserRound,
+  Lock,
+  ThumbsUp,
+  ThumbsDown
 } from 'lucide-react';
 
 interface ClusterMember {
@@ -35,6 +39,8 @@ interface ClusterMember {
   description: string;
   status: string;
   module_name: string | null;
+  /** Judged (path only) for the low-risk fix gate when there is no verdict yet. */
+  page_url?: string | null;
   created_at: string;
   reporter_name: string | null;
 }
@@ -128,12 +134,17 @@ interface BugCluster {
   sample_description: string;
   module_names: string[];
   status: 'proposed' | 'confirmed' | 'dismissed';
+  /** 'scan' = the nightly scan grouped 2+ reports; 'single' = a person put a
+   *  one-report bug into the loop (fn_bug_cluster_ensure_single). */
+  origin?: 'scan' | 'single';
   first_seen_at: string;
   last_scan_at: string;
   members: ClusterMember[] | null;
   fixability?: Fixability | null;
   verify?: VerifyState | null;
 }
+
+const reporterCount = (n: number) => (n === 1 ? 'the reporter' : `all ${n} reporters`);
 
 const fetchClusters = async (status: string): Promise<BugCluster[]> => {
   const response = await fetch(`/api/bug-reports/clusters?status=${status}`);
@@ -358,8 +369,13 @@ export function BugGroupsTab() {
                   <div className='min-w-0'>
                     <div className='flex flex-wrap items-center gap-2'>
                       <Badge className='bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-900 dark:text-purple-200'>
-                        {cluster.member_count} reports
+                        {cluster.member_count} {cluster.member_count === 1 ? 'report' : 'reports'}
                       </Badge>
+                      {cluster.origin === 'single' && (
+                        <Badge variant='outline' className='text-xs'>
+                          single report
+                        </Badge>
+                      )}
                       {cluster.module_names.map((m) => (
                         <Badge key={m} variant='outline' className='text-xs'>
                           {m}
@@ -379,21 +395,25 @@ export function BugGroupsTab() {
                     // border at 320px. Shrinkable + wrapping stacks them only
                     // when they genuinely don't fit; ≥414px is unchanged.
                     <div className='flex flex-wrap items-center gap-2'>
-                      <Button
-                        size='sm'
-                        onClick={() => {
-                          setActingOn(cluster.id);
-                          actionMutation.mutate({ clusterId: cluster.id, action: 'confirm' });
-                        }}
-                        disabled={actionMutation.isPending && actingOn === cluster.id}
-                      >
-                        {actionMutation.isPending && actingOn === cluster.id ? (
-                          <Loader2 className='w-4 h-4 mr-1 animate-spin' />
-                        ) : (
-                          <Check className='w-4 h-4 mr-1' />
-                        )}
-                        Confirm group
-                      </Button>
+                      {/* A 1-report group has nothing to park as a duplicate —
+                          Confirm appears once the scan merges a second report. */}
+                      {cluster.member_count > 1 && (
+                        <Button
+                          size='sm'
+                          onClick={() => {
+                            setActingOn(cluster.id);
+                            actionMutation.mutate({ clusterId: cluster.id, action: 'confirm' });
+                          }}
+                          disabled={actionMutation.isPending && actingOn === cluster.id}
+                        >
+                          {actionMutation.isPending && actingOn === cluster.id ? (
+                            <Loader2 className='w-4 h-4 mr-1 animate-spin' />
+                          ) : (
+                            <Check className='w-4 h-4 mr-1' />
+                          )}
+                          Confirm group
+                        </Button>
+                      )}
                       <Button
                         size='sm'
                         variant='outline'
@@ -557,12 +577,16 @@ function FixSection({
   fix,
   onFix,
   isFixing,
-  count
+  count,
+  risk
 }: {
   fix: FixState | null;
   onFix: () => void;
   isFixing: boolean;
   count: number;
+  /** Low-risk gate (Director ruling 2026-09-15). `held` replaces the button;
+   *  the RPC refuses too, so this is a mirror of the real gate, not the gate. */
+  risk: BugFixRisk;
 }) {
   const status = fix?.status;
 
@@ -642,6 +666,30 @@ function FixSection({
     );
   }
 
+  // Held: money, marks, exams, attendance, admissions, auth, schema — the bugs
+  // desk and the Director own these until loop gate f flips. No button.
+  if (risk.tier === 'held') {
+    return (
+      <div className='mt-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/40 px-3 py-2'>
+        <div className='flex flex-wrap items-center gap-2'>
+          <Lock className='w-4 h-4 text-amber-700 dark:text-amber-300 shrink-0' />
+          <span className='text-xs font-medium text-amber-900 dark:text-amber-100'>
+            Held — bugs desk / Director
+          </span>
+          {risk.heldPath && (
+            <code className='text-[11px] font-mono text-amber-900/80 dark:text-amber-200/80 break-all'>
+              {risk.heldPath}
+            </code>
+          )}
+        </div>
+        <p className='text-[11px] text-amber-800 dark:text-amber-200 mt-0.5'>
+          This group touches a sensitive screen ({risk.reason ?? 'sensitive path'}). Only the
+          bugs desk may write this fix today; the app will not queue it from here.
+        </p>
+      </div>
+    );
+  }
+
   // No fix attempted yet — offer the button.
   return (
     <div className='mt-2 flex flex-wrap items-center gap-2'>
@@ -690,8 +738,14 @@ interface FeedbackState {
   delivered: number;
   answered: number;
   expired: number;
+  /** Reporter thumbs only — ground truth. */
   yes: number;
   no: number;
+  /** Director ruling 2026-09-15: a super admin's confirmation on a silent
+   *  reporter is ITS OWN evidence, shown and tallied apart. */
+  admin_yes?: number;
+  admin_no?: number;
+  admin_confirmable?: { id: string; bug_id: string; expires_at: string; expired: boolean }[];
 }
 
 type StepState = 'done' | 'active' | 'running' | 'locked' | 'attention' | 'human';
@@ -820,6 +874,11 @@ function LoopStepper({
   const fx = cluster.fixability;
   const verdict = fx?.verdict ?? null;
   const analyzing = fx?.status === 'requested' || fx?.status === 'running';
+  // Low-risk fix gate: judged from the verdict's files, else the members' page
+  // paths — the same rule fn_bug_cluster_fix_request applies server-side.
+  const risk = classifyBugFixRisk(
+    riskPathsForCluster(fx?.verdict?.files, (cluster.members ?? []).map((m) => m.page_url))
+  );
   const singleFix = verdict?.single_fix_feasible === true;
   const fix = fx?.fix ?? null;
   // Human path (walk-2 lesson): single_fix_feasible=false only means the fix
@@ -871,19 +930,27 @@ function LoopStepper({
       return s && (s.sent > 0 || s.delivered > 0) ? 30000 : false;
     }
   });
+  type FeedbackAction =
+    | 'prepare'
+    | 'send'
+    | { action: 'admin_confirm'; request_id: string; answer: 'pos' | 'neg'; note: string };
   const feedbackMutation = useMutation({
-    mutationFn: async (action: 'prepare' | 'send') => {
+    mutationFn: async (input: FeedbackAction) => {
+      const payload = typeof input === 'string' ? { action: input } : input;
+      const action = payload.action;
       const response = await fetch(`/api/bug-reports/clusters/${cluster.id}/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action })
+        body: JSON.stringify(payload)
       });
       const json = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(json.error || `${action} failed`);
       return { action, ...json };
     },
     onSuccess: (data) => {
-      if (data.action === 'prepare') {
+      if (data.action === 'admin_confirm') {
+        toast.success('Recorded as your confirmation — kept apart from reporter answers.');
+      } else if (data.action === 'prepare') {
         toast.success(
           `${data.prepared ?? 0} reporter question(s) prepared (not sent — you approve the send).` +
             (data.excluded_off_cause
@@ -903,6 +970,8 @@ function LoopStepper({
     onError: (err: any) => toast.error(err?.message || 'Action failed')
   });
   const fbBusy = feedbackMutation.isPending;
+  const [adminNote, setAdminNote] = useState('');
+  const confirmable = fb?.admin_confirmable ?? [];
 
   // ★ HUMAN ACTION ★ — split a multi-cause group into per-cause groups
   // (S1-S4 Director-locked): children born confirmed, unsorted members kept
@@ -1006,7 +1075,9 @@ function LoopStepper({
               Diagnose (AI reads the code)
             </Button>
             <span className='text-[11px] text-muted-foreground'>
-              Says whether these {cluster.member_count} reports share one cause.
+              {cluster.member_count === 1
+                ? 'Finds the cause behind this report.'
+                : `Says whether these ${cluster.member_count} reports share one cause.`}
             </span>
           </div>
         )}
@@ -1035,7 +1106,9 @@ function LoopStepper({
                   className='bg-green-100 text-green-800 border-green-300 dark:bg-green-900 dark:text-green-200'
                 >
                   <Wrench className='w-3.5 h-3.5 mr-1' />
-                  One fix can resolve all {cluster.member_count}
+                  {cluster.member_count === 1
+                    ? 'One fix can resolve this report'
+                    : `One fix can resolve all ${cluster.member_count}`}
                 </Badge>
               ) : (
                 <Badge
@@ -1121,6 +1194,7 @@ function LoopStepper({
             onFix={onFix}
             isFixing={fixQueuing}
             count={cluster.member_count}
+            risk={risk}
           />
         ) : multiCause ? (
           <div className='mt-1 flex flex-wrap items-center gap-2'>
@@ -1296,7 +1370,13 @@ function LoopStepper({
         )}
       </StepShell>
 
-      <StepShell n={5} state={s5} title='Ask the reporters' dashed lockedReason={s5Reason}>
+      <StepShell
+        n={5}
+        state={s5}
+        title={cluster.member_count === 1 ? 'Ask the reporter' : 'Ask the reporters'}
+        dashed
+        lockedReason={s5Reason}
+      >
         {s5 === 'active' && (
           <div className='mt-1 flex flex-wrap items-center gap-2'>
             <Button size='sm' variant='outline' onClick={() => feedbackMutation.mutate('prepare')} disabled={fbBusy}>
@@ -1355,6 +1435,82 @@ function LoopStepper({
                 {fb.expired} expired (counts as no data)
               </span>
             )}
+            {((fb.admin_yes ?? 0) > 0 || (fb.admin_no ?? 0) > 0) && (
+              <span className='inline-flex items-center gap-1 text-[11px] text-muted-foreground'>
+                · confirmed by an admin, not the reporter:
+                <Badge variant='outline' className='text-[10px]'>
+                  👍 {fb.admin_yes ?? 0}
+                </Badge>
+                <Badge variant='outline' className='text-[10px]'>
+                  👎 {fb.admin_no ?? 0}
+                </Badge>
+              </span>
+            )}
+          </div>
+        )}
+        {fb && confirmable.length > 0 && (
+          // Director ruling 2026-09-15: a reporter who never answers → a super
+          // admin may confirm instead. Recorded as the ADMIN's evidence.
+          <div className='mt-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/40 px-3 py-2 space-y-1.5'>
+            <p className='text-xs font-medium text-amber-900 dark:text-amber-100'>
+              {confirmable.length === 1 ? 'Reporter silent' : `${confirmable.length} reporters silent`} —
+              confirm as admin
+            </p>
+            <p className='text-[11px] text-amber-800 dark:text-amber-200'>
+              {confirmable.some((c) => !c.expired)
+                ? 'The question expires within 3 days or has expired. '
+                : 'The question expired unanswered. '}
+              Your answer is recorded as an admin's confirmation, ranked after reporter answers, and
+              a late reporter answer replaces it.
+            </p>
+            <input
+              type='text'
+              value={adminNote}
+              onChange={(e) => setAdminNote(e.target.value)}
+              placeholder='Note: what you checked (optional)'
+              maxLength={500}
+              aria-label='Admin confirmation note'
+              className='w-full rounded-md border bg-background px-2 py-1 text-xs'
+            />
+            <div className='flex flex-wrap items-center gap-2'>
+              <Button
+                size='sm'
+                variant='outline'
+                disabled={fbBusy}
+                onClick={() =>
+                  feedbackMutation.mutate({
+                    action: 'admin_confirm',
+                    request_id: confirmable[0].id,
+                    answer: 'pos',
+                    note: adminNote
+                  })
+                }
+              >
+                <ThumbsUp className='w-4 h-4 mr-1.5' />
+                Fixed (admin)
+              </Button>
+              <Button
+                size='sm'
+                variant='outline'
+                disabled={fbBusy}
+                onClick={() =>
+                  feedbackMutation.mutate({
+                    action: 'admin_confirm',
+                    request_id: confirmable[0].id,
+                    answer: 'neg',
+                    note: adminNote
+                  })
+                }
+              >
+                <ThumbsDown className='w-4 h-4 mr-1.5' />
+                Still broken (admin)
+              </Button>
+              {confirmable.length > 1 && (
+                <span className='text-[11px] text-muted-foreground'>
+                  one at a time — the next silent reporter appears after this one
+                </span>
+              )}
+            </div>
           </div>
         )}
       </StepShell>
@@ -1377,8 +1533,8 @@ function LoopStepper({
             {fb.no > 0
               ? 'A reporter says this is still broken — review before resolving.'
               : fb.yes > 0
-                ? `Reporters confirm it's fixed — resolve when ready. Resolving emails all ${cluster.member_count} reporters.`
-                : `Answers are still arriving — resolving now would email all ${cluster.member_count} reporters before they've confirmed.`}
+                ? `${cluster.member_count === 1 ? 'The reporter confirms' : 'Reporters confirm'} it's fixed — resolve when ready. Resolving emails ${reporterCount(cluster.member_count)}.`
+                : `Answers are still arriving — resolving now would email ${reporterCount(cluster.member_count)} before they've confirmed.`}
           </p>
         )}
       </StepShell>

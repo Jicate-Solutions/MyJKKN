@@ -1,5 +1,6 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -12,7 +13,13 @@ import {
   Tooltip,
   Cell,
 } from 'recharts';
-import { AGING_LABELS, formatINRCompact, num } from './_utils';
+import {
+  AGING_LABELS,
+  formatINRCompact,
+  num,
+  drilldown,
+  type DrilldownScope,
+} from './_utils';
 import type { BillingAgingBucketRow } from '@/types/billing-analytics';
 
 const ORDER = ['not_due', '0-30', '31-60', '61-90', '90+'] as const;
@@ -28,10 +35,14 @@ const COLORS: Record<string, string> = {
 export function AgingChart({
   data,
   loading,
+  scope,
 }: {
   data?: BillingAgingBucketRow[];
   loading: boolean;
+  /** Active institution filter, carried into the drill-down. */
+  scope: DrilldownScope;
 }) {
+  const router = useRouter();
   const byBucket = new Map((data ?? []).map((d) => [d.bucket, d]));
   const rows = ORDER.map((b) => ({
     bucket: b,
@@ -41,10 +52,26 @@ export function AgingChart({
   }));
   const hasData = rows.some((r) => r.balance > 0);
 
+  // The bill list has no age-in-days filter, so the closest faithful view is
+  // "unpaid" for balances not yet due and "overdue" for every aged bucket.
+  const openBucket = (bucket?: string) => {
+    if (!bucket) return;
+    router.push(
+      drilldown.bills(scope, {
+        status: bucket === 'not_due' ? 'unpaid' : 'overdue',
+      })
+    );
+  };
+
   return (
     <Card className='h-full'>
       <CardHeader className='pb-2'>
         <CardTitle className='text-base'>Outstanding by Age</CardTitle>
+        {hasData && (
+          <p className='text-muted-foreground text-xs'>
+            Click a bar to see those bills.
+          </p>
+        )}
       </CardHeader>
       <CardContent>
         {loading && !data ? (
@@ -64,12 +91,21 @@ export function AgingChart({
                 tickFormatter={(v) => formatINRCompact(v)}
               />
               <Tooltip
+                cursor={{ fill: 'rgba(148,163,184,0.15)' }}
                 formatter={(value: number, _n, p: any) => [
                   `${formatINRCompact(value)} · ${num(p?.payload?.bill_count).toLocaleString('en-IN')} bills`,
                   'Outstanding',
                 ]}
               />
-              <Bar dataKey='balance' radius={[3, 3, 0, 0]} maxBarSize={56}>
+              <Bar
+                dataKey='balance'
+                radius={[3, 3, 0, 0]}
+                maxBarSize={56}
+                cursor='pointer'
+                onClick={(entry: any) =>
+                  openBucket(entry?.bucket ?? entry?.payload?.bucket)
+                }
+              >
                 {rows.map((r) => (
                   <Cell key={r.bucket} fill={COLORS[r.bucket]} />
                 ))}

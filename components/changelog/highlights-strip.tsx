@@ -173,7 +173,18 @@ export function HighlightsStrip({ modules }: HighlightsStripProps) {
   if (!items || items.length === 0) return null;
 
   return (
-    <section aria-labelledby="whats-new-highlights" className="space-y-3">
+    /*
+      max-lg:pr-14 keeps every word on this strip clear of the floating column —
+      the three `fixed right-4` controls, 48px wide, that own x ∈ [329, 377] on a
+      393px screen. The same fix, for the same measured reason, as the entry
+      list's wrapper in whats-new-view.tsx (read the note there for the cascade
+      argument and the numbers). Seen live on production 2026-09-15: the
+      lightning button covered "everythin[g]" in the sub-heading and the share
+      and bug buttons covered the end of the first headline
+      (.screenshots/wn2-superadmin-phone-top.png). On the section rather than
+      the list so the heading line is cleared too.
+    */
+    <section aria-labelledby="whats-new-highlights" className="space-y-3 max-lg:pr-14">
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
         <h2 id="whats-new-highlights" className="text-base font-semibold text-foreground">
           Worth knowing
