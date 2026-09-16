@@ -19,7 +19,8 @@ import { AlertBox } from '@/components/ui/alert-box';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Plus, Trash2, FileText, Award, X, ExternalLink } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, FileText, Award, X, ExternalLink, Sparkles } from 'lucide-react';
+import { QuotationChatPanel } from '@/components/procurement/quotation-chat-panel';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
@@ -55,6 +56,21 @@ export default function RfqQuotationsPage() {
   // only mounted for open entries so we don't load every vendor's PDF at once.
   const [openPdfs, setOpenPdfs] = useState<Record<string, boolean>>({});
   const togglePdf = (id: string) => setOpenPdfs((p) => ({ ...p, [id]: !p[id] }));
+
+  // "Ask AI" panel. It needs the live prices and awards to tell whether a saved
+  // suggestion still matches the table.
+  const [chatOpen, setChatOpen] = useState(false);
+  const livePrices = useMemo(
+    () =>
+      Object.fromEntries(
+        quotations.flatMap((q) => q.items.map((it) => [it.id, it.unit_price === null ? null : Number(it.unit_price)])),
+      ) as Record<string, number | null>,
+    [quotations]
+  );
+  const awardedIds = useMemo(
+    () => new Set(quotations.flatMap((q) => q.items.filter((it) => it.awarded).map((it) => it.id))),
+    [quotations]
+  );
 
   const handleGeneratePOs = async () => {
     if (!profile?.id) return;
@@ -239,11 +255,19 @@ export default function RfqQuotationsPage() {
                 order is raised per winning vendor.
               </p>
             </div>
-            {canGeneratePO && hasAwarded && (
-              <Button className="shrink-0" onClick={handleGeneratePOs} disabled={generatePOs.isPending}>
-                {generatePOs.isPending ? 'Generating...' : 'Generate Purchase Orders'}
-              </Button>
-            )}
+            <div className="flex shrink-0 flex-wrap gap-2">
+              {quotations.length > 0 && (
+                <Button variant="outline" onClick={() => setChatOpen(true)}>
+                  <Sparkles className="mr-2 h-4 w-4" />
+                  Ask AI
+                </Button>
+              )}
+              {canGeneratePO && hasAwarded && (
+                <Button onClick={handleGeneratePOs} disabled={generatePOs.isPending}>
+                  {generatePOs.isPending ? 'Generating...' : 'Generate Purchase Orders'}
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
             {compLoading ? (
@@ -408,6 +432,23 @@ export default function RfqQuotationsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {quotations.length > 0 && (
+        <QuotationChatPanel
+          open={chatOpen}
+          onOpenChange={setChatOpen}
+          rfqId={rfqId}
+          rfqNumber={rfq.rfq_number}
+          canApply={canManage}
+          lockedReason={
+            ['awarded', 'closed', 'cancelled'].includes(rfq.status)
+              ? `This RFQ is already ${rfq.status}, so awards are no longer changed from here.`
+              : null
+          }
+          livePrices={livePrices}
+          awardedIds={awardedIds}
+        />
+      )}
     </ContentLayout>
   );
 }

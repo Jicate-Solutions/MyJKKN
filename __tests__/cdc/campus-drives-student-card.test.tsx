@@ -14,13 +14,17 @@
  *    acts on. Showing "tell them you're interested" to someone already signed up
  *    invites a double answer and makes the card untrustworthy.
  * 3. A drive whose willingness window has SHUT must never be offered as though
- *    it were open. This guarantee used to live in /api/cdc/drives/mine, which
- *    dropped closed drives outright. On 15 Sep (760f08e180) the route changed to
- *    return them flagged with is_open instead, and /cdc/drives was updated to
- *    read that flag — this card was not, so for a day it listed closed drives
- *    under "Campus drives open to you" with a button that led to a page which
- *    then refused. The guarantee did not disappear with the filter; it moved
- *    here, so it is pinned here.
+ *    it were open.
+ *
+ *    The route cannot carry this alone, by its own design. It drops an
+ *    UNANSWERED drive that is outside its dates, but a drive the learner has
+ *    ALREADY ANSWERED stays visible for ever — deliberately, so they can always
+ *    find their own response (`if (myStatus.has(d.id)) return true`). Those
+ *    arrive here with is_open false. Without the handling below they render
+ *    with "Change your answer", which sends the learner to a page that refuses
+ *    them: the same trap that was live all of 15-16 Sep, when the route briefly
+ *    dropped the filter altogether and this card listed every closed drive
+ *    under "Campus drives open to you".
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
