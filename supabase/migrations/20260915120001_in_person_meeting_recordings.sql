@@ -1,4 +1,4 @@
--- 20260915120000_in_person_meeting_recordings.sql
+-- 20260915120001_in_person_meeting_recordings.sql
 -- In-person meeting capture — the half no online trick can reach.
 --
 -- WHY THIS EXISTS
@@ -34,8 +34,11 @@
 -- service-role-only, no client policy) and 20260614000000_rcltp_phase_a_foundation.sql
 -- (private audio bucket + the three-step signed-upload handshake).
 --
--- Version 20260915120000 is above the highest version on jicate/main at split
--- time and clear of the versions claimed by the open PRs checked on 15 Sep.
+-- Version 20260915120001. The original 20260915120000 collided with
+-- 20260915120000_cdc_drive_notification_log.sql, which landed on jicate/main
+-- on 15 Sep while this branch was still a draft. Renumbered 16 Sep; this file
+-- has never been applied anywhere, so the rename is free. Still above the
+-- highest version on main, and clear of every version the open PRs claim today.
 
 -- ── private bucket ───────────────────────────────────────────────────────────
 -- PRIVATE, non-negotiable. These recordings carry candidate interviews (salary
