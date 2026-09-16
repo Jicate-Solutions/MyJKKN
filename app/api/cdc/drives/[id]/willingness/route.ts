@@ -1,16 +1,18 @@
 export const dynamic = 'force-dynamic';
 
 /**
- * T1.1 — Learner-facing willingness declaration API.
+ * Learner-facing willingness declaration API.
  *
- * GET  /api/cdc/drives/[id]/willingness  → snapshot for the page (drive + eligibility +
- *                                         existing willingness + computed booleans)
- * POST /api/cdc/drives/[id]/willingness  → declare 'willing' or 'decline'
+ * GET  /api/cdc/drives/[id]/willingness  → snapshot for the page (drive + circular +
+ *                                         targeting eligibility + learner profile
+ *                                         details + CGPA/arrears + existing response)
+ * POST /api/cdc/drives/[id]/willingness  → { intent: 'willing'|'decline',
+ *                                            additional_mobile?, data_consent? }
  *
  * Auth: caller is an authenticated learner. We resolve auth.uid() to learners_profiles.id
  * server-side and never trust client-supplied learner_id. RLS on cdc_drive_willingness
- * (PR #987 / 20260519T1140Z) enforces the row-level scope; this layer adds the
- * eligibility + window-open soft checks for friendly errors.
+ * enforces the row-level scope; this layer adds the eligibility + window-open soft checks
+ * for friendly errors.
  */
 
 import { createServerClient } from '@supabase/ssr';
@@ -19,6 +21,7 @@ import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
 import { CdcWillingnessService } from '@/lib/services/cdc/willingness-service';
+import { createServiceRoleClient } from '@/lib/supabase/server';
 
 async function getClient() {
   const cookieStore = await cookies();
@@ -61,7 +64,11 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const learner = await CdcWillingnessService.resolveLearner(supabase, user.id);
+    const learner = await CdcWillingnessService.resolveLearner(
+      supabase,
+      user.id,
+      createServiceRoleClient()
+    );
     if (!learner) {
       return NextResponse.json(
         { error: 'This page is only available to learners with a linked learner profile.' },
@@ -77,7 +84,7 @@ export async function GET(
     if (!snapshot) {
       return NextResponse.json({ error: 'Drive not found' }, { status: 404 });
     }
-    return NextResponse.json(snapshot);
+    return NextResponse.json(snapshot, { headers: { 'Cache-Control': 'no-store' } });
   } catch (err) {
     console.error('[cdc/drives/[id]/willingness] GET error', err);
     return NextResponse.json(
@@ -103,7 +110,11 @@ export async function POST(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const learner = await CdcWillingnessService.resolveLearner(supabase, user.id);
+    const learner = await CdcWillingnessService.resolveLearner(
+      supabase,
+      user.id,
+      createServiceRoleClient()
+    );
     if (!learner) {
       return NextResponse.json(
         { error: 'Only learners can declare willingness.' },
@@ -111,7 +122,7 @@ export async function POST(
       );
     }
 
-    const body = await request.json();
+    const body = await request.json().catch(() => ({}));
     const intent = body.intent as 'willing' | 'decline' | undefined;
     if (intent !== 'willing' && intent !== 'decline') {
       return NextResponse.json(
@@ -125,7 +136,12 @@ export async function POST(
       id,
       learner,
       user.id,
-      intent
+      {
+        intent,
+        additional_mobile:
+          typeof body.additional_mobile === 'string' ? body.additional_mobile.trim() || null : null,
+        data_consent: body.data_consent === true,
+      }
     );
     return NextResponse.json({ data: willingness });
   } catch (err) {

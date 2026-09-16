@@ -334,7 +334,7 @@ export default function AttendancePage() {
               ? 'Loading available periods...'
               : showResults && availablePeriods.length > 0
               ? 'Select a period to mark attendance'
-              : 'Select the class to record attendance'}
+              : 'Select the session to record attendance'}
           </span>
         </div>
 

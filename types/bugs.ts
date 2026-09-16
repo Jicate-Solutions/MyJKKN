@@ -203,6 +203,11 @@ export interface BugReportParticipant {
 
 export interface BugReportFilters {
   status?: BugReportStatus;
+  /** Restrict to any of these statuses (a status tab). ANDed with `status`. */
+  statuses?: BugReportStatus[];
+  /** Inclusive resolved_at bounds, YYYY-MM-DD in India time. */
+  resolved_from?: string;
+  resolved_to?: string;
   category?: BugReportCategory;
   institution_id?: string;
   department_id?: string;

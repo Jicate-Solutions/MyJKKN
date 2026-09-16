@@ -27,6 +27,8 @@ import { useServiceTypes, useServiceType } from '@/hooks/service-requests/use-se
 import { useCreateServiceRequest } from '@/hooks/service-requests/use-service-requests';
 import { ServiceTypeCard } from '../_components/service-type-card';
 import { DynamicRequestForm } from '../_components/dynamic-request-form';
+import { GatePassRequesterSummary } from '../_components/gate-pass-requester-summary';
+import { withGatePassFields, todayIsoIndia, GATE_PASS_FIELD_KEYS } from '@/lib/gate-security/gate-pass-form-fields';
 import type { ServiceType, ServiceRequestPriority } from '@/types/service-request';
 
 /**
@@ -215,9 +217,23 @@ export default function NewServiceRequestPage() {
                   </div>
                 )}
 
+                {/* Gate Pass types: profile details are filled automatically */}
+                {(typeDetail?.issues_gate_pass ?? selectedType.issues_gate_pass) && (
+                  <GatePassRequesterSummary />
+                )}
+
                 {/* Dynamic Form */}
                 <DynamicRequestForm
-                  fields={typeDetail?.fields || selectedType.fields || []}
+                  key={selectedType.id}
+                  fields={withGatePassFields(
+                    typeDetail?.issues_gate_pass ?? selectedType.issues_gate_pass,
+                    typeDetail?.fields || selectedType.fields || []
+                  )}
+                  defaultValues={
+                    (typeDetail?.issues_gate_pass ?? selectedType.issues_gate_pass)
+                      ? { [GATE_PASS_FIELD_KEYS.date]: todayIsoIndia() }
+                      : undefined
+                  }
                   onSubmit={handleSubmit}
                   onSaveDraft={handleSaveDraft}
                   isSubmitting={createRequest.isPending}

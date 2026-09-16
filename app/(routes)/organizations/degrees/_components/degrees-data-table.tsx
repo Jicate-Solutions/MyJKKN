@@ -1,6 +1,7 @@
 'use client';
 
 import { DataTable } from '@/components/data-table/data-table';
+import { degreeRowHref } from '@/components/data-table/utils/list-row-hrefs';
 import { getColumns } from './columns';
 import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import type { DegreesSearchParams } from './data-table-schema';
@@ -323,6 +324,7 @@ export function DegreesDataTable({ search }: DegreesDataTableProps) {
           headers: []
         }}
         idField='id'
+        rowHref={degreeRowHref}
         config={{
           enableUrlState: true,
           enableDateFilter: false,

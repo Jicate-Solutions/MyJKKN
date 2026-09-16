@@ -288,6 +288,10 @@
     {
       "path": "/api/cron/whats-new-highlight-drafts?secret=${CRON_SECRET}",
       "schedule": "13,43 * * * *"
+    },
+    {
+      "path": "/api/meetings/notes/ingest",
+      "schedule": "23,53 * * * *"
     }
   ]
 }

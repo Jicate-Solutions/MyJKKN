@@ -282,9 +282,9 @@ interface StaffMember extends ExtendedProfile {
   updated_at: string;
 
   // Role taxonomy
-  // role_type — coarse: 'faculty' | 'admin' | 'support' | 'management' (freeform)
-  // role_key  — fine-grained custom_roles key (e.g. 'hod', 'principal', 'admission_counselor')
-  role_type: 'faculty' | 'admin' | 'support' | 'management' | string | null;
+  // role_key  — the staff role, a custom_roles key (e.g. 'faculty', 'hod', 'principal')
+  // role_type — legacy; 'teacher' on every record, carries no information
+  role_type: string | null;
   role_key: string;
 
   // Foreign key references
@@ -347,9 +347,9 @@ interface StaffFilters {
   category_id?: string;
   is_active?: boolean;
   has_extended_profile?: boolean; // filter to rows with extended profile filled
-  // Role-based filters (see "Role-Based Fetching" section below)
-  role_type?: 'faculty' | 'admin' | 'support' | 'management' | string;
-  role_key?: string; // e.g. 'hod', 'principal', 'admission_counselor'
+  // Role-based filter (see "Role-Based Fetching" section below).
+  // role_type is NOT here: it is retired as a filter and returns HTTP 400.
+  role_key?: string; // e.g. 'faculty', 'hod', 'principal', 'librarian'
 }`,
 
     apiService: `// staff-api.service.ts
@@ -397,7 +397,6 @@ export class StaffApiService {
     if (filters.category_id) params.append('category_id', filters.category_id);
     if (filters.is_active !== undefined) params.append('is_active', filters.is_active.toString());
     if (filters.has_extended_profile !== undefined) params.append('has_extended_profile', filters.has_extended_profile.toString());
-    if (filters.role_type) params.append('role_type', filters.role_type);
     if (filters.role_key) params.append('role_key', filters.role_key);
 
     const queryString = params.toString() ? \`?\${params.toString()}\` : '';
@@ -692,10 +691,10 @@ export function StaffList() {
                 has <code>shows_extended_profile = true</code>.
               </li>
               <li>
-                <code>role_type</code> - Coarse role taxonomy. Common values:
-                <code>faculty</code>, <code>admin</code>, <code>support</code>,
-                <code>management</code>. Useful for grouping (e.g. directory
-                pages, headcount reports).
+                <code>role_type</code> - <strong>Retired as a filter (HTTP 400).</strong>{' '}
+                Every record carries the same value, so it never matched. Still
+                returned on each row; use <code>role_key</code> to filter or
+                group.
               </li>
               <li>
                 <code>role_key</code> - Fine-grained role keyed to
@@ -756,7 +755,7 @@ export function StaffList() {
                             date_of_joining: '2020-06-15',
                             designation: 'Associate Professor',
                             // Role taxonomy
-                            role_type: 'faculty',
+                            role_type: 'teacher',
                             role_key: 'hod',
                             category_id: '123e4567-e89b-12d3-a456-426614174111',
                             institution_id:
@@ -930,7 +929,7 @@ export function StaffList() {
                           pincode: '600001',
                           date_of_joining: '2020-06-15',
                           designation: 'Associate Professor',
-                          role_type: 'faculty',
+                          role_type: 'teacher',
                           role_key: 'hod',
                           category_id: '123e4567-e89b-12d3-a456-426614174111',
                           institution_id:
@@ -1012,50 +1011,61 @@ export function StaffList() {
       <div className='space-y-4'>
         <h3 className='text-xl font-semibold'>Role-Based Fetching</h3>
         <p>
-          Staff records carry two role-related fields that consumers can filter
-          on. Pick the one that matches your intent — they are NOT
-          interchangeable.
+          Filter team members by role with <code>role_key</code>. It is the
+          only role filter — <code>role_type</code> is retired and now returns
+          HTTP 400.
         </p>
 
         <Card>
           <CardContent className='pt-6 space-y-4'>
             <div>
-              <Badge variant='outline' className='bg-purple-50 text-purple-700 mr-2'>
-                role_type
-              </Badge>
-              <span className='text-sm font-medium'>Coarse taxonomy</span>
-              <p className='text-sm text-muted-foreground mt-1'>
-                A high-level grouping of staff. Common values:
-                <code className='mx-1'>faculty</code>,
-                <code className='mx-1'>admin</code>,
-                <code className='mx-1'>support</code>,
-                <code className='mx-1'>management</code>. Use this when
-                building directories, headcount reports, or anything that
-                groups staff by job family.
-              </p>
-            </div>
-            <div>
               <Badge variant='outline' className='bg-blue-50 text-blue-700 mr-2'>
                 role_key
               </Badge>
-              <span className='text-sm font-medium'>Fine-grained role</span>
+              <span className='text-sm font-medium'>The team-member role</span>
               <p className='text-sm text-muted-foreground mt-1'>
-                References a row in the <code>custom_roles</code> table — drives
-                actual permissions in MyJKKN. Examples:{' '}
-                <code>hod</code>, <code>principal</code>, <code>dean</code>,{' '}
-                <code>faculty</code>, <code>admission_counselor</code>,{' '}
-                <code>expo_counselor</code>. Use this when you need to act on a
-                specific permission-bearing role (workflow approvers,
-                permission-aware integrations).
+                References a row in the <code>custom_roles</code> table — the
+                same value that drives permissions in MyJKKN. Use it for
+                directories, headcount reports and permission-aware
+                integrations alike. The 35 values in live use, with counts
+                across the 733 active records:
+              </p>
+              <CodeBlock
+                language='text'
+                code={`role_key            count      role_key            count
+-------------------------      -------------------------
+faculty              269      principal             11
+staff                196      super_admin            8
+hod                   68      warden                 6
+staff_counselor       40      librarian              5
+driver                31      coe                    2
+admission_counselor   21      registrar              1
+office_assistant      18      ... 22 more
+gate_security         14`}
+              />
+            </div>
+            <div>
+              <Badge variant='outline' className='bg-amber-50 text-amber-700 mr-2'>
+                role_type
+              </Badge>
+              <span className='text-sm font-medium'>Retired as a filter</span>
+              <p className='text-sm text-muted-foreground mt-1'>
+                Still present on every response, but no longer accepted as a
+                query parameter — it returns <strong>HTTP 400</strong>. It was
+                documented as a coarse taxonomy of four values; in practice
+                every record carries one and the same value, so each of those
+                filters matched zero rows and returned <code>200</code> with an
+                empty page — a silent wrong answer. Group by{' '}
+                <code>role_key</code> instead.
               </p>
             </div>
             <Alert>
               <AlertTitle>No DB CHECK constraint</AlertTitle>
               <AlertDescription>
-                Both fields are freeform strings — there is no database-level
-                whitelist. Treat unknown values defensively. The list above is
-                conventional but new role keys can be added at any time via
-                Role Management.
+                <code>role_key</code> is a freeform string — there is no
+                database-level whitelist. Treat unknown values defensively. The
+                list above is what exists today, but new role keys can be added
+                at any time via Role Management.
               </AlertDescription>
             </Alert>
           </CardContent>
@@ -1064,12 +1074,12 @@ export function StaffList() {
         <Accordion type='single' collapsible>
           <AccordionItem value='role-faculty-curl'>
             <AccordionTrigger>
-              Fetch all faculty (role_type=faculty) — curl
+              Fetch every Head of Department (role_key=hod) — curl
             </AccordionTrigger>
             <AccordionContent>
               <CodeBlock
                 language='bash'
-                code={`curl -s "https://jkkn.ai/api/api-management/staff?role_type=faculty&is_active=true&limit=50" \\
+                code={`curl -s "https://jkkn.ai/api/api-management/staff?role_key=hod&is_active=true&limit=50" \\
   -H "Authorization: Bearer $JKKN_API_KEY" \\
   -H "Accept: application/json"`}
               />
@@ -1099,7 +1109,7 @@ export function StaffList() {
                 code={`// Useful for building a public faculty directory page.
 const fetchPublishedFaculty = async (apiKey) => {
   const url = new URL('https://jkkn.ai/api/api-management/staff');
-  url.searchParams.append('role_type', 'faculty');
+  url.searchParams.append('role_key', 'faculty');
   url.searchParams.append('has_extended_profile', 'true');
   url.searchParams.append('is_active', 'true');
   url.searchParams.append('all', 'true');
@@ -1165,7 +1175,7 @@ const fetchAllCounselors = async (apiKey, institutionId) => {
               </p>
               <CodeBlock
                 language='bash'
-                code={`curl -s "https://jkkn.ai/api/b2a/staff?role_type=faculty&category_id=<UUID>&page=1&limit=20" \\
+                code={`curl -s "https://jkkn.ai/api/b2a/staff?role_key=hod&category_id=<UUID>&page=1&limit=20" \\
   -H "Authorization: Bearer $JKKN_API_KEY"`}
               />
             </AccordionContent>
@@ -1185,7 +1195,7 @@ const fetchAllCounselors = async (apiKey, institutionId) => {
                 and bios.
               </p>
               <code className='text-xs bg-muted p-2 rounded block break-all'>
-                GET /api-management/staff?role_type=faculty&has_extended_profile=true&is_active=true&all=true
+                GET /api-management/staff?role_key=faculty&has_extended_profile=true&is_active=true&all=true
               </code>
             </CardContent>
           </Card>
@@ -1213,7 +1223,7 @@ const fetchAllCounselors = async (apiKey, institutionId) => {
                 <code>metadata.total</code> for a fast count.
               </p>
               <code className='text-xs bg-muted p-2 rounded block break-all'>
-                GET /api-management/staff?institution_id=&lt;UUID&gt;&role_type=admin&limit=1
+                GET /api-management/staff?institution_id=&lt;UUID&gt;&role_key=principal&limit=1
               </code>
             </CardContent>
           </Card>
@@ -1332,7 +1342,7 @@ const fetchAllCounselors = async (apiKey, institutionId) => {
                 <tr><td><code>address, state, district, pincode</code></td><td>string | null</td><td>Address fields.</td></tr>
                 <tr><td><code>date_of_joining</code></td><td>ISO date</td><td>—</td></tr>
                 <tr><td><code>designation</code></td><td>string</td><td>Job title (e.g. 'Associate Professor'). Searchable via <code>?designation=</code> on B2A.</td></tr>
-                <tr><td><code>role_type</code></td><td>string | null</td><td>Coarse role taxonomy (faculty / admin / support / management).</td></tr>
+                <tr><td><code>role_type</code></td><td>string | null</td><td>Legacy column carrying one and the same value on every record. No information — read <code>role_key</code>. Not a valid filter.</td></tr>
                 <tr><td><code>role_key</code></td><td>string</td><td>Fine-grained role (matches <code>custom_roles.role_key</code>).</td></tr>
                 <tr><td><code>category_id</code></td><td>UUID</td><td>FK → <code>employment_categories.id</code>.</td></tr>
                 <tr><td><code>institution_id</code></td><td>UUID</td><td>FK → <code>institutions.id</code>.</td></tr>

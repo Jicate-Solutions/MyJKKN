@@ -12,6 +12,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -490,7 +491,32 @@ describe('the real files on main, not reductions of them', () => {
     // PR #3263 performs this rename, so from that merge onward the body lives at
     // the NEW path. The simulated rename below still runs from -> to, which is the
     // historical fact the guard is being tested against.
-    const sql = read('supabase/migrations/20261103000000_instasolver_substrate.sql');
+    //
+    // 2026-09-14 — the body no longer lives in supabase/migrations/. The Director
+    // reversed this substrate's premise (specs/instasolver-2026-09-14.md), and
+    // 20261103000000_instasolver_substrate.sql was emptied to a comment-only
+    // no-op: an earlier `RAISE EXCEPTION` guard placed there halted
+    // `supabase db push` before the migrations queued behind it could run. The
+    // 1,193-line body is preserved verbatim as the fixture read below, copied
+    // from jicate/main at the superseding commit.
+    //
+    // Reading the fixture rather than the live migration keeps this test
+    // asserting what it was written to assert — that the guard still lands
+    // correctly on a REAL 60 KB migration body of exactly that shape — instead of
+    // degrading into a vacuous pass over an empty file. The fact under test (the
+    // 20260504 -> 20261103000000 rename and its not-applied verdict) is history
+    // and cannot change.
+    const sql = read('__tests__/ci/fixtures/instasolver-substrate-20261103000000.sql');
+    // Guard the guard — with an identity check, not a size floor. This fixture
+    // is frozen history: it is the body as it stood on jicate/main at the commit
+    // that superseded it, and there is exactly one correct set of bytes. A
+    // length assertion would pass on a truncation that kept 40 KB, or on a
+    // reduction that happened to be long enough. The hash passes on nothing but
+    // the real thing. If this fails, the fixture was edited — restore it rather
+    // than updating the hash, unless you are deliberately re-freezing it.
+    expect(createHash('sha256').update(sql, 'utf8').digest('hex')).toBe(
+      '3a3cf1cf1bd3f3fef715710e5591687d974a6f75b8d91603e658933a6cf6edaa'
+    );
     const r = run({
       renames: [{
         from: 'supabase/migrations/20260504_instasolver_substrate.sql',

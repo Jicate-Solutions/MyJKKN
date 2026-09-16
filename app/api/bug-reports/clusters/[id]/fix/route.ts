@@ -25,17 +25,26 @@ export async function POST(
   const { id: clusterId } = await params;
 
   try {
-    const { response } = await requireBugAdmin();
-    if (response) return response;
+    const gate = await requireBugAdmin();
+    if (gate.response) return gate.response;
 
     const adminSupabase = createAdminClient();
+    // p_actor_user_id: this click is a PERSON acting from the app, so the RPC
+    // applies the low-risk gate (Director ruling 2026-09-15). The bugs desk
+    // calls the same RPC as the service role with no actor and is not gated.
     const { data, error } = await (adminSupabase as any).rpc('fn_bug_cluster_fix_request', {
-      p_cluster_id: clusterId
+      p_cluster_id: clusterId,
+      p_actor_user_id: gate.user.id
     });
 
     if (error) throw error;
     if (!data?.success) {
-      return NextResponse.json({ error: data?.error ?? 'fix request failed' }, { status: 400 });
+      // 423 Locked for a held group — the UI shows "held — bugs desk / Director".
+      const status = data?.risk === 'held' ? 423 : 400;
+      return NextResponse.json(
+        { error: data?.error ?? 'fix request failed', risk: data?.risk, held_path: data?.held_path },
+        { status }
+      );
     }
     return NextResponse.json({ ok: true, status: data.status ?? 'requested', note: data.note });
   } catch (error) {

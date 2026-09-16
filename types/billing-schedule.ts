@@ -193,6 +193,14 @@ export interface StudentBillFilters {
   admission_year?: string;
   page?: number;
   limit?: number;
+  /**
+   * A data-table column id, not necessarily a database column — the table
+   * sends ids like 'student_name' / 'institution_name' and persists them in
+   * its own state. Stays a bare string because every caller feeds it an
+   * untyped `params.sort_by`; the service validates it against the whitelist
+   * in lib/services/billing/schedule/bill-sort-columns.ts and falls back to
+   * created_at, so an unknown value can never reach PostgREST as a column.
+   */
   sortBy?: string;
   sortDirection?: 'asc' | 'desc';
 }

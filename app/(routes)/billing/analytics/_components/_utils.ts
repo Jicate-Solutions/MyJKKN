@@ -44,6 +44,100 @@ export function presetRange(
   }
 }
 
+/**
+ * The analytics filter context every drill-down link inherits, so clicking a
+ * figure lands on the list that produced it — same institution, same window.
+ */
+export interface DrilldownScope {
+  institutionId?: string;
+  date_from?: string;
+  date_to?: string;
+}
+
+function withParams(
+  path: string,
+  params: Record<string, string | undefined>
+): string {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v) qs.set(k, v);
+  const s = qs.toString();
+  return s ? `${path}?${s}` : path;
+}
+
+/**
+ * Hrefs into the billing list pages, keyed by what the analytics figure
+ * measures. Each list page reads these exact query names from the URL:
+ *  - /billing/schedule          institution_id, status, collection_type
+ *  - /billing/schedule/students institution_id
+ *  - /billing/receipts          institution_id, receipt_date_from/to,
+ *                               payment_mode, collection_type
+ *  - /billing/refunds           institution_id, date_from/to
+ *  - /billing/discounts         (filters live in client state — no params)
+ */
+export const drilldown = {
+  bills: (
+    s: DrilldownScope,
+    extra: {
+      status?: 'paid' | 'unpaid' | 'partially_paid' | 'overdue';
+      collection_type?: 'management' | 'government';
+    } = {}
+  ) =>
+    withParams('/billing/schedule', {
+      institution_id: s.institutionId,
+      status: extra.status,
+      collection_type: extra.collection_type,
+    }),
+  students: (s: DrilldownScope) =>
+    withParams('/billing/schedule/students', {
+      institution_id: s.institutionId,
+    }),
+  receipts: (
+    s: DrilldownScope,
+    extra: {
+      payment_mode?: string;
+      collection_type?: 'management' | 'government';
+    } = {}
+  ) =>
+    withParams('/billing/receipts', {
+      institution_id: s.institutionId,
+      receipt_date_from: s.date_from,
+      receipt_date_to: s.date_to,
+      payment_mode: extra.payment_mode,
+      collection_type: extra.collection_type,
+    }),
+  receipt: (id: string) => `/billing/receipts/${id}`,
+  refunds: (s: DrilldownScope) =>
+    withParams('/billing/refunds', {
+      institution_id: s.institutionId,
+      date_from: s.date_from,
+      date_to: s.date_to,
+    }),
+  discounts: () => '/billing/discounts',
+  /** Audit trail page — its filters live in client state, so no params. */
+  activities: () => '/billing/activities',
+};
+
+/**
+ * Turn a trend-chart period ('YYYY-MM-DD' or 'YYYY-MM') into the inclusive
+ * date window of that bucket, clamped to the dashboard's own window.
+ */
+export function periodRange(
+  period: string,
+  scope: DrilldownScope
+): { date_from: string; date_to: string } {
+  let from = period;
+  let to = period;
+  if (/^\d{4}-\d{2}$/.test(period)) {
+    const [y, m] = period.split('-').map(Number);
+    const lastDay = new Date(y, m, 0).getDate();
+    from = `${period}-01`;
+    to = `${period}-${String(lastDay).padStart(2, '0')}`;
+  }
+  if (scope.date_from && from < scope.date_from) from = scope.date_from;
+  if (scope.date_to && to > scope.date_to) to = scope.date_to;
+  return { date_from: from, date_to: to };
+}
+
 /** Coerce a PostgREST numeric (which can arrive as a string) to a number. */
 export const num = (v: unknown): number =>
   typeof v === 'number' ? v : Number(v ?? 0) || 0;

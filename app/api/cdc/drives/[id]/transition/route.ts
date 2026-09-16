@@ -6,7 +6,9 @@ import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
 import { CdcDriveService } from '@/lib/services/cdc/drive-service';
-import type { CdcDriveStatus } from '@/types/cdc';
+import { notifyDriveWillingnessOpen } from '@/lib/services/cdc/drive-notifications';
+import { createServiceRoleClient } from '@/lib/supabase/server';
+import type { CdcDriveNotifySummary, CdcDriveStatus } from '@/types/cdc';
 
 async function getClient() {
   const cookieStore = await cookies();
@@ -65,7 +67,36 @@ export async function POST(
       user.id
     );
 
-    return NextResponse.json({ data: updated });
+    // Willingness opened → notify the targeted learners immediately through the
+    // shared notification implementation (bell + web push). Idempotent per
+    // drive, so a repeated transition never re-notifies. Failures here are
+    // reported, not fatal: the state change has already been committed.
+    let notify: CdcDriveNotifySummary | undefined;
+    let notify_error: string | undefined;
+    if (updated.status === 'willingness_open') {
+      try {
+        const result = await notifyDriveWillingnessOpen(createServiceRoleClient(), updated, user.id);
+        notify = {
+          targeted_learners: result.targeted_learners,
+          unlinked_learners: result.unlinked_learners,
+          already_notified: result.already_notified,
+          notified: result.notified,
+          skipped: result.skipped,
+          push: result.push
+            ? {
+                sent: result.push.sent,
+                failed: result.push.failed,
+                total_subscriptions: result.push.total_subscriptions,
+              }
+            : undefined,
+        };
+      } catch (err) {
+        console.error('[cdc/drives/[id]/transition] willingness notification failed', err);
+        notify_error = err instanceof Error ? err.message : 'Notification failed';
+      }
+    }
+
+    return NextResponse.json({ data: updated, notify, notify_error });
   } catch (err) {
     console.error('[cdc/drives/[id]/transition] POST error', err);
     return NextResponse.json(

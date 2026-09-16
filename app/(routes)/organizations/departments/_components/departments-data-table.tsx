@@ -1,6 +1,7 @@
 'use client';
 
 import { DataTable } from '@/components/data-table/data-table';
+import { departmentRowHref } from '@/components/data-table/utils/list-row-hrefs';
 import { getColumns } from './columns';
 import type { DepartmentsSearchParams } from './data-table-schema';
 import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
@@ -330,6 +331,7 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
           headers: []
         }}
         idField='id'
+        rowHref={departmentRowHref}
         config={{
           enableUrlState: true,
           enableDateFilter: false,
