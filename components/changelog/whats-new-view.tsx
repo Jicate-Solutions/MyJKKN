@@ -740,6 +740,29 @@ export function WhatsNewView() {
         change exists to remove. Shipping the fix with its own warning clipped
         would be self-defeating.
 
+        WHICH FLOAT, AND FOR WHOM. Two of them cover this sentence, at offsets
+        about 45px apart. At viewport y 560-608 it is the Director hand-over
+        launcher (components/director-desk/handover-launcher.tsx, slot
+        bottom-nav-safe-3, z-96), which returns null unless fn_can_hand_over()
+        passes — so THAT sample reproduces only for a director or a super admin.
+        At y 624-672 it is the bug reporter (components/bug-reporter/
+        bug-reporter-widget.tsx, slot bottom-nav-safe-2, z-95), which has no
+        role gate at all. Measured on both: the hand-over float at scrollY 4154,
+        the bug reporter at 4109, `covered` true for each. So this is not a
+        super-admin-only problem, and a reviewer on an ordinary account should
+        aim at the lower band or they will fail to reproduce it and conclude it
+        was imagined.
+
+        HOW TO REPRODUCE, because the obvious sweep finds nothing. This line
+        sits around document y 4,740 while the highlights strip is open, so a
+        scroll sweep over 0-1,100 reports a clean page at every offset — the
+        sentence is three to four thousand pixels below the viewport, not
+        uncovered. Compute the target from the element's own document position
+        instead. And assert how many floats you can actually see in each sample
+        before believing a zero: they arrive from a server component behind an
+        async access resolver, so a page with no floats mounted yet measures
+        exactly like a page with no overlap.
+
         BUT THIS IS THE FOURTH SIBLING IN ONE COLUMN CARRYING THE SAME CLASS to
         describe one fixed element:
 
