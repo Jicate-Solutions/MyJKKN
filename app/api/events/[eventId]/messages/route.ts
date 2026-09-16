@@ -20,9 +20,9 @@ export const dynamic = 'force-dynamic';
 // state changes. A browser cannot hold that key, and an organiser's message is
 // free text authorised by a SESSION, so the two doors cannot be one.
 //
-// What is NOT duplicated is delivery: both end in fanoutNotification() with the
-// same `type: 'events'` envelope, so there is a single notification path and a
-// single inbox. See lib/services/events/organiser-message-service.ts.
+// What is NOT duplicated is delivery: both end in fanoutNotification(), so
+// there is a single notification path and a single inbox (matched by
+// metadata.source). See lib/services/events/organiser-message-service.ts.
 //
 // ---------------------------------------------------------------------------
 // Failure is explicit (house rule #27)
