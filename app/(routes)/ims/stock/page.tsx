@@ -1,15 +1,14 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import {
   Package,
   AlertTriangle,
   DollarSign,
   Search,
   Eye,
-  Send,
+  ListChecks,
 } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -34,14 +33,11 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { useAuth } from '@/hooks/use-auth';
-import { usePermissions } from '@/hooks/use-permissions';
-import { useImsStockSummary } from '@/hooks/ims/use-ims-stock';
+import { useImsLowStockItems, useImsStockSummary } from '@/hooks/ims/use-ims-stock';
 import { useImsCategoriesForSelect } from '@/hooks/ims/use-ims-inventory';
 import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
 import { getStockStatus } from '@/types/ims/stock';
 import type { ImsStockSummary, ImsStockStatus } from '@/types/ims';
-import { SendToProcurementDialog } from './_components/send-to-procurement-dialog';
 
 const STATUS_BADGE_MAP: Record<
   ImsStockStatus,
@@ -65,23 +61,22 @@ const STATUS_BADGE_MAP: Record<
   },
 };
 
+const PAGE_SIZE = 50;
+
 export default function StockLevelsPage() {
-  const router = useRouter();
   const { storeId, institutionId } = useImsStoreContext();
-  const { profile } = useAuth();
-  const { canAccess, isSuperAdmin } = usePermissions();
-  const canCreateRequest = isSuperAdmin || canAccess('procurement', 'request_create');
 
   const [search, setSearch] = useState('');
   const [categoryId, setCategoryId] = useState<string>('all');
   const [lowStockOnly, setLowStockOnly] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [sendDialogOpen, setSendDialogOpen] = useState(false);
+  const [page, setPage] = useState(1);
 
   const { data: stockData, isLoading } = useImsStockSummary({
     search: search || undefined,
     category_id: categoryId !== 'all' ? categoryId : undefined,
     low_stock_only: lowStockOnly || undefined,
+    page,
+    limit: PAGE_SIZE,
     store_id: storeId || '',
     institution_id: institutionId,
   });
@@ -96,33 +91,18 @@ export default function StockLevelsPage() {
       ? stockData
       : [];
 
-  // Selection helpers — scoped to currently-loaded rows only.
-  const toggleSelect = (itemId: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(itemId)) next.delete(itemId);
-      else next.add(itemId);
-      return next;
-    });
-  };
-  const toggleSelectAll = () => {
-    setSelectedIds((prev) => {
-      if (prev.size === items.length) return new Set();
-      return new Set(items.map((i) => i.item_id));
-    });
-  };
-  const clearSelection = () => setSelectedIds(new Set());
-  const selectedRows = items.filter((i) => selectedIds.has(i.item_id));
+  const total = stockData?.metadata?.total ?? items.length;
+  const totalPages = Math.max(1, stockData?.metadata?.totalPages ?? 1);
 
-  const summaryStats = useMemo(() => {
-    const totalItems = items.length;
-    const lowStockCount = items.filter((item) => {
-      const reorder = item.item?.reorder_level ?? 0;
-      return item.current_quantity > 0 && item.current_quantity <= reorder;
-    }).length;
-    const totalValue = items.reduce((sum, item) => sum + (item.total_value ?? 0), 0);
-    return { totalItems, lowStockCount, totalValue };
-  }, [items]);
+  // The low-stock count comes from the reorder list so this card, the dashboard and
+  // /ims/stock/reorder always show the same number (it includes never-stocked items).
+  const { data: lowStockItems } = useImsLowStockItems(storeId || '');
+
+  const summaryStats = {
+    totalItems: total,
+    lowStockCount: lowStockItems?.length ?? 0,
+    totalValue: items.reduce((sum, item) => sum + (item.total_value ?? 0), 0),
+  };
 
   return (
     <ContentLayout title="Stock Levels">
@@ -151,7 +131,7 @@ export default function StockLevelsPage() {
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Stock Value</CardTitle>
+              <CardTitle className="text-sm font-medium">Stock Value (this page)</CardTitle>
               <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
@@ -175,11 +155,20 @@ export default function StockLevelsPage() {
                 <Input
                   placeholder="Search items..."
                   value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    setPage(1);
+                  }}
                   className="pl-10"
                 />
               </div>
-              <Select value={categoryId} onValueChange={setCategoryId}>
+              <Select
+                value={categoryId}
+                onValueChange={(v) => {
+                  setCategoryId(v);
+                  setPage(1);
+                }}
+              >
                 <SelectTrigger className="w-full md:w-[200px]">
                   <SelectValue placeholder="All Categories" />
                 </SelectTrigger>
@@ -196,18 +185,21 @@ export default function StockLevelsPage() {
                 <Switch
                   id="low-stock"
                   checked={lowStockOnly}
-                  onCheckedChange={setLowStockOnly}
+                  onCheckedChange={(v) => {
+                    setLowStockOnly(v);
+                    setPage(1);
+                  }}
                 />
                 <Label htmlFor="low-stock" className="text-sm whitespace-nowrap">
                   Low Stock Only
                 </Label>
               </div>
-              {canCreateRequest && selectedIds.size > 0 && (
-                <Button size="sm" onClick={() => setSendDialogOpen(true)}>
-                  <Send className="mr-2 h-4 w-4" />
-                  Send to Procurement ({selectedIds.size})
-                </Button>
-              )}
+              <Button size="sm" variant="outline" asChild>
+                <Link href="/ims/stock/reorder">
+                  <ListChecks className="mr-2 h-4 w-4" />
+                  Reorder list
+                </Link>
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -227,17 +219,6 @@ export default function StockLevelsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    {canCreateRequest && (
-                      <TableHead className="w-[36px]">
-                        <input
-                          type="checkbox"
-                          checked={items.length > 0 && selectedIds.size === items.length}
-                          onChange={toggleSelectAll}
-                          className="h-4 w-4 rounded border-border"
-                          aria-label="Select all visible rows"
-                        />
-                      </TableHead>
-                    )}
                     <TableHead>Item / Code</TableHead>
                     <TableHead>Category</TableHead>
                     <TableHead className="text-right">Quantity / Unit</TableHead>
@@ -256,17 +237,6 @@ export default function StockLevelsPage() {
                     const badge = STATUS_BADGE_MAP[status];
                     return (
                       <TableRow key={row.id}>
-                        {canCreateRequest && (
-                          <TableCell>
-                            <input
-                              type="checkbox"
-                              checked={selectedIds.has(row.item_id)}
-                              onChange={() => toggleSelect(row.item_id)}
-                              className="h-4 w-4 rounded border-border"
-                              aria-label={`Select ${row.item?.name ?? 'item'}`}
-                            />
-                          </TableCell>
-                        )}
                         <TableCell>
                           <div className="font-medium">{row.item?.name ?? '—'}</div>
                           <div className="text-sm text-muted-foreground">
@@ -310,22 +280,28 @@ export default function StockLevelsPage() {
             )}
           </CardContent>
         </Card>
-      </div>
 
-      <SendToProcurementDialog
-        open={sendDialogOpen}
-        onOpenChange={setSendDialogOpen}
-        selectedRows={selectedRows}
-        onRemove={toggleSelect}
-        institutionId={institutionId}
-        storeId={storeId}
-        userId={profile?.id ?? ''}
-        onSuccess={(request) => {
-          setSendDialogOpen(false);
-          clearSelection();
-          router.push(`/procurement/requests/${request.id}`);
-        }}
-      />
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between gap-2 text-sm">
+            <span className="text-muted-foreground tabular-nums">
+              Page {page} of {totalPages} · {total} items
+            </span>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page >= totalPages}
+                onClick={() => setPage(page + 1)}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
     </ContentLayout>
   );
 }

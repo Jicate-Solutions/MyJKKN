@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ProcurementPurchaseRequestService } from '@/lib/services/procurement/purchase-request-service';
 import type { PurchaseRequestFilters, CreatePurchaseRequestDto } from '@/types/procurement';
+import type { ImsReorderRequestLine } from '@/types/ims';
 
 export function usePurchaseRequests(filters: PurchaseRequestFilters) {
   return useQuery({
@@ -29,6 +30,23 @@ export function useCreatePurchaseRequest() {
       ProcurementPurchaseRequestService.createPurchaseRequest(data, userId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['procurement-purchase-requests'] });
+    },
+  });
+}
+
+export function useCreateImsReorderRequest() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (v: {
+      storeId: string;
+      items: ImsReorderRequestLine[];
+      notes: string | null;
+      submit: boolean;
+    }) =>
+      ProcurementPurchaseRequestService.createFromImsReorder(v.storeId, v.items, v.notes, v.submit),
+    onSuccess: (_r, v) => {
+      queryClient.invalidateQueries({ queryKey: ['procurement-purchase-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['ims-reorder-list', v.storeId] });
     },
   });
 }

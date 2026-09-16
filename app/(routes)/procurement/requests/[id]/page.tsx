@@ -93,6 +93,9 @@ export default function PurchaseRequestDetailPage() {
   // Show the Reason column whenever any line is a new item, regardless of the
   // header's request_type summary (a 'mixed' request still has reasons to show).
   const hasNewItemLine = pr.items.some((it) => !it.domain_item_id);
+  // Restock lines carry the stock position captured when the request was raised —
+  // it is the approver's justification for the quantity, so show it.
+  const hasStockSnapshot = pr.items.some((it) => it.current_stock != null || it.reorder_level != null);
 
   // "Draft" tells you the state but not that the request is inert until submitted,
   // nor where it goes next. Rejection already has its own card, so it is skipped.
@@ -275,6 +278,12 @@ export default function PurchaseRequestDetailPage() {
                   <TableHead>Specification</TableHead>
                   <TableHead className="text-right">Qty</TableHead>
                   <TableHead>Unit</TableHead>
+                  {hasStockSnapshot && (
+                    <>
+                      <TableHead className="text-right">On hand</TableHead>
+                      <TableHead className="text-right">Reorder level</TableHead>
+                    </>
+                  )}
                   {hasNewItemLine && <TableHead>Reason</TableHead>}
                 </TableRow>
               </TableHeader>
@@ -315,6 +324,16 @@ export default function PurchaseRequestDetailPage() {
                       )}
                     </TableCell>
                     <TableCell>{it.unit_label || '—'}</TableCell>
+                    {hasStockSnapshot && (
+                      <>
+                        <TableCell className="text-right tabular-nums">
+                          {it.current_stock != null ? Number(it.current_stock) : '—'}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {it.reorder_level != null ? Number(it.reorder_level) : '—'}
+                        </TableCell>
+                      </>
+                    )}
                     {hasNewItemLine && (
                       <TableCell className="max-w-[240px] truncate">
                         {it.domain_item_id ? '—' : it.reason || '—'}
