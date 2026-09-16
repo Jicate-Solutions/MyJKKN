@@ -50,7 +50,7 @@ export function InstitutionFilter({ value, onChange, label = 'Institution', hint
           ))}
         </SelectContent>
       </Select>
-      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
+      {hint && <p className="hidden text-[11px] text-muted-foreground sm:block">{hint}</p>}
     </div>
   );
 }

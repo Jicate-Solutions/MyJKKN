@@ -238,9 +238,9 @@ export default function PurchaseOrderDetailPage() {
 
   return (
     <ContentLayout title={po.po_number}>
-      <div className="space-y-6 max-w-5xl">
+      <div className="space-y-4 sm:space-y-6 max-w-5xl">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 items-center gap-3">
             <Button
               variant="ghost"
               size="sm"
@@ -249,15 +249,19 @@ export default function PurchaseOrderDetailPage() {
             >
               <ArrowLeft className="h-4 w-4" />
             </Button>
-            <div>
-              <h2 className="text-2xl font-bold tracking-tight">{po.po_number}</h2>
-              <p className="text-muted-foreground">
+            <div className="min-w-0">
+              <h2 className="text-2xl font-bold tracking-tight truncate">{po.po_number}</h2>
+              <p className="text-muted-foreground break-words">
                 {po.supplier?.name ?? po.supplier_id} · ₹{Number(po.total_amount).toLocaleString()}
                 {po.created_at ? ` · raised ${formatDateDMY(po.created_at)}` : ''}
               </p>
             </div>
           </div>
-          <StatusBadge status={po.status} config={PO_STATUS_CONFIG} className="text-sm" />
+          <StatusBadge
+            status={po.status}
+            config={PO_STATUS_CONFIG}
+            className="self-start shrink-0 text-sm sm:self-auto"
+          />
         </div>
 
         {statusHint && (
@@ -268,9 +272,10 @@ export default function PurchaseOrderDetailPage() {
 
         {/* Actions — the workflow only. Producing the printed document lives in
             the Document card below, so downloads no longer outrank Approve. */}
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
           {po.status === 'draft' && canCreate && (
             <Button
+              className="w-full sm:w-auto"
               onClick={() => run(() => submitPO.mutateAsync({ id, userId: profile!.id }), 'Submitted for approval')}
             >
               <Send className="mr-2 h-4 w-4" />
@@ -280,6 +285,7 @@ export default function PurchaseOrderDetailPage() {
           {po.status === 'pending_approval' && canApprove && (
             <>
               <Button
+                className="w-full sm:w-auto"
                 onClick={() => run(() => approvePO.mutateAsync({ id, userId: profile!.id }), 'PO approved')}
               >
                 <Check className="mr-2 h-4 w-4" />
@@ -287,7 +293,7 @@ export default function PurchaseOrderDetailPage() {
               </Button>
               <Button
                 variant="outline"
-                className="text-destructive hover:text-destructive sm:ml-auto"
+                className="w-full text-destructive hover:text-destructive sm:ml-auto sm:w-auto"
                 onClick={() => setRejectOpen(true)}
               >
                 <X className="mr-2 h-4 w-4" />
@@ -296,13 +302,16 @@ export default function PurchaseOrderDetailPage() {
             </>
           )}
           {po.status === 'approved' && canCreate && (
-            <Button onClick={() => run(() => markSent.mutateAsync({ id, userId: profile!.id }), 'PO marked as sent')}>
+            <Button
+              className="w-full sm:w-auto"
+              onClick={() => run(() => markSent.mutateAsync({ id, userId: profile!.id }), 'PO marked as sent')}
+            >
               <Send className="mr-2 h-4 w-4" />
               Send to vendor
             </Button>
           )}
           {['sent', 'approved', 'partially_received'].includes(po.status) && canReceive && (
-            <Button onClick={() => router.push(`/procurement/grn/new?po=${po.id}`)}>
+            <Button className="w-full sm:w-auto" onClick={() => router.push(`/procurement/grn/new?po=${po.id}`)}>
               <PackageCheck className="mr-2 h-4 w-4" />
               Create GRN
             </Button>
@@ -310,6 +319,7 @@ export default function PurchaseOrderDetailPage() {
           {(po.status === 'draft' || po.status === 'pending_approval') && canCreate && (
             <Button
               variant="ghost"
+              className="w-full sm:w-auto"
               onClick={() => run(() => cancelPO.mutateAsync({ id, userId: profile!.id }), 'PO cancelled')}
             >
               Cancel PO
@@ -320,7 +330,7 @@ export default function PurchaseOrderDetailPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Document</CardTitle>
-            <p className="text-sm text-muted-foreground">
+            <p className="hidden text-sm text-muted-foreground sm:block">
               Choose the layout this order prints with, then download it to send to the vendor.
             </p>
           </CardHeader>
@@ -397,7 +407,7 @@ export default function PurchaseOrderDetailPage() {
               <Badge variant="secondary">Library resource</Badge>
             ) : null}
 
-            <div className="flex flex-wrap gap-3 border-t pt-4">
+            <div className="flex flex-wrap gap-2 sm:gap-3 border-t pt-4">
               <Button variant="outline" onClick={() => downloadPurchaseOrderPdf(po)}>
                 <FileDown className="mr-2 h-4 w-4" />
                 Download PDF
@@ -585,11 +595,12 @@ export default function PurchaseOrderDetailPage() {
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRejectOpen(false)}>
+            <Button variant="outline" className="w-full sm:w-auto" onClick={() => setRejectOpen(false)}>
               Cancel
             </Button>
             <Button
               variant="destructive"
+              className="w-full sm:w-auto"
               disabled={!rejectReason.trim()}
               onClick={async () => {
                 await run(
