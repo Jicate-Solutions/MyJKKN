@@ -11,6 +11,12 @@
 // Self-hides when the learner has no open drive, so it never occupies space on
 // the dashboard of someone with nothing to respond to — same discipline as the
 // UDYOG card it sits beside. Shared by the v2 dashboard and the classic one.
+//
+// /api/cdc/drives/mine lists every drive the learner is ASSIGNED to — including
+// ones whose willingness window has shut, so /cdc/drives can still show a past
+// answer — and marks each with `is_open`. This card is titled "open to you", so
+// it shows only the open ones: a drive listed here must never lead to a page
+// that says the window has closed (the mismatch #3769 removed).
 
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -112,10 +118,13 @@ function DriveRow({ drive }: { drive: MyCdcDrive }) {
 export function CampusDrivesStudentCard() {
   const { data, isLoading, error } = useMyCdcDrives();
 
-  // Nothing to respond to, or we cannot tell yet — show nothing at all.
-  if (isLoading || error || !data || data.length === 0) return null;
+  // Only drives that accept a response right now (status AND window).
+  const open = (data ?? []).filter((d) => d.is_open);
 
-  const undecided = data.filter((d) => !d.willingness_status).length;
+  // Nothing to respond to, or we cannot tell yet — show nothing at all.
+  if (isLoading || error || open.length === 0) return null;
+
+  const undecided = open.filter((d) => !d.willingness_status).length;
 
   return (
     <Card className="border-emerald-200">
@@ -141,7 +150,7 @@ export function CampusDrivesStudentCard() {
             ? 'Let the Career Development Centre know whether you want to take part.'
             : 'You have answered every open drive. You can still change your mind.'}
         </p>
-        {data.map((drive) => (
+        {open.map((drive) => (
           <DriveRow key={drive.id} drive={drive} />
         ))}
       </CardContent>

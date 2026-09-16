@@ -13,6 +13,16 @@
  *    the card is the entry point to a decision the Career Development Centre
  *    acts on. Showing "tell them you're interested" to someone already signed up
  *    invites a double answer and makes the card untrustworthy.
+ * 3. (2026-09-16) It must honour `is_open`. /api/cdc/drives/mine now returns
+ *    every drive the learner is ASSIGNED to, shut ones included, so a past
+ *    answer stays findable on /cdc/drives — and flags each with `is_open`,
+ *    computed by the same predicate the willingness page uses. This card is
+ *    titled "open to you" and its button leads to the response page, which for
+ *    a shut drive says the window has closed and offers nothing. So the card
+ *    shows only the open ones and vanishes when there are none — otherwise the
+ *    mismatch #3769 removed (card offers a drive whose page says "closed")
+ *    comes straight back. The flag itself is pinned in
+ *    drives-mine-honours-window.test.ts.
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
@@ -30,13 +40,17 @@ function drive(over: Partial<MyCdcDrive> = {}): MyCdcDrive {
   return {
     id: 'd1',
     title: 'Campus drive',
+    status: 'willingness_open',
     recruiter_name: 'Foxconn India',
+    drive_type_name: null,
     drive_date: '2026-10-01',
     job_role_title: 'Graduate Engineer',
     job_location: 'Chennai',
     expected_package_lpa: 4.5,
+    willingness_window_open_at: null,
     willingness_window_close_at: null,
     willingness_status: null,
+    is_open: true,
     ...over,
   };
 }
@@ -155,5 +169,50 @@ describe('CampusDrivesStudentCard — what it says', () => {
     });
     render(<CampusDrivesStudentCard />);
     expect(screen.queryByText(/closes/i)).toBeNull();
+  });
+});
+
+describe('CampusDrivesStudentCard — honours is_open', () => {
+  it('hides a drive whose window has shut while keeping the open one beside it', () => {
+    useMyCdcDrives.mockReturnValue({
+      data: [
+        drive({ id: 'open-one', recruiter_name: 'Open Ltd' }),
+        drive({ id: 'closed-yesterday', recruiter_name: 'Closed Ltd', is_open: false }),
+      ],
+      isLoading: false,
+      error: null,
+    });
+    render(<CampusDrivesStudentCard />);
+    expect(screen.getByText('Open Ltd')).toBeTruthy();
+    expect(screen.queryByText('Closed Ltd')).toBeNull();
+    expect(screen.getByText('1 to answer')).toBeTruthy();
+    expect(screen.getAllByRole('link')).toHaveLength(1);
+  });
+
+  it('does not count a shut drive the learner never answered as "to answer"', () => {
+    useMyCdcDrives.mockReturnValue({
+      data: [
+        drive({ id: 'open-answered', willingness_status: 'willing' }),
+        drive({ id: 'closed-unanswered', is_open: false }),
+      ],
+      isLoading: false,
+      error: null,
+    });
+    render(<CampusDrivesStudentCard />);
+    expect(screen.queryByText(/to answer/i)).toBeNull();
+    expect(screen.getByText(/answered every open drive/i)).toBeTruthy();
+  });
+
+  it('renders nothing at all when every assigned drive is shut', () => {
+    useMyCdcDrives.mockReturnValue({
+      data: [
+        drive({ id: 'closed-a', is_open: false }),
+        drive({ id: 'closed-b', is_open: false, willingness_status: 'willing' }),
+      ],
+      isLoading: false,
+      error: null,
+    });
+    const { container } = render(<CampusDrivesStudentCard />);
+    expect(container.innerHTML).toBe('');
   });
 });
