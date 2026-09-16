@@ -3745,6 +3745,17 @@ export const PERMISSION_CATEGORIES = [
       },
     ],
   },
+  {
+    // Added 2026-09-16 — Adoption loop (specs/2026-09-16-adoption-loop.md).
+    // Who may open /adoption: the principal of an institution sees which of
+    // their people use each shipped feature (names for their own institution
+    // only — ruling 7). Super admins bypass; granted to 'principal' by migration.
+    name: 'Feature Adoption',
+    key: 'adoption',
+    permissions: [
+      { key: 'adoption.view', label: 'View Feature Adoption For Own Institution' }
+    ]
+  }
 ];
 
 export const PERMISSIONS = {

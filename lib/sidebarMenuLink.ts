@@ -377,6 +377,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // Bug Reports (Student Self-Service)
   '/my-bug-reports': 'learners.bug_reports.view',
+  '/adoption': 'adoption.view', // Principal: adoption of shipped features in their own institution, with names (ruling 7)
   '/bug-leaderboard': 'learners.bug_reports.view',
 
   // Documents
@@ -889,6 +890,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ai-query/admin': 'super_admin', // Super admin only - AI Query Tools Registry
   '/admin/ai-models': 'super_admin', // Super admin only - AI Model Config (provider/model picker + spend caps + usage)
   '/admin/loops': 'super_admin', // Super admin only - Loop Control Tower (live health of every self-improving/cadence/accountability loop)
+  '/admin/adoption': 'super_admin', // Super admin only - Feature Adoption (the three adoption numbers per shipped feature, why-not answers, simplify/retrain/retire cards)
   '/admin/learner-notes': 'super_admin', // Super admin only - Learner Notes approval queue (AI-drafted support notes reviewed before students see them)
   '/admin/page-metadata': 'super_admin', // Super admin only - Page Search Metadata
 
@@ -4312,6 +4314,8 @@ export function GetPages(pathname: string): MenuGroup[] {
             pathname.startsWith('/admin/bug-reports') ||
             pathname.startsWith('/admin/proof-disputes') ||
             pathname.startsWith('/admin/learner-notes') ||
+            pathname === '/adoption' ||
+            pathname.startsWith('/admin/adoption') ||
             pathname.startsWith('/ai-query/admin'),
           icon: Settings,
           submenus: [
@@ -4322,6 +4326,8 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/admin/bug-reports', label: 'All Bug Reports', active: pathname === '/admin/bug-reports' },
             { href: '/admin/proof-disputes', label: 'Record Corrections', active: pathname === '/admin/proof-disputes' },
             { href: '/admin/learner-notes', label: 'Learner Notes', active: pathname === '/admin/learner-notes' },
+            { href: '/adoption', label: 'Adoption', active: pathname === '/adoption' },
+            { href: '/admin/adoption', label: 'Feature Adoption', active: pathname === '/admin/adoption' },
             { href: '/ai-query/admin', label: 'AI Query Tools', active: pathname.startsWith('/ai-query/admin') },
           ]
         }
