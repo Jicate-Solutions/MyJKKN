@@ -464,7 +464,30 @@ export function WhatsNewView() {
       <HighlightsStrip modules={meta.modules} />
 
       {/* Filters */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+      {/*
+        max-lg:pr-14 — THE SAME LANE #3785 RESERVED FOR THE WORDS, NOW FOR THE
+        TWO CONTROLS. That PR was about text ("the words stay clear of the
+        floating column") and gave the lane to the entry-list wrapper and the
+        highlights section. This row was never in the band then, because the
+        highlights strip stood between it and the fold line. With the strip
+        folded shut (#3830) — or simply absent, which is what production shows
+        in any week with no approved highlight — the row lands inside it.
+
+        Measured on jicate/main at a real 375x812 viewport, super admin:
+          bug reporter  x 311-359, y 624-672  (fixed right-4 bottom-nav-safe-2)
+          search box    x  16-359, y 617-653  -> 48 x 29px under the button
+          area filter   x  16-359, y 665-701  -> 48 x  7px under the button
+        and elementFromPoint at the centre of each overlap returned the BUTTON,
+        so this was not a near-miss: a tap on the right end of the search box
+        opened the bug reporter. 56px of right padding ends the row at x = 303,
+        8px clear of the column — the clearance #3785 chose, for the same reason.
+
+        ON THE FLEX ROW, not on the Input: the Select is the row's second child
+        and would keep its own overlap if only the input were padded. The row
+        carries no padding shorthand, so there is no `sm:p-4`-style cascade
+        trap here — that one is documented on the entry-list wrapper below.
+      */}
+      <div className="flex flex-col gap-3 max-lg:pr-14 sm:flex-row sm:items-center">
         <div className="relative flex-1">
           <Search
             className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
