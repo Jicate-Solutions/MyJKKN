@@ -8,8 +8,11 @@
 //   6. ALL-OR-NOTHING. If Google refuses, or returns no Meet link, or someone
 //      moved the booking underneath us, the row ends exactly as it started.
 //   7. No Google Calendar connection = blocked, with the REAL reason named.
-//   8. The cut-off is the meeting type's existing min_notice_min...
-//   C. ...and it is checked TWICE: when the request is made AND when it is
+//   8. The cut-off is the meeting type's existing min_notice_min, and it binds
+//      the ATTENDEE only. Since 16 Sep 2026 the host is never time-blocked from
+//      switching their own meeting to a Meet; the window still holds on the
+//      visitor's request and on switching back to in person.
+//   C. The attendee's request is checked TWICE: when it is made AND when it is
 //      approved. A request made Monday must not move a Tuesday meeting on
 //      Thursday.
 //   A. reschedule_count means "times the slot moved". A mode-only switch must
@@ -442,16 +445,34 @@ describe('MeetingModeSwitchService.switchToOnline (host)', () => {
     expect(res).toMatchObject({ ok: false, error: 'CALENDAR_NOT_CONNECTED' });
   });
 
-  it('refuses inside the notice window (decision 8)', async () => {
+  // Was 'refuses inside the notice window (decision 8)' until 16 Sep 2026.
+  // Director: the host is never blocked from switching their own meeting to a
+  // Meet, however close the start is. The window protects the attendee, and it
+  // still holds on the visitor's request and on switching back.
+  it('lets the host switch INSIDE the notice window — the window is not theirs', async () => {
     const { db, updates } = makeDb({
+      // 30 minutes out, against a 60-minute notice window.
       booking: makeBooking({ start_time: '2026-09-01T00:30:00.000Z' }),
     });
     const res = await MeetingModeSwitchService.switchToOnline(db, 'bk-abc', {
       actorProfileId: HOST,
     }, { now: NOW });
 
-    expect(res).toMatchObject({ ok: false, error: 'TOO_LATE' });
-    expect(updates).toHaveLength(0);
+    expect(res.ok).toBe(true);
+    expect(patchEventToOnline).toHaveBeenCalled();
+    expect(updates.length).toBeGreaterThan(0);
+  });
+
+  it('lets the host switch a meeting that has already started', async () => {
+    const { db } = makeDb({
+      // NOW is 2026-09-01T00:00Z; this one began ten minutes ago.
+      booking: makeBooking({ start_time: '2026-08-31T23:50:00.000Z' }),
+    });
+    const res = await MeetingModeSwitchService.switchToOnline(db, 'bk-abc', {
+      actorProfileId: HOST,
+    }, { now: NOW });
+
+    expect(res.ok).toBe(true);
   });
 
   it('refuses a booking that is already online', async () => {

@@ -689,7 +689,21 @@ export class MeetingModeSwitchService {
     if (source !== 'switchable') return { ok: false, error: 'UNSUPPORTED_SOURCE_MODE' };
 
     const now = opts.now ?? new Date();
-    if (!isSwitchAllowedNow(booking.start_time, mt.min_notice_min, now)) {
+    // The notice window is the ATTENDEE's protection, never the host's
+    // (Director, 16 Sep 2026: no time block on the host switching to Meet).
+    // A host deciding at 09:58 that the 10:00 meeting should be a Meet is the
+    // case this feature exists for, and refusing it left the host with the
+    // in-person booking they were trying to get out of.
+    //
+    // The window still binds every attendee-initiated switch: the visitor's
+    // own request is checked in requestSwitchToOnline, and approving one is
+    // gated by switchRequestState, which reads an out-of-window request as
+    // expired. Switching BACK to in-person keeps the window in both
+    // directions — that one can cost someone a journey.
+    if (
+      opts.switchedBy !== 'host' &&
+      !isSwitchAllowedNow(booking.start_time, mt.min_notice_min, now)
+    ) {
       return { ok: false, error: 'TOO_LATE' };
     }
 
