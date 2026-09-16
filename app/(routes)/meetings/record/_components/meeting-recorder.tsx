@@ -325,7 +325,7 @@ export function MeetingRecorder({ canRecord }: { canRecord: boolean }) {
 
   return (
     <div className="space-y-4">
-      {(phase === 'idle' || phase === 'done') && (
+      {(phase === 'idle' || phase === 'done' || phase === 'starting') && (
         <div className="space-y-3">
           <div className="space-y-1.5">
             <label htmlFor="mr-title" className="text-sm font-medium">
