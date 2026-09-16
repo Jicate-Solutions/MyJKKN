@@ -28,14 +28,28 @@ export interface InterviewLinkResult {
   error?: string;
 }
 
+/**
+ * The booking, or why it could not be read.
+ *
+ * `failed` and a null row are NOT the same thing and must not share a message.
+ * Until 16 Sep 2026 this selected `location_mode`, which lives on
+ * meeting_types and has never existed on meeting_bookings — PostgREST answered
+ * 42703, the error was discarded, and every Link attempt told the host "This
+ * meeting no longer exists." about a booking that was on the screen in front of
+ * them. A column name is a query bug; a missing row is a deleted booking. One
+ * of those is worth retrying and the other is not, so they are reported apart.
+ */
 async function loadBooking(uid: string) {
   const supabase = await createClient();
-  const { data: booking } = await supabase
+  const { data: booking, error } = await supabase
     .from('meeting_bookings')
-    .select('id, start_time, end_time, location_mode, video_url')
+    .select('id, start_time, end_time, video_url')
     .eq('uid', uid)
     .maybeSingle();
-  return { supabase, booking: booking as Record<string, unknown> | null };
+  if (error) {
+    console.error(`[meetings/interview] booking read failed for ${uid}:`, error.message);
+  }
+  return { supabase, booking: booking as Record<string, unknown> | null, failed: !!error };
 }
 
 export async function linkMeetingToInterview(
@@ -45,7 +59,10 @@ export async function linkMeetingToInterview(
 ): Promise<InterviewLinkResult> {
   if (!candidateId) return { success: false, error: 'Choose a candidate first.' };
 
-  const { supabase, booking } = await loadBooking(uid);
+  const { supabase, booking, failed } = await loadBooking(uid);
+  if (failed) {
+    return { success: false, error: 'Could not read this meeting just now. Please try again.' };
+  }
   if (!booking) return { success: false, error: 'This meeting no longer exists.' };
 
   const {
@@ -100,7 +117,10 @@ export async function linkMeetingToInterview(
 }
 
 export async function unlinkMeetingFromInterview(uid: string): Promise<InterviewLinkResult> {
-  const { supabase, booking } = await loadBooking(uid);
+  const { supabase, booking, failed } = await loadBooking(uid);
+  if (failed) {
+    return { success: false, error: 'Could not read this meeting just now. Please try again.' };
+  }
   if (!booking) return { success: false, error: 'This meeting no longer exists.' };
 
   // Clears the link only. The interview record itself survives, because it may

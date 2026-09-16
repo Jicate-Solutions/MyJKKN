@@ -20,7 +20,10 @@ export type RecordEntity =
   | 'course'
   | 'department'
   | 'program'
-  | 'institution';
+  | 'institution'
+  | 'candidate'
+  | 'invoice'
+  | 'receipt';
 
 export interface RecordHit {
   entity: RecordEntity;
@@ -91,6 +94,26 @@ export const RECORD_ENTITIES: Record<RecordEntity, RecordEntityMeta> = {
     iconName: 'Building2',
     href: (id) => `/organizations/institutions/${id}`,
     order: 7,
+  },
+  // Hiring and money sit last: both are desk work for a small number of
+  // people, while a name typed into the box is nearly always a learner.
+  candidate: {
+    label: 'Candidates',
+    iconName: 'UserSearch',
+    href: (id) => `/hr/recruitment/candidates/${id}`,
+    order: 8,
+  },
+  invoice: {
+    label: 'Invoices',
+    iconName: 'ScrollText',
+    href: (id) => `/billing/invoices/${id}`,
+    order: 9,
+  },
+  receipt: {
+    label: 'Receipts',
+    iconName: 'Wallet',
+    href: (id) => `/billing/receipts/${id}`,
+    order: 10,
   },
 };
 

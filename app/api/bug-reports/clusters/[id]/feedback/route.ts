@@ -35,11 +35,12 @@ export async function GET(
     const admin = createAdminClient() as any;
     const { data: rows, error } = await admin
       .from('bug_fix_feedback_requests')
-      .select('id, status, answer, expires_at, sent_at, answered_at')
+      .select('id, bug_id, status, answer, expires_at, sent_at, answered_at, answered_by, admin_note')
       .eq('cluster_id', clusterId);
     if (error) throw error;
 
     const now = Date.now();
+    const SOON = 3 * 24 * 60 * 60 * 1000; // fn_bug_feedback_admin_confirm's window
     const state = {
       total: rows?.length ?? 0,
       pending_send: 0,
@@ -47,8 +48,13 @@ export async function GET(
       delivered: 0,
       answered: 0,
       expired: 0,
-      yes: 0, // 👍 fixed
-      no: 0 // 👎 not fixed
+      yes: 0, // 👍 fixed — REPORTER answers only
+      no: 0, // 👎 not fixed — REPORTER answers only
+      // Director ruling 2026-09-15: admin confirmations are their own evidence.
+      admin_yes: 0,
+      admin_no: 0,
+      // silent reporters an admin may confirm for: expired, or within 3 days of it
+      admin_confirmable: [] as { id: string; bug_id: string; expires_at: string; expired: boolean }[]
     };
     for (const r of rows ?? []) {
       const expired =
@@ -58,8 +64,22 @@ export async function GET(
       else if (r.status === 'sent') state.sent += 1;
       else if (r.status === 'delivered') state.delivered += 1;
       else if (r.status === 'answered') state.answered += 1;
-      if (r.answer === 'fixed') state.yes += 1;
-      if (r.answer === 'not_fixed') state.no += 1;
+      const byAdmin = r.answered_by === 'admin';
+      if (r.answer === 'fixed') {
+        if (byAdmin) state.admin_yes += 1;
+        else state.yes += 1;
+      }
+      if (r.answer === 'not_fixed') {
+        if (byAdmin) state.admin_no += 1;
+        else state.no += 1;
+      }
+      if (
+        r.status !== 'answered' &&
+        r.status !== 'pending_send' &&
+        new Date(r.expires_at).getTime() <= now + SOON
+      ) {
+        state.admin_confirmable.push({ id: r.id, bug_id: r.bug_id, expires_at: r.expires_at, expired });
+      }
     }
     return NextResponse.json({ feedback: state });
   } catch (error) {
@@ -92,6 +112,29 @@ export async function POST(
       if (error) throw error;
       if (!data?.success) {
         return NextResponse.json({ error: data?.error ?? 'prepare failed' }, { status: 400 });
+      }
+      return NextResponse.json({ ok: true, ...data });
+    }
+
+    if (action === 'admin_confirm') {
+      // Director ruling 2026-09-15: a silent reporter's question may be
+      // confirmed by a super admin — recorded as the ADMIN's evidence
+      // (answered_by='admin'), never as the reporter's. The RPC re-checks the
+      // role, the expiry window and that the reporter has not answered.
+      const requestId = typeof body?.request_id === 'string' ? body.request_id : null;
+      const answer = body?.answer === 'pos' || body?.answer === 'neg' ? body.answer : null;
+      if (!requestId || !answer) {
+        return NextResponse.json({ error: 'request_id and answer (pos|neg) are required' }, { status: 400 });
+      }
+      const { data, error } = await admin.rpc('fn_bug_feedback_admin_confirm', {
+        p_request_id: requestId,
+        p_answer: answer,
+        p_note: typeof body?.note === 'string' ? body.note.slice(0, 500) : null,
+        p_admin_user_id: user.id
+      });
+      if (error) throw error;
+      if (!data?.success) {
+        return NextResponse.json({ error: data?.error ?? 'admin confirm failed' }, { status: 400 });
       }
       return NextResponse.json({ ok: true, ...data });
     }

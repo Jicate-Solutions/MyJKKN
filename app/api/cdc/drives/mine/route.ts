@@ -26,6 +26,12 @@ import { NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import type { CdcDrive, CdcDriveEligibility, CdcDriveStatus, CdcWillingnessStatus } from '@/types/cdc';
 import { computeEligibility } from '@/lib/services/cdc/willingness-service';
+import { createClient } from '@/lib/supabase/server';
+import type { CdcDriveEligibility, CdcWillingnessStatus } from '@/types/cdc';
+import {
+  computeIsEligible,
+  computeWillingnessWindowState,
+} from '@/lib/services/cdc/willingness-service';
 
 /**
  * Lifecycle states that may be shown a drive. Mirrors the targeting filter in
@@ -100,7 +106,6 @@ export async function GET(): Promise<NextResponse> {
 
     let semesterOrder: number | null = null;
     if (row.semester_id) {
-      const { data: sem } = await createServiceRoleClient()
         .from('semesters')
         .select('semester_order')
         .eq('id', row.semester_id)
@@ -132,10 +137,28 @@ export async function GET(): Promise<NextResponse> {
       ? q.or(`status.in.(${VISIBLE_STATUSES.join(',')}),id.in.(${answered.join(',')})`)
       : q.in('status', VISIBLE_STATUSES);
     const { data: drives, error: drivesErr } = await q;
+    // 2. Drives currently open for willingness.
+    const { data: drives, error: drivesErr } = await supabase
+      .select(
+        'id, title, status, drive_date, job_role_title, job_location, expected_package_lpa, willingness_window_open_at, willingness_window_close_at, recruiter_id'
+      )
+      .eq('status', 'willingness_open')
+      .order('drive_date', { ascending: true });
     if (drivesErr) throw drivesErr;
     if (!drives || drives.length === 0) return empty;
+    // Status alone is not the whole rule: a drive may carry a willingness window
+    // and be outside it. computeWillingnessWindowState is the SAME predicate the
+    // learner's page and the declaration guard use, so the card can never offer
+    // a drive whose own page then says the window has shut.
+    const openNow = drives.filter(
+      (d) =>
+        computeWillingnessWindowState(
+          d as Parameters<typeof computeWillingnessWindowState>[0]
+        ) === 'open'
+    );
+    if (openNow.length === 0) return empty;
 
-    const driveIds = drives.map((d) => (d as { id: string }).id);
+    const driveIds = openNow.map((d) => (d as { id: string }).id);
 
     // 3. Legacy program eligibility rows (only consulted for drives with no
     //    institution + semester targeting).
@@ -146,12 +169,33 @@ export async function GET(): Promise<NextResponse> {
     if (eligErr) throw eligErr;
     const eligByDrive = new Map(
       ((eligibility ?? []) as CdcDriveEligibility[]).map((e) => [e.drive_id, e])
+
+    // computeIsEligible is the SAME predicate the learner's willingness page uses.
+    // could offer a drive whose page then tells the learner they are not eligible.
+    const eligibleDriveIds = new Set(
+        .filter((e) =>
+          computeIsEligible(
+            { program_ids: e.program_ids ?? [] } as CdcDriveEligibility,
+            row.program_id
+          )
+        )
+        .map((e) => e.drive_id)
+    );
+    if (eligibleDriveIds.size === 0) return empty;
+
+    // 4. Recruiter names + this learner's own declarations, in parallel.
+    const visible = openNow.filter((d) => eligibleDriveIds.has((d as { id: string }).id));
+    const recruiterIds = Array.from(
+      new Set(
+        visible
+          .map((d) => (d as { recruiter_id: string | null }).recruiter_id)
+          .filter((x): x is string => !!x)
+      )
     );
 
     const visible = (drives as unknown as Array<Pick<CdcDrive, 'id' | 'institutions' | 'institution_semesters'> & Record<string, unknown>>).filter(
       (d) => {
         if (myStatus.has(d.id)) return true; // already answered → always visible
-        if (d.status === 'cancelled' || d.status === 'draft' || d.status === 'announced' || d.status === 'closed') return false;
         return computeEligibility(
           { institutions: d.institutions ?? [], institution_semesters: d.institution_semesters ?? [] },
           eligByDrive.get(d.id) ?? null,

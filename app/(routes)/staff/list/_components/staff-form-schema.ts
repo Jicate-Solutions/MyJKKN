@@ -69,17 +69,26 @@ export const basicStaffSchema = z.object({
 
 // ─── Repeater item schemas (used inside extendedStaffSchema) ──────────────────
 const badgeItemSchema = z.object({ label: z.string().min(1), color: z.string().optional() });
+// Required for a PUBLISHED profile (owner's ruling on BUG-005982, option B).
+// The messages are spelled out because a bare "Required" / "Invalid input" in
+// a toast does not tell a HOD which box to fill.
 const qualificationItemSchema = z.object({
-  degree: z.string().min(1),
-  institution: z.string().min(1),
-  year: z.union([z.string(), z.number()]),
+  degree: z.string({ required_error: 'Degree is required' }).min(1, 'Degree is required'),
+  institution: z
+    .string({ required_error: 'Institution is required' })
+    .min(1, 'Institution is required'),
+  year: z.union([z.string(), z.number()], {
+    errorMap: () => ({ message: 'Year is required' })
+  }),
   specialization: z.string().optional(),
 });
 const specialisationItemSchema = z.object({ name: z.string().min(1) });
 const experienceEntryItemSchema = z.object({
-  role: z.string().min(1),
-  organisation: z.string().min(1),
-  from: z.string().min(1),
+  role: z.string({ required_error: 'Role is required' }).min(1, 'Role is required'),
+  organisation: z
+    .string({ required_error: 'Organisation is required' })
+    .min(1, 'Organisation is required'),
+  from: z.string({ required_error: 'From year is required' }).min(1, 'From year is required'),
   to: z.string().nullable().optional(),
   description: z.string().optional(),
 });
@@ -164,11 +173,18 @@ export const extendedStaffSchema = z.object({
   achievements: z.array(achievementItemSchema),
 });
 
-// Combined schema (used at submit time when extended toggle is on AND user clicks Save & Publish)
-// The login_enabled-conditional email check lives here so .merge() composes.
-export const fullStaffSchema = basicStaffSchema
-  .merge(extendedStaffSchema)
-  .superRefine((data, ctx) => {
+// Cross-field rules shared by the strict combined schema and the form resolver.
+// Typed loosely because both object shapes carry every field these rules read.
+function applyStaffRules(
+  data: {
+    login_enabled?: boolean;
+    email?: string;
+    institution_email?: string;
+    biometric_id?: string | null;
+    biometric_institution_id?: string | null;
+  },
+  ctx: z.RefinementCtx
+) {
     // Email is required ONLY for login-enabled staff. For view-only staff
     // (login_enabled=false) the service auto-generates synthetic emails.
     if (data.login_enabled !== false && (!data.email || data.email.trim() === '')) {
@@ -208,7 +224,41 @@ export const fullStaffSchema = basicStaffSchema
         message: 'Choose which machine issued this code'
       });
     }
-  });
+}
+
+// Strict combined schema: every public-profile repeater row validated.
+export const fullStaffSchema = basicStaffSchema
+  .merge(extendedStaffSchema)
+  .superRefine(applyStaffRules);
+
+// The form resolver's version. Identical, except repeater rows are carried
+// through unvalidated. The resolver runs on EVERY save, and it used to run the
+// strict row schemas too, so a published record holding a qualification with
+// no year could not be saved by anyone — and because the invalid handler only
+// knows basic fields, the click did nothing and said nothing (BUG-005982,
+// BUG-005983; 20 active staff affected on 2026-09-15). The strict rows are
+// enforced in onSubmit whenever the record is, or becomes, published, where a
+// failure is reported with the tab and field. z.any() keeps the rows in the
+// parsed output; an omitted key would be stripped and wipe the data on save.
+const lenientRepeaterRows = {
+  badges: z.array(z.any()),
+  qualifications: z.array(z.any()),
+  specialisations: z.array(z.any()),
+  experience_entries: z.array(z.any()),
+  research_focus_areas: z.array(z.any()),
+  publications: z.array(z.any()),
+  funded_projects: z.array(z.any()),
+  certifications: z.array(z.any()),
+  awards: z.array(z.any()),
+  memberships: z.array(z.any()),
+  phd_scholars_list: z.array(z.any()),
+  faqs: z.array(z.any()),
+  achievements: z.array(z.any())
+};
+
+const formStaffSchema = basicStaffSchema
+  .merge(extendedStaffSchema.extend(lenientRepeaterRows))
+  .superRefine(applyStaffRules);
 
 /**
  * The schema actually used by the form, which differs between create and edit.
@@ -220,9 +270,9 @@ export const fullStaffSchema = basicStaffSchema
  * enrolled while the existing gap is closed at its own pace.
  */
 export function buildStaffSchema(isCreating: boolean) {
-  if (!isCreating) return fullStaffSchema;
+  if (!isCreating) return formStaffSchema;
 
-  return fullStaffSchema.superRefine((data, ctx) => {
+  return formStaffSchema.superRefine((data, ctx) => {
     if (!data.biometric_id || data.biometric_id.trim() === '') {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -238,6 +288,50 @@ export function buildStaffSchema(isCreating: boolean) {
       });
     }
   });
+}
+
+// Singular row labels for the repeater arrays, so an issue at
+// ['qualifications', 1, 'year'] reads "Qualification 2: Year is required".
+const REPEATER_ROW_LABEL: Record<string, string> = {
+  badges: 'Badge',
+  qualifications: 'Qualification',
+  specialisations: 'Specialisation',
+  experience_entries: 'Experience entry',
+  research_focus_areas: 'Research focus area',
+  publications: 'Publication',
+  funded_projects: 'Funded project',
+  certifications: 'Certification',
+  awards: 'Award',
+  memberships: 'Membership',
+  phd_scholars_list: 'PhD scholar',
+  faqs: 'FAQ',
+  achievements: 'Achievement'
+};
+
+/**
+ * Summarise profile validation issues for a toast: which top-level field to
+ * send the user to, how many problems there are, and the first one in words.
+ */
+export function describeProfileIssues(issues: z.ZodIssue[]): {
+  firstField: string | undefined;
+  count: number;
+  firstMessage: string;
+} {
+  const first = issues[0];
+  if (!first) return { firstField: undefined, count: 0, firstMessage: '' };
+
+  const [field, index] = first.path;
+  const rowLabel = typeof field === 'string' ? REPEATER_ROW_LABEL[field] : undefined;
+  const where =
+    rowLabel && typeof index === 'number'
+      ? `${rowLabel} ${index + 1}`
+      : String(field ?? '').replace(/_/g, ' ');
+
+  return {
+    firstField: typeof field === 'string' ? field : undefined,
+    count: issues.length,
+    firstMessage: where ? `${where}: ${first.message}` : first.message
+  };
 }
 
 export type BasicFormValues    = z.infer<typeof basicStaffSchema>;
