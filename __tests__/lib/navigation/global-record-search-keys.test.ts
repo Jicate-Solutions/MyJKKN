@@ -32,14 +32,15 @@ import { MENU_PERMISSIONS } from '@/lib/sidebarMenuLink';
 // The CURRENT definition of the function. 20261201090000 created it as
 // SECURITY DEFINER, which was a confidentiality defect (it bypassed RLS and
 // substituted a simpler check); 20261201100000 re-issued it as SECURITY
-// INVOKER; 20261201140000 adds departments, programmes and institutions.
+// INVOKER; 20261201140000 added departments, programmes and institutions;
+// 20261201150000 adds recruitment candidates, invoices and receipts.
 // These assertions must track the LATEST definition — pinned to a superseded
 // file, this suite would have gone on certifying the vulnerable version,
 // green, forever. REPOINT THIS WHEN THE FUNCTION IS NEXT REPLACED.
 const MIGRATION = readFileSync(
   path.join(
     process.cwd(),
-    'supabase/migrations/20261201140000_global_record_search_more_entities.sql'
+    'supabase/migrations/20261201150000_global_record_search_candidates_and_billing.sql'
   ),
   'utf8'
 );
@@ -159,13 +160,41 @@ describe('global record search — permission key agreement', () => {
     );
   });
 
-  it('does not search billing records', () => {
-    // Dropped deliberately: billing_invoices and billing_receipts carry no
-    // named RLS policy anywhere in supabase/migrations, and this function is
-    // SECURITY INVOKER — RLS is the only boundary. Adding them on an
-    // unverified assumption is precisely what leaked lead phone numbers on
-    // 2026-09-12. Re-add only after checking pg_class.relrowsecurity live.
-    expect(MIGRATION_CODE).not.toMatch(/billing_invoices|billing_receipts/);
+  it('every searched table is one whose row rules were read first', () => {
+    // THIS TEST REPLACES A WRONG ONE. 20261201140000 excluded billing on the
+    // stated ground that billing_invoices and billing_receipts had "ZERO named
+    // CREATE POLICY statements anywhere in supabase/migrations". That claim was
+    // false — produced by a grep matching only `CREATE POLICY <bare_name> ON
+    // <table>`, which misses policies named as quoted strings with spaces
+    // ("Accounts users can view institution billing invoices") and those
+    // arriving as ALTER POLICY from the initplan sweep. Counted properly:
+    // billing_invoices 18, billing_receipts 28.
+    //
+    // The rule was never "avoid billing". It is that this function is SECURITY
+    // INVOKER, so RLS is the ONLY boundary, and no table may join this search
+    // until its row rules have been read. That cannot be asserted from a
+    // string, so this test pins the invariant that DOES hold in the file: one
+    // permission gate per entity the frontend can render, and no institution
+    // predicate competing with RLS. A table added without a gate fails here.
+    const gates = MIGRATION_CODE.match(/user_has_permission\('[^']+'\)/g) ?? [];
+    expect(gates).toHaveLength(ENTITIES.length);
+    expect(MIGRATION_CODE).not.toMatch(/role_has_institution_access\s*\(/);
+  });
+
+  it('searches billing and recruitment', () => {
+    // The correction, asserted positively so a silent revert is visible.
+    expect(MIGRATION_CODE).toMatch(/public\.billing_invoices/);
+    expect(MIGRATION_CODE).toMatch(/public\.billing_receipts/);
+    expect(MIGRATION_CODE).toMatch(/public\.hr_recruitment_candidates/);
+  });
+
+  it('billing arms do not join learners to search by learner name', () => {
+    // Deliberate: it would make a billing row's visibility depend on a SECOND
+    // table's RLS, so an invoice the caller may read would vanish whenever the
+    // learner behind it is one they may not. The desk task ("who paid") is
+    // answered by the receipt's own payer_name.
+    const billing = MIGRATION_CODE.slice(MIGRATION_CODE.indexOf('billing_invoices'));
+    expect(billing).not.toMatch(/learners_profiles/);
   });
 });
 
@@ -232,9 +261,10 @@ describe('isRecordEntity', () => {
   it('rejects an entity this build cannot route', () => {
     // Guards the forward-compatibility case: a later migration adds an entity
     // before the frontend knows how to render it.
-    // 'invoice' is not merely unknown — it is deliberately excluded (see
-    // 'does not search billing records' above).
-    expect(isRecordEntity('invoice')).toBe(false);
+    // 'invoice' used to be asserted false here, on the mistaken ground that
+    // billing was excluded. It is a real entity now.
+    expect(isRecordEntity('invoice')).toBe(true);
+    expect(isRecordEntity('quotation')).toBe(false);
     expect(isRecordEntity(null)).toBe(false);
     expect(isRecordEntity(undefined)).toBe(false);
     expect(isRecordEntity(42)).toBe(false);
