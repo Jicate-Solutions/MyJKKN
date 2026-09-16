@@ -133,12 +133,16 @@ CREATE POLICY "adoption_proposals_select_admin" ON public.adoption_proposals
 -- ---------------------------------------------------------------------
 -- 4) The loop itself, in the control tower
 -- ---------------------------------------------------------------------
+-- owner_email is NOT NULL on production (caught by the 2026-09-16 BEGIN…ROLLBACK
+-- rehearsal, invisible on the local copy): the Director owns this loop's
+-- decisions (ruling 8); the Owners panel on /admin/loops can reassign it.
 INSERT INTO public.loop_registry
-  (loop_key, name, stack_tier, loop_class, domain, description, gates)
+  (loop_key, name, stack_tier, loop_class, domain, description, gates, owner_email)
 VALUES
   ('feature-adoption', 'Feature Adoption Loop', 3, 'accountability', 'platform',
    'Every shipped feature is labelled (for whom, core action) → usage is recorded per person per day → weekly share of intended users doing the core action is measured against one bar → a dead feature asks its users why (once, through the blocking gate) → still dead after 4 weeks becomes a simplify / retrain / retire card the Director decides.',
-   '{"g":"on","a":"on","m":"on","f":"off"}'::jsonb)
+   '{"g":"on","a":"on","m":"on","f":"off"}'::jsonb,
+   'director@jkkn.ac.in')
 ON CONFLICT (loop_key) DO NOTHING;
 
 -- ---------------------------------------------------------------------
