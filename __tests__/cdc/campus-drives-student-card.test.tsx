@@ -58,7 +58,8 @@ function drive(over: Partial<MyCdcDrive> = {}): MyCdcDrive {
     willingness_status: null,
     // Open unless a test says otherwise. Added 16 Sep with the closed-drive
     // behaviour below — a fixture that omitted it made every drive read as
-    // closed, which is the opposite of what these tests are about.
+    // closed, which is the opposite of what these tests are about. The feed
+    // TAGS each drive rather than filtering, so the default has to be open.
     is_open: true,
     ...over,
   };
@@ -250,5 +251,31 @@ describe('CampusDrivesStudentCard — what it says', () => {
     });
     render(<CampusDrivesStudentCard />);
     expect(screen.queryByText(/closes/i)).toBeNull();
+  });
+});
+
+describe('CampusDrivesStudentCard — a shut window is not an invitation', () => {
+  it('does not render a drive whose willingness window has closed', () => {
+    // /api/cdc/drives/mine returns it (so /cdc/drives can show the learner what
+    // they missed) tagged is_open:false. Every row on this card carries a call
+    // to action, and that CTA leads to a page that would refuse them.
+    useMyCdcDrives.mockReturnValue({
+      data: [drive({ id: 'shut', is_open: false })],
+      isLoading: false,
+      error: null,
+    });
+    const { container } = render(<CampusDrivesStudentCard />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('still renders the open ones alongside a shut one', () => {
+    useMyCdcDrives.mockReturnValue({
+      data: [drive({ id: 'shut', is_open: false }), drive({ id: 'live' })],
+      isLoading: false,
+      error: null,
+    });
+    render(<CampusDrivesStudentCard />);
+    // One invitation, not two.
+    expect(screen.getAllByRole('link').length).toBe(1);
   });
 });
