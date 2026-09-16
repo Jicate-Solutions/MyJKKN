@@ -2,11 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'node:crypto';
 import { requireProcurement, PROC_QUOTATION_MANAGE } from '@/lib/utils/procurement-auth';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import Anthropic from '@anthropic-ai/sdk';
+import {
+  directExtractApiKey,
+  extractQuotationDirect,
+  EXTRACT_RESULT_VERSION,
+} from '@/lib/procurement/quotation-pdf-direct';
 
 export const runtime = 'nodejs';
-// Enqueue only — the model call happens on the ₹0 Max lane, not in this
-// function. Nothing here waits on Claude, so the old 60s budget is unnecessary.
-export const maxDuration = 30;
+// Normally enqueue-only (the ₹0 Max lane does the read). While that lane is
+// switched off, the read happens here directly — a Haiku PDF read takes ~5-10s.
+export const maxDuration = 60;
 
 const MAX_BYTES = 15 * 1024 * 1024; // 15 MB
 const BUCKET = 'procurement-quotation-pdfs';
@@ -104,28 +110,94 @@ export async function POST(req: NextRequest) {
       .order('completed_at', { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (prior?.result) {
+    // Only reuse reads that carry the quotation header (vendor, quote #, terms);
+    // older ones would leave the vendor section empty.
+    if (prior?.result && Number((prior.result as { version?: unknown }).version) >= EXTRACT_RESULT_VERSION) {
       return NextResponse.json({ reused: true, job_id: prior.id, result: prior.result });
+    }
+
+    // The same person pressing the button again while their read is still
+    // queued: hand back that job instead of enqueuing a duplicate. Own jobs only —
+    // fn_ai_job_status answers 'not_found' for anyone else's job id.
+    const { data: inFlight } = await admin
+      .from('ai_jobs')
+      .select('id')
+      .eq('job_type', JOB_TYPE)
+      .eq('requested_by', user.id)
+      .in('status', ['pending', 'claimed', 'running'])
+      .contains('payload', { sha256, rfq_id: rfqId })
+      .order('requested_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (inFlight?.id) {
+      return NextResponse.json({ job_id: inFlight.id });
     }
   } catch {
     // A dedupe miss must never block a fresh read — fall through and enqueue.
   }
 
+  // ── No office runner serving the lane: read it now ─────────────────────────
+  // procurement.quotation_extract stays switched OFF (ai_job_types.enabled)
+  // until the Max-lane PDF runner is installed on the office AI machine. While
+  // it is off, queueing would only make the person wait for nobody, so read the
+  // PDF directly (paid, Haiku) in this request and answer with the prices.
+  // Switching the job type on restores the ₹0 lane, with the page's own
+  // 10-second direct fallback behind it.
+  const laneOn = await (async () => {
+    try {
+      const { data } = await createServiceRoleClient()
+        .from('ai_job_types')
+        .select('enabled')
+        .eq('job_type', JOB_TYPE)
+        .maybeSingle();
+      return data?.enabled === true;
+    } catch {
+      return true; // can't tell — fall through to the normal queue path
+    }
+  })();
+
+  if (!laneOn && directExtractApiKey()) {
+    try {
+      const result = await extractQuotationDirect(bytes.toString('base64'), items);
+      return NextResponse.json({ direct: true, result });
+    } catch (err) {
+      console.error('[procurement quotation extract-pdf] direct read failed:', err);
+      const message =
+        err instanceof Anthropic.RateLimitError
+          ? 'The AI reader is busy — please try again in a minute, or enter the prices manually.'
+          : err instanceof Anthropic.BadRequestError
+            ? 'The AI could not open this PDF — please enter the prices manually.'
+            : err instanceof Error && !(err instanceof Anthropic.APIError)
+              ? err.message
+              : 'AI could not read the PDF — please enter the prices manually.';
+      return NextResponse.json({ error: message, unavailable: true });
+    }
+  }
+
   const supabase = await createClient();
 
   // ── Park the PDF where the Max-lane runner can fetch it ────────────────────
-  // The path is content-addressed (sha256), so re-uploading identical bytes is
-  // a no-op rather than a conflict.
+  // The path is content-addressed (sha256): if the object is already there it
+  // holds these exact bytes, so "already exists" is success. Never upsert — an
+  // overwrite needs UPDATE on storage.objects, which the bucket deliberately
+  // does not grant (a retry of the same PDF used to fail with an RLS error).
   const storagePath = `${rfqId}/${sha256}.pdf`;
   const { error: uploadError } = await supabase.storage
     .from(BUCKET)
-    .upload(storagePath, bytes, { contentType: 'application/pdf', upsert: true });
-  if (uploadError) {
-    // Almost always "Bucket not found": 20260805090000_procurement_pdf_max_lane.sql
-    // creates procurement-quotation-pdfs and has not been applied here. The user
-    // is told it is not set up rather than that something went briefly wrong.
+    .upload(storagePath, bytes, { contentType: 'application/pdf', upsert: false });
+  const uploadStatus = String((uploadError as { statusCode?: unknown } | null)?.statusCode ?? '');
+  const alreadyStored =
+    !!uploadError && (uploadStatus === '409' || /already exists/i.test(uploadError.message));
+  if (uploadError && !alreadyStored) {
     console.error('[procurement quotation extract-pdf] upload failed:', uploadError);
-    return NextResponse.json({ error: NOT_SET_UP, unavailable: true });
+    // Only a missing bucket means "not set up"; anything else is a real refusal
+    // and must not be disguised as a configuration gap.
+    const message = /bucket not found/i.test(uploadError.message)
+      ? NOT_SET_UP
+      : uploadStatus === '403'
+        ? 'You do not have permission to upload vendor quotations for AI reading.'
+        : COULD_NOT_START;
+    return NextResponse.json({ error: message, unavailable: true });
   }
 
   // ── Enqueue on the ₹0 Max lane ─────────────────────────────────────────────

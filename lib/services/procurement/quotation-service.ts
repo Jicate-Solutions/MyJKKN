@@ -122,6 +122,11 @@ export class ProcurementQuotationService {
     name: string;
     code?: string | null;
     email?: string | null;
+    gstin?: string | null;
+    phone?: string | null;
+    address?: string | null;
+    contact_person?: string | null;
+    payment_terms?: string | null;
   }): Promise<{ id: string; name: string; code: string; email: string | null }> {
     const name = input.name?.trim();
     if (!name) throw new Error('Vendor name is required.');
@@ -132,6 +137,11 @@ export class ProcurementQuotationService {
         name,
         code,
         email: input.email?.trim() || null,
+        gstin: input.gstin?.trim().toUpperCase() || null,
+        phone: input.phone?.trim() || null,
+        address: input.address?.trim() || null,
+        contact_person: input.contact_person?.trim() || null,
+        payment_terms: input.payment_terms?.trim() || null,
         institution_id: input.institution_id,
         is_active: true,
       })
