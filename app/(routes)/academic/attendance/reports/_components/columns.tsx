@@ -55,7 +55,10 @@ export const columns: ColumnDef<AttendanceReport>[] = [
 
       return (
         <div className='font-medium hover:text-primary hover:underline'>
-          <Link href={`/academic/attendance/reports/${report.id}`}>
+          <Link
+            href={`/academic/attendance/reports/${report.id}`}
+            className='inline-flex items-center min-h-[44px]'
+          >
             {format(new Date(report.attendance_date), 'MMM dd, yyyy')}
           </Link>
         </div>

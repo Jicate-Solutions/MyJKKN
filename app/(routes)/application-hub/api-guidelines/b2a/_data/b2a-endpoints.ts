@@ -312,13 +312,10 @@ export const B2A_ENDPOINTS: B2AEndpointDef[] = [
     description: 'List staff members (with category metadata + has_extended_profile)',
     module: 'staff',
     params: [
-      {
-        name: 'role_type',
-        label: 'Role Type',
-        type: 'select',
-        options: ['faculty', 'admin', 'support', 'management'],
-      },
-      { name: 'role_key', label: 'Role Key', type: 'text', placeholder: 'e.g. hod, principal, faculty (matches custom_roles.role_key)' },
+      // role_type is deliberately absent: it is retired as a filter and the API
+      // answers HTTP 400. Offering it here handed testers four options that each
+      // returned an empty page with HTTP 200.
+      { name: 'role_key', label: 'Role Key', type: 'text', placeholder: 'e.g. hod, principal, librarian, driver (matches custom_roles.role_key)' },
       { name: 'department_id', label: 'Department ID', type: 'text', placeholder: 'UUID' },
       { name: 'category_id', label: 'Category ID', type: 'text', placeholder: 'UUID (filter by employment_categories.id)' },
       {

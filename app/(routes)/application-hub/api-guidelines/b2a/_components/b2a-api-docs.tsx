@@ -193,12 +193,12 @@ const { data, pagination } = await res.json();
 
 const staffCode = `// List staff members
 const res = await fetch(
-  'https://jkkn.ai/api/b2a/staff?role_type=faculty&page=1',
+  'https://jkkn.ai/api/b2a/staff?role_key=hod&page=1',
   { headers: { 'Authorization': 'Bearer <key>' } }
 );
 const { data, pagination } = await res.json();
 // data[0] → { id, first_name, last_name, email, designation,
-//              department_id, role_type, facilitator_certification, ... }`;
+//              department_id, role_key, facilitator_certification, ... }`;
 
 const orgsCode = `// Institutions
 const institutions = await fetch('https://jkkn.ai/api/b2a/organizations/institutions?is_active=true',
@@ -437,7 +437,7 @@ curl -s "https://jkkn.ai/api/b2a/attendance/trend?from=2026-02-16&to=2026-02-23"
   -H "Authorization: Bearer jkkn_b2a_your_key" | jq .data.trend
 
 # Staff list — faculty only
-curl -s "https://jkkn.ai/api/b2a/staff?role_type=faculty&limit=50" \\
+curl -s "https://jkkn.ai/api/b2a/staff?role_key=hod&limit=50" \\
   -H "Authorization: Bearer jkkn_b2a_your_key"
 
 # Verify your key is working
@@ -1075,7 +1075,7 @@ export default function B2AApiDocs() {
                   </Button>
                 </div>
                 <div className='text-xs text-muted-foreground pl-4'>
-                  <p><strong>Query params:</strong> <code className='bg-muted px-1 rounded'>role_type</code> · <code className='bg-muted px-1 rounded'>department_id</code> · <code className='bg-muted px-1 rounded'>page</code> · <code className='bg-muted px-1 rounded'>limit</code></p>
+                  <p><strong>Query params:</strong> <code className='bg-muted px-1 rounded'>role_key</code> · <code className='bg-muted px-1 rounded'>department_id</code> · <code className='bg-muted px-1 rounded'>page</code> · <code className='bg-muted px-1 rounded'>limit</code></p>
                 </div>
                 <CodeBlock code={staffCode} language='javascript' />
 

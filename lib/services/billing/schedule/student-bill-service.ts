@@ -7,6 +7,7 @@ import {
 } from '@/lib/utils/billing-duplicate-error';
 import { logActivityForCurrentUser, BillingActivityTemplates } from '@/lib/utils/activity-logger-client';
 import { BillCancellationService } from './bill-cancellation-service';
+import { resolveBillSortPaths } from './bill-sort-columns';
 import type {
   BillCancelReasonCode,
   BillCancellationAttachment,
@@ -966,30 +967,27 @@ export class StudentBillService {
         }
       }
 
-      // Apply sorting with proper column mapping
-      let sortBy = filters.sortBy || 'created_at';
+      // Sorting. `sortBy` is the data table's column id and is untrusted — the
+      // table persists its own sort state, so a stale id can arrive with no
+      // sortBy in the URL at all. Ids like 'student_name' or 'institution_name'
+      // are NOT columns on billing_student_bills; the previous mapper rewrote
+      // the learner-name variants onto the literal 'student_name' and ordered
+      // the raw table by it, which PostgREST rejected with 400 / 42703
+      // "column billing_student_bills.student_name does not exist"
+      // (BUG-005360, BUG-003999).
+      //
+      // resolveBillSortPaths() whitelists the real bill columns, translates the
+      // embedded ones into PostgREST's `alias(column)` order syntax — which
+      // sorts the PARENT rows and works on both select variants above, !inner
+      // and plain (verified against production) — and falls back to created_at
+      // for anything unrecognised instead of emitting an invalid column. No
+      // branch-dependent mapping is needed: both branches query
+      // billing_student_bills and use the same embed aliases.
       const sortDirection = filters.sortDirection || 'desc';
 
-      // Map sort columns based on query type
-      if (!hasAcademicFilters) {
-        // When using view, map student fields appropriately
-        if (
-          sortBy === 'first_name' ||
-          sortBy === 'last_name' ||
-          sortBy === 'student_name'
-        ) {
-          sortBy = 'student_name';
-        } else if (
-          sortBy === 'student.first_name' ||
-          sortBy === 'student.last_name'
-        ) {
-          sortBy = 'student_name';
-        } else if (sortBy === 'student' || sortBy === 'student.name') {
-          sortBy = 'student_name';
-        }
+      for (const sortPath of resolveBillSortPaths(filters.sortBy)) {
+        query = query.order(sortPath, { ascending: sortDirection === 'asc' });
       }
-
-      query = query.order(sortBy, { ascending: sortDirection === 'asc' });
 
       // Apply pagination
       const page = filters.page || 1;

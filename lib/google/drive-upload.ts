@@ -587,3 +587,71 @@ export async function uploadHousekeepingPhoto(
     url: created.data.webViewLink ?? `https://drive.google.com/file/d/${fileId}/view`,
   };
 }
+
+// ============================================================================
+// CDC — drive circulars
+// ============================================================================
+
+export interface CdcDriveCircularUploadOptions {
+  /** Drive title — goes in the filename so a folder listing is readable. */
+  driveTitle: string;
+  /** Recruiter / company name — the sub-folder. */
+  recruiterName: string | null;
+  file: File;
+}
+
+export interface CdcDriveCircularUploadResult {
+  name: string;
+  driveFileId: string;
+  url: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
+/**
+ * Upload a CDC drive circular to
+ *   CDC Drives / {Recruiter} / {ts}-{drive title}-{filename}
+ *
+ * NO PUBLIC PERMISSION. A circular is only meant for the targeted learners
+ * and CDC staff; bytes reach them through /api/cdc/drives/[id]/circular,
+ * which authorises the viewer (any signed-in MyJKKN user who can read the
+ * drive row) before streaming. The returned `url` is the Drive webViewLink —
+ * useful to someone who already holds Drive access, never a share link.
+ */
+export async function uploadCdcDriveCircular(
+  opts: CdcDriveCircularUploadOptions,
+): Promise<CdcDriveCircularUploadResult> {
+  if (!isDriveConfigured()) throw new Error('Google Drive is not configured for this server.');
+  const drive = createDriveClient();
+
+  const folderId = await ensureFolderPath(drive, [
+    'CDC Drives',
+    opts.recruiterName || 'Unassigned recruiter',
+  ]);
+
+  const buffer = Buffer.from(await opts.file.arrayBuffer());
+  const safeName = (opts.file.name || 'circular.pdf').replace(/[\r\n]/g, ' ').slice(0, 160);
+  const safeTitle = (opts.driveTitle || 'drive').replace(/[\r\n/]/g, ' ').trim().slice(0, 60);
+  const storedName = `${Date.now()}-${safeTitle}-${safeName}`;
+
+  const created = await drive.files.create({
+    requestBody: { name: storedName, parents: [folderId] },
+    media: {
+      mimeType: opts.file.type || 'application/octet-stream',
+      body: Readable.from(buffer),
+    },
+    fields: 'id, webViewLink',
+    supportsAllDrives: true,
+  });
+
+  const fileId = created.data.id;
+  if (!fileId) throw new Error('Drive upload returned no file id.');
+
+  return {
+    name: opts.file.name || safeName,
+    driveFileId: fileId,
+    url: created.data.webViewLink ?? `https://drive.google.com/file/d/${fileId}/view`,
+    mimeType: opts.file.type || 'application/octet-stream',
+    sizeBytes: buffer.byteLength,
+  };
+}

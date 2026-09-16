@@ -19,6 +19,11 @@ import { createClient as createAnonOrService } from '@supabase/supabase-js';
 import { createClient as createSessionClient } from '@/lib/supabase/server';
 import { Ban, CalendarClock, CalendarDays, MapPin, Ticket } from 'lucide-react';
 import { effectiveFee, formRegistrationState, isFormOpen } from '@/types/tournament';
+import {
+  countTaken,
+  findOutstandingOffer,
+  isWaitlistAvailable,
+} from '@/lib/services/events/waitlist-service';
 import { EventRegisterForm } from './_components/event-register-form';
 import {
   PUBLIC_CANCELLATION_CONTACT_EMAIL,
@@ -205,6 +210,31 @@ export default async function PublicEventRegisterPage({
     );
   }
 
+  // THIS visitor's account, resolved early: the two gates below need to know
+  // whether a place is being held for them. A guest has no session and meets
+  // every gate exactly as before.
+  let viewerProfileId: string | null = null;
+  let signedInName: string | null = null;
+  let signedInEmail: string | null = null;
+  try {
+    const session = await createSessionClient();
+    const {
+      data: { user },
+    } = await session.auth.getUser();
+    if (user) {
+      const { data: profile } = await svc
+        .from('profiles')
+        .select('id, full_name')
+        .eq('id', user.id)
+        .maybeSingle();
+      viewerProfileId = profile?.id ?? null;
+      signedInName = profile?.full_name ?? user.email ?? null;
+      signedInEmail = user.email ?? null;
+    }
+  } catch {
+    /* no session — guest flow */
+  }
+
   const now = new Date();
   if (ev.registration_open_date && now < new Date(ev.registration_open_date)) {
     return (
@@ -214,8 +244,21 @@ export default async function PublicEventRegisterPage({
       />
     );
   }
+  /** The window has shut, but a place is being held for this very visitor. */
+  let windowClosedButHoldsAPlace = false;
   if (ev.registration_close_date && now > new Date(ev.registration_close_date)) {
-    return <Empty title="Registration closed" msg="The registration window for this event has closed." />;
+    // The route defers its close-date refusal for a caller holding a live
+    // offer. This page is the route's only caller, so it must defer too, or
+    // the held place is unreachable — the mistake #3714 made twice. Because
+    // this queue is for signed-in people, the page can ask the precise
+    // question about THIS visitor rather than an identity-free one.
+    const held = viewerProfileId
+      ? await findOutstandingOffer(svc as never, id, viewerProfileId, null).catch(() => null)
+      : null;
+    if (!held) {
+      return <Empty title="Registration closed" msg="The registration window for this event has closed." />;
+    }
+    windowClosedButHoldsAPlace = true;
   }
 
   // WHICH form? Same resolution rules as the tournament page, deliberately —
@@ -299,45 +342,43 @@ export default async function PublicEventRegisterPage({
     fields: (rawFields ?? []).filter((f) => f.section_id === s.id),
   }));
 
-  // Capacity is enforced server-side on submit too; this only avoids showing a
-  // form that cannot be submitted.
-  if (ev.max_registrations) {
-    const { count } = await svc
-      .from('events_registrations')
-      .select('id', { count: 'exact', head: true })
-      .eq('event_id', id)
-      .neq('status', 'cancelled');
-    if ((count ?? 0) >= ev.max_registrations) {
-      return <Empty title="Registration full" msg="This event has reached its maximum number of registrations." />;
-    }
-  }
-
-  // Hybrid identity: a signed-in JKKN user is linked to their record; a guest
-  // supplies contact details.
-  let signedInName: string | null = null;
-  let signedInEmail: string | null = null;
-  try {
-    const session = await createSessionClient();
-    const {
-      data: { user },
-    } = await session.auth.getUser();
-    if (user) {
-      const { data: profile } = await svc
-        .from('profiles')
-        .select('full_name')
-        .eq('id', user.id)
-        .maybeSingle();
-      signedInName = profile?.full_name ?? user.email ?? null;
-      signedInEmail = user.email ?? null;
-    }
-  } catch {
-    /* no session — guest flow */
-  }
-
   // effectiveFee applies BOTH gates (switched on AND priced) and does the
   // string→number coercion PostgREST forces on numeric. Testing either field
   // alone here is how a form with the fee switched off would still charge.
   const fee = effectiveFee(formRow);
+
+  // ---- capacity: what a FULL event does is the event's own decision ----
+  // Capacity is enforced server-side on submit too; this only decides what the
+  // visitor is shown. `events.cap_behavior = 'waitlist'` keeps the form open
+  // for a SIGNED-IN visitor on a FREE form — the only people the route will
+  // queue — so that sending it joins the queue, or takes up a place being held
+  // for them. This page is the route's only caller: a gate here that the route
+  // does not have makes the queue unreachable. Everybody else sees exactly what
+  // they always saw. And it only offers a queue that exists: before the
+  // migration is applied this shows the refusal it has always shown.
+  let full = false;
+  if (ev.max_registrations) {
+    let taken: number;
+    try {
+      // strictOffers=false: this page only picks copy; the door re-checks.
+      taken = await countTaken(svc as never, id, false);
+    } catch {
+      return <Empty title="Registration full" msg="This event has reached its maximum number of registrations." />;
+    }
+    if (taken >= ev.max_registrations) {
+      const queues =
+        ev.cap_behavior === 'waitlist' &&
+        fee <= 0 &&
+        Boolean(viewerProfileId) &&
+        (await isWaitlistAvailable(svc as never));
+      if (!queues) {
+        return <Empty title="Registration full" msg="This event has reached its maximum number of registrations." />;
+      }
+      full = true;
+    }
+  }
+  if (windowClosedButHoldsAPlace) full = true;
+
   const when = ev.event_date ?? ev.start_date;
   const where = ev.venue || ev.venue_text;
 
@@ -394,6 +435,8 @@ export default async function PublicEventRegisterPage({
         feeLabel={formRow.fee_label ?? null}
         signedInName={signedInName}
         signedInEmail={signedInEmail}
+        full={full}
+        claimOnly={windowClosedButHoldsAPlace}
         sections={sections as never}
       />
 

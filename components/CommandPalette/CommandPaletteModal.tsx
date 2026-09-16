@@ -338,8 +338,10 @@ export function CommandPaletteModal({ isOpen, onClose, onNavigate, onPermissions
             )}
           </Command.List>
 
-          {/* Footer with keyboard hints */}
-          <div className="flex items-center justify-between border-t px-4 py-2 text-xs text-muted-foreground dark:border-gray-700/50">
+          {/* Footer with keyboard hints — meaningless under a touch keyboard,
+              so hidden on coarse pointers (phones, tablets without a
+              trackpad); the results count already hides below `sm`. */}
+          <div className="flex items-center justify-between border-t px-4 py-2 text-xs text-muted-foreground dark:border-gray-700/50 [@media(pointer:coarse)]:hidden">
             <div className="flex items-center gap-3">
               <span className="flex items-center gap-1">
                 <kbd className="rounded border px-1 py-0.5 text-[10px] dark:border-gray-600">↑↓</kbd>

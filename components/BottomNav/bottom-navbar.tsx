@@ -573,6 +573,10 @@ export function BottomNavbar() {
       <motion.nav
         ref={navRef}
         data-bottom-nav
+        // Read by the `submenu-open:` Tailwind variant (tailwind.config.ts) so
+        // the bottom-right FAB column hides while a tab submenu is open. The
+        // More drawer is a modal Sheet and is already covered by `modal-open:`.
+        data-submenu-open={isExpanded && !isMoreMenuOpen ? 'true' : 'false'}
         initial={{ y: 80, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         exit={{ y: 80, opacity: 0 }}

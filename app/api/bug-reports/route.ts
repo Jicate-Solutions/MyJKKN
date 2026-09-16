@@ -5,6 +5,11 @@ import { z } from 'zod';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { withAuth } from '@/lib/auth/with-auth';
 import { logger } from '@/lib/utils/enhanced-logger';
+import {
+  isIsoDate,
+  parseStatusList,
+  resolvedAtBounds
+} from '@/lib/utils/bug-reports/status-tabs';
 
 const BUG_REPORTS_BUCKET = 'bug-reports';
 
@@ -404,6 +409,22 @@ export const GET = withAuth(async (request) => {
     const search = searchParams.get('search');
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '10');
+    const statuses = parseStatusList(searchParams.get('statuses'));
+    const resolved_from = searchParams.get('resolved_from');
+    const resolved_to = searchParams.get('resolved_to');
+
+    // An unrecognised status list or date must fail loudly: ignoring it would
+    // answer with every bug, which reads as a correct (and much larger) result.
+    if (statuses === null) {
+      return NextResponse.json({ error: 'Invalid statuses filter.' }, { status: 400 });
+    }
+    if ((resolved_from && !isIsoDate(resolved_from)) || (resolved_to && !isIsoDate(resolved_to))) {
+      return NextResponse.json(
+        { error: 'Invalid resolved date. Use YYYY-MM-DD.' },
+        { status: 400 }
+      );
+    }
+    const resolvedBounds = resolvedAtBounds(resolved_from, resolved_to);
 
     let query = supabase
       .from('bug_reports_with_details')
@@ -411,6 +432,18 @@ export const GET = withAuth(async (request) => {
 
     if (status) {
       query = query.eq('status', status);
+    }
+
+    if (statuses) {
+      query = query.in('status', statuses);
+    }
+
+    if (resolvedBounds.gte) {
+      query = query.gte('resolved_at', resolvedBounds.gte);
+    }
+
+    if (resolvedBounds.lte) {
+      query = query.lte('resolved_at', resolvedBounds.lte);
     }
 
     if (category) {

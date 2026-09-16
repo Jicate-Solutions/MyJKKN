@@ -4,11 +4,18 @@ import { NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { parseStatusList } from '@/lib/utils/bug-reports/status-tabs';
 
-export async function GET() {
+export async function GET(request: Request) {
   await connection();
   try {
     const supabase = await createServerSupabaseClient();
+
+    // Optional status tab scope; absent means every status (unchanged behaviour).
+    const statuses = parseStatusList(new URL(request.url).searchParams.get('statuses'));
+    if (statuses === null) {
+      return NextResponse.json({ error: 'Invalid statuses filter.' }, { status: 400 });
+    }
 
     const {
       data: { user },
@@ -44,10 +51,13 @@ export async function GET() {
     const adminSupabase = createAdminClient();
 
     // Fetch both module_name and sub_module_name to build nested counts
-    const { data, error } = await (adminSupabase as any)
+    let query = (adminSupabase as any)
       .from('bug_reports')
       .select('module_name, sub_module_name')
       .not('module_name', 'is', null);
+    if (statuses) query = query.in('status', statuses);
+
+    const { data, error } = await query;
 
     if (error) throw error;
 

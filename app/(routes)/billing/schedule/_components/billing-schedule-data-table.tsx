@@ -3,6 +3,7 @@
 import React from 'react';
 import toast from 'react-hot-toast';
 import { DataTable, type DataFetchParams } from '@/components/data-table/data-table';
+import { billingScheduleRowHref } from '@/components/data-table/utils/list-row-hrefs';
 import { columns } from './columns';
 import type { BillingScheduleSearchParams } from './data-table-schema';
 import { Button } from '@/components/ui/button';
@@ -536,6 +537,7 @@ export function BillingScheduleDataTable({
           transformFunction: transformBillForExport
         }}
         idField='id'
+        rowHref={billingScheduleRowHref}
         config={{
           enableUrlState: true,
           enableDateFilter: false,
