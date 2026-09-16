@@ -147,10 +147,39 @@ ALTER TABLE public.meeting_recordings ENABLE ROW LEVEL SECURITY;
 -- not readable by every colleague simply because they share an institution:
 -- these carry interview and IQAC conversations. Sharing is a later, deliberate
 -- feature, not an RLS default.
+--
+-- SPLIT ON PURPOSE (16 Sep 2026, blind review of this PR). A single FOR ALL
+-- policy checking only ownership made the allow-list decorative: the create
+-- ROUTE asks fn_may_record_meetings(), but nothing forces anyone through that
+-- route. Any signed-in person could INSERT their own row straight through
+-- PostgREST with the anon key that ships in every page bundle, and the
+-- chunk-url route — which checks ownership, because until now ownership could
+-- only be obtained by passing the gate — would then hand them signed upload
+-- URLs into the private bucket.
+--
+-- So the gate moves to INSERT, where it is a boundary rather than a UI hint.
+-- The other three verbs stay ownership-only, deliberately: someone removed
+-- from the list mid-meeting must still be able to finish (an UPDATE), read and
+-- delete the recording they are already making. Taking the right to start away
+-- is not the same as taking away what they already hold.
 DROP POLICY IF EXISTS "mrec_owner_all" ON public.meeting_recordings;
-CREATE POLICY "mrec_owner_all" ON public.meeting_recordings
-FOR ALL USING (recorded_by = auth.uid() OR is_super_admin())
+
+DROP POLICY IF EXISTS "mrec_owner_select" ON public.meeting_recordings;
+CREATE POLICY "mrec_owner_select" ON public.meeting_recordings
+FOR SELECT USING (recorded_by = auth.uid() OR is_super_admin());
+
+DROP POLICY IF EXISTS "mrec_owner_update" ON public.meeting_recordings;
+CREATE POLICY "mrec_owner_update" ON public.meeting_recordings
+FOR UPDATE USING (recorded_by = auth.uid() OR is_super_admin())
 WITH CHECK (recorded_by = auth.uid() OR is_super_admin());
+
+DROP POLICY IF EXISTS "mrec_owner_delete" ON public.meeting_recordings;
+CREATE POLICY "mrec_owner_delete" ON public.meeting_recordings
+FOR DELETE USING (recorded_by = auth.uid() OR is_super_admin());
+
+-- The INSERT policy carrying the gate is defined after
+-- fn_may_record_meetings() below, because a policy cannot reference a function
+-- that does not exist yet and this file runs top to bottom.
 
 REVOKE ALL ON public.meeting_recordings FROM anon, PUBLIC;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.meeting_recordings TO authenticated;
@@ -184,6 +213,17 @@ GRANT EXECUTE ON FUNCTION public.fn_may_record_meetings() TO authenticated;
 
 COMMENT ON FUNCTION public.fn_may_record_meetings() IS
   'True when the signed-in person is on meeting_recorder_allowlist. SECURITY INVOKER: RLS (mral_self_read) is what keeps a caller to their own row, so this can never report on anyone else.';
+
+-- ── the gate, as a boundary rather than a UI hint ────────────────────────────
+-- INSERT is where the allow-list has to hold. Under SECURITY INVOKER this
+-- reads the caller's own allow-list row through mral_self_read, so the policy
+-- learns whether THIS person may record and nothing about anyone else.
+DROP POLICY IF EXISTS "mrec_allowlisted_insert" ON public.meeting_recordings;
+CREATE POLICY "mrec_allowlisted_insert" ON public.meeting_recordings
+FOR INSERT WITH CHECK (
+  (recorded_by = auth.uid() AND public.fn_may_record_meetings())
+  OR is_super_admin()
+);
 
 -- ── seed: the person who asked for this ──────────────────────────────────────
 -- An allow-list that ships empty ships a dead feature: the button is hidden for

@@ -273,8 +273,21 @@ export function MeetingRecorder({ canRecord }: { canRecord: boolean }) {
       const payload = (await res.json().catch(() => null)) as
         | { data?: { chunk_count?: number; error?: string | null } }
         | null;
-      const saved = payload?.data?.chunk_count ?? 0;
-      const problem = payload?.data?.error ?? null;
+      // res.ok, checked (16 Sep 2026, blind review). Without it a 403, a 500 or
+      // an HTML error page all fell through to the success sentence with a zero
+      // in it — "Saved. 0 pieces of audio stored" — and the word people read
+      // first is Saved. The audio itself is already in storage at this point;
+      // what failed is the record of the meeting ending, so say exactly that.
+      if (!res.ok || !payload?.data) {
+        setMessage(
+          'The audio is stored, but the server did not confirm the meeting ended. ' +
+            'Open this page again when you have signal.',
+        );
+        setPhase('done');
+        return;
+      }
+      const saved = payload.data.chunk_count ?? 0;
+      const problem = payload.data.error ?? null;
       setMessage(
         problem
           ? `Saved ${saved} pieces of audio. ${problem}`
