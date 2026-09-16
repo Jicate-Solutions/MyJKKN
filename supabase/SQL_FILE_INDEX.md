@@ -3680,3 +3680,6 @@ npx tsx scripts/repair-learner-profile-sync.ts
 
 ### "Still happening?" prompts: at most 3 open per reporter (2026-09-16)
 - `supabase/migrations/20261224000000_bug_stale_prompt_send_per_reporter_cap.sql` — **FILE ONLY / NOT APPLIED — the operator applies it at merge.** `CREATE OR REPLACE public.fn_bug_stale_prompt_send(integer)` — live body with the pick rewritten so a reporter never has more than 3 open still-open prompts (E4, same rule as fix-check prompts); queued rows past the cap wait for later calls. Found at the first send: one learner had 65 old reports queued. Grants re-stated (service_role only).
+
+### Reporter prompts reach people who never open My Bug Reports (2026-09-16)
+- `supabase/migrations/20261225000000_bug_prompt_reach_notification.sql` — **FILE ONLY / NOT APPLIED — the operator applies it at merge.** `CREATE OR REPLACE public.fn_bug_stale_prompt_send(integer)` = the 20261224000000 body (cap) plus a fan-out: one in-app notification per reporter per send (`notifications` + `user_notifications`, category `bug_reports:still_open`, idempotent per reporter per day). The dashboard banner half is code (`app/(routes)/dashboard/page.tsx` mounts `FixedForYouPrompts`). Evidence: 24 fix prompts → 1 view in 20 h; 396 still-open prompts → 0 views in 2 h. Director ruling 2026-09-16 19:17.
