@@ -725,12 +725,45 @@ export function WhatsNewView() {
         aria-hidden so nobody hears it twice. The retry lives where it already
         lived — the button at the foot of the list, which renders throughout a
         search and reads "Try again" once the archive has failed.
+
+        max-lg:pr-14 IS A STOPGAP, AND THIS COMMENT IS THE EVIDENCE THAT IT IS.
+
+        Without it the floating column eats the end of this sentence. Measured
+        on a 375x812 viewport as a super admin, archive load throttled so the
+        line held still: the first line ran x 40-358 while the float sits at
+        x 311-359, a 47x17 overlap, and elementFromPoint at its centre returned
+        the BUTTON, not this paragraph — so the float paints over it across
+        roughly a 110px window of scroll offsets. It steals no tap, because this
+        is text. It is still not cosmetic: this sentence is the ONLY thing on
+        screen telling the reader the answer is not final yet, and a search that
+        looks settled while it is still loading is the exact defect this whole
+        change exists to remove. Shipping the fix with its own warning clipped
+        would be self-defeating.
+
+        BUT THIS IS THE FOURTH SIBLING IN ONE COLUMN CARRYING THE SAME CLASS to
+        describe one fixed element:
+
+          1. the timeline wrapper, below in this file          (#3785)
+          2. the highlights strip, components/changelog/
+             highlights-strip.tsx                              (#3785)
+          3. the filters row, above in this file               (the floating-stack lane)
+          4. this line
+
+        Each was added when someone noticed their own text going under the
+        buttons, which means the count only ever goes up and the fifth is
+        whoever adds the next element here. THE PADDING BELONGS ON THE COLUMN,
+        not on each row: one `max-lg:pr-14` on the `space-y-6` wrapper would
+        delete all four and cover everything added later. That is a rewrite of
+        what #3785 already shipped, across branches, so it was deliberately not
+        done tonight (team lead, 2026-09-16) — as a stopgap, not as an answer.
+        Whoever picks up the column fix should delete this class and its three
+        siblings in the same commit.
       */}
       {searchNotice && (
         <p
           aria-hidden="true"
           className={cn(
-            'flex items-start gap-2 text-sm',
+            'flex items-start gap-2 text-sm max-lg:pr-14',
             archiveError ? 'text-amber-600 dark:text-amber-500' : 'text-muted-foreground'
           )}
         >
