@@ -64,7 +64,20 @@ export const navMeta = { label: 'My AI Pulse' };
 
 export const dynamic = 'force-dynamic';
 
-async function checkPermission(key: string): Promise<boolean> {
+/**
+ * "You may not" and "we could not find out" are different answers, and only the
+ * first one may redirect. A `user_has_permission` RPC that fails in transport
+ * used to return false, which sent a perfectly entitled learner to
+ * /unauthorized — a silent redirect they cannot diagnose.
+ */
+interface PermissionCheck {
+  allowed: boolean;
+  failed: boolean;
+}
+
+const PERMISSION_GRANTED: PermissionCheck = { allowed: true, failed: false };
+
+async function checkPermission(key: string): Promise<PermissionCheck> {
   try {
     const supabase = await createClient();
     const { data, error } = await supabase.rpc('user_has_permission', {
@@ -72,13 +85,82 @@ async function checkPermission(key: string): Promise<boolean> {
     });
     if (error) {
       console.error(`[ai-pulse/page] user_has_permission(${key}) failed:`, error);
-      return false;
+      return { allowed: false, failed: true };
     }
-    return data === true;
+    return { allowed: data === true, failed: false };
   } catch (e) {
     console.error(`[ai-pulse/page] permission check threw for ${key}:`, e);
-    return false;
+    return { allowed: false, failed: true };
   }
+}
+
+/**
+ * getEnhancedUserProfile returns `{ profile: null, error }` both when nobody is
+ * signed in and when the profile read itself failed. Only the first belongs at
+ * the login page; bouncing a signed-in learner to login because a query timed
+ * out is the same dead end by another route.
+ */
+function isMissingSession(error: Error | null): boolean {
+  if (!error) return true; // no profile and no reason given — treat as no session
+  return /no authenticated user|auth session missing|not authenticated|jwt|refresh token/i.test(
+    error.message ?? ''
+  );
+}
+
+/** Reads opted into surfacing their failures instead of degrading silently. */
+const SURFACE_ERRORS = { throwOnError: true } as const;
+
+/** The inline "we couldn't load this" strip, shared by both places using it. */
+function RetryNotice({
+  message,
+  retryHref,
+}: {
+  message: string;
+  retryHref: string;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+      <span>{message}</span>
+      <a
+        href={retryHref}
+        className="shrink-0 rounded-md border border-amber-300 px-3 py-1.5 text-xs font-medium hover:bg-amber-100 dark:border-amber-800 dark:hover:bg-amber-900/40"
+      >
+        Try again
+      </a>
+    </div>
+  );
+}
+
+/**
+ * The page when we could not establish what to show at all. Deliberately NOT a
+ * redirect and NOT an empty-looking page: it names what failed and offers the
+ * way forward.
+ */
+function UnavailablePage({
+  what,
+  retryHref,
+}: {
+  what: string;
+  retryHref: string;
+}) {
+  return (
+    <ContentLayout title="My AI Pulse">
+      <PageBreadcrumb
+        items={[
+          { label: 'Home', href: '/' },
+          { label: 'AI Pulse', href: '/ai-pulse' },
+          { label: 'My AI Pulse' },
+        ]}
+      />
+      <div className="space-y-6 mt-4">
+        <h1 className="text-2xl font-bold py-1">My AI Pulse</h1>
+        <RetryNotice
+          message={`We couldn't load ${what} just now. This is a problem on our side, not with your account.`}
+          retryHref={retryHref}
+        />
+      </div>
+    </ContentLayout>
+  );
 }
 
 /**
@@ -119,21 +201,41 @@ export default async function AiPulseLearnerPage({
   const failed: string[] = [];
 
   // searchParams does not depend on the profile read — resolve both together.
-  const [{ profile }, sp] = await Promise.all([
+  const [{ profile, error: profileError }, sp] = await Promise.all([
     getEnhancedUserProfile(),
     searchParams,
   ]);
 
+  // Resolve the cycle to show. Default = current week; the week switcher can
+  // deep-link any past cycle via ?cycle=<id>. cycles[] backs the switcher.
+  const requestedCycleId =
+    typeof sp?.cycle === 'string' && sp.cycle.length > 0 ? sp.cycle : null;
+
+  // Same URL, full reload — the page is force-dynamic, so this re-runs every read.
+  const retryHref = requestedCycleId
+    ? `/ai-pulse/my-pulse?cycle=${encodeURIComponent(requestedCycleId)}`
+    : '/ai-pulse/my-pulse';
+
   if (!profile) {
-    redirect('/auth/login?next=/ai-pulse');
+    if (isMissingSession(profileError)) {
+      redirect('/auth/login?next=/ai-pulse');
+    }
+    // We could not find out who this is. Sending them to login would tell them
+    // to fix something that is not broken.
+    return <UnavailablePage what="your profile" retryHref={retryHref} />;
   }
 
   // Permission gate + action permissions in ONE round trip. This used to be the
   // gate RPC awaited alone, then three more — four serial hops before any data
   // read could start. super_admin short-circuits all four.
-  const [canView, canDomainSync, canQuiz, canPublication] =
+  const [viewCheck, domainSyncCheck, quizCheck, publicationCheck] =
     profile.is_super_admin === true
-      ? [true, true, true, true]
+      ? [
+          PERMISSION_GRANTED,
+          PERMISSION_GRANTED,
+          PERMISSION_GRANTED,
+          PERMISSION_GRANTED,
+        ]
       : await Promise.all([
           checkPermission('aiPulse:view.self'),
           checkPermission('aiPulse:submit.domain_sync'),
@@ -141,24 +243,48 @@ export default async function AiPulseLearnerPage({
           checkPermission('aiPulse:submit.publication'),
         ]);
 
-  if (!canView) {
+  // A gate we could not READ is not a gate that said no.
+  if (viewCheck.failed) {
+    return (
+      <UnavailablePage what="your AI Pulse access" retryHref={retryHref} />
+    );
+  }
+  if (!viewCheck.allowed) {
     redirect('/unauthorized?module=ai-pulse');
   }
 
-  // Resolve the cycle to show. Default = current week; the week switcher can
-  // deep-link any past cycle via ?cycle=<id>. cycles[] backs the switcher.
-  const requestedCycleId =
-    typeof sp?.cycle === 'string' && sp.cycle.length > 0 ? sp.cycle : null;
+  const canDomainSync = domainSyncCheck.allowed;
+  const canQuiz = quizCheck.allowed;
+  const canPublication = publicationCheck.allowed;
+
+  // An action key we could not read hides its button, so say so rather than
+  // letting the learner think the action was withdrawn.
+  if (domainSyncCheck.failed || quizCheck.failed || publicationCheck.failed) {
+    failed.push('permissions');
+  }
 
   // Cycle list, current cycle, the deep-linked cycle and the Gold card are four
   // independent reads. They used to run in three waves (list+current, then the
   // deep-linked cycle, then Gold at the very end); now one.
   const [cycles, currentCycle, requestedCycle, gold] = await Promise.all([
-    settle(AiPulseLearnerService.listCyclesServer(), [], 'cycles', failed),
-    settle(AiPulseLearnerService.getCurrentCycleServer(), null, 'current-cycle', failed),
+    settle(
+      AiPulseLearnerService.listCyclesServer(12, SURFACE_ERRORS),
+      [],
+      'cycles',
+      failed
+    ),
+    settle(
+      AiPulseLearnerService.getCurrentCycleServer(SURFACE_ERRORS),
+      null,
+      'current-cycle',
+      failed
+    ),
     requestedCycleId
       ? settle(
-          AiPulseLearnerService.getCycleByIdServer(requestedCycleId),
+          AiPulseLearnerService.getCycleByIdServer(
+            requestedCycleId,
+            SURFACE_ERRORS
+          ),
           null,
           'requested-cycle',
           failed
@@ -166,8 +292,21 @@ export default async function AiPulseLearnerPage({
       : Promise.resolve(null),
     // CARE R-move: latest faculty-picked Gold (null until the first Monday Lab
     // scores a cycle — the card hides itself).
-    settle(AiPulseLearnerService.getLatestGoldServer(), null, 'gold', failed),
+    settle(
+      AiPulseLearnerService.getLatestGoldServer(undefined, SURFACE_ERRORS),
+      null,
+      'gold',
+      failed
+    ),
   ]);
+
+  // Every card below is scoped to a cycle. If the cycle read itself failed, a
+  // null cycle is a guess, and the page would state "no active cycle" with the
+  // same confidence it states a real one — exactly the dead end the four
+  // reporters could not get past. Say what happened instead.
+  if (failed.includes('current-cycle') || failed.includes('requested-cycle')) {
+    return <UnavailablePage what="your AI Pulse week" retryHref={retryHref} />;
+  }
 
   // A hand-typed / stale ?cycle= id that isn't an ai_pulse cycle falls back to
   // the current cycle rather than showing an empty page.
@@ -216,19 +355,33 @@ export default async function AiPulseLearnerPage({
       // instead of a permanent "pending".
       const [teamResult, attendanceResult, streakResult] = await Promise.all([
         settle(
-          AiPulseLearnerService.getMyTeam(cycle.id, profile.id, supabase),
+          AiPulseLearnerService.getMyTeam(
+            cycle.id,
+            profile.id,
+            supabase,
+            SURFACE_ERRORS
+          ),
           null,
           'team',
           failed
         ),
         settle(
-          AiPulseLearnerService.getMyAttendance(cycle.id, profile.id, supabase),
+          AiPulseLearnerService.getMyAttendance(
+            cycle.id,
+            profile.id,
+            supabase,
+            SURFACE_ERRORS
+          ),
           attendance,
           'attendance',
           failed
         ),
         settle(
-          AiPulseLearnerService.getMyStreak(profile.id, supabase),
+          AiPulseLearnerService.getMyStreak(
+            profile.id,
+            supabase,
+            SURFACE_ERRORS
+          ),
           0,
           'streak',
           failed
@@ -239,11 +392,6 @@ export default async function AiPulseLearnerPage({
       streak = streakResult;
     }
   }
-
-  // Same URL, full reload — the page is force-dynamic, so this re-runs every read.
-  const retryHref = requestedCycleId
-    ? `/ai-pulse/my-pulse?cycle=${encodeURIComponent(requestedCycleId)}`
-    : '/ai-pulse/my-pulse';
 
   return (
     <ContentLayout title="My AI Pulse">
@@ -286,18 +434,10 @@ export default async function AiPulseLearnerPage({
         )}
 
         {failed.length > 0 && (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
-            <span>
-              Part of this page didn&apos;t load just now. Everything else is
-              shown below.
-            </span>
-            <a
-              href={retryHref}
-              className="shrink-0 rounded-md border border-amber-300 px-3 py-1.5 text-xs font-medium hover:bg-amber-100 dark:border-amber-800 dark:hover:bg-amber-900/40"
-            >
-              Try again
-            </a>
-          </div>
+          <RetryNotice
+            message="Part of this page didn't load just now. Everything else is shown below."
+            retryHref={retryHref}
+          />
         )}
 
         <div className="grid gap-4 md:grid-cols-2">

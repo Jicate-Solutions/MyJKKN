@@ -192,14 +192,59 @@ export function streakFromAttendance(
   return streak;
 }
 
+// --- Read failure surfacing ----------------------------------------------
+
+/**
+ * Every server read below degrades to an empty shape on failure, which is right
+ * for the client hooks: a card that renders nothing beats a card that crashes.
+ *
+ * It is WRONG for the My AI Pulse server page. There, a stalled `startup_events`
+ * read came back as `null` and the page stated, with total confidence, that the
+ * learner had no active cycle — the same honest-looking empty page the four
+ * BUG-0055xx reporters could not get past. `throwOnError` lets that page tell a
+ * failed read apart from a genuinely empty one and offer a retry instead.
+ *
+ * Opt-in and last-positional, so no existing caller changes behaviour.
+ */
+export interface AiPulseReadOptions {
+  throwOnError?: boolean;
+}
+
+/** Raised only when the caller passed `throwOnError`. */
+export class AiPulseReadError extends Error {
+  readonly read: string;
+
+  constructor(read: string, options?: { cause?: unknown }) {
+    super(`[ai-pulse/learner] ${read} failed`, options);
+    this.name = 'AiPulseReadError';
+    this.read = read;
+  }
+}
+
 // --- Service -------------------------------------------------------------
 
 export class AiPulseLearnerService {
   /**
+   * Log a failed read, and surface it to the caller when they asked for that.
+   * Callers still `return` their empty shape on the line after — this only
+   * throws under `throwOnError`.
+   */
+  private static fail(
+    read: string,
+    cause: unknown,
+    opts?: AiPulseReadOptions
+  ): void {
+    console.error(`[ai-pulse/learner] ${read} failed:`, cause);
+    if (opts?.throwOnError) throw new AiPulseReadError(read, { cause });
+  }
+
+  /**
    * Find the current week's AI Pulse cycle for `startup_events`.
    * Server-side variant — uses the SSR Supabase client (RLS-enforced).
    */
-  static async getCurrentCycleServer(): Promise<AiPulseCycle | null> {
+  static async getCurrentCycleServer(
+    opts?: AiPulseReadOptions
+  ): Promise<AiPulseCycle | null> {
     try {
       const supabase = await createServerSupabaseClient();
       const { start, end } = currentWeekBounds();
@@ -214,12 +259,13 @@ export class AiPulseLearnerService {
         .maybeSingle();
 
       if (error) {
-        console.error('[ai-pulse/learner] getCurrentCycleServer failed:', error);
+        AiPulseLearnerService.fail('getCurrentCycleServer', error, opts);
         return null;
       }
       return (data as AiPulseCycle) ?? null;
     } catch (e) {
-      console.error('[ai-pulse/learner] getCurrentCycleServer threw:', e);
+      if (e instanceof AiPulseReadError) throw e;
+      AiPulseLearnerService.fail('getCurrentCycleServer', e, opts);
       return null;
     }
   }
@@ -261,7 +307,10 @@ export class AiPulseLearnerService {
    * is no longer hidden: it comes back with has_prompt=false so the page can
    * say so plainly instead of making the session invisible.
    */
-  static async listCyclesServer(limit = 12): Promise<AiPulseCycle[]> {
+  static async listCyclesServer(
+    limit = 12,
+    opts?: AiPulseReadOptions
+  ): Promise<AiPulseCycle[]> {
     try {
       const supabase = await createServerSupabaseClient();
       const { data, error } = await (supabase as any).rpc(
@@ -269,7 +318,7 @@ export class AiPulseLearnerService {
         { p_limit: limit }
       );
       if (error) {
-        console.error('[ai-pulse/learner] listCyclesServer failed:', error);
+        AiPulseLearnerService.fail('listCyclesServer', error, opts);
         return [];
       }
       return ((data as Array<Record<string, unknown>>) ?? []).map((r) => ({
@@ -282,7 +331,8 @@ export class AiPulseLearnerService {
         has_prompt: r.has_prompt === true,
       })) as AiPulseCycle[];
     } catch (e) {
-      console.error('[ai-pulse/learner] listCyclesServer threw:', e);
+      if (e instanceof AiPulseReadError) throw e;
+      AiPulseLearnerService.fail('listCyclesServer', e, opts);
       return [];
     }
   }
@@ -292,7 +342,10 @@ export class AiPulseLearnerService {
    * the week switcher navigates to. Returns null if the id is not an ai_pulse
    * cycle (guards against a hand-typed / stale param).
    */
-  static async getCycleByIdServer(id: string): Promise<AiPulseCycle | null> {
+  static async getCycleByIdServer(
+    id: string,
+    opts?: AiPulseReadOptions
+  ): Promise<AiPulseCycle | null> {
     try {
       const supabase = await createServerSupabaseClient();
       const { data, error } = await (supabase as any)
@@ -302,12 +355,13 @@ export class AiPulseLearnerService {
         .filter('config->>kind', 'eq', 'ai_pulse')
         .maybeSingle();
       if (error) {
-        console.error('[ai-pulse/learner] getCycleByIdServer failed:', error);
+        AiPulseLearnerService.fail('getCycleByIdServer', error, opts);
         return null;
       }
       return (data as AiPulseCycle) ?? null;
     } catch (e) {
-      console.error('[ai-pulse/learner] getCycleByIdServer threw:', e);
+      if (e instanceof AiPulseReadError) throw e;
+      AiPulseLearnerService.fail('getCycleByIdServer', e, opts);
       return null;
     }
   }
@@ -319,7 +373,8 @@ export class AiPulseLearnerService {
   static async getMyTeam(
     eventId: string,
     profileId: string,
-    client?: any
+    client?: any,
+    opts?: AiPulseReadOptions
   ): Promise<AiPulseTeamSummary | null> {
     try {
       const supabase = client ?? (await createServerSupabaseClient());
@@ -328,7 +383,13 @@ export class AiPulseLearnerService {
         .from('event_registrations')
         .select('id, team_name')
         .eq('event_id', eventId);
-      if (regErr || !regs || regs.length === 0) return null;
+      // A failed read and an event with no registrations both used to return
+      // null. Only the first is a failure.
+      if (regErr) {
+        AiPulseLearnerService.fail('getMyTeam:registrations', regErr, opts);
+        return null;
+      }
+      if (!regs || regs.length === 0) return null;
       const regIds = regs.map((r: any) => r.id);
 
       // Find this profile's accepted membership
@@ -339,7 +400,11 @@ export class AiPulseLearnerService {
         .eq('profile_id', profileId)
         .eq('status', 'accepted')
         .maybeSingle();
-      if (memErr || !member) return null;
+      if (memErr) {
+        AiPulseLearnerService.fail('getMyTeam:membership', memErr, opts);
+        return null;
+      }
+      if (!member) return null; // not on a team for this cycle — not a failure
 
       const reg = regs.find((r: any) => r.id === member.registration_id);
 
@@ -350,6 +415,12 @@ export class AiPulseLearnerService {
         .eq('registration_id', member.registration_id)
         .eq('status', 'accepted');
 
+      // An unreadable sibling count still degrades to 0 for existing callers;
+      // only an opted-in caller hears about it.
+      if (countErr && opts?.throwOnError) {
+        AiPulseLearnerService.fail('getMyTeam:memberCount', countErr, opts);
+      }
+
       return {
         registration_id: member.registration_id,
         team_name: reg?.team_name ?? null,
@@ -358,7 +429,8 @@ export class AiPulseLearnerService {
         member_count: countErr || typeof count !== 'number' ? 0 : count,
       };
     } catch (e) {
-      console.error('[ai-pulse/learner] getMyTeam threw:', e);
+      if (e instanceof AiPulseReadError) throw e;
+      AiPulseLearnerService.fail('getMyTeam', e, opts);
       return null;
     }
   }
@@ -370,7 +442,8 @@ export class AiPulseLearnerService {
   static async getMyAttendance(
     eventId: string,
     profileId: string,
-    client?: any
+    client?: any,
+    opts?: AiPulseReadOptions
   ): Promise<AiPulseAttendance> {
     try {
       const supabase = client ?? (await createServerSupabaseClient());
@@ -390,8 +463,13 @@ export class AiPulseLearnerService {
         .limit(1)
         .maybeSingle();
 
-      if (error || !data) {
-        // No row = the learner has not joined this cycle's session.
+      if (error) {
+        AiPulseLearnerService.fail('getMyAttendance', error, opts);
+        return { state: 'pending', day_type: null, marked_at: null, signals: null };
+      }
+      if (!data) {
+        // No row = the learner has not joined this cycle's session. This is an
+        // answer, not a failure — it must never light the retry notice.
         return { state: 'pending', day_type: null, marked_at: null, signals: null };
       }
       // A row's existence == presence (there is no status column here). Classify
@@ -406,7 +484,8 @@ export class AiPulseLearnerService {
         signals: (data as any).engagement_signals ?? null,
       };
     } catch (e) {
-      console.error('[ai-pulse/learner] getMyAttendance threw:', e);
+      if (e instanceof AiPulseReadError) throw e;
+      AiPulseLearnerService.fail('getMyAttendance', e, opts);
       return { state: 'unknown', day_type: null, marked_at: null, signals: null };
     }
   }
@@ -417,7 +496,8 @@ export class AiPulseLearnerService {
    */
   static async getMyStreak(
     profileId: string,
-    client?: any
+    client?: any,
+    opts?: AiPulseReadOptions
   ): Promise<number> {
     try {
       const supabase = client ?? (await createServerSupabaseClient());
@@ -429,7 +509,11 @@ export class AiPulseLearnerService {
         .filter('config->>kind', 'eq', 'ai_pulse')
         .order('start_date', { ascending: false })
         .limit(12);
-      if (cyErr || !cycles || cycles.length === 0) return 0;
+      if (cyErr) {
+        AiPulseLearnerService.fail('getMyStreak:cycles', cyErr, opts);
+        return 0;
+      }
+      if (!cycles || cycles.length === 0) return 0;
 
       const cycleIds = (cycles as Array<{ id: string }>).map((c) => c.id);
 
@@ -446,16 +530,14 @@ export class AiPulseLearnerService {
         .eq('profile_id', profileId)
         .order('joined_at', { ascending: false });
       if (attErr) {
-        console.error(
-          '[ai-pulse/learner] getMyStreak attendance read failed:',
-          attErr
-        );
+        AiPulseLearnerService.fail('getMyStreak:attendance', attErr, opts);
         return 0;
       }
 
       return streakFromAttendance(cycleIds, (rows ?? []) as AttendanceRow[]);
     } catch (e) {
-      console.error('[ai-pulse/learner] getMyStreak threw:', e);
+      if (e instanceof AiPulseReadError) throw e;
+      AiPulseLearnerService.fail('getMyStreak', e, opts);
       return 0;
     }
   }
@@ -472,7 +554,8 @@ export class AiPulseLearnerService {
    * card hides rather than rendering an empty shell.
    */
   static async getLatestGoldServer(
-    client?: any
+    client?: any,
+    opts?: AiPulseReadOptions
   ): Promise<AiPulseGoldWeek | null> {
     try {
       const supabase = client ?? (await createServerSupabaseClient());
@@ -483,7 +566,11 @@ export class AiPulseLearnerService {
         .filter('config->>kind', 'eq', 'ai_pulse')
         .order('demo_date', { ascending: false, nullsFirst: false })
         .limit(6);
-      if (cyErr || !cycles) return null;
+      if (cyErr) {
+        AiPulseLearnerService.fail('getLatestGoldServer:cycles', cyErr, opts);
+        return null;
+      }
+      if (!cycles) return null;
 
       for (const cycle of cycles as any[]) {
         const aiPulse = (cycle.config?.ai_pulse ?? cycle.config ?? {}) as Record<
@@ -505,7 +592,10 @@ export class AiPulseLearnerService {
         // submission → registration → team name. The department names do not
         // depend on that chain, so both reads start together instead of the
         // second waiting on the first.
-        const [{ data: subs }, { data: depts }] = await Promise.all([
+        const [
+          { data: subs, error: subErr },
+          { data: depts, error: deptErr },
+        ] = await Promise.all([
           (supabase as any)
             .from('event_submissions')
             .select('id, registration_id')
@@ -515,17 +605,33 @@ export class AiPulseLearnerService {
             .select('id, department_name')
             .in('id', deptIds),
         ]);
+        if (subErr || deptErr) {
+          AiPulseLearnerService.fail(
+            'getLatestGoldServer:winners',
+            subErr ?? deptErr,
+            opts
+          );
+          return null;
+        }
         const regIds = Array.from(
           new Set(
             ((subs ?? []) as any[]).map((s) => s.registration_id).filter(Boolean)
           )
         );
-        const { data: regs } = regIds.length
+        const { data: regs, error: regErr } = regIds.length
           ? await (supabase as any)
               .from('event_registrations')
               .select('id, team_name')
               .in('id', regIds)
-          : { data: [] };
+          : { data: [], error: null };
+        if (regErr) {
+          AiPulseLearnerService.fail(
+            'getLatestGoldServer:registrations',
+            regErr,
+            opts
+          );
+          return null;
+        }
         const teamByReg = new Map(
           ((regs ?? []) as any[]).map((r) => [r.id, r.team_name ?? 'Team'])
         );
@@ -558,7 +664,8 @@ export class AiPulseLearnerService {
       }
       return null;
     } catch (e) {
-      console.error('[ai-pulse/learner] getLatestGoldServer threw:', e);
+      if (e instanceof AiPulseReadError) throw e;
+      AiPulseLearnerService.fail('getLatestGoldServer', e, opts);
       return null;
     }
   }

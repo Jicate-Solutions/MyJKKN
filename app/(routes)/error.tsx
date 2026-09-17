@@ -13,7 +13,7 @@
  * catches everything else.
  */
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -25,10 +25,64 @@ interface ErrorProps {
   reset: () => void;
 }
 
+/** How long a re-mount has to cancel a pending marker clear. */
+const REMOUNT_GRACE_MS = 3_000;
+
+/**
+ * Module scope, one per tab.
+ *
+ * Next.js unmounts this component in BOTH outcomes of a retry: when the
+ * children finally render, and, for an instant, when they throw again and the
+ * boundary re-mounts with the new error. From in here the two are identical, so
+ * the "already retried" marker is cleared on a short delay and a re-mount
+ * cancels that clear. A successful render therefore drops the marker and the
+ * next navigation gets a fresh retry; a repeat failure keeps it and there is no
+ * second automatic retry. No wall-clock cooldown decides anything.
+ */
+let pendingMarkerClear: ReturnType<typeof setTimeout> | null = null;
+
+function retryMarkerKey(pathname: string): string {
+  return `network-retry:${pathname}`;
+}
+
 export default function RoutesError({ error, reset }: ErrorProps) {
   const pathname = usePathname();
 
+  // `reset` gets a new identity on every render. Holding it in a ref keeps it
+  // out of the retry effect's dependencies, so a re-render cannot cancel a
+  // retry that is already scheduled. The ref is initialised with the first
+  // `reset`, so a retry scheduled on the very first render already has a usable
+  // one; this effect only keeps it current afterwards.
+  const resetRef = useRef(reset);
   useEffect(() => {
+    resetRef.current = reset;
+  });
+
+  // Clear the marker once this boundary is gone for good — see the note on
+  // pendingMarkerClear. Runs on unmount, and when the route changes.
+  useEffect(() => {
+    const key = retryMarkerKey(pathname);
+    return () => {
+      if (pendingMarkerClear !== null) clearTimeout(pendingMarkerClear);
+      pendingMarkerClear = setTimeout(() => {
+        pendingMarkerClear = null;
+        try {
+          sessionStorage.removeItem(key);
+        } catch {
+          // storage blocked — nothing to clear
+        }
+      }, REMOUNT_GRACE_MS);
+    };
+  }, [pathname]);
+
+  useEffect(() => {
+    // Mounting inside the grace window means the retry failed again, so the
+    // marker must survive.
+    if (pendingMarkerClear !== null) {
+      clearTimeout(pendingMarkerClear);
+      pendingMarkerClear = null;
+    }
+
     // eslint-disable-next-line no-console
     console.error('[routes/error-boundary]', {
       pathname,
@@ -61,8 +115,11 @@ export default function RoutesError({ error, reset }: ErrorProps) {
     // Network errors: the page's own request was cut or stalled rather than the
     // app throwing. Four reporters hit this on /ai-pulse/my-pulse in four
     // minutes (BUG-005574/5576/5579/5581) and every one of them saw a dead card
-    // where a reload would have worked. Retry once, quietly, then leave it to
-    // the button. Guarded like the chunk path so it can never loop.
+    // where a reload would have worked.
+    //
+    // This is the LAST resort — the pages themselves now degrade a failed read
+    // to an inline retry rather than reaching the boundary at all. Exactly one
+    // automatic retry per navigation; after that the learner decides.
     const isNetworkError = /network error|failed to fetch|load failed/i.test(
       error.message ?? ''
     );
@@ -70,11 +127,9 @@ export default function RoutesError({ error, reset }: ErrorProps) {
     if (isNetworkError) {
       let mayRetry = false;
       try {
-        const key = `network-retry:${pathname}`;
-        const lastRetry = sessionStorage.getItem(key);
-        const now = Date.now();
-        if (!lastRetry || now - Number(lastRetry) > 30_000) {
-          sessionStorage.setItem(key, String(now));
+        const key = retryMarkerKey(pathname);
+        if (sessionStorage.getItem(key) === null) {
+          sessionStorage.setItem(key, '1');
           mayRetry = true;
         }
       } catch {
@@ -82,11 +137,11 @@ export default function RoutesError({ error, reset }: ErrorProps) {
         // auto retry rather than risk a loop. "Try Again" still works.
       }
       if (mayRetry) {
-        const timer = setTimeout(() => reset(), 1500);
+        const timer = setTimeout(() => resetRef.current(), 1500);
         return () => clearTimeout(timer);
       }
     }
-  }, [error, pathname, reset]);
+  }, [error, pathname]);
 
   const handleReportBug = () => {
     // The floating BugReporterWidget is mounted in app/(routes)/layout.tsx,
