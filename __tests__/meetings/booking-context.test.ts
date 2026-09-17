@@ -16,7 +16,7 @@ import {
 } from '@/lib/services/meetings/booking-context';
 
 const longAnswers = {
-  note: 'I need a decision on whether the AHS block can run the new lab rota from October, and who signs it off.',
+  note: 'I need a decision on whether the AHS block can run the new duty rota from October, and who signs it off.',
   background:
     'I have spoken to the HOD and to accounts; the rota is drafted and costed, and the only open point is approval.',
   why_this_long: 'Three people have to agree in the same room and the costing needs walking through.',

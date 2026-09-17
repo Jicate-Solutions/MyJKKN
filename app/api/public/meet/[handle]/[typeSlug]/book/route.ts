@@ -205,7 +205,9 @@ export async function POST(
       source: 'meet-page',
       payment: verifiedPayment,
     });
-    if (!booking.success) {
+    // `=== false`, not `!booking.success`: strictNullChecks is off repo-wide, and
+    // without it a negation does not narrow the result to its failure shape.
+    if (booking.success === false) {
       if (booking.error === 'SLOT_TAKEN' || booking.error === 'INVALID_SLOT') {
         return NextResponse.json({ error: 'slot_taken' }, { status: 409 });
       }
