@@ -62,7 +62,9 @@ export function useCreateReviewComment(eventId: string) {
             );
           }
           if (result.skipped.length > 0) {
-            toast.error(`Not tagged (not a team member): ${result.skipped.join(', ')}`);
+            toast.error(
+              `Not tagged (not a team member of this event's institution): ${result.skipped.join(', ')}`,
+            );
           }
         } catch (e) {
           toast.error(
@@ -105,6 +107,20 @@ export function useSetReviewCommentResolved(eventId: string) {
       toast.success(resolved ? 'Marked as resolved' : 'Thread reopened');
     },
     onError: (e: Error) => toast.error(e.message || 'The thread could not be updated'),
+  });
+}
+
+/** Untag one person: their access to this event's review thread ends; the comment stays. */
+export function useUntagReviewComment(eventId: string) {
+  const invalidate = useInvalidate(eventId);
+  return useMutation({
+    mutationFn: ({ commentId, userId }: { commentId: string; userId: string }) =>
+      EventReviewCommentService.untag(commentId, userId),
+    onSuccess: () => {
+      invalidate();
+      toast.success('Tag removed — they no longer have access to this discussion');
+    },
+    onError: (e: Error) => toast.error(e.message || 'The tag could not be removed'),
   });
 }
 

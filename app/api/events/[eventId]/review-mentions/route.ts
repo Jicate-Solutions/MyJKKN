@@ -19,8 +19,10 @@ export const dynamic = 'force-dynamic';
 // created, so a refused tag can never produce a notification.
 //
 // Tagging grants the tagged person read access to this event's review thread
-// (fn_can_read_event_review_comments) — see
-// supabase/migrations/20261220096000_event_review_comment_mentions.sql.
+// (fn_can_read_event_review_comments), and only team members of the event's
+// institution can be tagged. Untagging is a direct, RLS-checked delete from the
+// browser. See supabase/migrations/20261220096000_event_review_comment_mentions.sql
+// and 20261224110000_event_review_mentions_same_institution_untag.sql.
 // ============================================================================
 
 import { createHash } from 'node:crypto';
@@ -97,8 +99,10 @@ export async function POST(
   // itself stays in SQL: this asks the same function the trigger uses.
   const eligibility = await Promise.all(
     wanted.map(async (id) => {
-      const { data } = await (service as any).rpc('fn_can_be_tagged_in_event_review', {
+      // Team member of THIS event's institution (20261224110000).
+      const { data } = await (service as any).rpc('fn_can_be_tagged_on_event', {
         p_user_id: id,
+        p_event_id: eventId,
       });
       return { id, ok: data === true };
     }),
@@ -122,7 +126,7 @@ export async function POST(
     return NextResponse.json(
       {
         success: false,
-        error: 'Only team members can be tagged in review comments — learners never see this thread.',
+        error: "Only team members of this event's institution can be tagged — learners never see this thread.",
         skipped: ineligible.map((id) => names.get(id) ?? 'Unknown'),
       },
       { status: 400 },

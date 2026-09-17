@@ -76,7 +76,7 @@ const toComment = (row: RawRow): EventReviewComment => {
 export interface TagPeopleResult {
   /** Names newly tagged (and notified) by this call. */
   tagged: string[];
-  /** Names refused because they are not staff. */
+  /** Names refused because they are not team members of the event's institution. */
   skipped: string[];
   notified: number;
   /** Set when the tags saved but the notification could not be sent. */
@@ -247,6 +247,40 @@ export class EventReviewCommentService {
       return toComment(data as RawRow);
     } catch (error) {
       logger.error(MOD, 'Unexpected error in setResolved', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Remove one tag from your comment. Deleting the row IS the revocation — the
+   * thread's read gate asks whether a tag row exists — and the comment stays.
+   * The DELETE policy (comment author or super admin) is the authority, and
+   * `.select('id')` is here for the same reason as in deleteComment below.
+   */
+  static async untag(commentId: string, userId: string): Promise<void> {
+    try {
+      const { data, error } = await (this.supabase as any)
+        .from('event_review_comment_mentions')
+        .delete()
+        .eq('comment_id', commentId)
+        .eq('mentioned_user_id', userId)
+        .select('id');
+
+      if (error) {
+        logger.error(MOD, 'Failed to untag', {
+          commentId,
+          userId,
+          code: error.code,
+          message: error.message,
+        });
+        throw new Error(commentWriteMessage(error, 'untag people on this comment'));
+      }
+      if (!((data as unknown[]) ?? []).length) {
+        logger.error(MOD, 'Untag removed no rows (RLS or already removed)', { commentId, userId });
+        throw new Error(commentWriteMessage({ code: 'PGRST116' }, 'untag people on this comment'));
+      }
+    } catch (error) {
+      logger.error(MOD, 'Unexpected error in untag', { message: (error as Error)?.message });
       throw error;
     }
   }

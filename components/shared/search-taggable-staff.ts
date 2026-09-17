@@ -1,7 +1,8 @@
 // components/shared/search-taggable-staff.ts
 //
 // Team-member search for CommentThreadPanel's tag picker, shared by the event
-// review thread and the reservation thread.
+// review thread and the reservation thread. Always scoped to the institution
+// that owns the event / booked resource.
 //
 // Reads the same staff directory the event committee picker uses (any signed-in
 // user, institution-scoped server-side). A hit whose member_id equals its staff
@@ -11,9 +12,8 @@
 
 import type { TaggablePerson } from '@/components/shared/comment-thread-panel';
 
-async function search(query: string, institutionId?: string): Promise<TaggablePerson[]> {
-  const params = new URLSearchParams({ role: 'staff', q: query });
-  if (institutionId) params.set('institution_id', institutionId);
+async function search(query: string, institutionId: string): Promise<TaggablePerson[]> {
+  const params = new URLSearchParams({ role: 'staff', q: query, institution_id: institutionId });
   const res = await fetch(`/api/events/committees/member-directory?${params.toString()}`);
   if (!res.ok) throw new Error('directory search failed');
   const json = (await res.json()) as {
@@ -25,16 +25,9 @@ async function search(query: string, institutionId?: string): Promise<TaggablePe
 }
 
 /**
- * Any team member the caller's institution scope allows. Module scope so its
- * identity is stable — the picker's search effect depends on it.
- */
-export function searchTaggableStaff(query: string): Promise<TaggablePerson[]> {
-  return search(query);
-}
-
-/**
- * Team members of ONE institution only. The server re-checks the institution
- * when the tag is written, so this narrows the list; it is not the gate.
+ * Team members of ONE institution only — the only way tag candidates are
+ * offered. The server re-checks the institution when the tag is written, so
+ * this narrows the list; it is not the gate.
  * Wrap the call in useMemo keyed on the id — a new function every render would
  * re-run the search on every keystroke.
  */
