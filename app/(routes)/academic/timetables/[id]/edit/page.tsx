@@ -307,7 +307,9 @@ export default function EditTimetablePage() {
   });
 
   // Watch form values for cascading dropdowns
-  const watchIsTemplate = form.watch('is_template');
+  // Whether the row was ALREADY a template when loaded. Only then is the
+  // template checkbox shown — to clear it (BUG-006045).
+  const loadedAsTemplate = timetable?.is_template === true;
   const watchInstitutionId = form.watch('institution_id');
   const watchDegreeId = form.watch('degree_id');
   const watchProgramId = form.watch('program_id');
@@ -728,8 +730,9 @@ export default function EditTimetablePage() {
           start_date: formatDateForDB(values.start_date),
           end_date: formatDateForDB(values.end_date),
           is_active: values.is_active,
-          is_template: values.is_template,
-          template_name: values.is_template ? values.template_name : undefined,
+          // Can only stay a template or be cleared — never newly set (BUG-006045).
+          is_template: loadedAsTemplate ? values.is_template : false,
+          template_name: loadedAsTemplate && values.is_template ? values.template_name : undefined,
           // class_incharge_id is a "safe" field — editable even when attendance
           // exists. attendance_mode is omitted here because it is locked.
           class_incharge_id: values.class_incharge_id || null
@@ -754,8 +757,9 @@ export default function EditTimetablePage() {
           start_date: formatDateForDB(values.start_date),
           end_date: formatDateForDB(values.end_date),
           is_active: values.is_active,
-          is_template: values.is_template,
-          template_name: values.is_template ? values.template_name : undefined,
+          // Can only stay a template or be cleared — never newly set (BUG-006045).
+          is_template: loadedAsTemplate ? values.is_template : false,
+          template_name: loadedAsTemplate && values.is_template ? values.template_name : undefined,
           attendance_mode: values.attendance_mode,
           class_incharge_id: values.class_incharge_id || null
         };
@@ -1730,50 +1734,36 @@ export default function EditTimetablePage() {
                     )}
                   />
 
-                  <FormField
-                    control={form.control}
-                    name='is_template'
-                    render={({ field }) => (
-                      <FormItem className='flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4'>
-                        <FormControl>
-                          <Checkbox
-                            checked={field.value}
-                            onCheckedChange={field.onChange}
-                          />
-                        </FormControl>
-                        <div className='space-y-1 leading-none'>
-                          <FormLabel>Template</FormLabel>
-                          <FormDescription>
-                            Mark this as a reusable template
-                          </FormDescription>
-                        </div>
-                      </FormItem>
-                    )}
-                  />
+                  {/* BUG-006045 (2026-09-15): the flag is offered only to CLEAR
+                      it. Setting it here marked the live timetable as a template,
+                      hiding the class from the Pending dropdown, dashboard and AQS
+                      attendance reports. New templates are copies made from the
+                      detail page's "Save as Template". */}
+                  {loadedAsTemplate && (
+                    <FormField
+                      control={form.control}
+                      name='is_template'
+                      render={({ field }) => (
+                        <FormItem className='flex flex-row items-start space-x-3 space-y-0 rounded-md border border-amber-300 bg-amber-50 p-4 dark:bg-amber-950/30'>
+                          <FormControl>
+                            <Checkbox
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                            />
+                          </FormControl>
+                          <div className='space-y-1 leading-none'>
+                            <FormLabel>Marked as Template</FormLabel>
+                            <FormDescription>
+                              Templates are hidden from attendance pending lists,
+                              the dashboard and attendance reports. Untick if
+                              sessions actually run on this timetable.
+                            </FormDescription>
+                          </div>
+                        </FormItem>
+                      )}
+                    />
+                  )}
                 </div>
-
-                {watchIsTemplate && (
-                  <FormField
-                    control={form.control}
-                    name='template_name'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Template Name</FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder='Enter template name'
-                            {...field}
-                            value={field.value || ''}
-                          />
-                        </FormControl>
-                        <FormDescription>
-                          A descriptive name for this template
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                )}
 
                 <div className='flex justify-end space-x-4'>
                   <Button
