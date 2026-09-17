@@ -2,6 +2,7 @@ import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { updateWithResolvedBy } from '@/lib/api/bug-reports/resolved-by';
 
 /**
  * POST /api/bug-reports/[id]/reopen
@@ -81,15 +82,20 @@ export async function POST(
     // (it stays grouped) and reopen the CANONICAL bug instead — that is where
     // the fix work happens, and a reopen on any copy means the fix failed.
     const isDuplicate = !!bugReport.duplicate_of;
-    const { data: updatedBug, error: updateError } = await supabase
-      .from('bug_reports')
-      .update({
+    // resolved_by goes with resolved_at: a reopened bug has no resolver.
+    const { data: updatedBug, error: updateError } = await updateWithResolvedBy(
+      {
         status: isDuplicate ? 'duplicate' : 'in_progress',
-        resolved_at: null
-      })
-      .eq('id', reportId)
-      .select()
-      .single();
+        resolved_at: null,
+        resolved_by: null
+      },
+      (payload) =>
+        (supabase.from('bug_reports') as any)
+          .update(payload)
+          .eq('id', reportId)
+          .select()
+          .single()
+    );
 
     if (updateError || !updatedBug) {
       logger.error('bug-reports/api', 'Failed to reopen bug', updateError);
@@ -123,7 +129,7 @@ export async function POST(
         const { error: canonicalError } = await (
           adminSupabase.from('bug_reports') as any
         )
-          .update({ status: 'in_progress', resolved_at: null })
+          .update({ status: 'in_progress', resolved_at: null, resolved_by: null })
           .eq('id', bugReport.duplicate_of)
           .eq('status', 'resolved');
 

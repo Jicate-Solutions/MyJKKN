@@ -116,7 +116,7 @@ export default function RfqDetailPage() {
 
   return (
     <ContentLayout title={rfq.rfq_number}>
-      <div className="space-y-6 max-w-5xl">
+      <div className="space-y-4 sm:space-y-6 max-w-5xl">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <Button
@@ -128,7 +128,7 @@ export default function RfqDetailPage() {
               <ArrowLeft className="h-4 w-4" />
             </Button>
             <div>
-              <h2 className="text-2xl font-bold tracking-tight">{rfq.rfq_number}</h2>
+              <h2 className="text-xl sm:text-2xl font-bold tracking-tight">{rfq.rfq_number}</h2>
               <p className="text-muted-foreground">
                 {rfq.source_request?.request_number
                   ? `From ${rfq.source_request.request_number}`
@@ -136,7 +136,11 @@ export default function RfqDetailPage() {
               </p>
             </div>
           </div>
-          <StatusBadge status={rfq.status} config={RFQ_STATUS_CONFIG} className="text-sm" />
+          <StatusBadge
+            status={rfq.status}
+            config={RFQ_STATUS_CONFIG}
+            className="self-start text-sm sm:self-auto"
+          />
         </div>
 
         {/* Rejected: show the reviewer's reason and prompt a resubmit. */}
@@ -151,12 +155,12 @@ export default function RfqDetailPage() {
         )}
 
         {/* Actions */}
-        <div className="flex flex-wrap gap-3">
-          <Button onClick={() => router.push(`/procurement/rfqs/${rfq.id}/quotations`)}>
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
+          <Button className="w-full sm:w-auto" onClick={() => router.push(`/procurement/rfqs/${rfq.id}/quotations`)}>
             <ClipboardList className="mr-2 h-4 w-4" />
             Quotations &amp; awards
           </Button>
-          <Button variant="outline" onClick={() => downloadRequirementListPdf(rfq)}>
+          <Button variant="outline" className="w-full sm:w-auto" onClick={() => downloadRequirementListPdf(rfq)}>
             <FileDown className="mr-2 h-4 w-4" />
             Requirement List (PDF)
           </Button>
@@ -164,6 +168,7 @@ export default function RfqDetailPage() {
           {/* draft | rejected → submit for Super-Admin review */}
           {canSubmitForReview && (
             <Button
+              className="w-full sm:w-auto"
               disabled={rfq.vendors.length === 0 || rfq.items.length === 0}
               onClick={() => run(() => submitForReview.mutateAsync(rfq.id), 'Submitted for review')}
             >
@@ -176,6 +181,7 @@ export default function RfqDetailPage() {
           {canApprove && rfq.status === 'pending_review' && (
             <>
               <Button
+                className="w-full sm:w-auto"
                 onClick={() =>
                   run(
                     () => approveRfq.mutateAsync({ rfqId: rfq.id, reviewerId: profile!.id }),
@@ -188,7 +194,7 @@ export default function RfqDetailPage() {
               </Button>
               <Button
                 variant="outline"
-                className="text-destructive hover:text-destructive sm:ml-auto"
+                className="w-full text-destructive hover:text-destructive sm:ml-auto sm:w-auto"
                 onClick={() => setRejectOpen(true)}
               >
                 <Ban className="mr-2 h-4 w-4" />
@@ -200,6 +206,7 @@ export default function RfqDetailPage() {
           {/* approved → send to vendors */}
           {canManage && rfq.status === 'approved' && (
             <Button
+              className="w-full sm:w-auto"
               disabled={rfq.vendors.length === 0}
               onClick={() => run(() => markSent.mutateAsync(rfq.id), 'RFQ sent to vendors')}
             >
@@ -240,7 +247,7 @@ export default function RfqDetailPage() {
 
         {/* Vendors */}
         <Card>
-          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <CardHeader className="flex flex-col gap-2 sm:gap-3 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle className="text-base">Vendors ({rfq.vendors.length})</CardTitle>
             {editable && availableVendors.length > 0 && (
               <div className="w-full sm:w-[220px]">
@@ -329,11 +336,12 @@ export default function RfqDetailPage() {
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRejectOpen(false)}>
+            <Button variant="outline" className="w-full sm:w-auto" onClick={() => setRejectOpen(false)}>
               Cancel
             </Button>
             <Button
               variant="destructive"
+              className="w-full sm:w-auto"
               disabled={!rejectNotes.trim()}
               onClick={async () => {
                 await run(

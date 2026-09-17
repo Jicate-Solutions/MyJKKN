@@ -88,11 +88,11 @@ export default function RfqsPage() {
 
   return (
     <ContentLayout title="RFQs">
-      <div className="space-y-6">
+      <div className="space-y-4 sm:space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h2 className="text-2xl font-bold tracking-tight">Requests for Quotation</h2>
-            <p className="text-muted-foreground">
+            <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Requests for Quotation</h2>
+            <p className="hidden text-muted-foreground sm:block">
               Convert approved requests into RFQs and issue requirement lists to vendors.
             </p>
           </div>
@@ -106,7 +106,7 @@ export default function RfqsPage() {
 
         <Card>
           <CardContent className="pt-6">
-            <div className="flex flex-col sm:flex-row gap-4">
+            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input

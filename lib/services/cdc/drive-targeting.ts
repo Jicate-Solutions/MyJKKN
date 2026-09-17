@@ -48,10 +48,22 @@ export function normalizeInstitutionSemesters(
           )
         ).sort((a, b) => a - b)
       : [];
+    const programsRaw = (entry as { program_ids?: unknown }).program_ids;
+    const programs = Array.isArray(programsRaw)
+      ? Array.from(new Set(programsRaw.filter((p): p is string => typeof p === 'string' && UUID_RE.test(p))))
+      : [];
     seen.add(inst);
-    out.push({ institution_id: inst, semester_orders: orders });
+    out.push({ institution_id: inst, semester_orders: orders, program_ids: programs });
   }
   return out;
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Does this drive restrict any institution to specific programs? */
+export function hasProgramTargeting(drive: Pick<CdcDrive, 'institution_semesters'>): boolean {
+  const t = drive.institution_semesters;
+  return Array.isArray(t) && t.some((e) => Array.isArray(e.program_ids) && e.program_ids.length > 0);
 }
 
 /** Does this drive carry any semester targeting at all? */
@@ -74,6 +86,8 @@ export function distinctSemesterOrders(drive: Pick<CdcDrive, 'institution_semest
 export interface LearnerTargetingInput {
   institution_id: string | null;
   semester_order: number | null;
+  /** learners_profiles.program_id — only consulted when the institution entry lists program_ids. */
+  program_id?: string | null;
 }
 
 /**
@@ -90,8 +104,28 @@ export function isLearnerTargeted(
     (e) => e.institution_id === learner.institution_id
   );
   if (!entry) return false;
+  if (entry.program_ids && entry.program_ids.length > 0) {
+    if (!learner.program_id || !entry.program_ids.includes(learner.program_id)) return false;
+  }
   if (!entry.semester_orders || entry.semester_orders.length === 0) return true; // whole institution
   return learner.semester_order != null && entry.semester_orders.includes(learner.semester_order);
+}
+
+/** Which part of the targeting rejected the learner (for learner-facing copy + diagnosis). */
+export function learnerTargetingMiss(
+  drive: Pick<CdcDrive, 'institutions' | 'institution_semesters'>,
+  learner: LearnerTargetingInput
+): 'institution' | 'program' | 'semester' | null {
+  if (!learner.institution_id || !drive.institutions.includes(learner.institution_id)) return 'institution';
+  const entry = (drive.institution_semesters ?? []).find((e) => e.institution_id === learner.institution_id);
+  if (!entry) return 'institution';
+  if (entry.program_ids && entry.program_ids.length > 0 && (!learner.program_id || !entry.program_ids.includes(learner.program_id))) {
+    return 'program';
+  }
+  if (entry.semester_orders.length > 0 && (learner.semester_order == null || !entry.semester_orders.includes(learner.semester_order))) {
+    return 'semester';
+  }
+  return null;
 }
 
 // ------------------------------------------------------------------------
@@ -161,11 +195,16 @@ export async function resolveTargetLearners(
     semesterIdsByInst.set(entry.institution_id, ids);
   }
 
-  // 2. Learners per institution.
+  // 2. Learners per institution (optionally restricted to the entry's programs).
+  const programIdsByInst = new Map<string, string[]>();
+  for (const entry of targeting) {
+    if (entry.program_ids && entry.program_ids.length > 0) programIdsByInst.set(entry.institution_id, entry.program_ids);
+  }
   const learners: Array<{ id: string; institution_id: string; semester_id: string | null }> = [];
   for (const [institutionId, semesterIds] of semesterIdsByInst) {
     if (semesterIds !== 'ALL' && semesterIds.length === 0) continue;
     const groups = semesterIds === 'ALL' ? [null] : chunk(semesterIds, IN_CHUNK);
+    const programIds = programIdsByInst.get(institutionId) ?? null;
     for (const group of groups) {
       let q = service
         .from('learners_profiles')
@@ -174,6 +213,7 @@ export async function resolveTargetLearners(
         .in('lifecycle_status', TARGET_LIFECYCLE)
         .limit(20000);
       if (group) q = q.in('semester_id', group);
+      if (programIds) q = q.in('program_id', programIds);
       const { data, error } = await q;
       if (error) throw error;
       for (const row of data ?? []) {

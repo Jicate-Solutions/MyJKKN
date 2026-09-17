@@ -281,7 +281,6 @@ function InventoryItemsPageInner() {
   const [categoryFilter, setCategoryFilter] = useState<string>('');
   const [typeFilter, setTypeFilter] = useState<string>('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [page, setPage] = useState(1);
   const [posFilter, setPosFilter] = useState<'all' | 'at_pos' | 'not_at_pos'>('all');
 
   // Which catalogue is on screen: what THIS store carries, or everything the
@@ -328,10 +327,13 @@ function InventoryItemsPageInner() {
 
   // Any filter change reshuffles the result set, so a previously-selected page
   // number may no longer exist (e.g. on page 5, then filter down to 2 pages).
-  // Snap back to page 1 whenever the active filters change.
-  useEffect(() => {
-    setPage(1);
-  }, [debouncedSearch, categoryFilter, typeFilter, posFilter, scope]);
+  // The page is remembered per filter combination, so a new combination starts at
+  // page 1 in the SAME render. Resetting it in an effect let one query go out with
+  // the new filters and the old page first, which PostgREST rejects (PGRST103).
+  const filterKey = [debouncedSearch, categoryFilter, typeFilter, posFilter, scope].join('|');
+  const [pageState, setPageState] = useState({ key: filterKey, page: 1 });
+  const page = pageState.key === filterKey ? pageState.page : 1;
+  const setPage = (next: number) => setPageState({ key: filterKey, page: next });
 
   // A selection describes rows in a particular result set. Once the filters move,
   // those rows may not even be on screen — carrying the selection across would let

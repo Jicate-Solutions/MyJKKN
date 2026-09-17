@@ -405,6 +405,7 @@ export class HRLeaveTypeService {
       p_days: payload.days,
       p_mode: payload.mode,
       p_reason: payload.reason,
+      p_evidence_dates: payload.evidence_dates ?? null,
     });
     if (error) throw error;
     return data as Record<string, unknown>;

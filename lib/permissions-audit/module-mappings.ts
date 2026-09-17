@@ -289,6 +289,9 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   // Listed before any broader /reports prefix so the report rolls up here.
   ['/reports/gate-in-out', 'Gate Security'],
   ['/gate-security', 'Gate Security'],
+  // "My Gate Pass" (self-service QR for every signed-in person, gated by
+  // view_profile) lives in the Gate Security sidebar group, so it rolls up here.
+  ['/gate-pass', 'Gate Security'],
   ['/hr', 'Staff'],
 
   // Single-segment dashboards — keep last to avoid swallowing nested paths.

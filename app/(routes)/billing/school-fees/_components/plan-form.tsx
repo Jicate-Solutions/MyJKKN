@@ -13,6 +13,11 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Save, Lock, Info } from 'lucide-react';
+import { cn } from '@/lib/utils';
+
+import { SECTION_THEMES } from './section-theme';
+
+const T = SECTION_THEMES.plans;
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -155,16 +160,19 @@ export function PlanForm({
         </Alert>
       ) : null}
 
-      <Card>
-        <CardHeader className="pb-3">
+      <Card className={T.cardBorder}>
+        <CardHeader className={cn('pb-3', T.cardHeader)}>
           <CardTitle className="text-base flex flex-wrap items-center gap-2">
+            <span className={cn('flex h-6 w-6 items-center justify-center rounded-md', T.iconTileSm)}>
+              <T.icon className="h-3.5 w-3.5" />
+            </span>
             {className}
             <Badge variant="outline">{yearName}</Badge>
             {plan ? <Badge variant="secondary">v{plan.version}</Badge> : null}
           </CardTitle>
         </CardHeader>
 
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-4 pt-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="plan-name">Plan name</Label>
@@ -210,7 +218,7 @@ export function PlanForm({
               Back to plans
             </Button>
             <div className="flex-1" />
-            <Button onClick={handleSave} disabled={!editable || saving}>
+            <Button onClick={handleSave} disabled={!editable || saving} className={T.button}>
               <Save className="h-4 w-4 mr-1" />
               {saving ? 'Saving…' : mode === 'create' ? 'Create draft plan' : 'Save changes'}
             </Button>

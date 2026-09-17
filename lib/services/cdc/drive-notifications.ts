@@ -42,12 +42,15 @@ export function learnerDriveUrl(driveId: string): string {
  * One key per (drive, recipient set). The same delta twice → same key → the
  * shared helper returns `idempotent` and no second bell row / push goes out.
  */
-export function willingnessBatchKey(driveId: string, userIds: string[]): string {
+export function willingnessBatchKey(driveId: string, userIds: string[], cycleNo = 1): string {
   const digest = createHash('sha1').update([...userIds].sort().join(',')).digest('hex').slice(0, 16);
-  return `cdc_drive_willingness_open:${driveId}:${digest}`;
+  return cycleNo > 1
+    ? `cdc_drive_willingness_open:${driveId}:c${cycleNo}:${digest}`
+    : `cdc_drive_willingness_open:${driveId}:${digest}`;
 }
 
 export interface DriveNotifyResult {
+  /** 'scheduled' is only produced by the cycle dispatcher (open_at still in the future). */
   /** Learners inside the audience right now (with a login). */
   targeted_learners: number;
   /** Audience members with no linked login — logged as no_profile, cannot be reached. */
@@ -67,12 +70,13 @@ function chunk<T>(arr: T[], size: number): T[][] {
   return out;
 }
 
-async function alreadySentLearnerIds(service: SupabaseClient, driveId: string): Promise<Set<string>> {
+async function alreadySentLearnerIds(service: SupabaseClient, driveId: string, cycleNo: number): Promise<Set<string>> {
   const { data, error } = await service
     .from('cdc_drive_notification_log')
     .select('learner_id')
     .eq('drive_id', driveId)
     .eq('notification_type', CDC_WILLINGNESS_NOTIFICATION_TYPE)
+    .eq('cycle_no', cycleNo)
     .eq('status', 'sent')
     .limit(50000);
   if (error) throw error;
@@ -82,7 +86,9 @@ async function alreadySentLearnerIds(service: SupabaseClient, driveId: string): 
 export async function notifyDriveWillingnessOpen(
   service: SupabaseClient,
   drive: CdcDrive,
-  actorId: string
+  actorId: string,
+  /** Willingness opening cycle (1 = initial open). Each cycle notifies every targeted learner once. */
+  cycleNo = 1
 ): Promise<DriveNotifyResult> {
   const targeting = await resolveTargetLearners(service, drive);
   const base: DriveNotifyResult = {
@@ -96,7 +102,7 @@ export async function notifyDriveWillingnessOpen(
     return { ...base, skipped: 'no_targeting' };
   }
 
-  const sentBefore = await alreadySentLearnerIds(service, drive.id);
+  const sentBefore = await alreadySentLearnerIds(service, drive.id, cycleNo);
   const fresh = targeting.learners.filter((l) => !sentBefore.has(l.learner_id));
   base.already_notified = targeting.learners.length - fresh.length;
 
@@ -105,6 +111,7 @@ export async function notifyDriveWillingnessOpen(
   await logRows(
     service,
     drive.id,
+    cycleNo,
     targeting.unlinked
       .filter((l) => !sentBefore.has(l.learner_id))
       .map((l) => ({
@@ -131,11 +138,14 @@ export async function notifyDriveWillingnessOpen(
   const deadline = drive.willingness_window_close_at
     ? ` Respond before ${new Date(drive.willingness_window_close_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}.`
     : '';
-  const title = `Placement drive open: ${drive.title}`;
+  const reopened = cycleNo > 1;
+  const title = reopened ? `Willingness reopened: ${drive.title}` : `Placement drive open: ${drive.title}`;
   const body =
-    `${drive.title} is open for willingness.${when}${deadline} ` +
-    'Open the drive, review your eligibility details and confirm whether you will participate.';
-  const batchKey = willingnessBatchKey(drive.id, userIds);
+    `${drive.title} is ${reopened ? 'open again' : 'open'} for willingness.${when}${deadline} ` +
+    (reopened
+      ? 'Open the drive and confirm or update whether you will participate.'
+      : 'Open the drive, review your eligibility details and confirm whether you will participate.');
+  const batchKey = willingnessBatchKey(drive.id, userIds, cycleNo);
 
   const fanout = await fanoutNotification(service, {
     title,
@@ -148,8 +158,9 @@ export async function notifyDriveWillingnessOpen(
     url,
     idempotencyKey: batchKey,
     metadata: {
-      event: 'cdc_drive_willingness_open',
+      event: reopened ? 'cdc_drive_willingness_reopen' : 'cdc_drive_willingness_open',
       drive_id: drive.id,
+      cycle_no: cycleNo,
       recipient_count: userIds.length,
       institution_semesters: drive.institution_semesters ?? [],
     },
@@ -191,6 +202,7 @@ export async function notifyDriveWillingnessOpen(
   await logRows(
     service,
     drive.id,
+    cycleNo,
     fresh.map((l) => {
       const p = pushByUser.get(l.user_id);
       return {
@@ -224,17 +236,18 @@ interface LogRow {
   created_by: string;
 }
 
-async function logRows(service: SupabaseClient, driveId: string, rows: LogRow[]): Promise<void> {
+async function logRows(service: SupabaseClient, driveId: string, cycleNo: number, rows: LogRow[]): Promise<void> {
   if (rows.length === 0) return;
   for (const part of chunk(rows, 500)) {
     const { error } = await service.from('cdc_drive_notification_log').upsert(
       part.map((r) => ({
         drive_id: driveId,
+        cycle_no: cycleNo,
         notification_type: CDC_WILLINGNESS_NOTIFICATION_TYPE,
         sent_at: new Date().toISOString(),
         ...r,
       })),
-      { onConflict: 'drive_id,learner_id,notification_type' }
+      { onConflict: 'drive_id,learner_id,notification_type,cycle_no' }
     );
     if (error) {
       // Audit must never break the send; surface loudly in logs instead.
@@ -251,6 +264,7 @@ async function logRows(service: SupabaseClient, driveId: string, rows: LogRow[])
 export type LearnerNotifyVerdict =
   | 'not_found'
   | 'not_eligible_institution'
+  | 'not_eligible_program'
   | 'not_eligible_semester'
   | 'not_active'
   | 'no_profile'
@@ -285,7 +299,7 @@ export async function diagnoseLearnerNotification(
   const deep_link = learnerDriveUrl(drive.id);
   const { data: learner } = await service
     .from('learners_profiles')
-    .select('id, first_name, last_name, register_number, institution_id, semester_id, lifecycle_status')
+    .select('id, first_name, last_name, register_number, institution_id, program_id, semester_id, lifecycle_status')
     .ilike('register_number', registerNumber.trim())
     .limit(1)
     .maybeSingle();
@@ -363,6 +377,10 @@ export async function diagnoseLearnerNotification(
     return { ...common, verdict: 'not_eligible_institution', explanation: 'Learner\'s institution is not one of the drive\'s institutions.' };
   }
   const entry = (drive.institution_semesters ?? []).find((e) => e.institution_id === info.institution_id);
+  const learnerProgramId = (learner.program_id as string | null) ?? null;
+  if (entry && entry.program_ids && entry.program_ids.length > 0 && (!learnerProgramId || !entry.program_ids.includes(learnerProgramId))) {
+    return { ...common, verdict: 'not_eligible_program', explanation: `Learner's program is not one of the ${entry.program_ids.length} program(s) the drive targets for this institution.` };
+  }
   const semOk = entry && (entry.semester_orders.length === 0 || (semester_order != null && entry.semester_orders.includes(semester_order)));
   if (!semOk) {
     return { ...common, verdict: 'not_eligible_semester', explanation: `Learner is in semester ${semester_order ?? 'unknown'}; the drive targets ${entry && entry.semester_orders.length ? 'semester ' + entry.semester_orders.join(', ') : 'no semesters'} for this institution.` };

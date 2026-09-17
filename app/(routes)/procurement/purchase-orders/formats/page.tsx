@@ -90,11 +90,11 @@ export default function PoFormatsPage() {
 
   return (
     <ContentLayout title="PO Document Formats">
-      <div className="space-y-6">
+      <div className="space-y-4 sm:space-y-6">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
-            <h2 className="text-2xl font-bold tracking-tight">PO Document Formats</h2>
-            <p className="text-muted-foreground mt-1">
+            <h2 className="text-xl sm:text-2xl font-bold tracking-tight">PO Document Formats</h2>
+            <p className="hidden text-muted-foreground mt-1 sm:block">
               Configure item columns, header fields, and footer content per vendor layout.
             </p>
           </div>
@@ -109,7 +109,7 @@ export default function PoFormatsPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Saved formats</CardTitle>
-            <p className="text-sm text-muted-foreground">
+            <p className="hidden text-sm text-muted-foreground sm:block">
               Each format is a reusable print layout. One is marked the institution default and is
               used whenever a vendor has no format of its own.
             </p>
@@ -218,7 +218,7 @@ export default function PoFormatsPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Vendor Format Assignments</CardTitle>
-            <p className="text-sm text-muted-foreground">
+            <p className="hidden text-sm text-muted-foreground sm:block">
               Set the default document format used when a Purchase Order is generated for each
               vendor. Vendor identity details (name, contact, GSTIN) are still managed in IMS →
               Settings → Suppliers.

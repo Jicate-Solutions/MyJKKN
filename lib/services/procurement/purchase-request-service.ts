@@ -12,6 +12,7 @@ import type {
   CreatePurchaseRequestDto,
   PurchaseRequestType,
 } from '@/types/procurement';
+import type { ImsReorderRequestLine, ImsReorderRequestResult } from '@/types/ims';
 
 export class ProcurementPurchaseRequestService {
   private static get supabase() {
@@ -169,6 +170,29 @@ export class ProcurementPurchaseRequestService {
       console.error('[ProcurementPurchaseRequestService] createPurchaseRequest:', error);
       throw error;
     }
+  }
+
+  /**
+   * Raise one request from an IMS store's reorder selection. Runs as
+   * ims_create_reorder_request (SECURITY DEFINER): authority comes from the store
+   * (institution staff or a store grant) rather than the caller's profile
+   * institution, and the line snapshots are read server-side.
+   * `submit` files it straight to the approver; false leaves a draft.
+   */
+  static async createFromImsReorder(
+    storeId: string,
+    items: ImsReorderRequestLine[],
+    notes: string | null,
+    submit: boolean
+  ): Promise<ImsReorderRequestResult> {
+    const { data, error } = await this.supabase.rpc('ims_create_reorder_request', {
+      p_store_id: storeId,
+      p_items: items,
+      p_notes: notes,
+      p_submit: submit,
+    });
+    if (error) throw error;
+    return data as ImsReorderRequestResult;
   }
 
   /** draft -> submitted (Store Admin files the requisition). */

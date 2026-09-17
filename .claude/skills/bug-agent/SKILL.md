@@ -112,6 +112,12 @@ Pass:
 - List of fixed bugs: `[{ display_id, uuid_id, fix_commit_sha }]`
 - List of skipped bugs: `[{ display_id, reason }]`
 
+Statuses are written ONLY through `npm run bug:resolve -- BUG-XXXXXX …`, which
+attaches the fixer's identity from `BUG_RESOLVER_EMAIL` in `.env.local`. Raw SQL
+resolves are rejected by a database trigger, because they record nobody — and
+this team pushes through one shared GitHub account, so the commit cannot say who
+fixed what either. If the email is not configured, ask the developer for it.
+
 Wait for confirmation that statuses were updated in the database.
 
 ### Step 7: Final Report
