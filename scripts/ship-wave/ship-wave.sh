@@ -527,6 +527,8 @@ desk_receipt() {
   type -t questions_open_count >/dev/null 2>&1 || return 0
   local n; n=$(questions_open_count 2>/dev/null)
   say "  desk: ${n:-0} question(s) waiting for the Director"
+  local sn; sn=$(grep -ls '"status": "pending"' "$STATE"/shipped/*.json 2>/dev/null | grep -c .)
+  [ "${sn:-0}" -gt 0 ] && say "  desk: $sn shipped note(s) waiting to be relayed to the tab that opened each PR (v5-w12-desk.sh shipped)"
   MARK=$([ "$MODE" = go ] && echo 1) SILENT_MIN="$DESK_SILENT_MIN" python3 - "${QUESTIONS_DIR:-$STATE/questions}" "$STATE/desk-surfaced" <<'PY'
 import datetime, glob, json, os, re, sys
 qd, seenf = sys.argv[1], sys.argv[2]
@@ -600,8 +602,61 @@ record_last_deployed() {  # $1 = deployment JSON ("" allowed) · $2 = fallback s
   local sha; sha=$(python3 -c 'import json,sys;print(((json.load(sys.stdin)["deployments"][0].get("meta") or {}).get("githubCommitSha") or ""))' <<<"$1" 2>/dev/null)
   sha_on_main "$sha" || sha="$2"
   sha_on_main "$sha" || { [ -n "$sha" ] && say "  last-deployed NOT written — ${sha:0:10} is not on jicate/main as fetched"; return 0; }
-  [ "$(cat "$STATE/last-deployed" 2>/dev/null)" = "$sha" ] || { printf '%s\n' "$sha" > "$STATE/last-deployed"; say "  last-deployed ← ${sha:0:10}"; }
+  local prev; prev=$(cat "$STATE/last-deployed" 2>/dev/null)
+  [ "$prev" = "$sha" ] || { printf '%s\n' "$sha" > "$STATE/last-deployed"; say "  last-deployed ← ${sha:0:10}"
+    shipped_requests "$prev" "$sha" "$(python3 -c 'import json,sys;print(json.load(sys.stdin)["deployments"][0].get("uid") or "")' <<<"$1" 2>/dev/null)"; }
   return 0
+}
+
+# ── Shipped notes (Director 2026-09-16 06:14: "why don't the W12 update itself to inform the peer tab that it has
+# merged or deployed a PR it shipped, so that tab is aware before moving to the next PR") ─────────────────────────
+# The wave runs under launchd and cannot message a tab. As with Lane E's reminders it writes a REQUEST the desk tab
+# relays: $STATE/shipped/<pr>.json, the SAME shape as $STATE/nudges/<group>.json (status / sessions / message /
+# requested_at), so the desk resolves the tab that opened the PR with the same desk/desk-nudge-targets.sh
+# (NUDGES_DIR=$STATE/shipped → `v5-w12-desk.sh shipped` / `shipped-mark`) and sends the one line verbatim.
+# Which PRs a move of the last-deployed marker carried = every PR whose squash commit "… (#n)" or merge commit
+# "Merge pull request #n" lies between the previous marker and the new one — wave-merged or hand-merged alike.
+# Written only in `go`, once per PR (an existing file is never rewritten, whatever its status). No previous marker
+# → nothing to compare against → one receipt line and no file. A note is not a question: it never reaches the
+# Director, and the desk never merges or re-checks anything on its strength — the receiving tab does.
+shipped_requests() {  # $1 = previous last-deployed sha ("" allowed) · $2 = new sha · $3 = deployment uid ("" = no build: docs/migration-only round)
+  local prev="$1" new="$2" dpl="${3:-}" dir="$STATE/shipped" n prs written="" skipped=0
+  [ "$MODE" = go ] || return 0
+  [ -n "$new" ] || return 0
+  if [ -z "$prev" ] || ! sha_on_main "$prev"; then say "  shipped notes: no previous last-deployed marker to compare against — none written"; return 0; fi
+  [ "$prev" = "$new" ] && return 0
+  prs=$(git -C "$WT" log --format=%s "$prev..$new" 2>/dev/null | grep -oE '\(#[0-9]+\)$|^Merge pull request #[0-9]+' | grep -oE '[0-9]+' | sort -un)
+  [ -n "$prs" ] || { say "  shipped notes: no PR between ${prev:0:7} and ${new:0:7} — none written"; return 0; }
+  mkdir -p "$dir"
+  for n in $prs; do
+    [ -f "$dir/$n.json" ] && { skipped=$((skipped+1)); continue; }
+    local prjson; prjson=$(gh pr view "$n" --repo "$REPO" --json title,body,url 2>/dev/null || true)   # "" when gh cannot: the note still goes out, untitled
+    PR="$n" DPL="$dpl" SHA="$new" PRJSON="$prjson" python3 - "$dir/$n.json" <<'PY' && written="$written #$n"
+import json, os, re, sys, datetime, tempfile
+p = sys.argv[1]; pr = os.environ["PR"]; dpl = os.environ.get("DPL") or ""; sha = os.environ["SHA"]
+SESS = re.compile(r"claude\.ai/code/session_([A-Za-z0-9]{8,64})")
+try:
+    q = json.loads(os.environ.get("PRJSON") or "{}"); q = q if isinstance(q, dict) else {}
+except Exception:
+    q = {}
+title = " ".join(re.sub(r"[\x00-\x1f\x7f]+", " ", str(q.get("title") or "")).replace("|", "/").split())[:120]   # one line, '|' is the desk line's separator
+body = str(q.get("body") or "")
+sessions = []
+for m in SESS.finditer(body):
+    if m.group(1) not in sessions: sessions.append(m.group(1))
+where = (f"deploy {dpl} READY, commit {sha[:7]}" if dpl else f"no build needed (docs/migration-only round), commit {sha[:7]} is what production runs")
+msg = (f"[note] PR #{pr} is live (deploy verified): {title or 'untitled'} — {where}. "
+       f"Re-check on production what it changed before you move to the next one; reply only if something is wrong.")
+now = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+doc = {"pr": int(pr), "title": title, "url": q.get("url") or "", "deploy": dpl, "sha": sha, "sessions": sessions,
+       "session_id": (sessions or [None])[0], "requested_at": now, "status": "pending", "message": msg}
+os.makedirs(os.path.dirname(p), exist_ok=True)
+fd, tmp = tempfile.mkstemp(dir=os.path.dirname(p), prefix=".shipped.")
+with os.fdopen(fd, "w", encoding="utf-8") as f: json.dump(doc, f, indent=1, ensure_ascii=False)
+os.replace(tmp, p)
+PY
+  done
+  say "  shipped notes for the desk:${written:- none}$([ "$skipped" -gt 0 ] && printf ' · %s already noted' "$skipped")"
 }
 hand_merged_since() {  # $1 = freeze timestamp → "#n #m " — PRs whose merge commit landed on main since then that the wave did NOT merge
   # the wave records its own merges in each run's merged-map.tsv — since round 3 as ONE `<n>\t@merge\t<sha>` row written
