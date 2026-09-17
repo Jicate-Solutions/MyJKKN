@@ -244,6 +244,18 @@ export default function MarathonEventsPage() {
         )}
       </div>
 
+      {/* This page is for marathon (race) events only. Point elsewhere for other formats. */}
+      <p className="text-xs sm:text-sm text-muted-foreground mb-4">
+        Adding a different kind of event, like a chess or carrom tournament?{' '}
+        <Link href="/events/tournament" className="underline underline-offset-2">
+          Go to Sports Tournaments
+        </Link>{' '}
+        or the{' '}
+        <Link href="/events" className="underline underline-offset-2">
+          Events Hub
+        </Link>.
+      </p>
+
       {/* Search + Refresh bar */}
       <div className="flex items-center gap-2 mb-4">
         <div className="relative flex-1">
