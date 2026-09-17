@@ -55,9 +55,24 @@ describe('dedupeTrailingInitials', () => {
     expect(dedupeTrailingInitials(undefined)).toBe('');
   });
 
+  it('collapses an initial repeated three times in one call', () => {
+    // Two live rows carry the same initial three times. A single collapse pass
+    // left "… S S" still on the screen, which is the bug all over again.
+    expect(dedupeTrailingInitials('KAVI PRIYA S S. S')).toBe('KAVI PRIYA S');
+    expect(dedupeTrailingInitials('KAVI PRIYA S S S')).toBe('KAVI PRIYA S');
+  });
+
   it('is idempotent — running it twice changes nothing more', () => {
-    const once = dedupeTrailingInitials('KAVI PRIYA M M');
-    expect(dedupeTrailingInitials(once)).toBe(once);
+    for (const name of [
+      'KAVI PRIYA M M',
+      'KAVI PRIYA S S. S',
+      'ARUN KUMAR RAJ T.R T. R',
+      'LEE LEE',
+      'KAVI A B'
+    ]) {
+      const once = dedupeTrailingInitials(name);
+      expect(dedupeTrailingInitials(once)).toBe(once);
+    }
   });
 });
 
