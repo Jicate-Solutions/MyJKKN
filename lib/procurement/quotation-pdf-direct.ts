@@ -16,6 +16,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { recordChatCall, resolveChatModel } from '@/lib/services/platform/ai-clients/chat';
+import { anthropicApiKey } from '@/lib/services/platform/ai-clients/api-key';
 
 export const QUOTATION_EXTRACT_API_FEATURE = 'procurement.quotation_extract_api';
 
@@ -61,10 +62,8 @@ export interface DirectExtractResult {
 
 export const EXTRACT_RESULT_VERSION = 2;
 
-/** The repo's .env carries CLAUDE_API_KEY; some deployments use ANTHROPIC_API_KEY. */
-export function directExtractApiKey(): string | null {
-  return process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY || null;
-}
+/** Either key name works (see ai-clients/api-key.ts). */
+export const directExtractApiKey = anthropicApiKey;
 
 const RECORD_TOOL: Anthropic.Tool = {
   name: 'record_quotation',

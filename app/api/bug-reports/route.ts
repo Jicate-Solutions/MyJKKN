@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse, connection } from 'next/server';
 import { z } from 'zod';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { recordFeatureUse, FEATURE_KEYS } from '@/lib/usage/record';
 import { withAuth } from '@/lib/auth/with-auth';
 import { logger } from '@/lib/utils/enhanced-logger';
 import {
@@ -410,6 +411,10 @@ export async function POST(request: Request) {
         finalReport = updatedReport;
       }
     }
+
+    // Adoption loop: this is the core action of 'bug_reports.submit' (one row per
+    // person per day; silent no-op if the feature is not labelled yet).
+    await recordFeatureUse(supabase, FEATURE_KEYS.BUG_REPORT_SUBMIT);
 
     return NextResponse.json(
       {

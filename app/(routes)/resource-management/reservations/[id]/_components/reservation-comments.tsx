@@ -21,10 +21,12 @@
 // hook asks the same SQL function the SELECT policy calls, so the card appears
 // exactly when there would be something to show.
 
+import { useMemo } from 'react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { MessagesSquare } from 'lucide-react';
 import { CommentThreadPanel } from '@/components/shared/comment-thread-panel';
+import { makeInstitutionStaffSearch } from '@/components/shared/search-taggable-staff';
 import { useAuth } from '@/hooks/use-auth';
 import {
   useCreateReservationComment,
@@ -32,11 +34,28 @@ import {
   useReservationCommentAccess,
   useReservationComments,
   useSetReservationCommentResolved,
+  useResendReservationTag,
+  useUntagReservationComment,
   useUpdateReservationComment,
 } from '@/hooks/resource-management/use-reservation-comments';
 
-export function ReservationComments({ reservationId }: { reservationId: string }) {
+export function ReservationComments({
+  reservationId,
+  institutionId,
+}: {
+  reservationId: string;
+  /**
+   * The booked resource's institution. Only its team members are offered in
+   * the tag picker (the server enforces the same rule). Without it the picker
+   * is switched off rather than opened to every college.
+   */
+  institutionId?: string | null;
+}) {
   const { profile } = useAuth();
+  const peopleSearch = useMemo(
+    () => (institutionId ? makeInstitutionStaffSearch(institutionId) : undefined),
+    [institutionId],
+  );
   const {
     canView,
     isCommentAdmin,
@@ -52,6 +71,8 @@ export function ReservationComments({ reservationId }: { reservationId: string }
   const update = useUpdateReservationComment(reservationId);
   const resolve = useSetReservationCommentResolved(reservationId);
   const remove = useDeleteReservationComment(reservationId);
+  const untag = useUntagReservationComment(reservationId);
+  const resendTag = useResendReservationTag(reservationId);
 
   // Every hook above runs unconditionally — returning before one of them would
   // change the hook count between renders the moment the authority answer
@@ -78,8 +99,10 @@ export function ReservationComments({ reservationId }: { reservationId: string }
         <>
           Messages between the approvers and the person who raised this booking.
           Use it to say what is still outstanding while the request is pending.
-          Only the booker, this request&apos;s approvers and resource
-          administrators can see it.
+          Only the booker, this request&apos;s approvers, resource
+          administrators and team members tagged here can see it. Type @ or use
+          Tag people to bring in a team member of this booking&apos;s
+          institution; remove a tag with × to take their access away.
         </>
       }
       placeholder='Say what is holding this request up, or what the booker still has to do.'
@@ -96,13 +119,26 @@ export function ReservationComments({ reservationId }: { reservationId: string }
       // Closing is open to admins; deleting somebody else's words is a super
       // admin's cleanup power alone, and the DELETE policy says exactly that.
       canDeleteAny={isSuperAdmin}
+      // Tagging (BUG-006139): a tagged team member of the booking's institution
+      // is notified and can read and reply in this booking's thread until the
+      // author untags them. See supabase/migrations/20261224090000_* and
+      // 20261224103700_reservation_comment_mentions_same_institution_untag.sql.
+      peopleSearch={peopleSearch}
       handlers={{
-        onPost: (body) => post.mutateAsync({ reservation_id: reservationId, body }),
-        onReply: (parentId, body) =>
-          post.mutateAsync({ reservation_id: reservationId, parent_id: parentId, body }),
+        onPost: (body, mentionIds) =>
+          post.mutateAsync({ reservation_id: reservationId, body, mention_ids: mentionIds }),
+        onReply: (parentId, body, mentionIds) =>
+          post.mutateAsync({
+            reservation_id: reservationId,
+            parent_id: parentId,
+            body,
+            mention_ids: mentionIds,
+          }),
         onEdit: (id, body) => update.mutateAsync({ id, body }),
         onResolve: (id, resolved) => resolve.mutateAsync({ id, resolved }),
         onDelete: (id) => remove.mutateAsync(id),
+        onUntag: (commentId, userId) => untag.mutateAsync({ commentId, userId }),
+        onResendTag: (commentId, userId) => resendTag.mutateAsync({ commentId, userId }),
       }}
     />
   );

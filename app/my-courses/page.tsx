@@ -26,14 +26,12 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import {
-  CalendarDays, CheckCircle2, GraduationCap, MapPin, ReceiptText, Wallet,
+  CalendarDays, CheckCircle2, GraduationCap, MapPin,
 } from 'lucide-react';
 
 import { createClient } from '@/lib/supabase/server';
-import { PayInstalmentButton } from './_components/pay-instalment-button';
-import { DownloadReceiptButton } from './_components/download-receipt-button';
 import { ParticipantMenu } from './_components/participant-menu';
-import type { CourseReceiptData } from '@/lib/utils/courses/course-receipt-pdf';
+import { CourseInstalmentsPanel } from '@/components/courses/course-instalments-panel';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,22 +46,6 @@ const formatDate = (value: string | null) => {
   const d = new Date(`${String(value).slice(0, 10)}T00:00`);
   if (Number.isNaN(d.getTime())) return null;
   return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-};
-
-const BILL_STATUS_LABEL: Record<string, string> = {
-  pending: 'Due',
-  partially_paid: 'Part paid',
-  paid: 'Paid',
-  overdue: 'Overdue',
-  voided: 'Cancelled',
-};
-
-const BILL_STATUS_CLASS: Record<string, string> = {
-  pending: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300',
-  partially_paid: 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300',
-  paid: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300',
-  overdue: 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300',
-  voided: 'bg-muted text-muted-foreground line-through',
 };
 
 /** One figure in the money summary. Stacks 2x2 on a phone. */
@@ -239,117 +221,18 @@ export default async function MyCoursesPage({
                     <Money label="Balance" value={e.balance} strong />
                   </div>
 
-                  {/* Instalments */}
-                  <div className="p-4 sm:p-5">
-                    <h3 className="flex items-center gap-1.5 text-sm font-semibold">
-                      <ReceiptText className="h-4 w-4 text-muted-foreground" />
-                      Instalments
-                    </h3>
-
-                    {bills.length === 0 ? (
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        No bills have been raised yet.
-                      </p>
-                    ) : (
-                      <ul className="mt-3 space-y-3">
-                        {bills.map((b) => {
-                          const due = Number(b.balance_amount ?? 0);
-                          const payable = due > 0 && b.status !== 'voided';
-                          const receipts = ((b.payments ?? []) as any[])
-                            .filter((p) => p.status === 'success' && p.receipt_number)
-                            .sort((x, y) =>
-                              String(y.captured_at ?? '').localeCompare(String(x.captured_at ?? '')),
-                            );
-
-                          return (
-                            <li key={b.id} className="rounded-lg border p-3 sm:p-3.5">
-                              {/* Row 1: what it is + status pill */}
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                  <p className="font-medium leading-tight">
-                                    {b.label || `Instalment ${b.installment_no}`}
-                                  </p>
-                                  <p className="mt-0.5 text-xs text-muted-foreground">
-                                    {b.bill_number} · due {formatDate(b.due_date)}
-                                  </p>
-                                </div>
-                                <span
-                                  className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                                    BILL_STATUS_CLASS[b.status] ?? 'bg-muted text-muted-foreground'
-                                  }`}
-                                >
-                                  {BILL_STATUS_LABEL[b.status] ?? b.status}
-                                </span>
-                              </div>
-
-                              {/* Row 2: amounts */}
-                              <div className="mt-2.5 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-                                <span className="text-lg font-semibold">
-                                  {inr.format(Number(b.total_amount ?? 0))}
-                                </span>
-                                {Number(b.paid_amount ?? 0) > 0 && due > 0 && (
-                                  <span className="text-xs text-muted-foreground">
-                                    {inr.format(Number(b.paid_amount))} paid ·{' '}
-                                    {inr.format(due)} left
-                                  </span>
-                                )}
-                              </div>
-
-                              {/* Row 3: actions — full width on a phone, inline from sm. */}
-                              {(payable || receipts.length > 0) && (
-                                <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:justify-end">
-                                  {receipts.map((p) => (
-                                    <DownloadReceiptButton
-                                      key={p.id}
-                                      receipt={
-                                        {
-                                          receiptNumber: p.receipt_number,
-                                          paidOn: p.captured_at ?? p.payment_date ?? null,
-                                          amountPaid: Number(p.amount_paid ?? 0),
-                                          paymentMode: p.payment_mode,
-                                          razorpayPaymentId: p.razorpay_payment_id ?? null,
-                                          participantName,
-                                          jkknId,
-                                          courseTitle: e.course?.title ?? 'Course',
-                                          institutionName: e.institution?.name ?? null,
-                                          enrollmentNumber: e.enrollment_number ?? null,
-                                          billNumber: b.bill_number,
-                                          instalmentLabel:
-                                            b.label || `Instalment ${b.installment_no}`,
-                                          instalmentDueDate: b.due_date ?? null,
-                                          billTotal: Number(b.total_amount ?? 0),
-                                          totalPayable: Number(e.total_payable ?? 0),
-                                          totalPaid: Number(e.total_paid ?? 0),
-                                          balance: Number(e.balance ?? 0),
-                                        } satisfies CourseReceiptData
-                                      }
-                                    />
-                                  ))}
-
-                                  {payable && (
-                                    <PayInstalmentButton
-                                      billId={b.id}
-                                      amountLabel={inr.format(due)}
-                                    />
-                                  )}
-                                </div>
-                              )}
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    )}
-
-                    <p className="mt-4 flex items-start gap-1.5 text-xs text-muted-foreground">
-                      <Wallet className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                      Payments go to {e.institution?.name ?? 'the institution running this course'}.
-                      If online payment is unavailable, contact them directly.
-                    </p>
-
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      Enrolment {e.enrollment_number} · {e.status}
-                    </p>
-                  </div>
+                  <CourseInstalmentsPanel
+                    bills={bills}
+                    institutionName={e.institution?.name ?? null}
+                    enrollmentNumber={e.enrollment_number}
+                    enrollmentStatus={e.status}
+                    participantName={participantName}
+                    jkknId={jkknId}
+                    courseTitle={e.course?.title ?? 'Course'}
+                    totalPayable={Number(e.total_payable ?? 0)}
+                    totalPaid={Number(e.total_paid ?? 0)}
+                    balance={Number(e.balance ?? 0)}
+                  />
                 </section>
               );
             })}

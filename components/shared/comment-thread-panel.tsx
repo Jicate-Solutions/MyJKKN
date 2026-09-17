@@ -82,6 +82,16 @@ export interface CommentThreadHandlers {
   onEdit: (id: string, body: string) => Promise<unknown>;
   onResolve: (id: string, resolved: boolean) => Promise<unknown>;
   onDelete: (id: string) => Promise<unknown>;
+  /**
+   * Remove one tag from a comment, revoking the access it granted; the comment
+   * stays. Omit it and tags are shown without a remove control.
+   */
+  onUntag?: (commentId: string, userId: string) => Promise<unknown>;
+  /**
+   * Re-send one tag's alert — finishes one that failed, or sends a reminder.
+   * Omit it and tags show no Resend control.
+   */
+  onResendTag?: (commentId: string, userId: string) => Promise<unknown>;
 }
 
 export interface CommentThreadPanelProps {
@@ -110,8 +120,7 @@ export interface CommentThreadPanelProps {
   canDeleteAny: boolean;
   handlers: CommentThreadHandlers;
   /**
-   * Turns tagging ON. Omit it and the composer has no tag control at all —
-   * the reservation thread, which shares this panel, does not support tags.
+   * Turns tagging ON. Omit it and the composer has no tag control at all.
    */
   peopleSearch?: (query: string) => Promise<TaggablePerson[]>;
 }
@@ -482,18 +491,124 @@ function MentionText({ body, mentions }: { body: string; mentions?: ThreadCommen
   );
 }
 
+/**
+ * Who is tagged on a comment. The author gets, per person:
+ *  - Resend: a tag whose alert never went out is marked "not notified", and
+ *    Resend finishes it; on a notified tag it sends a reminder.
+ *  - ×: removing a tag revokes the access it granted, and the comment —
+ *    including the "@Name" text — stays as written.
+ */
+function TagList({
+  comment,
+  isAuthor,
+  onUntag,
+  onResendTag,
+}: {
+  comment: ThreadComment;
+  isAuthor: boolean;
+  onUntag?: (commentId: string, userId: string) => Promise<unknown>;
+  onResendTag?: (commentId: string, userId: string) => Promise<unknown>;
+}) {
+  // One action at a time per comment: "<userId>:untag" or "<userId>:resend".
+  const [busy, setBusy] = useState<string | null>(null);
+  const mentions = comment.mentions ?? [];
+  if (mentions.length === 0) return null;
+
+  const act = async (
+    userId: string,
+    kind: 'untag' | 'resend',
+    fn?: (commentId: string, userId: string) => Promise<unknown>,
+  ) => {
+    if (!fn) return;
+    setBusy(`${userId}:${kind}`);
+    try {
+      await fn(comment.id, userId);
+    } catch {
+      /* the toast says why; the tag stays as it was */
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
+      <AtSign className="h-3 w-3" />
+      <span>Tagged:</span>
+      {mentions.map((m) => {
+        // Only the author learns whether an alert went out — it is theirs to fix.
+        const pending = isAuthor && m.notified === false;
+        return (
+          <Badge
+            key={m.id}
+            variant="secondary"
+            className={`h-5 gap-0.5 px-1.5 text-[11px] font-normal ${
+              pending ? 'border border-amber-500/60 text-amber-800 dark:text-amber-300' : ''
+            }`}
+          >
+            {m.name}
+            {pending && <span className="ml-0.5">· not notified</span>}
+            {isAuthor && onResendTag && (
+              <button
+                type="button"
+                className={`ml-1 rounded-sm underline-offset-2 hover:underline disabled:opacity-40 ${
+                  pending ? 'font-medium' : 'opacity-70 hover:opacity-100'
+                }`}
+                title={
+                  pending
+                    ? `Send ${m.name} the alert that did not go out`
+                    : `Remind ${m.name} about this comment`
+                }
+                disabled={busy !== null}
+                onClick={() => act(m.id, 'resend', onResendTag)}
+              >
+                {busy === `${m.id}:resend` ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : pending ? (
+                  'Resend'
+                ) : (
+                  <RotateCcw className="h-3 w-3" aria-label={`Remind ${m.name}`} />
+                )}
+              </button>
+            )}
+            {isAuthor && onUntag && (
+              <button
+                type="button"
+                className="ml-0.5 rounded-sm opacity-70 hover:opacity-100 disabled:opacity-40"
+                aria-label={`Untag ${m.name}`}
+                title={`Untag ${m.name} — removes their access to this discussion`}
+                disabled={busy !== null}
+                onClick={() => act(m.id, 'untag', onUntag)}
+              >
+                {busy === `${m.id}:untag` ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <X className="h-3 w-3" />
+                )}
+              </button>
+            )}
+          </Badge>
+        );
+      })}
+    </div>
+  );
+}
+
 function CommentBody({
   comment,
   isMine,
   canDelete,
   onEdit,
   onRequestDelete,
+  onUntag,
+  onResendTag,
 }: {
   comment: ThreadComment;
   isMine: boolean;
   canDelete: boolean;
   onEdit: (id: string, body: string) => Promise<unknown>;
   onRequestDelete: (comment: ThreadComment) => void;
+  onUntag?: (commentId: string, userId: string) => Promise<unknown>;
+  onResendTag?: (commentId: string, userId: string) => Promise<unknown>;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(comment.body);
@@ -569,6 +684,14 @@ function CommentBody({
         </p>
       )}
 
+      {!editing && (
+        <TagList
+          comment={comment}
+          isAuthor={isMine}
+          onUntag={onUntag}
+          onResendTag={onResendTag}
+        />
+      )}
 
 
       {!editing && (isMine || canDelete) && (
@@ -691,6 +814,8 @@ function Thread({
         canDelete={isMine(thread.author_id) || canDeleteAny}
         onEdit={handlers.onEdit}
         onRequestDelete={onRequestDelete}
+        onUntag={handlers.onUntag}
+        onResendTag={handlers.onResendTag}
       />
 
       {thread.replies.length > 0 && (
@@ -703,6 +828,8 @@ function Thread({
               canDelete={isMine(r.author_id) || canDeleteAny}
               onEdit={handlers.onEdit}
               onRequestDelete={onRequestDelete}
+              onUntag={handlers.onUntag}
+              onResendTag={handlers.onResendTag}
             />
           ))}
         </div>
