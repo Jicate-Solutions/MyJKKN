@@ -345,8 +345,8 @@ BEGIN
           -- baseline instead of comparing twice.
           'bar',      CASE
                         WHEN btrim(v_loop.outcome_metric) ~* '\mvs\M'
-                          THEN btrim(v_loop.outcome_metric) || ' (baseline: '
-                               || btrim(v_loop.baseline_window) || ')'
+                          THEN btrim(v_loop.outcome_metric) || ' (baseline: own '
+                               || regexp_replace(btrim(v_loop.baseline_window), '^own\s+', '', 'i') || ')'
                         ELSE btrim(v_loop.outcome_metric) || ' vs own '
                                || regexp_replace(btrim(v_loop.baseline_window), '^own\s+', '', 'i')
                       END,

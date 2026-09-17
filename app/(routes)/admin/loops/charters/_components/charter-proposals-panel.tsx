@@ -45,6 +45,8 @@ export interface CharterProposalRow {
   decided_at: string | null;
   decision_note: string | null;
   created_at: string;
+  /** Bar cards only: the loop's last recorded headline numbers, newest first — the scale a typed bar lives on. */
+  recent_values?: (number | null)[];
 }
 
 const FIELD_LABELS: Array<{ key: string; label: string }> = [
@@ -349,10 +351,22 @@ export function CharterProposalsPanel({ rows: initialRows }: { rows: CharterProp
           {isReview && last4 && (
             <div>
               <dt className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-                Last four readings (newest first)
+                Last four misses (newest first)
               </dt>
               <dd className="font-mono text-sm tabular-nums">
                 {last4.length > 0 ? last4.map((v) => (v == null ? '—' : String(v))).join(' · ') : '—'}
+              </dd>
+            </div>
+          )}
+          {row.status === 'proposed' && (
+            <div>
+              <dt className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                Recent readings of this loop (newest first)
+              </dt>
+              <dd className="font-mono text-sm tabular-nums">
+                {row.recent_values && row.recent_values.length > 0
+                  ? row.recent_values.map((v) => (v == null ? '—' : String(v))).join(' · ')
+                  : 'no readings recorded yet — the loop writes one per run once the bar migration is applied'}
               </dd>
             </div>
           )}

@@ -106,6 +106,11 @@ export interface CounselorBriefingRunResult {
   with_delta: number;
   /** Counter-metric hits — a count only; the rows themselves are super-admin-only (read by the /admin/loops block). */
   flagged_changed_nothing: number;
+  /** Whether this run's headline was recorded against the loop's bar (never throws; false + bar_error when it could not). */
+  bar_recorded: boolean;
+  /** true/false when a numeric bar exists; null when the bar is prose or absent. */
+  bar_met: boolean | null;
+  bar_error?: string;
   /**
    * The loop's headline number for this run: the mean forward_delta (in
    * percentage points) across the rows that HAVE a delta, or null when none
@@ -151,7 +156,9 @@ export async function runCounselorBriefingMeasurement(
   // Loop bars (Director rulings 2026-09-16, G3): every run records where this
   // loop landed against its bar. Recording can never fail the measurement —
   // recordLoopMeasurement reports instead of throwing.
-  await recordLoopMeasurement(admin, {
+  // Its outcome is carried on the result (rule #27: a refused or unapplied
+  // recording must be visible, never a silent no-op).
+  const barRun = await recordLoopMeasurement(admin, {
     loopKey: COUNSELOR_BRIEFING_LOOP_KEY,
     value: headline,
     runId: `${COUNSELOR_BRIEFING_MEASURE_ROUTINE_ID}:${as_of}`,
@@ -165,5 +172,8 @@ export async function runCounselorBriefingMeasurement(
     with_delta: rows.filter((r) => r.forward_delta !== null && r.forward_delta !== undefined).length,
     flagged_changed_nothing: rows.filter((r) => r.briefing_changed_nothing === true).length,
     headline,
+    bar_recorded: barRun.recorded,
+    bar_met: barRun.met,
+    ...(barRun.error ? { bar_error: barRun.error } : {}),
   };
 }

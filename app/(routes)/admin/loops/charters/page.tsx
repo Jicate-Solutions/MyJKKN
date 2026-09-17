@@ -70,6 +70,11 @@ async function readProposals(
         .in('kind', ['bar', 'bar-review'])
         .order('created_at', { ascending: false })
         .limit(200);
+      if (bars.error) {
+        // Not a silent empty Bars section: say so in the server log (the
+        // charter read above succeeded, so the page still renders).
+        console.warn('[loops/charters] bar proposals read failed:', bars.error.message);
+      }
       return [...((withKind.data ?? []) as ProposalRead[]), ...((bars.data ?? []) as ProposalRead[])];
     }
 
@@ -82,6 +87,36 @@ async function readProposals(
   } catch {
     return [];
   }
+}
+
+/** Last four recorded headline numbers per loop, newest first. Empty on any error (pre-migration). */
+async function readRecentReadings(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  loopKeys: string[]
+): Promise<Map<string, (number | null)[]>> {
+  const out = new Map<string, (number | null)[]>();
+  if (loopKeys.length === 0) return out;
+  try {
+    const { data, error } = await admin
+      .from('loop_measurements')
+      .select('loop_key,value,measured_at')
+      .in('loop_key', loopKeys)
+      .eq('status', 'final')
+      .order('measured_at', { ascending: false })
+      .limit(loopKeys.length * 4);
+    if (error || !data) return out;
+    for (const row of data as { loop_key: string; value: number | string | null }[]) {
+      const list = out.get(row.loop_key) ?? [];
+      if (list.length < 4) {
+        const n = row.value === null ? null : Number(row.value);
+        list.push(Number.isFinite(n as number) ? (n as number) : null);
+        out.set(row.loop_key, list);
+      }
+    }
+  } catch {
+    // pre-migration: the table does not exist yet
+  }
+  return out;
 }
 
 export default async function LoopChartersPage() {
@@ -119,6 +154,14 @@ export default async function LoopChartersPage() {
   ]);
 
   const nameByKey = new Map(registry.map((r) => [r.loop_key, r.name]));
+  // The bar cards ask the Director for a number; show him the scale it lives
+  // on — the loop's last few recorded headline numbers (loop_measurements,
+  // written by every run whether or not a bar exists). Empty until the
+  // migration is applied and the loops have run; the card says so.
+  const barLoopKeys = Array.from(
+    new Set(proposals.filter((p) => p.kind === 'bar' || p.kind === 'bar-review').map((p) => p.loop_key))
+  );
+  const recentByKey = await readRecentReadings(admin, barLoopKeys);
   // Undecided first (the work queue), then decided history — both newest-first
   // (the select is already created_at DESC; the sort is stable).
   const rows: CharterProposalRow[] = [...proposals]
@@ -137,6 +180,7 @@ export default async function LoopChartersPage() {
       decided_at: p.decided_at,
       decision_note: p.decision_note,
       created_at: p.created_at,
+      recent_values: p.kind === 'bar' || p.kind === 'bar-review' ? (recentByKey.get(p.loop_key) ?? []) : undefined,
     }));
 
   return (

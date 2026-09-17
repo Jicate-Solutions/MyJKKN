@@ -35,6 +35,8 @@ type GenerateResult = {
   proposed: number;
   insufficient: number;
   skipped: number;
+  /** 'insufficient' notes closed because a metric appeared (46ff48fd+). */
+  superseded?: number;
 };
 
 export async function GET(request: NextRequest) {
@@ -70,5 +72,6 @@ export async function GET(request: NextRequest) {
     proposed: result.proposed,
     insufficient: result.insufficient,
     skipped: result.skipped,
+    superseded: result.superseded ?? 0,
   });
 }
