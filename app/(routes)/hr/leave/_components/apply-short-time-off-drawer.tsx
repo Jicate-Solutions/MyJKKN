@@ -412,7 +412,6 @@ export function ApplyShortTimeOffDrawer({
         }
       : null,
     1,
-    false,
   );
 
   const reset = () => {
@@ -493,7 +492,6 @@ export function ApplyShortTimeOffDrawer({
         start_time: startTime,
         end_time: endTime,
         reason,
-        is_emergency: false,
         documents,
         applied_by: '',
         department_id: null,

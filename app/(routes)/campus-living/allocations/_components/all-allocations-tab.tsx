@@ -281,6 +281,14 @@ export function AllAllocationsTab() {
   // allocations.edit, not upgrades.manage. Same key the detail page uses.
   const canVacate = isSuperAdmin || !!permissions?.['campus_living.allocations.edit'];
 
+  // College-wide scope. campus_living.settings.view is this codebase's existing
+  // marker for a college-wide hostel role — chief_warden and hostel_office hold
+  // it, a block-scoped warden does not (verified live in
+  // 20260804092425_campus_living_chief_warden_academic_cascade_rls.sql). It is
+  // declared BEFORE block scope because it outranks it: a wider scope is never
+  // narrowed by a lesser one.
+  const isCollegeWide = isSuperAdmin || permissions?.['campus_living.settings.view'] === true;
+
   // Block scope. A warden assigned to a block reaches it INDEPENDENTLY of their
   // institution: every warden's profile sits in JKKN Main Office, which owns no
   // block and no learner, so filtering them by profile institution matched zero
@@ -289,18 +297,28 @@ export function AllAllocationsTab() {
   // exactly as residents/_components/learners-tab.tsx does; never branch on
   // isSuperAdmin alone to decide scope.
   const { data: myBlockIds = [] } = useMyBlockAccess();
-  const blockScoped = !isSuperAdmin && myBlockIds.length > 0;
+  const blockScoped = !isCollegeWide && myBlockIds.length > 0;
   const { data: myBlockInstitutionIds = [] } = useInstitutionsForBlocks(
     blockScoped ? myBlockIds : undefined,
   );
 
-  // `useAllAllocations` gates on isSuperAdmin internally; the unallocated feed
-  // takes an explicit undefined for super-admins (all institutions).
-  const allocInstitutionId = blockScoped ? undefined : (profile?.institution_id ?? '');
+  // Both feeds were institution-scoped to profile.institution_id, which for a
+  // chief_warden is an administrative office rather than a college, so both
+  // matched nothing and every counter read 0. `useAllAllocations` resolves
+  // college-wide and block scope internally; the unallocated feed has no such
+  // logic — it passes the id straight through to
+  // fn_hostel_unallocated_candidates as p_institution_id — so the same decision
+  // has to be repeated here, or "Not Allocated" stays 0 while "Allocated" fills.
+  //
+  // Note the chief-warden case was never an RLS symptom:
+  // fn_hostel_unallocated_candidates is SECURITY DEFINER and bypasses RLS
+  // entirely, which is what pinned that cause to the institution id.
+  const allocInstitutionId =
+    isCollegeWide || blockScoped ? undefined : (profile?.institution_id ?? '');
   // An unplaced learner holds no block, so block scope cannot reach them —
   // the colleges behind the warden's blocks are the equivalent scope.
   const candInstitutionId =
-    isSuperAdmin || blockScoped ? undefined : (profile?.institution_id ?? undefined);
+    isCollegeWide || blockScoped ? undefined : (profile?.institution_id ?? undefined);
 
   const { data: allocations = [], isLoading: allocLoading } = useAllAllocations(
     allocInstitutionId,

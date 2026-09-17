@@ -1,6 +1,7 @@
 'use client';
 
 import { DataTable } from '@/components/data-table/data-table';
+import { sectionRowHref } from '@/components/data-table/utils/list-row-hrefs';
 import { getColumns } from './columns';
 import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import type { SectionsSearchParams } from './data-table-schema';
@@ -324,6 +325,7 @@ export function SectionsDataTable({ search }: SectionsDataTableProps) {
           headers: []
         }}
         idField='id'
+        rowHref={sectionRowHref}
         config={{
           enableUrlState: true,
           enableDateFilter: false,

@@ -52,8 +52,8 @@ type StaffRow = {
   is_active: boolean | null;
   has_extended_profile: boolean | null;
   // Role taxonomy:
-  //   role_type — high-level grouping (faculty/admin/support/management)
-  //   role_key  — fine-grained custom_roles key driving permissions
+  //   role_type — always 'teacher' on every row; retired as a filter, still returned
+  //   role_key  — the real role taxonomy, keyed to custom_roles
   role_key: string | null;
   date_of_joining: string;
   created_at: string;
@@ -104,9 +104,28 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const designation = url.searchParams.get('designation');
   const categoryId = url.searchParams.get('category_id');
   const hasExtendedParam = url.searchParams.get('has_extended_profile');
-  // Role-based filters — see docs at /application-hub/api-guidelines (Staff API).
-  const roleType = url.searchParams.get('role_type');
+  // Role-based filter — see docs at /application-hub/api-guidelines (Staff API).
+  //
+  // role_type is NOT a filter. Measured on production 2026-09-14: all 875 staff
+  // rows carry role_type = 'teacher', so the values these docs advertised
+  // (faculty / admin / support / management) matched nothing and returned an
+  // empty page with HTTP 200. Rejected below, the same way this route already
+  // rejects a bad key or an exhausted rate limit: before the query, and so
+  // before Step 6's audit log, which covers fetch outcomes.
   const roleKey = url.searchParams.get('role_key');
+
+  if (url.searchParams.has('role_type')) {
+    return NextResponse.json(
+      {
+        error: {
+          code: 'FILTER_RETIRED',
+          message:
+            "The 'role_type' filter is retired: every team-member record carries the same value, so it could never match. Use 'role_key' instead — see /application-hub/api-guidelines for the values in live use.",
+        },
+      },
+      { status: 400 }
+    );
+  }
   const offset = (page - 1) * limit;
 
   // Convert is_active to boolean — silently ignore any value that is not 'true' or 'false'
@@ -162,10 +181,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     if (hasExtendedProfile !== null) {
       query = query.eq('has_extended_profile', hasExtendedProfile);
-    }
-
-    if (roleType) {
-      query = query.eq('role_type', roleType);
     }
 
     if (roleKey) {

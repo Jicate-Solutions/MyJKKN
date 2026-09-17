@@ -386,7 +386,13 @@ export class LearnerHosteliteService {
         profileId
           ? supabase
               .from('hostel_gate_passes')
-              .select('id, pass_number, status, out_time, in_time, purpose, created_at')
+              // Columns only. This asked for `in_time` and `purpose`, and
+              // neither has ever existed on this table — the select failed
+              // with 42703 inside the Promise.all, so this whole bundle was
+              // broken, not just its gate-pass slice.
+              .select(
+                'id, pass_number, status, planned_out_at, out_time, actual_return, destination, created_at',
+              )
               .eq('learner_id', profileId)
               .order('created_at', { ascending: false })
               .limit(5)
@@ -504,8 +510,11 @@ export class LearnerHosteliteService {
 
   // ── Remove from hostel ────────────────────────────────────────────────
   // Flips accommodation_type_id to the institution's 'dayscholar' row on the
-  // underlying table (NOT the view). Caller is responsible for
-  // cancelling/vacating any active allocation.
+  // underlying table (NOT the view). trg_guard_accommodation_type_change
+  // (20260915180000_hostel_accommodation_type_guard.sql) rejects this at the
+  // DB layer while the learner still holds an active/pending_approval
+  // hostel_allocations row — vacate/transfer out the bed first, the error
+  // surfaces here via `error` and bubbles to the caller's toast.
   static async removeFromHostel(learnerId: string): Promise<void> {
     try {
       const supabase = createClientSupabaseClient();

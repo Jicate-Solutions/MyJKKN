@@ -56,6 +56,12 @@ import {
 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
+import { downloadCsv } from '@/lib/utils/csv-export';
+import {
+  LEAVE_ONDUTY_REPORT_EXPORT_COLUMNS,
+  leaveOndutyReportFilename,
+} from './_components/leave-onduty-report-export';
 
 export default function LeaveOndutyReportsPage() {
   const router = useRouter();
@@ -127,9 +133,21 @@ export default function LeaveOndutyReportsPage() {
 
   const stats = calculateStatistics();
 
+  // Exports the rows the cards above were counted from: the same
+  // `applications` this page loaded with `filters`, so no new query runs.
   const handleExport = () => {
-    // TODO: Implement export to CSV/Excel
-    console.log('Export functionality coming soon');
+    if (!applications || applications.length === 0) {
+      toast.info('There are no applications to download for these dates.');
+      return;
+    }
+    downloadCsv(
+      applications,
+      LEAVE_ONDUTY_REPORT_EXPORT_COLUMNS,
+      leaveOndutyReportFilename(dateFrom, dateTo)
+    );
+    toast.success(
+      `Downloaded ${applications.length} ${applications.length === 1 ? 'application' : 'applications'}.`
+    );
   };
 
   if (isLoading) {

@@ -38,10 +38,55 @@ import {
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { useChangelog } from '@/lib/changelog/use-changelog';
+import { HighlightsStrip } from '@/components/changelog/highlights-strip';
 import { usePermissions } from '@/hooks/use-permissions';
 import { KIND_LABEL, type ChangeKind, type ChangelogEntry } from '@/lib/changelog/types';
+import { CATEGORY_BLURB, groupByCategory, type ChangeCategory } from '@/lib/changelog/categories';
+import { formatEntryTime } from '@/lib/changelog/entry-time';
+import { chooseEntryLink } from '@/lib/changelog/entry-link.mjs';
+import { routeMatcher } from '@/lib/auth/route-matcher';
+import { isPageAccessible } from '@/lib/navigation/permission-filter';
 
 const PAGE = 60;
+
+/**
+ * May THIS reader open that path? The canonical answer, not a new one.
+ *
+ * Two existing pieces, composed exactly as RoutePermissionGuard composes them
+ * (components/auth/route-permission-guard.tsx) and as the sidebar does:
+ *
+ *   1. routeMatcher.match(path)?.permission — the permission MENU_PERMISSIONS
+ *      declares for that route, wildcard-aware so a [id] segment still matches.
+ *   2. isPageAccessible(...)                — the access rule itself: admin
+ *      bypass, the sentinel wall, the named per-route unions, then the key.
+ *
+ * WHY NOT THE MIDDLEWARE'S RULE. proxy.ts consults MENU_PERMISSIONS only for
+ * CUSTOM primary roles; every built-in role (faculty, hod, principal, staff…)
+ * is waved through every permission-mapped route and the PAGE refuses them
+ * client-side. A route-level test alone would therefore answer "yes, they can
+ * open it" for precisely the roles observed hitting the wall on production —
+ * a faculty member on /admission/consultants/attribution-orphans. isPageAccessible
+ * has no such role carve-out: it reads the key for everyone, which is why it is
+ * the rule this page must ask.
+ *
+ * FAIL-OPEN ON AN UNMAPPED PATH IS THE CANONICAL BEHAVIOUR, not an oversight
+ * here. A route with no MENU_PERMISSIONS entry is allowed by isPageAccessible,
+ * by RoutePermissionGuard, and by the nav — "no permission field = visible to
+ * all authenticated users". Making this one surface stricter than all three
+ * would hide working links, which is the opposite complaint.
+ *
+ * IT DECIDES THE LINK, NEVER THE ACCESS. Nothing here grants anything: the
+ * target page runs its own guard, and the data behind it runs RLS. The worst a
+ * bug in this function can do is show or withhold a link.
+ */
+function readerCanOpen(
+  path: string,
+  permissions: Record<string, boolean>,
+  isSuperAdmin: boolean,
+  userRole: string
+): boolean {
+  return isPageAccessible(path, routeMatcher.match(path)?.permission, permissions, isSuperAdmin, userRole);
+}
 
 /** Contributor pills shown before the "+N more" button, below `sm`. */
 const PHONE_CONTRIBUTORS = 5;
@@ -224,6 +269,21 @@ export function WhatsNewView() {
   const [shown, setShown] = useState(PAGE);
   const [allContributors, setAllContributors] = useState(false);
 
+  /**
+   * The reader's own "may I open that?" test, bound once per permission change.
+   *
+   * usePermissions is a React Query hook and useChangelog above already calls
+   * it, so this is the same cache entry rather than a second fetch. The list
+   * below is never rendered while permissions are still resolving — useChangelog
+   * folds permsLoading into its own isLoading — so this cannot decide a link on
+   * an empty permission map and then quietly change its mind.
+   */
+  const { permissions, isSuperAdmin, userProfile } = usePermissions();
+  const canOpen = useMemo(() => {
+    const role = userProfile?.role ?? '';
+    return (path: string) => readerCanOpen(path, permissions, isSuperAdmin, role);
+  }, [permissions, isSuperAdmin, userProfile?.role]);
+
   const filtered = useMemo(() => {
     if (!entries) return [];
     const q = query.trim().toLowerCase();
@@ -235,6 +295,20 @@ export function WhatsNewView() {
     );
   }, [entries, query, kind, moduleSlug]);
 
+  /**
+   * One section per day, and within a day one group per Keep a Changelog
+   * category, in that document's order (Director, 2026-09-12, citing
+   * keepachangelog.com/en/1.1.0: a changelog is "for humans, not machines").
+   *
+   * Grouping happens AFTER the `shown` slice, deliberately. Grouping first and
+   * slicing afterwards would make "Show more" reveal entries in the middle of
+   * groups already on screen rather than at the end of the list, which reads as
+   * the page reshuffling itself.
+   *
+   * The order entries arrive in is git's own, newest first; groupByCategory
+   * preserves it inside each group, so only the grouping is new — nothing is
+   * re-sorted.
+   */
   const days = useMemo(() => {
     const out: { day: string; items: ChangelogEntry[] }[] = [];
     for (const e of filtered.slice(0, shown)) {
@@ -242,7 +316,10 @@ export function WhatsNewView() {
       if (last && last.day === e.d) last.items.push(e);
       else out.push({ day: e.d, items: [e] });
     }
-    return out;
+    return out.map(({ day, items }) => ({
+      day,
+      groups: groupByCategory(items, (e) => e.t),
+    }));
   }, [filtered, shown]);
 
   // Contributors, counted across what THIS reader can see — so the credits
@@ -369,6 +446,23 @@ export function WhatsNewView() {
         </CardContent>
       </Card>
 
+      {/*
+        This week's highlights, above the plain list and above the filters.
+
+        Above the LIST because the list answers "what changed" and this answers
+        "what it means for me and what I can now do" — the two questions the
+        Director asked for on 2026-09-12. Above the FILTERS because the filters
+        below govern the plain list only; a strip sitting under them would read
+        as filtered when it is not.
+
+        It renders NOTHING at all when no highlight has been approved for this
+        week, while it is loading, and if its fetch fails — no heading, no empty
+        box. So the page below is exactly the page that ships today until
+        somebody approves a write-up. Passing meta.modules rather than letting
+        it fetch its own labels keeps one module dictionary on the page.
+      */}
+      <HighlightsStrip modules={meta.modules} />
+
       {/* Filters */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="relative flex-1">
@@ -434,7 +528,12 @@ export function WhatsNewView() {
         ))}
       </div>
 
-      {activeModule?.href && (
+      {/* The same rule as every row link below: offered only if this reader can
+          actually open it. A module the reader may read NEWS about is not
+          automatically a module whose landing page their role opens — Billing
+          news reaches anyone holding any `billing.*` key, while /billing itself
+          carries its own MENU_PERMISSIONS entry. */}
+      {activeModule?.href && canOpen(activeModule.href) && (
         <Link
           href={activeModule.href}
           className="inline-flex items-center gap-1.5 rounded-sm py-1 text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -470,8 +569,37 @@ export function WhatsNewView() {
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-8">
-          {days.map(({ day, items }) => (
+        /*
+          max-lg:pr-14 IS THE PHONE-OVERLAP FIX FOR THE TEXT, and it is spatial
+          for the same reason the link's `basis-full` wrapper below is: three
+          floating controls stack `fixed right-4`, 48px wide, on every
+          authenticated page, so the column owns x ∈ [329, 377] on a 393px
+          screen for the bottom ~316px of it, at every scroll offset. Moving the
+          link (#3761) cleared the one CONTROL on the row; the words did not
+          move. A card here spans the full content width (px-4 → [16, 377]) and
+          pads by 12px, so a title that wraps runs to x = 364 — 35px inside the
+          column. Verified live on production 2026-09-15 as a super admin: the
+          share button sat on top of "…uses to" at the end of a title
+          (.screenshots/wn2-superadmin-phone-link.png).
+
+          56px of right padding on this wrapper ends the cards at x = 321 and
+          their text at x = 308: 21px clear of the column, and the card border
+          itself stops 8px short of the buttons rather than touching them.
+
+          ON THE WRAPPER, NOT THE CARD, for a cascade reason: the card's
+          `sm:p-4` is a padding SHORTHAND that Tailwind emits AFTER every
+          `max-lg:` utility, so a `max-lg:pr-14` on the <li> would be silently
+          overwritten between 640px and 1023px and read as working on a phone
+          only. Measured with the project's own Tailwind 3.4 CLI.
+
+          max-lg rather than max-sm because the column has the same geometry at
+          every width below `lg` (bottom-nav-safe-* slots): at 640–1023px the
+          page's px-8 still leaves the text 16px under the buttons. From `lg`
+          the sidebar takes the left 288px and the stack drops to the corner
+          (`lg:bottom-4/20/36`), which is the same trade every page makes.
+        */
+        <div className="space-y-8 max-lg:pr-14">
+          {days.map(({ day, groups }) => (
             <section key={day}>
               {/*
                 top-14, not top-0: the app's Navbar is `sticky top-0 z-30` over
@@ -484,74 +612,219 @@ export function WhatsNewView() {
               <h2 className="sticky top-14 z-10 -mx-1 bg-background/95 px-1 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
                 {formatDay(day)}
               </h2>
-              <ul className="mt-1 space-y-2">
-                {items.map((e) => {
-                  const style = KIND_STYLE[e.t];
-                  const Icon = style.icon;
-                  const mod = meta.modules[e.m];
-                  return (
-                    <li
-                      key={e.h}
-                      className="rounded-lg border bg-card p-3 transition-colors hover:bg-muted/40 sm:p-4"
-                    >
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span
-                          className={cn(
-                            'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ring-inset',
-                            style.chip
-                          )}
+              {groups.map(({ category, label, items }) => (
+                <div key={category} className="mt-3 first:mt-1">
+                  {/*
+                    NOT sticky. Only one thing on this page may pin itself under
+                    the navbar; a second sticky heading would stack on top of the
+                    date and eat the first row of every group on a phone.
+                  */}
+                  <h3 className="flex flex-wrap items-baseline gap-x-2 px-1 text-sm font-semibold text-foreground">
+                    {label}
+                    <span className="text-xs font-normal text-muted-foreground">
+                      {CATEGORY_BLURB[category as ChangeCategory]}
+                    </span>
+                  </h3>
+                  <ul className="mt-1 space-y-2">
+                    {items.map((e) => {
+                      const style = KIND_STYLE[e.t];
+                      const Icon = style.icon;
+                      const mod = meta.modules[e.m];
+                      /*
+                        WHERE THIS CHANGE HAPPENED — the whole point of the row
+                        being clickable at all.
+
+                        Until this existed the page rendered exactly ONE link,
+                        the module's href above the timeline, and only once the
+                        reader had already filtered to that module. Scrolling
+                        the list, nothing was clickable: a row said "colleges
+                        genuinely over the limit will now correctly show as red
+                        or amber" and left the reader to go and find it
+                        (Director, 2026-09-13).
+
+                        Three states, in order, and the third is a real one:
+                          • `e.l` — the screen the commit actually changed,
+                            derived from its page files. ~26% of entries.
+                          • the module's own href — honest for a change that
+                            touched a migration, a service or a shared
+                            component, which is ~70% of them.
+                          • nothing. `platform` and `cohort-programmes` have no
+                            href, so those ~4% render no link rather than a dead
+                            `#`. An anchor that goes nowhere is worse than plain
+                            text: it takes focus, it takes a tap, and it teaches
+                            the reader that the links on this page do not work.
+
+                        The two are worded differently on purpose — "Open this
+                        page" means we know the exact screen, "Open Billing"
+                        means we know the area. A reader can tell which promise
+                        is being made before spending a tap on it.
+
+                        EACH CANDIDATE IS TESTED AGAINST THIS READER before it
+                        is offered — chooseEntryLink + canOpen, above. The
+                        previous version checked nothing, on the reasoning that
+                        fn_changelog_visible_modules() had already narrowed the
+                        rows to modules the reader can reach. That reasoning is
+                        true and insufficient: module visibility is decided by
+                        permission NAMESPACE, while `e.l` is derived from the
+                        files a commit touched, and a commit filed under one
+                        module routinely edits a screen gated by another
+                        module's key. Observed on production 2026-09-14 — a
+                        learner and a holder of the `faculty` role both followed
+                        a link from here into an access-denied card. The
+                        Director's ruling of 2026-09-13 (edge case 3) is that
+                        such a link is HIDDEN for them: no dead ends. So an
+                        unreachable exact screen falls back to the module, an
+                        unreachable module falls back to nothing, and the
+                        fallback is re-tested rather than assumed.
+                      */
+                      const link = chooseEntryLink(e.l, mod?.href, mod?.label ?? '', canOpen);
+                      // Read in Asia/Kolkata, the same clock `e.d` was written in,
+                      // so the time on the row and the date above it are two
+                      // readings of one instant and cannot name different days.
+                      const time = formatEntryTime(e.at);
+                      return (
+                        <li
+                          key={e.h}
+                          className="rounded-lg border bg-card p-3 transition-colors hover:bg-muted/40 sm:p-4"
                         >
-                          <Icon className="h-3 w-3" aria-hidden="true" />
-                          {KIND_LABEL[e.t]}
-                        </span>
-                        {mod && (
-                          <span className="min-w-0 break-words text-xs font-medium text-muted-foreground">
-                            {mod.label}
-                          </span>
-                        )}
-                        {e.b === 1 && (
-                          <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold uppercase text-rose-700 dark:bg-rose-950 dark:text-rose-300">
-                            Breaking
-                          </span>
-                        )}
-                      </div>
-                      {/* Measured at 375px: today's longest token (57 chars,
-                          a route glob) wraps on its own — slashes and commas
-                          are break opportunities. A snake_case identifier is
-                          not: a 49-char `fn_…` name overflowed the card by
-                          17px, and main's overflow-x-clip would have cut it
-                          off silently. Real subjects carry such names up to
-                          36 chars today, so this is a near miss, not a
-                          hypothetical. */}
-                      <p className="mt-1.5 break-words text-sm leading-relaxed text-foreground">
-                        {e.s}
-                      </p>
-                      <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                        <span className="inline-flex min-w-0 items-center gap-1.5">
-                          <span
-                            className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-muted text-[8px] font-bold text-foreground/70"
-                            aria-hidden="true"
-                          >
-                            {initials(e.a)}
-                          </span>
-                          <span className="break-words font-medium text-foreground/80">{e.a}</span>
-                        </span>
-                        {e.p && (
-                          <span className="font-mono">
-                            <span className="sr-only">pull request </span>#{e.p}
-                          </span>
-                        )}
-                      </p>
-                    </li>
-                  );
-                })}
-              </ul>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span
+                              className={cn(
+                                'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ring-inset',
+                                style.chip
+                              )}
+                            >
+                              <Icon className="h-3 w-3" aria-hidden="true" />
+                              {KIND_LABEL[e.t]}
+                            </span>
+                            {mod && (
+                              <span className="min-w-0 break-words text-xs font-medium text-muted-foreground">
+                                {mod.label}
+                              </span>
+                            )}
+                            {e.b === 1 && (
+                              <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold uppercase text-rose-700 dark:bg-rose-950 dark:text-rose-300">
+                                Breaking
+                              </span>
+                            )}
+                          </div>
+                          {/* Measured at 375px: today's longest token (57 chars,
+                              a route glob) wraps on its own — slashes and commas
+                              are break opportunities. A snake_case identifier is
+                              not: a 49-char `fn_…` name overflowed the card by
+                              17px, and main's overflow-x-clip would have cut it
+                              off silently. Real subjects carry such names up to
+                              36 chars today, so this is a near miss, not a
+                              hypothetical. */}
+                          <p className="mt-1.5 break-words text-sm leading-relaxed text-foreground">
+                            {e.s}
+                          </p>
+                          <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                            {/* The time of day, under the header that names the
+                                day. Absent on every row the sync has not re-read
+                                since the timestamp column was added, in which case
+                                the date header alone stands — which is exactly what
+                                this page showed before. */}
+                            {time && (
+                              <time dateTime={e.at} className="shrink-0 tabular-nums">
+                                <span className="sr-only">shipped at </span>
+                                {time}
+                              </time>
+                            )}
+                            <span className="inline-flex min-w-0 items-center gap-1.5">
+                              <span
+                                className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-muted text-[8px] font-bold text-foreground/70"
+                                aria-hidden="true"
+                              >
+                                {initials(e.a)}
+                              </span>
+                              <span className="break-words font-medium text-foreground/80">{e.a}</span>
+                            </span>
+                            {e.p && (
+                              <span className="font-mono">
+                                <span className="sr-only">pull request </span>#{e.p}
+                              </span>
+                            )}
+                            {link && (
+                              /*
+                                Last in the metadata trail and styled like it —
+                                this is a list people scan, and sixty buttons
+                                would be sixty things competing with the words
+                                that say what changed. It wraps to its own line
+                                on a phone, which is where the tap target wants
+                                to be anyway.
+
+                                The sr-only subject is not decoration: sixty
+                                links all named "Open this page" are
+                                indistinguishable in a screen reader's link
+                                list. Naming each one after its own change makes
+                                the list navigable.
+
+                                THE `basis-full` WRAPPER IS THE PHONE-OVERLAP
+                                FIX, and it is spatial rather than cosmetic.
+                                Three floating controls stack at `right-4` on
+                                every authenticated page — the bug reporter
+                                (bottom-nav-safe-2), the Director handover
+                                (-safe-3) and the work pulse (-safe-4), 48px
+                                each — so the column owns x ∈ [329, 377] on a
+                                393px screen for the bottom ~316px of it. Left
+                                to flow at the END of this metadata line, the
+                                link packed at the right edge whenever the time,
+                                the contributor's name and the PR number left
+                                room: measured at 393px with the project's own
+                                compiled Tailwind, a row credited to "Boobalan
+                                Subramanian" put the link at x ∈ [278, 353] —
+                                24px inside the column, with the buttons sitting
+                                on top of the one control the row exists to
+                                offer. The wrapper puts it on its own line at
+                                x ∈ [29, 104]: clear of the column at EVERY
+                                scroll offset, which bottom padding cannot
+                                promise, since a fixed element crosses every row
+                                of a scrolling list.
+
+                                WHY A WRAPPER RATHER THAN `basis-full` ON THE
+                                ANCHOR. Both break the line, but flex-basis is a
+                                SIZE: on the anchor it stretched the link's box
+                                to the full card width (measured x ∈ [29, 364]),
+                                pushing its right end back under the buttons —
+                                an invisible tap target that the FABs win anyway.
+                                `max-w-fit` shrinks the box but then no longer
+                                forces the break. A wrapper separates the two
+                                jobs: the span takes the line, the anchor keeps
+                                its 75px. `sm:basis-auto` restores the inline
+                                layout above the breakpoint, where no floating
+                                column overlaps the content.
+                              */
+                              <span className="basis-full sm:basis-auto">
+                                <Link
+                                  href={link.href}
+                                  className="inline-flex shrink-0 items-center gap-1 rounded-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                >
+                                  {link.label}
+                                  <ArrowRight className="h-3 w-3" aria-hidden="true" />
+                                  <span className="sr-only">: {e.s}</span>
+                                </Link>
+                              </span>
+                            )}
+                          </p>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ))}
             </section>
           ))}
         </div>
       )}
 
-      <div className="flex flex-col items-center gap-3 pb-4">
+      {/* pb-nav-safe below lg: the mobile BottomNav is `fixed bottom-0` over a
+          76px strip plus the iOS home-indicator inset, and ContentLayout's pb-8
+          (32px) is not enough to clear it — the last row of a list this long sits
+          permanently underneath. The `nav-safe` token is the repository's own
+          measurement of that strip (tailwind.config.ts); lg:pb-4 restores the
+          original spacing above the breakpoint, where the nav does not exist. */}
+      <div className="flex flex-col items-center gap-3 pb-nav-safe lg:pb-4">
         {shown < filtered.length && (
           <Button
             variant="outline"

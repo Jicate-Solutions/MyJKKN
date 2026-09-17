@@ -41,10 +41,16 @@ export function CampusLivingResidentGuard({ children }: { children: React.ReactN
   // tab — gated by leave.request / gate_passes.create), and the vacate-requests
   // area (their own request detail is page-guarded for view_own). Everything
   // else under /campus-living is admin/operational → redirect to My Hostel.
+  //
+  // `/campus-living/gate-passes/new` was on this list and has been REMOVED.
+  // That page issues an ALREADY-APPROVED pass with approved_by set to whoever
+  // submitted it, so allow-listing it for students let a learner approve
+  // themselves. The resident's lane is `/request`, which files something a
+  // warden still has to decide.
   const RESIDENT_PATHS = [
     '/campus-living/my-hostel',
     '/campus-living/leave/new',
-    '/campus-living/gate-passes/new',
+    '/campus-living/gate-passes/request',
     '/campus-living/vacate-requests',
   ];
   const onResidentPath =

@@ -4,15 +4,16 @@ import { NextRequest, NextResponse, connection } from 'next/server';
 import {
   ALREADY_SUBMITTED,
   ATTEMPT_COLUMNS,
-  DEADLINE_GRACE_MS,
-  RPC_MISSING,
   UUID_RE,
   admin as adminClient,
   deadlineFor,
+  graceMs,
+  lateAnswerRefusal,
   normaliseAnswer,
   resolveCaller,
+  resolveServedSet,
+  rpcMissing,
   timedMinutes,
-  verifyServedSet,
   type AttemptRow,
 } from '@/lib/services/onemark/attempt-server';
 
@@ -123,7 +124,10 @@ export async function POST(
     // fp_assessment_items (checked below). Either way the answer key of an
     // item that was never served cannot be reached through this route.
     if (attempt.mode !== 'live') {
-      const served = verifyServedSet(attempt.id, body.servedToken);
+      // The stored fp_attempts.served_item_ids column when S3 has been
+      // applied, the signed token while it has not — both enforced, one
+      // release (Lane L item 1).
+      const { served } = await resolveServedSet(admin, attempt.id, body.servedToken);
       if (!served) {
         return NextResponse.json(
           { error: 'This sitting could not be verified. Please reopen it and try again.' },
@@ -165,19 +169,43 @@ export async function POST(
     }
 
     // ---- The clock -------------------------------------------------------------
-    // After the deadline (plus a little slack for the last tap) an ANSWER is
-    // refused; a SKIP is still accepted, because that is exactly what the
-    // auto-submit does with whatever was left blank (decision 18).
+    // A SKIP is always accepted, because that is exactly what the auto-submit
+    // does with whatever was left blank (decision 18).
+    //
+    // An ANSWER after the deadline gets the grace ONCE, and only once
+    // (ruling 7). A sitting that drops its connection keeps its clock running
+    // — the deadline is computed from started_at, never from when the browser
+    // came back — so the tap the learner had in hand when the clock stopped
+    // can still land over a slow line. The SECOND late answer is refused
+    // however soon it arrives, and so is a late CHANGE to a question that was
+    // already answered: fifteen seconds of slack is not fifteen extra seconds
+    // of paper, and a revision after the bell is not a late first tap. (The
+    // revision case is also the only one the timestamp could never catch — the
+    // RPC upserts and leaves created_at where it was.)
     if (!skipped) {
       const deadline = deadlineFor(attempt, {
         timedMinutes: await timedMinutes(admin),
         assessmentConfig: assessment.config,
       });
-      if (deadline !== null && Date.now() > deadline + DEADLINE_GRACE_MS) {
-        return NextResponse.json(
-          { error: 'Time is up for this sitting.', expired: true },
-          { status: 409 },
-        );
+      if (deadline !== null && Date.now() > deadline) {
+        const slack = await graceMs(admin);
+        const withinGrace = Date.now() <= deadline + slack;
+        const refusal = withinGrace
+          ? await lateAnswerRefusal(admin, attempt.id, item.id, deadline)
+          : 'spent';
+        if (refusal) {
+          return NextResponse.json(
+            {
+              error:
+                refusal === 'revision'
+                  ? 'Time is up — an answer you had already given cannot be changed now.'
+                  : 'Time is up for this sitting.',
+              expired: true,
+              reason: refusal,
+            },
+            { status: 409 },
+          );
+        }
       }
     }
 
@@ -205,7 +233,11 @@ export async function POST(
       if (/not authorized/i.test(msg)) {
         return NextResponse.json({ error: 'That sitting could not be found.' }, { status: 404 });
       }
-      const missing = RPC_MISSING.test(msg);
+      // "Not deployed yet" must NAME the function or carry PGRST202 / 42883.
+      // A deployed RPC that fails with "… does not exist" about a relation or
+      // a column is a FAILURE, and telling the learner it "is not switched on"
+      // hides it (CLAUDE.md #27).
+      const missing = rpcMissing(rpcError, 'fn_onemark_record_response');
       return NextResponse.json(
         {
           error: missing

@@ -109,6 +109,8 @@ const timetableFormSchema = z
     }),
     timetable_type: z.enum(['section', 'semester']).default('semester'),
     section_id: z.string().optional(),
+    // Updated: 2026-09-11 - Declared section scope (see Timetable.section_ids).
+    section_ids: z.array(z.string()).default([]),
     start_date: z.date().optional(),
     end_date: z.date().optional(),
     is_active: z.boolean().default(true),
@@ -148,6 +150,20 @@ const timetableFormSchema = z
     {
       message: 'Please select a section for section-level timetables.',
       path: ['section_id']
+    }
+  )
+  .refine(
+    (data) => {
+      // An empty scope reaches the duplicate guard as "the whole semester",
+      // which would reserve every section and block every parallel group.
+      if (data.timetable_type === 'semester' && data.section_ids.length === 0) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: 'Choose at least one section for this timetable to cover.',
+      path: ['section_ids']
     }
   )
   .refine(
@@ -279,6 +295,7 @@ export default function EditTimetablePage() {
       semester_id: '',
       timetable_type: 'semester', // Default to semester-level
       section_id: '',
+      section_ids: [],
       start_date: undefined,
       end_date: undefined,
       is_active: true,
@@ -334,9 +351,26 @@ export default function EditTimetablePage() {
   // For edit mode: if no semester is selected via watch but we have a timetable with semester_id, use that
   const effectiveSemesterId = watchSemesterId || (timetable && !loading ? timetable.semester_id : null);
 
-  const filteredSections = allSections.filter(
-    (section) => !effectiveSemesterId || section.semester_id === effectiveSemesterId
+  // Fixed: 2026-09-11 - Sections are offered ONLY once the whole hierarchy is
+  // chosen. This used to read `!effectiveSemesterId || ...`, which with no
+  // semester matched EVERY section the user can see — up to 1000, across every
+  // institution — straight into the section dropdown and the scope picker.
+  //
+  // The gate reads the FORM's semester, not effectiveSemesterId. That fallback
+  // to the stored timetable's semester exists for the instant before the form
+  // is reset; after a parent field changes and clears the semester, it would
+  // keep showing the OLD semester's sections under a new program.
+  const sectionHierarchyComplete = Boolean(
+    watchInstitutionId &&
+      watchDegreeId &&
+      watchDepartmentId &&
+      watchProgramId &&
+      watchSemesterId
   );
+
+  const filteredSections = sectionHierarchyComplete
+    ? allSections.filter((section) => section.semester_id === watchSemesterId)
+    : [];
 
   // Deduplicate semesters by semester_name to avoid duplicate keys
   const uniqueSemesters = filteredSemesters.filter(
@@ -384,6 +418,14 @@ export default function EditTimetablePage() {
           semester_id: timetableData.semester_id || '',
           timetable_type: timetableData.timetable_type || 'section', // Default to 'section' for existing timetables
           section_id: timetableData.section_id || '',
+          // An undeclared scope means "the whole semester" — the pre-2026-09-11
+          // reading — so the picker opens with every section ticked rather than
+          // with nothing, which would read as "covers nobody".
+          section_ids:
+            (timetableData as any).section_ids &&
+            (timetableData as any).section_ids.length > 0
+              ? (timetableData as any).section_ids
+              : [],
           start_date: timetableData.start_date
             ? new Date(timetableData.start_date)
             : undefined,
@@ -604,6 +646,47 @@ export default function EditTimetablePage() {
     // allSections is now memoized, safe to include in dependencies
   }, [watchSemesterId, form, allSections, timetable]);
 
+  /**
+   * Keep the declared scope honest when the semester changes, and fill it in for
+   * a timetable that predates the column. Added: 2026-09-11.
+   *
+   * Two cases, one effect:
+   *   - The row has no declared scope. That means "the whole semester" under the
+   *     old rule, so the picker opens with everything ticked. Opening it empty
+   *     would read as "covers nobody" and fail validation on a timetable the
+   *     operator only came here to rename.
+   *   - The semester was changed. The old semester's section ids cannot apply to
+   *     the new one, so they are replaced with the new semester's full list
+   *     rather than left behind as a scope pointing at another semester.
+   *
+   * Guarded by a one-shot key so it never re-ticks a selection the operator has
+   * deliberately narrowed.
+   */
+  const [scopeSyncedFor, setScopeSyncedFor] = useState<string | null>(null);
+  useEffect(() => {
+    if (!timetable || !effectiveSemesterId) return;
+    if (filteredSections.length === 0) return;
+    if (scopeSyncedFor === effectiveSemesterId) return;
+
+    const current = form.getValues('section_ids') || [];
+    const validHere = current.filter((id: string) =>
+      filteredSections.some((s) => s.id === id)
+    );
+
+    setScopeSyncedFor(effectiveSemesterId);
+
+    if (validHere.length === 0) {
+      form.setValue(
+        'section_ids',
+        filteredSections.map((s) => s.id),
+        { shouldValidate: false }
+      );
+    } else if (validHere.length !== current.length) {
+      form.setValue('section_ids', validHere, { shouldValidate: false });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timetable, effectiveSemesterId, filteredSections.length, scopeSyncedFor]);
+
   // Form submission handler
   // Updated: 2025-12-11 - Only send safe fields when attendance exists to allow editing name, dates
   const onSubmit = async (values: TimetableFormValues) => {
@@ -625,8 +708,23 @@ export default function EditTimetablePage() {
       // If attendance exists and user is not super admin, only send safe fields
       // This allows editing timetable_name, start_date, end_date, is_active, is_template
       if (hasAttendance && !isSuperAdmin) {
+        // The scope is not a "safe" field, because dropping a section that has
+        // marked attendance orphans those rows. WIDENING takes nothing away
+        // from anyone, though, and a group gaining a section mid-year is
+        // routine — the service accepts a strict superset, so send one only
+        // when that is what this is, and stay silent otherwise rather than
+        // having the whole save rejected.
+        const storedScope = ((timetable as any)?.section_ids || []) as string[];
+        const nextScope = values.section_ids || [];
+        const isWidening =
+          values.timetable_type === 'semester' &&
+          storedScope.length > 0 &&
+          nextScope.length > storedScope.length &&
+          storedScope.every((id) => nextScope.includes(id));
+
         updateData = {
           timetable_name: values.timetable_name,
+          ...(isWidening ? { section_ids: nextScope } : {}),
           start_date: formatDateForDB(values.start_date),
           end_date: formatDateForDB(values.end_date),
           is_active: values.is_active,
@@ -648,6 +746,11 @@ export default function EditTimetablePage() {
           semester_id: values.semester_id || undefined,
           timetable_type: values.timetable_type,
           section_id: values.timetable_type === 'semester' ? undefined : (values.section_id || undefined),
+          // A section-level row derives its scope from its own section in the
+          // service, so sending the semester list alongside section_id would put
+          // two contradicting answers on the wire.
+          section_ids:
+            values.timetable_type === 'semester' ? values.section_ids : [],
           start_date: formatDateForDB(values.start_date),
           end_date: formatDateForDB(values.end_date),
           is_active: values.is_active,
@@ -1091,6 +1194,11 @@ export default function EditTimetablePage() {
                               // Clear section_id when switching to semester type
                               if (value === 'semester') {
                                 form.setValue('section_id', '');
+                              } else {
+                                // A section-level row derives its scope from its
+                                // own section; a stale semester list left here
+                                // would contradict it.
+                                form.setValue('section_ids', []);
                               }
                             }}
                             value={field.value}
@@ -1183,6 +1291,134 @@ export default function EditTimetablePage() {
                             <FormMessage />
                           </FormItem>
                         )}
+                      />
+                    )}
+
+                    {/* Sections Covered - semester-level only.
+                        Added: 2026-09-11. Widening is allowed at any time;
+                        narrowing locks once attendance exists, because dropping
+                        a section that has marked attendance orphans those rows. */}
+                    {watchTimetableType === 'semester' && (
+                      <FormField
+                        control={form.control}
+                        name='section_ids'
+                        render={({ field }) => {
+                          const selected = field.value || [];
+                          const allIds = filteredSections.map((sec) => sec.id);
+                          const allSelected =
+                            allIds.length > 0 &&
+                            selected.length === allIds.length;
+                          const storedScope = ((timetable as any)?.section_ids ||
+                            []) as string[];
+                          const narrowingLocked =
+                            hasAttendance &&
+                            !isSuperAdmin &&
+                            storedScope.length > 0;
+
+                          return (
+                            <FormItem className='md:col-span-2'>
+                              <div className='flex items-center justify-between gap-2'>
+                                <FormLabel>
+                                  {adapt('Sections')} Covered{' '}
+                                  <span className='text-red-500'>*</span>
+                                </FormLabel>
+                                <div className='flex items-center gap-2'>
+                                  <span className='text-xs text-muted-foreground'>
+                                    {selected.length} of {allIds.length} selected
+                                  </span>
+                                  <Button
+                                    type='button'
+                                    variant='ghost'
+                                    size='sm'
+                                    className='h-7 px-2 text-xs'
+                                    disabled={allIds.length === 0}
+                                    onClick={() =>
+                                      field.onChange(
+                                        allSelected && !narrowingLocked
+                                          ? []
+                                          : allIds
+                                      )
+                                    }
+                                  >
+                                    {allSelected && !narrowingLocked
+                                      ? 'Clear'
+                                      : 'Select all'}
+                                  </Button>
+                                </div>
+                              </div>
+                              <div
+                                className={cn(
+                                  'max-h-48 overflow-y-auto rounded-md border p-2',
+                                  selected.length === 0 &&
+                                    'border-red-300 bg-red-50 dark:bg-red-950/20'
+                                )}
+                              >
+                                {filteredSections.length === 0 && (
+                                  <p className='py-3 text-center text-sm text-muted-foreground'>
+                                    No {adapt('sections')} for this semester.
+                                  </p>
+                                )}
+
+                                {filteredSections.map((sec) => {
+                                  const isStored = storedScope.includes(sec.id);
+                                  const checked = selected.includes(sec.id);
+                                  // A section already in the saved scope cannot
+                                  // be unticked once attendance exists; adding a
+                                  // new one always can.
+                                  const lockedOn = narrowingLocked && isStored;
+
+                                  return (
+                                    <div
+                                      key={`scope-${sec.id}`}
+                                      className='flex items-center space-x-2 py-1'
+                                    >
+                                      <Checkbox
+                                        id={`scope-${sec.id}`}
+                                        checked={checked}
+                                        disabled={lockedOn}
+                                        onCheckedChange={(value) => {
+                                          field.onChange(
+                                            value
+                                              ? [...selected, sec.id]
+                                              : selected.filter(
+                                                  (id: string) => id !== sec.id
+                                                )
+                                          );
+                                        }}
+                                      />
+                                      <label
+                                        htmlFor={`scope-${sec.id}`}
+                                        className={cn(
+                                          'text-sm',
+                                          lockedOn
+                                            ? 'cursor-not-allowed text-muted-foreground'
+                                            : 'cursor-pointer'
+                                        )}
+                                      >
+                                        {sec.section_name}
+                                        {lockedOn && (
+                                          <span className='ml-1 text-xs'>
+                                            (attendance marked)
+                                          </span>
+                                        )}
+                                      </label>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                              <FormDescription>
+                                {narrowingLocked
+                                  ? `Attendance has been marked, so ${adapt(
+                                      'sections'
+                                    )} already covered cannot be removed. You can still add more.`
+                                  : `Only these ${adapt(
+                                      'sections'
+                                    )} can be scheduled in this timetable, and only they see it.`}
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          );
+                        }}
                       />
                     )}
                   </div>

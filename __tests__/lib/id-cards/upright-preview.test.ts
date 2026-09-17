@@ -21,7 +21,7 @@ const person: CardPersonData = {
   courseName: 'B.E. Electronics and Communication Engineering',
   departmentName: 'ECE',
   institutionName: 'JKKN College of Engineering and Technology',
-  isSchool: false,
+  isSchool: false, qrId: null, academicYearLabel: null,
   qrValue: 'x',
   photoCandidates: [],
   valueBag: {},

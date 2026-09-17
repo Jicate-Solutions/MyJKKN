@@ -223,7 +223,7 @@ const RUNGS: RungDef[] = [
     copy: (task, daysOverdue) => ({
       title: `Reminder: ${truncate(task.title, 90)}`,
       body:
-        `This Management walk item is now ${pluralDays(daysOverdue)} past its due date ` +
+        `This ${attributionOf(task)} item is now ${pluralDays(daysOverdue)} past its due date ` +
         `(${task.due_date}). Please action it, or mark it "blocked" if something is holding ` +
         `you up — an unexplained delay is not the same as one with a reason on record.`
     })
@@ -236,7 +236,7 @@ const RUNGS: RungDef[] = [
     copy: (task, daysOverdue) => ({
       title: `Second reminder: ${truncate(task.title, 90)}`,
       body:
-        `Still open. This Management walk item is ${pluralDays(daysOverdue)} past its due ` +
+        `Still open. This ${attributionOf(task)} item is ${pluralDays(daysOverdue)} past its due ` +
         `date. Please action it today, or record what is blocking you so the deadline ` +
         `reflects what is actually happening.`
     })
@@ -249,7 +249,7 @@ const RUNGS: RungDef[] = [
     copy: (task, daysOverdue) => ({
       title: `Needs attention (${pluralDays(daysOverdue)} overdue): ${truncate(task.title, 80)}`,
       body:
-        `"${truncate(task.title, 150)}" (a Management walk item, due ${task.due_date}) has had ` +
+        `"${truncate(task.title, 150)}" (a ${attributionOf(task)} item, due ${task.due_date}) has had ` +
         `two reminders and is still open ${pluralDays(daysOverdue)} past due. Flagging to the ` +
         `department in case something is blocking it that has not been resolved yet.`
     })
@@ -262,7 +262,7 @@ const RUNGS: RungDef[] = [
     copy: (task, daysOverdue) => ({
       title: `Director attention (${pluralDays(daysOverdue)} overdue): ${truncate(task.title, 80)}`,
       body:
-        `A Management walk item ("${truncate(task.title, 150)}", due ${task.due_date}) has been ` +
+        `A ${attributionOf(task)} item ("${truncate(task.title, 150)}", due ${task.due_date}) has been ` +
         `open ${pluralDays(daysOverdue)} past due despite reminders and department-level ` +
         `escalation. It may need your attention to unblock.`
     })
@@ -293,6 +293,19 @@ interface StaffLite {
   profileId: string | null;
   isActive: boolean;
   departmentId: string | null;
+}
+
+/**
+ * How the item reached MyJKKN, for the chase messages — `metadata.attribution`.
+ *
+ * A CHANNEL, never a person (D10). Hardcoding "Management walk" told a
+ * department head the Director had personally walked past their corridor even
+ * when a learner had sent the report in through InstaSolver, which changes how
+ * the reminder reads and who they think is watching.
+ */
+function attributionOf(task: ChaseableTask): string {
+  const raw = (task.metadata ?? {}).attribution;
+  return typeof raw === 'string' && raw.trim() ? raw.trim() : 'Management walk';
 }
 
 /** Ruling 2's audit record — appended to `metadata.campus_walk_chase.reassignment_history`. */

@@ -29,6 +29,7 @@ import {
 } from '@/hooks/service-requests/use-service-requests';
 import { useServiceType } from '@/hooks/service-requests/use-service-types';
 import { DynamicRequestForm } from '../../_components/dynamic-request-form';
+import { withGatePassFields } from '@/lib/gate-security/gate-pass-form-fields';
 import { RequestStatusBadge } from '../../_components/request-status-badge';
 import type { ServiceRequestPriority } from '@/types/service-request';
 import { useState } from 'react';
@@ -127,7 +128,10 @@ export default function EditServiceRequestPage({
     );
   }
 
-  const fields = serviceType?.fields || request.service_type?.fields || [];
+  const fields = withGatePassFields(
+    serviceType?.issues_gate_pass ?? request.service_type?.issues_gate_pass,
+    serviceType?.fields || request.service_type?.fields || []
+  );
 
   return (
     <ContentLayout title={`Edit ${request.request_number}`}>

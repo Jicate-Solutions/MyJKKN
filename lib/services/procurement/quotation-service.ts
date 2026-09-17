@@ -12,64 +12,11 @@ import type {
   CreateQuotationDto,
   ComparisonRow,
 } from '@/types/procurement';
+import { buildComparisonRows } from '@/lib/procurement/comparison-rows';
 
-/**
- * Pure builder for the item-wise comparison — one row per RFQ item with every
- * vendor's quote + the lowest price. Extracted so the client can compute it from
- * already-loaded RFQ items + quotations WITHOUT a second server round-trip (the
- * quotations page already holds both), and so the service can reuse it on the server.
- */
-export function buildComparisonRows(
-  rfqItems: Array<{
-    id: string;
-    item_name: string;
-    item_spec: string | null;
-    quantity: number;
-    unit_label: string | null;
-    is_chemical?: boolean;
-  }>,
-  quotations: QuotationWithItems[]
-): ComparisonRow[] {
-  return rfqItems.map((ri): ComparisonRow => {
-    const quotes = quotations
-      .flatMap((q) =>
-        q.items
-          .filter((qi) => qi.rfq_item_id === ri.id)
-          .map((qi) => ({
-            quotation_id: q.id,
-            quotation_item_id: qi.id,
-            supplier_id: q.supplier_id,
-            supplier_name: q.supplier?.name ?? q.supplier_id,
-            unit_price: qi.unit_price,
-            quantity: qi.quantity,
-            delivery_time_days: qi.delivery_time_days,
-            manufacturer: qi.manufacturer,
-            quality_grade: qi.quality_grade,
-            concentration: qi.concentration,
-            other_specs: qi.other_specs,
-            awarded: qi.awarded,
-          }))
-      )
-      // Not-quoted (unit_price null) sorts last — plain `a - b` would coerce null to 0
-      // and put "didn't quote this" ahead of every real price.
-      .sort((a, b) => {
-        if (a.unit_price === null) return b.unit_price === null ? 0 : 1;
-        if (b.unit_price === null) return -1;
-        return a.unit_price - b.unit_price;
-      });
-    const lowestQuote = quotes.find((q) => q.unit_price !== null);
-    return {
-      rfq_item_id: ri.id,
-      item_name: ri.item_name,
-      item_spec: ri.item_spec,
-      quantity: ri.quantity,
-      unit_label: ri.unit_label,
-      is_chemical: ri.is_chemical ?? false,
-      quotes,
-      lowest_price: lowestQuote ? lowestQuote.unit_price : null,
-    };
-  });
-}
+// The builder is pure and lives in lib/procurement so server routes (the compare
+// chat) can use it too; re-exported here so existing imports keep working.
+export { buildComparisonRows };
 
 export class ProcurementQuotationService {
   private static get supabase() {
@@ -122,6 +69,11 @@ export class ProcurementQuotationService {
     name: string;
     code?: string | null;
     email?: string | null;
+    gstin?: string | null;
+    phone?: string | null;
+    address?: string | null;
+    contact_person?: string | null;
+    payment_terms?: string | null;
   }): Promise<{ id: string; name: string; code: string; email: string | null }> {
     const name = input.name?.trim();
     if (!name) throw new Error('Vendor name is required.');
@@ -132,6 +84,11 @@ export class ProcurementQuotationService {
         name,
         code,
         email: input.email?.trim() || null,
+        gstin: input.gstin?.trim().toUpperCase() || null,
+        phone: input.phone?.trim() || null,
+        address: input.address?.trim() || null,
+        contact_person: input.contact_person?.trim() || null,
+        payment_terms: input.payment_terms?.trim() || null,
         institution_id: input.institution_id,
         is_active: true,
       })

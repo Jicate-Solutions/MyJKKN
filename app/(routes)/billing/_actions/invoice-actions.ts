@@ -10,6 +10,7 @@
 import { revalidateTag } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import { cacheTags } from '@/lib/cache';
+import { INVOICE_EMAIL_NOT_AVAILABLE } from '@/lib/services/billing/email-not-available';
 import type { CreateInvoiceDto, UpdateInvoiceDto } from '@/types/billing-schedule';
 
 interface ActionResult<T = unknown> {
@@ -232,66 +233,19 @@ export async function deleteInvoice(id: string): Promise<ActionResult> {
 }
 
 /**
- * Send invoice via email
- * TODO: Implement actual email sending via Edge Function or external service
+ * Send invoice via email — NOT BUILT.
+ *
+ * This returned `success: true` over a TODO, so the invoice page showed a
+ * success message while nothing was sent. It now always fails with
+ * a message pointing staff to Download. No button calls it any more; it stays
+ * because an exported server action is a live endpoint, and an old caller must
+ * get an honest answer. Real emailing needs an email service decision first.
  */
 export async function sendInvoice(
-  id: string,
-  email: string
+  _id: string,
+  _email: string
 ): Promise<ActionResult> {
-  try {
-    const supabase = await createClient();
-
-    // Get current user for permission check
-    const {
-      data: { user }
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      return { success: false, error: 'Not authenticated' };
-    }
-
-    // Get invoice details
-    const { data: invoice, error: fetchError } = await supabase
-      .from('billing_invoices')
-      .select(
-        `
-        *,
-        student:learners_profiles(id, first_name, last_name, college_email),
-        institution:institutions(id, name)
-      `
-      )
-      .eq('id', id)
-      .single();
-
-    if (fetchError || !invoice) {
-      return {
-        success: false,
-        error: 'Invoice not found'
-      };
-    }
-
-    // TODO: Implement actual email sending
-    // For now, just log the action
-    console.log('[sendInvoice] Sending invoice to:', email);
-    console.log('[sendInvoice] Invoice:', invoice.invoice_number);
-
-    // In production, you would:
-    // 1. Generate PDF using Puppeteer or similar
-    // 2. Call Supabase Edge Function or external email service
-    // 3. Send email with PDF attachment
-
-    return {
-      success: true,
-      data: { message: 'Email functionality pending implementation' }
-    };
-  } catch (error) {
-    console.error('[sendInvoice] Unexpected error:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to send invoice'
-    };
-  }
+  return { success: false, error: INVOICE_EMAIL_NOT_AVAILABLE };
 }
 
 /**

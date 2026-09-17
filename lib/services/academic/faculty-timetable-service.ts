@@ -378,7 +378,11 @@ export class FacultyTimetableService {
                   (timetable.department as any)?.department_name ||
                   'Unknown Department',
                 program_name: (timetable.program as any)?.program_name,
-                semester: (timetable as any).semester_id
+                semester: (timetable as any).semester_id,
+                // Carried for the Workload/Conflicts tabs, which place weekly
+                // slots on real dates and must stop at the timetable's end.
+                start_date: (timetable as any).start_date ?? null,
+                end_date: (timetable as any).end_date ?? null
               },
               is_break_slot: slot.is_break_slot || false,
               break_description: slot.break_description,
@@ -400,7 +404,10 @@ export class FacultyTimetableService {
                         }))
                       : [],
                     is_break_slot: subSlot.is_break_slot || false,
-                    break_description: subSlot.break_description
+                    break_description: subSlot.break_description,
+                    // Carried so a Senior Learner who teaches only a combined
+                    // class's sub-slot is still counted for that class.
+                    staff_members: subSlot.staff_members
                   }))
                 : undefined
             };

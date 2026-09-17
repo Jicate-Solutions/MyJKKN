@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -27,6 +27,8 @@ import { useServiceTypes, useServiceType } from '@/hooks/service-requests/use-se
 import { useCreateServiceRequest } from '@/hooks/service-requests/use-service-requests';
 import { ServiceTypeCard } from '../_components/service-type-card';
 import { DynamicRequestForm } from '../_components/dynamic-request-form';
+import { GatePassRequesterSummary } from '../_components/gate-pass-requester-summary';
+import { withGatePassFields, todayIsoIndia, GATE_PASS_FIELD_KEYS } from '@/lib/gate-security/gate-pass-form-fields';
 import type { ServiceType, ServiceRequestPriority } from '@/types/service-request';
 
 /**
@@ -48,6 +50,20 @@ export default function NewServiceRequestPage() {
   const { data: serviceTypes, isLoading: typesLoading } = useServiceTypes({ is_active: true, scope: 'user' });
   const { data: typeDetail } = useServiceType(selectedType?.id || '');
   const createRequest = useCreateServiceRequest();
+
+  // Deep link: /service-requests/new?type=<slug> (e.g. the "My Gate Pass"
+  // page sends learners straight to the Gate Pass type).
+  const searchParams = useSearchParams();
+  const wantedSlug = searchParams.get('type');
+  useEffect(() => {
+    if (!wantedSlug || selectedType || !serviceTypes) return;
+    const match = serviceTypes.find((t) => t.slug === wantedSlug);
+    if (match) {
+      setSelectedType(match);
+      setStep(2);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantedSlug, serviceTypes]);
 
   const handleSelectType = (type: ServiceType) => {
     setSelectedType(type);
@@ -215,9 +231,23 @@ export default function NewServiceRequestPage() {
                   </div>
                 )}
 
+                {/* Gate Pass types: profile details are filled automatically */}
+                {(typeDetail?.issues_gate_pass ?? selectedType.issues_gate_pass) && (
+                  <GatePassRequesterSummary />
+                )}
+
                 {/* Dynamic Form */}
                 <DynamicRequestForm
-                  fields={typeDetail?.fields || selectedType.fields || []}
+                  key={selectedType.id}
+                  fields={withGatePassFields(
+                    typeDetail?.issues_gate_pass ?? selectedType.issues_gate_pass,
+                    typeDetail?.fields || selectedType.fields || []
+                  )}
+                  defaultValues={
+                    (typeDetail?.issues_gate_pass ?? selectedType.issues_gate_pass)
+                      ? { [GATE_PASS_FIELD_KEYS.date]: todayIsoIndia() }
+                      : undefined
+                  }
                   onSubmit={handleSubmit}
                   onSaveDraft={handleSaveDraft}
                   isSubmitting={createRequest.isPending}

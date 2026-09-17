@@ -414,6 +414,19 @@ export interface OwnerDigest {
   awaitingAcknowledgementCount: number;
   /** Assigned to this person and refused — reported, never mailed. */
   declinedCount: number;
+  /**
+   * How many active metrics this body has in the platform's framework
+   * catalogue — the population every count above is measured against.
+   *
+   * Load-bearing because the catalogue is not uniformly populated. NAAC holds
+   * 69 active metrics and NIRF 17, but AICTE and NCTE hold 1 each, and DCI,
+   * PCI, INC, QS and UGC hold 2 each. A body owner told "2 metric(s) awaiting
+   * evidence" for PCI is being told the truth about the catalogue and
+   * something false-sounding about PCI, whose real inspection schedule is
+   * nothing like two items long. The preview states this basis out loud so a
+   * thin catalogue reads as a thin catalogue and not as a nearly-finished job.
+   */
+  catalogueSize: number;
   nextDeadline: NextDeadline | null;
 }
 
@@ -501,6 +514,10 @@ export function computeOwnerDigest(input: ComputeOwnerDigestInput): OwnerDigest 
     metricsWithEvidenceCount,
     awaitingAcknowledgementCount,
     declinedCount,
+    // metricByCode was built from activeMetricsForBody, so its size IS the
+    // active catalogue for this body — no second filtering pass can disagree
+    // with the one the gaps were computed against.
+    catalogueSize: metricByCode.size,
     nextDeadline: nextSubmissionDeadline(submissions, institutionId, bodyCode, now),
   };
 }
@@ -514,6 +531,72 @@ export function computeOwnerDigest(input: ComputeOwnerDigestInput): OwnerDigest 
  */
 export function shouldSendDigest(digest: OwnerDigest): boolean {
   return digest.gaps.length > 0;
+}
+
+// ---------------------------------------------------------------------------
+// Owners the route cannot even see
+// ---------------------------------------------------------------------------
+
+/** The natural key of accreditation_digest_config, normalised. */
+function configKey(userId: string, institutionId: string, bodyCode: string): string {
+  return `${norm(userId)}::${norm(institutionId)}::${norm(bodyCode)}`;
+}
+
+/** One owner (any status but declined) with no enabled digest config to reach them by. */
+export interface UnreachableOwner {
+  userId: string;
+  institutionId: string;
+  bodyCode: string;
+}
+
+/**
+ * Owners that no enabled config row covers.
+ *
+ * WHY THIS EXISTS. The cron route derives every institution and body it reads
+ * from the config rows themselves. An owner with no config row is therefore
+ * not merely skipped — the route never looks at their institution at all, and
+ * they appear nowhere in the output: not in would_send, not in skipped, not as
+ * an error. Silence reads as "nothing outstanding".
+ *
+ * That is the one outcome this module's doctrine forbids. A declined owner is
+ * deliberately not mailed, and is reported anyway. Every OTHER owner — since
+ * 2026-09-08 assignment IS ownership, so 'pending' means "has not opened their
+ * page yet", not "has not consented" (see the header of this file and
+ * computeOwnerDigest) — is somebody this route owes a digest to. They must not
+ * fall out of the report entirely. That is a hole, not a decision.
+ *
+ * (Before the 2026-09-08 reversal this function admitted only 'confirmed'
+ * owners. Under that rule the 14 pending owners recorded on 2026-08-13 would
+ * have produced an empty report here — which is exactly the silence it was
+ * written to break.)
+ *
+ * accreditation_digest_config has no writer anywhere in this codebase: no UI,
+ * no service, no seeding migration. So an empty table is the expected state,
+ * not an anomaly, and this diagnostic is the only thing that says so.
+ *
+ * Deduplicated by the config key: one person owning forty metrics of one body
+ * is one unreachable person, not forty.
+ */
+export function ownersWithoutConfig(
+  owners: OwnerRow[],
+  configs: DigestConfigRow[],
+): UnreachableOwner[] {
+  const covered = new Set(
+    configs.map((config) => configKey(config.user_id, config.institution_id, config.body_code)),
+  );
+
+  const out = new Map<string, UnreachableOwner>();
+  for (const owner of owners) {
+    if (norm(owner.assignment_status) === 'declined') continue;
+    const key = configKey(owner.owner_user_id, owner.institution_id, owner.body_code);
+    if (covered.has(key) || out.has(key)) continue;
+    out.set(key, {
+      userId: owner.owner_user_id,
+      institutionId: owner.institution_id,
+      bodyCode: owner.body_code,
+    });
+  }
+  return [...out.values()];
 }
 
 // ---------------------------------------------------------------------------
@@ -565,14 +648,22 @@ export function buildDigestPreview(digest: OwnerDigest): DigestPreview {
     ? `${digest.bodyCode}: nothing on file yet — ${digest.gaps.length} metric(s) to start from`
     : `${digest.bodyCode}: ${digest.gaps.length} metric(s) awaiting evidence from you`;
 
+  // The catalogue-basis caveat is appended to BOTH branches below. Never
+  // omitted, not even when the catalogue is well populated. A caveat that
+  // appears only on thin bodies teaches its reader that its absence is an
+  // all-clear, which is a second way of being misleading.
+  const catalogueBasis = `These counts are measured against the ${digest.catalogueSize} ${digest.bodyCode} metric(s) currently in this platform's framework catalogue, which is not the same thing as ${digest.bodyCode}'s full published requirements.`;
+
   const lines: string[] = nothingOnFile
     ? [
         `You own ${digest.ownedMetricCount} ${digest.bodyCode} metric(s) at this institution.`,
         'Nothing has been recorded against any of them yet, so the first job is deciding what to collect rather than catching up on anything.',
+        catalogueBasis,
       ]
     : [
         `You own ${digest.ownedMetricCount} ${digest.bodyCode} metric(s) at this institution.`,
         `${digest.metricsWithEvidenceCount} already have evidence on file. ${digest.gaps.length} do not.`,
+        catalogueBasis,
       ];
 
   const deadline = deadlineLine(digest.nextDeadline);

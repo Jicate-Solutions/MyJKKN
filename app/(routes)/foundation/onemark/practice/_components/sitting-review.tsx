@@ -18,14 +18,34 @@ export function SittingReviewView({
   examName,
   review,
   onAgain,
+  againLabel,
   onExit,
 }: {
   examName: string;
   review: SittingReview;
   onAgain?: () => void;
+  /** Ruling 13 — after a closed live paper the offer is a fresh PRACTICE
+   *  sitting on the same questions, so it is not called "sit another". */
+  againLabel?: string;
   onExit: () => void;
 }) {
   const [lang, setLang] = useLang();
+  // Ruling 2 — on a live paper still inside its window the score is this
+  // learner's own and comes back now; the item-by-item review waits for the
+  // paper to close, so the group cannot carry the key out of the hall.
+  const pending = review as SittingReview & {
+    reviewPending?: boolean;
+    reviewOpensAt?: string | null;
+  };
+  const reviewOpensAt = pending.reviewPending ? pending.reviewOpensAt ?? null : null;
+  const whenOpens = reviewOpensAt
+    ? new Date(reviewOpensAt).toLocaleString(undefined, {
+        day: 'numeric',
+        month: 'short',
+        hour: 'numeric',
+        minute: '2-digit',
+      })
+    : null;
   return (
     <div className="mx-auto max-w-2xl py-6">
       <div className="mb-10 border-b border-border pb-6">
@@ -49,9 +69,24 @@ export function SittingReviewView({
           </p>
         )}
         <p className="mt-3 text-sm text-muted-foreground">
-          The useful part is below — what each answer was, and why.
+          {reviewOpensAt
+            ? 'The rest of your group is still sitting this paper.'
+            : 'The useful part is below — what each answer was, and why.'}
         </p>
       </div>
+
+      {reviewOpensAt && (
+        <div className="rounded-xl border border-dashed border-border p-6 text-center">
+          <p className="text-sm text-foreground">
+            The question-by-question review opens when the paper closes
+            {whenOpens ? `, ${whenOpens}` : ''}.
+          </p>
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            Your score above is final. Come back after that and every answer, and why it is the
+            answer, will be here.
+          </p>
+        </div>
+      )}
 
       <ol className="space-y-10">
         {review.questions.map((q, i) => {
@@ -128,7 +163,7 @@ export function SittingReviewView({
         {onAgain && (
           <Button onClick={onAgain}>
             <RotateCcw className="mr-2 h-4 w-4" />
-            Sit another
+            {againLabel ?? 'Sit another'}
           </Button>
         )}
         <Button variant="outline" onClick={onExit}>

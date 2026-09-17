@@ -61,7 +61,10 @@ export const columns: ColumnDef<StudentBill>[] = [
           <User className='h-4 w-4 text-muted-foreground' />
           <div>
             <div className='font-medium hover:text-primary hover:underline'>
-              <Link href={`/billing/schedule/students/${bill.student_id}`}>
+              <Link
+                href={`/billing/schedule/students/${bill.student_id}`}
+                className='inline-flex items-center min-h-[44px]'
+              >
                 {`${bill.student?.first_name || ''} ${
                   bill.student?.last_name || ''
                 }`.trim()}
@@ -113,6 +116,10 @@ export const columns: ColumnDef<StudentBill>[] = [
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Department / Semester' />
     ),
+    // Server-side data: this label is composed from two embedded lookups and
+    // has no orderable column. resolveBillSortPaths() would silently fall back
+    // to created_at, so a sort arrow here would lie — disable it (BUG-005360).
+    enableSorting: false,
     size: 200,
     minSize: 180,
     maxSize: 250,

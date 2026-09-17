@@ -6,12 +6,7 @@ import {
   logActivityForCurrentUser,
   ResourceManagementActivityTemplates,
 } from '@/lib/utils/activity-logger-client';
-import {
-  notifyBookingSubmitted,
-  notifyApproversPendingBooking,
-  notifyBookingApproved,
-  notifyBookingRejected,
-} from '@/lib/services/reservation/reservation-notification-service';
+import { logger } from '@/lib/utils/enhanced-logger';
 import { TimeSlotGeneratorService } from '@/lib/services/resource-management/time-slot-generator-service';
 import { CUSTOM_RANGE_MIN_MINUTES } from '@/lib/services/resource-management/default-slots';
 import type {
@@ -33,7 +28,74 @@ import type {
   SlotConflict
 } from '@/types/reservation';
 
+type ReservationNotifyEvent = 'submitted' | 'approved' | 'rejected' | 'cancelled';
+
+const NOTIFY_ROUTE = '/api/resource-management/reservations/notify';
+const NOTIFY_EMAIL_ROUTE = '/api/resource-management/reservations/notify-email';
+/** Events the email route knows how to send; it 400s on anything else. */
+const EMAIL_EVENTS: ReadonlySet<ReservationNotifyEvent> = new Set([
+  'submitted',
+  'approved',
+  'rejected'
+]);
+
 export class ReservationService {
+  /**
+   * Fire-and-forget: tell the server a reservation lifecycle event happened so
+   * it can create the in-app notifications (and emails) for the people
+   * involved.
+   *
+   * BUG-004009: the browser used to insert into `notifications` directly, but
+   * that table's INSERT policy admits only admins, so every booking by ordinary
+   * staff or a learner failed with 42501 — and `.catch(console.error)` hid it.
+   * The write now happens server-side under the service-role client. This
+   * helper never throws and never blocks the booking return path, but a
+   * failure is logged with the event and reservation id so it is visible.
+   */
+  private static dispatchNotification(
+    event: ReservationNotifyEvent,
+    reservationId: string,
+    reason?: string
+  ): void {
+    const post = (endpoint: string) => {
+      let outcome: Promise<Response>;
+      try {
+        outcome = fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ event, reservation_id: reservationId, reason })
+        });
+      } catch (err) {
+        outcome = Promise.reject(err);
+      }
+      void outcome
+        .then((res) => {
+          if (!res.ok) {
+            logger.warn(
+              'reservation/reservation-service',
+              `Reservation '${event}' notification was refused`,
+              { event, reservationId, endpoint, status: res.status }
+            );
+          }
+        })
+        .catch((err) => {
+          logger.warn(
+            'reservation/reservation-service',
+            `Reservation '${event}' notification could not be sent`,
+            {
+              event,
+              reservationId,
+              endpoint,
+              error: err instanceof Error ? err.message : String(err)
+            }
+          );
+        });
+    };
+
+    post(NOTIFY_ROUTE);
+    if (EMAIL_EVENTS.has(event)) post(NOTIFY_EMAIL_ROUTE);
+  }
+
   /**
    * Get all reservations with optional filters
    */
@@ -343,21 +405,12 @@ export class ReservationService {
     const resourceName = (reservation as any).resource?.name || '';
 
     // Fire-and-forget notifications — never block the booking return path.
-    if (requiresApproval) {
-      const requesterName = (reservation as any).user?.full_name || 'A user';
-      const approverIds: string[] = approversToSeed
-        .map((a) => a.user_id)
-        .filter(Boolean);
-      void notifyBookingSubmitted(reservation, resourceName).catch(console.error);
-      void notifyApproversPendingBooking(
-        approverIds,
-        reservation,
-        resourceName,
-        requesterName
-      ).catch(console.error);
-    } else {
-      void notifyBookingApproved(reservation, resourceName).catch(console.error);
-    }
+    // The server route reads the seeded approval chain itself, so the
+    // approver list does not need to travel with the request.
+    this.dispatchNotification(
+      requiresApproval ? 'submitted' : 'approved',
+      reservation.id
+    );
 
     const tpl = ResourceManagementActivityTemplates.reservationCreated(
       resourceName,
@@ -755,9 +808,67 @@ export class ReservationService {
   }
 
   /**
+   * BUG-004002: the approve / reject / cancel RPCs are SECURITY DEFINER and
+   * already `RETURNS public.resource_reservations`, so the row they hand back
+   * is the authoritative post-write state and is NOT subject to RLS. The
+   * follow-up `.select(...).single()` that shapes the embedded
+   * `resource` / `user` joins IS subject to RLS, and there is no policy on
+   * resource_reservations matching "I am the booker" — so a requester whose
+   * profile institution differs from the resource's could not read the row
+   * back and saw PGRST116 ("0 rows") even though the write had committed.
+   *
+   * This enrichment is therefore best-effort: a blocked read degrades the
+   * returned shape (no `resource` / `user` embeds) instead of turning a
+   * successful write into a reported failure.
+   */
+  private static async enrichReservationRow(
+    supabase: ReturnType<typeof createClientSupabaseClient>,
+    reservationId: string,
+    rpcRow: Reservation,
+    operation: string
+  ): Promise<Reservation> {
+    try {
+      const { data, error } = await (supabase
+        .from('resource_reservations') as any)
+        .select(
+          `
+          *,
+          resource:resources(id, name),
+          user:profiles!resource_reservations_user_id_fkey(id, full_name, email)
+        `
+        )
+        .eq('id', reservationId)
+        .single();
+
+      if (error || !data) {
+        // Only a missing RPC row makes this fatal — the RPCs always RETURN the
+        // updated row, so this branch means the write itself produced nothing.
+        if (!rpcRow) throw error ?? new Error(`${operation}: no reservation row returned`);
+
+        logger.warn(
+          'reservation/reservation-service',
+          `${operation} succeeded but the joined re-read was unavailable; returning the RPC row without embeds`,
+          { reservationId, operation, code: (error as any)?.code, message: (error as any)?.message }
+        );
+        return rpcRow;
+      }
+
+      return data as Reservation;
+    } catch (err) {
+      if (!rpcRow) throw err;
+      logger.warn(
+        'reservation/reservation-service',
+        `${operation} succeeded but the joined re-read threw; returning the RPC row without embeds`,
+        { reservationId, operation, error: err instanceof Error ? err.message : String(err) }
+      );
+      return rpcRow;
+    }
+  }
+
+  /**
    * Approve a reservation. Delegates authorization + chain logic to the
-   * approve_reservation SECURITY DEFINER RPC, then fetches the joined
-   * row for the return shape the UI expects.
+   * approve_reservation SECURITY DEFINER RPC and returns the row that RPC
+   * hands back, enriched with the UI's joins on a best-effort basis.
    */
   static async approveReservation(
     dto: ApproveReservationDto,
@@ -765,7 +876,7 @@ export class ReservationService {
   ): Promise<Reservation> {
     const supabase = createClientSupabaseClient();
 
-    const { error: rpcError } = await (supabase as any).rpc(
+    const { data: rpcData, error: rpcError } = await (supabase as any).rpc(
       'approve_reservation',
       {
         p_reservation_id: dto.reservation_id,
@@ -774,31 +885,27 @@ export class ReservationService {
     );
 
     if (rpcError) {
-      console.error('Error approving reservation:', rpcError);
+      logger.error(
+        'reservation/reservation-service',
+        'Error approving reservation',
+        {
+          reservationId: dto.reservation_id,
+          code: (rpcError as any)?.code,
+          message: (rpcError as any)?.message
+        }
+      );
       throw rpcError;
     }
 
-    const { data, error: fetchError } = await (supabase
-      .from('resource_reservations') as any)
-      .select(
-        `
-        *,
-        resource:resources(id, name),
-        user:profiles!resource_reservations_user_id_fkey(id, full_name, email)
-      `
-      )
-      .eq('id', dto.reservation_id)
-      .single();
-
-    if (fetchError) {
-      console.error('Error fetching approved reservation:', fetchError);
-      throw fetchError;
-    }
-
-    const reservation = data as Reservation;
+    const reservation = await this.enrichReservationRow(
+      supabase,
+      dto.reservation_id,
+      rpcData as Reservation,
+      'approveReservation'
+    );
     const resourceName = (reservation as any).resource?.name || '';
 
-    void notifyBookingApproved(reservation, resourceName).catch(console.error);
+    this.dispatchNotification('approved', reservation.id);
 
     const tpl = ResourceManagementActivityTemplates.reservationApproved(resourceName);
     await logActivityForCurrentUser({
@@ -820,7 +927,8 @@ export class ReservationService {
 
   /**
    * Reject a reservation. Delegates to the reject_reservation
-   * SECURITY DEFINER RPC, then fetches the joined row.
+   * SECURITY DEFINER RPC and returns the row that RPC hands back, enriched
+   * with the UI's joins on a best-effort basis.
    */
   static async rejectReservation(
     dto: RejectReservationDto,
@@ -828,7 +936,7 @@ export class ReservationService {
   ): Promise<Reservation> {
     const supabase = createClientSupabaseClient();
 
-    const { error: rpcError } = await (supabase as any).rpc(
+    const { data: rpcData, error: rpcError } = await (supabase as any).rpc(
       'reject_reservation',
       {
         p_reservation_id: dto.reservation_id,
@@ -837,31 +945,27 @@ export class ReservationService {
     );
 
     if (rpcError) {
-      console.error('Error rejecting reservation:', rpcError);
+      logger.error(
+        'reservation/reservation-service',
+        'Error rejecting reservation',
+        {
+          reservationId: dto.reservation_id,
+          code: (rpcError as any)?.code,
+          message: (rpcError as any)?.message
+        }
+      );
       throw rpcError;
     }
 
-    const { data, error: fetchError } = await (supabase
-      .from('resource_reservations') as any)
-      .select(
-        `
-        *,
-        resource:resources(id, name),
-        user:profiles!resource_reservations_user_id_fkey(id, full_name, email)
-      `
-      )
-      .eq('id', dto.reservation_id)
-      .single();
-
-    if (fetchError) {
-      console.error('Error fetching rejected reservation:', fetchError);
-      throw fetchError;
-    }
-
-    const reservation = data as Reservation;
+    const reservation = await this.enrichReservationRow(
+      supabase,
+      dto.reservation_id,
+      rpcData as Reservation,
+      'rejectReservation'
+    );
     const resourceName = (reservation as any).resource?.name || '';
 
-    void notifyBookingRejected(reservation, resourceName, dto.rejection_reason).catch(console.error);
+    this.dispatchNotification('rejected', reservation.id, dto.rejection_reason);
 
     const tpl = ResourceManagementActivityTemplates.reservationRejected(
       resourceName,
@@ -900,7 +1004,7 @@ export class ReservationService {
     // 2. The RPC returns the updated row via RETURNING * without going through
     //    the institution-based SELECT RLS policy that caused PGRST116 errors
     //    even when the cancellation itself succeeded.
-    const { error: rpcError } = await (supabase as any).rpc(
+    const { data: rpcData, error: rpcError } = await (supabase as any).rpc(
       'cancel_reservation',
       {
         p_reservation_id: dto.reservation_id,
@@ -909,30 +1013,32 @@ export class ReservationService {
     );
 
     if (rpcError) {
-      console.error('Error cancelling reservation:', rpcError);
+      logger.error(
+        'reservation/reservation-service',
+        'Error cancelling reservation',
+        {
+          reservationId: dto.reservation_id,
+          code: (rpcError as any)?.code,
+          message: (rpcError as any)?.message
+        }
+      );
       throw rpcError;
     }
 
-    // Fetch the full joined row the UI expects (resource name, user details).
-    const { data, error } = await (supabase
-      .from('resource_reservations') as any)
-      .select(
-        `
-        *,
-        resource:resources(id, name),
-        user:profiles!resource_reservations_user_id_fkey(id, full_name, email)
-      `
-      )
-      .eq('id', dto.reservation_id)
-      .single();
-
-    if (error) {
-      console.error('Error fetching cancelled reservation:', error);
-      throw error;
-    }
-
-    const reservation = data as Reservation;
+    // BUG-004002: the RPC row is authoritative. The joined re-read below is
+    // best-effort only — it must never turn a committed cancellation into a
+    // reported failure.
+    const reservation = await this.enrichReservationRow(
+      supabase,
+      dto.reservation_id,
+      rpcData as Reservation,
+      'cancelReservation'
+    );
     const resourceName = (reservation as any).resource?.name || '';
+
+    // BUG-004009: cancellation previously emitted no notification at all.
+    this.dispatchNotification('cancelled', reservation.id);
+
     const tpl = ResourceManagementActivityTemplates.reservationCancelled(resourceName);
     await logActivityForCurrentUser({
       actionType: tpl.actionType,

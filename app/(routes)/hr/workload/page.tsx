@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
-import { Briefcase, CheckCircle2, Clock, Filter, FileUp, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Briefcase, CheckCircle2, Clock, Filter, FileUp, Pencil, Plus, Settings2, Trash2 } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
@@ -135,6 +135,7 @@ export default function WorkloadPage() {
             <p className="text-sm text-muted-foreground mt-1">Track weekly contact, admin, and research hours per faculty member.</p>
           </div>
           <div className="flex items-center gap-2">
+            <Button variant="outline" asChild><Link href="/hr/workload/settings"><Settings2 className="h-4 w-4 mr-2" />Settings</Link></Button>
             <Button variant="outline" onClick={() => setImportDialogOpen(true)}><FileUp className="h-4 w-4 mr-2" />Import from Excel</Button>
             <Button onClick={handleAdd}><Plus className="h-4 w-4 mr-2" />Add Workload</Button>
           </div>

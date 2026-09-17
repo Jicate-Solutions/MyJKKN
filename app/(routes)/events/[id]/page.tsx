@@ -19,6 +19,8 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
+  AlertTriangle,
+  Ban,
   Building2,
   CalendarDays,
   CalendarClock,
@@ -30,8 +32,10 @@ import {
   ChevronRight,
   Eye,
   Globe,
+  Phone,
   ShieldCheck,
   Star,
+  UserRound,
   Users,
 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -45,12 +49,24 @@ import {
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
 import { NaacCriteriaChips } from '@/components/events/shared/naac-criteria-field';
 import { EventLogistics } from '@/components/events/shared/event-logistics';
 import {
+  useCancelGeneralEvent,
+  useEventCancellation,
   useGeneralEvent,
   useUpdateGeneralEvent,
   useUpdateGeneralEventStatus,
@@ -58,6 +74,7 @@ import {
 } from '@/hooks/events/use-general-events';
 import {
   GENERAL_EVENT_ACTIVE_STATUS,
+  GENERAL_EVENT_STATUS_TRANSITIONS,
   generalEventStatusLabel,
   isGeneralEventActive,
 } from '@/types/events';
@@ -66,11 +83,14 @@ import { SOI_EVENT_TYPE } from '@/lib/services/school-of-influence/constants';
 import { EditGeneralEventDialog } from '../_components/edit-general-event-dialog';
 import { canEditEvent } from '../_components/event-display';
 import { EventFormCards } from '@/components/events/registration/event-form-cards';
+import { EventWaitlistCard } from '@/components/events/registration/event-waitlist-card';
 import { EventFeedbackLinkCard } from '@/components/events/feedback/event-feedback-link-card';
+import { EventInstagramCard } from '@/components/events/social/event-instagram-card';
 import { EventTasksCard } from '@/components/events/shared/event-tasks-card';
 import { EventReviewCommentsCard } from '@/components/events/shared/event-review-comments-card';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useEventOrganiserContacts } from '@/hooks/events/shared/use-event-organiser-contacts';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 
 /** 'cultural' → 'Cultural', 'sports_day' → 'Sports Day' (raw types render readable). */
@@ -118,7 +138,9 @@ function Fact({
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
-  value: string | null | undefined;
+  // ReactNode, not string: the organiser's mobile renders as a tel: link so it
+  // can be dialled from a phone. A plain string still works unchanged.
+  value: React.ReactNode;
 }) {
   return (
     <div className="flex items-start gap-2.5">
@@ -134,11 +156,232 @@ function Fact({
 }
 
 /**
- * Draft <-> Active. General events run the 2-state model in
+ * Call the event off, in the organiser's own words.
+ *
+ * The reason is REQUIRED and it is INTERNAL. Director's ruling, 13 Sep: "Short
+ * public line, full reason kept inside." /p/event/[id]/register shows a
+ * standard cancellation line and an address to write to; it does not print this
+ * text. The reason is stored exactly as typed and shown in full in the banner
+ * further down this page — which is read by colleagues at the institution who
+ * can open this event, NOT only by the organiser's own team. The hint under the
+ * textarea says so, because that is a wider room than "my team" and it changes
+ * what a person writes.
+ *
+ * The dialog has to SAY that, because it used to promise the opposite — and an
+ * organiser who believes they are writing to the public writes a different
+ * sentence from one writing to their own colleagues.
+ *
+ * Its own dialog rather than an entry in the status menu, because a free-text
+ * reason needs somewhere to be typed. The hub's row menu deliberately does not
+ * offer Cancel for the same reason (see row-actions.tsx).
+ */
+function CancelEventDialog({ event }: { event: Event }) {
+  const cancelEvent = useCancelGeneralEvent();
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  const trimmedReason = reason.trim();
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setReason('');
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-8 gap-1.5 text-xs text-red-600 hover:text-red-600 dark:text-red-400 dark:hover:text-red-400"
+        >
+          <Ban className="h-3.5 w-3.5" />
+          Cancel event
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Cancel {event.name}?</DialogTitle>
+          <DialogDescription>
+            The public event page will say the event is cancelled and give an address to
+            write to. It does <strong>not</strong> show your reason. No further
+            registrations are accepted, and everyone who already registered stays on the
+            list.
+          </DialogDescription>
+        </DialogHeader>
+
+        {/* What cancelling RELEASES. tr_event_cancelled_cascade_release
+            (migration 20260417000004) has fired on status → 'cancelled' since
+            April; this dialog is the first thing that can reach it, so the
+            organiser has to be told before they commit — and told that
+            reinstating does not undo it. See GeneralEventService.cancel(). */}
+        <div className="space-y-1.5 rounded-md border border-amber-300/60 bg-amber-50 p-3 text-xs dark:border-amber-900/60 dark:bg-amber-950/30">
+          <p className="flex items-center gap-1.5 font-semibold text-amber-900 dark:text-amber-300">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            Cancelling also gives up this event&apos;s bookings
+          </p>
+          <ul className="list-disc space-y-0.5 pl-5 text-amber-900/90 dark:text-amber-200/90">
+            <li>
+              Every room, venue and item reserved for this event (and for its sessions) is
+              released — and can be taken straight away by whoever is next in line for it.
+            </li>
+            <li>
+              Everyone invited to or confirmed for a role on this event is un-assigned.
+            </li>
+          </ul>
+          <p className="pt-0.5 text-amber-900/90 dark:text-amber-200/90">
+            <strong>Reinstating the event later does not get any of this back.</strong> You
+            would have to book the rooms and invite the people again — and the rooms may be
+            gone. Registrations are the exception: those are kept, untouched.
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="ge-cancel-reason">Why is it being cancelled?</Label>
+          <Textarea
+            id="ge-cancel-reason"
+            rows={4}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="e.g. The chief guest is unavailable and no replacement date is fixed yet."
+          />
+          <p className="text-xs text-muted-foreground">
+            Required. It is recorded on this page, where colleagues at your institution
+            who can open this event will read it — and it is <strong>not</strong> shown on
+            the public event page. Write it for them and for the record.
+          </p>
+        </div>
+
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => setOpen(false)}
+            disabled={cancelEvent.isPending}
+          >
+            Keep the event
+          </Button>
+          <Button
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            disabled={!trimmedReason || cancelEvent.isPending}
+            onClick={() =>
+              cancelEvent.mutate(
+                { id: event.id, reason: trimmedReason },
+                {
+                  onSuccess: () => {
+                    setOpen(false);
+                    setReason('');
+                  },
+                }
+              )
+            }
+          >
+            {cancelEvent.isPending && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
+            Cancel this event
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Put a cancelled event back on — with the one thing the tooltip could never
+ * make anybody read.
+ *
+ * Reinstating IS allowed (Director's second ruling, 13 Sep). What it is not is
+ * an undo. `tr_event_cancelled_cascade_release` (migration 20260417000004)
+ * fired when the event was cancelled: every linked `resource_reservations` row
+ * was cancelled and the next team on each resource's waitlist was promoted, and
+ * every invited/accepted `event_human_roles` row was un-assigned. Nothing in
+ * this button walks that back, and the rooms may already belong to someone
+ * else.
+ *
+ * The cancel dialog has carried this warning since the state existed; the
+ * reinstate path carried it only as a `title` tooltip — invisible on a phone,
+ * invisible to anyone who clicks without hovering, and attached to the very
+ * button it was warning about. Same warning, same shape, on the way back.
+ */
+function ReinstateEventDialog({
+  event,
+  target,
+  disabled,
+  pending,
+  onConfirm,
+}: {
+  event: Event;
+  target: EventStatus;
+  disabled: boolean;
+  pending: boolean;
+  onConfirm: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline" className="h-8 text-xs" disabled={disabled}>
+          {pending && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+          Reinstate event
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Put {event.name} back on?</DialogTitle>
+          <DialogDescription>
+            The event becomes visible and open again, and the cancellation notice on the
+            public page comes down. Registrations that were already taken are still there.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-1.5 rounded-md border border-amber-300/60 bg-amber-50 p-3 text-xs dark:border-amber-900/60 dark:bg-amber-950/30">
+          <p className="flex items-center gap-1.5 font-semibold text-amber-900 dark:text-amber-300">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            The bookings and the people do NOT come back
+          </p>
+          <ul className="list-disc space-y-0.5 pl-5 text-amber-900/90 dark:text-amber-200/90">
+            <li>
+              Every room, venue and item this event had reserved was released when it was
+              cancelled, and whoever was next in line for each one has already been given
+              it. Reinstating does not take any of that back.
+            </li>
+            <li>
+              Everyone invited to or confirmed for a role on this event was un-assigned.
+              They are not re-invited.
+            </li>
+          </ul>
+          <p className="pt-0.5 text-amber-900/90 dark:text-amber-200/90">
+            <strong>Book the rooms and invite the people again</strong> after reinstating —
+            and check the rooms are still free before you announce the event a second time.
+          </p>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)} disabled={pending}>
+            Leave it cancelled
+          </Button>
+          <Button
+            disabled={pending}
+            onClick={() => {
+              onConfirm();
+              setOpen(false);
+            }}
+          >
+            {pending && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
+            {target === 'draft' ? 'Reinstate as Draft' : 'Reinstate the event'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Draft <-> Active, plus Cancelled. General events run the model in
  * GENERAL_EVENT_STATUS_TRANSITIONS: Draft hides the event and closes
- * registration, Active opens it. The shared 8-state lifecycle is never offered
- * here — it has no draft -> live edge, so a one-click activation gated on it
- * would be rejected server-side.
+ * registration, Active opens it, Cancelled calls it off and records why —
+ * internally: the public page shows a standard line, not the organiser's words.
+ * The shared 8-state lifecycle is never offered here — it has no draft -> live
+ * edge, so a one-click activation gated on it would be rejected server-side.
  */
 function GeneralEventStatusControl({
   event,
@@ -149,16 +392,24 @@ function GeneralEventStatusControl({
 }) {
   const updateStatus = useUpdateGeneralEventStatus();
   const active = isGeneralEventActive(event.status);
+  const cancelled = event.status === 'cancelled';
   const target: EventStatus = active ? 'draft' : GENERAL_EVENT_ACTIVE_STATUS;
+  // Read from the same map the service validates against, so the button cannot
+  // offer a move the server will refuse.
+  const canCancel = (GENERAL_EVENT_STATUS_TRANSITIONS[event.status] ?? []).includes(
+    'cancelled'
+  );
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       <Badge
         variant="outline"
         className={`text-[10px] uppercase ${
-          active
-            ? 'border-emerald-300 text-emerald-700 dark:border-emerald-800 dark:text-emerald-400'
-            : ''
+          cancelled
+            ? 'border-destructive/40 text-red-600 dark:text-red-400'
+            : active
+              ? 'border-emerald-300 text-emerald-700 dark:border-emerald-800 dark:text-emerald-400'
+              : ''
         }`}
       >
         {generalEventStatusLabel(event.status)}
@@ -166,24 +417,39 @@ function GeneralEventStatusControl({
           <span className="ml-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
         )}
       </Badge>
-      {/* Read-only viewers keep the status badge and lose the lever. */}
-      {canEdit && (
-      <Button
-        size="sm"
-        variant="outline"
-        className="h-8 text-xs"
-        disabled={updateStatus.isPending}
-        onClick={() => updateStatus.mutate({ id: event.id, status: target })}
-        title={
-          active
-            ? 'Move back to Draft — hides the event and closes registration'
-            : 'Make this event Active so it is visible and open'
-        }
-      >
-        {updateStatus.isPending && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
-        {active ? 'Move to Draft' : 'Make Active'}
-      </Button>
-      )}
+      {/* Read-only viewers keep the status badge and lose the levers. */}
+      {/* Reinstating goes through a confirm step: it is the one move on this
+          control whose consequences are already spent elsewhere — the rooms and
+          the role assignments released on cancel are gone, and a tooltip cannot
+          say so on a phone. Draft <-> Active stays one click; both directions of
+          that are reversible by clicking again. */}
+      {canEdit &&
+        (cancelled ? (
+          <ReinstateEventDialog
+            event={event}
+            target={target}
+            disabled={updateStatus.isPending}
+            pending={updateStatus.isPending}
+            onConfirm={() => updateStatus.mutate({ id: event.id, status: target })}
+          />
+        ) : (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 text-xs"
+            disabled={updateStatus.isPending}
+            onClick={() => updateStatus.mutate({ id: event.id, status: target })}
+            title={
+              active
+                ? 'Move back to Draft — hides the event and closes registration'
+                : 'Make this event Active so it is visible and open'
+            }
+          >
+            {updateStatus.isPending && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+            {active ? 'Move to Draft' : 'Make Active'}
+          </Button>
+        ))}
+      {canEdit && canCancel && <CancelEventDialog event={event} />}
     </div>
   );
 }
@@ -215,7 +481,9 @@ function PublicVisibilityToggle({
           {event.is_public
             ? active
               ? 'Anyone with the link can see this event.'
-              : 'Marked public, but still hidden while the event is a Draft.'
+              : event.status === 'cancelled'
+                ? 'Marked public. Anyone following the registration link is told the event is cancelled, and given an address to write to.'
+                : 'Marked public, but still hidden while the event is a Draft.'
             : 'Only signed-in users at your institution can see this event.'}
         </p>
       </div>
@@ -238,6 +506,15 @@ export default function GeneralEventDetailPage() {
   const id = String(params?.id ?? '');
 
   const { data: event, isLoading, isError } = useGeneralEvent(id);
+  // The organiser's words live in their own table now (migration 20261204113700):
+  // `events` is anon-readable, so a column there would publish them to the public
+  // key the moment a cancelled event was reinstated. Fetched ONLY for a cancelled
+  // event — every other event has no row to fetch.
+  const {
+    data: cancellation,
+    isLoading: cancellationLoading,
+    isError: cancellationFailed,
+  } = useEventCancellation(id, event?.status === 'cancelled');
   const { institutions } = useInstitutionsWithAccess();
   const { profile } = useAuth();
   const { isSuperAdmin } = usePermissions();
@@ -255,6 +532,20 @@ export default function GeneralEventDetailPage() {
       institutionId: profile?.institution_id,
       isSuperAdmin,
     });
+
+  // Who to contact about this event (BUG-006129). Read BEFORE the loading and
+  // redirect guards below, because those return early and a hook cannot be
+  // called conditionally. Both inputs are optional, so an absent event simply
+  // resolves to nothing and issues no query.
+  const inchargesRaw = Array.isArray(
+    (event?.config as Record<string, unknown> | null)?.incharges,
+  )
+    ? ((event!.config as Record<string, unknown>).incharges as {
+        member_id?: string;
+        name?: string;
+      }[]).filter((i) => i && (typeof i.name === 'string' || typeof i.member_id === 'string'))
+    : [];
+  const organisers = useEventOrganiserContacts(event?.created_by, inchargesRaw);
 
   // A specialised event type reached through this URL belongs to its own
   // console — this page cannot manage divisions, sessions or race ops.
@@ -411,6 +702,53 @@ export default function GeneralEventDetailPage() {
           </div>
         </div>
 
+        {/* A cancelled event says so, at the top, with the reason it was given.
+            House rule: a refusal is explicit and names what happened — the
+            organiser must not have to infer it from a missing "Active" badge.
+
+            THIS is where the organiser's words live now, and the only place
+            they are shown. The public page prints a standard line instead
+            (Director's ruling, 13 Sep). Team members lose nothing; the public gains a
+            sentence somebody wrote calmly. */}
+        {event.status === 'cancelled' && (
+          <div className="flex gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-4">
+            <Ban className="mt-0.5 h-5 w-5 shrink-0 text-red-600 dark:text-red-400" />
+            <div className="min-w-0 space-y-1">
+              <p className="text-sm font-semibold text-red-600 dark:text-red-400">
+                This event is cancelled
+                {formatDate(cancellation?.cancelled_at ?? null)
+                  ? ` · ${formatDate(cancellation?.cancelled_at ?? null)}`
+                  : ''}
+              </p>
+              {/* FOUR states, and only one of them may say "no reason was
+                  recorded". That sentence is a claim about what a colleague did,
+                  and the query can end without data for two reasons that are not
+                  that: it is still in flight, or it FAILED (RLS denial, network
+                  — and the hook does not retry, so a failure lands as
+                  isLoading:false with data:undefined, which reads identically to
+                  an empty result). Saying "nobody wrote a reason" because the
+                  read broke is the worst answer available, and this banner is now
+                  the only place the reason is shown. */}
+              <p className="break-words text-sm">
+                {cancellationLoading
+                  ? 'Loading the reason…'
+                  : cancellationFailed
+                    ? 'The reason could not be loaded — you may not have access to it, or the connection failed. It has not been deleted.'
+                    : cancellation?.reason || 'No reason was recorded for this cancellation.'}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Registration is closed. This reason is kept for colleagues at your
+                institution who can open this event, and is <strong>not
+                shown on the public page</strong> — the public page says the event is
+                cancelled and gives an address to write to. Everyone who registered is
+                still on the list. The rooms and items this event had reserved were
+                released when it was cancelled, and everyone assigned a role was
+                un-assigned — reinstating the event does not bring those back.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Details left, the levers that change what the world sees on the right. */}
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           <Card className="lg:col-span-2">
@@ -433,6 +771,44 @@ export default function GeneralEventDetailPage() {
                   value={registrationWindow}
                 />
                 <Fact icon={Users} label="Capacity" value={capacityLabel} />
+                {/* Who to contact (BUG-006129). The label follows the source:
+                    an appointed in-charge is the organiser, whereas
+                    events.created_by is only the person who filled the form —
+                    calling the latter "Organiser" would assert something the
+                    data does not say. */}
+                <Fact
+                  icon={UserRound}
+                  label={
+                    organisers.primary?.kind === 'incharge' ? 'Organiser' : 'Created by'
+                  }
+                  value={
+                    organisers.isLoading
+                      ? 'Loading…'
+                      : organisers.primary
+                        ? organisers.primary.name
+                        : null
+                  }
+                />
+                <Fact
+                  icon={Phone}
+                  label="Mobile"
+                  value={
+                    organisers.isLoading ? (
+                      'Loading…'
+                    ) : organisers.primary?.phone ? (
+                      <a
+                        href={`tel:${organisers.primary.phone}`}
+                        className="underline underline-offset-2 hover:no-underline"
+                      >
+                        {organisers.primary.phone}
+                      </a>
+                    ) : organisers.primary ? (
+                      <span className="font-normal text-muted-foreground">
+                        No mobile number on file
+                      </span>
+                    ) : null
+                  }
+                />
               </div>
 
               {event.description && (
@@ -466,14 +842,26 @@ export default function GeneralEventDetailPage() {
                       In-charge
                     </p>
                     {incharges.length > 0 ? (
+                      /* Each in-charge carries their mobile (BUG-006129) —
+                         these are the people a reader needs to reach, and the
+                         number was one join away the whole time. */
                       <div className="flex flex-wrap gap-1">
-                        {incharges.map((i, idx) => (
+                        {organisers.incharges.map((i, idx) => (
                           <Badge
-                            key={i.member_id ?? idx}
+                            key={i.id ?? idx}
                             variant="secondary"
-                            className="text-[11px] font-normal"
+                            className="gap-1 text-[11px] font-normal"
                           >
                             {i.name}
+                            {i.phone && (
+                              <a
+                                href={`tel:${i.phone}`}
+                                className="inline-flex items-center gap-0.5 underline underline-offset-2 hover:no-underline"
+                              >
+                                <Phone className="h-2.5 w-2.5" />
+                                {i.phone}
+                              </a>
+                            )}
                           </Badge>
                         ))}
                       </div>
@@ -560,6 +948,14 @@ export default function GeneralEventDetailPage() {
           eventName={event.name}
         />
 
+        {/* Who is queuing for a full event, in order, and any place being held.
+            Directly under the registration forms because it is the other half
+            of that door. The card gates itself on fn_can_manage_event_waitlist
+            and renders nothing when the event does not queue, when nobody is
+            waiting, or when the viewer may not see a list of named people with
+            their phone numbers. */}
+        <EventWaitlistCard eventId={event.id} />
+
         {isSchoolOfInfluence && (
           <p className="text-xs text-muted-foreground">
             These forms are what applicants answer on the School of Influencer
@@ -581,6 +977,14 @@ export default function GeneralEventDetailPage() {
             coordinator. Consistent with this page's header decision — the DB
             is the authority, and a denial surfaces as an error toast. */}
         <EventFeedbackLinkCard eventId={event.id} />
+
+        {/* Instagram reception — how the event was received publicly, next to
+            how attendees rated it. Ungated for the same reason as the feedback
+            card above: the DB is the authority. Reading rides events.view via
+            RLS on event_ig_posts, and linking needs events.social.manage, so a
+            viewer without it sees the numbers and gets an explicit permission
+            message if they try to link — not a hidden card. */}
+        <EventInstagramCard eventId={event.id} />
 
         {/* Shared event logistics — sponsors, budget, committees, check-in, QR,
             volunteers, incidents, certificates, bulk import, analytics, kit.

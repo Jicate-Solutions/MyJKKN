@@ -78,6 +78,9 @@ export default function GrnDetailPage() {
   const [repBatch, setRepBatch] = useState('');
   const [repExpiry, setRepExpiry] = useState('');
   const [repMfg, setRepMfg] = useState('');
+  // Comma-separated — replacement quantities are usually small, so a free-text
+  // list is less friction here than the per-unit grid on the main receive form.
+  const [repSerials, setRepSerials] = useState('');
 
   const openReceive = (r: ProcurementGrnReplacement) => {
     setRepTarget(r);
@@ -155,25 +158,29 @@ export default function GrnDetailPage() {
 
   return (
     <ContentLayout title={grn.grn_number}>
-      <div className="space-y-6 max-w-5xl">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
+      <div className="space-y-4 sm:space-y-6 max-w-5xl">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             <Button variant="ghost" size="sm" aria-label="Back to goods receipts" onClick={() => router.push('/procurement/grn')}>
               <ArrowLeft className="h-4 w-4" />
             </Button>
-            <div>
-              <h2 className="text-2xl font-bold tracking-tight">{grn.grn_number}</h2>
-              <p className="text-muted-foreground">
+            <div className="min-w-0">
+              <h2 className="text-xl sm:text-2xl font-bold tracking-tight truncate">{grn.grn_number}</h2>
+              <p className="text-muted-foreground truncate">
                 {grn.purchase_order?.po_number ?? ''} · {grn.supplier?.name ?? grn.supplier_id}
               </p>
             </div>
           </div>
-          <StatusBadge status={grn.status} config={GRN_STATUS_CONFIG} className="text-sm" />
+          <StatusBadge
+            status={grn.status}
+            config={GRN_STATUS_CONFIG}
+            className="self-start shrink-0 text-sm sm:self-auto"
+          />
         </div>
 
         {/* Invoice + receipt meta */}
         <Card>
-          <CardContent className="grid gap-4 pt-6 sm:grid-cols-2 lg:grid-cols-4 text-sm">
+          <CardContent className="grid gap-3 sm:gap-4 pt-6 sm:grid-cols-2 lg:grid-cols-4 text-sm">
             <div>
               <p className="text-muted-foreground">Invoice #</p>
               <p className="font-medium">{grn.invoice_number || '—'}</p>
@@ -206,9 +213,10 @@ export default function GrnDetailPage() {
         {/* Actions */}
         {pending && (
           <div className="space-y-2">
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
               {canVerify && (
                 <Button
+                  className="w-full sm:w-auto"
                   onClick={() =>
                     run(
                       () => verifyGrn.mutateAsync({ id, userId: profile!.id }),
@@ -223,7 +231,7 @@ export default function GrnDetailPage() {
               )}
               <Button
                 variant="ghost"
-                className="sm:ml-auto"
+                className="w-full sm:ml-auto sm:w-auto"
                 onClick={() => run(() => cancelGrn.mutateAsync({ id }), 'GRN cancelled')}
               >
                 Cancel GRN
@@ -251,7 +259,7 @@ export default function GrnDetailPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Three-way match ({grn.items.length} lines)</CardTitle>
-            <p className="text-sm text-muted-foreground">
+            <p className="hidden text-sm text-muted-foreground sm:block">
               Each line reconciles three numbers: what the order still expects, what the supplier
               invoiced, and what was physically counted. Only the accepted quantity becomes stock.
             </p>
@@ -437,12 +445,26 @@ export default function GrnDetailPage() {
                 <Input type="date" value={repMfg} onChange={(e) => setRepMfg(e.target.value)} />
               </div>
             </div>
+            {grn?.domain === 'resource_mgmt' && (
+              <div className="space-y-1">
+                <Label className="text-xs">Serial numbers (comma-separated, optional)</Label>
+                <Input
+                  placeholder="e.g. SN-1001, SN-1002"
+                  value={repSerials}
+                  onChange={(e) => setRepSerials(e.target.value)}
+                />
+                <p className="hidden text-[11px] text-muted-foreground sm:block">
+                  Only for serialized assets — one per accepted unit above.
+                </p>
+              </div>
+            )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRepTarget(null)}>
+            <Button variant="outline" className="w-full sm:w-auto" onClick={() => setRepTarget(null)}>
               Cancel
             </Button>
             <Button
+              className="w-full sm:w-auto"
               disabled={receiveReplacement.isPending || !(Number(repQty) > 0)}
               onClick={async () => {
                 if (!repTarget) return;
@@ -455,12 +477,16 @@ export default function GrnDetailPage() {
                         batch_number: repBatch || null,
                         expiry_date: repExpiry || null,
                         manufacturing_date: repMfg || null,
+                        serial_numbers: repSerials.trim()
+                          ? repSerials.split(',').map((s) => s.trim()).filter(Boolean)
+                          : null,
                       },
                       userId: profile!.id,
                     }),
                   'Replacement received — stock posted to inventory.'
                 );
                 setRepTarget(null);
+                setRepSerials('');
               }}
             >
               {receiveReplacement.isPending ? 'Receiving…' : 'Receive & post'}

@@ -33,6 +33,7 @@ import { RequestStatusBadge } from '../_components/request-status-badge';
 import { PriorityBadge } from '../_components/priority-badge';
 import { Edit, Send, XCircle, PackageCheck, Archive, Award } from 'lucide-react';
 import { CertificateDownloadDialog } from '@/components/service-requests/certificate-download-dialog';
+import { GatePassCard } from '@/components/service-requests/gate-pass-card';
 import { format } from 'date-fns';
 import type { ProcessApprovalDto, ServiceRequestApprovalStep } from '@/types/service-request';
 
@@ -301,6 +302,11 @@ export default function ServiceRequestDetailPage({
             open={certificateOpen}
             onOpenChange={setCertificateOpen}
           />
+        )}
+
+        {/* ── Gate Pass (Gate Pass category types only) ── */}
+        {request.service_type?.issues_gate_pass && (
+          <GatePassCard requestId={request.id} requestStatus={request.status} />
         )}
 
         {/* ── Main Detail View ─────────────────────── */}

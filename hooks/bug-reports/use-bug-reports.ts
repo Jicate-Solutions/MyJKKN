@@ -22,9 +22,13 @@ import {
 
 // --- API Fetching Functions ---
 
-const fetchBugReports = async (filters: BugReportFilters) => {
+export const buildBugReportsQuery = (filters: BugReportFilters): string => {
   const params = new URLSearchParams();
   if (filters.status) params.append('status', filters.status);
+  if (filters.statuses?.length) params.append('statuses', filters.statuses.join(','));
+  if (filters.resolved_from) params.append('resolved_from', filters.resolved_from);
+  if (filters.resolved_to) params.append('resolved_to', filters.resolved_to);
+  if (filters.resolved_by) params.append('resolved_by', filters.resolved_by);
   if (filters.category) params.append('category', filters.category);
   if (filters.institution_id) params.append('institution_id', filters.institution_id);
   if (filters.department_id) params.append('department_id', filters.department_id);
@@ -34,8 +38,11 @@ const fetchBugReports = async (filters: BugReportFilters) => {
   if (filters.sub_module_name) params.append('sub_module_name', filters.sub_module_name);
   if (filters.page) params.append('page', filters.page.toString());
   if (filters.limit) params.append('limit', filters.limit.toString());
+  return params.toString();
+};
 
-  const response = await fetch(`/api/bug-reports?${params.toString()}`);
+const fetchBugReports = async (filters: BugReportFilters) => {
+  const response = await fetch(`/api/bug-reports?${buildBugReportsQuery(filters)}`);
   if (!response.ok) {
     throw new Error('Failed to fetch bug reports');
   }
@@ -124,8 +131,13 @@ const fetchLeaderboard = async (
   return response.json();
 };
 
-const fetchBugReportStats = async () => {
-  const response = await fetch('/api/bug-reports/stats');
+const fetchBugReportStats = async (scope?: BugReportStatsScope) => {
+  const params = new URLSearchParams();
+  if (scope?.statuses?.length) params.append('statuses', scope.statuses.join(','));
+  if (scope?.resolved_from) params.append('resolved_from', scope.resolved_from);
+  if (scope?.resolved_to) params.append('resolved_to', scope.resolved_to);
+  const qs = params.toString();
+  const response = await fetch(`/api/bug-reports/stats${qs ? `?${qs}` : ''}`);
   if (!response.ok) {
     throw new Error('Failed to fetch bug report statistics');
   }
@@ -303,10 +315,13 @@ const fetchDepartments = async (institutionId?: string) => {
   return response.json();
 };
 
-const fetchBugModules = async (): Promise<{
+const fetchBugModules = async (
+  statuses?: BugReportStatus[]
+): Promise<{
   modules: { name: string; count: number; subModules: { name: string; count: number }[] }[];
 }> => {
-  const response = await fetch('/api/bug-reports/modules');
+  const qs = statuses?.length ? `?statuses=${statuses.join(',')}` : '';
+  const response = await fetch(`/api/bug-reports/modules${qs}`);
   if (!response.ok) throw new Error('Failed to fetch bug modules');
   return response.json();
 };
@@ -597,16 +612,37 @@ export interface BugReportStats {
   resolutionRate: string;
   recentReports: number;
   previousReports: number;
+  /** Resolved bugs with no resolved_at — a date filter can never include them. */
+  resolvedMissingDate: number;
+  /**
+   * Who resolved how many, within the scope. Empty until the resolved_by
+   * migration is applied, and absent entirely in a response cached from before
+   * this field existed — hence optional.
+   */
+  resolvers?: Array<{
+    resolved_by: string | null;
+    resolver_name: string | null;
+    resolver_email: string | null;
+    resolved_count: number;
+  }>;
   reportsTrend: {
     value: string;
     direction: 'up' | 'down' | 'neutral';
   };
 }
 
-export const useBugReportStats = () => {
+/** Narrows every count to a status tab and/or resolved date range. */
+export interface BugReportStatsScope {
+  statuses?: BugReportStatus[];
+  resolved_from?: string;
+  resolved_to?: string;
+}
+
+export const useBugReportStats = (scope?: BugReportStatsScope) => {
   return useQuery<BugReportStats>({
-    queryKey: queryKeys.bugReports.stats(),
-    queryFn: fetchBugReportStats,
+    // Scoped keys extend stats(), so existing stats() invalidations still hit them.
+    queryKey: scope ? [...queryKeys.bugReports.stats(), scope] : queryKeys.bugReports.stats(),
+    queryFn: () => fetchBugReportStats(scope),
     refetchInterval: 30000, // Refetch every 30 seconds for real-time stats
     refetchOnWindowFocus: true,
     staleTime: 15 * 1000 // 15 seconds
@@ -700,10 +736,13 @@ export const useDepartments = (institutionId?: string) => {
   });
 };
 
-export const useBugModules = () => {
+/** Module / sub-module counts, optionally only for these statuses (a status tab). */
+export const useBugModules = (statuses?: BugReportStatus[]) => {
   return useQuery({
-    queryKey: [...queryKeys.bugReports.all, 'modules'],
-    queryFn: fetchBugModules,
+    queryKey: statuses?.length
+      ? [...queryKeys.bugReports.all, 'modules', statuses]
+      : [...queryKeys.bugReports.all, 'modules'],
+    queryFn: () => fetchBugModules(statuses),
     staleTime: 5 * 60 * 1000
   });
 };

@@ -2,7 +2,7 @@
 // LC-006: Issue Management - Service Layer
 // Wraps the existing Grievance module with LC-specific views
 
-import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { createClientSupabaseClient, type TypedSupabaseClient } from '@/lib/supabase/client';
 import { LCNotificationService } from './notification-service';
 import { describeCheckConstraintViolation } from '@/lib/validations/grievance-ticket';
 import type { TablesInsert } from '@/types/supabase';
@@ -13,6 +13,42 @@ import type {
   GrievanceStatus,
   GrievancePriority
 } from '@/types/grievance';
+
+/**
+ * Optional overrides for {@link LCIssueService.createLCIssue}.
+ *
+ * Every field is optional and every default reproduces the behaviour this
+ * method had before the options bag existed, so the Learners Council board —
+ * the only caller that existed until now — is byte-for-byte unchanged.
+ *
+ * WHY A `client` OVERRIDE. `LCIssueService` holds a browser singleton
+ * (`createClientSupabaseClient()`), which has no session when the module is
+ * loaded inside a Next.js route handler: the insert would be attempted as
+ * `anon` and RLS would refuse it. A server caller therefore passes its own
+ * client. That keeps ONE insert path for grievance_tickets rather than a
+ * second copy that would drift away from the SLA defaults, the ticket_number
+ * trigger and the BUG-01 refusal mapping below.
+ */
+export interface CreateLCIssueOptions {
+  /** Stamped as `metadata.source`. Defaults to the Learners Council board. */
+  source?: string;
+  /** Supabase client to write with. Defaults to the browser singleton. */
+  client?: TypedSupabaseClient;
+  /**
+   * Overrides the persona mapping derived from `profiles.role`. Supplied by
+   * callers that serve personas the board never saw (see
+   * lib/instasolver/complaint.ts).
+   */
+  raisedByType?: string;
+  /** Files the ticket without the person's name attached to it. */
+  isAnonymous?: boolean;
+  /** The private tracking code minted for an anonymous filing. */
+  anonymousToken?: string | null;
+  /** Pre-assigns the ticket at insert time. */
+  assignedTo?: string | null;
+  /** Merged into `metadata` alongside `source`. */
+  extraMetadata?: Record<string, unknown>;
+}
 
 /** Kanban board data structure */
 export interface KanbanBoard {
@@ -237,13 +273,16 @@ export class LCIssueService {
       category: string;
       priority: string;
     },
-    userId: string
+    userId: string,
+    options: CreateLCIssueOptions = {}
   ): Promise<GrievanceTicket> {
+    const db = options.client ?? this.supabase;
+
     // Look up category ID - try by name first, then check if it's already a UUID
     let categoryId = data.category;
 
     // Attempt to find category by name first
-    const { data: categoryData } = await this.supabase
+    const { data: categoryData } = await db
       .from('grievance_categories')
       .select('id')
       .eq('institution_id', data.institution_id)
@@ -261,7 +300,7 @@ export class LCIssueService {
     }
 
     // Get user profile for raiser info
-    const { data: profile } = await this.supabase
+    const { data: profile } = await db
       .from('profiles')
       .select('full_name, email, role')
       .eq('id', userId)
@@ -279,22 +318,30 @@ export class LCIssueService {
       description: data.description,
       priority: data.priority as GrievancePriority,
       status: 'open' as GrievanceStatus,
-      raised_by_type: (['admin', 'super_admin', 'staff', 'hod', 'principal', 'teacher'].includes(profile?.role || '')
+      raised_by_type: options.raisedByType
+        ?? ((['admin', 'super_admin', 'staff', 'hod', 'principal', 'teacher'].includes(profile?.role || '')
         ? 'staff'
         : profile?.role === 'parent' ? 'parent'
         : profile?.role === 'alumni' ? 'alumni'
-        : 'learner') as 'learner' | 'parent' | 'staff' | 'alumni',
+        : 'learner') as 'learner' | 'parent' | 'staff' | 'alumni'),
       raised_by_id: userId,
-      raised_by_name: profile?.full_name || 'Unknown',
-      raised_by_email: profile?.email || null,
+      // An anonymous filing keeps raised_by_id — it is the filer's own read key
+      // under the ICC select policy and is never rendered to anybody else —
+      // but carries none of the three identifying columns.
+      raised_by_name: options.isAnonymous ? null : (profile?.full_name || 'Unknown'),
+      raised_by_email: options.isAnonymous ? null : (profile?.email || null),
+      ...(options.isAnonymous
+        ? { is_anonymous: true, raised_by_phone: null, anonymous_token: options.anonymousToken ?? null }
+        : {}),
+      ...(options.assignedTo ? { assigned_to: options.assignedTo, assigned_at: new Date().toISOString() } : {}),
       sla_hours: 72, // Default 72h SLA for LC issues
       sla_deadline: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(),
       sla_status: 'on_track',
       attachments: [],
-      metadata: { source: 'learners_council' }
+      metadata: { source: options.source ?? 'learners_council', ...(options.extraMetadata ?? {}) }
     };
 
-    const { data: ticket, error } = await this.supabase
+    const { data: ticket, error } = await db
       .from('grievance_tickets')
       .insert(newTicket as TablesInsert<'grievance_tickets'>)
       .select(`

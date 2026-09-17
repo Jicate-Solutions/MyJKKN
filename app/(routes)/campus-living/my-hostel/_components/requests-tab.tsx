@@ -97,24 +97,28 @@ const leaveStatusLabel: Record<string, string> = {
 // ---------------------------------------------------------------------------
 // Status helpers — gate pass
 // ---------------------------------------------------------------------------
+// All seven live statuses. `rejected` was missing, so a learner whose request
+// was refused saw the raw enum label instead of the word — and no reason.
 const gatePassStatusVariant: Record<
   string,
   'default' | 'secondary' | 'destructive' | 'outline' | 'success'
 > = {
+  requested: 'secondary',
   issued: 'default',
   active: 'success',
-  requested: 'secondary',
   returned: 'outline',
   overdue: 'destructive',
+  rejected: 'destructive',
   cancelled: 'outline',
 };
 
 const gatePassStatusLabel: Record<string, string> = {
-  issued: 'Issued',
-  active: 'Active (out)',
   requested: 'Pending approval',
+  issued: 'Approved',
+  active: 'Out now',
   returned: 'Returned',
   overdue: 'Overdue',
+  rejected: 'Rejected',
   cancelled: 'Cancelled',
 };
 
@@ -310,9 +314,11 @@ export function RequestsTab({
             <DoorOpen className='h-4 w-4' />
             My Gate Passes
           </CardTitle>
-          {/* CTA: /campus-living/gate-passes/new exists */}
+          {/* /request, NOT /new. /new issues an already-approved pass and is
+              gated on gate_passes.approve — pointing a resident at it was how
+              a learner could approve their own pass. */}
           <Button asChild size='sm' variant='outline'>
-            <Link href='/campus-living/gate-passes/new'>Request Gate Pass</Link>
+            <Link href='/campus-living/gate-passes/request'>Request Gate Pass</Link>
           </Button>
         </CardHeader>
         <CardContent>
@@ -332,9 +338,9 @@ export function RequestsTab({
                   className='flex items-center justify-between gap-2 rounded-md border p-2'
                 >
                   <div className='flex flex-col gap-0.5'>
-                    <span className='text-sm capitalize'>
-                      {gp.pass_type?.replace(/_/g, ' ') ?? '—'}
-                    </span>
+                    {/* The type is the configured hostel leave type now, not
+                        the retired pass_type enum. */}
+                    <span className='text-sm'>{gp.leave_type_name}</span>
                     <span className='text-xs text-muted-foreground'>
                       Return by: {gp.expected_return
                         ? new Date(gp.expected_return).toLocaleString()

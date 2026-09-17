@@ -26,8 +26,8 @@ export default function NewPoFormatPage() {
 
   return (
     <ContentLayout title="New PO Format">
-      <div className="space-y-6 max-w-5xl">
-        <div className="flex items-center gap-3">
+      <div className="space-y-4 sm:space-y-6 max-w-5xl">
+        <div className="flex items-center gap-2 sm:gap-3">
           <Button
             variant="ghost"
             size="sm"
@@ -37,8 +37,8 @@ export default function NewPoFormatPage() {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
-            <h2 className="text-2xl font-bold tracking-tight">New PO Format</h2>
-            <p className="text-muted-foreground">
+            <h2 className="text-xl sm:text-2xl font-bold tracking-tight">New PO Format</h2>
+            <p className="hidden text-muted-foreground sm:block">
               Define the header, item columns and footer used when a purchase order is printed.
             </p>
           </div>

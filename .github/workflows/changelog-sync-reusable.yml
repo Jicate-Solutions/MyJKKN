@@ -1,0 +1,160 @@
+name: Changelog — publish this app's history into MyJKKN's What's New
+
+# WHAT THIS IS FOR. The Director ruled "one shared list, seen from every app":
+# every Application Hub app's changes appear on one page, each line labelled with
+# the app it came from. This is the job a SIBLING repository runs to put its own
+# changes on that page. It is not called from MyJKKN — MyJKKN's own history is
+# synced by whats-new-refresh.yml, which writes to the database directly.
+#
+# WHY THE SIBLING NEVER TOUCHES THE DATABASE. The direct sync holds
+# SUPABASE_DB_URL, a superuser connection string shared by five workflows in
+# MyJKKN. Copying that secret into ten repositories is not on the table, so this
+# job parses its own history and hands over the RESULT, authenticated by that
+# app's own API key. A leaked ingest key can publish a changelog; a leaked
+# database URI is the whole institution.
+#
+# WHY IT CHECKS OUT MyJKKN. The rules that decide which commits are shown to a
+# learner live in ONE file — collectChangelog() in scripts/generate-changelog.mjs.
+# Copying them into ten repositories buys ten copies that drift, and the drift
+# would be invisible until somebody saw a line they should not have. So this job
+# borrows the parser rather than reimplementing it, and pins the ref it borrows
+# from so that a change to MyJKKN's rules cannot silently change what a sibling
+# publishes overnight.
+#
+# ─────────────────────────── WHAT A SIBLING REPO ADDS ────────────────────────
+# One file, .github/workflows/whats-new.yml, four lines of substance:
+#
+#   name: What's New
+#   on:
+#     schedule: [{ cron: '41 3 * * *' }]   # pick your own minute, not :00
+#     workflow_dispatch:
+#   jobs:
+#     publish:
+#       uses: Jicate-Solutions/MyJKKN/.github/workflows/changelog-sync-reusable.yml@main
+#       with:
+#         app-key: library                 # must be registered in APP_PROFILES
+#       secrets:
+#         ingest-key: ${{ secrets.CHANGELOG_INGEST_KEY }}
+#
+# BEFORE THAT WORKS, two things happen in MyJKKN, both by pull request:
+#   1. A line in APP_PROFILES (scripts/sync-changelog-db.mjs) declaring this app's
+#      first-seed floor and the DATE IT JOINS. A joining app brings only changes
+#      from that day onward — never its back-history, so the page does not open
+#      on day one under nine apps' back-catalogues.
+#   2. An API key issued for that app, stored in the sibling repository as the
+#      secret CHANGELOG_INGEST_KEY.
+#
+# ────────────────────────────── NOT YET COMPLETE ─────────────────────────────
+# The receiving end — POST /api/b2a/whats-new/ingest, which must read the app key
+# FROM THE API KEY and never from the request body — is a separate pull request
+# and does not exist on main yet. Until it does, this workflow parses correctly
+# and its POST returns 404. That is deliberate and it is stated here rather than
+# hidden: the alternative was shipping a workflow whose transport looked proven.
+# Run it with `dry-run: true` until the endpoint lands; it will parse, report the
+# counts, and post nothing.
+
+on:
+  workflow_call:
+    inputs:
+      app-key:
+        description: >-
+          Which application's slice this history is published as. Must already be
+          registered in APP_PROFILES in MyJKKN's scripts/sync-changelog-db.mjs,
+          or the parse refuses rather than defaulting — a typo that defaulted
+          would write this repository's history into MyJKKN's own slice.
+        required: true
+        type: string
+      myjkkn-ref:
+        description: >-
+          Which MyJKKN ref to borrow the parsing rules from. Pinned rather than
+          floating so a change to those rules cannot silently change what this
+          repository publishes overnight.
+        required: false
+        default: main
+        type: string
+      ingest-url:
+        description: The MyJKKN endpoint that receives the parsed history.
+        required: false
+        default: https://www.jkkn.ai/api/b2a/whats-new/ingest
+        type: string
+      dry-run:
+        description: Parse and report the counts; post nothing.
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      ingest-key:
+        description: >-
+          This application's MyJKKN API key. It identifies which slice is being
+          written; the endpoint takes the app key FROM the key and ignores the
+          one in the payload, so this secret is what stops one app publishing
+          into another's history.
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  # Never cancel a run in flight — the receiving end writes in one transaction.
+  group: changelog-sync-${{ inputs.app-key }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out this repository's history
+        uses: actions/checkout@v4
+        with:
+          # Load-bearing. The parser reads the WHOLE history; with the default
+          # shallow clone it would see a few commits and the floor guard would
+          # (correctly) refuse, every morning, with a confusing message.
+          fetch-depth: 0
+          path: app
+
+      - name: Check out MyJKKN's parsing rules
+        uses: actions/checkout@v4
+        with:
+          repository: Jicate-Solutions/MyJKKN
+          ref: ${{ inputs.myjkkn-ref }}
+          # Only the two scripts are needed, but a sparse checkout of a private
+          # repository needs the same token either way; depth 1 is enough because
+          # nothing here reads MyJKKN's OWN history.
+          fetch-depth: 1
+          path: myjkkn
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Parse this repository's history with MyJKKN's rules
+        working-directory: app
+        env:
+          CHANGELOG_APP_KEY: ${{ inputs.app-key }}
+          CHANGELOG_REF: origin/main
+        run: |
+          node ../myjkkn/scripts/sync-changelog-db.mjs \
+            --app-key="${CHANGELOG_APP_KEY}" \
+            --emit-json=../changelog.json
+
+      - name: Report what would be published
+        run: |
+          node -e "const d=require('./changelog.json');console.log(\`\${d.entries.length} entries as \${d.app_key}, from \${d.start_date ?? 'the beginning'}\`)"
+
+      - name: Publish to MyJKKN
+        if: ${{ !inputs.dry-run }}
+        env:
+          INGEST_KEY: ${{ secrets.ingest-key }}
+          INGEST_URL: ${{ inputs.ingest-url }}
+        run: |
+          if [ -z "$INGEST_KEY" ]; then
+            echo "::error::No ingest key — nothing was published. Set CHANGELOG_INGEST_KEY in this repository's secrets, or run with dry-run: true."
+            exit 1
+          fi
+          # --fail-with-body so a 4xx is a red run with the reason attached,
+          # rather than a green run that published nothing.
+          curl --fail-with-body --silent --show-error \
+            -X POST "$INGEST_URL" \
+            -H "Authorization: Bearer $INGEST_KEY" \
+            -H "Content-Type: application/json" \
+            --data-binary @changelog.json

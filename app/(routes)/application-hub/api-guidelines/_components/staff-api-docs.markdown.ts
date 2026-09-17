@@ -31,8 +31,8 @@ Fetches a paginated list of staff members. You can filter the results using quer
 | \`category_id\` | Filter by staff category ID |
 | \`is_active\` | Filter by active status (true/false) |
 | \`has_extended_profile\` | Filter to staff who have opted into the extended faculty profile (true/false). Use with \`category_id\` to scope to a single category that has \`shows_extended_profile = true\`. |
-| \`role_type\` | Coarse role taxonomy. Common values: \`faculty\`, \`admin\`, \`support\`, \`management\`. Useful for grouping (e.g. directory pages, headcount reports). |
-| \`role_key\` | Fine-grained role keyed to \`custom_roles.role_key\` (e.g. \`hod\`, \`principal\`, \`faculty\`, \`admission_counselor\`). Use this when the consumer needs to act on permission-bearing roles. |
+| \`role_key\` | The team-member role, keyed to \`custom_roles.role_key\`. See Role-Based Fetching below for the values in live use. This is the only role filter. |
+| ~~\`role_type\`~~ | **Retired — returns HTTP 400.** Every record carries the same \`role_type\`, so this filter could never match. Use \`role_key\`. |
 
 #### Additional fields by category
 
@@ -62,7 +62,7 @@ Every staff row carries \`has_extended_profile\` plus the 29 extended-profile co
       "pincode": "600001",
       "date_of_joining": "2020-06-15",
       "designation": "Associate Professor",
-      "role_type": "faculty",
+      "role_type": "teacher",
       "role_key": "hod",
       "category_id": "123e4567-e89b-12d3-a456-426614174111",
       "institution_id": "123e4567-e89b-12d3-a456-426614174222",
@@ -166,22 +166,35 @@ The detail response is shaped identically to a single \`data[]\` entry from the 
 
 ## Role-Based Fetching
 
-Staff records carry two role-related fields that consumers can filter on. Pick the one that matches your intent — they are NOT interchangeable.
+Filter team members by role with \`role_key\`. It is the only role filter.
 
-### \`role_type\` — coarse taxonomy
+### \`role_key\` — the team-member role
 
-A high-level grouping of staff. Common values: \`faculty\`, \`admin\`, \`support\`, \`management\`. Use this when building directories, headcount reports, or anything that groups staff by job family.
+References a row in the \`custom_roles\` table — the same value that drives permissions in MyJKKN. Use it for directories, headcount reports and permission-aware integrations alike.
 
-### \`role_key\` — fine-grained role
+The 35 values in live use, with counts across the 733 active records:
 
-References a row in the \`custom_roles\` table — drives actual permissions in MyJKKN. Examples: \`hod\`, \`principal\`, \`dean\`, \`faculty\`, \`admission_counselor\`, \`expo_counselor\`. Use this when you need to act on a specific permission-bearing role (workflow approvers, permission-aware integrations).
+\`\`\`
+faculty              269      principal             11
+staff                196      super_admin            8
+hod                   68      warden                 6
+staff_counselor       40      librarian              5
+driver                31      coe                    2
+admission_counselor   21      registrar              1
+office_assistant      18      ... 22 more
+gate_security         14
+\`\`\`
+
+### \`role_type\` — retired as a filter
+
+\`role_type\` is still present on every response, but it is **no longer accepted as a query parameter and returns HTTP 400**. It was documented as a coarse taxonomy of four values; in practice every record carries one and the same value, so each of those documented filters matched zero rows and returned \`200\` with an empty page — a silent wrong answer. Group by \`role_key\` instead.
 
 > **No DB CHECK constraint** — both fields are freeform strings. Treat unknown values defensively. The list above is conventional but new role keys can be added at any time via Role Management.
 
-#### Fetch all faculty (\`role_type=faculty\`)
+#### Fetch every Head of Department (\`role_key=hod\`)
 
 \`\`\`bash
-curl -s "https://jkkn.ai/api/api-management/staff?role_type=faculty&is_active=true&limit=50" \\
+curl -s "https://jkkn.ai/api/api-management/staff?role_key=hod&is_active=true&limit=50" \\
   -H "Authorization: Bearer $JKKN_API_KEY" \\
   -H "Accept: application/json"
 \`\`\`
@@ -199,7 +212,7 @@ curl -s "https://jkkn.ai/api/api-management/staff?role_key=hod&is_active=true" \
 // Useful for building a public faculty directory page.
 const fetchPublishedFaculty = async (apiKey) => {
   const url = new URL('https://jkkn.ai/api/api-management/staff');
-  url.searchParams.append('role_type', 'faculty');
+  url.searchParams.append('role_key', 'faculty');
   url.searchParams.append('has_extended_profile', 'true');
   url.searchParams.append('is_active', 'true');
   url.searchParams.append('all', 'true');
@@ -248,18 +261,20 @@ const fetchAllCounselors = async (apiKey, institutionId) => {
 The \`/api/b2a/staff\` list returns a smaller payload per row (no extended-profile columns) — preferred for fast directory listings. Use \`/api/b2a/staff/{id}\` to fetch the full record.
 
 \`\`\`bash
-curl -s "https://jkkn.ai/api/b2a/staff?role_type=faculty&category_id=<UUID>&page=1&limit=20" \\
+curl -s "https://jkkn.ai/api/b2a/staff?role_key=hod&category_id=<UUID>&page=1&limit=20" \\
   -H "Authorization: Bearer $JKKN_API_KEY"
 \`\`\`
 
 ## Common Use Cases
 
 - **Faculty directory page** — render a public-facing faculty list with photos, departments, and bios:
-  \`GET /api-management/staff?role_type=faculty&has_extended_profile=true&is_active=true&all=true\`
+  \`\`\`
+GET /api-management/staff?role_key=faculty&has_extended_profile=true&is_active=true&all=true
+\`\`\`
 - **HOD approvers list** — resolve approvers for a department-level workflow (e.g. leave/OD):
   \`GET /api-management/staff?role_key=hod&department_id=<UUID>&is_active=true\`
 - **Per-institution headcount by role** — use \`limit=1\` + read \`metadata.total\` for a fast count:
-  \`GET /api-management/staff?institution_id=<UUID>&role_type=admin&limit=1\`
+  \`GET /api-management/staff?institution_id=<UUID>&role_key=principal&limit=1\`
 - **Search within a role** — combine \`search\` with \`role_key\` to resolve "Mr X" within a role:
   \`GET /api-management/staff?role_key=principal&search=raj&limit=10\`
 - **Teaching staff in a category** — combine category filter with the response's \`category.is_teaching\`:
@@ -295,7 +310,7 @@ All four embeds are present on \`/api/staff\`, \`/api/api-management/staff\`, AN
 | \`address, state, district, pincode\` | string \\| null | Address fields. |
 | \`date_of_joining\` | ISO date | — |
 | \`designation\` | string | Job title. Searchable via \`?designation=\` on B2A. |
-| \`role_type\` | string \\| null | Coarse role taxonomy (faculty / admin / support / management). |
+| \`role_type\` | string \\| null | Legacy column carrying one and the same value on every record. No information — read \`role_key\`. Not a valid filter. |
 | \`role_key\` | string | Fine-grained role (matches \`custom_roles.role_key\`). |
 | \`category_id\` | UUID | FK → \`employment_categories.id\`. |
 | \`institution_id\` | UUID | FK → \`institutions.id\`. |
@@ -503,7 +518,7 @@ export class StaffApiService {
     if (filters.category_id) params.append('category_id', filters.category_id);
     if (filters.is_active !== undefined) params.append('is_active', filters.is_active.toString());
     if (filters.has_extended_profile !== undefined) params.append('has_extended_profile', filters.has_extended_profile.toString());
-    if (filters.role_type) params.append('role_type', filters.role_type);
+    if (filters.role_key) params.append('role_key', filters.role_key);
     if (filters.role_key) params.append('role_key', filters.role_key);
 
     const queryString = params.toString() ? \`?\${params.toString()}\` : '';

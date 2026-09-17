@@ -1,0 +1,326 @@
+'use client';
+
+/**
+ * What's New — the most recent highlights.
+ *
+ * The few changes someone read, wrote up in plain English, and approved. It
+ * sits above the plain list because the plain list answers "what changed" and
+ * this answers the two questions the Director actually asked for: what it means
+ * for me, and what I can now do.
+ *
+ * NOT "THIS WEEK", AND THAT IS THE POINT. This said "Worth knowing this week"
+ * and rendered only write-ups whose change landed in the current week, while
+ * the writer worked through a MONTH of backlog. On 2026-09-14 that meant 199
+ * approved write-ups existed and 6 could be displayed; the other 193 were
+ * unreachable by construction. The route now serves the most recent ten
+ * whichever week they fall in, so a thin week fills from the days before it —
+ * which is why nothing on this card says "week" any more. Putting a week label
+ * back would make the heading lie about what is under it.
+ *
+ * IT IS ABSENT, NOT EMPTY, when there is nothing to show. A reader scoped to
+ * nothing, and a platform with no approved write-ups at all, render no heading,
+ * no card and no "no highlights yet" placeholder — the page then looks exactly
+ * as it did before this strip existed, which is the whole compatibility
+ * requirement. Same for a failed fetch: the plain list below is the thing
+ * people came for and it is unaffected, so a highlights failure says nothing
+ * rather than pushing an error card above working content. (The sibling
+ * archive failure taught that lesson the other way round — see the archiveError
+ * note in lib/changelog/use-changelog.ts.)
+ *
+ * WHO WROTE THESE, AND WHY THE ORIGINAL LINE IS ALWAYS SHOWN. Most of these are
+ * now written by a model on the Max lane and published with nobody reading them
+ * first — the Director reversed the "a person approves each one" rule on
+ * 2026-09-13, because the approval queue meant ongoing work and so nothing was
+ * ever written at all (changelog_highlights held 0 rows).
+ *
+ * That makes the small grey line under each card the load-bearing part of this
+ * component, not a detail. It is the developer's own commit subject, verbatim —
+ * what ACTUALLY shipped. A reader who finds a headline surprising can check it
+ * against the real change in the same glance, without leaving the page or
+ * trusting us. This page exists to teach people what they can now do, and
+ * unreviewed text about ten applications reaches every reader here; a confident
+ * wrong claim with no way to check it is worse than no highlight at all.
+ *
+ * Deleting that line to tidy the card removes the only check there is.
+ *
+ * Nothing is generated at read time.
+ */
+
+import { useEffect, useState } from 'react';
+import { Sparkles, Wrench, ShieldCheck, Flag } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import type { ChangelogModule } from '@/lib/changelog/types';
+
+/** Only the kinds selection offers — 'faster' is never a highlight. */
+type HighlightKind = 'new' | 'fixed' | 'security';
+
+interface StripItem {
+  sha: string;
+  date: string;
+  kind: HighlightKind;
+  module_key: string;
+  headline: string | null;
+  affects: string | null;
+  action: string | null;
+  /** The developer's own commit subject — what actually shipped. See the header:
+   *  this is the check on an unreviewed headline, and it always renders. */
+  subject?: string;
+  author?: string;
+  /** 'ai' when nobody read it before it was published. */
+  source?: 'human' | 'ai';
+  /** THIS reader has already flagged this write-up as wrong (ruling 7). Never
+   *  anyone else's count — see the report button below for why. */
+  reported?: boolean;
+}
+
+/** What has happened to this reader's report-it tap on one card. */
+type ReportState = 'idle' | 'sending' | 'done' | 'failed';
+
+/**
+ * The day the change landed, as "12 Sep".
+ *
+ * IT RENDERS ON EVERY CARD, and that is load-bearing now the strip is no longer
+ * a week. These ten come from a month-wide window, so a card can be weeks old
+ * under a heading that says nothing about when — and a reader with no date has
+ * no way to tell a change that shipped yesterday from one that shipped in
+ * August. Parsed in UTC on a bare Y-M-D so it cannot slide by one day in a
+ * timezone the reader happens to be in.
+ */
+function formatDay(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  if (!y || !m || !d) return '';
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'UTC',
+  });
+}
+
+const KIND_STYLE: Record<HighlightKind, { icon: typeof Sparkles; chip: string; label: string }> = {
+  new: {
+    icon: Sparkles,
+    label: 'New',
+    chip: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-950 dark:text-emerald-300 dark:ring-emerald-400/20',
+  },
+  fixed: {
+    icon: Wrench,
+    label: 'Fixed',
+    chip: 'bg-blue-50 text-blue-700 ring-blue-600/20 dark:bg-blue-950 dark:text-blue-300 dark:ring-blue-400/20',
+  },
+  security: {
+    icon: ShieldCheck,
+    label: 'Security',
+    chip: 'bg-rose-50 text-rose-700 ring-rose-600/20 dark:bg-rose-950 dark:text-rose-300 dark:ring-rose-400/20',
+  },
+};
+
+interface HighlightsStripProps {
+  modules: Record<string, ChangelogModule>;
+}
+
+export function HighlightsStrip({ modules }: HighlightsStripProps) {
+  const [items, setItems] = useState<StripItem[] | null>(null);
+  const [reports, setReports] = useState<Record<string, ReportState>>({});
+
+  /**
+   * Ruling 7 — the review layer, one tap.
+   *
+   * Nothing about this changes what is on the page. It records that ONE reader
+   * says this write-up is wrong, and the count of distinct readers is what a
+   * super admin reads in the queue. A page any reader could un-publish by
+   * tapping would be a worse failure than the sentence it was fixing.
+   *
+   * Optimistic-free on purpose: the button says "Sending…" and only says
+   * "Reported" once the write actually landed, because a tap that silently did
+   * nothing is exactly the failure this link exists to catch elsewhere.
+   */
+  async function report(sha: string) {
+    setReports((r) => ({ ...r, [sha]: 'sending' }));
+    try {
+      const res = await fetch('/api/whats-new/highlights/report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sha }),
+      });
+      const body = await res.json().catch(() => null);
+      // `already: true` is a success — a reader who taps twice has still told
+      // us once, and the count is of distinct readers either way.
+      setReports((r) => ({ ...r, [sha]: res.ok && body?.ok ? 'done' : 'failed' }));
+    } catch {
+      setReports((r) => ({ ...r, [sha]: 'failed' }));
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/whats-new/highlights', { cache: 'no-cache' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body) => {
+        if (cancelled || !body || !Array.isArray(body.highlights)) return;
+        setItems(body.highlights as StripItem[]);
+      })
+      .catch(() => {
+        // Deliberately silent. See the header: the plain list is unaffected and
+        // an error card above it would be louder than the thing that failed.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Absent, not empty — while loading, on failure, and when there is nothing
+  // approved this reader may see.
+  if (!items || items.length === 0) return null;
+
+  return (
+    /*
+      max-lg:pr-14 keeps every word on this strip clear of the floating column —
+      the three `fixed right-4` controls, 48px wide, that own x ∈ [329, 377] on a
+      393px screen. The same fix, for the same measured reason, as the entry
+      list's wrapper in whats-new-view.tsx (read the note there for the cascade
+      argument and the numbers). Seen live on production 2026-09-15: the
+      lightning button covered "everythin[g]" in the sub-heading and the share
+      and bug buttons covered the end of the first headline
+      (.screenshots/wn2-superadmin-phone-top.png). On the section rather than
+      the list so the heading line is cleared too.
+    */
+    <section aria-labelledby="whats-new-highlights" className="space-y-3 max-lg:pr-14">
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <h2 id="whats-new-highlights" className="text-base font-semibold text-foreground">
+          Worth knowing
+        </h2>
+        <p className="text-xs text-muted-foreground">
+          {/* NOT "the most recent changes". These are the most recently
+              WRITTEN-UP ones, which is a different set: the writer works
+              through a backlog, so a change from last week can appear here
+              before one from yesterday, and dozens of newer changes may have no
+              write-up at all. Claiming recency the strip does not have is the
+              kind of small lie that makes a reader distrust the rest of the
+              card. */}
+          {items.length === 1
+            ? 'One recent change explained in plain English'
+            : `${items.length} recent changes explained in plain English`}{' '}
+          — everything else is in the list below.
+        </p>
+      </div>
+
+      <ul className="grid gap-3 sm:grid-cols-2">
+        {items.map((h) => {
+          const style = KIND_STYLE[h.kind] ?? KIND_STYLE.new;
+          const Icon = style.icon;
+          const label = modules[h.module_key]?.label ?? null;
+          return (
+            <li
+              key={h.sha}
+              className="rounded-xl border bg-card p-4 shadow-sm transition-colors hover:bg-muted/30"
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <span
+                  className={cn(
+                    'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ring-inset',
+                    style.chip
+                  )}
+                >
+                  <Icon className="h-3 w-3" aria-hidden="true" />
+                  {style.label}
+                </span>
+                {label && (
+                  <span className="min-w-0 break-words text-xs font-medium text-muted-foreground">
+                    {label}
+                  </span>
+                )}
+                {/* See formatDay above: the strip spans a month now, so the day
+                    is the only thing on the card that says how old it is. */}
+                {h.date && (
+                  <>
+                    <span className="text-xs text-muted-foreground" aria-hidden="true">
+                      ·
+                    </span>
+                    <time dateTime={h.date} className="text-xs text-muted-foreground">
+                      {formatDay(h.date)}
+                    </time>
+                  </>
+                )}
+              </div>
+
+              {/* break-words rather than truncate: a headline is one sentence and
+                  cutting it is worse than letting it wrap at 375px. */}
+              <p className="mt-2 break-words text-sm font-semibold leading-snug text-foreground">
+                {h.headline}
+              </p>
+
+              <dl className="mt-2 space-y-1.5 text-xs leading-relaxed">
+                <div>
+                  <dt className="inline font-medium text-muted-foreground">Who it affects: </dt>
+                  <dd className="inline break-words text-foreground/90">{h.affects}</dd>
+                </div>
+                <div>
+                  <dt className="inline font-medium text-muted-foreground">What you can do now: </dt>
+                  <dd className="inline break-words text-foreground/90">{h.action}</dd>
+                </div>
+              </dl>
+
+              {/* The original developer line. Smaller, quieter, and never
+                  hidden — see the component header for why this is the part
+                  that must not be removed. Rendered only when the payload
+                  carries it, so an older cached response degrades to the card
+                  as it looked before rather than to an empty rule. */}
+              {h.subject && (
+                <p className="mt-3 border-t pt-2 text-[11px] leading-relaxed text-muted-foreground/80">
+                  <span className="font-medium">
+                    {h.source === 'ai' ? 'Written automatically from: ' : 'Original note: '}
+                  </span>
+                  <span className="break-words font-mono">{h.subject}</span>
+                  {h.author && <span className="break-words"> — {h.author}</span>}
+                </p>
+              )}
+
+              {/* REPORT IT — Director ruling 7, 2026-09-13.
+                  This is the review layer. It replaces the approval queue he
+                  declined, by moving the check from one person doing weekly
+                  work to every reader doing nothing until something looks
+                  wrong. The writer publishes UNREVIEWED, twice an hour; this
+                  link and the other two safeguards (a hidden write-up is never
+                  rewritten; a silent stop is not silent) are what make that
+                  cadence safe, so removing it reopens the cadence decision.
+                  Deliberately quiet: it must be findable, never louder than the
+                  write-up it sits under. */}
+              {(() => {
+                const state: ReportState = reports[h.sha] ?? (h.reported ? 'done' : 'idle');
+                if (state === 'done') {
+                  return (
+                    <p className="mt-2 text-[11px] text-muted-foreground">
+                      Thanks — you reported this. Someone will take a look.
+                    </p>
+                  );
+                }
+                return (
+                  <div className="mt-2">
+                    <button
+                      type="button"
+                      onClick={() => void report(h.sha)}
+                      disabled={state === 'sending'}
+                      className="inline-flex items-center gap-1 rounded text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+                    >
+                      <Flag className="h-3 w-3" aria-hidden="true" />
+                      {state === 'sending' ? 'Sending…' : 'This looks wrong'}
+                    </button>
+                    {state === 'failed' && (
+                      // Said out loud rather than swallowed. A reader who taps
+                      // and is told nothing assumes it worked, and the count —
+                      // the whole deliverable of this ruling — is then quietly
+                      // short.
+                      <span role="alert" className="ml-2 text-[11px] text-rose-700 dark:text-rose-400">
+                        That did not send. Try again.
+                      </span>
+                    )}
+                  </div>
+                );
+              })()}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}

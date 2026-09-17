@@ -7,10 +7,11 @@ import {
   admin as adminClient,
   closeSitting,
   liveBlankItemIds,
+  liveReviewOpensAt,
   normaliseAnswer,
   resolveCaller,
+  resolveServedSet,
   sittingQuestionCount,
-  verifyServedSet,
   type AttemptRow,
 } from '@/lib/services/onemark/attempt-server';
 
@@ -42,6 +43,11 @@ import {
 // CORRECTNESS IS READ, NEVER RECOMPUTED. fp_responses.is_correct was written
 // by the RPC; this route reports it. The answer key and explanations are the
 // payload here because the sitting is over — the review is the point.
+//
+// EXCEPT ON A LIVE PAPER WHOSE WINDOW IS STILL OPEN (ruling 2): the group is
+// still sitting it, so the score and the counts come back now and the
+// item-level review waits for config.close_at. `reviewPending` +
+// `reviewOpensAt` say so, and `questions` is empty until then.
 //
 // RUNTIME DEPENDS ON LANE S — fn_onemark_record_response and
 // fn_onemark_finalize_attempt.
@@ -110,7 +116,7 @@ export async function POST(
         // outside it and the whole request is refused, because the only
         // client that names blanks is the runner, and it only ever names
         // what it was served.
-        const served = verifyServedSet(attempt.id, body.servedToken);
+        const { served } = await resolveServedSet(admin, attempt.id, body.servedToken);
         if (!served) {
           return NextResponse.json(
             { error: 'This sitting could not be verified. Please reopen it and try again.' },
@@ -181,8 +187,25 @@ export async function POST(
     const rows = responses ?? [];
     const ids = rows.map((r: any) => r.item_id);
 
+    // ---- Ruling 2: the item-level review opens when the PAPER closes --------
+    // On a LIVE paper the group is still sitting it. The score and the counts
+    // are this learner's own and come back now; the answer key, the correct
+    // option and the explanation wait for config.close_at, so the first
+    // learner to submit cannot carry the paper out of the hall. A paper with
+    // no close time has no window to protect and opens immediately.
+    let reviewOpensAt: string | null = null;
+    if (attempt.mode === 'live') {
+      const { data: paper } = await admin
+        .from('fp_assessments')
+        .select('id, config')
+        .eq('id', attempt.assessment_id)
+        .maybeSingle();
+      reviewOpensAt = liveReviewOpensAt(paper?.config);
+    }
+    const reviewPending = reviewOpensAt !== null;
+
     // Now — and only now — the answer key and the explanation are the payload.
-    const { data: items } = ids.length
+    const { data: items } = ids.length && !reviewPending
       ? await admin
           .from('fp_items')
           .select('id, stem, stem_ta, options, options_ta, answer, explanation, explanation_ta')
@@ -190,7 +213,7 @@ export async function POST(
       : { data: [] };
     const byId = new Map((items ?? []).map((it: any) => [it.id, it]));
 
-    const questions = rows.map((r: any) => {
+    const questions = reviewPending ? [] : rows.map((r: any) => {
       const item: any = byId.get(r.item_id);
       return {
         itemId: r.item_id,
@@ -227,6 +250,11 @@ export async function POST(
       skipped,
       total: rows.length,
       alreadySubmitted,
+      // Ruling 2. `reviewOpensAt` is an ISO timestamp while the paper's window
+      // is still open, and null the moment the review is released; `questions`
+      // is empty exactly while it is pending, never partially redacted.
+      reviewPending,
+      reviewOpensAt,
       questions,
     };
 

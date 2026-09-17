@@ -98,6 +98,10 @@ export const CATEGORY_ONLY_MODULES: ReadonlyArray<readonly [string, string]> = [
   // PERMISSION_CATEGORIES entry + sidebar route; fp_* tables not yet in
   // table-module-map, so it's category-only like Calendar/Feedback above.
   ['Foundation Programme', 'foundation'],
+  // Gate Security (2026-09): has the 'gate_security' PERMISSION_CATEGORIES
+  // entry + sidebar routes; movement tables not yet in table-module-map, so
+  // it is category-only like Calendar/Feedback above.
+  ['Gate Security', 'gate_security'],
   // Centralized Procurement (2026-07): has the 'procurement' PERMISSION_CATEGORIES
   // entry + sidebar routes; procurement_* tables aren't in table-module-map, so
   // it's category-only like the entries above.
@@ -152,6 +156,14 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   // Campus Walk writes project_tasks under CAMPUS-OPS, so it rolls up into the
   // existing Projects module rather than introducing a new canonical module.
   ['/campus-walk', 'Projects'],
+  // InstaSolver — the chooser at /instasolver and the lanes behind it
+  // (spec: specs/instasolver-2026-09-14.md). Same reasoning as Campus Walk
+  // directly above: decision I4 routes "something is broken" into Campus
+  // Walk's project_tasks under CAMPUS-OPS, so InstaSolver rolls up into the
+  // existing Projects module rather than minting a new canonical one. The
+  // permission audit then reports its routes under the module that actually
+  // holds the work.
+  ['/instasolver', 'Projects'],
   // My Kit — store-kit self view (PR-K2 2026-07-12); module home is IMS
   ['/my-kit', 'IMS'],
   // /admin/* — sub-prefixes first
@@ -273,6 +285,13 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   // sub-routes (accounts, posts, audits, dormant queue, alerts) all roll up
   // into the Instagram module. Listed before broader prefixes to be safe.
   ['/social/instagram', 'Instagram'],
+  // Gate Security (gate_security.* perms): scanner page + the gate in/out report.
+  // Listed before any broader /reports prefix so the report rolls up here.
+  ['/reports/gate-in-out', 'Gate Security'],
+  ['/gate-security', 'Gate Security'],
+  // "My Gate Pass" (self-service QR for every signed-in person, gated by
+  // view_profile) lives in the Gate Security sidebar group, so it rolls up here.
+  ['/gate-pass', 'Gate Security'],
   ['/hr', 'Staff'],
 
   // Single-segment dashboards — keep last to avoid swallowing nested paths.

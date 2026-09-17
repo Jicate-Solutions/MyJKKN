@@ -243,9 +243,11 @@ export async function getReceipts(
   const sortDirection = filters.sortDirection || 'desc';
   const ascending = sortDirection === 'asc';
   if (sortBy === 'student_name') {
+    // The embed's alias in the select above — a query identifier, not copy.
+    const learnerEmbed = 'student';
     query = query
-      .order('student(first_name)', { ascending })
-      .order('student(last_name)', { ascending });
+      .order(`${learnerEmbed}(first_name)`, { ascending })
+      .order(`${learnerEmbed}(last_name)`, { ascending });
   } else {
     query = query.order(sortBy, { ascending });
   }

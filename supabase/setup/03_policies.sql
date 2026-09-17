@@ -4835,14 +4835,30 @@ CREATE POLICY "events_reg_admin_update" ON public.events_registrations
     is_super_admin() OR get_current_user_role() = ANY(ARRAY['super_admin','admin','administrator','event_coordinator'])
   );
 
--- Updated: 2026-04-12 - Any authenticated user can update registrations for public active events
--- This enables event-day ops (check-in, t-shirt, certificate) by committee members of any role
-CREATE POLICY "events_reg_public_event_update" ON public.events_registrations
-  FOR UPDATE TO authenticated USING (
-    event_id IN (
-      SELECT id FROM public.events
-      WHERE is_public = true AND status NOT IN ('draft', 'cancelled')
-    )
+-- Updated: 2026-09-13 - Replaced "events_reg_public_event_update" with an ownership-scoped
+-- policy. See migration 20261206093000_events_registrations_scoped_update.sql.
+--
+-- The policy this replaces was added on 2026-04-12 (a marathon event day) to unblock
+-- event-day ops, and its comment here said it was for "committee members of any role".
+-- It did not say that: its only condition was that the EVENT is public and not a draft,
+-- which is a property of the event and never of the caller. With no ownership,
+-- institution or committee test, and with every policy on this table being PERMISSIVE
+-- (so they OR together), it let anyone holding a login update any registration on any
+-- public event — contact details, payment_status, checked_in, bib_number.
+--
+-- Committee access, which is what it was meant to provide, is already granted correctly
+-- by "events_reg_committee_member_update" immediately below.
+CREATE POLICY "events_reg_scoped_update" ON public.events_registrations
+  FOR UPDATE TO authenticated
+  USING (
+    profile_id = (SELECT auth.uid())          -- the person's own registration
+    OR fn_is_event_incharge(event_id)          -- events.config -> 'incharges' -> [].member_id
+    OR fn_is_event_creator(event_id)           -- events.created_by
+  )
+  WITH CHECK (
+    profile_id = (SELECT auth.uid())
+    OR fn_is_event_incharge(event_id)
+    OR fn_is_event_creator(event_id)
   );
 
 -- Updated: 2026-04-12 - Committee members (any role, including students) can update registrations
@@ -10907,3 +10923,122 @@ CREATE POLICY hcrs_delete ON public.hostel_category_room_sources
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.hostel_category_room_sources TO authenticated;
 GRANT ALL ON public.hostel_category_room_sources TO service_role;
 
+-- hr_decision_emails (20260911200000): whoever can see the request can see what
+-- happened to its email; nobody writes through the API (trigger + service role).
+DROP POLICY IF EXISTS hde_select ON public.hr_decision_emails;
+CREATE POLICY hde_select ON public.hr_decision_emails
+  FOR SELECT TO authenticated
+  USING (
+    (leave_application_id IS NOT NULL AND EXISTS (
+      SELECT 1 FROM public.hr_leave_applications a
+      WHERE a.id = hr_decision_emails.leave_application_id))
+    OR
+    (comp_off_credit_id IS NOT NULL AND EXISTS (
+      SELECT 1 FROM public.hr_comp_off_credits c
+      WHERE c.id = hr_decision_emails.comp_off_credit_id))
+  );
+
+REVOKE ALL ON public.hr_decision_emails FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.hr_decision_emails TO authenticated;
+GRANT ALL ON public.hr_decision_emails TO service_role;
+
+
+-- =====================================================================================
+-- Mirrored from supabase/migrations/20260912100000_hr_leave_revoke_approved_decision.sql  (2026-09-12)
+-- Revoking an APPROVED leave / short-time-off / comp-off-claim decision.
+-- A revocation stores status='rejected'; revoked_at is what tells the two apart.
+-- =====================================================================================
+-- -------------------------------------------------------------------------------------
+-- 6. RLS
+--
+-- Without this the trigger above never runs for the person it is written for. For an
+-- APPROVED row hla_update admits only super admins, the applicant, and hr.leave.approve
+-- holders: fn_is_designated_leave_approver tests approval_chain -> current_step, and
+-- current_step has advanced PAST the final step the moment the request was granted. A
+-- Principal who granted the leave is therefore refused by the policy itself, before any
+-- trigger has an opinion.
+-- -------------------------------------------------------------------------------------
+DROP POLICY IF EXISTS hla_update ON public.hr_leave_applications;
+CREATE POLICY hla_update ON public.hr_leave_applications
+  FOR UPDATE
+  USING (
+    (SELECT public.is_super_admin())
+    OR (employee_id IN (SELECT unnest(public.fn_my_staff_ids())))
+    OR ((SELECT public.user_has_permission('hr.leave.approve'))
+        AND hr_organization_id IN (SELECT unnest(public.fn_my_hr_organization_ids())))
+    OR public.fn_is_designated_leave_approver(id)
+    OR public.fn_hr_leave_can_revoke(id)
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR ((status)::text <> ALL (ARRAY['approved'::text, 'rejected'::text]))
+    OR ((SELECT public.user_has_permission('hr.leave.approve'))
+        AND hr_organization_id IN (SELECT unnest(public.fn_my_hr_organization_ids())))
+    OR public.fn_is_designated_leave_approver(id)
+    OR public.fn_hr_leave_can_revoke(id)
+  );
+
+DROP POLICY IF EXISTS hcoc_update ON public.hr_comp_off_credits;
+CREATE POLICY hcoc_update ON public.hr_comp_off_credits
+  FOR UPDATE
+  USING (
+    (SELECT public.is_super_admin())
+    OR (((SELECT public.user_has_permission('hr.leave.approve'))
+         OR (SELECT public.user_has_permission('hr.leave.revoke')))
+        AND hr_organization_id IN (SELECT unnest(public.fn_my_hr_organization_ids())))
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (((SELECT public.user_has_permission('hr.leave.approve'))
+         OR (SELECT public.user_has_permission('hr.leave.revoke')))
+        AND hr_organization_id IN (SELECT unnest(public.fn_my_hr_organization_ids()))
+        AND NOT (employee_id IN (SELECT unnest(public.fn_my_staff_ids()))))
+  );
+
+-- =====================================================================================
+-- WhatsApp campus bridge — read-only RLS  (2026-09-13)
+-- Source of truth: supabase/migrations/20261211090000_wa_bridge_outbox.sql
+--
+-- `institution_id IS NOT NULL` in the outbox policy is LOAD-BEARING.
+-- public.role_has_institution_access(uuid) returns TRUE for a NULL argument
+-- (`IF check_institution_id IS NULL THEN RETURN true`), so without that guard every
+-- platform-wide message is readable by every holder of
+-- admission.settings.whatsapp.view, at every college — the opposite of what the
+-- column's own COMMENT promised. Proven, with a negative control, by
+-- supabase/tests/wa-bridge/run.sh.
+-- =====================================================================================
+DROP POLICY IF EXISTS wa_bridge_outbox_select ON public.wa_bridge_outbox;
+CREATE POLICY wa_bridge_outbox_select ON public.wa_bridge_outbox
+  FOR SELECT
+  USING (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR (
+      institution_id IS NOT NULL
+      AND public.user_has_permission('admission.settings.whatsapp.view')
+      AND public.role_has_institution_access(institution_id)
+    )
+  );
+
+-- wa_bridge_inbound has no institution_id: an inbound message arrives from a
+-- phone number, and until it is matched to a lead there is no institution to
+-- attribute it to. Scoping it by the matched lead's institution would hide
+-- every UNMATCHED message from everyone, which is the opposite of useful — an
+-- unmatched message is the one most likely to be someone nobody has answered.
+DROP POLICY IF EXISTS wa_bridge_inbound_select ON public.wa_bridge_inbound;
+CREATE POLICY wa_bridge_inbound_select ON public.wa_bridge_inbound
+  FOR SELECT
+  USING (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR public.user_has_permission('admission.settings.whatsapp.view')
+  );
+
+DROP POLICY IF EXISTS wa_bridge_status_select ON public.wa_bridge_status;
+CREATE POLICY wa_bridge_status_select ON public.wa_bridge_status
+  FOR SELECT
+  USING (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR public.user_has_permission('admission.settings.whatsapp.view')
+  );

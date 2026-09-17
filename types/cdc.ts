@@ -124,11 +124,45 @@ export interface CdcRecruiter {
   updated_by: string | null;
 }
 
+/** Per-institution semester targeting stored in cdc_drives.institution_semesters (jsonb). */
+export interface CdcDriveInstitutionSemesterTarget {
+  institution_id: string;
+  /** semesters.semester_order values. Empty = every semester of that institution. */
+  semester_orders: number[];
+  /**
+   * programs.id values (2026-09-16). Empty / absent = every program of that
+   * institution. The picker stores EVERY duplicate master id behind a chosen
+   * program name so learners split across copies are all matched.
+   */
+  program_ids?: string[];
+}
+export type CdcDriveInstitutionSemesters = CdcDriveInstitutionSemesterTarget[];
+
+/** Google Drive reference for the drive circular (bytes live in Drive, never in the DB). */
+export interface CdcDriveCircular {
+  drive_file_id: string;
+  file_name: string;
+  mime_type: string;
+  size_bytes: number | null;
+  /** Drive webViewLink — convenience for someone with Drive access; the app serves bytes via /api/cdc/drives/[id]/circular. */
+  url: string | null;
+  uploaded_at: string | null;
+  uploaded_by: string | null;
+}
+
 export interface CdcDrive {
   id: string;
   recruiter_id: string;
   drive_type_id: string;
   institutions: string[];
+  /** Institution + semester targeting (20260915100000). `[]` on legacy drives. */
+  institution_semesters: CdcDriveInstitutionSemesters;
+  circular_drive_file_id: string | null;
+  circular_file_name: string | null;
+  circular_mime_type: string | null;
+  circular_size_bytes: number | null;
+  circular_uploaded_at: string | null;
+  circular_uploaded_by: string | null;
   title: string;
   description: string | null;
   status: CdcDriveStatus;
@@ -191,6 +225,11 @@ export interface CdcDriveEligibility {
   updated_by: string | null;
 }
 
+export interface CdcDriveEligibilityResponse {
+  data: CdcDriveEligibility | null;
+  matching_learners: number | null;
+}
+
 export interface CdcDriveWillingness {
   id: string;
   drive_id: string;
@@ -206,8 +245,27 @@ export interface CdcDriveWillingness {
   withdrawn_at: string | null;
   withdrawn_reason: string | null;
   willingness_audit: unknown[];
+  // Learner profile + academic snapshot captured at submission (20260915100000)
+  learner_name: string | null;
+  learner_email: string | null;
+  learner_mobile: string | null;
+  additional_mobile: string | null;
+  cgpa: number | null;
+  arrears_count: number | null;
+  arrears_details: CdcArrearDetail[] | null;
+  /** 'learner_declared' = the learner typed CGPA/arrears (mandatory since 2026-09-16); COE source kept when it matched. */
+  academic_source: 'coe_rest' | 'coe_db' | 'rate_limited' | 'unavailable' | 'learner_declared' | null;
+  data_consent_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface CdcArrearDetail {
+  course_code: string | null;
+  course_name: string | null;
+  semester: string | null;
+  attempts: number;
+  status: string | null;
 }
 
 // =====================================================================================
@@ -220,6 +278,12 @@ export interface CdcDriveInsert {
   title: string;
   description?: string | null;
   institutions: string[];
+  /** Per-institution semester targeting; entries for institutions not in `institutions` are dropped. */
+  institution_semesters?: CdcDriveInstitutionSemesters;
+  /** Circular already uploaded via POST /api/cdc/drives/circular/upload. null clears. */
+  circular?: CdcDriveCircular | null;
+  /** Eligibility thresholds (informational for learners; upserted into cdc_drive_eligibility). */
+  eligibility?: CdcDriveEligibilityInput | null;
   rounds_count?: number;
   // Venue mode of the drive (BUG-004045). Omitted → DB defaults to 'on_campus'.
   drive_mode?: CdcDriveMode;
@@ -243,6 +307,140 @@ export interface CdcDriveTransitionPayload {
   to_status: CdcDriveStatus;
   reason?: string | null;
   metadata?: Record<string, unknown> | null;
+}
+
+/**
+ * Eligibility thresholds shown to learners (cdc_drive_eligibility, one row per drive).
+ * `program_ids` is only meaningful for legacy drives without institution+semester
+ * targeting (20260915100000); targeted drives leave it empty.
+ */
+export interface CdcDriveEligibilityInput {
+  program_ids?: string[];
+  min_cgpa?: number | null;
+  max_arrears?: number | null;
+  min_semester?: number | null;
+  allowed_genders?: string[] | null;
+  program_year?: number | null;
+  passed_out_allowed?: boolean;
+  additional_notes?: string | null;
+}
+
+/**
+ * PATCH /api/cdc/drives/[id] — every field optional. Changing institutions /
+ * semesters after willingness opened notifies ONLY newly eligible learners.
+ */
+export interface CdcDriveUpdate {
+  title?: string;
+  description?: string | null;
+  recruiter_id?: string;
+  drive_type_id?: string;
+  institutions?: string[];
+  institution_semesters?: CdcDriveInstitutionSemesters;
+  circular?: CdcDriveCircular | null;
+  eligibility?: CdcDriveEligibilityInput | null;
+  rounds_count?: number;
+  drive_mode?: CdcDriveMode;
+  location_url?: string | null;
+  drive_date?: string | null;
+  drive_start_time?: string | null;
+  drive_end_time?: string | null;
+  willingness_window_close_at?: string | null;
+  venue_label?: string | null;
+  expected_package_lpa?: number | null;
+  job_role_title?: string | null;
+  job_location?: string | null;
+}
+
+/** Summary returned by the transition / PATCH routes when a notification run happened. */
+export interface CdcDriveNotifySummary {
+  targeted_learners: number;
+  unlinked_learners: number;
+  already_notified: number;
+  notified: number;
+  skipped?: 'idempotent' | 'no_recipients' | 'no_created_by' | 'no_targeting' | 'scheduled';
+  push?: { sent: number; failed: number; total_subscriptions: number };
+}
+
+// =====================================================================================
+// Willingness opening cycles (20260916100000)
+// =====================================================================================
+
+/** Stored kind of a cycle row; 'expired' and the scheduled→open flip are derived from time. */
+export type CdcWillingnessCycleStatus = 'scheduled' | 'open' | 'reopened' | 'closed';
+/** What CDC sees: stored kind resolved against the clock. */
+export type CdcWillingnessCycleDisplayStatus = 'scheduled' | 'open' | 'reopened' | 'closed' | 'expired';
+
+export const CDC_WILLINGNESS_CYCLE_STATUS_LABELS: Record<CdcWillingnessCycleDisplayStatus, string> = {
+  scheduled: 'Scheduled',
+  open: 'Open',
+  reopened: 'Reopened',
+  closed: 'Closed',
+  expired: 'Expired',
+};
+
+export interface CdcWillingnessCycle {
+  id: string;
+  drive_id: string;
+  cycle_no: number;
+  open_at: string;
+  close_at: string | null;
+  status: CdcWillingnessCycleStatus;
+  reopen_reason: string | null;
+  notification_sent: boolean;
+  notification_sent_at: string | null;
+  notification_id: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Derived by the API for display. */
+  display_status: CdcWillingnessCycleDisplayStatus;
+  /** Learners logged as notified for this cycle (audit rows with status 'sent'). */
+  notified_count: number;
+}
+
+export interface CdcWillingnessCyclesResponse {
+  cycles: CdcWillingnessCycle[];
+  /** Highest cycle_no, or null when willingness has never opened. */
+  current: CdcWillingnessCycle | null;
+  drive_status: CdcDriveStatus;
+  can_reopen: boolean;
+}
+
+export interface CdcWillingnessCycleUpdatePayload {
+  action: 'update';
+  open_at: string;
+  close_at: string | null;
+}
+
+export interface CdcWillingnessCycleReopenPayload {
+  action: 'reopen';
+  open_at: string;
+  close_at: string | null;
+  reason?: string | null;
+}
+
+/** One row of cdc_drive_notification_log (per learner, per drive, per cycle). */
+export interface CdcDriveNotificationLogRow {
+  id: string;
+  drive_id: string;
+  learner_id: string;
+  /** Willingness opening cycle this send belongs to (20260916100000). */
+  cycle_no: number;
+  user_id: string | null;
+  notification_type: string;
+  notification_id: string | null;
+  status: 'sent' | 'no_profile';
+  push_status: 'delivered' | 'failed' | 'stale_removed' | 'no_subscription' | 'opted_out' | 'skipped' | null;
+  push_error: string | null;
+  target_institution_id: string | null;
+  target_semester_order: number | null;
+  batch_key: string | null;
+  sent_at: string;
+  created_by: string | null;
+  // enrichment from GET /api/cdc/drives/[id]/notifications
+  learner_name?: string | null;
+  register_number?: string | null;
+  institution_name?: string | null;
 }
 
 // =====================================================================================
@@ -307,8 +505,113 @@ export interface CdcDriveDetailResponse {
   data: CdcDrive;
   state_transitions: CdcDriveStateTransition[];
   willingness_count: number;
+  /** Count of non-withdrawn willingness rows (willing / confirmed). */
+  willing_count: number;
   recruiter: CdcRecruiter | null;
   drive_type: CdcDriveType | null;
+  /** id → name for every institution on the drive (targeting display). */
+  institution_names: Record<string, string>;
+  eligibility: CdcDriveEligibility | null;
+  /** Notification audit summary for the drive. */
+  notification_summary: CdcDriveNotificationSummary;
+}
+
+export interface CdcDriveNotificationSummary {
+  sent: number;
+  no_profile: number;
+  push_delivered: number;
+  push_failed: number;
+  no_subscription: number;
+  last_sent_at: string | null;
+}
+
+/** One row of GET /api/cdc/drives/[id]/responses (staff view + Excel export). */
+export interface CdcDriveResponseRow {
+  willingness_id: string;
+  learner_id: string;
+  learner_name: string | null;
+  register_number: string | null;
+  institution_name: string | null;
+  department_name: string | null;
+  semester_label: string | null;
+  email: string | null;
+  mobile: string | null;
+  additional_mobile: string | null;
+  cgpa: number | null;
+  arrears_count: number | null;
+  arrears_details: CdcArrearDetail[] | null;
+  academic_source: string | null;
+  data_consent_at: string | null;
+  status: CdcWillingnessStatus;
+  declared_at: string;
+}
+
+/** Willingness bucket used by the assigned-learner view (`/cdc/drives/[id]/willingness`). */
+export type CdcAssignedWillingnessBucket = 'willing' | 'not_willing' | 'pending';
+
+/** Notification delivery state for one learner on one drive (from cdc_drive_notification_log). */
+export type CdcAssignedNotificationState = 'sent' | 'failed' | 'not_sent' | 'no_push_token';
+
+export const CDC_ASSIGNED_BUCKET_LABEL: Record<CdcAssignedWillingnessBucket, string> = {
+  willing: 'Willing',
+  not_willing: 'Not willing',
+  pending: 'Pending',
+};
+
+export const CDC_ASSIGNED_NOTIFICATION_LABEL: Record<CdcAssignedNotificationState, string> = {
+  sent: 'Sent',
+  failed: 'Failed',
+  not_sent: 'Not sent',
+  no_push_token: 'No push token',
+};
+
+/** One row of GET /api/cdc/drives/[id]/assigned — every targeted learner, responded or not. */
+export interface CdcDriveAssignedRow {
+  learner_id: string;
+  learner_name: string | null;
+  register_number: string | null;
+  roll_number: string | null;
+  photo_url: string | null;
+  institution_id: string | null;
+  institution_name: string | null;
+  department_name: string | null;
+  semester_order: number | null;
+  semester_label: string | null;
+  /** Profile contact — released only when the caller may view learner profiles, or the learner consented at submission. */
+  email: string | null;
+  mobile: string | null;
+  additional_mobile: string | null;
+  contact_source: 'profile' | 'consent' | 'hidden';
+  cgpa: number | null;
+  arrears_count: number | null;
+  arrears_details: CdcArrearDetail[] | null;
+  data_consent_at: string | null;
+  /** Raw willingness status; null when the learner has not responded. */
+  willingness_status: CdcWillingnessStatus | null;
+  bucket: CdcAssignedWillingnessBucket;
+  responded: boolean;
+  declared_at: string | null;
+  notification_state: CdcAssignedNotificationState;
+  notification_sent_at: string | null;
+  notification_detail: string | null;
+  /** True when the learner responded but no longer matches the drive's audience (moved semester / institution). */
+  outside_audience: boolean;
+}
+
+export interface CdcDriveAssignedSummary {
+  assigned: number;
+  responded: number;
+  willing: number;
+  not_willing: number;
+  pending: number;
+}
+
+export interface CdcDriveAssignedResponse {
+  data: CdcDriveAssignedRow[];
+  total: number;
+  summary: CdcDriveAssignedSummary;
+  /** Whether profile contact fields were released to this caller. */
+  contact_released: boolean;
 }
 
 export interface CdcLookupsResponse {

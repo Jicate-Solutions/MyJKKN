@@ -12,6 +12,7 @@ import {
   useCreateVendor,
 } from '@/hooks/procurement/use-quotations';
 import { downloadQuotationTemplate, parseQuotationFile } from '@/lib/procurement/quotation-import';
+import { matchVendor, normalizeGstin, type VendorMatchKey } from '@/lib/procurement/vendor-match';
 import type { CreateQuotationItemDto } from '@/types/procurement';
 import { AlertBox } from '@/components/ui/alert-box';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -57,14 +58,31 @@ interface ExtractResult {
   from_scan?: boolean;
   lines?: ExtractedLine[];
   unmatched_note?: string | null;
+  // Quotation header — present on direct (version 2) reads.
+  vendor?: {
+    name?: string | null;
+    gstin?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    address?: string | null;
+    contact_person?: string | null;
+  } | null;
+  quote_number?: string | null;
+  delivery_days?: number | null;
+  payment_terms?: string | null;
 }
 
-// Poll cadence while the page is open. The uploader is ALSO notified when the
-// read finishes, so leaving the page loses nothing.
-const EXTRACT_POLL_MS = 4_000;
-// If the job is still unclaimed after this, the runner box is presumed offline
-// and we stop waiting rather than spin forever.
-const EXTRACT_UNCLAIMED_GIVE_UP_MS = 90_000;
+const MATCHED_BY: Record<VendorMatchKey, string> = { gstin: 'GSTIN', phone: 'phone number', name: 'name' };
+
+// Poll cadence while the page is open.
+const EXTRACT_POLL_MS = 2_000;
+// The ₹0 office AI machine gets this long to pick the read up. After that the
+// page stops waiting on it and reads the PDF directly with the Claude API
+// (Haiku — the cheapest model), so the person sees prices in seconds instead of
+// being told to wait for a notification.
+const EXTRACT_DIRECT_AFTER_MS = 10_000;
+// A runner that took the job but never finished: stop spinning eventually.
+const EXTRACT_GIVE_UP_MS = 180_000;
 
 /**
  * Flag prices that sit far outside the rest of the quotation.
@@ -112,6 +130,12 @@ export default function NewQuotationPage() {
   const [newVendorName, setNewVendorName] = useState('');
   const [newVendorCode, setNewVendorCode] = useState('');
   const [newVendorEmail, setNewVendorEmail] = useState('');
+  const [newVendorGstin, setNewVendorGstin] = useState('');
+  const [newVendorPhone, setNewVendorPhone] = useState('');
+  const [newVendorAddress, setNewVendorAddress] = useState('');
+  const [newVendorContact, setNewVendorContact] = useState('');
+  // What the AI did with the vendor section, shown until the person changes it.
+  const [vendorNote, setVendorNote] = useState<string | null>(null);
   const [quoteNumber, setQuoteNumber] = useState('');
   const [deliveryDays, setDeliveryDays] = useState('');
   const [paymentTerms, setPaymentTerms] = useState('');
@@ -123,9 +147,9 @@ export default function NewQuotationPage() {
   const [file, setFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [extracting, setExtracting] = useState(false);
-  // ── ₹0 Max-lane PDF read ──────────────────────────────────────────────────
-  // The read happens off-page: we enqueue, poll while the page is open, and the
-  // uploader is notified when it finishes.
+  // ── AI PDF read ───────────────────────────────────────────────────────────
+  // Enqueued on the ₹0 Max lane and followed while the page is open; if no
+  // office runner picks it up quickly, the page switches to a direct paid read.
   const [extractJobId, setExtractJobId] = useState<string | null>(null);
   // Which price fields the AI filled, and how confident it was. Cleared per
   // field the moment a human edits it — that edit IS the confirmation.
@@ -146,6 +170,13 @@ export default function NewQuotationPage() {
     () => allVendors.filter((v) => !quotedSupplierIds.has(v.id)),
     [allVendors, quotedSupplierIds]
   );
+
+  // Live mirror for applyHeader (same reason as pricesRef: a stable callback
+  // that still sees what the person has chosen or typed by the time a read lands).
+  const vendorCtxRef = useRef({ vendorMode, vendorId, newVendorName, allVendors, quotedSupplierIds });
+  useEffect(() => {
+    vendorCtxRef.current = { vendorMode, vendorId, newVendorName, allVendors, quotedSupplierIds };
+  }, [vendorMode, vendorId, newVendorName, allVendors, quotedSupplierIds]);
 
   const handleSave = async () => {
     if (!rfq || !profile?.id) return;
@@ -189,26 +220,42 @@ export default function NewQuotationPage() {
           name: newVendorName,
           code: newVendorCode || null,
           email: newVendorEmail || null,
+          gstin: newVendorGstin || null,
+          phone: newVendorPhone || null,
+          address: newVendorAddress || null,
+          contact_person: newVendorContact || null,
+          payment_terms: paymentTerms || null,
         });
         supplierId = created.id;
+        // The vendor now exists. If anything below fails, a retry must reuse it
+        // rather than create the same vendor a second time.
+        setVendorMode('existing');
+        setVendorId(created.id);
       }
 
-      // Optional document upload to Drive.
+      // Optional document upload to Drive. The document is a nice-to-have: a
+      // failed or unconfigured upload must not throw away the prices someone
+      // just entered, so the quotation is saved without it and they are told.
       let document_url: string | null = null;
       let document_file_id: string | null = null;
+      let attachWarning: string | null = null;
       if (file) {
-        const fd = new FormData();
-        fd.append('file', file);
-        fd.append('institutionId', institutionId);
-        fd.append('rfqNumber', rfq.rfq_number);
-        const res = await fetch('/api/procurement/quotations/upload', { method: 'POST', body: fd });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.error || 'Document upload failed');
+        try {
+          const fd = new FormData();
+          fd.append('file', file);
+          fd.append('institutionId', institutionId);
+          fd.append('rfqNumber', rfq.rfq_number);
+          const res = await fetch('/api/procurement/quotations/upload', { method: 'POST', body: fd });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok || !body?.attachment) {
+            attachWarning = body?.error || 'Document upload failed';
+          } else {
+            document_url = body.attachment.url;
+            document_file_id = body.attachment.driveFileId;
+          }
+        } catch {
+          attachWarning = 'Document upload failed';
         }
-        const { attachment } = await res.json();
-        document_url = attachment.url;
-        document_file_id = attachment.driveFileId;
       }
 
       await createQuotation.mutateAsync({
@@ -225,7 +272,11 @@ export default function NewQuotationPage() {
         },
         userId: profile.id,
       });
-      toast.success('Quotation added');
+      if (attachWarning) {
+        toast.warning(`Quotation added, but the document was not attached: ${attachWarning}`);
+      } else {
+        toast.success('Quotation added');
+      }
       router.push(backHref);
     } catch (e) {
       toast.error(errorMessage(e, 'Failed to add quotation'));
@@ -260,8 +311,55 @@ export default function NewQuotationPage() {
   // Fill the form from a finished ₹0 Max-lane read. Nothing is auto-committed:
   // every value lands in an editable field, visibly marked as AI-filled until a
   // human touches it.
+  // Fill the vendor and terms from the quotation header. Blanks only: a vendor
+  // someone already picked or typed, and any term already entered, are kept.
+  const applyHeader = useCallback((result: ExtractResult | null | undefined) => {
+    if (!result) return;
+    const fill = (value: string | null | undefined) => (prev: string) =>
+      prev.trim() || !value ? prev : value;
+    setQuoteNumber(fill(result.quote_number));
+    setDeliveryDays(fill(result.delivery_days ? String(result.delivery_days) : null));
+    setPaymentTerms(fill(result.payment_terms));
+
+    const v = result.vendor;
+    if (!v) return;
+    const ctx = vendorCtxRef.current;
+    const alreadyChosen =
+      (ctx.vendorMode === 'existing' && !!ctx.vendorId) ||
+      (ctx.vendorMode === 'new' && !!ctx.newVendorName.trim());
+    if (alreadyChosen) return;
+
+    const match = matchVendor(v, ctx.allVendors);
+    if (match) {
+      if (ctx.quotedSupplierIds.has(match.vendor.id)) {
+        setVendorNote(`${match.vendor.name} has already submitted a quotation for this RFQ.`);
+        toast.warning(`${match.vendor.name} has already quoted on this RFQ.`);
+        return;
+      }
+      setVendorMode('existing');
+      setVendorId(match.vendor.id);
+      setVendorNote(
+        `Selected ${match.vendor.name} — matched from the PDF by ${MATCHED_BY[match.by]}. Check before saving.`,
+      );
+      return;
+    }
+
+    if (!v.name) return;
+    setVendorMode('new');
+    setNewVendorName(v.name);
+    setNewVendorGstin(normalizeGstin(v.gstin) ?? v.gstin ?? '');
+    setNewVendorPhone(v.phone ?? '');
+    setNewVendorEmail(v.email ?? '');
+    setNewVendorAddress(v.address ?? '');
+    setNewVendorContact(v.contact_person ?? '');
+    setVendorNote(
+      `${v.name} is not a registered vendor yet. Their details were filled from the PDF — saving adds them as a new vendor.`,
+    );
+  }, []);
+
   const applyExtraction = useCallback(
     (result: ExtractResult | null | undefined) => {
+      applyHeader(result);
       const lines = Array.isArray(result?.lines) ? result!.lines! : [];
       const filledPrices: Record<string, string> = {};
       const numericPrices: Record<string, number> = {};
@@ -328,7 +426,7 @@ export default function NewQuotationPage() {
           (keptTyped ? ` · kept ${keptTyped} price${keptTyped === 1 ? '' : 's'} you typed` : ''),
       );
     },
-    [],
+    [applyHeader],
   );
 
   // Keep the ref in step with the state it mirrors.
@@ -336,8 +434,8 @@ export default function NewQuotationPage() {
     pricesRef.current = prices;
   }, [prices]);
 
-  // Hand the vendor PDF to the ₹0 Max lane. This does NOT wait for the answer —
-  // it starts the read and returns; the uploader is notified when it lands.
+  // Hand the vendor PDF to the ₹0 Max lane. This starts the read and returns;
+  // the effect below follows it (and takes over directly if nobody picks it up).
   const handleExtractPdf = async () => {
     if (!file || !rfq) return;
     setExtracting(true);
@@ -357,6 +455,11 @@ export default function NewQuotationPage() {
         toast.error(json.error || 'AI PDF reading is unavailable — please enter the prices manually.');
         return;
       }
+      // Read right away (no office runner serving the lane) — prices are here.
+      if (json.direct && json.result) {
+        applyExtraction(json.result as ExtractResult);
+        return;
+      }
       // This exact PDF was already read for this RFQ — reuse rather than re-read.
       if (json.reused && json.result) {
         applyExtraction(json.result as ExtractResult);
@@ -366,7 +469,6 @@ export default function NewQuotationPage() {
       if (typeof json.job_id !== 'string') throw new Error('Could not start the AI reading.');
 
       setExtractJobId(json.job_id);
-      toast.success("Reading the PDF in the background — you'll be notified when the prices are ready.");
     } catch (e) {
       toast.error(errorMessage(e, 'Could not read the PDF'));
     } finally {
@@ -374,13 +476,38 @@ export default function NewQuotationPage() {
     }
   };
 
-  // Poll the read while this page stays open. Leaving is safe — the notification
-  // brings the uploader back, and the prices are re-fetched on the next attempt.
+  // Seconds shown on the progress line while a read is running.
+  const [extractElapsed, setExtractElapsed] = useState(0);
+  const readInProgress = extracting || !!extractJobId;
+  useEffect(() => {
+    if (!readInProgress) return;
+    const startedAt = Date.now();
+    const id = setInterval(() => setExtractElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    return () => {
+      clearInterval(id);
+      setExtractElapsed(0);
+    };
+  }, [readInProgress]);
+
+  // Follow the read while this page is open: the ₹0 lane first, then — if no
+  // office runner has picked it up within EXTRACT_DIRECT_AFTER_MS — a direct
+  // paid read. The direct call is awaited inside the tick, so polling pauses
+  // while it runs and the result can never be applied twice.
   useEffect(() => {
     if (!extractJobId) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
+    let directTried = false;
     const startedAt = Date.now();
+
+    const finish = (result: ExtractResult | null | undefined) => {
+      applyExtraction(result);
+      setExtractJobId(null);
+    };
+    const giveUp = (message: string) => {
+      toast.error(message);
+      setExtractJobId(null);
+    };
 
     const tick = async () => {
       if (cancelled) return;
@@ -391,23 +518,27 @@ export default function NewQuotationPage() {
         const json = await res.json();
         if (cancelled) return;
 
-        if (json.status === 'done') {
-          applyExtraction(json.result as ExtractResult);
-          setExtractJobId(null);
-          return;
-        }
+        if (json.status === 'done') return finish(json.result as ExtractResult);
         if (json.status === 'error' || json.status === 'canceled' || json.status === 'not_found') {
-          toast.error('AI could not read the PDF — please enter the prices manually.');
-          setExtractJobId(null);
-          return;
+          return giveUp('AI could not read the PDF — please enter the prices manually.');
         }
-        // Never picked up: the job was accepted but no reader claimed it, so the
-        // runner box is presumed offline. Say that, rather than "unavailable right
-        // now" — the queue took the work; nothing is running to do it.
-        if (json.status === 'pending' && Date.now() - startedAt > EXTRACT_UNCLAIMED_GIVE_UP_MS) {
-          toast.error('No AI reader picked up the PDF — it is not running. Please enter the prices manually.');
-          setExtractJobId(null);
-          return;
+
+        if (json.status === 'pending' && !directTried && Date.now() - startedAt > EXTRACT_DIRECT_AFTER_MS) {
+          directTried = true;
+          const dres = await fetch('/api/procurement/quotations/extract-pdf/direct', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ job_id: extractJobId }),
+          });
+          const djson = await dres.json().catch(() => ({}));
+          if (cancelled) return;
+          if (djson.status === 'done') return finish(djson.result as ExtractResult);
+          if (djson.error) return giveUp(djson.error);
+          // 'claimed' / 'running': an office runner took it after all — keep polling.
+        }
+
+        if (Date.now() - startedAt > EXTRACT_GIVE_UP_MS) {
+          return giveUp('The AI reading is taking too long — please enter the prices manually.');
         }
       } catch {
         // Transient network error — keep polling.
@@ -469,8 +600,8 @@ export default function NewQuotationPage() {
 
   return (
     <ContentLayout title="Add Vendor Quotation">
-      <div className="space-y-6 max-w-5xl">
-        <div className="flex items-center gap-3">
+      <div className="space-y-4 sm:space-y-6 max-w-5xl">
+        <div className="flex items-center gap-2 sm:gap-3">
           <Button
             variant="ghost"
             size="sm"
@@ -480,7 +611,7 @@ export default function NewQuotationPage() {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div className="min-w-0">
-            <h2 className="text-2xl font-bold tracking-tight">Add Vendor Quotation</h2>
+            <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Add Vendor Quotation</h2>
             <p className="text-muted-foreground">
               {rfq.rfq_number} · {rfq.items.length} item{rfq.items.length === 1 ? '' : 's'}
             </p>
@@ -500,21 +631,33 @@ export default function NewQuotationPage() {
                   <button
                     type="button"
                     className={`px-2 py-0.5 rounded ${vendorMode === 'existing' ? 'bg-primary text-primary-foreground' : ''}`}
-                    onClick={() => setVendorMode('existing')}
+                    onClick={() => {
+                      setVendorMode('existing');
+                      setVendorNote(null);
+                    }}
                   >
                     Existing
                   </button>
                   <button
                     type="button"
                     className={`px-2 py-0.5 rounded ${vendorMode === 'new' ? 'bg-primary text-primary-foreground' : ''}`}
-                    onClick={() => setVendorMode('new')}
+                    onClick={() => {
+                      setVendorMode('new');
+                      setVendorNote(null);
+                    }}
                   >
                     + New vendor
                   </button>
                 </div>
               </div>
               {vendorMode === 'existing' ? (
-                <Select value={vendorId} onValueChange={setVendorId}>
+                <Select
+                  value={vendorId}
+                  onValueChange={(v) => {
+                    setVendorId(v);
+                    setVendorNote(null);
+                  }}
+                >
                   <SelectTrigger>
                     <SelectValue
                       placeholder={availableVendors.length ? 'Select vendor…' : 'No registered vendors — add a new one'}
@@ -553,7 +696,34 @@ export default function NewQuotationPage() {
                     value={newVendorEmail}
                     onChange={(e) => setNewVendorEmail(e.target.value)}
                   />
+                  <Input
+                    placeholder="GSTIN (optional)"
+                    value={newVendorGstin}
+                    onChange={(e) => setNewVendorGstin(e.target.value)}
+                  />
+                  <Input
+                    placeholder="Phone (optional)"
+                    value={newVendorPhone}
+                    onChange={(e) => setNewVendorPhone(e.target.value)}
+                  />
+                  <Input
+                    placeholder="Contact person (optional)"
+                    value={newVendorContact}
+                    onChange={(e) => setNewVendorContact(e.target.value)}
+                  />
+                  <Input
+                    className="sm:col-span-3"
+                    placeholder="Address (optional)"
+                    value={newVendorAddress}
+                    onChange={(e) => setNewVendorAddress(e.target.value)}
+                  />
                 </div>
+              )}
+              {vendorNote && (
+                <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                  <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+                  {vendorNote}
+                </p>
               )}
             </div>
 
@@ -630,24 +800,31 @@ export default function NewQuotationPage() {
                       variant="secondary"
                       size="sm"
                       onClick={handleExtractPdf}
-                      disabled={extracting}
+                      disabled={readInProgress}
                     >
                       <Sparkles className="mr-1 h-3.5 w-3.5" />
-                      {extracting ? 'Reading PDF…' : 'Read prices from PDF (AI)'}
+                      {readInProgress ? 'Reading PDF…' : 'Read prices from PDF (AI)'}
                     </Button>
                   )}
                 </div>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="hidden text-[11px] text-muted-foreground sm:block">
                   Attach a PDF and the AI can fill the prices below for you to review. Anything you
                   have already typed is always kept.
                 </p>
               </div>
 
-              {extractJobId && (
-                <p className="rounded-md border border-dashed bg-background px-2 py-1.5 text-[11px] text-muted-foreground">
-                  Reading the PDF in the background — you can leave this page, we&apos;ll notify you
-                  when the prices are ready.
-                </p>
+              {readInProgress && (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="flex items-center gap-2 rounded-md border bg-background px-2 py-1.5 text-xs text-muted-foreground"
+                >
+                  <BeatLoader color="hsl(var(--primary))" size={5} />
+                  <span>
+                    Reading prices from the PDF… <span className="tabular-nums">{extractElapsed}s</span>
+                    {extractElapsed >= 8 && ' — almost there'}
+                  </span>
+                </div>
               )}
               {aiFromScan && (
                 <p className="rounded-md border border-amber-400 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">

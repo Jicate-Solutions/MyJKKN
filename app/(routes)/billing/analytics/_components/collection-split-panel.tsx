@@ -12,7 +12,14 @@ import {
   Tooltip,
   Legend,
 } from 'recharts';
-import { formatINRCompact, formatCurrency, num } from './_utils';
+import Link from 'next/link';
+import {
+  formatINRCompact,
+  formatCurrency,
+  num,
+  drilldown,
+  type DrilldownScope,
+} from './_utils';
 import type { BillingCollectionSplit } from '@/types/billing-analytics';
 
 // Blue / amber / slate. Chosen over the usual green-red pairing because blue↔amber
@@ -47,9 +54,12 @@ const BUCKETS: { key: BucketKey; label: string; hint: string }[] = [
 export function CollectionSplitPanel({
   data,
   loading,
+  scope,
 }: {
   data?: BillingCollectionSplit;
   loading: boolean;
+  /** Active institution + date window, carried into every drill-down link. */
+  scope: DrilldownScope;
 }) {
   if (loading && !data) {
     return (
@@ -163,13 +173,23 @@ export function CollectionSplitPanel({
                   {rows.map((r) => (
                     <tr key={r.key} className='border-b last:border-0'>
                       <td className='py-1.5'>
-                        <span className='flex items-center gap-2'>
+                        <Link
+                          href={drilldown.receipts(
+                            scope,
+                            r.key === 'unallocated'
+                              ? {}
+                              : { collection_type: r.key }
+                          )}
+                          className='flex items-center gap-2 hover:underline'
+                          title={r.hint}
+                          aria-label={`View ${r.label} receipts`}
+                        >
                           <span
                             className='inline-block h-2.5 w-2.5 shrink-0 rounded-sm'
                             style={{ backgroundColor: COLORS[r.key] }}
                           />
-                          <span title={r.hint}>{r.label}</span>
-                        </span>
+                          <span>{r.label}</span>
+                        </Link>
                       </td>
                       <td className='py-1.5 text-right tabular-nums'>
                         {formatCurrency(r.gross)}
@@ -194,28 +214,42 @@ export function CollectionSplitPanel({
         {/* Accrual view — off the bill, which is categorised almost everywhere,
             so it answers the ownership question the sparse cash trail cannot. */}
         <div className='grid grid-cols-2 gap-4 border-t pt-3'>
-          <div>
+          <Link
+            href={drilldown.bills(scope, { collection_type: 'management' })}
+            className='group -m-1 rounded-md p-1 transition-colors hover:bg-muted/60'
+            aria-label='View management bills'
+          >
             <p className='text-muted-foreground text-xs font-medium'>
               Billed — Management
             </p>
-            <p className='text-lg font-semibold' title={formatCurrency(billedMgmt)}>
+            <p
+              className='text-lg font-semibold group-hover:underline'
+              title={formatCurrency(billedMgmt)}
+            >
               {formatINRCompact(billedMgmt)}
             </p>
             <p className='text-muted-foreground text-xs'>
               {formatINRCompact(outMgmt)} outstanding
             </p>
-          </div>
-          <div>
+          </Link>
+          <Link
+            href={drilldown.bills(scope, { collection_type: 'government' })}
+            className='group -m-1 rounded-md p-1 transition-colors hover:bg-muted/60'
+            aria-label='View government bills'
+          >
             <p className='text-muted-foreground text-xs font-medium'>
               Billed — Government
             </p>
-            <p className='text-lg font-semibold' title={formatCurrency(billedGovt)}>
+            <p
+              className='text-lg font-semibold group-hover:underline'
+              title={formatCurrency(billedGovt)}
+            >
               {formatINRCompact(billedGovt)}
             </p>
             <p className='text-muted-foreground text-xs'>
               {formatINRCompact(outGovt)} outstanding
             </p>
-          </div>
+          </Link>
         </div>
 
         {unallocatedShare >= 1 && (

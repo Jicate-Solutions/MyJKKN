@@ -113,7 +113,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create the new role
+    // Create the new role.
+    //
+    // `instasolver.view` is seeded TRUE by default, and it is the only key that
+    // is. Decision I1 (specs/instasolver-2026-09-14.md) is "everyone with a
+    // login can file", and migration 20261212120000 delivers that for the roles
+    // that exist on apply-day — but a one-off UPDATE cannot reach a role created
+    // tomorrow. Without this line, every role minted after apply-day would be
+    // the one role in the platform with no front door for a leaking tap, and
+    // nothing would report it: the key's absence looks identical to a role that
+    // was never meant to have it.
+    //
+    // Spread LAST so the caller still wins: a Role Management payload that sends
+    // `{'instasolver.view': false}` turns it off. This is a default, not a floor.
+    // The key unlocks the chooser at /instasolver and nothing else — every lane
+    // behind it re-checks its own key server-side — so defaulting it open widens
+    // no data surface.
     const { data: newRole, error: createError } = await supabase
       .from('custom_roles')
       .insert([
@@ -121,7 +136,7 @@ export async function POST(request: NextRequest) {
           role_key,
           role_name,
           description,
-          permissions: permissions || {},
+          permissions: { 'instasolver.view': true, ...(permissions || {}) },
           is_system_role: false,
           created_by: data.user.id
         }

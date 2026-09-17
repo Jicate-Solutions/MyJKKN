@@ -142,6 +142,36 @@ export function useBookingPhotos(bookingId: string) {
   });
 }
 
+/**
+ * Remove one before/after photo.
+ *
+ * Routed through the API rather than the service because the Drive file has to
+ * go with the row, and only the server holds the Drive credentials. The route's
+ * own copy is already actionable (the last-photo 409), so it is surfaced as-is.
+ */
+export function useDeleteBookingPhoto() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ photoId }: { photoId: string; bookingId: string }) => {
+      const res = await fetch(`/api/campus-living/housekeeping/photos/${photoId}`, {
+        method: 'DELETE',
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error ?? 'Could not remove the photo.');
+      return json;
+    },
+    onSuccess: (_data, { bookingId }) => {
+      toast.success('Photo removed');
+      qc.invalidateQueries({ queryKey: housekeepingBookingKeys.photos(bookingId) });
+      qc.invalidateQueries({ queryKey: housekeepingBookingKeys.detail(bookingId) });
+      // The table's Before/After counts come off the board rows, not the photo
+      // query — without this the cell keeps the old count until a reload.
+      qc.invalidateQueries({ queryKey: housekeepingBookingKeys.all });
+    },
+    onError: (error) => toast.error(getErrorMessage(error)),
+  });
+}
+
 export function useBookSlot() {
   const qc = useQueryClient();
   return useMutation({

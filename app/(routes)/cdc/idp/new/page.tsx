@@ -20,6 +20,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useCreateIdp, useIdpPrefill } from '@/hooks/cdc/use-cdc-idp';
 import { useLearnersForPicker } from '@/hooks/cdc/use-cdc-pickers';
+import type { CdcIdpAspirations } from '@/types/cdc/idp';
+import { IDP_LEARNING_STYLE_OPTIONS } from '@/types/cdc/idp';
 import { useAcademicYears } from '@/hooks/use-academic-years';
 import { X, Plus, Sparkles, Loader2 } from 'lucide-react';
 
@@ -39,6 +41,12 @@ export default function NewIdpPage() {
   const [skillInput, setSkillInput] = useState('');
   const [skills, setSkills] = useState<string[]>([]);
   const [academicStrengths, setAcademicStrengths] = useState('');
+  // Self-profile answers stored inside the `aspirations` jsonb
+  // (BUG-004064 / BUG-004068 / BUG-004069).
+  const [learningStyle, setLearningStyle] = useState('');
+  const [personalStrengths, setPersonalStrengths] = useState('');
+  const [dreamCompanyInput, setDreamCompanyInput] = useState('');
+  const [dreamCompanies, setDreamCompanies] = useState<string[]>([]);
   const [shortTermGoal, setShortTermGoal] = useState('');
   const [longTermGoal, setLongTermGoal] = useState('');
   const [freeNotes, setFreeNotes] = useState('');
@@ -100,7 +108,11 @@ export default function NewIdpPage() {
         short_term_goal: shortTermGoal,
         long_term_goal: longTermGoal,
       },
-      aspirations: {},
+      aspirations: {
+        learning_style: learningStyle as CdcIdpAspirations['learning_style'],
+        personal_strengths: personalStrengths.trim(),
+        aspiring_companies: dreamCompanies,
+      } satisfies CdcIdpAspirations,
       free_text_notes: freeNotes || undefined,
       prefill_sources: prefillSourcesRef.current,
     });
@@ -333,6 +345,67 @@ export default function NewIdpPage() {
                 A short written answer about your academic strong points — separate
                 from the skill tags above.
               </p>
+            </CardContent>
+          </Card>
+
+          {/* My Preferred Learning Style (BUG-004064) — VARK */}
+          <Card>
+            <CardHeader><CardTitle className="text-base">My Preferred Learning Style</CardTitle></CardHeader>
+            <CardContent className="space-y-1">
+              <Label htmlFor="learning_style">How does the learner learn best? (VARK)</Label>
+              <Select value={learningStyle} onValueChange={setLearningStyle}>
+                <SelectTrigger id="learning_style">
+                  <SelectValue placeholder="Select a preferred learning style" />
+                </SelectTrigger>
+                <SelectContent>
+                  {IDP_LEARNING_STYLE_OPTIONS.map(o => (
+                    <SelectItem key={o.value} value={o.value}>{o.label} — {o.hint}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </CardContent>
+          </Card>
+
+          {/* My Personal Strengths (BUG-004068) */}
+          <Card>
+            <CardHeader><CardTitle className="text-base">My Personal Strengths</CardTitle></CardHeader>
+            <CardContent className="space-y-1">
+              <Label htmlFor="personal_strengths">
+                What personal qualities is the learner strongest in?
+              </Label>
+              <Textarea
+                id="personal_strengths"
+                value={personalStrengths}
+                onChange={e => setPersonalStrengths(e.target.value)}
+                rows={4}
+                placeholder="e.g. Stays calm under pressure, communicates clearly, follows through on commitments…"
+              />
+            </CardContent>
+          </Card>
+
+          {/* Dream Companies or Projects (BUG-004069) */}
+          <Card>
+            <CardHeader><CardTitle className="text-base">Dream Companies or Projects that Inspire Me</CardTitle></CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex gap-2">
+                <Input
+                  value={dreamCompanyInput}
+                  onChange={e => setDreamCompanyInput(e.target.value)}
+                  placeholder="Add a company or project and press Enter"
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addTag(dreamCompanyInput, setDreamCompanyInput, dreamCompanies, setDreamCompanies); } }}
+                />
+                <Button type="button" variant="outline" size="icon"
+                  onClick={() => addTag(dreamCompanyInput, setDreamCompanyInput, dreamCompanies, setDreamCompanies)}>
+                  <Plus className="w-4 h-4" />
+                </Button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {dreamCompanies.map(d => (
+                  <Badge key={d} variant="secondary" className="gap-1">{d}
+                    <button type="button" onClick={() => removeTag(d, dreamCompanies, setDreamCompanies)}><X className="w-3 h-3" /></button>
+                  </Badge>
+                ))}
+              </div>
             </CardContent>
           </Card>
 

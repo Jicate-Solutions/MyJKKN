@@ -24,6 +24,9 @@ import {
   History,
   Repeat,
   Video,
+  FileText,
+  ExternalLink,
+  UserSearch,
 } from 'lucide-react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -52,6 +55,12 @@ import { AgendaSection } from './_components/agenda-section';
 import { ActionItemsSection } from './_components/action-items-section';
 import { CarriedOverSection } from './_components/carried-over-section';
 import { PersonHistorySection } from './_components/person-history-section';
+import {
+  InterviewLinkSection,
+  type CandidateOption,
+  type JobOption,
+  type LinkedInterview,
+} from './_components/interview-link-section';
 
 const BREADCRUMB_ITEMS = [
   { label: 'Home', href: '/' },
@@ -118,6 +127,95 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
   if (!booking) {
     notFound();
   }
+
+  // The meeting note, if one has been attached to this booking.
+  //
+  // WHY THIS READS THROUGH THE USER'S CLIENT, not the service role: the SELECT
+  // policy on meeting_notes already answers "may this person read this note"
+  // via fn_can_view_meeting_note(booking_id) — MyJKKN's own invited set for the
+  // booking. Reading as the service role here would hand the note to anyone who
+  // can open the page, which is a wider set than the people who were in the
+  // room. An empty result is the correct outcome for someone outside it.
+  //
+  // Until this existed, a MATCHED note had nowhere to appear: the unmatched
+  // queue at /meetings/notes filters on `booking_id IS NULL` on purpose, so the
+  // moment the ingest matched a note correctly it dropped out of the only list
+  // that rendered one.
+  const { data: meetingNote } = await supabase
+    .from('meeting_notes')
+    .select('id, title, summary, transcript_url, recording_url, duration_minutes, occurred_at')
+    .eq('booking_id', booking.id)
+    .order('occurred_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  // ── is this meeting an interview? ────────────────────────────────────────
+  // Read first, ALWAYS — an interview already linked should be visible to
+  // anyone the recruitment policies admit, whether or not they may edit it.
+  // RLS does the deciding: someone without hr.recruitment.view simply gets no
+  // row and never learns the card exists.
+  const { data: linkedRow } = await supabase
+    .from('hr_recruitment_interviews')
+    .select(
+      'id, round_name, outcome_summary, candidate:hr_recruitment_candidates(name, role_title)',
+    )
+    .eq('booking_id', booking.id)
+    .maybeSingle();
+
+  // The pickers are only fetched for someone who could actually submit them.
+  // Offering a form that RLS will refuse is the silent failure this project
+  // forbids, so the permission is asked once here and the server action asks
+  // again — hiding a control is not a security boundary.
+  const { data: canEditInterview } = await supabase.rpc('user_has_permission', {
+    permission_name: 'hr.recruitment.create',
+  });
+
+  let candidateOptions: CandidateOption[] = [];
+  let jobOptions: JobOption[] = [];
+  if (canEditInterview && !linkedRow) {
+    const [{ data: candidateRows }, { data: jobRows }] = await Promise.all([
+      supabase
+        .from('hr_recruitment_candidates')
+        // role_specific_details carries the job the candidate was promoted
+        // against (soft link stamped at promote-time; there is no FK). It is
+        // read so the form can fill the post in rather than ask a second time
+        // for something Recruitment already knows.
+        .select('id, name, role_title, role_specific_details')
+        .order('created_at', { ascending: false })
+        .limit(200),
+      supabase.from('hr_recruitment_jobs').select('id, title').limit(200),
+    ]);
+    candidateOptions = ((candidateRows ?? []) as Array<Record<string, unknown>>).map((r) => {
+      // Defensive on both shapes: the column is JSONB and rows written before
+      // the promote bridge existed have no job_id, or no object at all.
+      const details = (r.role_specific_details ?? null) as Record<string, unknown> | null;
+      const jobId = typeof details?.job_id === 'string' ? (details.job_id as string) : null;
+      return {
+        id: r.id as string,
+        name: (r.name as string) ?? 'Unnamed candidate',
+        roleTitle: (r.role_title as string | null) ?? null,
+        jobId,
+      };
+    });
+    jobOptions = ((jobRows ?? []) as Array<Record<string, unknown>>)
+      .filter((r) => typeof r.title === 'string' && (r.title as string).trim() !== '')
+      .map((r) => ({ id: r.id as string, title: r.title as string }));
+  }
+
+  const linkedInterview: LinkedInterview | null = linkedRow
+    ? (() => {
+        const row = linkedRow as Record<string, unknown>;
+        const candidate = Array.isArray(row.candidate)
+          ? (row.candidate[0] as Record<string, unknown> | undefined)
+          : (row.candidate as Record<string, unknown> | undefined);
+        return {
+          candidateName: (candidate?.name as string | null) ?? null,
+          roleTitle: (candidate?.role_title as string | null) ?? null,
+          roundName: (row.round_name as string | null) ?? null,
+          outcomeSummary: (row.outcome_summary as string | null) ?? null,
+        };
+      })()
+    : null;
 
   // host display info (native bookings store the profile id only)
   const { data: host } = await supabase
@@ -323,6 +421,72 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
             ) : null}
           </CardContent>
         </Card>
+
+        {/* Directly under Schedule, because "what was said" is the next thing
+            somebody opening a finished meeting wants. Absent when no note has
+            been attached — a meeting nobody recorded should look like a meeting
+            nobody recorded, not like a feature that is failing. */}
+        {meetingNote ? (
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-muted-foreground" aria-hidden />
+                  Meeting notes
+                </CardTitle>
+                {meetingNote.duration_minutes ? (
+                  <Badge variant="outline">
+                    {meetingNote.duration_minutes}{' '}
+                    {meetingNote.duration_minutes === 1 ? 'minute' : 'minutes'} recorded
+                  </Badge>
+                ) : null}
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              {meetingNote.summary ? (
+                <div className="whitespace-pre-wrap leading-relaxed">{meetingNote.summary}</div>
+              ) : (
+                <p className="text-muted-foreground">
+                  This meeting was recorded, but no summary came across with it.
+                </p>
+              )}
+              {meetingNote.transcript_url ? (
+                <a
+                  href={meetingNote.transcript_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-primary underline-offset-4 hover:underline"
+                >
+                  Read the full transcript
+                  <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                </a>
+              ) : null}
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {/* Only rendered when there is something to show or something the
+            viewer may do. A meeting that is not an interview, seen by somebody
+            who could not record one anyway, shows nothing at all. */}
+        {linkedInterview || canEditInterview ? (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <UserSearch className="h-4 w-4 text-muted-foreground" aria-hidden />
+                Interview
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <InterviewLinkSection
+                uid={booking.uid}
+                candidates={candidateOptions}
+                jobs={jobOptions}
+                linked={linkedInterview}
+                canEdit={!!canEditInterview}
+              />
+            </CardContent>
+          </Card>
+        ) : null}
 
         <Card>
           <CardHeader className="pb-3">

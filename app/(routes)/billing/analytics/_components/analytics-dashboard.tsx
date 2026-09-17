@@ -33,7 +33,11 @@ import { CollectionSplitPanel } from './collection-split-panel';
 import { InstitutionComparison } from './institution-comparison';
 import { AccountsTeamActivity } from './accounts-team-activity';
 import { exportAnalyticsWorkbook } from './export-analytics';
-import { presetRange, type DatePreset } from './_utils';
+import {
+  presetRange,
+  type DatePreset,
+  type DrilldownScope,
+} from './_utils';
 
 const VALID_PRESETS: DatePreset[] = ['today', 'month', 'year', 'all', 'custom'];
 
@@ -92,6 +96,16 @@ export function AnalyticsDashboard() {
       ...presetRange(preset, from, to),
     }),
     [institutionId, preset, from, to]
+  );
+
+  // Every clickable figure carries the active institution + window with it.
+  const scope: DrilldownScope = useMemo(
+    () => ({
+      institutionId,
+      date_from: filters.date_from,
+      date_to: filters.date_to,
+    }),
+    [institutionId, filters.date_from, filters.date_to]
   );
 
   // Daily buckets for short ranges; monthly for year/all-time so the axis stays legible.
@@ -184,27 +198,38 @@ export function AnalyticsDashboard() {
         data={overview.data}
         loading={overview.isLoading}
         split={collectionSplit.data}
+        scope={scope}
       />
 
       <CollectionSplitPanel
         data={collectionSplit.data}
         loading={collectionSplit.isLoading}
+        scope={scope}
       />
 
       <div className='grid grid-cols-1 gap-6 lg:grid-cols-3'>
         <div className='lg:col-span-2'>
-          <CollectionTrendChart data={trend.data} loading={trend.isLoading} />
+          <CollectionTrendChart
+            data={trend.data}
+            loading={trend.isLoading}
+            scope={scope}
+          />
         </div>
         <div>
-          <TodayCollectionsPanel data={today.data} loading={today.isLoading} />
+          <TodayCollectionsPanel
+            data={today.data}
+            loading={today.isLoading}
+            institutionId={institutionId}
+          />
         </div>
       </div>
 
       <div className='grid grid-cols-1 gap-6 lg:grid-cols-2'>
-        <AgingChart data={aging.data} loading={aging.isLoading} />
+        <AgingChart data={aging.data} loading={aging.isLoading} scope={scope} />
         <CategoryBreakdownChart
           data={byCategory.data}
           loading={byCategory.isLoading}
+          scope={scope}
         />
       </div>
 
@@ -213,6 +238,7 @@ export function AnalyticsDashboard() {
         loading={byInstitution.isLoading}
         selectedInstitution={institutionId}
         onSelect={(id) => handleChange({ institution: id })}
+        scope={scope}
       />
 
       <AccountsTeamActivity
@@ -220,6 +246,7 @@ export function AnalyticsDashboard() {
         userLoading={userActivity.isLoading}
         dailyActivity={dailyActivity.data}
         dailyLoading={dailyActivity.isLoading}
+        scope={scope}
       />
     </div>
   );

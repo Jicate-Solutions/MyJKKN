@@ -68,8 +68,14 @@ const TOOLS: ToolDefinition[] = [
     ['stakeholder-nps',     'Stakeholder NPS (STUB — schema pending).'],
     ['audit-trail',         'Platform-wide audit logs (sh_audit_logs).'],
     ['social-media',        'Social media events (STUB — schema pending).'],
-    ['service_request',     'Instasolver service requests (STUB — DDL pending).'],
-    ['requirement',         'Instasolver requirement track (STUB — DDL pending).'],
+    ['service_request',     'Instasolver service requests (STUB — no table; the route says where the three lanes went).'],
+    // `requirement` is RETIRED, not dropped by accident. The InstaSolver
+    // requirement track never had a table and now never will: the 2026-09-14
+    // decisions (specs/instasolver-2026-09-14.md) send purchases to Procurement
+    // and broken things to Campus Walk. Its route and MCP tool are deleted, so
+    // advertising the tool here would hand a partner an endpoint that 404s with
+    // no explanation. Also removed from VALID_MODULES — see the note there for
+    // why retiring the scope does not break an already-issued key.
   ].map<ToolDefinition>(([module, description]) => ({
     name: `myjkkn_query_${module.replace(/-/g, '_')}`,
     description,
