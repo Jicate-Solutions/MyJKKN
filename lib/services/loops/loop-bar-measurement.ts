@@ -62,6 +62,11 @@ export function parsePlainNumericBar(bar: string | null | undefined): number | n
   return Number.isFinite(n) ? n : null;
 }
 
+/** A 'threshold' bar is a ceiling (at or below clears it); any other kind is a floor. */
+export function compareAgainstBar(value: number, bar: number, barKind: string | null | undefined): boolean {
+  return barKind === 'threshold' ? value <= bar : value >= bar;
+}
+
 /**
  * Record one measurement for `loopKey` against whatever bar the Director has
  * approved for it. Returns what was recorded; never throws.
@@ -73,10 +78,11 @@ export async function recordLoopMeasurement(
   const { loopKey, value, runId = null } = input;
 
   let bar: string | null = null;
+  let barKind: string | null = null;
   try {
     const { data, error } = await admin
       .from('loop_registry')
-      .select('bar')
+      .select('bar, bar_kind')
       .eq('loop_key', loopKey)
       .maybeSingle();
     if (error) {
@@ -90,7 +96,9 @@ export async function recordLoopMeasurement(
         error: `could not read the bar for ${loopKey}: ${error.message}`,
       };
     }
-    bar = ((data ?? {}) as { bar?: string | null }).bar ?? null;
+    const row = (data ?? {}) as { bar?: string | null; bar_kind?: string | null };
+    bar = row.bar ?? null;
+    barKind = row.bar_kind ?? null;
   } catch (e) {
     return {
       recorded: false,
@@ -103,12 +111,14 @@ export async function recordLoopMeasurement(
 
   const barValue = parsePlainNumericBar(bar);
   const comparable = barValue !== null && typeof value === 'number' && Number.isFinite(value);
-  // A plain-number bar is read as a FLOOR: the loop clears it by being at or
-  // above it. Loops whose bar is "stay below X" carry that as prose today, so
-  // they land in the NULL branch and never get a wrong verdict here.
-  const met = comparable ? (value as number) >= (barValue as number) : null;
+  // Which way the bar faces is the loop's bar_kind (set when the bar was
+  // approved): a 'threshold' bar is a CEILING on a safety gauge — the loop
+  // clears it by staying at or below (the generator's own words: "stays at or
+  // below its agreed limit"); every other kind ('comparison', 'reference') is a
+  // FLOOR — cleared by scoring at or above.
+  const met = comparable ? compareAgainstBar(value as number, barValue as number, barKind) : null;
   const gap = comparable
-    ? `${((value as number) - (barValue as number)).toFixed(2)} vs the bar`
+    ? `${((value as number) - (barValue as number)).toFixed(2)} vs the bar (${barKind === 'threshold' ? 'ceiling' : 'floor'})`
     : NO_NUMERIC_BAR_GAP;
 
   try {

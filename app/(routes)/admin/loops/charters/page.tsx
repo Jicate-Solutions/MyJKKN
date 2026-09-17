@@ -54,12 +54,24 @@ async function readProposals(
   admin: ReturnType<typeof createServiceRoleClient>
 ): Promise<ProposalRead[]> {
   try {
+    // Two reads with their own limits, so bar rows (one per loop, plus reviews)
+    // can never push a still-waiting CHARTER proposal out of the page
+    // (reviewer B, 2026-09-18: compounding eviction under one shared limit).
     const withKind = await admin
       .from('loop_charter_proposals')
       .select(`${PROPOSAL_COLS},kind`)
+      .eq('kind', 'charter')
       .order('created_at', { ascending: false })
       .limit(200);
-    if (!withKind.error) return (withKind.data ?? []) as ProposalRead[];
+    if (!withKind.error) {
+      const bars = await admin
+        .from('loop_charter_proposals')
+        .select(`${PROPOSAL_COLS},kind`)
+        .in('kind', ['bar', 'bar-review'])
+        .order('created_at', { ascending: false })
+        .limit(200);
+      return [...((withKind.data ?? []) as ProposalRead[]), ...((bars.data ?? []) as ProposalRead[])];
+    }
 
     const withoutKind = await admin
       .from('loop_charter_proposals')

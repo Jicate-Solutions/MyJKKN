@@ -250,8 +250,11 @@ $fn$;
 COMMENT ON FUNCTION public.fn_loop_record_measurement(text, numeric, numeric, boolean, text, text) IS
   'Record one FINAL loop measurement and move the loop''s miss streak: met=true resets it to 0, met=false increments it, met=NULL leaves it alone (not comparable is neither a hit nor a miss). Reaching a streak of 4 raises ONE kind=''bar-review'' loop_charter_proposals row ("the bar may be wrong") — idempotent while one is already proposed. Never pauses a loop, never notifies anyone. service_role or super-admin only.';
 
-REVOKE EXECUTE ON FUNCTION public.fn_loop_record_measurement(text, numeric, numeric, boolean, text, text) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_loop_record_measurement(text, numeric, numeric, boolean, text, text) TO authenticated;
+-- Called only by service_role cron routes — the same grant shape as the sibling
+-- fn_attendance_measure_intervention_effect (20260929010000). Named explicitly so
+-- service_role's EXECUTE does not rest on Supabase's default privileges.
+REVOKE EXECUTE ON FUNCTION public.fn_loop_record_measurement(text, numeric, numeric, boolean, text, text) FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_loop_record_measurement(text, numeric, numeric, boolean, text, text) TO service_role;
 
 -- ── 5. fn_loop_bar_proposals_generate — the machine proposes, once per loop ──
 -- For every ACTIVE loop with no bar and no open bar proposal:
@@ -276,6 +279,10 @@ DECLARE
   v_proposed     integer := 0;
   v_insufficient integer := 0;
   v_skipped      integer := 0;
+  v_superseded   integer := 0;
+  v_has_metric   boolean;
+  v_candidate    jsonb;
+  v_rationale    text;
 BEGIN
   IF auth.uid() IS NOT NULL AND NOT is_super_admin() THEN
     RAISE EXCEPTION 'not authorized';
@@ -286,55 +293,78 @@ BEGIN
      WHERE is_active IS TRUE AND bar IS NULL
      ORDER BY loop_key
   LOOP
-    -- Already asked about, either way: an undecided bar proposal, or a
-    -- standing "can't bar this yet" note. Both mean don't ask again.
+    -- An undecided bar proposal is already on the Director's desk: don't ask again.
     IF EXISTS (
       SELECT 1 FROM public.loop_charter_proposals
-       WHERE loop_key = v_loop.loop_key
-         AND kind = 'bar'
-         AND status IN ('proposed','insufficient')
+       WHERE loop_key = v_loop.loop_key AND kind = 'bar' AND status = 'proposed'
     ) THEN
       v_skipped := v_skipped + 1;
       CONTINUE;
     END IF;
 
+    v_has_metric := NULLIF(btrim(v_loop.outcome_metric), '') IS NOT NULL
+                    AND NULLIF(btrim(v_loop.baseline_window), '') IS NOT NULL
+                    OR NULLIF(btrim(v_loop.counter_metric), '') IS NOT NULL;
+
+    -- A standing "no metric on record" note stays exactly as long as the loop
+    -- still has no metric (Director, 2026-09-17: "until someone fills in what
+    -- the loop measures"). The moment a charter approval writes the metric
+    -- legs, the note is closed as superseded and a real bar is proposed —
+    -- otherwise the 37 unbarred loops could never be barred after their
+    -- owner interview.
+    IF EXISTS (
+      SELECT 1 FROM public.loop_charter_proposals
+       WHERE loop_key = v_loop.loop_key AND kind = 'bar' AND status = 'insufficient'
+    ) THEN
+      IF NOT v_has_metric THEN
+        v_skipped := v_skipped + 1;
+        CONTINUE;
+      END IF;
+      UPDATE public.loop_charter_proposals
+         SET status        = 'rejected',
+             decision_note = 'superseded: a metric is now on record, a bar was proposed',
+             decided_at    = now(),
+             updated_at    = now()
+       WHERE loop_key = v_loop.loop_key AND kind = 'bar' AND status = 'insufficient';
+      v_superseded := v_superseded + 1;
+    END IF;
+
+    -- Build the candidate first, so a bar the Director already REJECTED is
+    -- never re-proposed byte-for-byte on the next daily pass (reviewer B,
+    -- 2026-09-18: "a daily nag he cannot stop"). A rejection stands until the
+    -- charter legs change and the candidate reads differently.
     IF NULLIF(btrim(v_loop.outcome_metric), '') IS NOT NULL
        AND NULLIF(btrim(v_loop.baseline_window), '') IS NOT NULL THEN
-      INSERT INTO public.loop_charter_proposals (loop_key, kind, proposed, rationale, status)
-      VALUES (
-        v_loop.loop_key,
-        'bar',
-        jsonb_build_object(
+      v_candidate := jsonb_build_object(
           -- The house phrasing is "<outcome metric> vs own <baseline window>".
-          -- Several charters already write the baseline as "own trailing 8
-          -- weeks", which would read "vs own own trailing 8 weeks" — strip the
-          -- leading "own " rather than ship a stutter for a human to fix.
-          'bar',      btrim(v_loop.outcome_metric) || ' vs own '
-                        || regexp_replace(btrim(v_loop.baseline_window), '^own\s+', '', 'i'),
+          -- Two stutters seen on the live charters (rehearsal 2026-09-18):
+          -- a baseline already written as "own trailing 8 weeks" ("vs own own
+          -- …"), and an outcome metric that already states its comparison
+          -- ("… vs own baseline"), which would read "vs own baseline vs own 8
+          -- weeks". Strip the first; for the second, name the window as the
+          -- baseline instead of comparing twice.
+          'bar',      CASE
+                        WHEN btrim(v_loop.outcome_metric) ~* '\mvs\M'
+                          THEN btrim(v_loop.outcome_metric) || ' (baseline: '
+                               || btrim(v_loop.baseline_window) || ')'
+                        ELSE btrim(v_loop.outcome_metric) || ' vs own '
+                               || regexp_replace(btrim(v_loop.baseline_window), '^own\s+', '', 'i')
+                      END,
           'bar_kind', 'comparison'
-        ),
-        'this loop already measures "' || btrim(v_loop.outcome_metric)
+        );
+      v_rationale := 'this loop already measures "' || btrim(v_loop.outcome_metric)
           || '" and its charter names "' || btrim(v_loop.baseline_window)
-          || '" as the baseline — judging it against its own past needs no new number',
-        'proposed'
-      );
-      v_proposed := v_proposed + 1;
+          || '" as the baseline — judging it against its own past needs no new number; '
+          || 'type a plain number in the bar box when you approve if you want the four-miss alarm to arm';
 
     ELSIF NULLIF(btrim(v_loop.counter_metric), '') IS NOT NULL THEN
-      INSERT INTO public.loop_charter_proposals (loop_key, kind, proposed, rationale, status)
-      VALUES (
-        v_loop.loop_key,
-        'bar',
-        jsonb_build_object(
+      v_candidate := jsonb_build_object(
           'bar',      btrim(v_loop.counter_metric) || ' stays at or below its agreed limit',
           'bar_kind', 'threshold'
-        ),
-        'no outcome metric with a baseline window on record, but the charter names the safety gauge "'
+        );
+      v_rationale := 'no outcome metric with a baseline window on record, but the charter names the safety gauge "'
           || btrim(v_loop.counter_metric)
-          || '" — a threshold on it is a real bar; set the number when you approve',
-        'proposed'
-      );
-      v_proposed := v_proposed + 1;
+          || '" — a threshold on it is a real bar; type the limit as a plain number in the bar box when you approve (a threshold bar is a CEILING: the loop clears it by staying at or below)';
 
     ELSE
       INSERT INTO public.loop_charter_proposals (loop_key, kind, proposed, rationale, status)
@@ -346,32 +376,50 @@ BEGIN
         'insufficient'
       );
       v_insufficient := v_insufficient + 1;
+      CONTINUE;
     END IF;
+
+    IF EXISTS (
+      SELECT 1 FROM public.loop_charter_proposals
+       WHERE loop_key = v_loop.loop_key AND kind = 'bar' AND status = 'rejected'
+         AND proposed = v_candidate
+    ) THEN
+      v_skipped := v_skipped + 1;
+      CONTINUE;
+    END IF;
+
+    INSERT INTO public.loop_charter_proposals (loop_key, kind, proposed, rationale, status)
+    VALUES (v_loop.loop_key, 'bar', v_candidate, v_rationale, 'proposed');
+    v_proposed := v_proposed + 1;
   END LOOP;
 
   RETURN jsonb_build_object(
     'proposed',     v_proposed,
     'insufficient', v_insufficient,
-    'skipped',      v_skipped
+    'skipped',      v_skipped,
+    'superseded',   v_superseded
   );
 END;
 $fn$;
 
 COMMENT ON FUNCTION public.fn_loop_bar_proposals_generate() IS
-  'Propose ONE bar per active loop that has none: a comparison bar when outcome_metric + baseline_window are on record, else a threshold bar from counter_metric, else an honest ''insufficient'' row ("no metric on record — needs an owner interview") written once per loop. Proposes only — loop_registry.bar is written solely by fn_loop_bar_decide on a super-admin approval. Returns {proposed, insufficient, skipped}. service_role or super-admin only.';
+  'Propose ONE bar per active loop that has none: a comparison bar when outcome_metric + baseline_window are on record, else a threshold bar from counter_metric, else an honest ''insufficient'' row ("no metric on record — needs an owner interview") written once per loop and closed as superseded the run after a metric appears. A rejected bar is never re-proposed unless the candidate reads differently. Proposes only — loop_registry.bar is written solely by fn_loop_bar_decide on a super-admin approval. Returns {proposed, insufficient, skipped, superseded}. service_role or super-admin only.';
 
-REVOKE EXECUTE ON FUNCTION public.fn_loop_bar_proposals_generate() FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_loop_bar_proposals_generate() TO authenticated;
+REVOKE EXECUTE ON FUNCTION public.fn_loop_bar_proposals_generate() FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_loop_bar_proposals_generate() TO service_role;
 
 -- ── 6. fn_loop_bar_decide — the only door onto loop_registry.bar ────────────
 -- Super-admin asserted in its own body (the page gate is UI-only), mirroring
 -- fn_loop_apply_charter_proposal. Refuses kind='charter' outright — those keep
 -- going through fn_loop_apply_charter_proposal.
 --
--- APPROVE on kind='bar'        → the proposed bar becomes the loop's bar.
--- APPROVE on kind='bar-review' → "yes, the bar was wrong": the bar is CLEARED
---   (proposed carries no replacement bar) so the next generate pass proposes a
---   fresh one, and the streak resets.
+-- APPROVE on kind='bar'        → the proposed bar becomes the loop's bar — or,
+--   when p_bar_override is given, the Director's own text (a plain number such
+--   as "85" is what arms the four-miss alarm; the machine only ever proposes
+--   prose, so this box is the ONLY way a number reaches loop_registry.bar).
+-- APPROVE on kind='bar-review' → "yes, the bar was wrong": with p_bar_override
+--   the bar is RE-SET to it; without, the bar is CLEARED so the next generate
+--   pass proposes a fresh one. Either way the streak resets.
 -- REJECT on kind='bar-review'  → "the bar is fine": registry bar untouched,
 --   streak reset to 0 (Director, 2026-09-17) so the next four runs are judged
 --   from a clean count.
@@ -379,9 +427,10 @@ GRANT  EXECUTE ON FUNCTION public.fn_loop_bar_proposals_generate() TO authentica
 --   barless and is proposed again next run.
 
 CREATE OR REPLACE FUNCTION public.fn_loop_bar_decide(
-  p_proposal_id uuid,
-  p_decision    text,
-  p_note        text DEFAULT NULL
+  p_proposal_id  uuid,
+  p_decision     text,
+  p_note         text DEFAULT NULL,
+  p_bar_override text DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -422,12 +471,13 @@ BEGIN
   SELECT p.email INTO v_email FROM public.profiles p WHERE p.id = auth.uid();
 
   IF p_decision = 'approved' THEN
-    v_bar      := NULLIF(btrim(v_prop.proposed->>'bar'), '');
+    v_bar      := COALESCE(NULLIF(btrim(p_bar_override), ''), NULLIF(btrim(v_prop.proposed->>'bar'), ''));
+    -- A bar-review carries no bar_kind: keep the loop's existing kind on a re-set.
     v_bar_kind := NULLIF(btrim(v_prop.proposed->>'bar_kind'), '');
 
     UPDATE public.loop_registry
        SET bar             = v_bar,
-           bar_kind        = v_bar_kind,
+           bar_kind        = CASE WHEN v_prop.kind = 'bar-review' AND v_bar IS NOT NULL THEN bar_kind ELSE v_bar_kind END,
            bar_set_at      = now(),
            bar_set_by      = v_email,
            -- Approving a bar-review means "the bar was wrong" — the count that
@@ -467,11 +517,11 @@ BEGIN
 END;
 $fn$;
 
-COMMENT ON FUNCTION public.fn_loop_bar_decide(uuid, text, text) IS
-  'Decide a kind=''bar'' or ''bar-review'' loop_charter_proposals row (super-admin asserted; charter proposals are refused and keep going through fn_loop_apply_charter_proposal). Approve writes proposed.bar/bar_kind onto loop_registry with bar_set_at/bar_set_by — on a bar-review that means clearing the bar (no replacement is carried) and resetting bar_miss_streak so a fresh bar is proposed next run. Reject on a bar-review leaves the bar alone and resets bar_miss_streak to 0 (the Director confirming the bar is fine). Returns {ok, loop_key, kind, decision, bar}.';
+COMMENT ON FUNCTION public.fn_loop_bar_decide(uuid, text, text, text) IS
+  'Decide a kind=''bar'' or ''bar-review'' loop_charter_proposals row (super-admin asserted; charter proposals are refused and keep going through fn_loop_apply_charter_proposal). Approve writes proposed.bar/bar_kind onto loop_registry with bar_set_at/bar_set_by; p_bar_override (the Director''s own text, typically a plain number) replaces the proposed bar — on a bar-review that re-sets the bar, and without it the bar is cleared so a fresh one is proposed next run; either way bar_miss_streak resets. Reject on a bar-review leaves the bar alone and resets bar_miss_streak to 0 (the Director confirming the bar is fine). Returns {ok, loop_key, kind, decision, bar}.';
 
-REVOKE EXECUTE ON FUNCTION public.fn_loop_bar_decide(uuid, text, text) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_loop_bar_decide(uuid, text, text) TO authenticated;
+REVOKE EXECUTE ON FUNCTION public.fn_loop_bar_decide(uuid, text, text, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_loop_bar_decide(uuid, text, text, text) TO authenticated;
 
 -- ── 7. Guards — RAISE EXCEPTION, never RAISE NOTICE ─────────────────────────
 -- (ref feedback_a_raise_notice_guard_reads_as_success)

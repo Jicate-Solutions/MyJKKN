@@ -15,6 +15,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   recordLoopMeasurement,
   parsePlainNumericBar,
+  compareAgainstBar,
   NO_NUMERIC_BAR_GAP,
 } from '@/lib/services/loops/loop-bar-measurement';
 
@@ -23,6 +24,7 @@ type Admin = Parameters<typeof recordLoopMeasurement>[0];
 /** Minimal stand-in for the service-role client: one registry read + one rpc. */
 function makeAdmin(opts: {
   bar?: string | null;
+  barKind?: string | null;
   readError?: string;
   rpcError?: string;
 }) {
@@ -31,7 +33,7 @@ function makeAdmin(opts: {
     error: opts.rpcError ? { message: opts.rpcError } : null,
   }));
   const maybeSingle = vi.fn(async () => ({
-    data: opts.readError ? null : { bar: opts.bar ?? null },
+    data: opts.readError ? null : { bar: opts.bar ?? null, bar_kind: opts.barKind ?? null },
     error: opts.readError ? { message: opts.readError } : null,
   }));
   const from = vi.fn(() => ({
@@ -39,6 +41,30 @@ function makeAdmin(opts: {
   }));
   return { admin: { from, rpc } as unknown as Admin, rpc, from };
 }
+
+describe('compareAgainstBar', () => {
+  it('reads a threshold bar as a ceiling — at or below clears it', () => {
+    expect(compareAgainstBar(3, 5, 'threshold')).toBe(true);
+    expect(compareAgainstBar(5, 5, 'threshold')).toBe(true);
+    expect(compareAgainstBar(6, 5, 'threshold')).toBe(false);
+  });
+
+  it('reads every other kind as a floor — at or above clears it', () => {
+    expect(compareAgainstBar(6, 5, 'comparison')).toBe(true);
+    expect(compareAgainstBar(5, 5, 'reference')).toBe(true);
+    expect(compareAgainstBar(4, 5, null)).toBe(false);
+  });
+});
+
+describe('recordLoopMeasurement against a threshold (ceiling) bar', () => {
+  it('a reading above a threshold bar is a MISS, not a hit', async () => {
+    const { admin, rpc } = makeAdmin({ bar: '5', barKind: 'threshold' });
+    const r = await recordLoopMeasurement(admin, { loopKey: 'mess', value: 7 });
+    expect(r.recorded).toBe(true);
+    expect(r.met).toBe(false);
+    expect(rpc.mock.calls[0][1]).toMatchObject({ p_met: false, p_bar_value: 5 });
+  });
+});
 
 describe('parsePlainNumericBar', () => {
   it('accepts a bar that IS a plain number', () => {
@@ -96,12 +122,12 @@ describe('recordLoopMeasurement', () => {
     const hit = await recordLoopMeasurement(cleared.admin, { loopKey: 'x', value: 12 });
     expect(hit.met).toBe(true);
     expect(hit.barValue).toBe(10);
-    expect(hit.gap).toBe('2.00 vs the bar');
+    expect(hit.gap).toBe('2.00 vs the bar (floor)');
 
     const missedAdmin = makeAdmin({ bar: '10' });
     const miss = await recordLoopMeasurement(missedAdmin.admin, { loopKey: 'x', value: 8 });
     expect(miss.met).toBe(false);
-    expect(miss.gap).toBe('-2.00 vs the bar');
+    expect(miss.gap).toBe('-2.00 vs the bar (floor)');
 
     // Exactly ON the bar clears it — the bar is a floor, not a hurdle to beat.
     const onBar = makeAdmin({ bar: '10' });

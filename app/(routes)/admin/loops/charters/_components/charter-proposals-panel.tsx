@@ -82,6 +82,10 @@ export function CharterProposalsPanel({ rows: initialRows }: { rows: CharterProp
   );
   const [rows, setRows] = useState<CharterProposalRow[]>(initialRows);
   const [notes, setNotes] = useState<Record<string, string>>({});
+  // The Director's own bar text, per card. The machine only ever proposes prose;
+  // a plain number typed here is the ONLY way a numeric bar reaches the
+  // registry — and a numeric bar is what arms the four-miss alarm.
+  const [barValues, setBarValues] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const markDecided = (id: string, status: 'approved' | 'rejected', note: string | null) =>
@@ -167,10 +171,12 @@ export function CharterProposalsPanel({ rows: initialRows }: { rows: CharterProp
     setBusyId(row.id);
     try {
       const note = (notes[row.id] ?? '').trim() || null;
+      const override = decision === 'approved' ? (barValues[row.id] ?? '').trim() || null : null;
       const { error } = await supabase.rpc('fn_loop_bar_decide', {
         p_proposal_id: row.id,
         p_decision: decision,
         p_note: note,
+        p_bar_override: override,
       });
       if (error) {
         toast.error(
@@ -186,11 +192,15 @@ export function CharterProposalsPanel({ rows: initialRows }: { rows: CharterProp
       toast.success(
         row.kind === 'bar-review'
           ? decision === 'approved'
-            ? `Cleared the bar on “${row.loop_name}” — a fresh one is proposed on the next run.`
+            ? override
+              ? `Re-set the bar on “${row.loop_name}” to “${override}” — the miss count starts again from zero.`
+              : `Cleared the bar on “${row.loop_name}” — a fresh one is proposed on the next run.`
             : `Kept the bar on “${row.loop_name}” — the miss count starts again from zero.`
           : decision === 'approved'
-            ? `“${row.loop_name}” is now judged against this bar.`
-            : `Rejected the proposed bar for “${row.loop_name}”.`
+            ? override
+              ? `“${row.loop_name}” is now judged against “${override}”.`
+              : `“${row.loop_name}” is now judged against this bar.`
+            : `Rejected the proposed bar for “${row.loop_name}” — it will not be proposed again unless its charter changes.`
       );
     } finally {
       setBusyId(null);
@@ -367,6 +377,19 @@ export function CharterProposalsPanel({ rows: initialRows }: { rows: CharterProp
         {row.status === 'proposed' && (
           <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-border px-4 py-3">
             <Input
+              aria-label={`Bar value for ${row.loop_name}`}
+              value={barValues[row.id] ?? ''}
+              onChange={(e) => setBarValues((b) => ({ ...b, [row.id]: e.target.value }))}
+              placeholder={
+                isReview
+                  ? 'New bar (optional) — a plain number re-sets it instead of clearing'
+                  : 'Bar value (optional) — a plain number, e.g. 85, arms the four-miss alarm'
+              }
+              inputMode="decimal"
+              className="h-8 w-full text-xs sm:w-80"
+              disabled={busy}
+            />
+            <Input
               aria-label={`Decision note for ${row.loop_name}`}
               value={notes[row.id] ?? ''}
               onChange={(e) => setNotes((n) => ({ ...n, [row.id]: e.target.value }))}
@@ -386,8 +409,12 @@ export function CharterProposalsPanel({ rows: initialRows }: { rows: CharterProp
               {busy
                 ? 'Working…'
                 : isReview
-                  ? 'The bar was wrong — clear it'
-                  : 'Approve — make this the loop’s bar'}
+                  ? (barValues[row.id] ?? '').trim()
+                    ? 'The bar was wrong — re-set it to this'
+                    : 'The bar was wrong — clear it'
+                  : (barValues[row.id] ?? '').trim()
+                    ? 'Approve — use my bar value'
+                    : 'Approve — make this the loop’s bar'}
             </Button>
           </footer>
         )}
