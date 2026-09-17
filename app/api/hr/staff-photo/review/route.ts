@@ -29,6 +29,38 @@ import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supab
 const PRIVATE_BUCKET = 'hr-staff-photo-submissions';
 const PUBLIC_BUCKET = 'staff-images';
 
+/**
+ * Remove the pending copy, and do not pretend it worked when it did not
+ * (BUG-006145).
+ *
+ * Supabase storage RETURNS its errors rather than throwing them, so the
+ * original `await ...remove([path])` discarded a failure silently: the decision
+ * was recorded, the response said success, and an unreviewed photograph of a
+ * person stayed in the bucket with nothing anywhere saying so.
+ *
+ * One retry, because the realistic failure here is a transient network blip
+ * rather than a permanent refusal. After that the caller is TOLD — the decision
+ * itself already committed in the database and must not be undone over a
+ * cleanup problem, so this reports rather than throws.
+ */
+async function removePendingCopy(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  path: string,
+): Promise<boolean> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { error } = await admin.storage.from(PRIVATE_BUCKET).remove([path]);
+    if (!error) return true;
+    if (attempt === 1) {
+      console.error(
+        '[hr/staff-photo/review] pending copy left behind:',
+        path,
+        error.message,
+      );
+    }
+  }
+  return false;
+}
+
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const supabase = await createServerSupabaseClient();
 
@@ -92,8 +124,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ success: false, error: error.message }, { status: 403 });
     }
     // The rejected picture has no further use and is a photograph of a person.
-    await admin.storage.from(PRIVATE_BUCKET).remove([sub.storage_path]);
-    return NextResponse.json({ success: true, result: data, status: 'rejected' });
+    const cleaned = await removePendingCopy(admin, sub.storage_path);
+    return NextResponse.json({
+      success: true,
+      result: data,
+      status: 'rejected',
+      // Surfaced rather than swallowed: the decision stands either way, but a
+      // photograph nobody agreed to keep is still sitting in the bucket.
+      pending_copy_removed: cleaned,
+    });
   }
 
   // --- Step 2: private -> public ---------------------------------------------
@@ -148,7 +187,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   // The pending copy has served its purpose; the approved one is the record.
-  await admin.storage.from(PRIVATE_BUCKET).remove([sub.storage_path]);
+  const cleaned = await removePendingCopy(admin, sub.storage_path);
 
-  return NextResponse.json({ success: true, result: data, status: 'approved', photo_url: publicUrl });
+  return NextResponse.json({
+    success: true,
+    result: data,
+    status: 'approved',
+    photo_url: publicUrl,
+    pending_copy_removed: cleaned,
+  });
 }

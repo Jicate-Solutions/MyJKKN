@@ -39,6 +39,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const publicUploads: string[] = [];
 const publicRemovals: string[] = [];
 const privateRemovals: string[] = [];
+/** How many times the private-bucket delete should fail before succeeding. */
+let privateRemoveFailures = 0;
+let privateRemoveAttempts = 0;
 
 let rpcResult: { data: unknown; error: { message: string } | null } = { data: [{}], error: null };
 let submissionRow: Record<string, unknown> | null = null;
@@ -57,8 +60,18 @@ function makeAdmin() {
             data: { publicUrl: `https://p.supabase.co/storage/v1/object/public/staff-images/${path}` },
           }),
           remove: async (paths: string[]) => {
-            if (bucket === 'staff-images') publicRemovals.push(...paths);
-            else privateRemovals.push(...paths);
+            if (bucket === 'staff-images') {
+              publicRemovals.push(...paths);
+              return { error: null };
+            }
+            privateRemoveAttempts++;
+            if (privateRemoveFailures > 0) {
+              privateRemoveFailures--;
+              // Supabase RETURNS storage errors rather than throwing them,
+              // which is exactly how the original code lost them.
+              return { error: { message: 'network blip' } };
+            }
+            privateRemovals.push(...paths);
             return { error: null };
           },
         };
@@ -100,6 +113,8 @@ beforeEach(() => {
   publicUploads.length = 0;
   publicRemovals.length = 0;
   privateRemovals.length = 0;
+  privateRemoveFailures = 0;
+  privateRemoveAttempts = 0;
   rpcResult = { data: [{}], error: null };
   submissionRow = {
     id: 'sub-1',
@@ -174,5 +189,38 @@ describe('team member photo review route', () => {
     const res = await POST(req({ submission_id: 'sub-1' }));
     expect(res.status).toBe(400);
     expect(publicUploads).toHaveLength(0);
+  });
+
+  // ── BUG-006145 ───────────────────────────────────────────────────────────
+  // The original code was `await admin.storage.from(PRIVATE).remove([path])`
+  // with the result thrown away. Supabase returns storage errors instead of
+  // throwing, so a failed delete left an unreviewed photograph of a person in
+  // the bucket while the response said success and nothing recorded it.
+  it('retries a failed cleanup once, then reports it rather than claiming success', async () => {
+    privateRemoveFailures = 2; // both attempts fail
+
+    const res = await POST(req({ submission_id: 'sub-1', approve: false, note: 'Too dark' }));
+    const body = await res.json();
+
+    // The DECISION stands — it already committed in the database, and undoing
+    // it over a cleanup problem would be worse than reporting the problem.
+    expect(res.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.status).toBe('rejected');
+    // But the caller is told the truth about the file.
+    expect(body.pending_copy_removed).toBe(false);
+    expect(privateRemoveAttempts).toBe(2);
+    expect(privateRemovals).toHaveLength(0);
+  });
+
+  it('a transient failure is absorbed by the retry and reported as cleaned', async () => {
+    privateRemoveFailures = 1; // first fails, second succeeds
+
+    const res = await POST(req({ submission_id: 'sub-1', approve: true }));
+    const body = await res.json();
+
+    expect(body.pending_copy_removed).toBe(true);
+    expect(privateRemoveAttempts).toBe(2);
+    expect(privateRemovals).toEqual(['staff-1/111.jpg']);
   });
 });
