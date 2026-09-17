@@ -131,6 +131,37 @@ const WAITING_SOURCES: WaitingSource[] = [
           () => [] as WaitingItem[],
         ),
   },
+  {
+    // Adoption loop (2026-09-16, ruling 8): a feature still near-zero four
+    // weeks in becomes ONE card — simplify / retrain / retire — decided on
+    // /admin/adoption. Fail-open like the sources above.
+    key: 'adoption-proposals',
+    load: (admin) =>
+      admin
+        .from('adoption_proposals')
+        .select('id, feature_key, proposed_option, created_at')
+        .eq('status', 'pending')
+        .order('created_at', { ascending: true })
+        .limit(100)
+        .then(
+          (r) =>
+            (
+              (r.data ?? []) as {
+                id: string;
+                feature_key: string | null;
+                proposed_option: string | null;
+                created_at: string;
+              }[]
+            ).map((row) => ({
+              key: `adoption-proposals:${row.id}`,
+              label: `Feature adoption: ${row.feature_key || row.id} → ${row.proposed_option || 'decide'}?`,
+              sourceLabel: 'Feature adoption',
+              waitingSince: row.created_at,
+              href: '/admin/adoption',
+            })),
+          () => [] as WaitingItem[],
+        ),
+  },
 ];
 
 /** Load every source in parallel and merge, longest-waiting first. */
