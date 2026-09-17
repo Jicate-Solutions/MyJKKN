@@ -1,9 +1,7 @@
 // components/shared/search-taggable-staff.ts
 //
 // Team-member search for CommentThreadPanel's tag picker, shared by the event
-// review thread and the reservation thread. Module scope so its identity is
-// stable — the picker's search effect depends on it, and a fresh function every
-// render would re-run the search on every keystroke of the comment box.
+// review thread and the reservation thread.
 //
 // Reads the same staff directory the event committee picker uses (any signed-in
 // user, institution-scoped server-side). A hit whose member_id equals its staff
@@ -13,8 +11,9 @@
 
 import type { TaggablePerson } from '@/components/shared/comment-thread-panel';
 
-export async function searchTaggableStaff(query: string): Promise<TaggablePerson[]> {
+async function search(query: string, institutionId?: string): Promise<TaggablePerson[]> {
   const params = new URLSearchParams({ role: 'staff', q: query });
+  if (institutionId) params.set('institution_id', institutionId);
   const res = await fetch(`/api/events/committees/member-directory?${params.toString()}`);
   if (!res.ok) throw new Error('directory search failed');
   const json = (await res.json()) as {
@@ -23,4 +22,22 @@ export async function searchTaggableStaff(query: string): Promise<TaggablePerson
   return (json.results ?? [])
     .filter((h) => h.member_id && h.member_id !== h.id)
     .map((h) => ({ id: h.member_id, name: h.name || 'Unnamed', subtitle: h.subtitle ?? null }));
+}
+
+/**
+ * Any team member the caller's institution scope allows. Module scope so its
+ * identity is stable — the picker's search effect depends on it.
+ */
+export function searchTaggableStaff(query: string): Promise<TaggablePerson[]> {
+  return search(query);
+}
+
+/**
+ * Team members of ONE institution only. The server re-checks the institution
+ * when the tag is written, so this narrows the list; it is not the gate.
+ * Wrap the call in useMemo keyed on the id — a new function every render would
+ * re-run the search on every keystroke.
+ */
+export function makeInstitutionStaffSearch(institutionId: string) {
+  return (query: string): Promise<TaggablePerson[]> => search(query, institutionId);
 }

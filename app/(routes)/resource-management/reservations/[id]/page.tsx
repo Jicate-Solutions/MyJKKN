@@ -160,7 +160,10 @@ export default function ReservationDetailsPage({
               Gates itself — booker, the request's approvers, or resource
               administrators. Renders nothing for anyone else, including the
               rest of the institution, who CAN read the booking row itself. */}
-          <ReservationComments reservationId={reservationId} />
+          <ReservationComments
+            reservationId={reservationId}
+            institutionId={reservation.resource?.institution_id}
+          />
         </div>
 
         {/* Sidebar */}

@@ -241,6 +241,37 @@ export class ReservationCommentService {
     };
   }
 
+  /**
+   * Remove one tag from your comment. Deleting the row IS the revocation — the
+   * thread's read gate asks whether a tag row exists — and the comment stays.
+   *
+   * Direct delete, like the other writes here: the DELETE policy (comment
+   * author or super admin) is the authority. `.select('id')` because a refused
+   * DELETE reports success having removed nothing.
+   */
+  static async untag(commentId: string, userId: string): Promise<void> {
+    try {
+      const { data, error } = await (this.supabase as any)
+        .from('resource_reservation_comment_mentions')
+        .delete()
+        .eq('comment_id', commentId)
+        .eq('mentioned_user_id', userId)
+        .select('id');
+
+      if (error) {
+        logger.error(MOD, 'Failed to untag', { commentId, userId, ...errInfo(error) });
+        throw new Error(commentWriteMessage(error, 'untag people on this comment'));
+      }
+      if (!((data as unknown[]) ?? []).length) {
+        logger.error(MOD, 'Untag removed no rows (RLS or already removed)', { commentId, userId });
+        throw new Error(commentWriteMessage({ code: 'PGRST116' }, 'untag people on this comment'));
+      }
+    } catch (error) {
+      logger.error(MOD, 'Unexpected error in untag', errInfo(error));
+      throw error;
+    }
+  }
+
   /** Edit your own words. The trigger refuses anyone else, admin or not. */
   static async updateBody(id: string, body: string): Promise<ReservationComment> {
     const next = body.trim();
