@@ -233,6 +233,27 @@ export const LOOP_GOVERNANCE_ROUTINES: AIRoutine[] = [
       "Fires via the AI-routine dispatcher (ai_routine_schedules row 'metaloop-charter-collect', migration 20260927040000), NOT vercel.json. Auth: CRON_SECRET (Bearer or ?secret=, both constant-time). Exactly-once across both clocks: fn_ai_collect_claim's delivered_at stamp + source_job_id UNIQUE — whichever of the daily/Sunday collects fires first wins, the other is a clean no-op. Safe no-op while the job type is dark or migrations are unapplied.",
   },
   {
+    id: 'loop-bar-proposals',
+    name: 'Loop Bars — Bar Proposer (machine proposes, the Director taps)',
+    category: 'misc-ai',
+    type: 'cron',
+    schedule: 'Daily 11:19 IST (dispatcher-managed)',
+    triggerPath: '/api/cron/loop-bar-proposals',
+    callsClaude: false,
+    featureKey: null,
+    featureKeyNote:
+      'Rules-based SQL — one RPC to fn_loop_bar_proposals_generate, derived from charter legs already on loop_registry; no model is resolved and nothing is enqueued.',
+    whatItDoes:
+      "Director rulings 2026-09-16 (G3): every operational loop carries ONE concrete bar its verdict is judged against, and the machine proposes that bar. Each day it walks every ACTIVE loop that has no approved bar and no open bar question, and proposes one: a COMPARISON bar (the loop against its own past) when the charter already names an outcome metric and a baseline window; otherwise a THRESHOLD bar on the counter metric; otherwise it files an honest 'insufficient' note — \"no metric on record — needs an owner interview\" — which is visible on /admin/loops/charters rather than a silent skip. It NEVER sets a bar: loop_registry.bar is written only when a super admin approves the proposal (fn_loop_bar_decide). Separately, a loop that misses its approved bar 4 runs in a row raises a 'bar-review' card on the same surface — that card is raised by fn_loop_record_measurement at measurement time, not by this route.",
+    configKnobs:
+      'None in the route — the proposal rules live in fn_loop_bar_proposals_generate (migration 20261225070000). Schedule editable on /admin/ai-routines with no deploy.',
+    sideEffects:
+      "DB writes only, all human-gated: INSERTs kind='bar' rows into loop_charter_proposals with status 'proposed' or 'insufficient'. NEVER writes loop_registry, never pauses a loop, no notifications, no emails, no model calls.",
+    safeToManualTrigger: true,
+    notes:
+      "Fires via the AI-routine dispatcher (ai_routine_schedules row 'loop-bar-proposals', migration 20261225070100), NOT vercel.json. Auth: CRON_SECRET Bearer header only — no ?secret= query form. Idempotent: a loop with a 'proposed' or a standing 'insufficient' bar row is skipped, so a daily clock never re-asks a question already on the Director's desk (his 2026-09-17 confirmation). Returns {proposed, insufficient, skipped}; a failed RPC is HTTP 500 so the dispatcher records it. Safe no-op (500, not a crash) while 20261225070000 is unapplied.",
+  },
+  {
     id: 'attendance-intervention-measure',
     name: 'Attendance → Intervention — Daily Effect Measure (the loop\'s return edge)',
     category: 'misc-ai',

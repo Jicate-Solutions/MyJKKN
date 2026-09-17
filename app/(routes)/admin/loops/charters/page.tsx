@@ -36,10 +36,41 @@ type ProposalRead = {
   proposed: Record<string, unknown> | null;
   rationale: string | null;
   status: 'proposed' | 'approved' | 'rejected' | 'insufficient';
+  kind?: 'charter' | 'bar' | 'bar-review' | null;
   decided_at: string | null;
   decision_note: string | null;
   created_at: string;
 };
+
+const PROPOSAL_COLS =
+  'id,loop_key,proposed,rationale,status,decided_at,decision_note,created_at';
+
+/**
+ * Proposals, with `kind` when the bar migration (20261225070000) is applied and
+ * without it when it is not — a column that does not exist yet must not blank
+ * the whole page. Rows read before the apply are all charters by definition.
+ */
+async function readProposals(
+  admin: ReturnType<typeof createServiceRoleClient>
+): Promise<ProposalRead[]> {
+  try {
+    const withKind = await admin
+      .from('loop_charter_proposals')
+      .select(`${PROPOSAL_COLS},kind`)
+      .order('created_at', { ascending: false })
+      .limit(200);
+    if (!withKind.error) return (withKind.data ?? []) as ProposalRead[];
+
+    const withoutKind = await admin
+      .from('loop_charter_proposals')
+      .select(PROPOSAL_COLS)
+      .order('created_at', { ascending: false })
+      .limit(200);
+    return (withoutKind.data ?? []) as ProposalRead[];
+  } catch {
+    return [];
+  }
+}
 
 export default async function LoopChartersPage() {
   const { profile } = await getEnhancedUserProfile();
@@ -65,15 +96,7 @@ export default async function LoopChartersPage() {
   // migration, and this page must render its explicit empty state (never 500)
   // while that migration is pending apply. Same contract as /admin/loops.
   const [proposals, registry] = await Promise.all([
-    admin
-      .from('loop_charter_proposals')
-      .select('id,loop_key,proposed,rationale,status,decided_at,decision_note,created_at')
-      .order('created_at', { ascending: false })
-      .limit(200)
-      .then(
-        (r) => (r.data ?? []) as ProposalRead[],
-        () => [] as ProposalRead[]
-      ),
+    readProposals(admin),
     admin
       .from('loop_registry')
       .select('loop_key,name')
@@ -97,6 +120,8 @@ export default async function LoopChartersPage() {
       proposed: p.proposed ?? {},
       rationale: p.rationale,
       status: p.status,
+      // Pre-apply rows carry no kind; they are charters by definition.
+      kind: p.kind ?? 'charter',
       decided_at: p.decided_at,
       decision_note: p.decision_note,
       created_at: p.created_at,
@@ -113,6 +138,14 @@ export default async function LoopChartersPage() {
         Rejecting keeps the registry untouched. When the machine judges the
         evidence too thin to charter honestly, it says so below — with the
         reason a human must act on first.
+      </p>
+      <p className="mb-4 max-w-3xl text-sm text-muted-foreground">
+        The same page carries <strong>Bars</strong>: every loop is judged
+        against one concrete bar, the machine proposes it, and you set it by
+        approving. A loop that misses its bar four runs in a row raises a
+        &ldquo;bar may be wrong&rdquo; card here rather than going quietly red
+        — approving it clears the bar so a fresh one is proposed, rejecting it
+        says the bar is right and starts the count again.
       </p>
       <CharterProposalsPanel rows={rows} />
     </ContentLayout>
