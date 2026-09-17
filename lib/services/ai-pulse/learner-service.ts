@@ -151,6 +151,47 @@ function classifyFromSignals(
     : 'partial';
 }
 
+/**
+ * One row of `ai_pulse_live_attendance` as the streak walk needs it.
+ */
+export interface AttendanceRow {
+  event_id: string;
+  joined_at?: string | null;
+  engagement_signals: Record<string, unknown> | null;
+}
+
+/**
+ * Walk the personal streak from ONE batched attendance read.
+ *
+ * `rows` is every `ai_pulse_live_attendance` row for the learner across
+ * `cycleIdsNewestFirst`, ordered joined_at DESC — so the first row seen for an
+ * event is that event's most recent one, which is exactly what the old
+ * per-cycle `.order('joined_at', desc).limit(1)` returned. A cycle with no row
+ * ends the chain (it used to classify as 'pending'), and so does a cycle whose
+ * signals fall short of engaged.
+ *
+ * Pure, so the collapse is testable without a Supabase client.
+ */
+export function streakFromAttendance(
+  cycleIdsNewestFirst: string[],
+  rows: AttendanceRow[],
+): number {
+  const newestByEvent = new Map<string, Record<string, unknown> | null>();
+  for (const r of rows) {
+    if (!newestByEvent.has(r.event_id)) {
+      newestByEvent.set(r.event_id, r.engagement_signals ?? null);
+    }
+  }
+
+  let streak = 0;
+  for (const id of cycleIdsNewestFirst) {
+    if (!newestByEvent.has(id)) break;
+    if (classifyFromSignals(newestByEvent.get(id) ?? null) !== 'engaged') break;
+    streak += 1;
+  }
+  return streak;
+}
+
 // --- Service -------------------------------------------------------------
 
 export class AiPulseLearnerService {
@@ -390,22 +431,29 @@ export class AiPulseLearnerService {
         .limit(12);
       if (cyErr || !cycles || cycles.length === 0) return 0;
 
-      let streak = 0;
-      for (const c of cycles as Array<{ id: string }>) {
-        // Attendance is profile-keyed in ai_pulse_live_attendance — no team
-        // lookup needed (and a learner can be engaged before team assignment).
-        const att = await AiPulseLearnerService.getMyAttendance(
-          c.id,
-          profileId,
-          supabase
+      const cycleIds = (cycles as Array<{ id: string }>).map((c) => c.id);
+
+      // ONE attendance read for all 12 cycles. This loop used to await
+      // getMyAttendance() per cycle, so a learner with a long streak paid up to
+      // 12 extra serial round trips before the page could stream — the tail of
+      // the waterfall behind the "network error" reports on My AI Pulse.
+      // Attendance is profile-keyed in ai_pulse_live_attendance, so no team
+      // lookup is needed (a learner can be engaged before team assignment).
+      const { data: rows, error: attErr } = await supabase
+        .from('ai_pulse_live_attendance')
+        .select('event_id, joined_at, engagement_signals')
+        .in('event_id', cycleIds)
+        .eq('profile_id', profileId)
+        .order('joined_at', { ascending: false });
+      if (attErr) {
+        console.error(
+          '[ai-pulse/learner] getMyStreak attendance read failed:',
+          attErr
         );
-        if (att.state === 'engaged') {
-          streak += 1;
-        } else {
-          break;
-        }
+        return 0;
       }
-      return streak;
+
+      return streakFromAttendance(cycleIds, (rows ?? []) as AttendanceRow[]);
     } catch (e) {
       console.error('[ai-pulse/learner] getMyStreak threw:', e);
       return 0;
@@ -454,11 +502,19 @@ export class AiPulseLearnerService {
         );
         if (submissionIds.length === 0) continue;
 
-        // submission → registration → team name
-        const { data: subs } = await (supabase as any)
-          .from('event_submissions')
-          .select('id, registration_id')
-          .in('id', submissionIds);
+        // submission → registration → team name. The department names do not
+        // depend on that chain, so both reads start together instead of the
+        // second waiting on the first.
+        const [{ data: subs }, { data: depts }] = await Promise.all([
+          (supabase as any)
+            .from('event_submissions')
+            .select('id, registration_id')
+            .in('id', submissionIds),
+          (supabase as any)
+            .from('departments')
+            .select('id, department_name')
+            .in('id', deptIds),
+        ]);
         const regIds = Array.from(
           new Set(
             ((subs ?? []) as any[]).map((s) => s.registration_id).filter(Boolean)
@@ -477,10 +533,6 @@ export class AiPulseLearnerService {
           ((subs ?? []) as any[]).map((s) => [s.id, s.registration_id])
         );
 
-        const { data: depts } = await (supabase as any)
-          .from('departments')
-          .select('id, department_name')
-          .in('id', deptIds);
         const deptName = new Map(
           ((depts ?? []) as any[]).map((d) => [d.id, d.department_name ?? '—'])
         );

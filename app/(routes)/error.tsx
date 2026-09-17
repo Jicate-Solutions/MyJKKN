@@ -57,7 +57,36 @@ export default function RoutesError({ error, reset }: ErrorProps) {
         return;
       }
     }
-  }, [error, pathname]);
+
+    // Network errors: the page's own request was cut or stalled rather than the
+    // app throwing. Four reporters hit this on /ai-pulse/my-pulse in four
+    // minutes (BUG-005574/5576/5579/5581) and every one of them saw a dead card
+    // where a reload would have worked. Retry once, quietly, then leave it to
+    // the button. Guarded like the chunk path so it can never loop.
+    const isNetworkError = /network error|failed to fetch|load failed/i.test(
+      error.message ?? ''
+    );
+
+    if (isNetworkError) {
+      let mayRetry = false;
+      try {
+        const key = `network-retry:${pathname}`;
+        const lastRetry = sessionStorage.getItem(key);
+        const now = Date.now();
+        if (!lastRetry || now - Number(lastRetry) > 30_000) {
+          sessionStorage.setItem(key, String(now));
+          mayRetry = true;
+        }
+      } catch {
+        // sessionStorage blocked (private window, blocked site data): skip the
+        // auto retry rather than risk a loop. "Try Again" still works.
+      }
+      if (mayRetry) {
+        const timer = setTimeout(() => reset(), 1500);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [error, pathname, reset]);
 
   const handleReportBug = () => {
     // The floating BugReporterWidget is mounted in app/(routes)/layout.tsx,

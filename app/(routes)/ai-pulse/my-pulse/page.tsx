@@ -23,7 +23,11 @@ import {
 } from '@/lib/supabase/server';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { AiPulseLearnerService } from '@/lib/services/ai-pulse/learner-service';
+import {
+  AiPulseLearnerService,
+  type AiPulseAttendance,
+  type AiPulseTeamSummary,
+} from '@/lib/services/ai-pulse/learner-service';
 import { CurrentCycleCard } from '../_components/current-cycle-card';
 import { GoldThisWeekCard } from '../_components/gold-this-week-card';
 import { MyTeamCard } from '../_components/my-team-card';
@@ -77,51 +81,97 @@ async function checkPermission(key: string): Promise<boolean> {
   }
 }
 
+/**
+ * Run one card's read without letting it take the whole page down.
+ *
+ * Four reporters (BUG-005574/5576/5579/5581) saw this page replaced by the
+ * global "Something went wrong — network error" card. A single stalled read
+ * throwing out of the server component is enough to do that, so each read now
+ * degrades to its empty shape and the page renders an inline retry instead.
+ * Next.js control-flow signals (redirect/notFound) carry a NEXT_* digest and
+ * must still propagate.
+ */
+type ServerSupabase = Awaited<ReturnType<typeof createServerSupabaseClient>>;
+
+async function settle<T>(
+  work: Promise<T>,
+  fallback: T,
+  label: string,
+  failed: string[]
+): Promise<T> {
+  try {
+    return await work;
+  } catch (e) {
+    const digest = (e as { digest?: string })?.digest;
+    if (typeof digest === 'string' && digest.startsWith('NEXT_')) throw e;
+    console.error(`[ai-pulse/my-pulse] ${label} failed:`, e);
+    failed.push(label);
+    return fallback;
+  }
+}
+
 export default async function AiPulseLearnerPage({
   searchParams,
 }: {
   searchParams: Promise<{ cycle?: string }>;
 }) {
-  const { profile } = await getEnhancedUserProfile();
+  // The failed-read labels behind the inline retry notice.
+  const failed: string[] = [];
+
+  // searchParams does not depend on the profile read — resolve both together.
+  const [{ profile }, sp] = await Promise.all([
+    getEnhancedUserProfile(),
+    searchParams,
+  ]);
 
   if (!profile) {
     redirect('/auth/login?next=/ai-pulse');
   }
 
-  // Permission gate — super_admin always passes; others require key.
-  if (profile.is_super_admin !== true) {
-    const canView = await checkPermission('aiPulse:view.self');
-    if (!canView) {
-      redirect('/unauthorized?module=ai-pulse');
-    }
-  }
+  // Permission gate + action permissions in ONE round trip. This used to be the
+  // gate RPC awaited alone, then three more — four serial hops before any data
+  // read could start. super_admin short-circuits all four.
+  const [canView, canDomainSync, canQuiz, canPublication] =
+    profile.is_super_admin === true
+      ? [true, true, true, true]
+      : await Promise.all([
+          checkPermission('aiPulse:view.self'),
+          checkPermission('aiPulse:submit.domain_sync'),
+          checkPermission('aiPulse:submit.quiz'),
+          checkPermission('aiPulse:submit.publication'),
+        ]);
 
-  // Resolve action permissions in parallel (super_admin shortcut).
-  const [canDomainSync, canQuiz, canPublication] = profile.is_super_admin
-    ? [true, true, true]
-    : await Promise.all([
-        checkPermission('aiPulse:submit.domain_sync'),
-        checkPermission('aiPulse:submit.quiz'),
-        checkPermission('aiPulse:submit.publication'),
-      ]);
+  if (!canView) {
+    redirect('/unauthorized?module=ai-pulse');
+  }
 
   // Resolve the cycle to show. Default = current week; the week switcher can
   // deep-link any past cycle via ?cycle=<id>. cycles[] backs the switcher.
-  const sp = await searchParams;
   const requestedCycleId =
     typeof sp?.cycle === 'string' && sp.cycle.length > 0 ? sp.cycle : null;
 
-  const [cycles, currentCycle] = await Promise.all([
-    AiPulseLearnerService.listCyclesServer(),
-    AiPulseLearnerService.getCurrentCycleServer(),
+  // Cycle list, current cycle, the deep-linked cycle and the Gold card are four
+  // independent reads. They used to run in three waves (list+current, then the
+  // deep-linked cycle, then Gold at the very end); now one.
+  const [cycles, currentCycle, requestedCycle, gold] = await Promise.all([
+    settle(AiPulseLearnerService.listCyclesServer(), [], 'cycles', failed),
+    settle(AiPulseLearnerService.getCurrentCycleServer(), null, 'current-cycle', failed),
+    requestedCycleId
+      ? settle(
+          AiPulseLearnerService.getCycleByIdServer(requestedCycleId),
+          null,
+          'requested-cycle',
+          failed
+        )
+      : Promise.resolve(null),
+    // CARE R-move: latest faculty-picked Gold (null until the first Monday Lab
+    // scores a cycle — the card hides itself).
+    settle(AiPulseLearnerService.getLatestGoldServer(), null, 'gold', failed),
   ]);
 
   // A hand-typed / stale ?cycle= id that isn't an ai_pulse cycle falls back to
   // the current cycle rather than showing an empty page.
-  const cycle = requestedCycleId
-    ? (await AiPulseLearnerService.getCycleByIdServer(requestedCycleId)) ??
-      currentCycle
-    : currentCycle;
+  const cycle = requestedCycleId ? requestedCycle ?? currentCycle : currentCycle;
 
   const isCurrentCycle =
     !!cycle && !!currentCycle && cycle.id === currentCycle.id;
@@ -141,9 +191,9 @@ export default async function AiPulseLearnerPage({
     cycle && !cycles.some((c) => c.id === cycle.id) ? [cycle, ...cycles] : cycles
   ).map((c) => ({ id: c.id, label: cycleSwitcherLabel(c) }));
 
-  let team = null;
-  let attendance = {
-    state: 'pending' as const,
+  let team: AiPulseTeamSummary | null = null;
+  let attendance: AiPulseAttendance = {
+    state: 'pending',
     day_type: null,
     marked_at: null,
     signals: null,
@@ -151,23 +201,49 @@ export default async function AiPulseLearnerPage({
   let streak = 0;
 
   if (cycle) {
-    const supabase = await createServerSupabaseClient();
-    team = await AiPulseLearnerService.getMyTeam(cycle.id, profile.id, supabase);
-    // Attendance is keyed on profile_id in ai_pulse_live_attendance — it does
-    // NOT depend on a team assignment. Fetch it regardless so learners who
-    // attended (or whose team isn't assigned yet) see their real status instead
-    // of a permanent "pending".
-    attendance = await AiPulseLearnerService.getMyAttendance(
-      cycle.id,
-      profile.id,
-      supabase
+    const supabase = await settle<ServerSupabase | null>(
+      createServerSupabaseClient(),
+      null,
+      'supabase-client',
+      failed
     );
-    streak = await AiPulseLearnerService.getMyStreak(profile.id, supabase);
+    if (supabase) {
+      // Team, attendance and streak are independent of each other — they used
+      // to be three serial awaits (and getMyStreak was itself a per-cycle loop).
+      // Attendance is keyed on profile_id in ai_pulse_live_attendance — it does
+      // NOT depend on a team assignment. Fetch it regardless so learners who
+      // attended (or whose team isn't assigned yet) see their real status
+      // instead of a permanent "pending".
+      const [teamResult, attendanceResult, streakResult] = await Promise.all([
+        settle(
+          AiPulseLearnerService.getMyTeam(cycle.id, profile.id, supabase),
+          null,
+          'team',
+          failed
+        ),
+        settle(
+          AiPulseLearnerService.getMyAttendance(cycle.id, profile.id, supabase),
+          attendance,
+          'attendance',
+          failed
+        ),
+        settle(
+          AiPulseLearnerService.getMyStreak(profile.id, supabase),
+          0,
+          'streak',
+          failed
+        ),
+      ]);
+      team = teamResult;
+      attendance = attendanceResult;
+      streak = streakResult;
+    }
   }
 
-  // CARE R-move: latest faculty-picked Gold (null until the first Monday Lab
-  // scores a cycle — the card hides itself).
-  const gold = await AiPulseLearnerService.getLatestGoldServer();
+  // Same URL, full reload — the page is force-dynamic, so this re-runs every read.
+  const retryHref = requestedCycleId
+    ? `/ai-pulse/my-pulse?cycle=${encodeURIComponent(requestedCycleId)}`
+    : '/ai-pulse/my-pulse';
 
   return (
     <ContentLayout title="My AI Pulse">
@@ -206,6 +282,21 @@ export default async function AiPulseLearnerPage({
                 Viewing a past week — read-only
               </span>
             )}
+          </div>
+        )}
+
+        {failed.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+            <span>
+              Part of this page didn&apos;t load just now. Everything else is
+              shown below.
+            </span>
+            <a
+              href={retryHref}
+              className="shrink-0 rounded-md border border-amber-300 px-3 py-1.5 text-xs font-medium hover:bg-amber-100 dark:border-amber-800 dark:hover:bg-amber-900/40"
+            >
+              Try again
+            </a>
           </div>
         )}
 
