@@ -1238,6 +1238,10 @@ export const PERMISSION_CATEGORIES = [
         label: 'Approve Resource Requests'
       },
       { key: 'resources.approvals.reject', label: 'Reject Resource Requests' },
+      {
+        key: 'resources.reservations.communicate',
+        label: 'Message Reservation Users'
+      },
       { key: 'resources.analytics.view', label: 'View Resource Analytics' },
       { key: 'resources.reports.view', label: 'View Resource Reports' },
       { key: 'resources.maintenance.view', label: 'View Resource Maintenance' },

@@ -21,6 +21,7 @@ import { DataTable } from '@/components/ui/data-table';
 import { ApprovalStatsCards } from './_components/approval-stats-cards';
 import { ApprovalActionsDialog } from './_components/approval-actions-dialog';
 import { ApprovalFilters } from './_components/approval-filters';
+import { MessageUsersDialog } from '../_components/message-users-dialog';
 import {
   usePendingApprovals,
   useApprovalStats,
@@ -31,6 +32,7 @@ import {
   useRejectReservation
 } from '@/hooks/reservation/use-reservation-operations';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { evaluateApprovalTurn } from '@/lib/services/reservation/approval-chain';
 import type { ApprovalRecordLike } from '@/lib/services/reservation/approval-chain';
 import { logger } from '@/lib/utils/enhanced-logger';
@@ -42,7 +44,8 @@ import {
   User,
   Calendar,
   Clock,
-  AlertTriangle
+  AlertTriangle,
+  MessageSquare
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -108,6 +111,9 @@ export default function ApprovalsPage() {
   const [selectedReservation, setSelectedReservation] =
     useState<Reservation | null>(null);
   const [action, setAction] = useState<'approve' | 'reject' | null>(null);
+  const [messageTargets, setMessageTargets] = useState<Reservation[] | null>(null);
+  const { can } = usePermissions();
+  const canCommunicate = can('resources.reservations.communicate');
 
   // Advanced filter state
   const [searchQuery, setSearchQuery] = useState('');
@@ -592,6 +598,16 @@ export default function ApprovalsPage() {
               successMessage: 'Successfully approved {count} reservations',
               errorMessage: 'Failed to approve reservations'
             }}
+            secondaryBulkAction={
+              canCommunicate
+                ? {
+                    label: 'Message Selected',
+                    icon: MessageSquare,
+                    variant: 'outline',
+                    onClick: (rows) => setMessageTargets(rows)
+                  }
+                : undefined
+            }
           />
         </CardContent>
       </Card>
@@ -601,6 +617,13 @@ export default function ApprovalsPage() {
         reservation={selectedReservation}
         action={action}
         onClose={handleCloseDialog}
+      />
+
+      {/* Message Selected — tag the bookers of the selected pending requests */}
+      <MessageUsersDialog
+        reservations={messageTargets ?? []}
+        open={!!messageTargets}
+        onClose={() => setMessageTargets(null)}
       />
     </ContentLayout>
   );

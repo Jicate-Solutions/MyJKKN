@@ -10140,3 +10140,37 @@ COMMENT ON TABLE public.wa_bridge_status IS
   'Single-row heartbeat for the on-campus WhatsApp bridge. connected = the process is running and talking to us; logged_in = its WhatsApp session is still authenticated. The two differ, and the difference is the whole value: a bridge that is running but logged out looks healthy from the outside while sending nothing.';
 
 -- ---------------------------------------------------------------------------
+-- reservation_communications (20261224100000_reservation_communicate_users.sql)
+-- Immutable log of ad-hoc messages an approver/admin sent to a reservation's
+-- booker, one row per (reservation, message).
+CREATE TABLE IF NOT EXISTS public.reservation_communications (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  reservation_id  uuid NOT NULL
+                    REFERENCES public.resource_reservations(id) ON DELETE CASCADE,
+  institution_id  uuid NOT NULL
+                    REFERENCES public.institutions(id),
+  sender_id       uuid NOT NULL DEFAULT auth.uid()
+                    CONSTRAINT reservation_communications_sender_id_fkey
+                    REFERENCES public.profiles(id) ON DELETE CASCADE,
+  recipient_id    uuid NOT NULL
+                    CONSTRAINT reservation_communications_recipient_id_fkey
+                    REFERENCES public.profiles(id) ON DELETE CASCADE,
+  subject         text,
+  message         text NOT NULL
+                    CONSTRAINT reservation_communications_message_length
+                    CHECK (char_length(btrim(message)) BETWEEN 1 AND 4000),
+  notification_id uuid REFERENCES public.notifications(id) ON DELETE SET NULL,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE public.reservation_communications IS
+  'Immutable log of ad-hoc messages an approver/admin sent to a reservation''s booker. One row per (reservation, message) so a bulk send across several bookings still logs against each one. Delivery is a fanoutNotification() in-app notification written by the API route with the service-role client; notification_id links back to it.';
+
+CREATE INDEX IF NOT EXISTS idx_reservation_communications_reservation
+  ON public.reservation_communications (reservation_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_reservation_communications_recipient
+  ON public.reservation_communications (recipient_id);
+CREATE INDEX IF NOT EXISTS idx_reservation_communications_institution
+  ON public.reservation_communications (institution_id);
+
+-- ---------------------------------------------------------------------------
