@@ -21,6 +21,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
+import { reportTagResult } from '@/components/shared/report-tag-result';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
@@ -135,19 +136,7 @@ export function useCreateReservationComment(reservationId: string) {
             comment.id,
             mention_ids,
           );
-          if (result.tagged.length > 0) {
-            toast.success(`Tagged ${result.tagged.join(', ')}`);
-          }
-          if (result.tagged.length > 0 && result.notifyError) {
-            toast.error(
-              `Tagged, but the notification could not be sent — tell ${result.tagged.join(', ')} directly.`,
-            );
-          }
-          if (result.skipped.length > 0) {
-            toast.error(
-              `Not tagged (not a team member of this booking's institution): ${result.skipped.join(', ')}`,
-            );
-          }
+          reportTagResult(result, 'booking');
         } catch (e) {
           toast.error(
             `Comment posted, but tagging failed: ${(e as Error).message || 'unknown error'}`,
@@ -189,6 +178,23 @@ export function useSetReservationCommentResolved(reservationId: string) {
       toast.success(resolved ? 'Marked as resolved' : 'Thread reopened');
     },
     onError: (e: Error) => toast.error(e.message || 'The thread could not be updated'),
+  });
+}
+
+/**
+ * Resend a tag's alert: finishes one that failed, or sends a reminder. Same
+ * request as tagging — the route treats a re-tag as "make sure they know".
+ */
+export function useResendReservationTag(reservationId: string) {
+  const invalidate = useInvalidate(reservationId);
+  return useMutation({
+    mutationFn: ({ commentId, userId }: { commentId: string; userId: string }) =>
+      ReservationCommentService.tagPeople(reservationId, commentId, [userId]),
+    onSuccess: (result) => {
+      invalidate();
+      reportTagResult(result, 'booking');
+    },
+    onError: (e: Error) => toast.error(e.message || 'The alert could not be resent'),
   });
 }
 

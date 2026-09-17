@@ -34,6 +34,54 @@ export interface ThreadCommentAuthor {
 export interface ThreadMention {
   id: string;
   name: string;
+  /**
+   * False when access was granted but their alert has not gone out yet — the
+   * author is offered Resend. Undefined when the thread does not track it.
+   */
+  notified?: boolean;
+}
+
+/** The raw tag embed both threads select, and its conversion. */
+export interface RawThreadMention {
+  mentioned_user_id: string;
+  notified_at?: string | null;
+  person?: { full_name: string | null } | null;
+}
+
+export function toThreadMentions(raw: RawThreadMention[] | null | undefined): ThreadMention[] {
+  return (raw ?? []).map((m) => ({
+    id: m.mentioned_user_id,
+    name: m.person?.full_name?.trim() || 'Unknown',
+    notified: !!m.notified_at,
+  }));
+}
+
+/** What a tag request reports back, by name. Shared by both tag routes. */
+export interface TagPeopleResult {
+  /** Tagged on the comment after this request (new and already tagged). */
+  tagged: string[];
+  /** Refused: not a team member of the thread's institution. */
+  skipped: string[];
+  /** Told for the first time. */
+  notified: string[];
+  /** Already told; a reminder was sent. */
+  reminded: string[];
+  /** Told moments ago; nothing sent again. */
+  recentlyNotified: string[];
+  /** Granted, but the alert did not go out — Resend retries it. */
+  notNotified: string[];
+}
+
+export function toTagPeopleResult(json: any): TagPeopleResult {
+  const list = (v: unknown) => (Array.isArray(v) ? (v as string[]) : []);
+  return {
+    tagged: list(json?.tagged),
+    skipped: list(json?.skipped),
+    notified: list(json?.notified),
+    reminded: list(json?.reminded),
+    recentlyNotified: list(json?.recently_notified),
+    notNotified: list(json?.not_notified),
+  };
 }
 
 /** One comment, with its author resolved and its replies attached (roots only). */

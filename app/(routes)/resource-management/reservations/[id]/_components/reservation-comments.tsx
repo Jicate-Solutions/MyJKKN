@@ -34,6 +34,7 @@ import {
   useReservationCommentAccess,
   useReservationComments,
   useSetReservationCommentResolved,
+  useResendReservationTag,
   useUntagReservationComment,
   useUpdateReservationComment,
 } from '@/hooks/resource-management/use-reservation-comments';
@@ -71,6 +72,7 @@ export function ReservationComments({
   const resolve = useSetReservationCommentResolved(reservationId);
   const remove = useDeleteReservationComment(reservationId);
   const untag = useUntagReservationComment(reservationId);
+  const resendTag = useResendReservationTag(reservationId);
 
   // Every hook above runs unconditionally — returning before one of them would
   // change the hook count between renders the moment the authority answer
@@ -136,6 +138,7 @@ export function ReservationComments({
         onResolve: (id, resolved) => resolve.mutateAsync({ id, resolved }),
         onDelete: (id) => remove.mutateAsync(id),
         onUntag: (commentId, userId) => untag.mutateAsync({ commentId, userId }),
+        onResendTag: (commentId, userId) => resendTag.mutateAsync({ commentId, userId }),
       }}
     />
   );

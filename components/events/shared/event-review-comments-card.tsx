@@ -38,6 +38,7 @@ import {
   useDeleteReviewComment,
   useEventReviewComments,
   useSetReviewCommentResolved,
+  useResendReviewTag,
   useUntagReviewComment,
   useUpdateReviewComment,
 } from '@/hooks/events/shared/use-event-review-comments';
@@ -81,6 +82,7 @@ export function EventReviewCommentsCard({ eventId }: { eventId: string }) {
   const resolve = useSetReviewCommentResolved(eventId);
   const remove = useDeleteReviewComment(eventId);
   const untag = useUntagReviewComment(eventId);
+  const resendTag = useResendReviewTag(eventId);
   const { data: institutionId } = useEventInstitutionId(eventId, canView);
   const peopleSearch = useMemo(
     () => (institutionId ? makeInstitutionStaffSearch(institutionId) : undefined),
@@ -145,6 +147,7 @@ export function EventReviewCommentsCard({ eventId }: { eventId: string }) {
         onResolve: (id, resolved) => resolve.mutateAsync({ id, resolved }),
         onDelete: (id) => remove.mutateAsync(id),
         onUntag: (commentId, userId) => untag.mutateAsync({ commentId, userId }),
+        onResendTag: (commentId, userId) => resendTag.mutateAsync({ commentId, userId }),
       }}
     />
   );

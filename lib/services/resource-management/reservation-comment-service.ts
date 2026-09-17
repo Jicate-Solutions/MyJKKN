@@ -31,9 +31,16 @@ import {
   compareThreads,
   groupIntoThreads,
   threadSelectColumns,
+  toTagPeopleResult,
   toThreadComment,
+  toThreadMentions,
 } from '@/lib/services/shared/comment-threads';
-import type { RawThreadRow, ThreadComment } from '@/lib/services/shared/comment-threads';
+import type {
+  RawThreadMention,
+  RawThreadRow,
+  TagPeopleResult,
+  ThreadComment,
+} from '@/lib/services/shared/comment-threads';
 
 const MOD = 'resource-management/reservation-comments';
 const TABLE = 'resource_reservation_comments';
@@ -43,6 +50,7 @@ const BASE_COLUMNS = threadSelectColumns(TABLE);
 const SELECT_COLUMNS = `${BASE_COLUMNS},
     mentions:resource_reservation_comment_mentions (
       mentioned_user_id,
+      notified_at,
       person:profiles!resource_reservation_comment_mentions_mentioned_user_id_fkey (full_name)
     )`;
 
@@ -56,7 +64,8 @@ let mentionsAvailable = true;
 
 const isMissingMentions = (error: { code?: string; message?: string } | null | undefined) =>
   !!error &&
-  (error.code === 'PGRST200' || error.code === '42P01') &&
+  // 42703: the table exists but a newer column (notified_at) does not yet.
+  (error.code === 'PGRST200' || error.code === '42P01' || error.code === '42703') &&
   String(error.message ?? '').includes('resource_reservation_comment_mentions');
 
 /** Plain fields only — the raw PostgREST error serialises to "{}" in the logger. */
@@ -101,7 +110,7 @@ export interface CreateReservationCommentDto {
 
 interface RawRow extends RawThreadRow {
   reservation_id: string;
-  mentions?: { mentioned_user_id: string; person?: { full_name: string | null } | null }[] | null;
+  mentions?: RawThreadMention[] | null;
 }
 
 const toComment = (row: RawRow): ReservationComment => {
@@ -109,22 +118,11 @@ const toComment = (row: RawRow): ReservationComment => {
   // Via unknown: the raw `mentions` shape is stripped above and the resolved
   // one assigned below, which TS cannot follow through toThreadComment's generic.
   const comment = toThreadComment(rest) as unknown as ReservationComment;
-  comment.mentions = (mentions ?? []).map((m) => ({
-    id: m.mentioned_user_id,
-    name: m.person?.full_name?.trim() || 'Unknown',
-  }));
+  comment.mentions = toThreadMentions(mentions);
   return comment;
 };
 
-export interface TagPeopleResult {
-  /** Names newly tagged (and notified) by this call. */
-  tagged: string[];
-  /** Names refused because they are not team members. */
-  skipped: string[];
-  notified: number;
-  /** Set when the tags saved but the notification could not be sent. */
-  notifyError: string | null;
-}
+export type { TagPeopleResult };
 
 export class ReservationCommentService {
   private static supabase = createClientSupabaseClient();
@@ -233,12 +231,7 @@ export class ReservationCommentService {
       });
       throw new Error(reason);
     }
-    return {
-      tagged: json.tagged ?? [],
-      skipped: json.skipped ?? [],
-      notified: json.notified ?? 0,
-      notifyError: json.notify_error ?? null,
-    };
+    return toTagPeopleResult(json);
   }
 
   /**
