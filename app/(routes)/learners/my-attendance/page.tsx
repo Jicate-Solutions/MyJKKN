@@ -22,7 +22,9 @@ import { MyConfirmedAttendanceCard } from '@/components/session-feedback/my-conf
 import { MyRunningScoreCard } from '@/components/session-feedback/my-running-score-card';
 import { TableSkeleton } from '@/components/Loading';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { AlertCircle } from 'lucide-react';
+import { buttonVariants } from '@/components/ui/button';
+import { AlertCircle, RefreshCw } from 'lucide-react';
+import type { AttendanceOverview } from '@/lib/services/learners/student-attendance-service';
 
 interface PageProps {
   searchParams: Promise<{ semester?: string }>;
@@ -91,13 +93,22 @@ export default async function StudentAttendancePage({ searchParams }: PageProps)
     .filter(s => extractSemesterNumber(s.semester_code) <= currentSemNumber)
     .map(({ id, semester_name }) => ({ id, semester_name }));
 
-  // Fetch attendance data in parallel
-  const [statistics, courseWise, trendData, attendanceRecords] = await Promise.all([
-    StudentAttendanceService.getAttendanceStatistics(profile.learner_id, selectedSemester),
-    StudentAttendanceService.getCourseWiseAttendance(profile.learner_id, selectedSemester),
-    StudentAttendanceService.getAttendanceTrend(profile.learner_id, selectedSemester),
-    StudentAttendanceService.getStudentAttendanceBySemester(profile.learner_id, selectedSemester)
-  ]);
+  // Fetch the attendance records ONCE; statistics, course-wise and trend are
+  // derived from that single result. Asking for them separately made the same
+  // heavy JSONB fetch run four times per page view.
+  let overview: AttendanceOverview | null = null;
+  try {
+    overview = await StudentAttendanceService.getAttendanceOverview(
+      profile.learner_id,
+      selectedSemester
+    );
+  } catch (error) {
+    console.error('[learners/my-attendance] Failed to load attendance:', error);
+  }
+
+  const retryHref = selectedSemester
+    ? `/learners/my-attendance?semester=${encodeURIComponent(selectedSemester)}`
+    : '/learners/my-attendance';
 
   return (
     <ContentLayout title="My Attendance">
@@ -128,40 +139,63 @@ export default async function StudentAttendancePage({ searchParams }: PageProps)
           currentSemester={currentSemesterId}
         />
 
-        {/* Statistics Cards — always shown so attendance % is visible even with no records */}
-        <AttendanceStatisticsCards stats={statistics} />
-
-        {/* Show message if no attendance data, otherwise show full breakdown */}
-        {attendanceRecords.length === 0 ? (
+        {/* Load failed — say so and offer a retry, never an endless skeleton */}
+        {!overview ? (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <AlertCircle className="h-5 w-5 text-muted-foreground" />
-                No Attendance Records
+                <AlertCircle className="h-5 w-5 text-destructive" />
+                Attendance could not be loaded
               </CardTitle>
               <CardDescription>
-                No attendance records found for the selected semester. Attendance will appear here once your faculty starts marking attendance.
+                Something went wrong while loading your attendance for this semester. Your records are safe — this is a display problem. Please try again.
               </CardDescription>
             </CardHeader>
+            <CardContent>
+              <a href={retryHref} className={buttonVariants({ variant: 'outline' })}>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Try again
+              </a>
+            </CardContent>
           </Card>
         ) : (
           <>
-            {/* Trend Chart */}
-            {trendData.length > 0 && <AttendanceTrendChart data={trendData} />}
+            {/* Statistics Cards — always shown so attendance % is visible even with no records */}
+            <AttendanceStatisticsCards stats={overview.statistics} />
 
-            {/* Course-wise Table */}
-            <CourseWiseTable data={courseWise} />
+            {/* Show message if no attendance data, otherwise show full breakdown */}
+            {overview.records.length === 0 ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <AlertCircle className="h-5 w-5 text-muted-foreground" />
+                    No Attendance Records
+                  </CardTitle>
+                  <CardDescription>
+                    No attendance records found for the selected semester. Attendance will appear here once your Senior Learners start marking attendance.
+                  </CardDescription>
+                </CardHeader>
+              </Card>
+            ) : (
+              <>
+                {/* Trend Chart */}
+                {overview.trend.length > 0 && <AttendanceTrendChart data={overview.trend} />}
 
-            {/* Export Actions */}
-            <ExportActions
-              learnerId={profile.learner_id}
-              semesterId={selectedSemester}
-            />
+                {/* Course-wise Table */}
+                <CourseWiseTable data={overview.courseWise} />
 
-            {/* Period-wise Table */}
-            <Suspense fallback={<TableSkeleton />}>
-              <PeriodWiseAttendanceTable data={attendanceRecords} />
-            </Suspense>
+                {/* Export Actions */}
+                <ExportActions
+                  learnerId={profile.learner_id}
+                  semesterId={selectedSemester}
+                />
+
+                {/* Period-wise Table */}
+                <Suspense fallback={<TableSkeleton />}>
+                  <PeriodWiseAttendanceTable data={overview.records} />
+                </Suspense>
+              </>
+            )}
           </>
         )}
       </div>

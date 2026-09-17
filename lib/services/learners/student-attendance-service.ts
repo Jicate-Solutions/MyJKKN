@@ -15,6 +15,115 @@ import type {
 } from '@/types/student-attendance';
 
 /**
+ * Everything the My Attendance page renders, derived from ONE fetch of the
+ * learner's attendance records.
+ */
+export interface AttendanceOverview {
+  records: StudentAttendanceRecord[];
+  statistics: AttendanceStatistics;
+  courseWise: CourseAttendance[];
+  trend: TrendData[];
+}
+
+/**
+ * Derive overall statistics from already-fetched records. Pure — no I/O.
+ */
+export function deriveAttendanceStatistics(
+  records: StudentAttendanceRecord[]
+): AttendanceStatistics {
+  const totalClasses = records.length;
+  const presentCount = records.filter(r => r.status === 'Present').length;
+  const absentCount = totalClasses - presentCount;
+  const percentage = totalClasses > 0 ? Math.round((presentCount / totalClasses) * 100) : 0;
+
+  return {
+    totalClasses,
+    presentCount,
+    absentCount,
+    percentage,
+    threshold: 75,
+    isAboveThreshold: percentage >= 75
+  };
+}
+
+/**
+ * Derive the course-wise breakdown from already-fetched records. Pure — no I/O.
+ */
+export function deriveCourseWiseAttendance(
+  records: StudentAttendanceRecord[]
+): CourseAttendance[] {
+  const courseMap = new Map<string, CourseAttendance>();
+
+  records.forEach(record => {
+    const key = record.course_code || record.course_name;
+
+    if (!courseMap.has(key)) {
+      courseMap.set(key, {
+        course_name: record.course_name,
+        course_code: record.course_code,
+        total: 0,
+        present: 0,
+        absent: 0,
+        percentage: 0
+      });
+    }
+
+    const course = courseMap.get(key)!;
+    course.total++;
+    if (record.status === 'Present') {
+      course.present++;
+    } else {
+      course.absent++;
+    }
+  });
+
+  return Array.from(courseMap.values())
+    .map(c => ({
+      ...c,
+      percentage: c.total > 0 ? Math.round((c.present / c.total) * 100) : 0
+    }))
+    .sort((a, b) => a.course_name.localeCompare(b.course_name));
+}
+
+/**
+ * Derive the last-N-days trend from already-fetched records. Pure — no I/O.
+ */
+export function deriveAttendanceTrend(
+  records: StudentAttendanceRecord[],
+  days = 30
+): TrendData[] {
+  // Filter to last N days
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - days);
+
+  const recentRecords = records
+    .filter(r => {
+      const recordDate = new Date(r.date);
+      return recordDate >= cutoffDate;
+    })
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+  // Group by date and calculate daily percentage
+  const trendMap = new Map<string, { total: number; present: number }>();
+
+  recentRecords.forEach(record => {
+    if (!trendMap.has(record.date)) {
+      trendMap.set(record.date, { total: 0, present: 0 });
+    }
+    const dayData = trendMap.get(record.date)!;
+    dayData.total++;
+    if (record.status === 'Present') {
+      dayData.present++;
+    }
+  });
+
+  return Array.from(trendMap.entries()).map(([date, data]) => ({
+    date,
+    percentage: data.total > 0 ? Math.round((data.present / data.total) * 100) : 0
+  }));
+}
+
+/**
  * Check if timetable_data JSONB contains a specific section_id in any slot's section_ids array.
  * Handles both day-based (MONDAY, TUESDAY...) and date-based (2026-03-13) top-level keys.
  */
@@ -171,6 +280,30 @@ export class StudentAttendanceService {
   }
 
   /**
+   * Everything the My Attendance page needs, from ONE fetch.
+   *
+   * getAttendanceStatistics, getCourseWiseAttendance and getAttendanceTrend each
+   * re-run the whole fetch internally, so asking for all four in parallel pulled
+   * the same section's attendance JSONB out of Postgres four times over. This
+   * fetches once and derives the other three in memory.
+   */
+  static async getAttendanceOverview(
+    learnerId: string,
+    semesterId: string,
+    injectedClient?: SupabaseClient,
+    trendDays = 30
+  ): Promise<AttendanceOverview> {
+    const records = await this.getStudentAttendanceBySemester(learnerId, semesterId, injectedClient);
+
+    return {
+      records,
+      statistics: deriveAttendanceStatistics(records),
+      courseWise: deriveCourseWiseAttendance(records),
+      trend: deriveAttendanceTrend(records, trendDays)
+    };
+  }
+
+  /**
    * Calculate attendance statistics for a semester
    */
   static async getAttendanceStatistics(
@@ -179,20 +312,7 @@ export class StudentAttendanceService {
     injectedClient?: SupabaseClient
   ): Promise<AttendanceStatistics> {
     const records = await this.getStudentAttendanceBySemester(learnerId, semesterId, injectedClient);
-
-    const totalClasses = records.length;
-    const presentCount = records.filter(r => r.status === 'Present').length;
-    const absentCount = totalClasses - presentCount;
-    const percentage = totalClasses > 0 ? Math.round((presentCount / totalClasses) * 100) : 0;
-
-    return {
-      totalClasses,
-      presentCount,
-      absentCount,
-      percentage,
-      threshold: 75,
-      isAboveThreshold: percentage >= 75
-    };
+    return deriveAttendanceStatistics(records);
   }
 
   /**
@@ -203,38 +323,7 @@ export class StudentAttendanceService {
     semesterId: string
   ): Promise<CourseAttendance[]> {
     const records = await this.getStudentAttendanceBySemester(learnerId, semesterId);
-
-    const courseMap = new Map<string, CourseAttendance>();
-
-    records.forEach(record => {
-      const key = record.course_code || record.course_name;
-
-      if (!courseMap.has(key)) {
-        courseMap.set(key, {
-          course_name: record.course_name,
-          course_code: record.course_code,
-          total: 0,
-          present: 0,
-          absent: 0,
-          percentage: 0
-        });
-      }
-
-      const course = courseMap.get(key)!;
-      course.total++;
-      if (record.status === 'Present') {
-        course.present++;
-      } else {
-        course.absent++;
-      }
-    });
-
-    return Array.from(courseMap.values())
-      .map(c => ({
-        ...c,
-        percentage: c.total > 0 ? Math.round((c.present / c.total) * 100) : 0
-      }))
-      .sort((a, b) => a.course_name.localeCompare(b.course_name));
+    return deriveCourseWiseAttendance(records);
   }
 
   /**
@@ -246,36 +335,7 @@ export class StudentAttendanceService {
     days = 30
   ): Promise<TrendData[]> {
     const records = await this.getStudentAttendanceBySemester(learnerId, semesterId);
-
-    // Filter to last N days
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - days);
-
-    const recentRecords = records
-      .filter(r => {
-        const recordDate = new Date(r.date);
-        return recordDate >= cutoffDate;
-      })
-      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-    // Group by date and calculate daily percentage
-    const trendMap = new Map<string, { total: number; present: number }>();
-
-    recentRecords.forEach(record => {
-      if (!trendMap.has(record.date)) {
-        trendMap.set(record.date, { total: 0, present: 0 });
-      }
-      const dayData = trendMap.get(record.date)!;
-      dayData.total++;
-      if (record.status === 'Present') {
-        dayData.present++;
-      }
-    });
-
-    return Array.from(trendMap.entries()).map(([date, data]) => ({
-      date,
-      percentage: data.total > 0 ? Math.round((data.present / data.total) * 100) : 0
-    }));
+    return deriveAttendanceTrend(records, days);
   }
 
   /**
