@@ -76,6 +76,16 @@ export interface HRLeaveLedgerDraw {
    */
   status: 'approved' | 'pending' | 'escalated' | 'manual' | 'opening_adjustment';
   days: number;
+  /**
+   * Only meaningful when status is 'manual'. True when this sub-event's date
+   * is a real evidence date (e.g. a biometric LOP day) recorded on the
+   * override; false for the no-evidence remainder. The RPC says so explicitly
+   * rather than the UI inferring it from the date, because an over-drawn
+   * month's FIFO spillover can land a no-evidence event (dated at its own
+   * month's 1st) under a LATER month's row, where a same-row date comparison
+   * would wrongly read as evidenced.
+   */
+  evidenced?: boolean | null;
 }
 
 /**
@@ -105,6 +115,15 @@ export interface HRLeaveMonthEntryPayload {
   days: number | null;
   mode: HRLeaveMonthEntryMode;
   reason: string;
+  /**
+   * Real dates (e.g. biometric LOP days) this total is evidenced by, one day
+   * of the total per entry, in order — CL is spent at most one day per
+   * calendar date, so a 2-day total needs two distinct dates here, not one
+   * date twice. Optional — omit or pass null/empty for a plain admin
+   * judgement call, which the ledger shows as "Recorded by admin" same as
+   * before. Any days beyond this array's length fall back to that same label.
+   */
+  evidence_dates?: string[] | null;
 }
 
 /**

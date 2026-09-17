@@ -101,6 +101,7 @@ function cameraErrorMessage(err: unknown): string {
   const name = (err as { name?: string } | undefined)?.name;
   switch (name) {
     case 'SecurityError':
+    case 'CameraPermissionBlockedError':
       return (err as Error).message;
     case 'NotAllowedError':
       return 'Camera permission was denied — allow camera access for this site in your browser settings, then try again.';
@@ -213,6 +214,31 @@ export default function GatePassScanPage() {
           );
         }
 
+        // Once a browser's own camera permission for this site is blocked, it
+        // never shows the native prompt again — getUserMedia just rejects
+        // with NotAllowedError, silently, every time. That reads as "Start
+        // camera does nothing" from the guard's side. Chrome (desktop and
+        // Android) supports querying this state up front; check it so a
+        // blocked permission gets the specific "go unblock it" message
+        // immediately instead of a pointless camera-start attempt. Safari
+        // doesn't support the Permissions API for camera — this is a no-op
+        // there and it falls through to the normal getUserMedia attempt.
+        try {
+          const status = await navigator.permissions?.query({
+            name: 'camera' as PermissionName,
+          });
+          if (status?.state === 'denied') {
+            throw new DOMException(
+              'Camera access is blocked for this site. In Chrome, tap the icon left of the address bar → Permissions → Camera → Allow, then reload.',
+              'CameraPermissionBlockedError',
+            );
+          }
+        } catch (permErr) {
+          // A blocked permission must still stop the attempt here; anything
+          // else (unsupported query, e.g. Safari) falls through to start().
+          if ((permErr as { name?: string })?.name === 'CameraPermissionBlockedError') throw permErr;
+        }
+
         const { Html5Qrcode } = await import('html5-qrcode');
         if (cancelled) return;
         scanner = new Html5Qrcode(QR_ELEMENT_ID);
@@ -249,7 +275,20 @@ export default function GatePassScanPage() {
           },
         );
       } catch (err) {
-        console.error('Gate scanner start failed', err);
+        // A guard declining/not-yet-granting camera permission, or a camera
+        // already busy in another app, is routine — not a code defect. Log it
+        // as a warning so it doesn't pop Next's dev-mode error overlay on
+        // every ordinary "not allowed yet" scan attempt; genuinely unexpected
+        // failures still go through console.error.
+        const name = (err as { name?: string } | undefined)?.name;
+        const expected =
+          name === 'NotAllowedError' ||
+          name === 'NotFoundError' ||
+          name === 'NotReadableError' ||
+          name === 'OverconstrainedError' ||
+          name === 'SecurityError' ||
+          name === 'CameraPermissionBlockedError';
+        (expected ? console.warn : console.error)('Gate scanner start failed', err);
         if (!cancelled) {
           setCameraActive(false);
           // A denied camera must not end the shift — drop straight into the
