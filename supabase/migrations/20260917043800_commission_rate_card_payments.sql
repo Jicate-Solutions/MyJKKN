@@ -1,5 +1,5 @@
 -- Consultant commission payments against the service-charge rate card
--- Created 2026-09-16. Builds on 20260916090000_commission_rate_card.
+-- Created 2026-09-16. Builds on 20260917043700_commission_rate_card.
 --
 -- Paid / Balance / Excess, per institution line of the card:
 --   * Payments are recorded as LUMP SUMS per consultant per card group
@@ -43,6 +43,7 @@ CREATE INDEX IF NOT EXISTS idx_rate_card_payments_consultant
 -- 2. RLS — read like the card; recording money needs the manage permission.
 -- ─────────────────────────────────────────────────────────────────────────────
 ALTER TABLE public.commission_rate_card_payments ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.commission_rate_card_payments FROM anon, PUBLIC;  -- agency money; anon gets nothing
 
 DROP POLICY IF EXISTS commission_rate_card_payments_read ON public.commission_rate_card_payments;
 CREATE POLICY commission_rate_card_payments_read ON public.commission_rate_card_payments

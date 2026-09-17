@@ -205,7 +205,7 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
       {
         id: 'per_student',
         accessorFn: row => row.rate_amount ?? 0,
-        header: 'Per Student',
+        header: 'Per Learner',
         cell: ({ row }) => <MoneyCell value={row.original.rate_amount} />,
       },
       {
@@ -416,7 +416,7 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
       [
         { header: 'Institution', accessor: r => r.group_name },
         { header: 'Students', accessor: r => r.qualifying_count },
-        { header: 'Per Student', accessor: r => r.rate_amount ?? '' },
+        { header: 'Per Learner', accessor: r => r.rate_amount ?? '' },
         { header: 'Commission', accessor: r => r.total_amount ?? 0 },
         { header: 'Paid', accessor: r => r.paid_amount },
         { header: 'Balance', accessor: r => r.balance_amount },
@@ -449,7 +449,7 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
     { title: 'Paid', value: rupees(totals.paid), hint: 'net of recoveries', icon: Wallet, tone: 'text-green-700 dark:text-green-400' },
     { title: 'Balance', value: rupees(totals.balance), hint: 'still to pay', icon: HandCoins, tone: 'text-amber-700 dark:text-amber-400' },
     { title: 'Excess', value: rupees(totals.excess), hint: 'paid over earned, to recover', icon: AlertTriangle, tone: totals.excess > 0 ? 'text-red-600 dark:text-red-400' : '' },
-    { title: 'Students Counted', value: String(totals.students), hint: 'Account, Admitted or Active', icon: Users, tone: '' },
+    { title: 'Learners Counted', value: String(totals.students), hint: 'Account, Admitted or Active', icon: Users, tone: '' },
   ]
 
   return (
@@ -488,7 +488,7 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
           <div>
             <CardTitle className="text-base">Commission Earned</CardTitle>
             <CardDescription>
-              Students counted are those in Account, Admitted or Active status for the selected
+              Learners counted are those in Account, Admitted or Active status for the selected
               admission year.
             </CardDescription>
           </div>
@@ -562,7 +562,7 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
           {!earningsLoading && (
             <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 rounded-md border bg-muted/40 px-4 py-3 text-sm sm:grid-cols-5">
               <div>
-                <p className="text-xs text-muted-foreground">Students</p>
+                <p className="text-xs text-muted-foreground">Learners</p>
                 <p className="font-semibold tabular-nums">{totals.students}</p>
               </div>
               <div>

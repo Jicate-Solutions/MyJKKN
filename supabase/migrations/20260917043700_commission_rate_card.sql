@@ -89,6 +89,12 @@ ALTER TABLE public.commission_rate_cards       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.commission_rate_card_groups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.commission_rate_card_slabs  ENABLE ROW LEVEL SECURITY;
 
+-- Supabase's default privileges grant ALL on new tables to anon; these hold
+-- agency money, so anon gets nothing (RLS alone is not the lock).
+REVOKE ALL ON TABLE public.commission_rate_cards       FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.commission_rate_card_groups FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.commission_rate_card_slabs  FROM anon, PUBLIC;
+
 DO $$
 DECLARE t text;
 BEGIN
@@ -112,7 +118,10 @@ END $$;
 --    back with count 0 and amount NULL) so the UI can render the full printed card
 --    rather than only the lines that happen to have earned something.
 -- ─────────────────────────────────────────────────────────────────────────────
-CREATE OR REPLACE FUNCTION public.fn_consultant_rate_card_earnings(
+-- DROP first: 20260917043800 widens the return type, so on a re-run CREATE OR
+-- REPLACE would fail against the wider live signature.
+DROP FUNCTION IF EXISTS public.fn_consultant_rate_card_earnings(uuid, integer);
+CREATE FUNCTION public.fn_consultant_rate_card_earnings(
   p_consultant_id uuid,
   p_academic_year integer DEFAULT NULL)   -- NULL = the newest active card
 RETURNS TABLE (
@@ -131,6 +140,11 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
       FROM public.commission_rate_cards c
      WHERE c.is_active
        AND (p_academic_year IS NULL OR c.academic_year = p_academic_year)
+       -- SECURITY DEFINER bypasses RLS and this takes any consultant id, so the
+       -- caller is gated here. No card row = empty result, not an error.
+       AND (auth.role() = 'service_role'
+            OR (SELECT is_super_admin()) OR (SELECT is_admin())
+            OR (SELECT user_has_permission('admission.consultants.commissions.view')))
      ORDER BY c.academic_year DESC
      LIMIT 1
   ),
