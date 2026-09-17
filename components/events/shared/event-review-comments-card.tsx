@@ -24,10 +24,13 @@
 // the database (see the migration); this file only decides which controls the
 // shared panel paints.
 
+import { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CommentThreadPanel } from '@/components/shared/comment-thread-panel';
-import type { TaggablePerson } from '@/components/shared/comment-thread-panel';
+import { makeInstitutionStaffSearch } from '@/components/shared/search-taggable-staff';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { useEventReviewCommentAccess } from '@/hooks/events/shared/use-event-review-comment-access';
 import {
@@ -35,29 +38,33 @@ import {
   useDeleteReviewComment,
   useEventReviewComments,
   useSetReviewCommentResolved,
+  useResendReviewTag,
+  useUntagReviewComment,
   useUpdateReviewComment,
 } from '@/hooks/events/shared/use-event-review-comments';
 
 /**
- * Staff search for the tag picker. Module scope so its identity is stable —
- * the picker's search effect depends on it, and a fresh function every render
- * would re-run the search on every keystroke of the comment box.
- *
- * Reads the same staff directory the committee picker uses. A hit whose
- * member_id equals its staff row id has no MyJKKN login (the route falls back
- * to the staff id when profile_id is null) — there is no account to notify or
- * to grant the thread to, so it is left out rather than offered and refused.
+ * The event's owning institution — only its team members can be tagged.
+ * Looked up here rather than passed in, for the same reason the card gates
+ * itself: four consoles mount it, each holding the event in a different shape.
  */
-async function searchStaff(query: string): Promise<TaggablePerson[]> {
-  const params = new URLSearchParams({ role: 'staff', q: query });
-  const res = await fetch(`/api/events/committees/member-directory?${params.toString()}`);
-  if (!res.ok) throw new Error('directory search failed');
-  const json = (await res.json()) as {
-    results?: { id: string; member_id: string; name: string; subtitle?: string }[];
-  };
-  return (json.results ?? [])
-    .filter((h) => h.member_id && h.member_id !== h.id)
-    .map((h) => ({ id: h.member_id, name: h.name || 'Unnamed', subtitle: h.subtitle ?? null }));
+function useEventInstitutionId(eventId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['event-review-comments', 'institution', eventId],
+    enabled: !!eventId && enabled,
+    staleTime: 10 * 60 * 1000,
+    queryFn: async (): Promise<string | null> => {
+      const supabase = createClientSupabaseClient() as any;
+      const { data, error } = await supabase
+        .from('events')
+        .select('institution_id')
+        .eq('id', eventId)
+        .maybeSingle();
+      // No institution known → tagging stays off; never fall back to "anyone".
+      if (error) return null;
+      return (data?.institution_id as string | null) ?? null;
+    },
+  });
 }
 
 export function EventReviewCommentsCard({ eventId }: { eventId: string }) {
@@ -74,6 +81,13 @@ export function EventReviewCommentsCard({ eventId }: { eventId: string }) {
   const update = useUpdateReviewComment(eventId);
   const resolve = useSetReviewCommentResolved(eventId);
   const remove = useDeleteReviewComment(eventId);
+  const untag = useUntagReviewComment(eventId);
+  const resendTag = useResendReviewTag(eventId);
+  const { data: institutionId } = useEventInstitutionId(eventId, canView);
+  const peopleSearch = useMemo(
+    () => (institutionId ? makeInstitutionStaffSearch(institutionId) : undefined),
+    [institutionId],
+  );
 
   // Every hook above runs unconditionally. Returning before one of them would
   // change the hook count between renders the moment the authority answer
@@ -101,7 +115,8 @@ export function EventReviewCommentsCard({ eventId }: { eventId: string }) {
           coordinator&apos;s replies. Only super admins, this event&apos;s
           creator and in-charge, roles granted Review Comments access, and
           team members tagged here can see this — participants and learners never do.
-          Type @ or use Tag people to bring someone in.
+          Type @ or use Tag people to bring in a team member of this event&apos;s
+          institution; remove a tag with × to take their access away.
         </>
       }
       placeholder="Raise something about this event — what is incomplete, what is missing, who still has to act."
@@ -118,10 +133,11 @@ export function EventReviewCommentsCard({ eventId }: { eventId: string }) {
       // words is a super admin's cleanup power alone, and the DELETE policy
       // says exactly that.
       canDeleteAny={isSuperAdmin}
-      // Tagging (2026-09-16): a tagged staff member is notified and can read
-      // and reply in this thread from then on. See
-      // supabase/migrations/20261220096000_event_review_comment_mentions.sql.
-      peopleSearch={searchStaff}
+      // Tagging: a tagged team member of the event's institution is notified
+      // and can read and reply in this thread until the author untags them. See
+      // supabase/migrations/20261220096000_event_review_comment_mentions.sql and
+      // 20261224110000_event_review_mentions_same_institution_untag.sql.
+      peopleSearch={peopleSearch}
       handlers={{
         onPost: (body, mentionIds) =>
           post.mutateAsync({ event_id: eventId, body, mention_ids: mentionIds }),
@@ -130,6 +146,8 @@ export function EventReviewCommentsCard({ eventId }: { eventId: string }) {
         onEdit: (id, body) => update.mutateAsync({ id, body }),
         onResolve: (id, resolved) => resolve.mutateAsync({ id, resolved }),
         onDelete: (id) => remove.mutateAsync(id),
+        onUntag: (commentId, userId) => untag.mutateAsync({ commentId, userId }),
+        onResendTag: (commentId, userId) => resendTag.mutateAsync({ commentId, userId }),
       }}
     />
   );

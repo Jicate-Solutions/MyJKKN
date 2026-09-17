@@ -10,6 +10,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
+import { reportTagResult } from '@/components/shared/report-tag-result';
 import {
   EventReviewCommentService,
   type CreateReviewCommentDto,
@@ -53,17 +54,7 @@ export function useCreateReviewComment(eventId: string) {
       if (mention_ids && mention_ids.length > 0) {
         try {
           const result = await EventReviewCommentService.tagPeople(eventId, comment.id, mention_ids);
-          if (result.tagged.length > 0) {
-            toast.success(`Tagged ${result.tagged.join(', ')}`);
-          }
-          if (result.tagged.length > 0 && result.notifyError) {
-            toast.error(
-              `Tagged, but the notification could not be sent — tell ${result.tagged.join(', ')} directly.`,
-            );
-          }
-          if (result.skipped.length > 0) {
-            toast.error(`Not tagged (not a team member): ${result.skipped.join(', ')}`);
-          }
+          reportTagResult(result, 'event');
         } catch (e) {
           toast.error(
             `Comment posted, but tagging failed: ${(e as Error).message || 'unknown error'}`,
@@ -105,6 +96,37 @@ export function useSetReviewCommentResolved(eventId: string) {
       toast.success(resolved ? 'Marked as resolved' : 'Thread reopened');
     },
     onError: (e: Error) => toast.error(e.message || 'The thread could not be updated'),
+  });
+}
+
+/**
+ * Resend a tag's alert: finishes one that failed, or sends a reminder. Same
+ * request as tagging — the route treats a re-tag as "make sure they know".
+ */
+export function useResendReviewTag(eventId: string) {
+  const invalidate = useInvalidate(eventId);
+  return useMutation({
+    mutationFn: ({ commentId, userId }: { commentId: string; userId: string }) =>
+      EventReviewCommentService.tagPeople(eventId, commentId, [userId]),
+    onSuccess: (result) => {
+      invalidate();
+      reportTagResult(result, 'event');
+    },
+    onError: (e: Error) => toast.error(e.message || 'The alert could not be resent'),
+  });
+}
+
+/** Untag one person: their access to this event's review thread ends; the comment stays. */
+export function useUntagReviewComment(eventId: string) {
+  const invalidate = useInvalidate(eventId);
+  return useMutation({
+    mutationFn: ({ commentId, userId }: { commentId: string; userId: string }) =>
+      EventReviewCommentService.untag(commentId, userId),
+    onSuccess: () => {
+      invalidate();
+      toast.success('Tag removed — they no longer have access to this discussion');
+    },
+    onError: (e: Error) => toast.error(e.message || 'The tag could not be removed'),
   });
 }
 

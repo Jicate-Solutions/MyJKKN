@@ -1,6 +1,6 @@
 /**
  * Gate Security — client wrappers over the SECURITY DEFINER RPCs in
- * supabase/migrations/20260915100000_gate_pass_service_request_and_gate_security.sql.
+ * supabase/migrations/20260915100001_gate_pass_service_request_and_gate_security.sql.
  *
  * Every RPC authorises itself (gate_can_scan / gate_can_record /
  * gate_security.reports.view), so these wrappers do no permission logic;

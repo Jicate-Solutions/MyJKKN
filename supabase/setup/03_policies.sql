@@ -11042,3 +11042,31 @@ CREATE POLICY wa_bridge_status_select ON public.wa_bridge_status
     OR public.is_admin()
     OR public.user_has_permission('admission.settings.whatsapp.view')
   );
+
+-- reservation_communications (20261224100000_reservation_communicate_users.sql)
+-- Same audience as resource_reservation_comments: reuse
+-- fn_can_read_reservation_comments rather than re-deriving it.
+ALTER TABLE public.reservation_communications ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS reservation_communications_select ON public.reservation_communications;
+CREATE POLICY reservation_communications_select ON public.reservation_communications
+  FOR SELECT TO authenticated
+  USING (public.fn_can_read_reservation_comments(reservation_id));
+
+DROP POLICY IF EXISTS reservation_communications_insert ON public.reservation_communications;
+CREATE POLICY reservation_communications_insert ON public.reservation_communications
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    sender_id = (SELECT auth.uid())
+    AND public.user_has_permission('resources.reservations.communicate')
+    AND EXISTS (
+      SELECT 1
+        FROM public.resource_reservations rr
+        JOIN public.resources r ON r.id = rr.resource_id
+       WHERE rr.id = reservation_communications.reservation_id
+         AND public.role_has_institution_access(r.institution_id)
+    )
+  );
+
+REVOKE ALL ON public.reservation_communications FROM anon, PUBLIC;
+GRANT SELECT, INSERT ON public.reservation_communications TO authenticated;

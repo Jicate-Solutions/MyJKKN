@@ -98,6 +98,19 @@ export class AttendanceService {
     return AttendanceCoreService.getAttendanceAuditLog(...args)
   }
 
+  // Added: 2026-09-17 — BUG-006133 (undo a mis-marked period)
+  static deletePeriodAttendance(
+    ...args: Parameters<typeof AttendanceCoreService.deletePeriodAttendance>
+  ) {
+    return AttendanceCoreService.deletePeriodAttendance(...args)
+  }
+
+  static canDeletePeriodAttendance(
+    ...args: Parameters<typeof AttendanceCoreService.canDeletePeriodAttendance>
+  ) {
+    return AttendanceCoreService.canDeletePeriodAttendance(...args)
+  }
+
   // =====================
   // NEW CONSOLIDATED ATTENDANCE METHODS
   // Forwarding stubs — moved to AttendanceRosterService (Task 5.2)
