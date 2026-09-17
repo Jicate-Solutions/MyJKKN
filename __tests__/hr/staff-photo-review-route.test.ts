@@ -48,14 +48,23 @@ let privateRemoveAttempts = 0;
 let rpcResult: { data: unknown; error: { message: string } | null } = { data: [{}], error: null };
 let submissionRow: Record<string, unknown> | null = null;
 
-const orphansRecorded: { id: string; path: string }[] = [];
+const orphansRecorded: { id: string; bucket: string; path: string }[] = [];
 
 function makeAdmin() {
   return {
     from: () => ({
-      update: (patch: { orphaned_object: string }) => ({
+      // recordOrphan reads the existing list before appending, so the mock has
+      // to answer a select as well as an update.
+      select: () => ({
+        eq: () => ({
+          maybeSingle: async () => ({ data: { orphaned_objects: [] }, error: null }),
+        }),
+      }),
+      update: (patch: { orphaned_objects: { bucket: string; path: string }[] }) => ({
         eq: async (_col: string, id: string) => {
-          orphansRecorded.push({ id, path: patch.orphaned_object });
+          for (const o of patch.orphaned_objects) {
+            orphansRecorded.push({ id, bucket: o.bucket, path: o.path });
+          }
           return { error: null };
         },
       }),
@@ -232,7 +241,11 @@ describe('team member photo review route', () => {
     // ...and — the part that actually answers BUG-006145 — it is written down
     // somewhere a person can find it. A console line and a response field
     // nothing reads would have moved the silence, not removed it.
-    expect(orphansRecorded).toEqual([{ id: 'sub-1', path: 'staff-1/111.jpg' }]);
+    // Bucket-qualified: the two buckets here have opposite exposure, so a
+    // record that does not name one cannot be acted on.
+    expect(orphansRecorded).toEqual([
+      { id: 'sub-1', bucket: 'hr-staff-photo-submissions', path: 'staff-1/111.jpg' },
+    ]);
   });
 
   it('a transient failure is absorbed by the retry and reported as cleaned', async () => {

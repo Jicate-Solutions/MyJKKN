@@ -88,7 +88,9 @@ export default function StaffPhotoQueuePage() {
   // Photographs a failed delete left behind. Shown on this screen because it is
   // the screen whose action created them, and because a record nobody renders
   // is the same silence BUG-006145 was about.
-  const [orphans, setOrphans] = useState<{ id: string; object: string; name: string; status: string }[]>([]);
+  const [orphans, setOrphans] = useState<
+    { id: string; bucket: string; path: string; name: string; status: string }[]
+  >([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -184,8 +186,12 @@ export default function StaffPhotoQueuePage() {
               </p>
               <ul className="mt-2 space-y-0.5 font-mono text-[11px] text-amber-900">
                 {orphans.map((o) => (
-                  <li key={o.id}>
-                    {o.name} · {o.status} · {o.object}
+                  <li key={`${o.id}:${o.bucket}:${o.path}`}>
+                    {o.name} · {o.status} · <b>{o.bucket}</b> / {o.path}
+                    {/* The bucket is the load-bearing half: these two have
+                        opposite exposure, and "staff-images" means the
+                        photograph is readable by anyone holding the link. */}
+                    {o.bucket === 'staff-images' ? ' — publicly readable' : ''}
                   </li>
                 ))}
               </ul>

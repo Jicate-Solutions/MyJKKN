@@ -127,24 +127,35 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // Scoped by the same RLS as everything else here.
   const { data: orphanRows } = await supabase
     .from('hr_staff_photo_submissions')
-    .select('id, orphaned_object, status, person:staff_id (first_name, last_name)')
-    .not('orphaned_object', 'is', null)
+    .select('id, orphaned_objects, status, person:staff_id (first_name, last_name)')
+    .neq('orphaned_objects', '[]')
     .limit(50);
 
-  const orphans = (orphanRows ?? []).map((r) => {
+  // Flattened: one entry per stranded OBJECT, not per submission, because a
+  // single submission can strand both its private copy and its public one and
+  // whoever cleans up needs every object named with its bucket.
+  const orphans: { id: string; bucket: string; path: string; name: string; status: string }[] = [];
+  for (const r of orphanRows ?? []) {
     const row = r as unknown as {
       id: string;
-      orphaned_object: string;
+      orphaned_objects: unknown;
       status: string;
       person: { first_name: string | null; last_name: string | null } | null;
     };
-    return {
-      id: row.id,
-      object: row.orphaned_object,
-      status: row.status,
-      name: [row.person?.first_name, row.person?.last_name].filter(Boolean).join(' ') || 'Unnamed',
-    };
-  });
+    const name = [row.person?.first_name, row.person?.last_name].filter(Boolean).join(' ') || 'Unnamed';
+    const list = Array.isArray(row.orphaned_objects) ? row.orphaned_objects : [];
+    for (const o of list) {
+      const item = o as { bucket?: unknown; path?: unknown };
+      if (typeof item?.path !== 'string') continue;
+      orphans.push({
+        id: row.id,
+        bucket: typeof item.bucket === 'string' ? item.bucket : 'unknown',
+        path: item.path,
+        name,
+        status: row.status,
+      });
+    }
+  }
 
   return NextResponse.json({
     success: true,

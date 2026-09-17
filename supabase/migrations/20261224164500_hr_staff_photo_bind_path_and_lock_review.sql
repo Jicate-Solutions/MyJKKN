@@ -57,11 +57,21 @@ BEGIN;
 -- reads does not fix that — it moves the silence. This column is the record:
 -- one key per row, swept or retried by a human who can actually find it.
 -- ---------------------------------------------------------------------------
+-- A LIST, and bucket-qualified. The first draft of this column was a single
+-- `text` holding a bare key, and the critic was right that it fails at the one
+-- job it exists for:
+--   * one submission can orphan a PRIVATE copy and later a PUBLIC one, and a
+--     scalar column means the second silently overwrote the first — so the
+--     record itself lost a photograph;
+--   * a bare key does not say WHICH BUCKET, and the two buckets here have
+--     opposite exposure, so whoever cleans up cannot find the object and
+--     cannot tell whether it is world-readable.
+-- Shape is the thing to get right before a column ships rather than after.
 ALTER TABLE public.hr_staff_photo_submissions
-  ADD COLUMN IF NOT EXISTS orphaned_object text;
+  ADD COLUMN IF NOT EXISTS orphaned_objects jsonb NOT NULL DEFAULT '[]'::jsonb;
 
-COMMENT ON COLUMN public.hr_staff_photo_submissions.orphaned_object IS
-  'A storage key this submission left behind because a delete failed. NOT NULL means a photograph of a person is still sitting in a bucket and somebody should remove it.';
+COMMENT ON COLUMN public.hr_staff_photo_submissions.orphaned_objects IS
+  'Append-only list of storage objects this submission left behind because a delete failed: [{bucket, path, at}]. Non-empty means photographs of a person are still sitting in storage and somebody should remove them; check `bucket` to see whether they are world-readable.';
 
 -- ---------------------------------------------------------------------------
 -- 1. Submit — the path must be under the caller's own folder.

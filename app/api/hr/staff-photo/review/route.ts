@@ -86,15 +86,50 @@ async function removeObject(
 async function recordOrphan(
   admin: ReturnType<typeof createServiceRoleClient>,
   submissionId: string,
+  bucket: string,
   path: string,
-): Promise<void> {
+): Promise<boolean> {
   try {
-    await admin
+    // Read-then-append rather than overwrite. One submission can orphan the
+    // private copy AND the public one, and a decision that loses the first
+    // record while writing the second would drop a photograph from the only
+    // list anyone is going to look at.
+    const { data: existing } = await admin
       .from('hr_staff_photo_submissions')
-      .update({ orphaned_object: path })
+      .select('orphaned_objects')
+      .eq('id', submissionId)
+      .maybeSingle<{ orphaned_objects: unknown[] | null }>();
+
+    const next = [
+      ...(Array.isArray(existing?.orphaned_objects) ? existing.orphaned_objects : []),
+      { bucket, path, at: new Date().toISOString() },
+    ];
+
+    const { error } = await admin
+      .from('hr_staff_photo_submissions')
+      .update({ orphaned_objects: next })
       .eq('id', submissionId);
+
+    if (error) {
+      // The last line of defence, and it is only a log — there is nowhere
+      // durable left to put it. Loud on purpose, and the caller is told too.
+      console.error(
+        '[hr/staff-photo/review] ORPHAN NOT RECORDED — object is stranded and invisible:',
+        bucket,
+        path,
+        error.message,
+      );
+      return false;
+    }
+    return true;
   } catch (e) {
-    console.error('[hr/staff-photo/review] could not record orphan:', path, e);
+    console.error(
+      '[hr/staff-photo/review] ORPHAN NOT RECORDED — object is stranded and invisible:',
+      bucket,
+      path,
+      e instanceof Error ? e.message : String(e),
+    );
+    return false;
   }
 }
 
@@ -162,7 +197,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
     // The rejected picture has no further use and is a photograph of a person.
     const cleaned = await removeObject(admin, PRIVATE_BUCKET, sub.storage_path);
-    if (!cleaned) await recordOrphan(admin, submission_id, sub.storage_path);
+    const recorded = cleaned || (await recordOrphan(admin, submission_id, PRIVATE_BUCKET, sub.storage_path));
     return NextResponse.json({
       success: true,
       result: data,
@@ -170,6 +205,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // Surfaced rather than swallowed: the decision stands either way, but a
       // photograph nobody agreed to keep is still sitting in the bucket.
       pending_copy_removed: cleaned,
+      // False means the strip on the review screen will NOT show this one —
+      // the caller is the only remaining witness.
+      orphan_recorded: recorded,
     });
   }
 
@@ -224,13 +262,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // world-readable photograph of a person. That is a worse orphan than the
     // private one and it was going unrecorded.
     const undone = await removeObject(admin, PUBLIC_BUCKET, publicPath);
-    if (!undone) await recordOrphan(admin, submission_id, publicPath);
+    if (!undone) await recordOrphan(admin, submission_id, PUBLIC_BUCKET, publicPath);
     return NextResponse.json({ success: false, error: error.message }, { status: 403 });
   }
 
   // The pending copy has served its purpose; the approved one is the record.
   const cleaned = await removeObject(admin, PRIVATE_BUCKET, sub.storage_path);
-  if (!cleaned) await recordOrphan(admin, submission_id, sub.storage_path);
+  const recorded = cleaned || (await recordOrphan(admin, submission_id, PRIVATE_BUCKET, sub.storage_path));
 
   return NextResponse.json({
     success: true,
@@ -238,5 +276,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     status: 'approved',
     photo_url: publicUrl,
     pending_copy_removed: cleaned,
+    orphan_recorded: recorded,
   });
 }
