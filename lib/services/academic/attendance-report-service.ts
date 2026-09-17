@@ -748,7 +748,7 @@ export class AttendanceReportService {
         const staffIds = new Set((staffRows || []).map((s) => s.id));
 
         if (staffIds.size === 0) {
-          logger.warn('academic/attendance-reports', 'Faculty profile not found in staff table', { userId });
+          logger.warn('academic/attendance-reports', 'Senior Learner profile not found in team member records', { userId });
           // Don't block access - allow faculty to view reports even without staff record
           // This handles cases where faculty users don't have corresponding staff records
         } else {
@@ -768,7 +768,7 @@ export class AttendanceReportService {
 
           if (!isAssigned) {
             // Expected business outcome (not a system error) - log at warn.
-            logger.warn('academic/attendance-reports', 'Faculty not assigned to this report', {
+            logger.warn('academic/attendance-reports', 'Senior Learner not assigned to this report', {
               userId,
               staffIds: Array.from(staffIds),
               reportId: (data as any).id
