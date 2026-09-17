@@ -129,6 +129,11 @@ const timetableFormSchema = z
     timetable_format: z.enum(['regular', 'batch', 'cycle']).default('regular'),
     // Updated: 2026-03-22 - Required when timetable_format='cycle'
     num_cycles: z.coerce.number().int().min(1).max(52).optional(),
+    // Updated: 2026-09-10 (BUG-006085) - Which cycle the FIRST working day on or
+    // after start_date runs as. Defaults to 1. A programme joining a rotation
+    // already under way has to pick up the day order the rest of the college is
+    // on, or every class it shares with them shows at the wrong hour.
+    start_cycle: z.coerce.number().int().min(1).max(52).optional(),
     // Updated: 2026-06-10 - School day-wise attendance support.
     // attendance_mode defaults from entity_type but is editable; class_incharge_id
     // is required (refine below) when mode = session_wise.
@@ -192,6 +197,25 @@ const timetableFormSchema = z
   )
   .refine(
     (data) => {
+      // A start cycle above the cycle count would key timetable_data at a
+      // "cycle-N" that was never authored, so the grid would render an empty day.
+      if (
+        data.timetable_format === 'cycle' &&
+        data.num_cycles &&
+        data.start_cycle &&
+        data.start_cycle > data.num_cycles
+      ) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: 'Day order on start date cannot exceed the number of cycles.',
+      path: ['start_cycle']
+    }
+  )
+  .refine(
+    (data) => {
       if (data.attendance_mode === 'session_wise' && !data.class_incharge_id) {
         return false;
       }
@@ -238,7 +262,6 @@ export default function NewTimetablePage() {
   });
 
   // Watch form values for cascading dropdowns and validation
-  const watchIsTemplate = form.watch('is_template');
   const watchInstitutionId = form.watch('institution_id');
   const watchDegreeId = form.watch('degree_id');
   const watchProgramId = form.watch('program_id');
@@ -1475,6 +1498,44 @@ export default function NewTimetablePage() {
                       )}
                     />
                   )}
+
+                  {/* Day order on start date — cycle format only (BUG-006085) */}
+                  {form.watch('timetable_format') === 'cycle' && (
+                    <FormField
+                      control={form.control}
+                      name='start_cycle'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Day Order on Start Date</FormLabel>
+                          <FormControl>
+                            <Input
+                              type='number'
+                              min={1}
+                              max={form.watch('num_cycles') ?? 52}
+                              placeholder='1'
+                              {...field}
+                              value={field.value ?? ''}
+                              onChange={(e) =>
+                                field.onChange(
+                                  e.target.value === ''
+                                    ? undefined
+                                    : Number(e.target.value)
+                                )
+                              }
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            Which cycle the first working day of the term runs
+                            as. Leave blank for Cycle 1. Set it only when this
+                            programme joins a rotation already under way — it
+                            has to pick up the day order the rest of the college
+                            is on, or every shared class shows at the wrong hour.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
                 </div>
 
                 {/* Attendance Mode + Class Incharge (school day-wise support) */}
@@ -1762,50 +1823,12 @@ export default function NewTimetablePage() {
                     )}
                   />
 
-                  <FormField
-                    control={form.control}
-                    name='is_template'
-                    render={({ field }) => (
-                      <FormItem className='flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4'>
-                        <FormControl>
-                          <Checkbox
-                            checked={field.value}
-                            onCheckedChange={field.onChange}
-                          />
-                        </FormControl>
-                        <div className='space-y-1 leading-none'>
-                          <FormLabel>Save as Template</FormLabel>
-                          <FormDescription>
-                            Set this as a reusable template
-                          </FormDescription>
-                        </div>
-                      </FormItem>
-                    )}
-                  />
+                  {/* BUG-006045 (2026-09-15): no "Save as Template" here. It set
+                      is_template on the live timetable, which hides the class from
+                      the Pending dropdown, dashboard and AQS attendance reports.
+                      Templates are copied from a finished timetable via its
+                      detail page instead. */}
                 </div>
-
-                {watchIsTemplate && (
-                  <FormField
-                    control={form.control}
-                    name='template_name'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Template Name</FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder='Enter template name'
-                            {...field}
-                            value={field.value || ''}
-                          />
-                        </FormControl>
-                        <FormDescription>
-                          A descriptive name for this template
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                )}
 
                 <div className='flex justify-end space-x-4'>
                   <Button

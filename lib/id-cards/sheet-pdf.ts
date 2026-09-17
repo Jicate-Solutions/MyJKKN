@@ -41,25 +41,43 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
+/** JPEG quality for card bitmaps inside the PDF (print-quality, ~8× smaller than PNG). */
+const PDF_JPEG_QUALITY = 0.9;
+
+// One canvas reused for every card: allocating 1,100 canvases was the fastest
+// way to run Chrome out of memory on a 552-learner batch.
+let scratch: HTMLCanvasElement | null = null;
+function scratchCanvas(w: number, h: number): CanvasRenderingContext2D {
+  scratch ??= document.createElement('canvas');
+  if (scratch.width !== w) scratch.width = w;
+  if (scratch.height !== h) scratch.height = h;
+  const ctx = scratch.getContext('2d');
+  if (!ctx) throw new Error('Canvas is not available in this browser.');
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, w, h);
+  return ctx;
+}
+
 /**
- * Rotate a PNG data URL by `degrees` (clockwise, like CSS) on a canvas. 0 and
- * 360 return the input untouched; ±90 swap width and height.
+ * Rotate a card bitmap by `degrees` (clockwise, like CSS) and return it as a
+ * JPEG data URL sized for the PDF. 0/360 = no rotation (still re-encoded as
+ * JPEG: jsPDF decodes PNGs in JavaScript, which is both slow and the largest
+ * memory cost of the old build); ±90 swap width and height.
  */
 export async function rotateDataUrl(src: string, degrees: number): Promise<string> {
   const r = ((degrees % 360) + 360) % 360;
-  if (r === 0) return src;
   const img = await loadImage(src);
   const swap = r === 90 || r === 270;
-  const canvas = document.createElement('canvas');
-  canvas.width = swap ? img.naturalHeight : img.naturalWidth;
-  canvas.height = swap ? img.naturalWidth : img.naturalHeight;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('Canvas is not available in this browser.');
-  ctx.translate(canvas.width / 2, canvas.height / 2);
+  const ctx = scratchCanvas(swap ? img.naturalHeight : img.naturalWidth, swap ? img.naturalWidth : img.naturalHeight);
+  ctx.translate(ctx.canvas.width / 2, ctx.canvas.height / 2);
   ctx.rotate((r * Math.PI) / 180);
   ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
-  return canvas.toDataURL('image/png');
+  return ctx.canvas.toDataURL('image/jpeg', PDF_JPEG_QUALITY);
 }
+
+/** Let the event loop breathe so progress paints and the GC can run. */
+const yieldToBrowser = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 export interface BuildPdfOptions {
   title?: string;
@@ -76,8 +94,6 @@ export async function buildSheetPdf(pages: SheetPage[], options: BuildPdfOptions
 
   const total = pages.reduce((n, p) => n + pageSequence(p).length, 0);
   let done = 0;
-  // A card side rotated the same way is only rasterised once.
-  const rotated = new Map<string, string>();
 
   for (let p = 0; p < pages.length; p += 1) {
     const page = pages[p];
@@ -89,12 +105,10 @@ export async function buildSheetPdf(pages: SheetPage[], options: BuildPdfOptions
       const { cellW, cellH } = page.geometry;
 
       const r = ((slot.rotation % 360) + 360) % 360;
+      // Each card side appears once per document — no cross-page cache (the old
+      // Map kept every bitmap alive for the whole build: 1,104 × ~1 MB).
+      const bitmap = await rotateDataUrl(src, r);
       const cacheKey = `${slot.card.learnerId}:${slot.side}:${r}`;
-      let bitmap = rotated.get(cacheKey);
-      if (!bitmap) {
-        bitmap = await rotateDataUrl(src, r);
-        rotated.set(cacheKey, bitmap);
-      }
       // The bitmap is landscape 85.6 × 54; after ±90° it is upright 54 × 85.6.
       const swap = r === 90 || r === 270;
       const w = swap ? CARD_SHORT_MM : CARD_LONG_MM;
@@ -102,7 +116,7 @@ export async function buildSheetPdf(pages: SheetPage[], options: BuildPdfOptions
       // Centre in the cell exactly like imageStyle() does on screen.
       const ix = x + (cellW - w) / 2;
       const iy = y + (cellH - h) / 2;
-      doc.addImage(bitmap, 'PNG', ix, iy, w, h, cacheKey, 'FAST');
+      doc.addImage(bitmap, 'JPEG', ix, iy, w, h, cacheKey, 'FAST');
 
       if (isFlagged(slot.card)) {
         doc.setDrawColor(ISSUE_RED);
@@ -125,9 +139,22 @@ export async function buildSheetPdf(pages: SheetPage[], options: BuildPdfOptions
       }
       done += 1;
       options.onProgress?.(done, total);
+      if (done % 6 === 0) await yieldToBrowser();
     }
   }
   return doc;
+}
+
+/**
+ * Cards per PDF file when a batch is split. ~120 cards = up to 240 sides =
+ * ~40 A4 sheets ≈ 20–25 MB of JPEG: comfortable for jsPDF and for Chrome.
+ */
+export const PDF_CHUNK_CARDS = 120;
+
+export function chunkCards<T>(cards: readonly T[], size = PDF_CHUNK_CARDS): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < cards.length; i += size) out.push(cards.slice(i, i + size));
+  return out;
 }
 
 /** File name like `id-cards-2026-09-07-25-learners.pdf`. */

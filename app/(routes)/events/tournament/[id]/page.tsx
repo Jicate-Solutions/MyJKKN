@@ -76,6 +76,7 @@ import { EventLogistics } from '@/components/events/shared/event-logistics';
 import { EventTasksCard } from '@/components/events/shared/event-tasks-card';
 import { EventReviewCommentsCard } from '@/components/events/shared/event-review-comments-card';
 import { useTournamentAccess } from '@/hooks/events/use-tournament-access';
+import { useEventReviewCommentAccess } from '@/hooks/events/shared/use-event-review-comment-access';
 
 function divisionLabel(d: TournamentDivision): string {
   return [d.sport, d.age_band, d.gender && d.gender !== 'open' ? d.gender : null]
@@ -284,6 +285,10 @@ export default function TournamentManagePage() {
   // full control; committee members view everything and edit only their tasks.
   const access = useTournamentAccess(id, tournament);
   const canManage = access.canManage;
+  // Staff TAGGED on this tournament's review thread can read that thread
+  // without holding any view right on the tournament itself. Asked here, above
+  // the early returns, because hooks cannot be called conditionally.
+  const reviewAccess = useEventReviewCommentAccess(id);
   const updateTournament = useUpdateTournament();
   // `entries` still feeds the per-division entry COUNT and the fixtures'
   // entryCount. The per-entry rows — and the mark-paid / payment-link / withdraw
@@ -338,7 +343,9 @@ export default function TournamentManagePage() {
     return { active: active.length, payment, played, totalMatches: matches.length, divisionRows };
   }, [entries, matches, divisions, entriesByDivision]);
 
-  if (loadingT || access.isLoading) {
+  // A non-viewer waits for the review answer too, or a tagged colleague would
+  // see "no access" flash before their thread appears.
+  if (loadingT || access.isLoading || (!access.canView && reviewAccess.isLoading)) {
     return (
       <ContentLayout title="Tournament">
         <div className="flex h-64 items-center justify-center">
@@ -368,6 +375,29 @@ export default function TournamentManagePage() {
   // incidents) and every entrant's payment status, all rendered read-only but visible.
   // RLS does not cover this: event_sponsors / event_budget_items are readable far more
   // broadly than the tournament access model implies.
+  if (!access.canView && reviewAccess.canView) {
+    // Tagged in the review thread, but not a viewer of the tournament. Show the
+    // thread and nothing else: the no-access rule above exists precisely so
+    // sponsors, budget and entrants are not exposed, and being tagged on a
+    // remark is not a reason to reveal them.
+    return (
+      <ContentLayout title={tournament.name}>
+        <PageBreadcrumb
+          items={[
+            { label: 'Events', href: '/events' },
+            { label: 'Tournaments', href: '/events/tournament' },
+            { label: tournament.name },
+          ]}
+        />
+        <p className="mb-4 text-sm text-muted-foreground">
+          You were tagged in this tournament&apos;s review comments. You can read and reply
+          there; the rest of the tournament is not shared with you.
+        </p>
+        <EventReviewCommentsCard eventId={id} />
+      </ContentLayout>
+    );
+  }
+
   if (!access.canView) {
     return (
       <ContentLayout title="Tournament">

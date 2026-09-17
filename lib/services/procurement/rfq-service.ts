@@ -349,10 +349,12 @@ export class ProcurementRfqService {
   /** Active vendors for this institution (RFQ vendor picker). */
   static async getVendorsForSelect(
     institutionId: string
-  ): Promise<Array<{ id: string; name: string; code: string; email: string | null }>> {
+  ): Promise<
+    Array<{ id: string; name: string; code: string; email: string | null; gstin: string | null; phone: string | null }>
+  > {
     const { data, error } = await this.supabase
       .from('ims_suppliers')
-      .select('id, name, code, email')
+      .select('id, name, code, email, gstin, phone')
       .eq('institution_id', institutionId)
       .eq('is_active', true)
       .order('name', { ascending: true });

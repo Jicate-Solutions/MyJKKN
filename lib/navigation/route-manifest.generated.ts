@@ -3391,6 +3391,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "label": "New",
             "iconName": "Plus",
             "children": []
+          },
+          {
+            "path": "/cdc/drives/willingness",
+            "label": "Willingness",
+            "iconName": "Users",
+            "children": []
           }
         ]
       },
@@ -3814,6 +3820,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       }
     ]
+  },
+  {
+    "path": "/gate-pass",
+    "label": "Gate Pass",
+    "iconName": "FileText",
+    "children": []
   },
   {
     "path": "/gate-security",
@@ -5099,6 +5111,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "children": []
               }
             ]
+          },
+          {
+            "path": "/ims/stock/reorder",
+            "label": "Reorder",
+            "iconName": "FileText",
+            "children": []
           }
         ]
       },
@@ -5732,6 +5750,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/meetings/polls",
         "label": "Polls",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/meetings/record",
+        "label": "Record",
         "iconName": "FileText",
         "children": []
       },

@@ -438,13 +438,16 @@ export class CdcDriveService {
       updated_at: now,
       updated_by: actorId,
     };
+    // program_ids mirrors the audience picker's programs (2026-09-16); an
+    // omitted value leaves the saved list untouched.
+    if (Array.isArray(input.program_ids)) row.program_ids = input.program_ids;
     if (existing) {
       const { error } = await supabase.from('cdc_drive_eligibility').update(row).eq('id', existing.id);
       if (error) throw friendlyDriveError(error);
     } else {
       const { error } = await supabase
         .from('cdc_drive_eligibility')
-        .insert({ ...row, program_ids: [], created_by: actorId });
+        .insert({ program_ids: [], ...row, created_by: actorId });
       if (error) throw friendlyDriveError(error);
     }
   }
@@ -496,10 +499,16 @@ export class CdcDriveService {
     // willingness page reporting "not eligible" for everyone, because
     // computeIsEligible(null, …) is false. Refuse the transition instead of
     // letting it succeed silently.
+    // A drive with institution + semester targeting reaches learners through
+    // drive-targeting.ts, so the legacy program list is only required when no
+    // targeting exists.
     if (payload.to_status === 'willingness_open') {
-      const eligibility = await CdcEligibilityService.getEligibility(supabase, driveId);
-      if (!isEligibilityReadyForWillingness(eligibility)) {
-        throw new Error(ELIGIBILITY_REQUIRED_MESSAGE);
+      const targeted = Array.isArray(drive.institution_semesters) && drive.institution_semesters.length > 0;
+      if (!targeted) {
+        const eligibility = await CdcEligibilityService.getEligibility(supabase, driveId);
+        if (!isEligibilityReadyForWillingness(eligibility)) {
+          throw new Error(ELIGIBILITY_REQUIRED_MESSAGE);
+        }
       }
     }
 

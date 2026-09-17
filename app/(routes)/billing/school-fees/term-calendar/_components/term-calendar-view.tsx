@@ -21,7 +21,12 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useSchoolYearSelection } from '@/hooks/school-fees/use-school-year-selection';
 import { useSchoolTermCalendars } from '@/hooks/school-fees/use-school-term-calendars';
 
+import { cn } from '@/lib/utils';
+
 import { SchoolYearPicker } from '../../_components/school-year-picker';
+import { SECTION_THEMES } from '../../_components/section-theme';
+
+const T = SECTION_THEMES.calendar;
 import { TermCalendarForm } from './term-calendar-form';
 import { TermCalendarCloneDialog } from './term-calendar-clone-dialog';
 
@@ -52,6 +57,7 @@ export function TermCalendarView() {
   return (
     <div className="space-y-6">
       <SchoolYearPicker
+        section="calendar"
         institutions={institutions}
         institutionId={institutionId}
         onInstitutionChange={setInstitutionChoice}
@@ -77,13 +83,16 @@ export function TermCalendarView() {
           <Skeleton className="h-32 w-full" />
         </div>
       ) : (
-        <Card>
-          <CardHeader className="pb-3">
+        <Card className={T.cardBorder}>
+          <CardHeader className={cn('pb-3', T.cardHeader)}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <CardTitle className="text-base flex items-center gap-2">
+                <span className={cn('flex h-6 w-6 items-center justify-center rounded-md', T.iconTileSm)}>
+                  <T.icon className="h-3.5 w-3.5" />
+                </span>
                 Term calendar
                 {hasCalendar ? (
-                  <Badge variant="secondary">
+                  <Badge className={T.badge}>
                     {terms.length} term{terms.length === 1 ? '' : 's'}
                   </Badge>
                 ) : (
@@ -101,7 +110,7 @@ export function TermCalendarView() {
             </div>
           </CardHeader>
 
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-4 pt-4">
             {!hasCalendar ? (
               <Alert>
                 <Info className="h-4 w-4" />

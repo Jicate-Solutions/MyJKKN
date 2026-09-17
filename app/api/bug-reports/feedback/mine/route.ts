@@ -27,7 +27,7 @@ export async function GET() {
 
     const { data, error } = await (supabase as any)
       .from('bug_fix_feedback_requests')
-      .select('id, bug_id, status, answer, expires_at, created_at, bug_reports:bug_id (display_id, description)')
+      .select('id, bug_id, kind, status, answer, expires_at, created_at, bug_reports:bug_id (display_id, description)')
       .eq('reporter_user_id', user.id)
       .in('status', ['sent', 'delivered', 'answered'])
       .gt('expires_at', new Date().toISOString())
@@ -37,6 +37,8 @@ export async function GET() {
     const prompts = (data ?? []).map((r: any) => ({
       id: r.id,
       bug_id: r.bug_id,
+      // 2026-09-16: 'fix_check' (did our fix work?) or 'still_open' (is this still happening?)
+      kind: r.kind === 'still_open' ? 'still_open' : 'fix_check',
       display_id: r.bug_reports?.display_id ?? null,
       description: (r.bug_reports?.description ?? '').slice(0, 160),
       status: r.status,

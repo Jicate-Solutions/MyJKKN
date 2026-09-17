@@ -8105,8 +8105,15 @@ CREATE TABLE IF NOT EXISTS public.course_bill_payments (
 -- and the server webhook — and both fire for the same payment. This index
 -- makes a duplicate settlement a constraint violation the caller can
 -- swallow, rather than a second credit.
-CREATE UNIQUE INDEX IF NOT EXISTS course_bill_payments_rzp_payment_uniq
-  ON public.course_bill_payments (razorpay_payment_id)
+--
+-- Composite, not just (razorpay_payment_id): a partial-payment order can
+-- cover SEVERAL selected instalments in one Razorpay transaction, inserting
+-- one row per bill that all share the same payment id. The guarantee is now
+-- "this bill can't be credited twice for this payment", not "this payment
+-- can only ever touch one row". Mirrors migration
+-- 20260916161000_course_bill_payments_multi_bill_idempotency.sql.
+CREATE UNIQUE INDEX IF NOT EXISTS course_bill_payments_rzp_payment_bill_uniq
+  ON public.course_bill_payments (razorpay_payment_id, bill_id)
   WHERE razorpay_payment_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_course_bill_payments_bill
@@ -10131,5 +10138,39 @@ CREATE TABLE IF NOT EXISTS public.wa_bridge_status (
 
 COMMENT ON TABLE public.wa_bridge_status IS
   'Single-row heartbeat for the on-campus WhatsApp bridge. connected = the process is running and talking to us; logged_in = its WhatsApp session is still authenticated. The two differ, and the difference is the whole value: a bridge that is running but logged out looks healthy from the outside while sending nothing.';
+
+-- ---------------------------------------------------------------------------
+-- reservation_communications (20261224100000_reservation_communicate_users.sql)
+-- Immutable log of ad-hoc messages an approver/admin sent to a reservation's
+-- booker, one row per (reservation, message).
+CREATE TABLE IF NOT EXISTS public.reservation_communications (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  reservation_id  uuid NOT NULL
+                    REFERENCES public.resource_reservations(id) ON DELETE CASCADE,
+  institution_id  uuid NOT NULL
+                    REFERENCES public.institutions(id),
+  sender_id       uuid NOT NULL DEFAULT auth.uid()
+                    CONSTRAINT reservation_communications_sender_id_fkey
+                    REFERENCES public.profiles(id) ON DELETE CASCADE,
+  recipient_id    uuid NOT NULL
+                    CONSTRAINT reservation_communications_recipient_id_fkey
+                    REFERENCES public.profiles(id) ON DELETE CASCADE,
+  subject         text,
+  message         text NOT NULL
+                    CONSTRAINT reservation_communications_message_length
+                    CHECK (char_length(btrim(message)) BETWEEN 1 AND 4000),
+  notification_id uuid REFERENCES public.notifications(id) ON DELETE SET NULL,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE public.reservation_communications IS
+  'Immutable log of ad-hoc messages an approver/admin sent to a reservation''s booker. One row per (reservation, message) so a bulk send across several bookings still logs against each one. Delivery is a fanoutNotification() in-app notification written by the API route with the service-role client; notification_id links back to it.';
+
+CREATE INDEX IF NOT EXISTS idx_reservation_communications_reservation
+  ON public.reservation_communications (reservation_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_reservation_communications_recipient
+  ON public.reservation_communications (recipient_id);
+CREATE INDEX IF NOT EXISTS idx_reservation_communications_institution
+  ON public.reservation_communications (institution_id);
 
 -- ---------------------------------------------------------------------------

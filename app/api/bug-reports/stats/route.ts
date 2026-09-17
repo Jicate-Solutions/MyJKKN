@@ -80,6 +80,30 @@ export async function GET(request: Request) {
         .is('resolved_at', null)
     ]);
 
+    // Who resolved how many, grouped in SQL. Absent before migration
+    // 20261223093000 is applied — the dashboard then shows no breakdown
+    // rather than failing the whole stats call.
+    let resolvers: Array<{
+      resolved_by: string | null;
+      resolver_name: string | null;
+      resolver_email: string | null;
+      resolved_count: number;
+    }> = [];
+    const { data: resolverRows, error: resolverError } = await (supabase as any).rpc(
+      'fn_bug_resolver_stats',
+      { p_from: resolvedFrom || null, p_to: resolvedTo || null }
+    );
+    if (resolverError) {
+      logger.warn('bug-reports/api', 'Resolver breakdown unavailable', resolverError);
+    } else {
+      resolvers = (resolverRows ?? []).map((row: any) => ({
+        resolved_by: row.resolved_by ?? null,
+        resolver_name: row.resolver_name ?? null,
+        resolver_email: row.resolver_email ?? null,
+        resolved_count: Number(row.resolved_count ?? 0)
+      }));
+    }
+
     const totalCount = total ?? 0;
     const resolvedCount = resolved ?? 0;
     const recentCount = recentReports ?? 0;
@@ -107,6 +131,7 @@ export async function GET(request: Request) {
       recentReports: recentCount,
       previousReports: previousCount,
       resolvedMissingDate: resolvedMissingDate ?? 0,
+      resolvers,
       reportsTrend: {
         value: trendValue.toFixed(1),
         direction: trendValue > 0 ? 'up' : trendValue < 0 ? 'down' : 'neutral'

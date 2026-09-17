@@ -42,7 +42,7 @@ import type {
 } from '@/types/cdc';
 import { isWindowOpen } from '@/lib/services/courses/application-window';
 import { CdcDriveService, driveCircularOf } from './drive-service';
-import { hasSemesterTargeting, isLearnerTargeted } from './drive-targeting';
+import { hasSemesterTargeting, isLearnerTargeted, learnerTargetingMiss } from './drive-targeting';
 import { fetchLearnerResultView, type ResultViewSource } from '@/lib/services/coe/learner-result-view';
 import { summarizeAcademicStanding, type AcademicStanding } from './academic-standing';
 
@@ -103,6 +103,10 @@ export interface DeclareWillingnessInput {
   additional_mobile?: string | null;
   /** Learner ticked the data-consent statement (required for intent='willing'). */
   data_consent?: boolean;
+  /** Mandatory for intent='willing' (2026-09-16): the learner's own CGPA (0–10). */
+  cgpa?: number | null;
+  /** Mandatory for intent='willing': number of standing arrears (integer >= 0). */
+  arrears_count?: number | null;
 }
 
 export class CdcWillingnessService {
@@ -336,6 +340,17 @@ export class CdcWillingnessService {
           'Please permit CDC to use your profile and academic details for this drive before confirming.'
         );
       }
+      if (typeof input.cgpa !== 'number' || !Number.isFinite(input.cgpa) || input.cgpa < 0 || input.cgpa > 10) {
+        throw new Error('Enter your CGPA (0 to 10) before confirming.');
+      }
+      if (
+        typeof input.arrears_count !== 'number' ||
+        !Number.isInteger(input.arrears_count) ||
+        input.arrears_count < 0 ||
+        input.arrears_count > 99
+      ) {
+        throw new Error('Enter your number of arrears (0 or more) before confirming.');
+      }
     }
 
     const additionalMobile = cleanMobile(input.additional_mobile);
@@ -372,10 +387,22 @@ export class CdcWillingnessService {
             learner_email: learner.email,
             learner_mobile: learner.mobile,
             additional_mobile: additionalMobile,
-            cgpa: snapshot.academic?.cgpa ?? null,
-            arrears_count: snapshot.academic ? snapshot.academic.arrears_count : null,
-            arrears_details: snapshot.academic?.arrears ?? null,
-            academic_source: snapshot.academic?.source ?? 'unavailable',
+            // Learner-declared figures are the record; the COE source is kept only
+            // when it agrees with what the learner typed.
+            cgpa: input.cgpa ?? null,
+            arrears_count: input.arrears_count ?? null,
+            arrears_details:
+              snapshot.academic && snapshot.academic.arrears_count === input.arrears_count
+                ? snapshot.academic.arrears
+                : null,
+            academic_source:
+              snapshot.academic &&
+              snapshot.academic.source !== 'unavailable' &&
+              snapshot.academic.cgpa != null &&
+              Math.abs(snapshot.academic.cgpa - (input.cgpa ?? -1)) < 0.005 &&
+              snapshot.academic.arrears_count === input.arrears_count
+                ? snapshot.academic.source
+                : 'learner_declared',
             data_consent_at: snapshot.willingness?.data_consent_at ?? now,
           }
         : { additional_mobile: additionalMobile ?? snapshot.willingness?.additional_mobile ?? null };
@@ -482,11 +509,15 @@ export function computeEligibility(
       return { is_eligible: false, reason: 'This drive is not open to your institution.' };
     }
     if (isLearnerTargeted(drive, learner)) return { is_eligible: true, reason: null };
+    const miss = learnerTargetingMiss(drive, learner);
     return {
       is_eligible: false,
-      reason: hasSemesterTargeting(drive)
-        ? 'This drive is open only to selected semesters of your institution, and your current semester is not one of them.'
-        : 'This drive is not open to your institution.',
+      reason:
+        miss === 'program'
+          ? 'This drive is open only to selected programs of your institution, and your program is not one of them.'
+          : miss === 'semester' || hasSemesterTargeting(drive)
+            ? 'This drive is open only to selected semesters of your institution, and your current semester is not one of them.'
+            : 'This drive is not open to your institution.',
     };
   }
   // Legacy program-based eligibility

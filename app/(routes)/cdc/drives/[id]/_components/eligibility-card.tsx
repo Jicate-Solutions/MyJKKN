@@ -296,7 +296,31 @@ function EligibilityForm({
   return (
     <div className="space-y-4">
       <div>
-        <Label>Programs {selected.length > 0 ? `(${selected.length} chosen)` : ''}</Label>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <Label>Programs {selected.length > 0 ? `(${selected.length} chosen)` : ''}</Label>
+          {programs.length > 0 ? (
+            <div className="flex items-center gap-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={!canEdit || selected.length === programs.length}
+                onClick={() => setSelected(programs.map((p) => p.value))}
+              >
+                Select all programs
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={!canEdit || selected.length === 0}
+                onClick={() => setSelected([])}
+              >
+                Clear programs
+              </Button>
+            </div>
+          ) : null}
+        </div>
         <p className="text-xs text-muted-foreground mb-2">
           Only learners on a chosen program are notified and able to declare interest.
         </p>

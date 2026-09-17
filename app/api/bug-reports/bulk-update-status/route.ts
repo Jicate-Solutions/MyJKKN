@@ -7,6 +7,10 @@ import { createAdminClient } from '@/lib/supabase/client';
 import { BugReportStatus } from '@/types/bugs';
 import { logger } from '@/lib/utils/enhanced-logger';
 import {
+  resolvedByForStatus,
+  updateWithResolvedBy
+} from '@/lib/api/bug-reports/resolved-by';
+import {
   BugReportEmailService,
   type BugResolvedEmailData
 } from '@/lib/services/email/bug-report-email-service';
@@ -58,8 +62,9 @@ export async function POST(request: Request) {
     // Use admin client for update operations
     const adminSupabase = createAdminClient();
 
-    // Update resolved_at timestamp if status is resolved
-    const updateData: any = { status };
+    // Update resolved_at timestamp if status is resolved. resolved_by records
+    // WHO resolved them — the admin acting here — and is cleared otherwise.
+    const updateData: any = { status, resolved_by: resolvedByForStatus(status, user.id) };
     if (status === 'resolved') {
       updateData.resolved_at = new Date().toISOString();
       // Keep duplicate_of on resolve so duplicate groups stay visible in history.
@@ -73,11 +78,9 @@ export async function POST(request: Request) {
     }
 
     // Update bug reports status
-    const { error: updateError } = await (
-      adminSupabase.from('bug_reports') as any
-    )
-      .update(updateData)
-      .in('id', reportIds);
+    const { error: updateError } = await updateWithResolvedBy(updateData, (payload) =>
+      (adminSupabase.from('bug_reports') as any).update(payload).in('id', reportIds)
+    );
 
     if (updateError) {
       throw updateError;
@@ -97,14 +100,16 @@ export async function POST(request: Request) {
 
       if (!childrenError && children && children.length > 0) {
         cascadedIds = children.map((c: any) => c.id);
-        const { error: cascadeError } = await (
-          adminSupabase.from('bug_reports') as any
-        )
-          .update({
+        const { error: cascadeError } = await updateWithResolvedBy(
+          {
             status,
-            resolved_at: status === 'resolved' ? new Date().toISOString() : null
-          })
-          .in('id', cascadedIds);
+            resolved_at: status === 'resolved' ? new Date().toISOString() : null,
+            // The duplicates close because this admin closed their canonical.
+            resolved_by: resolvedByForStatus(status, user.id)
+          },
+          (payload) =>
+            (adminSupabase.from('bug_reports') as any).update(payload).in('id', cascadedIds)
+        );
 
         if (cascadeError) {
           logger.error('bug-reports/api', 'Bulk duplicate cascade failed', cascadeError);
