@@ -1325,6 +1325,7 @@
     "resources.maintenance.view",
     "resources.reports.view",
     "resources.reservations.cancel",
+    "resources.reservations.communicate",
     "resources.reservations.create",
     "resources.reservations.edit",
     "resources.reservations.view",

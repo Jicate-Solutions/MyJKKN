@@ -229,6 +229,23 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // question may be written against, so it takes the same key as the review
   // queue rather than a new one.
   '/foundation/onemark/units': 'foundation.items.manage',
+  // Question sources (Lane Q, PR #3651) — the source list, and judging each
+  // source after the board exam. Same key as the review queue and the unit
+  // list: deciding where questions may be drawn from is the same authority as
+  // approving the questions themselves.
+  //
+  // Without these two entries the in-page tab bar showed a "Sources" chip to
+  // every learner: components/navigation/auto-tab-nav.tsx always shows a chip
+  // whose href has no entry in this map, and the chip led to the page's own
+  // Access Denied. They also narrow the proxy trie for this subtree from
+  // foundation.practice.take (inherited from '/foundation/onemark') to this
+  // key, so a learner who types the URL is refused by proxy.ts at
+  // /unauthorized — an explicit refusal page, never a silent bounce. The child
+  // is listed because the chip rule matches the EXACT href, not a prefix.
+  // '/foundation/onemark/results/sources' needs no entry: it sits under
+  // '/foundation/onemark/results', already gated on assessments.manage.
+  '/foundation/onemark/sources': 'foundation.items.manage',
+  '/foundation/onemark/sources/board-paper': 'foundation.items.manage',
 
   // Cohorts — the top-level section for the shared cohort spine. Its first
   // screen appoints coordinators for every programme on that spine. Mapped to

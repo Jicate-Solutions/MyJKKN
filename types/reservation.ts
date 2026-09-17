@@ -284,3 +284,18 @@ export interface UserReservationSummary {
   cancellation_rate: number;
   no_show_rate: number;
 }
+
+// An ad-hoc message an approver/admin sent to a reservation's booker
+// (reservation_communications — immutable log, one row per message).
+export interface ReservationCommunication {
+  id: string;
+  reservation_id: string;
+  sender_id: string;
+  recipient_id: string;
+  subject: string | null;
+  message: string;
+  created_at: string;
+
+  // Relation
+  sender?: { id: string; full_name: string | null } | null;
+}
