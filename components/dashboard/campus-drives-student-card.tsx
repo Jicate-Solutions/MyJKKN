@@ -69,6 +69,10 @@ function DriveRow({ drive }: { drive: MyCdcDrive }) {
           <Badge variant="outline" className="shrink-0">
             Declined
           </Badge>
+        ) : !drive.is_open ? (
+          <Badge variant="outline" className="shrink-0 text-muted-foreground">
+            Closed
+          </Badge>
         ) : closing ? (
           <Badge
             variant="outline"
@@ -100,11 +104,23 @@ function DriveRow({ drive }: { drive: MyCdcDrive }) {
         ) : null}
       </div>
 
-      <Button asChild size="sm" variant={declared ? 'outline' : 'default'} className="w-full">
-        <Link href={`/cdc/drives/${drive.id}/willingness`}>
-          {declared ? 'Change your answer' : "Tell them you're interested"}
-        </Link>
-      </Button>
+      {/* A shut window offers no button. The willingness page refuses once the
+          window closes, so a link here would be an invitation to be turned
+          away. The row stays visible on purpose: a learner who missed a drive
+          should be able to see that it happened, not have it vanish. */}
+      {drive.is_open ? (
+        <Button asChild size="sm" variant={declared ? 'outline' : 'default'} className="w-full">
+          <Link href={`/cdc/drives/${drive.id}/willingness`}>
+            {declared ? 'Change your answer' : "Tell them you're interested"}
+          </Link>
+        </Button>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          {declared
+            ? 'This drive has closed. Your answer is with the Career Development Centre.'
+            : 'This drive has closed, so it can no longer be answered.'}
+        </p>
+      )}
     </div>
   );
 }
@@ -115,16 +131,17 @@ export function CampusDrivesStudentCard() {
   // Nothing to respond to, or we cannot tell yet — show nothing at all.
   if (isLoading || error || !data || data.length === 0) return null;
 
-  // /api/cdc/drives/mine returns drives the learner is in the audience for and
-  // TAGS each one with is_open (status AND the willingness window); it no longer
-  // filters the shut ones out, because /cdc/drives lists them deliberately. This
-  // card is the "what can I act on right now" surface, so it takes only the open
-  // ones — every row here carries a call to action, and offering one for a drive
-  // whose window has shut sends the learner to a page that refuses them.
-  const open = data.filter((d) => d.is_open);
-  if (open.length === 0) return null;
+  // The self-hiding discipline this card shipped with, kept now that closed
+  // drives are listed too: a learner with nothing open and nothing declared has
+  // nothing to do here, so the card takes no space on their dashboard. A closed
+  // drive they DID answer keeps the card, because their answer is a thing they
+  // may want to see.
+  if (!data.some((d) => d.is_open || d.willingness_status)) return null;
 
-  const undecided = open.filter((d) => !d.willingness_status).length;
+  // Only a drive that can still be answered counts as something to answer.
+  // Until 16 Sep this counted closed ones too, so the badge asked the learner
+  // for answers the willingness page would then refuse to take.
+  const undecided = data.filter((d) => d.is_open && !d.willingness_status).length;
 
   return (
     <Card className="border-emerald-200">
@@ -132,7 +149,7 @@ export function CampusDrivesStudentCard() {
         <div className="flex items-center justify-between gap-2">
           <CardTitle className="text-base flex items-center gap-2">
             <Briefcase className="h-4 w-4 text-emerald-600" />
-            Campus drives open to you
+            Your campus drives
           </CardTitle>
           {undecided > 0 ? (
             <Badge
@@ -148,9 +165,9 @@ export function CampusDrivesStudentCard() {
         <p className="text-sm text-muted-foreground">
           {undecided > 0
             ? 'Let the Career Development Centre know whether you want to take part.'
-            : 'You have answered every open drive. You can still change your mind.'}
+            : 'Nothing is waiting on you. Drives that have closed are shown for your record.'}
         </p>
-        {open.map((drive) => (
+        {data.map((drive) => (
           <DriveRow key={drive.id} drive={drive} />
         ))}
       </CardContent>
