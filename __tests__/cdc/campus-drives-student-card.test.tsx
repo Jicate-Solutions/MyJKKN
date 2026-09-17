@@ -30,13 +30,19 @@ function drive(over: Partial<MyCdcDrive> = {}): MyCdcDrive {
   return {
     id: 'd1',
     title: 'Campus drive',
+    status: 'willingness_open',
     recruiter_name: 'Foxconn India',
+    drive_type_name: null,
     drive_date: '2026-10-01',
     job_role_title: 'Graduate Engineer',
     job_location: 'Chennai',
     expected_package_lpa: 4.5,
+    willingness_window_open_at: null,
     willingness_window_close_at: null,
     willingness_status: null,
+    // The feed now TAGS each drive rather than filtering; this card renders only
+    // the open ones, so the default has to be open or every case here vanishes.
+    is_open: true,
     ...over,
   };
 }
@@ -155,5 +161,31 @@ describe('CampusDrivesStudentCard — what it says', () => {
     });
     render(<CampusDrivesStudentCard />);
     expect(screen.queryByText(/closes/i)).toBeNull();
+  });
+});
+
+describe('CampusDrivesStudentCard — a shut window is not an invitation', () => {
+  it('does not render a drive whose willingness window has closed', () => {
+    // /api/cdc/drives/mine returns it (so /cdc/drives can show the learner what
+    // they missed) tagged is_open:false. Every row on this card carries a call
+    // to action, and that CTA leads to a page that would refuse them.
+    useMyCdcDrives.mockReturnValue({
+      data: [drive({ id: 'shut', is_open: false })],
+      isLoading: false,
+      error: null,
+    });
+    const { container } = render(<CampusDrivesStudentCard />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('still renders the open ones alongside a shut one', () => {
+    useMyCdcDrives.mockReturnValue({
+      data: [drive({ id: 'shut', is_open: false }), drive({ id: 'live' })],
+      isLoading: false,
+      error: null,
+    });
+    render(<CampusDrivesStudentCard />);
+    // One invitation, not two.
+    expect(screen.getAllByRole('link').length).toBe(1);
   });
 });
