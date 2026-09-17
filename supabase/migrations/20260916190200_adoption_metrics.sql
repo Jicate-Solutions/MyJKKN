@@ -352,6 +352,11 @@ BEGIN
     RAISE EXCEPTION 'super admin required' USING ERRCODE = '42501';
   END IF;
 
+  -- One send at a time: two simultaneous calls for different features could
+  -- both read "not asked in 7 days" before either inserts. The lock lasts for
+  -- this transaction only.
+  PERFORM pg_advisory_xact_lock(hashtext('fn_adoption_ask_why'));
+
   SELECT * INTO v_feat FROM public.feature_registry WHERE feature_key = p_feature_key;
   IF NOT FOUND THEN
     RETURN jsonb_build_object('success', false, 'error', 'unknown feature');
@@ -523,7 +528,7 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.fn_adoption_propose(text, text, text, jsonb) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_adoption_propose(text, text, text, jsonb) TO authenticated, service_role;
 
--- ci:allow-secdef-authenticated the body RAISES 42501 unless is_super_admin(); the decision is the Director's.
+-- ci:allow-secdef-authenticated the body RAISES 42501 unless the caller is BOTH a super admin AND the named owner of the feature-adoption loop (loop_registry.owner_email — the Director; reassignable on /admin/loops). Ruling 8: the decision is his, not any super admin's.
 CREATE OR REPLACE FUNCTION public.fn_adoption_decide(p_proposal_id uuid, p_option text)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -535,9 +540,17 @@ DECLARE
   v_uid    uuid := auth.uid();
   v_key    text;
   v_status text;
+  v_owner  text;
+  v_email  text;
 BEGIN
   IF NOT COALESCE(is_super_admin(), false) THEN
     RAISE EXCEPTION 'super admin required' USING ERRCODE = '42501';
+  END IF;
+  SELECT lr.owner_email INTO v_owner FROM public.loop_registry lr WHERE lr.loop_key = 'feature-adoption';
+  SELECT p.email INTO v_email FROM public.profiles p WHERE p.id = v_uid;
+  IF v_owner IS NULL OR v_email IS NULL OR lower(v_email) <> lower(v_owner) THEN
+    RAISE EXCEPTION 'Only the owner of the feature-adoption loop (%) decides a card', COALESCE(v_owner, 'unset')
+      USING ERRCODE = '42501';
   END IF;
   IF p_option IS NULL OR p_option NOT IN ('simplify', 'retrain', 'retire', 'keep') THEN
     RETURN jsonb_build_object('success', false, 'error', 'option must be simplify, retrain, retire or keep');
