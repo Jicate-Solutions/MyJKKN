@@ -31,12 +31,22 @@
 -- with pg_get_functiondef on 2026-09-17.
 --
 -- NOT CHANGED here, and they carry the same exact-period rule:
--- fn_scf_effective_attendance (the enforcing number -
--- session_feedback.attendance_coupling_enabled is true and gate_mode is
--- 'hard' globally), fn_scf_confirmation_rollup (period-only) and
--- fn_scf_faculty_completion. Until they are aligned a learner's own card
--- reads higher than the gate computes. That is a deliberate hold, not an
--- oversight: widening it relaxes a live hard gate institution-wide.
+-- fn_scf_effective_attendance, fn_scf_confirmation_rollup (period-only)
+-- and fn_scf_faculty_completion. Until they are aligned, a learner's own
+-- card reads the consolidated number while the admin-side at-risk list
+-- still reads the exact-period one and can name that same learner.
+-- What that is and is not, checked 2026-09-17 rather than assumed:
+-- session_feedback.attendance_coupling_enabled reads true and gate_mode
+-- reads 'hard', both global and active, and the coupling now HAS a
+-- consumer where it had none on 2026-07-05 - the advisory panel on the
+-- attendance consolidation report, which lists learners below the pass
+-- line and says in its own words that a person decides any action.
+-- Nothing auto-blocks a learner on this number: no hall-ticket or
+-- exam-eligibility surface reads the coupling, and the learner's own card
+-- is the only reader of fn_scf_my_confirmed_attendance. So the cost of
+-- the gap is a human acting on a list that contradicts the learner's own
+-- screen, not an automatic block. Aligning the three is the Director's
+-- call, which is why this file is HELD.
 -- =====================================================================
 
 CREATE OR REPLACE FUNCTION public.fn_scf_confirmation_status(p_from date, p_to date)
