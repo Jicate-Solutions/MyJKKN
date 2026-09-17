@@ -10,6 +10,63 @@ name: Production Build
 # That took three hypotheses and six runs, and the two that were wrong are kept
 # there because each looks right until you read the trace that kills it.
 #
+# ── 2026-09-17: THE RUNNER HALVED, SO THE BUILD HAD TO SHRINK ───────────────────
+#
+# Everything measured below was measured on a 4-vCPU / 15 GiB `ubuntu-latest`.
+# From 2026-09-16 17:55Z GitHub hands this repo the documented private-repo box
+# instead: 2 vCPU, 7.8 GiB of RAM, ~14 GiB of disk. Peak `node` RSS on the last
+# green run (35125687882) was 14.6 GB against a ~22 GB working set, and no
+# swapfile that fits on 14 GiB of disk gets that home — 38 of the 40 runs after
+# the switch died, cancelled ~18 min in with no error of their own. #3856 sized
+# the swapfile to the disk that is actually there: necessary, not sufficient.
+#
+# So the build itself was shrunk, with ONE knob:
+#
+#   SENTRY_SOURCEMAPS_DISABLE=1 on the build step (read by next.config.ts, set
+#   NOWHERE else). Under Turbopack @sentry/nextjs force-enables
+#   productionBrowserSourceMaps for you — maybeEnableTurbopackSourcemaps() in
+#   getFinalConfigObjectBundlerUtils — so the build holds a source map for every
+#   module of every client chunk: 15,638 .map files and 1.4 GB of .next, in a job
+#   that holds no SENTRY_AUTH_TOKEN, uploads none of them, and (the SDK's own
+#   deleteSourcemapsAfterUpload default) deletes them again.
+#
+# MEASURED, cold `.next`, `npm run build:ci` under /usr/bin/time -l with this
+# job's exact env, on one 14-core workstation:
+#
+#   baseline, run to completion : peak RSS 13.04 GB, 5 min 50 s, compile 4.5 min
+#   same env + the knob         : compile-phase peak 6.41 GB (2 s sampling)
+#
+# Read the second line for what it is. That run was aborted before page-data
+# collection — the workstation is shared with ~20 other build and dev processes
+# and Turbopack roots at the PARENT checkout, which they rewrite continuously
+# (load average touched 490), so no "after" run could be carried to the end. The
+# comparable figure is phase-to-phase: during compile the baseline was already at
+# 10.5-11.0 GB where the knob run sat at 3.4-6.4 GB. A 14-core box is in any case
+# not a 2-vCPU runner — Turbopack's peak scales with how many compile tasks are
+# live at once — but a source map per module does NOT scale with cores, so it is
+# a larger share of the runner's footprint than of that box's. THE DECISIVE
+# MEASUREMENT IS THIS JOB'S OWN MEMORY TRACE on the next run.
+#
+# TWO THINGS MEASURED AND REJECTED, both of which look obviously right:
+#
+#   • Lowering experimental.turbopackMemoryLimit for CI. The Rust arena does sit
+#     outside the V8 heap, so --max-old-space-size really does not bound it —
+#     but at 2 GiB the arena cannot hold the module graph of 1,572 pages, so
+#     Turbopack evicts and recomputes in a loop. A compile that takes 4.5 min at
+#     the shipped 4 GiB had not finished after 9 min, RSS sawtoothing 13 GB ->
+#     3 GB with no phase progress. Two cores would be worse at that, not better.
+#
+#   • Lowering build:ci's V8 caps (--max-old-space-size 6144 -> 4096 and
+#     --max-semi-space-size 128 -> 16). This made it WORSE: 12.6 GB peak and a
+#     GC-bound crawl at 1.1x parallelism against the baseline's 2.3x. That is the
+#     too-small-young-generation pathology — short-lived objects survive the tiny
+#     scavenger, get tenured, old space bloats, major GC never stops. The
+#     existing --max-semi-space-size=128 is load-bearing; leave it alone.
+#     package.json is therefore untouched by this change.
+#
+# `timeout-minutes` went 30 -> 45 regardless, because halving the cores also
+# halves Next's static-export worker pool (see the job's own comment).
+#
 # ── WHY THIS EXISTS ─────────────────────────────────────────────────────────────
 #
 # Until this workflow, NOTHING in this repository ever ran `next build` before a
@@ -314,10 +371,18 @@ jobs:
   build:
     name: Production Build
     runs-on: ubuntu-latest
-    # A real build here is 3-7 minutes. 30 is deliberately generous: a timeout
-    # reports `cancelled`, which reads as neither pass nor fail, so a clock that
-    # is merely tight turns this gate into a source of unreadable verdicts.
-    timeout-minutes: 30
+    # A real build here was 3-7 minutes on the 4-vCPU box. A timeout reports
+    # `cancelled`, which reads as neither pass nor fail, so a clock that is
+    # merely tight turns this gate into a source of unreadable verdicts — hence
+    # the generous number.
+    #
+    # Raised 30 -> 45 on 2026-09-17 with the memory work. Halving the cores does
+    # not halve the wall clock evenly: Next sizes its page-data and static-export
+    # worker pool from `os.cpus().length - 1`, so the 4-vCPU runs fanned 1,572
+    # static pages across 3 workers and a 2-vCPU run has exactly ONE. The memory
+    # knobs make the job fit; they do not make it fast, and a memory fix that
+    # then dies on the clock would read as the same unhelpful `cancelled`.
+    timeout-minutes: 45
 
     # NOTE: deliberately NO `if: ${{ !github.event.pull_request.draft }}`.
     #
@@ -508,6 +573,23 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key-build-only
           # Keeps Next's anonymous build telemetry out of CI.
           NEXT_TELEMETRY_DISABLED: '1'
+          # ── SOURCE MAPS OFF, FOR THIS JOB ONLY ───────────────────────────────
+          # Read by next.config.ts and set NOWHERE ELSE — not on Vercel, not in
+          # dev — so what production compiles, and what Sentry can un-minify for
+          # a real user's stack trace, is unchanged.
+          #
+          # Under Turbopack @sentry/nextjs force-sets
+          # productionBrowserSourceMaps = true for you (maybeEnableTurbopackSourcemaps
+          # in getFinalConfigObjectBundlerUtils), so every client chunk gets a
+          # .map built in-process: 15,638 of them, 1.4 GB of .next. This job
+          # holds no SENTRY_AUTH_TOKEN, so it uploads none of them, and the SDK's
+          # own default (deleteSourcemapsAfterUpload) deletes them afterwards
+          # regardless. Here they are pure cost.
+          #
+          # Note which run this comes from: attempt 1 of job 103691886647 died
+          # 5s after "Compiled successfully", inside Sentry's
+          # runAfterProductionCompile hook — the source-map step itself.
+          SENTRY_SOURCEMAPS_DISABLE: '1'
         run: |
           # A memory sampler streaming to STDOUT, not to a file summarised at the
           # end. That distinction is the whole point: when a job dies of memory

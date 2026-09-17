@@ -125,6 +125,14 @@ const nextConfig: NextConfig = {
     // path at next/dist/server/dev/hot-reloader-turbopack.js.
     //
     // 4 GB suits a 16 GB machine. Raise to 8 GB on 32 GB+ devices.
+    //
+    // MEASURED AND REJECTED 2026-09-17: lowering this for CI (the obvious move
+    // when the runner halved) makes the build THRASH. At 2 GiB the arena cannot
+    // hold the module graph of 1,572 pages, so Turbopack evicts and recomputes
+    // in a loop: a compile that takes 4.5 min at 4 GiB had not finished after
+    // 9 min at 2 GiB, with RSS sawtoothing 13 GB -> 3 GB and no phase progress.
+    // Two cores would be worse at it than fourteen, not better. If this is ever
+    // revisited, move it UP, and measure the wall clock as well as the peak.
     turbopackMemoryLimit: 4 * 1024 * 1024 * 1024,
 
     // Optimize large barrel-file packages — tree-shake unused exports.
@@ -270,6 +278,25 @@ const nextConfig: NextConfig = {
 export default process.env.CI ? withSentryConfig(nextConfig, {
   // For all available options, see:
   // https://www.npmjs.com/package/@sentry/webpack-plugin#options
+
+  // Source-map GENERATION, opted out of by the Production Build gate only
+  // (.github/workflows/production-build.yml sets SENTRY_SOURCEMAPS_DISABLE=1).
+  //
+  // Under Turbopack this SDK force-sets `productionBrowserSourceMaps = true`
+  // for you — see maybeEnableTurbopackSourcemaps() in
+  // @sentry/nextjs/build/cjs/config/withSentryConfig/getFinalConfigObjectBundlerUtils.js —
+  // so the build holds a source map for every module of every client chunk.
+  // The CI job has no SENTRY_AUTH_TOKEN, so it uploads none of them, and the
+  // SDK's own default (deleteSourcemapsAfterUpload) deletes them afterwards
+  // regardless: in that job the maps are built and thrown away.
+  //
+  // Vercel never sets this variable, so production source maps — and therefore
+  // the remapped stack traces in Sentry — are untouched. When the variable is
+  // absent this spread contributes nothing at all, so the options object Vercel
+  // sees is identical to the one it saw before this line existed.
+  ...(process.env.SENTRY_SOURCEMAPS_DISABLE === '1'
+    ? { sourcemaps: { disable: true } }
+    : {}),
 
   org: "jkkn-em",
 
