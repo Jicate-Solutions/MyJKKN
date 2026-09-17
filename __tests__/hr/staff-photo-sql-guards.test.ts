@@ -40,8 +40,8 @@ const SQL = readFileSync(
  */
 const CODE = SQL.replace(/--[^\n]*/g, '');
 
-describe('staff photo migration keeps the guards review asked for', () => {
-  it('binds the submitted key to the caller’s own resolved staff folder', () => {
+describe('team member photo migration keeps the guards review asked for', () => {
+  it('binds the submitted key to the caller’s own resolved folder', () => {
     // Not LIKE: no character in a storage key may be read as a pattern.
     expect(SQL).toContain('left(p_storage_path, length(v_prefix)) IS DISTINCT FROM v_prefix');
   });
@@ -72,7 +72,7 @@ describe('staff photo migration keeps the guards review asked for', () => {
     expect(SQL).not.toContain('position(v_staff::text in p_public_url)');
   });
 
-  it('refuses rather than guesses when a login has two active staff records', () => {
+  it('refuses rather than guesses when a login has two active team member records', () => {
     expect(SQL).toContain('IF v_matches > 1 THEN');
   });
 
