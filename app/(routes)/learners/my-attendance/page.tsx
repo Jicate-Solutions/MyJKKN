@@ -10,7 +10,6 @@ import { createClient } from '@/lib/supabase/server';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { StudentValidationService } from '@/lib/services/auth/student-validation-service';
-import { StudentAttendanceService } from '@/lib/services/learners/student-attendance-service';
 import { SemesterFilter } from './_components/semester-filter';
 import { AttendanceStatisticsCards } from './_components/statistics-cards';
 import { AttendanceTrendChart } from './_components/trend-chart';
@@ -24,7 +23,7 @@ import { TableSkeleton } from '@/components/Loading';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { buttonVariants } from '@/components/ui/button';
 import { AlertCircle, RefreshCw } from 'lucide-react';
-import type { AttendanceOverview } from '@/lib/services/learners/student-attendance-service';
+import { loadAttendanceOverview, resolveAttendanceViewState } from './_lib/load-attendance-overview';
 
 interface PageProps {
   searchParams: Promise<{ semester?: string }>;
@@ -95,16 +94,12 @@ export default async function StudentAttendancePage({ searchParams }: PageProps)
 
   // Fetch the attendance records ONCE; statistics, course-wise and trend are
   // derived from that single result. Asking for them separately made the same
-  // heavy JSONB fetch run four times per page view.
-  let overview: AttendanceOverview | null = null;
-  try {
-    overview = await StudentAttendanceService.getAttendanceOverview(
-      profile.learner_id,
-      selectedSemester
-    );
-  } catch (error) {
-    console.error('[learners/my-attendance] Failed to load attendance:', error);
-  }
+  // heavy JSONB fetch run four times per page view. The load carries its own
+  // deadline, so a read that never comes back ends as a retryable error rather
+  // than a skeleton the learner is stuck on.
+  const outcome = await loadAttendanceOverview(profile.learner_id, selectedSemester);
+  const viewState = resolveAttendanceViewState(outcome);
+  const overview = outcome.status === 'ok' ? outcome.overview : null;
 
   const retryHref = selectedSemester
     ? `/learners/my-attendance?semester=${encodeURIComponent(selectedSemester)}`
@@ -139,8 +134,9 @@ export default async function StudentAttendancePage({ searchParams }: PageProps)
           currentSemester={currentSemesterId}
         />
 
-        {/* Load failed — say so and offer a retry, never an endless skeleton */}
-        {!overview ? (
+        {/* Load failed or ran out of time — say so and offer a retry, never an
+            endless skeleton */}
+        {viewState === 'error' || !overview ? (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -164,7 +160,7 @@ export default async function StudentAttendancePage({ searchParams }: PageProps)
             <AttendanceStatisticsCards stats={overview.statistics} />
 
             {/* Show message if no attendance data, otherwise show full breakdown */}
-            {overview.records.length === 0 ? (
+            {viewState === 'empty' ? (
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">

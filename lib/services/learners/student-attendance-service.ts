@@ -14,6 +14,26 @@ import type {
   ExportData
 } from '@/types/student-attendance';
 
+/** Which read failed, for the log line and for tests. */
+export type AttendanceFetchStage = 'learner' | 'timetables' | 'attendance';
+
+/**
+ * A read that failed, as opposed to a semester with nothing in it.
+ *
+ * The distinction is the bug: the service used to answer both with an empty
+ * array, so a learner whose query was refused saw a confident "No Attendance
+ * Records" and had nothing to retry.
+ */
+export class AttendanceFetchError extends Error {
+  readonly stage: AttendanceFetchStage;
+
+  constructor(stage: AttendanceFetchStage, message: string, cause?: unknown) {
+    super(message, cause === undefined ? undefined : { cause });
+    this.name = 'AttendanceFetchError';
+    this.stage = stage;
+  }
+}
+
 /**
  * Everything the My Attendance page renders, derived from ONE fetch of the
  * learner's attendance records.
@@ -147,6 +167,10 @@ export class StudentAttendanceService {
   /**
    * Get attendance records for a student in a specific semester
    * Parses JSONB attendance_data to extract individual student records
+   *
+   * Unchanged for existing callers: a failed read is logged and answered with an
+   * empty array. That is why the read has to be available in a form that SAYS it
+   * failed — see fetchAttendanceRecords.
    */
   static async getStudentAttendanceBySemester(
     learnerId: string,
@@ -156,6 +180,31 @@ export class StudentAttendanceService {
     // authenticate with a custom JWT and have no Supabase session for RLS.
     injectedClient?: SupabaseClient
   ): Promise<StudentAttendanceRecord[]> {
+    const { data } = await this.fetchAttendanceRecords(learnerId, semesterId, injectedClient);
+    return data;
+  }
+
+  /**
+   * The same read, with the failures visible.
+   *
+   * getStudentAttendanceBySemester answers a failed query with an empty array,
+   * so "the database refused" and "you attended nothing" arrive at the caller
+   * looking identical. A learner whose read fails is then shown a confident
+   * "No Attendance Records" instead of an error they can act on.
+   *
+   * This returns both: `data` is exactly what the old method returns in every
+   * case — best effort, empty on a hard failure — and `error` is non-null when
+   * any query failed. Callers that want the old behaviour read `data` and
+   * ignore `error`, which is what the three wrapper methods do.
+   *
+   * A genuinely empty result is NOT an error: no timetables for the semester
+   * and no attendance rows yet both return `{ data: [], error: null }`.
+   */
+  static async fetchAttendanceRecords(
+    learnerId: string,
+    semesterId: string,
+    injectedClient?: SupabaseClient
+  ): Promise<{ data: StudentAttendanceRecord[]; error: AttendanceFetchError | null }> {
     const supabase = injectedClient ?? (await createClient());
 
     // 1. Get student's section_id and basic info
@@ -167,7 +216,14 @@ export class StudentAttendanceService {
 
     if (learnerError || !learner) {
       console.error('[learners/attendance] Failed to fetch learner profile:', learnerError);
-      return [];
+      return {
+        data: [],
+        error: new AttendanceFetchError(
+          'learner',
+          'Could not read the learner profile for this attendance view.',
+          learnerError ?? undefined
+        )
+      };
     }
 
     // 2. Get timetables for the semester
@@ -179,8 +235,19 @@ export class StudentAttendanceService {
       .eq('section_id', learner.section_id)
       .eq('is_active', true);
 
+    // A timetable read that fails does NOT stop the walk — the other step may
+    // still find the learner's timetables, and stopping here would change what
+    // existing callers get back. It is remembered so the caller can be told the
+    // result is incomplete rather than empty.
+    let timetableError: AttendanceFetchError | null = null;
+
     if (directError) {
       console.error('[learners/attendance] Failed to fetch timetables (direct):', directError);
+      timetableError = new AttendanceFetchError(
+        'timetables',
+        'Could not read this semester\'s timetables for your section.',
+        directError
+      );
     }
 
     // Step B: Fallback — fetch timetables where section_id is NULL and check timetable_data JSONB
@@ -194,6 +261,11 @@ export class StudentAttendanceService {
 
     if (fallbackError) {
       console.error('[learners/attendance] Failed to fetch timetables (fallback):', fallbackError);
+      timetableError = timetableError ?? new AttendanceFetchError(
+        'timetables',
+        'Could not read this semester\'s shared timetables.',
+        fallbackError
+      );
     } else if (nullSectionTimetables?.length) {
       // Filter in code: only keep timetables whose timetable_data references the student's section
       fallbackTimetables = nullSectionTimetables.filter(
@@ -215,7 +287,8 @@ export class StudentAttendanceService {
 
     if (!timetables.length) {
       console.warn('[learners/attendance] No timetables found:', { semesterId, sectionId: learner.section_id });
-      return [];
+      // Genuinely empty unless a read failed on the way here.
+      return { data: [], error: timetableError };
     }
 
     // 3. Get attendance records (RLS automatically filters to student's section)
@@ -228,12 +301,20 @@ export class StudentAttendanceService {
 
     if (attendanceError) {
       console.error('[learners/attendance] Failed to fetch attendance records:', attendanceError);
-      return [];
+      return {
+        data: [],
+        error: new AttendanceFetchError(
+          'attendance',
+          'Could not read your attendance records for this semester.',
+          attendanceError
+        )
+      };
     }
 
     if (!attendance || attendance.length === 0) {
       console.warn('[learners/attendance] No attendance records found:', { learnerId, semesterId });
-      return [];
+      // Genuinely empty unless a read failed on the way here.
+      return { data: [], error: timetableError };
     }
 
     // 4. Extract student's attendance from JSONB
@@ -276,7 +357,7 @@ export class StudentAttendanceService {
       }
     }
 
-    return records;
+    return { data: records, error: timetableError };
   }
 
   /**
@@ -286,6 +367,10 @@ export class StudentAttendanceService {
    * re-run the whole fetch internally, so asking for all four in parallel pulled
    * the same section's attendance JSONB out of Postgres four times over. This
    * fetches once and derives the other three in memory.
+   *
+   * It THROWS when a read failed. The page shows the learner an error they can
+   * retry, which is the whole point: "the database refused" must not reach the
+   * screen wearing the empty state's clothes.
    */
   static async getAttendanceOverview(
     learnerId: string,
@@ -293,7 +378,15 @@ export class StudentAttendanceService {
     injectedClient?: SupabaseClient,
     trendDays = 30
   ): Promise<AttendanceOverview> {
-    const records = await this.getStudentAttendanceBySemester(learnerId, semesterId, injectedClient);
+    const { data: records, error } = await this.fetchAttendanceRecords(
+      learnerId,
+      semesterId,
+      injectedClient
+    );
+
+    if (error) {
+      throw error;
+    }
 
     return {
       records,
