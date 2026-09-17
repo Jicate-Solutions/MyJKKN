@@ -32,12 +32,14 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Download, Search, Users } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, Search, Users } from 'lucide-react';
 import { useCdcDrive, useCdcDriveResponses, cdcDriveResponsesExportUrl } from '@/hooks/cdc/use-cdc-drives';
 import { formatArrearsForExport } from '@/lib/services/cdc/academic-standing';
 import type { CdcWillingnessStatus } from '@/types/cdc';
 import { DriveStatusBadge } from '../../_components/drive-status-badge';
 import { describeTargeting } from '../../_components/institution-semester-picker';
+
+const PAGE_SIZES = [10, 20, 50, 100, 500] as const;
 
 const STATUS_LABEL: Record<CdcWillingnessStatus, string> = {
   willing: 'Willing',
@@ -92,6 +94,14 @@ function ResponsesContent({ params }: { params: Promise<{ id: string }> }) {
         .some((v) => String(v).toLowerCase().includes(q))
     );
   }, [data, search]);
+
+  // Client-side paging: the API already returns the whole (filtered) list.
+  const [pageSize, setPageSize] = useState<number | 'all'>(20);
+  const [page, setPage] = useState(1);
+  const pageCount = pageSize === 'all' ? 1 : Math.max(1, Math.ceil(rows.length / pageSize));
+  const safePage = Math.min(page, pageCount);
+  const pageStart = pageSize === 'all' ? 0 : (safePage - 1) * pageSize;
+  const pageRows = pageSize === 'all' ? rows : rows.slice(pageStart, pageStart + pageSize);
 
   const exportUrl = cdcDriveResponsesExportUrl(id, filters);
   const canExport = (data?.total ?? 0) > 0;
@@ -234,9 +244,9 @@ function ResponsesContent({ params }: { params: Promise<{ id: string }> }) {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {rows.map((r, i) => (
+                    {pageRows.map((r, i) => (
                       <TableRow key={r.willingness_id}>
-                        <TableCell className="text-muted-foreground">{i + 1}</TableCell>
+                        <TableCell className="text-muted-foreground">{pageStart + i + 1}</TableCell>
                         <TableCell>
                           <div className="font-medium">{r.learner_name ?? '—'}</div>
                           <div className="text-xs text-muted-foreground">{r.register_number ?? ''}</div>
@@ -281,6 +291,58 @@ function ResponsesContent({ params }: { params: Promise<{ id: string }> }) {
                 </Table>
               </div>
             )}
+            {rows.length > 0 ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3 text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">Rows per page</span>
+                  <Select
+                    value={String(pageSize)}
+                    onValueChange={(v) => {
+                      setPageSize(v === 'all' ? 'all' : parseInt(v, 10));
+                      setPage(1);
+                    }}
+                  >
+                    <SelectTrigger className="h-8 w-24">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PAGE_SIZES.map((n) => (
+                        <SelectItem key={n} value={String(n)}>
+                          {n}
+                        </SelectItem>
+                      ))}
+                      <SelectItem value="all">All</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">
+                    {pageStart + 1}–{Math.min(pageStart + pageRows.length, rows.length)} of {rows.length}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={safePage <= 1}
+                    onClick={() => setPage(safePage - 1)}
+                    aria-label="Previous page"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <span className="text-muted-foreground">
+                    Page {safePage} / {pageCount}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={safePage >= pageCount}
+                    onClick={() => setPage(safePage + 1)}
+                    aria-label="Next page"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       </div>

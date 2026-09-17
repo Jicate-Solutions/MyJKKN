@@ -81,12 +81,12 @@ const learner: CardPersonData = {
   courseName: 'B.Tech AI',
   departmentName: 'CSE',
   institutionName: 'JKKN College of Engineering',
-  isSchool: false,
+  isSchool: false, qrId: null, academicYearLabel: null,
   qrValue: 'learner-uuid',
   photoCandidates: [],
   valueBag: {},
   bloodGroup: 'B+',
-  dateOfBirthLabel: '09 Nov 2001',
+  dateOfBirthLabel: '09-11-2001',
   guardianName: 'R. Kumar',
   guardianPhone: '9876543210',
   address: '12 Main Street, Komarapalayam',
@@ -603,7 +603,7 @@ describe('buildCardElement — portrait custom elements', () => {
 describe('school cards use school vocabulary, not college vocabulary', () => {
   const schoolLearner: CardPersonData = {
     ...learner,
-    isSchool: true,
+    isSchool: true, qrId: null, academicYearLabel: null,
     courseName: 'Standard 12',
     departmentName: 'Science',
     institutionName: 'JKKN Matric Higher Secondary School'
@@ -625,7 +625,7 @@ describe('school cards use school vocabulary, not college vocabulary', () => {
     // it, which is why the school learner above cannot exercise this label.
     const schoolTeacher: CardPersonData = {
       ...teamMember,
-      isSchool: true,
+      isSchool: true, qrId: null, academicYearLabel: null,
       departmentName: 'Science',
       institutionName: 'JKKN Matric Higher Secondary School'
     };

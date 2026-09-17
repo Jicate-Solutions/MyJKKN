@@ -52,6 +52,35 @@ export function useCreateEventSponsor() {
   });
 }
 
+/**
+ * Delete a sponsor.
+ *
+ * The row does not go alone: event_sponsor_deliverables and
+ * event_sponsor_activity_log both reference it ON DELETE CASCADE, so every
+ * promised deliverable and the whole contact history go with it. The card's
+ * confirmation says so — this hook only carries out a decision already taken.
+ *
+ * eventId is passed in rather than read off the deleted row, because the
+ * service returns void and there is nothing left to read it from.
+ */
+export function useDeleteEventSponsor(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => EventSponsorService.deleteSponsor(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEYS.list(eventId) });
+      // The summary counts sponsors and sums pledges, so it is wrong the moment
+      // one is removed.
+      qc.invalidateQueries({ queryKey: KEYS.summary(eventId) });
+      toast.success('Sponsor deleted');
+    },
+    // An RLS refusal arrives here as a plain Postgres error. Surfacing its
+    // message beats "something went wrong" — it is how the budget-board denial
+    // was diagnosed at all.
+    onError: (error: Error) => toast.error(error.message || 'Failed to delete sponsor'),
+  });
+}
+
 /** Move a sponsor to a new pipeline stage. */
 export function useMoveEventSponsorStage() {
   const qc = useQueryClient();

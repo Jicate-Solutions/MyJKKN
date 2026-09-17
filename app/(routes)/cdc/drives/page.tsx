@@ -18,6 +18,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Plus, ArrowRight, Search } from 'lucide-react';
 import { useCdcDrives, useCdcLookups } from '@/hooks/cdc/use-cdc-drives';
+import { useMyCdcDrives } from '@/hooks/cdc/use-my-cdc-drives';
+import { useAuth } from '@/hooks/use-auth';
 import type { CdcDriveStatus } from '@/types/cdc';
 import { CDC_DRIVE_STATUS_LABELS } from '@/types/cdc';
 
@@ -45,6 +47,128 @@ const STATUS_BADGE_VARIANT: Record<CdcDriveStatus, 'default' | 'secondary' | 'de
 };
 
 export default function CdcDrivesListPage() {
+  // Learners see ONLY the drives whose audience includes them (2026-09-16).
+  // The coordinator list below is the staff surface behind cdc.drives.view.
+  const { profile, isLoading } = useAuth();
+  const isLearner = !!profile?.learner_id && profile.role === 'student';
+  if (isLoading) {
+    return (
+      <ContentLayout title="Campus Drives">
+        <p className="text-sm text-muted-foreground p-6">Loading drives…</p>
+      </ContentLayout>
+    );
+  }
+  if (isLearner) return <LearnerDrivesList />;
+  return <CoordinatorDrivesList />;
+}
+
+const MY_STATUS_LABEL: Record<string, string> = {
+  willing: 'You are in',
+  confirmed: 'Confirmed',
+  withdrawn: 'Declined',
+  no_show: 'No show',
+};
+
+function LearnerDrivesList() {
+  const { data, isLoading, error } = useMyCdcDrives();
+  const drives = data ?? [];
+  const pending = drives.filter((d) => d.is_open && !d.willingness_status).length;
+  return (
+    <ContentLayout title="Campus Drives">
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink asChild>
+              <Link href="/">Dashboard</Link>
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>Campus Drives</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
+
+      <div className="mt-6 space-y-4">
+        <div>
+          <h1 className="text-2xl font-semibold">My Campus Drives</h1>
+          <p className="text-sm text-muted-foreground">
+            Drives assigned to your institution and semester.
+            {pending > 0 ? ` ${pending} still need${pending === 1 ? 's' : ''} your response.` : ''}
+          </p>
+        </div>
+        <Card>
+          <CardContent className="pt-6">
+            {error ? (
+              <div className="text-sm text-destructive">
+                Failed to load drives: {error instanceof Error ? error.message : 'Unknown error'}
+              </div>
+            ) : isLoading ? (
+              <div className="text-sm text-muted-foreground">Loading drives…</div>
+            ) : drives.length === 0 ? (
+              <div className="py-12 text-center text-sm text-muted-foreground">
+                <p className="mb-2">No drives are assigned to you right now.</p>
+                <p className="text-xs">You will be notified when a drive opens for your semester.</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {drives.map((drive) => (
+                  <Link
+                    key={drive.id}
+                    href={`/cdc/drives/${drive.id}/willingness`}
+                    className="block border rounded-md p-3 hover:bg-muted/40 transition"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium">{drive.title}</span>
+                          <Badge variant={STATUS_BADGE_VARIANT[drive.status]}>
+                            {CDC_DRIVE_STATUS_LABELS[drive.status]}
+                          </Badge>
+                          {drive.willingness_status ? (
+                            <Badge variant="outline">{MY_STATUS_LABEL[drive.willingness_status] ?? drive.willingness_status}</Badge>
+                          ) : drive.is_open ? (
+                            <Badge variant="destructive">Response needed</Badge>
+                          ) : null}
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-1 space-x-3">
+                          <span>{drive.recruiter_name ?? '—'}</span>
+                          <span>·</span>
+                          <span>{drive.drive_type_name ?? '—'}</span>
+                          {drive.job_role_title ? (
+                            <>
+                              <span>·</span>
+                              <span>{drive.job_role_title}</span>
+                            </>
+                          ) : null}
+                          {drive.drive_date ? (
+                            <>
+                              <span>·</span>
+                              <span>{drive.drive_date}</span>
+                            </>
+                          ) : null}
+                          {drive.willingness_window_close_at ? (
+                            <>
+                              <span>·</span>
+                              <span>Respond by {new Date(drive.willingness_window_close_at).toLocaleDateString('en-IN', { dateStyle: 'medium' })}</span>
+                            </>
+                          ) : null}
+                        </div>
+                      </div>
+                      <ArrowRight className="h-4 w-4 mt-1 text-muted-foreground shrink-0" />
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </ContentLayout>
+  );
+}
+
+function CoordinatorDrivesList() {
   const [statusFilter, setStatusFilter] = useState<CdcDriveStatus | 'all'>('all');
   const [search, setSearch] = useState('');
 

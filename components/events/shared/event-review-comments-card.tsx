@@ -27,6 +27,7 @@
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CommentThreadPanel } from '@/components/shared/comment-thread-panel';
+import type { TaggablePerson } from '@/components/shared/comment-thread-panel';
 import { useAuth } from '@/hooks/use-auth';
 import { useEventReviewCommentAccess } from '@/hooks/events/shared/use-event-review-comment-access';
 import {
@@ -36,6 +37,28 @@ import {
   useSetReviewCommentResolved,
   useUpdateReviewComment,
 } from '@/hooks/events/shared/use-event-review-comments';
+
+/**
+ * Staff search for the tag picker. Module scope so its identity is stable —
+ * the picker's search effect depends on it, and a fresh function every render
+ * would re-run the search on every keystroke of the comment box.
+ *
+ * Reads the same staff directory the committee picker uses. A hit whose
+ * member_id equals its staff row id has no MyJKKN login (the route falls back
+ * to the staff id when profile_id is null) — there is no account to notify or
+ * to grant the thread to, so it is left out rather than offered and refused.
+ */
+async function searchStaff(query: string): Promise<TaggablePerson[]> {
+  const params = new URLSearchParams({ role: 'staff', q: query });
+  const res = await fetch(`/api/events/committees/member-directory?${params.toString()}`);
+  if (!res.ok) throw new Error('directory search failed');
+  const json = (await res.json()) as {
+    results?: { id: string; member_id: string; name: string; subtitle?: string }[];
+  };
+  return (json.results ?? [])
+    .filter((h) => h.member_id && h.member_id !== h.id)
+    .map((h) => ({ id: h.member_id, name: h.name || 'Unnamed', subtitle: h.subtitle ?? null }));
+}
 
 export function EventReviewCommentsCard({ eventId }: { eventId: string }) {
   const { profile } = useAuth();
@@ -76,8 +99,9 @@ export function EventReviewCommentsCard({ eventId }: { eventId: string }) {
         <>
           Remarks from the reviewing authority on this event, and the
           coordinator&apos;s replies. Only super admins, this event&apos;s
-          creator and in-charge, and roles granted Review Comments access can
-          see this — participants and learners never do.
+          creator and in-charge, roles granted Review Comments access, and
+          team members tagged here can see this — participants and learners never do.
+          Type @ or use Tag people to bring someone in.
         </>
       }
       placeholder="Raise something about this event — what is incomplete, what is missing, who still has to act."
@@ -94,10 +118,15 @@ export function EventReviewCommentsCard({ eventId }: { eventId: string }) {
       // words is a super admin's cleanup power alone, and the DELETE policy
       // says exactly that.
       canDeleteAny={isSuperAdmin}
+      // Tagging (2026-09-16): a tagged staff member is notified and can read
+      // and reply in this thread from then on. See
+      // supabase/migrations/20261220096000_event_review_comment_mentions.sql.
+      peopleSearch={searchStaff}
       handlers={{
-        onPost: (body) => post.mutateAsync({ event_id: eventId, body }),
-        onReply: (parentId, body) =>
-          post.mutateAsync({ event_id: eventId, parent_id: parentId, body }),
+        onPost: (body, mentionIds) =>
+          post.mutateAsync({ event_id: eventId, body, mention_ids: mentionIds }),
+        onReply: (parentId, body, mentionIds) =>
+          post.mutateAsync({ event_id: eventId, parent_id: parentId, body, mention_ids: mentionIds }),
         onEdit: (id, body) => update.mutateAsync({ id, body }),
         onResolve: (id, resolved) => resolve.mutateAsync({ id, resolved }),
         onDelete: (id) => remove.mutateAsync(id),

@@ -115,7 +115,16 @@ export function CampusDrivesStudentCard() {
   // Nothing to respond to, or we cannot tell yet — show nothing at all.
   if (isLoading || error || !data || data.length === 0) return null;
 
-  const undecided = data.filter((d) => !d.willingness_status).length;
+  // /api/cdc/drives/mine returns drives the learner is in the audience for and
+  // TAGS each one with is_open (status AND the willingness window); it no longer
+  // filters the shut ones out, because /cdc/drives lists them deliberately. This
+  // card is the "what can I act on right now" surface, so it takes only the open
+  // ones — every row here carries a call to action, and offering one for a drive
+  // whose window has shut sends the learner to a page that refuses them.
+  const open = data.filter((d) => d.is_open);
+  if (open.length === 0) return null;
+
+  const undecided = open.filter((d) => !d.willingness_status).length;
 
   return (
     <Card className="border-emerald-200">
@@ -141,7 +150,7 @@ export function CampusDrivesStudentCard() {
             ? 'Let the Career Development Centre know whether you want to take part.'
             : 'You have answered every open drive. You can still change your mind.'}
         </p>
-        {data.map((drive) => (
+        {open.map((drive) => (
           <DriveRow key={drive.id} drive={drive} />
         ))}
       </CardContent>

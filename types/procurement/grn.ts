@@ -69,6 +69,8 @@ export interface ProcurementGrnItem {
   /** Quantity ordered/invoiced but NOT delivered in this receipt. Informational only — not part of the match. */
   missing_quantity: number;
   is_chemical: boolean;
+  /** One serial per accepted unit (Resource Management serialized assets only). */
+  serial_numbers: string[] | null;
   /** Set when this line's accepted qty was posted to the domain inventory (exactly-once claim; retry skips it). */
   domain_posted_at: string | null;
   created_at: string;
@@ -90,6 +92,8 @@ export interface GrnLineInput {
   batch_number?: string | null;
   expiry_date?: string | null;
   manufacturing_date?: string | null;
+  /** One serial per accepted unit — length must equal accepted_quantity when set. */
+  serial_numbers?: string[] | null;
   /** Actual invoice unit price → the batch's cost_price (overrides the PO estimate). */
   cost?: number | null;
   /** Quantity ordered/invoiced but NOT delivered in this receipt. Informational only. */
@@ -150,6 +154,8 @@ export interface ReceiveReplacementInput {
   batch_number?: string | null;
   expiry_date?: string | null;
   manufacturing_date?: string | null;
+  /** One serial per accepted unit — length must equal accepted_quantity when set. */
+  serial_numbers?: string[] | null;
 }
 
 export interface GrnFilters {

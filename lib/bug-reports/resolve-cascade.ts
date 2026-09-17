@@ -8,6 +8,7 @@
 // =====================================================================
 import { createAdminClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { updateWithResolvedBy } from '@/lib/api/bug-reports/resolved-by';
 import {
   BugReportEmailService,
   type BugResolvedEmailData
@@ -43,16 +44,32 @@ export async function cascadeStatusToDuplicates(
     if (childrenError || !children || children.length === 0) return;
 
     const childIds = children.map((c: any) => c.id);
-    const cascadeData: { status: string; resolved_at: string | null } = {
+
+    // The duplicates close because the canonical closed, so they inherit the
+    // canonical's resolver. Reading it here (instead of taking it as an
+    // argument) keeps the nightly auto-resolve cron on this same path.
+    let canonicalResolvedBy: string | null = null;
+    if (newStatus === 'resolved') {
+      const { data: canonical } = await (adminSupabase.from('bug_reports') as any)
+        .select('resolved_by')
+        .eq('id', canonicalId)
+        .maybeSingle();
+      canonicalResolvedBy = canonical?.resolved_by ?? null;
+    }
+
+    const cascadeData: {
+      status: string;
+      resolved_at: string | null;
+      resolved_by: string | null;
+    } = {
       status: newStatus,
-      resolved_at: newStatus === 'resolved' ? new Date().toISOString() : null
+      resolved_at: newStatus === 'resolved' ? new Date().toISOString() : null,
+      resolved_by: canonicalResolvedBy
     };
 
-    const { error: cascadeError } = await (
-      adminSupabase.from('bug_reports') as any
-    )
-      .update(cascadeData)
-      .in('id', childIds);
+    const { error: cascadeError } = await updateWithResolvedBy(cascadeData, (payload) =>
+      (adminSupabase.from('bug_reports') as any).update(payload).in('id', childIds)
+    );
 
     if (cascadeError) {
       logger.error('bug-reports/api', 'Duplicate cascade update failed', cascadeError);

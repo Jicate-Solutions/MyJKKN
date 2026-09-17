@@ -9,6 +9,8 @@ import toast from 'react-hot-toast';
 interface FeedbackPrompt {
   id: string;
   bug_id: string;
+  /** 'fix_check' = "did our fix work?"; 'still_open' = "is this still happening?" (2026-09-16) */
+  kind?: 'fix_check' | 'still_open';
   display_id: string | null;
   description: string;
   status: 'sent' | 'delivered' | 'answered';
@@ -72,10 +74,16 @@ export function FixedForYouPrompts({ bugId }: { bugId?: string }) {
       return json;
     },
     onSuccess: (data) => {
+      // A "still happening?" answer is about the report itself, not a fix.
+      const stillOpen = data.kind === 'still_open';
       toast.success(
         data.answer === 'fixed'
-          ? 'Thanks! Glad it works for you now.'
-          : "Thanks for telling us — we've flagged that it's still broken for you."
+          ? stillOpen
+            ? 'Thanks! We have closed that report for you.'
+            : 'Thanks! Glad it works for you now.'
+          : stillOpen
+            ? "Thanks — we've marked it as still happening and moved it up the list."
+            : "Thanks for telling us — we've flagged that it's still broken for you."
       );
       queryClient.invalidateQueries({ queryKey: ['bug-feedback-prompts', 'mine'] });
     },
@@ -85,15 +93,23 @@ export function FixedForYouPrompts({ bugId }: { bugId?: string }) {
   if (visible.length === 0) return null;
 
   const unanswered = visible.filter((p) => p.status !== 'answered').length;
+  const fixChecks = visible.filter((p) => p.kind !== 'still_open');
+  const stillOpen = visible.filter((p) => p.kind === 'still_open');
+  const heading =
+    unanswered === 0
+      ? 'Thanks for confirming your reports!'
+      : fixChecks.length > 0 && stillOpen.length > 0
+        ? `${unanswered} of your reports need a quick answer from you`
+        : fixChecks.length > 0
+          ? `${unanswered} of your reports may be fixed — does it work for you now?`
+          : `${unanswered} of your older reports — is this still happening?`;
 
   return (
     <div className='rounded-lg border border-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 p-4 space-y-3'>
       <div className='flex items-center gap-2'>
         <Sparkles className='w-4 h-4 text-emerald-600 shrink-0' />
         <p className='text-sm font-medium text-emerald-900 dark:text-emerald-100'>
-          {unanswered > 0
-            ? `${unanswered} of your reports may be fixed — does it work for you now?`
-            : 'Thanks for confirming your reports!'}
+          {heading}
         </p>
       </div>
 
@@ -108,6 +124,9 @@ export function FixedForYouPrompts({ bugId }: { bugId?: string }) {
               <p className='text-xs text-muted-foreground truncate'>{p.description}</p>
             </div>
             <div className='flex items-center gap-1.5 shrink-0'>
+              {/* still_open: 'fixed' means "no, it works now" (closes the report);
+                  'not_fixed' means "yes, still happening" (keeps it open). Same
+                  two answers, same endpoint, different words. */}
               <Button
                 size='sm'
                 variant={p.answer === 'fixed' ? 'default' : 'outline'}
@@ -116,7 +135,7 @@ export function FixedForYouPrompts({ bugId }: { bugId?: string }) {
                 onClick={() => answerMutation.mutate({ id: p.id, answer: 'fixed' })}
               >
                 <ThumbsUp className='w-3.5 h-3.5 mr-1' />
-                Fixed
+                {p.kind === 'still_open' ? 'No, it works now' : 'Fixed'}
               </Button>
               <Button
                 size='sm'
@@ -125,7 +144,7 @@ export function FixedForYouPrompts({ bugId }: { bugId?: string }) {
                 onClick={() => answerMutation.mutate({ id: p.id, answer: 'not_fixed' })}
               >
                 <ThumbsDown className='w-3.5 h-3.5 mr-1' />
-                Still broken
+                {p.kind === 'still_open' ? 'Yes, still happening' : 'Still broken'}
               </Button>
             </div>
           </div>
@@ -133,8 +152,9 @@ export function FixedForYouPrompts({ bugId }: { bugId?: string }) {
       </div>
 
       <p className='text-[11px] text-emerald-800/80 dark:text-emerald-200/80'>
-        Your answer goes straight to the team that fixed it — it keeps the
-        fixes honest. You can change it while the question is open.
+        {stillOpen.length > 0 && fixChecks.length === 0
+          ? 'Nobody else can tell us whether an old report still matters. "No, it works now" closes it; "Yes, still happening" keeps it open and moves it up. You can change your answer while the question is open.'
+          : 'Your answer goes straight to the team that fixed it — it keeps the fixes honest. You can change it while the question is open.'}
       </p>
     </div>
   );

@@ -22,7 +22,9 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { storeId, lines, additionalDiscount, customerType, customerName, customerPhone } = body ?? {};
+    const {
+      storeId, lines, additionalDiscount, customerType, customerName, customerPhone, prefer,
+    } = body ?? {};
 
     if (!storeId || !Array.isArray(lines) || lines.length === 0) {
       return NextResponse.json(
@@ -30,6 +32,11 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
+
+    // A preference, not an instruction — and validated rather than forwarded, so an
+    // unknown value falls back to the default instead of reaching the service. The
+    // response's `mode` is what the screen must render on; see GatewayInstrument.
+    const preferred = prefer === 'qr' || prefer === 'checkout' ? prefer : undefined;
 
     const result = await ImsGatewayPaymentService.createPaymentSession(
       {
@@ -40,6 +47,7 @@ export async function POST(request: NextRequest) {
         customerType,
         customerName,
         customerPhone,
+        prefer: preferred,
       },
       user.id,
     );

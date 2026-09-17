@@ -44,7 +44,12 @@ import {
 } from '@/hooks/school-fees/use-school-fee-plans';
 import { useSchoolTermCalendars } from '@/hooks/school-fees/use-school-term-calendars';
 
+import { cn } from '@/lib/utils';
+
 import { SchoolYearPicker } from './school-year-picker';
+import { SECTION_THEMES } from './section-theme';
+
+const T = SECTION_THEMES.plans;
 import { CloneYearDialog } from './clone-year-dialog';
 import type { SchoolFeePlan, SchoolFeePlanStatus } from '@/types/school-fees';
 
@@ -110,6 +115,7 @@ export function SchoolFeePlansView() {
   return (
     <div className="space-y-6">
       <SchoolYearPicker
+        section="plans"
         institutions={institutions}
         institutionId={institutionId}
         onInstitutionChange={setInstitutionChoice}
@@ -157,12 +163,15 @@ export function SchoolFeePlansView() {
             </Alert>
           ) : null}
 
-          <Card>
-            <CardHeader className="pb-3">
+          <Card className={T.cardBorder}>
+            <CardHeader className={cn('pb-3', T.cardHeader)}>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <CardTitle className="text-base flex items-center gap-2">
+                  <span className={cn('flex h-6 w-6 items-center justify-center rounded-md', T.iconTileSm)}>
+                    <T.icon className="h-3.5 w-3.5" />
+                  </span>
                   Fee plans by class
-                  <Badge variant="secondary">
+                  <Badge className={T.badge}>
                     {planByClass.size}/{classes.length} set
                   </Badge>
                   {withoutPlan > 0 ? (
@@ -172,7 +181,7 @@ export function SchoolFeePlansView() {
               </div>
             </CardHeader>
 
-            <CardContent>
+            <CardContent className="pt-4">
               {loading ? (
                 <div className="space-y-2">
                   <Skeleton className="h-10 w-full" />
@@ -190,7 +199,7 @@ export function SchoolFeePlansView() {
               ) : (
                 <div className="rounded-md border overflow-x-auto">
                   <Table>
-                    <TableHeader>
+                    <TableHeader className={T.tableHeader}>
                       <TableRow>
                         <TableHead className="min-w-[160px]">Class</TableHead>
                         <TableHead className="min-w-[120px]">Status</TableHead>
@@ -235,7 +244,7 @@ export function SchoolFeePlansView() {
                             <TableCell>
                               {!plan ? (
                                 canManage ? (
-                                  <Button asChild variant="ghost" size="icon" aria-label={`Create plan for ${klass.program_name}`}>
+                                  <Button asChild variant="ghost" size="icon" className={T.text} aria-label={`Create plan for ${klass.program_name}`}>
                                     <Link
                                       href={`/billing/school-fees/new?institution=${institutionId}&year=${academicYearId}&program=${klass.id}`}
                                     >

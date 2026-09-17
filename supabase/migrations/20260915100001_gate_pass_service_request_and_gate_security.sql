@@ -672,18 +672,18 @@ BEGIN
   RETURN QUERY
   -- A pass number resolves straight to its learner.
   SELECT 'learner'::text, p.id, lp.id, NULL::uuid,
-         COALESCE(NULLIF(trim(concat_ws(' ', lp.first_name, lp.last_name)), ''), p.full_name),
-         COALESCE(lp.roll_number, lp.register_number), COALESCE(lp.college_email, lp.student_email, p.email),
-         lp.student_photo_url, ('Pass ' || gp.pass_number)::text
+         COALESCE(NULLIF(trim(concat_ws(' ', lp.first_name, lp.last_name)), ''), p.full_name)::text,
+         COALESCE(lp.roll_number, lp.register_number)::text, COALESCE(lp.college_email, lp.student_email, p.email)::text,
+         lp.student_photo_url::text, ('Pass ' || gp.pass_number)::text
     FROM public.hostel_gate_passes gp
     JOIN public.profiles p ON p.id = gp.learner_id
     LEFT JOIN public.learners_profiles lp ON lp.id = p.learner_id
    WHERE gp.pass_number ILIKE v_like
   UNION ALL
   SELECT 'learner'::text, p.id, lp.id, NULL::uuid,
-         COALESCE(NULLIF(trim(concat_ws(' ', lp.first_name, lp.last_name)), ''), p.full_name),
-         COALESCE(lp.roll_number, lp.register_number), COALESCE(lp.college_email, lp.student_email, p.email),
-         lp.student_photo_url, COALESCE(lp.roll_number, '')::text
+         COALESCE(NULLIF(trim(concat_ws(' ', lp.first_name, lp.last_name)), ''), p.full_name)::text,
+         COALESCE(lp.roll_number, lp.register_number)::text, COALESCE(lp.college_email, lp.student_email, p.email)::text,
+         lp.student_photo_url::text, COALESCE(lp.roll_number, '')::text
     FROM public.learners_profiles lp
     JOIN public.profiles p ON p.learner_id = lp.id
    WHERE lp.roll_number ILIKE v_like
@@ -695,8 +695,8 @@ BEGIN
       OR EXISTS (SELECT 1 FROM public.jkkn_identities ji WHERE ji.learner_profile_id = lp.id AND ji.jkkn_id = v_q)
   UNION ALL
   SELECT 'staff'::text, s.profile_id, NULL::uuid, s.id,
-         trim(concat_ws(' ', s.first_name, s.last_name)), s.staff_id, COALESCE(s.institution_email, s.email),
-         s.profile_picture, COALESCE(s.designation, 'Team member')::text
+         trim(concat_ws(' ', s.first_name, s.last_name))::text, s.staff_id::text, COALESCE(s.institution_email, s.email)::text,
+         s.profile_picture::text, COALESCE(s.designation, 'Team member')::text
     FROM public.staff s
    WHERE s.is_active IS DISTINCT FROM false
      AND (s.staff_id ILIKE v_like OR s.email ILIKE v_like OR s.institution_email ILIKE v_like

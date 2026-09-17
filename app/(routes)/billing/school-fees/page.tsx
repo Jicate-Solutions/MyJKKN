@@ -10,37 +10,37 @@
 
 import Link from 'next/link';
 import { CalendarDays } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { Button } from '@/components/ui/button';
 
 import { SchoolFeesBreadcrumb } from './_components/school-fees-breadcrumb';
+import { SchoolFeeSectionHeader } from './_components/school-fee-section-header';
+import { SECTION_THEMES } from './_components/section-theme';
 import { SchoolFeePlansView } from './_components/school-fee-plans-view';
 
 export default function SchoolFeePlansPage() {
   return (
     <PermissionGuard module="school_fees" action="read">
       <ContentLayout title="School Fee Plans">
-        <div className="space-y-4">
+        <div className={cn('space-y-4 rounded-2xl p-3 sm:p-4', SECTION_THEMES.plans.pageBg)}>
           <SchoolFeesBreadcrumb />
 
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h1 className="text-2xl font-bold py-1">School Fee Plans</h1>
-              <p className="text-sm sm:text-base text-muted-foreground">
-                One fee plan per class per academic year, split across terms. Unlike college fee
-                structures, these are re-fixed every year rather than locked to the admission year.
-              </p>
-            </div>
-
-            <Button asChild variant="outline" size="sm">
-              <Link href="/billing/school-fees/term-calendar">
-                <CalendarDays className="h-4 w-4 mr-1" />
-                Term calendar
-              </Link>
-            </Button>
-          </div>
+          <SchoolFeeSectionHeader
+            section="plans"
+            title="School Fee Plans"
+            description="Configure and manage fee structures for each academic year, class and term. Unlike college fee structures, these are re-fixed every year."
+            actions={
+              <Button asChild variant="secondary" size="sm">
+                <Link href="/billing/school-fees/term-calendar">
+                  <CalendarDays className="h-4 w-4 mr-1" />
+                  Term calendar
+                </Link>
+              </Button>
+            }
+          />
 
           <SchoolFeePlansView />
         </div>

@@ -15,6 +15,8 @@ import type {
   CdcDriveUpdate,
   CdcDriveNotificationLogRow,
   CdcDriveNotificationSummary,
+  CdcDriveAssignedResponse,
+  CdcAssignedWillingnessBucket,
 } from '@/types/cdc';
 import type { InstitutionSemestersResponse } from '@/app/api/cdc/pickers/institution-semesters/route';
 import type { LearnerNotifyDiagnosis } from '@/lib/services/cdc/drive-notifications';
@@ -186,6 +188,31 @@ export function useCdcInstitutionSemesters(institutionIds: string[]) {
   });
 }
 
+export interface CdcPickerProgramOption {
+  value: string;
+  label: string;
+  /** Every duplicate master id behind this program name. */
+  ids: string[];
+  institution_id: string | null;
+}
+
+/** Program options within the caller's scope, grouped by name (duplicate master rows merged). */
+export function useCdcProgramOptionsAll(enabled = true) {
+  return useQuery({
+    queryKey: ['cdc-program-options', 'all'],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/pickers/programs`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Programs failed: ${res.status}`);
+      }
+      return ((await res.json()).options ?? []) as CdcPickerProgramOption[];
+    },
+    enabled,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 /** Response of PATCH /api/cdc/drives/[id]. `notify` is set only when the audience changed on an open drive. */
 export interface CdcUpdateDriveResponse {
   data: CdcDrive;
@@ -298,6 +325,48 @@ export function cdcDriveResponsesExportUrl(driveId: string, params: UseCdcDriveR
   if (params.semester_order != null) search.set('semester_order', String(params.semester_order));
   if (params.status) search.set('status', params.status);
   return `${BASE}/drives/${driveId}/responses?${search}`;
+}
+
+export interface UseCdcDriveAssignedParams {
+  institution_id?: string;
+  semester_order?: number;
+  status?: CdcAssignedWillingnessBucket;
+  responded?: 'yes' | 'no';
+  q?: string;
+}
+
+function assignedSearchParams(params: UseCdcDriveAssignedParams): URLSearchParams {
+  const search = new URLSearchParams();
+  if (params.institution_id) search.set('institution_id', params.institution_id);
+  if (params.semester_order != null) search.set('semester_order', String(params.semester_order));
+  if (params.status) search.set('status', params.status);
+  if (params.responded) search.set('responded', params.responded);
+  if (params.q && params.q.trim()) search.set('q', params.q.trim());
+  return search;
+}
+
+/** Every targeted learner of a drive (responded or pending) — /cdc/drives/[id]/willingness staff view. */
+export function useCdcDriveAssigned(driveId: string | undefined, params: UseCdcDriveAssignedParams = {}) {
+  return useQuery({
+    queryKey: ['cdc-drive-assigned', driveId, params],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/drives/${driveId}/assigned?${assignedSearchParams(params)}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Assigned learners failed: ${res.status}`);
+      }
+      return (await res.json()) as CdcDriveAssignedResponse;
+    },
+    enabled: !!driveId,
+    placeholderData: (prev) => prev,
+  });
+}
+
+/** Excel download URL for the assigned-learner view (same filters as the table). */
+export function cdcDriveAssignedExportUrl(driveId: string, params: UseCdcDriveAssignedParams = {}): string {
+  const search = assignedSearchParams(params);
+  search.set('format', 'xlsx');
+  return `${BASE}/drives/${driveId}/assigned?${search}`;
 }
 
 /** Response shape of the transition route (data + optional notification summary). */
