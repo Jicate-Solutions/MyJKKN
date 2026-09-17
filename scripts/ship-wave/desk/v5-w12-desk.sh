@@ -18,6 +18,9 @@
 #   $FLEET_MD                                ONLY its "## W12 desk — waiting on you" section
 #   $STATE/nudges/<request>.json             Lane E reminders (HUMAN-IN-THE-LOOP.md §E amendments): `nudge-mark` changes a
 #                                            PENDING request's status to delivered | tab-closed — nothing else
+#   $STATE/shipped/<pr>.json                 shipped notes (Director 2026-09-16 06:14): the wave writes one per PR a
+#                                            deploy carried; `shipped-mark` changes a PENDING one to delivered |
+#                                            tab-closed — nothing else. Same shape and same resolver as the reminders.
 # It never runs the wave. It never merges. It never invents an option: the writes in the file are the contract.
 # An <id> is accepted ONLY in the shape ^q-[0-9]{8}-[0-9]{6}-[a-z0-9][a-z0-9-]{0,39}$ and resolves ONLY to
 # $STATE/questions/<id>.json — "answered/q-…" or "../stray" is refused (exit 3) before any path is built
@@ -37,6 +40,10 @@
 #                                                   (desk/desk-nudge-targets.sh — how a draft finds the tab that opened it)
 #        v5-w12-desk.sh nudge-mark <request> delivered|tab-closed [reason] [tab name]
 #                                                   record what the desk did with that reminder · exit 2 not pending · 3 refused
+#        v5-w12-desk.sh shipped                     one line per pending shipped note: <pr>|<tab name>|live|dead|unknown|<message>
+#                                                   (the tab that opened the PR, found exactly as a reminder finds it)
+#        v5-w12-desk.sh shipped-mark <pr> delivered|tab-closed [reason] [tab name]
+#                                                   record what the desk did with that note · exit 2 not pending · 3 refused
 # ENV    STATE     (default ~/.config/obsidian/.ship-wave)   tests point this at a temp dir
 #        FLEET_MD  (default the Fleet note synced to the phone)
 # INSTALL  ln -sf <ship-policy checkout>/scripts/ship-wave/desk/v5-w12-desk.sh ~/.config/obsidian/v5-w12-desk.sh
@@ -450,5 +457,9 @@ case "${1:-}" in
   # this one; the desk tab sends the line with SendMessage and records the result through nudge-mark
   nudges)     STATE="$STATE" "${BASH:-/opt/homebrew/bin/bash}" "$SW_DIR/desk/desk-nudge-targets.sh" list ;;
   nudge-mark) shift; STATE="$STATE" "${BASH:-/opt/homebrew/bin/bash}" "$SW_DIR/desk/desk-nudge-targets.sh" mark "$@" ;;
+  # Shipped notes (Director 2026-09-16 06:14: tell the tab that opened a PR when the wave has merged and deployed it, so
+  # it re-checks its change before moving to the next one): the same resolver over $STATE/shipped/ instead of nudges/
+  shipped)      STATE="$STATE" NUDGES_DIR="$STATE/shipped" "${BASH:-/opt/homebrew/bin/bash}" "$SW_DIR/desk/desk-nudge-targets.sh" list ;;
+  shipped-mark) shift; STATE="$STATE" NUDGES_DIR="$STATE/shipped" "${BASH:-/opt/homebrew/bin/bash}" "$SW_DIR/desk/desk-nudge-targets.sh" mark "$@" ;;
   *) sed -n '/^# USAGE/,/^# INSTALL/p' "$_self"; exit 2 ;;
 esac
