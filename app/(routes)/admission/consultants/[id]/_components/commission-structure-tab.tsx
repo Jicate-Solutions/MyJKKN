@@ -45,6 +45,7 @@ import { Plus, MoreHorizontal, Edit, Power, AlertCircle, Percent, DollarSign, Ba
 import { toast } from 'sonner'
 import { format } from 'date-fns'
 import type { ConsultantCommissionStructure } from '@/types/education-consultants'
+import { RateCardPanel } from './rate-card-panel'
 
 const COMMISSION_TYPES = [
   { value: 'percentage', label: 'Percentage', icon: Percent, description: 'Earn a % of the student fee' },
@@ -84,13 +85,14 @@ function EmptyStructures({ onAdd }: { onAdd: () => void }) {
   return (
     <div className="text-center py-12">
       <BarChart3 className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-      <h3 className="text-lg font-medium mb-2">No Commission Structures</h3>
+      <h3 className="text-lg font-medium mb-2">No Overrides</h3>
       <p className="text-muted-foreground text-sm mb-6 max-w-sm mx-auto">
-        Define how this consultant earns commissions. Without a structure, no commissions can be calculated.
+        This consultant is paid on the standard service-charge card above. Add a structure only
+        to depart from it.
       </p>
-      <Button onClick={onAdd}>
+      <Button onClick={onAdd} variant="outline">
         <Plus className="h-4 w-4 mr-2" />
-        Add Commission Structure
+        Add Override
       </Button>
     </div>
   )
@@ -456,15 +458,22 @@ export function CommissionStructureTab({ consultantId, institutionId }: Commissi
 
   return (
     <>
+      {/* The standard service-charge card comes first: it is what almost every
+          consultant is actually paid against. The per-consultant structures below
+          are the exception — a negotiated deal that departs from the card. */}
+      <RateCardPanel consultantId={consultantId} />
+
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
-            <CardTitle className="text-base">Commission Structures</CardTitle>
-            <CardDescription>Define how this consultant earns commissions per referral</CardDescription>
+            <CardTitle className="text-base">Consultant-specific Structures</CardTitle>
+            <CardDescription>
+              Overrides negotiated with this consultant only. Leave empty to pay the standard card above.
+            </CardDescription>
           </div>
           <Button size="sm" onClick={handleOpenCreate}>
             <Plus className="h-4 w-4 mr-2" />
-            Add Structure
+            Add Override
           </Button>
         </CardHeader>
         <CardContent>
@@ -557,7 +566,8 @@ export function CommissionStructureTab({ consultantId, institutionId }: Commissi
         <div className="flex items-start gap-3 rounded-md border border-orange-200 bg-orange-50 p-3 text-sm text-orange-800">
           <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
           <p>
-            No active commission structure. Commission cannot be calculated until at least one structure is active.
+            Every override here is inactive, so this consultant falls back to the standard card above.
+            Activate one if the negotiated rate is meant to apply.
           </p>
         </div>
       )}
