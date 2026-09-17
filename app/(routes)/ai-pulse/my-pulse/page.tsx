@@ -132,6 +132,37 @@ function RetryNotice({
 }
 
 /**
+ * One card's slot when its read failed. A card that shows its empty state here
+ * would be lying — "no team", "not marked yet" and "0 week streak" are claims,
+ * and we do not have the data to make them.
+ */
+function UnavailableCard({
+  title,
+  retryHref,
+}: {
+  title: string;
+  retryHref: string;
+}) {
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50 p-6 dark:border-amber-900 dark:bg-amber-950/40">
+      <h3 className="font-semibold text-amber-900 dark:text-amber-200">
+        {title}
+      </h3>
+      <p className="mt-1 text-sm text-amber-800 dark:text-amber-300">
+        This didn&apos;t load just now, so we&apos;re not showing a number we
+        can&apos;t stand behind.
+      </p>
+      <a
+        href={retryHref}
+        className="mt-3 inline-block rounded-md border border-amber-300 px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-100 dark:border-amber-800 dark:text-amber-200 dark:hover:bg-amber-900/40"
+      >
+        Try again
+      </a>
+    </div>
+  );
+}
+
+/**
  * The page when we could not establish what to show at all. Deliberately NOT a
  * redirect and NOT an empty-looking page: it names what failed and offers the
  * way forward.
@@ -263,10 +294,24 @@ export default async function AiPulseLearnerPage({
     failed.push('permissions');
   }
 
-  // Cycle list, current cycle, the deep-linked cycle and the Gold card are four
-  // independent reads. They used to run in three waves (list+current, then the
-  // deep-linked cycle, then Gold at the very end); now one.
-  const [cycles, currentCycle, requestedCycle, gold] = await Promise.all([
+  // Gold does not depend on the cycle, and the cycle-scoped reads below do.
+  // Keeping it in the same Promise.all made team/attendance/streak wait behind
+  // a read they have nothing to do with, so it runs on its own and is collected
+  // at the end.
+  //
+  // CARE R-move: latest faculty-picked Gold (null until the first Monday Lab
+  // scores a cycle — the card hides itself).
+  const goldPromise = settle(
+    AiPulseLearnerService.getLatestGoldServer(undefined, SURFACE_ERRORS),
+    null,
+    'gold',
+    failed
+  );
+
+  // Cycle list, current cycle and the deep-linked cycle are independent of each
+  // other. They used to run in two waves (list+current, then the deep-linked
+  // cycle); now one.
+  const [cycles, currentCycle, requestedCycle] = await Promise.all([
     settle(
       AiPulseLearnerService.listCyclesServer(12, SURFACE_ERRORS),
       [],
@@ -290,30 +335,37 @@ export default async function AiPulseLearnerPage({
           failed
         )
       : Promise.resolve(null),
-    // CARE R-move: latest faculty-picked Gold (null until the first Monday Lab
-    // scores a cycle — the card hides itself).
-    settle(
-      AiPulseLearnerService.getLatestGoldServer(undefined, SURFACE_ERRORS),
-      null,
-      'gold',
-      failed
-    ),
   ]);
 
-  // Every card below is scoped to a cycle. If the cycle read itself failed, a
-  // null cycle is a guess, and the page would state "no active cycle" with the
-  // same confidence it states a real one — exactly the dead end the four
-  // reporters could not get past. Say what happened instead.
-  if (failed.includes('current-cycle') || failed.includes('requested-cycle')) {
+  const currentCycleFailed = failed.includes('current-cycle');
+  const requestedCycleFailed = failed.includes('requested-cycle');
+
+  // A hand-typed / stale ?cycle= id that isn't an ai_pulse cycle falls back to
+  // the current cycle rather than showing an empty page. A read that FAILED is
+  // not a stale id, though: silently showing a different week would be worse
+  // than saying so, and a week we DID fetch is not thrown away just because the
+  // current-cycle read alongside it failed.
+  const cycle = requestedCycleId
+    ? requestedCycleFailed
+      ? null
+      : requestedCycle ?? (currentCycleFailed ? null : currentCycle)
+    : currentCycleFailed
+      ? null
+      : currentCycle;
+
+  // Nothing left to scope the page to. Every card below would be a guess, and
+  // "no active cycle" would be stated with the confidence of a real answer —
+  // exactly the dead end the four reporters could not get past.
+  if (!cycle && (currentCycleFailed || requestedCycleFailed)) {
     return <UnavailablePage what="your AI Pulse week" retryHref={retryHref} />;
   }
 
-  // A hand-typed / stale ?cycle= id that isn't an ai_pulse cycle falls back to
-  // the current cycle rather than showing an empty page.
-  const cycle = requestedCycleId ? requestedCycle ?? currentCycle : currentCycle;
-
+  // With the current cycle unread we cannot tell whether the week on screen is
+  // the live one. Unknown counts as not-current: the page stays read-only
+  // rather than offering submissions against a week it cannot confirm is open.
   const isCurrentCycle =
     !!cycle && !!currentCycle && cycle.id === currentCycle.id;
+  const liveWeekUnknown = currentCycleFailed && !!cycle;
 
   // The switcher now returns every week the learner ATTENDED, including weeks
   // with no starter for their programme (has_prompt=false) — those used to be
@@ -393,6 +445,18 @@ export default async function AiPulseLearnerPage({
     }
   }
 
+  const gold = await goldPromise;
+
+  // Failures that have their own card do not also need the page-level strip.
+  const teamFailed = failed.includes('team');
+  // Streak lives on the attendance card, so an unread streak makes that whole
+  // card unavailable rather than printing a 0 nobody measured.
+  const attendanceFailed =
+    failed.includes('attendance') || failed.includes('streak');
+  const unhandledFailures = failed.filter(
+    (f) => f !== 'team' && f !== 'attendance' && f !== 'streak'
+  );
+
   return (
     <ContentLayout title="My AI Pulse">
       <PageBreadcrumb
@@ -425,15 +489,24 @@ export default async function AiPulseLearnerPage({
         {switcherCycles.length > 0 && (
           <div className="flex flex-wrap items-center gap-3">
             <WeekSwitcher cycles={switcherCycles} selectedId={cycle?.id ?? null} />
-            {!isCurrentCycle && (
+            {/* "Viewing a past week" is a CLAIM, and it needs the current cycle
+                to be true. When that read failed we say what we actually know:
+                this week is shown, and whether it is the live one is unchecked. */}
+            {liveWeekUnknown ? (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-900">
-                Viewing a past week — read-only
+                Read-only — we couldn&apos;t check whether this is the live week
               </span>
+            ) : (
+              !isCurrentCycle && (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-900">
+                  Viewing a past week — read-only
+                </span>
+              )
             )}
           </div>
         )}
 
-        {failed.length > 0 && (
+        {unhandledFailures.length > 0 && (
           <RetryNotice
             message="Part of this page didn't load just now. Everything else is shown below."
             retryHref={retryHref}
@@ -442,7 +515,11 @@ export default async function AiPulseLearnerPage({
 
         <div className="grid gap-4 md:grid-cols-2">
           <CurrentCycleCard cycle={cycle} />
-          <MyTeamCard team={team} />
+          {teamFailed ? (
+            <UnavailableCard title="My Team" retryHref={retryHref} />
+          ) : (
+            <MyTeamCard team={team} />
+          )}
           {/* Domain Starter — the SELECTED cycle's copy-paste AI prompt pack
               for the learner's subject/programme. Scoped by cycleId so the week
               switcher shows each week's own prompt. Renders nothing while the
@@ -480,7 +557,11 @@ export default async function AiPulseLearnerPage({
               <GoldThisWeekCard gold={gold} />
             </div>
           )}
-          <MyAttendanceCard attendance={attendance} streak={streak} />
+          {attendanceFailed ? (
+            <UnavailableCard title="My Attendance" retryHref={retryHref} />
+          ) : (
+            <MyAttendanceCard attendance={attendance} streak={streak} />
+          )}
           {/* Quick Actions = submissions against the live cycle. Hidden when
               viewing a past week (read-only — you can't submit to a closed cycle). */}
           {isCurrentCycle && (

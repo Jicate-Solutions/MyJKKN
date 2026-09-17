@@ -254,15 +254,76 @@ describe('a failed read', () => {
     );
   });
 
-  it('marks one failed card and still renders the rest of the page', async () => {
-    service.getMyStreak.mockRejectedValue(new Error('read failed'));
+  it('marks a failure with no card of its own and still renders the page', async () => {
+    service.listCyclesServer.mockRejectedValue(new Error('read failed'));
     const { redirectedTo } = await open();
     expect(redirectedTo).toBeNull();
     expect(screen.getByText(/part of this page didn't load/i)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /try again/i })).toBeInTheDocument();
     // The cards that DID load are still there.
     expect(screen.getByTestId('current-cycle-card')).toBeInTheDocument();
     expect(screen.getByTestId('my-team-card')).toBeInTheDocument();
+  });
+
+  it('keeps a historical week that loaded when the current-cycle read failed', async () => {
+    // The learner asked for a specific week and we have it. Throwing it away
+    // because a read alongside it failed would hide data we already hold.
+    const historical = { ...CYCLE, id: 'cycle-9', name: 'Week of Jul 20' };
+    service.getCycleByIdServer.mockResolvedValue(historical);
+    service.getCurrentCycleServer.mockRejectedValue(new Error('read failed'));
+
+    const { redirectedTo } = await open({ cycle: 'cycle-9' });
+    expect(redirectedTo).toBeNull();
+    expect(screen.getByTestId('current-cycle-card')).toBeInTheDocument();
+    expect(
+      screen.queryByText(/couldn't load your ai pulse week/i),
+    ).not.toBeInTheDocument();
+    // "Viewing a past week" needs the current cycle to be true, so with that
+    // read failed the page says what it actually knows.
+    expect(
+      screen.getByText(/couldn't check whether this is the live week/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/viewing a past week/i)).not.toBeInTheDocument();
+    // And no submissions are offered against a week we cannot confirm is open.
+    expect(screen.queryByTestId('quick-actions-card')).not.toBeInTheDocument();
+  });
+
+  it('gives up only when no week could be read at all', async () => {
+    service.getCurrentCycleServer.mockRejectedValue(new Error('read failed'));
+    await open();
+    expect(
+      screen.getByText(/couldn't load your ai pulse week/i),
+    ).toBeInTheDocument();
+  });
+
+  it('renders My Team as unavailable rather than claiming no team', async () => {
+    service.getMyTeam.mockRejectedValue(new Error('read failed'));
+    const { redirectedTo } = await open();
+    expect(redirectedTo).toBeNull();
+    expect(screen.queryByTestId('my-team-card')).not.toBeInTheDocument();
+    expect(screen.getByText('My Team')).toBeInTheDocument();
+    expect(
+      screen.getByText(/not showing a number we can't stand behind/i),
+    ).toBeInTheDocument();
+    // The rest of the page is untouched.
+    expect(screen.getByTestId('current-cycle-card')).toBeInTheDocument();
+    expect(screen.getByTestId('my-attendance-card')).toBeInTheDocument();
+  });
+
+  it('renders My Attendance as unavailable when the attendance read failed', async () => {
+    service.getMyAttendance.mockRejectedValue(new Error('read failed'));
+    await open();
+    expect(screen.queryByTestId('my-attendance-card')).not.toBeInTheDocument();
+    expect(screen.getByText('My Attendance')).toBeInTheDocument();
+    expect(screen.getByTestId('my-team-card')).toBeInTheDocument();
+  });
+
+  it('renders My Attendance as unavailable when only the streak read failed', async () => {
+    // The streak lives on that card; printing 0 would be a measurement nobody
+    // took.
+    service.getMyStreak.mockRejectedValue(new Error('read failed'));
+    await open();
+    expect(screen.queryByTestId('my-attendance-card')).not.toBeInTheDocument();
+    expect(screen.getByText('My Attendance')).toBeInTheDocument();
   });
 
   it('says so when an action permission could not be read', async () => {
@@ -277,6 +338,34 @@ describe('a failed read', () => {
     ];
     await open();
     expect(screen.getByText(/part of this page didn't load/i)).toBeInTheDocument();
+  });
+});
+
+describe('what waits on what', () => {
+  it('does not make the cycle-scoped reads wait for the Gold read', async () => {
+    // Gold has nothing to do with the cycle. While it shared a Promise.all with
+    // the cycle reads, team/attendance/streak sat behind it for no reason.
+    let goldResolved = false;
+    let teamStartedBeforeGold: boolean | null = null;
+
+    service.getLatestGoldServer.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(() => {
+            goldResolved = true;
+            resolve(null);
+          }, 20);
+        }),
+    );
+    service.getMyTeam.mockImplementation(async () => {
+      teamStartedBeforeGold = !goldResolved;
+      return null;
+    });
+
+    await open();
+    expect(teamStartedBeforeGold).toBe(true);
+    // And Gold still lands on the page.
+    expect(service.getLatestGoldServer).toHaveBeenCalledTimes(1);
   });
 });
 

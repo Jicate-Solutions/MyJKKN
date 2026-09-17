@@ -13,9 +13,9 @@
  * catches everything else.
  */
 
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, startTransition } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AlertTriangle, RefreshCw, Home, Bug } from 'lucide-react';
@@ -25,62 +25,75 @@ interface ErrorProps {
   reset: () => void;
 }
 
-/** How long a re-mount has to cancel a pending marker clear. */
-const REMOUNT_GRACE_MS = 3_000;
-
 /**
- * Module scope, one per tab.
+ * One automatic retry per route, recorded in sessionStorage.
  *
- * Next.js unmounts this component in BOTH outcomes of a retry: when the
- * children finally render, and, for an instant, when they throw again and the
- * boundary re-mounts with the new error. From in here the two are identical, so
- * the "already retried" marker is cleared on a short delay and a re-mount
- * cancels that clear. A successful render therefore drops the marker and the
- * next navigation gets a fresh retry; a repeat failure keeps it and there is no
- * second automatic retry. No wall-clock cooldown decides anything.
+ * The marker is set when the automatic retry fires and removed in exactly two
+ * places: when this boundary mounts for a DIFFERENT route (the learner moved
+ * on, so that route's one retry is spent and irrelevant), and when the learner
+ * presses Try Again (a deliberate retry re-arms the automatic one). A repeat
+ * failure on the same route re-mounts with the marker still set, so there is
+ * never a second automatic retry and never a loop. No timers, no wall clock.
  */
-let pendingMarkerClear: ReturnType<typeof setTimeout> | null = null;
+const RETRY_MARKER_PREFIX = 'network-retry:';
 
 function retryMarkerKey(pathname: string): string {
-  return `network-retry:${pathname}`;
+  return `${RETRY_MARKER_PREFIX}${pathname}`;
 }
 
 export default function RoutesError({ error, reset }: ErrorProps) {
   const pathname = usePathname();
+  const router = useRouter();
 
-  // `reset` gets a new identity on every render. Holding it in a ref keeps it
+  /**
+   * The documented recovery for an error thrown by a Server Component.
+   *
+   * `reset()` on its own only clears this boundary's state and re-renders the
+   * segment — it does not refetch the RSC payload, so a retry can replay the
+   * very response that failed and the page stays dead. `router.refresh()`
+   * refetches it. Both belong in one transition.
+   * https://nextjs.org/docs/app/api-reference/file-conventions/error#reset
+   */
+  const recover = useCallback(() => {
+    startTransition(() => {
+      router.refresh();
+      reset();
+    });
+  }, [router, reset]);
+
+  // `recover` gets a new identity on every render. Holding it in a ref keeps it
   // out of the retry effect's dependencies, so a re-render cannot cancel a
-  // retry that is already scheduled. The ref is initialised with the first
-  // `reset`, so a retry scheduled on the very first render already has a usable
-  // one; this effect only keeps it current afterwards.
-  const resetRef = useRef(reset);
+  // retry that is already scheduled. The ref starts with the first one, so a
+  // retry scheduled on the very first render already has a usable callback;
+  // this effect only keeps it current afterwards.
+  const recoverRef = useRef(recover);
   useEffect(() => {
-    resetRef.current = reset;
+    recoverRef.current = recover;
   });
 
-  // Clear the marker once this boundary is gone for good — see the note on
-  // pendingMarkerClear. Runs on unmount, and when the route changes.
-  useEffect(() => {
-    const key = retryMarkerKey(pathname);
-    return () => {
-      if (pendingMarkerClear !== null) clearTimeout(pendingMarkerClear);
-      pendingMarkerClear = setTimeout(() => {
-        pendingMarkerClear = null;
-        try {
-          sessionStorage.removeItem(key);
-        } catch {
-          // storage blocked — nothing to clear
-        }
-      }, REMOUNT_GRACE_MS);
-    };
-  }, [pathname]);
+  const handleTryAgain = () => {
+    // A deliberate retry re-arms the automatic one for the next failure here.
+    try {
+      sessionStorage.removeItem(retryMarkerKey(pathname));
+    } catch {
+      // storage blocked — nothing to clear
+    }
+    recover();
+  };
 
   useEffect(() => {
-    // Mounting inside the grace window means the retry failed again, so the
-    // marker must survive.
-    if (pendingMarkerClear !== null) {
-      clearTimeout(pendingMarkerClear);
-      pendingMarkerClear = null;
+    // Mounting for a different route means the learner moved on: whatever
+    // automatic retry another route had used is spent and can go.
+    try {
+      const keep = retryMarkerKey(pathname);
+      for (let i = sessionStorage.length - 1; i >= 0; i -= 1) {
+        const key = sessionStorage.key(i);
+        if (key !== null && key.startsWith(RETRY_MARKER_PREFIX) && key !== keep) {
+          sessionStorage.removeItem(key);
+        }
+      }
+    } catch {
+      // storage blocked — nothing to sweep
     }
 
     // eslint-disable-next-line no-console
@@ -137,7 +150,7 @@ export default function RoutesError({ error, reset }: ErrorProps) {
         // auto retry rather than risk a loop. "Try Again" still works.
       }
       if (mayRetry) {
-        const timer = setTimeout(() => resetRef.current(), 1500);
+        const timer = setTimeout(() => recoverRef.current(), 1500);
         return () => clearTimeout(timer);
       }
     }
@@ -186,7 +199,7 @@ export default function RoutesError({ error, reset }: ErrorProps) {
             </p>
           )}
           <div className='flex flex-wrap gap-3 justify-center pt-2'>
-            <Button onClick={reset} variant='default'>
+            <Button onClick={handleTryAgain} variant='default'>
               <RefreshCw className='mr-2 h-4 w-4' />
               Try Again
             </Button>
