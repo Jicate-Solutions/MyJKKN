@@ -25,6 +25,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { MessagesSquare } from 'lucide-react';
 import { CommentThreadPanel } from '@/components/shared/comment-thread-panel';
+import { searchTaggableStaff } from '@/components/shared/search-taggable-staff';
 import { useAuth } from '@/hooks/use-auth';
 import {
   useCreateReservationComment,
@@ -78,8 +79,9 @@ export function ReservationComments({ reservationId }: { reservationId: string }
         <>
           Messages between the approvers and the person who raised this booking.
           Use it to say what is still outstanding while the request is pending.
-          Only the booker, this request&apos;s approvers and resource
-          administrators can see it.
+          Only the booker, this request&apos;s approvers, resource
+          administrators and team members tagged here can see it. Type @ or use
+          Tag people to bring in whoever has to act.
         </>
       }
       placeholder='Say what is holding this request up, or what the booker still has to do.'
@@ -96,10 +98,20 @@ export function ReservationComments({ reservationId }: { reservationId: string }
       // Closing is open to admins; deleting somebody else's words is a super
       // admin's cleanup power alone, and the DELETE policy says exactly that.
       canDeleteAny={isSuperAdmin}
+      // Tagging (BUG-006139): a tagged team member is notified and can read and
+      // reply in this booking's thread from then on. See
+      // supabase/migrations/20261224090000_resource_reservation_comment_mentions.sql.
+      peopleSearch={searchTaggableStaff}
       handlers={{
-        onPost: (body) => post.mutateAsync({ reservation_id: reservationId, body }),
-        onReply: (parentId, body) =>
-          post.mutateAsync({ reservation_id: reservationId, parent_id: parentId, body }),
+        onPost: (body, mentionIds) =>
+          post.mutateAsync({ reservation_id: reservationId, body, mention_ids: mentionIds }),
+        onReply: (parentId, body, mentionIds) =>
+          post.mutateAsync({
+            reservation_id: reservationId,
+            parent_id: parentId,
+            body,
+            mention_ids: mentionIds,
+          }),
         onEdit: (id, body) => update.mutateAsync({ id, body }),
         onResolve: (id, resolved) => resolve.mutateAsync({ id, resolved }),
         onDelete: (id) => remove.mutateAsync(id),
