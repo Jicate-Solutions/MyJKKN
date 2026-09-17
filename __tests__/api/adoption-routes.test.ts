@@ -63,6 +63,7 @@ vi.mock('next/server', async () => {
 
 // Handlers imported AFTER the mocks.
 import { POST as registerPost } from '@/app/api/admin/adoption/register/route';
+import { POST as syncPost } from '@/app/api/admin/adoption/sync/route';
 import { POST as askWhyPost } from '@/app/api/admin/adoption/ask-why/route';
 import { POST as proposePost } from '@/app/api/admin/adoption/propose/route';
 import { POST as decidePost } from '@/app/api/admin/adoption/decide/route';
@@ -87,10 +88,12 @@ const VALID_BODY: Record<string, Record<string, unknown>> = {
   'ask-why': { feature_key: 'gate.pass_issue' },
   propose: { feature_key: 'gate.pass_issue', option: 'simplify' },
   decide: { proposal_id: '11111111-1111-4111-8111-111111111111', option: 'keep' },
+  sync: { days: 30 },
 };
 
 const ROUTES: Array<{ path: string; handler: Handler; rpc: string }> = [
   { path: 'register', handler: registerPost, rpc: 'fn_adoption_register' },
+  { path: 'sync', handler: syncPost, rpc: 'fn_adoption_sync_usage_events' },
   { path: 'ask-why', handler: askWhyPost, rpc: 'fn_adoption_ask_why' },
   { path: 'propose', handler: proposePost, rpc: 'fn_adoption_propose' },
   { path: 'decide', handler: decidePost, rpc: 'fn_adoption_decide' },
@@ -204,7 +207,36 @@ describe('POST /api/admin/adoption/register', () => {
       p_module: 'gate',
       p_source_pr: 3842,
       p_shipped_at: null,
+      p_usage_wired: false,
+      p_event_module: null,
+      p_event_feature: null,
+      p_event_type: null,
     });
+  });
+
+  it('passes the usage source through: a recording route and/or a usage-log event', async () => {
+    rpcData = { success: true, feature_key: 'attendance.mark' };
+    const res = await registerPost(
+      post('register', {
+        feature_key: 'attendance.mark',
+        title: 'Mark attendance',
+        core_action: 'mark attendance for a class',
+        usage_wired: true,
+        usage_event_module: ' academic/attendance ',
+        usage_event_feature: 'mark_attendance',
+        usage_event_type: '',
+      })
+    );
+    expect(res.status).toBe(200);
+    expect(userRpc).toHaveBeenCalledWith(
+      'fn_adoption_register',
+      expect.objectContaining({
+        p_usage_wired: true,
+        p_event_module: 'academic/attendance',
+        p_event_feature: 'mark_attendance',
+        p_event_type: null,
+      })
+    );
   });
 
   it('defaults the audience to everyone when no roles are given', async () => {
@@ -338,5 +370,29 @@ describe('POST /api/admin/adoption/decide', () => {
     const res = await decidePost(post('decide', VALID_BODY.decide));
     expect(res.status).toBe(400);
     expect((await res.json()).error).toBe('no waiting card with that id');
+  });
+});
+
+
+describe('POST /api/admin/adoption/sync', () => {
+  it('pulls 30 days by default and echoes the counts', async () => {
+    rpcData = { success: true, features: 2, rows: 41, since: '2026-08-18T00:00:00+05:30' };
+    const res = await syncPost(post('sync', {}));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, features: 2, rows: 41, since: '2026-08-18T00:00:00+05:30' });
+    expect(userRpc).toHaveBeenCalledWith('fn_adoption_sync_usage_events', { p_days: 30 });
+  });
+
+  it('clamps the window to 1..365 days', async () => {
+    rpcData = { success: true, features: 0, rows: 0 };
+    await syncPost(post('sync', { days: 9000 }));
+    expect(userRpc).toHaveBeenCalledWith('fn_adoption_sync_usage_events', { p_days: 365 });
+  });
+
+  it('reports the switch being off as the database says it', async () => {
+    rpcData = { success: false, error: 'adoption loop is switched off (policy adoption.loop.enabled)' };
+    const res = await syncPost(post('sync', { days: 30 }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/switched off/);
   });
 });

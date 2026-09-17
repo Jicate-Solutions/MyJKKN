@@ -25,6 +25,11 @@ const EMPTY = {
   intended_roles: 'all',
   module: '',
   source_pr: '',
+  // Where usage comes from. Leave all three empty and the feature is labelled
+  // but NOT measured (never judged dead, nobody asked why) until code records it.
+  usage_event_module: '',
+  usage_event_feature: '',
+  usage_event_type: '',
 };
 
 export function RegisterFeatureForm() {
@@ -32,6 +37,7 @@ export function RegisterFeatureForm() {
   const [isPending, startTransition] = useTransition();
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(EMPTY);
+  const [usageWired, setUsageWired] = useState(false);
 
   const busy = saving || isPending;
 
@@ -62,6 +68,10 @@ export function RegisterFeatureForm() {
           intended_roles: roles.length > 0 ? roles : ['all'],
           module: form.module.trim() || null,
           source_pr: Number.isFinite(pr) ? pr : null,
+          usage_wired: usageWired,
+          usage_event_module: form.usage_event_module.trim() || null,
+          usage_event_feature: form.usage_event_feature.trim() || null,
+          usage_event_type: form.usage_event_type.trim() || null,
         }),
       });
       const payload = (await response.json().catch(() => ({}))) as {
@@ -74,6 +84,7 @@ export function RegisterFeatureForm() {
 
       toast.success(`${form.title.trim()} is labelled. It will be measured from now on.`);
       setForm(EMPTY);
+      setUsageWired(false);
       startTransition(() => router.refresh());
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'The label could not be saved.');
@@ -172,6 +183,57 @@ export function RegisterFeatureForm() {
             inputMode="numeric"
             disabled={busy}
           />
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-lg border border-dashed border-border p-3">
+        <p className="text-sm font-medium text-foreground">Where usage comes from</p>
+        <p className="mb-2 text-xs text-muted-foreground">
+          A label with no source is not measured: it is never called dead and nobody is asked
+          why. Tick the box when a route records this key, or name the event the usage log
+          already carries (module, then feature and type if it has them).
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <label className="flex items-center gap-2 text-sm text-foreground">
+            <input
+              type="checkbox"
+              checked={usageWired}
+              onChange={(event) => setUsageWired(event.target.checked)}
+              disabled={busy}
+              className="h-4 w-4"
+            />
+            A route records this key
+          </label>
+          <div className="space-y-1.5">
+            <Label htmlFor="adoption-event-module">Usage-log module</Label>
+            <Input
+              id="adoption-event-module"
+              value={form.usage_event_module}
+              onChange={(event) => set('usage_event_module', event.target.value)}
+              placeholder="academic/attendance"
+              disabled={busy}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="adoption-event-feature">Usage-log feature</Label>
+            <Input
+              id="adoption-event-feature"
+              value={form.usage_event_feature}
+              onChange={(event) => set('usage_event_feature', event.target.value)}
+              placeholder="mark_attendance"
+              disabled={busy}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="adoption-event-type">Usage-log event type</Label>
+            <Input
+              id="adoption-event-type"
+              value={form.usage_event_type}
+              onChange={(event) => set('usage_event_type', event.target.value)}
+              placeholder="create"
+              disabled={busy}
+            />
+          </div>
         </div>
       </div>
 

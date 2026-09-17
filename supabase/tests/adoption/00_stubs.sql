@@ -44,3 +44,18 @@ CREATE OR REPLACE FUNCTION public.is_super_admin() RETURNS boolean LANGUAGE sql 
   SELECT EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND is_super_admin = true); $$;
 CREATE OR REPLACE FUNCTION public.is_admin(user_id uuid DEFAULT auth.uid()) RETURNS boolean LANGUAGE sql SECURITY DEFINER SET search_path = public STABLE AS $$
   SELECT EXISTS (SELECT 1 FROM profiles WHERE id = user_id AND (is_super_admin = true OR role IN ('admin','super_admin','administrator'))); $$;
+
+-- platform_policies + the bool reader (shape from 20260429000002 + the #2440 columns)
+CREATE TABLE public.platform_policies (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), policy_key text NOT NULL, scope_type text NOT NULL, scope_id uuid,
+  value jsonb NOT NULL, description text, data_type text NOT NULL, is_system boolean DEFAULT false, is_active boolean DEFAULT true,
+  classification text, publication_state text, ui_widget text, ui_category text,
+  created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now());
+CREATE OR REPLACE FUNCTION public.fn_get_policy_bool(p_key text, p_default boolean, p_scope_id uuid DEFAULT NULL) RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT COALESCE((SELECT (value)::boolean FROM platform_policies WHERE policy_key = p_key AND scope_type='global' AND is_active LIMIT 1), p_default) $$;
+-- the usage log that already exists on production
+CREATE TABLE public.usage_events (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL, session_id text, event_type text NOT NULL, module text NOT NULL,
+  feature text, resource_type text, weight integer NOT NULL DEFAULT 1, institution_id uuid, department_id uuid, role text,
+  request_method text, source text NOT NULL DEFAULT 'middleware', metadata jsonb DEFAULT '{}', created_at timestamptz NOT NULL DEFAULT now());

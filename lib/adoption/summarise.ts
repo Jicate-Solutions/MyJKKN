@@ -59,6 +59,8 @@ export interface AdoptionMetricRow {
   /** answer text → how many people chose it. {} until anyone answers. */
   answers: Record<string, Numeric> | null;
   week_start: string | null;
+  /** false = nothing records this key yet: labelled, NOT measured, never dead. */
+  usage_wired?: boolean | null;
 }
 
 /** One feature with every role row that belongs to it. */
@@ -72,6 +74,8 @@ export interface FeatureGroup {
   source_pr: number | null;
   asked_count: number;
   answers: Record<string, number>;
+  /** Something records this key (a route calls fn_feature_used, or the usage-log bridge). */
+  usage_wired: boolean;
   rows: AdoptionMetricRow[];
 }
 
@@ -130,6 +134,7 @@ export function groupByFeature(rows: AdoptionMetricRow[]): FeatureGroup[] {
         core_action: row.core_action,
         shipped_at: row.shipped_at,
         status: row.status,
+        usage_wired: row.usage_wired === true,
         source_pr: row.source_pr,
         // asked_count and answers are per FEATURE, not per role — the RPC
         // repeats the same value on every role row, so the first one is it.
@@ -148,7 +153,8 @@ export function groupByFeature(rows: AdoptionMetricRow[]): FeatureGroup[] {
 /** Does this feature have anyone to measure? A feature nobody is intended to
  *  use produces a 0% that means "unmeasurable", not "unused". */
 export function isMeasured(group: FeatureGroup): boolean {
-  return group.rows.some((row) => toNumber(row.intended_count) > 0);
+  // Measured = something records the key AND somebody is intended to use it.
+  return group.usage_wired && group.rows.some((row) => toNumber(row.intended_count) > 0);
 }
 
 /** Old enough for a low share to be a verdict rather than newness. */
@@ -170,6 +176,7 @@ export function isOldEnoughToJudge(group: FeatureGroup, now: Date = new Date()):
 export function isDeadFeature(group: FeatureGroup, now: Date = new Date()): boolean {
   if (!isOldEnoughToJudge(group, now)) return false;
   if (group.status === 'retired') return false;
+  if (!group.usage_wired) return false; // zero use of an unrecorded key is not evidence
   const measured = group.rows.filter((row) => toNumber(row.intended_count) > 0);
   if (measured.length === 0) return false;
   return measured.every((row) => toNumber(row.pct_weekly) < DEAD_WEEKLY_PCT);

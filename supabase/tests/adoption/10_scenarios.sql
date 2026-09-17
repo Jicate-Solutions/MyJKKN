@@ -26,12 +26,42 @@ SELECT role_key, permissions->>'adoption.view' AS adoption_view FROM custom_role
 \echo '--- loop row + app.login seed'
 SELECT loop_key, loop_class FROM loop_registry; SELECT feature_key, intended_roles FROM feature_registry;
 
--- ===== as super admin: label two features =====
+\echo '--- policy off by default: EXPECT the switch row false, and recording refused'
+SELECT policy_key, value FROM platform_policies WHERE policy_key='adoption.loop.enabled';
+SELECT set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000002',false);
+DO $$ BEGIN IF fn_feature_used('app.login') THEN RAISE EXCEPTION 'FAIL: recorded while the loop is off'; END IF;
+  IF (SELECT count(*) FROM feature_usage) <> 0 THEN RAISE EXCEPTION 'FAIL: rows while off'; END IF; END $$;
+UPDATE platform_policies SET value = 'true'::jsonb WHERE policy_key='adoption.loop.enabled';
+
+-- ===== as super admin: label features (wired = something records the key) =====
 SELECT set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000001',false);
-SELECT fn_adoption_register('bug_reports.submit','Report a bug','report a problem you hit','{all}','bug_reports',3900, now() - interval '20 days');
-SELECT fn_adoption_register('hod.thing','HOD thing','do the hod thing','{hod}',NULL,NULL, now() - interval '15 days');
-SELECT fn_adoption_register('fresh.thing','Fresh thing','do the fresh thing','{all}',NULL,NULL, now());
+SELECT fn_adoption_register('bug_reports.submit','Report a bug','report a problem you hit','{all}','bug_reports',3900, now() - interval '20 days', true);
+SELECT fn_adoption_register('hod.thing','HOD thing','do the hod thing','{hod}',NULL,NULL, now() - interval '15 days', true);
+SELECT fn_adoption_register('fresh.thing','Fresh thing','do the fresh thing','{all}',NULL,NULL, now(), true);
+SELECT fn_adoption_register('unwired.thing','Unwired thing','do the unwired thing','{all}',NULL,NULL, now() - interval '40 days');
 SELECT fn_adoption_register('BAD KEY','x','y');
+\echo '--- unwired, 40 days old, zero use: EXPECT ask refused (no recording yet)'
+SELECT fn_adoption_ask_why('unwired.thing') AS unwired_ask;
+DO $$ DECLARE r jsonb; BEGIN r := fn_adoption_ask_why('unwired.thing');
+  IF (r->>'success')::boolean THEN RAISE EXCEPTION 'FAIL: asked about an unwired feature'; END IF; END $$;
+\echo '--- bridge: a feature measured from the existing usage log'
+SELECT fn_adoption_register('attendance.mark','Mark attendance','mark attendance for a class','{hod,faculty}','academic/attendance',NULL, now() - interval '60 days', false, 'academic/attendance','mark_attendance','create');
+INSERT INTO usage_events (user_id, event_type, module, feature, institution_id, role, source, created_at) VALUES
+  ('20000000-0000-0000-0000-000000000002','create','academic/attendance','mark_attendance','aaaaaaaa-0000-0000-0000-000000000001','hod','explicit', now() - interval '2 days'),
+  ('20000000-0000-0000-0000-000000000002','create','academic/attendance','mark_attendance','aaaaaaaa-0000-0000-0000-000000000001','hod','explicit', now() - interval '2 days'),
+  ('20000000-0000-0000-0000-000000000002','create','academic/attendance','mark_attendance','aaaaaaaa-0000-0000-0000-000000000001','hod','explicit', now() - interval '1 day'),
+  ('20000000-0000-0000-0000-000000000002','page_visit','academic/attendance',NULL,'aaaaaaaa-0000-0000-0000-000000000001','hod','explicit', now()),
+  ('20000000-0000-0000-0000-000000000005','create','academic/attendance','mark_attendance','aaaaaaaa-0000-0000-0000-000000000001','student','explicit', now() - interval '5 days');
+SELECT fn_adoption_sync_usage_events(30) AS bridge;
+SELECT user_id, day, count FROM feature_usage WHERE feature_key='attendance.mark' ORDER BY user_id, day;
+DO $$ DECLARE n int; c int; BEGIN
+  SELECT count(*), sum(count) INTO n, c FROM feature_usage WHERE feature_key='attendance.mark';
+  IF n <> 3 OR c <> 4 THEN RAISE EXCEPTION 'FAIL bridge: % rows, % events (expected 3 rows / 4 events, page_visit ignored)', n, c; END IF;
+  PERFORM fn_adoption_sync_usage_events(30);
+  SELECT count(*), sum(count) INTO n, c FROM feature_usage WHERE feature_key='attendance.mark';
+  IF n <> 3 OR c <> 4 THEN RAISE EXCEPTION 'FAIL bridge not idempotent: % rows, % events', n, c; END IF;
+  IF NOT (SELECT usage_wired FROM feature_registry WHERE feature_key='attendance.mark') THEN RAISE EXCEPTION 'FAIL: bridge did not mark wired'; END IF;
+END $$;
 
 -- ===== as HOD A: core action twice today =====
 SELECT set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000002',false);
@@ -98,7 +128,7 @@ DO $$ DECLARE n int; BEGIN
   IF EXISTS (SELECT 1 FROM adoption_asks a JOIN profiles p ON p.id=a.user_id WHERE p.is_super_admin) THEN RAISE EXCEPTION 'FAIL: super admin asked'; END IF;
 END $$;
 \echo '--- 7-day gap: label a 3rd old feature; EXPECT asked 0 (everyone was asked this week)'
-SELECT fn_adoption_register('old.other','Old other','do the other thing','{all}',NULL,NULL, now() - interval '40 days');
+SELECT fn_adoption_register('old.other','Old other','do the other thing','{all}',NULL,NULL, now() - interval '40 days', true);
 SELECT fn_adoption_ask_why('old.other') AS gap_ask;
 \echo '--- the notification is a must-answer one (feedback gate shape)'
 SELECT title, requires_answer, answer_options, metadata->>'kind' AS kind, category FROM notifications;
@@ -116,6 +146,15 @@ DO $$ DECLARE a jsonb; BEGIN
   SELECT answers INTO a FROM fn_adoption_metrics(NULL,NULL) m WHERE m.feature_key='bug_reports.submit';
   IF (a->>'Do not need it')::int <> 1 OR (a->>'Did not know it exists')::int <> 1 THEN RAISE EXCEPTION 'FAIL answers: %', a; END IF;
 END $$;
+\echo '--- ruling 7 on answers: principal A sees ONLY A''s reply (EXPECT {Do not need it:1}, no B reply)'
+SELECT set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000003',false);
+SELECT feature_key, answers FROM fn_adoption_metrics(NULL,NULL) WHERE feature_key='bug_reports.submit';
+DO $$ DECLARE a jsonb; BEGIN
+  SELECT answers INTO a FROM fn_adoption_metrics(NULL,NULL) m WHERE m.feature_key='bug_reports.submit';
+  IF a ? 'Did not know it exists' THEN RAISE EXCEPTION 'FAIL: principal A saw college B''s reply: %', a; END IF;
+  IF (a->>'Do not need it')::int <> 1 THEN RAISE EXCEPTION 'FAIL: principal A missing own college reply: %', a; END IF;
+END $$;
+SELECT set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000001',false);
 
 -- ===== ruling 8: propose / decide =====
 \echo '--- propose retire hod.thing: EXPECT proposal id, then "already waiting" on repeat'

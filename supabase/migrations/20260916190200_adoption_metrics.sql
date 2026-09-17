@@ -70,7 +70,7 @@ GRANT  EXECUTE ON FUNCTION public.fn_adoption_is_principal_of(uuid) TO service_r
 -- 0c) fn_adoption_answers(feature) — option → count from the why-not
 --     question (notification_answers, PR #3829). {} when not applied yet.
 -- ---------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.fn_adoption_answers(p_feature_key text)
+CREATE OR REPLACE FUNCTION public.fn_adoption_answers(p_feature_key text, p_institution_id uuid DEFAULT NULL)
 RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
@@ -86,8 +86,11 @@ BEGIN
       SELECT na.answer, count(*) AS cnt
       FROM public.notification_answers na
       JOIN public.notifications n ON n.id = na.notification_id
+      JOIN public.profiles p ON p.id = na.user_id
       WHERE n.metadata ->> 'kind' = 'adoption_why'
         AND n.metadata ->> 'feature_key' = p_feature_key
+        -- Ruling 7: a college's totals carry only that college's replies.
+        AND (p_institution_id IS NULL OR p.institution_id = p_institution_id)
       GROUP BY na.answer
     ) a;
   EXCEPTION
@@ -97,8 +100,8 @@ BEGIN
   RETURN COALESCE(v_out, '{}'::jsonb);
 END;
 $$;
-REVOKE EXECUTE ON FUNCTION public.fn_adoption_answers(text) FROM anon, PUBLIC, authenticated;
-GRANT  EXECUTE ON FUNCTION public.fn_adoption_answers(text) TO service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_adoption_answers(text, uuid) FROM anon, PUBLIC, authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_adoption_answers(text, uuid) TO service_role;
 
 -- ---------------------------------------------------------------------
 -- 1) fn_adoption_metrics(week_start, institution) — ruling 1 (a) and (b),
@@ -127,7 +130,8 @@ RETURNS TABLE (
   pct_ever       numeric,
   asked_count    bigint,
   answers        jsonb,
-  week_start     date
+  week_start     date,
+  usage_wired    boolean
 )
 LANGUAGE plpgsql
 STABLE
@@ -156,7 +160,7 @@ BEGIN
   RETURN QUERY
   WITH f AS (
     SELECT fr.feature_key, fr.title, fr.module, fr.core_action, fr.shipped_at,
-           fr.status, fr.source_pr,
+           fr.status, fr.source_pr, fr.usage_wired,
            CASE WHEN cardinality(fr.intended_roles) = 0 THEN 'all' ELSE r.role END AS role
     FROM public.feature_registry fr
     LEFT JOIN LATERAL unnest(fr.intended_roles) AS r(role) ON true
@@ -203,8 +207,9 @@ BEGIN
          CASE WHEN COALESCE(a.intended_count, 0) > 0
               THEN round(a.ever_active::numeric * 100 / a.intended_count, 1) ELSE 0 END,
          COALESCE(k.asked_count, 0)::bigint,
-         public.fn_adoption_answers(f.feature_key),
-         v_week
+         public.fn_adoption_answers(f.feature_key, v_scope),
+         v_week,
+         f.usage_wired
   FROM f
   LEFT JOIN agg a   ON a.feature_key = f.feature_key AND a.role = f.role
   LEFT JOIN asked k ON k.feature_key = f.feature_key
@@ -357,9 +362,17 @@ BEGIN
   -- this transaction only.
   PERFORM pg_advisory_xact_lock(hashtext('fn_adoption_ask_why'));
 
+  IF NOT COALESCE(public.fn_get_policy_bool('adoption.loop.enabled', false), false) THEN
+    RETURN jsonb_build_object('success', false, 'error', 'adoption loop is switched off (policy adoption.loop.enabled)');
+  END IF;
+
   SELECT * INTO v_feat FROM public.feature_registry WHERE feature_key = p_feature_key;
   IF NOT FOUND THEN
     RETURN jsonb_build_object('success', false, 'error', 'unknown feature');
+  END IF;
+  IF NOT v_feat.usage_wired THEN
+    -- Nobody records this key yet, so "zero use" is not evidence of anything.
+    RETURN jsonb_build_object('success', false, 'error', 'no usage recording for this feature yet — it cannot be judged dead');
   END IF;
   IF v_feat.status = 'retired' THEN
     RETURN jsonb_build_object('success', false, 'error', 'feature is retired');
@@ -438,7 +451,11 @@ CREATE OR REPLACE FUNCTION public.fn_adoption_register(
   p_intended_roles text[] DEFAULT '{all}'::text[],
   p_module         text DEFAULT NULL,
   p_source_pr      integer DEFAULT NULL,
-  p_shipped_at     timestamptz DEFAULT NULL
+  p_shipped_at     timestamptz DEFAULT NULL,
+  p_usage_wired    boolean DEFAULT false,
+  p_event_module   text DEFAULT NULL,
+  p_event_feature  text DEFAULT NULL,
+  p_event_type     text DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -460,11 +477,14 @@ BEGIN
   END IF;
 
   INSERT INTO public.feature_registry
-    (feature_key, title, module, intended_roles, core_action, shipped_at, source_pr, created_by)
+    (feature_key, title, module, intended_roles, core_action, shipped_at, source_pr, created_by,
+     usage_wired, usage_event_module, usage_event_feature, usage_event_type)
   VALUES
     (p_feature_key, btrim(p_title), NULLIF(btrim(p_module), ''),
      COALESCE(p_intended_roles, '{all}'::text[]), btrim(p_core_action),
-     COALESCE(p_shipped_at, now()), p_source_pr, v_uid)
+     COALESCE(p_shipped_at, now()), p_source_pr, v_uid,
+     COALESCE(p_usage_wired, false) OR NULLIF(btrim(p_event_module), '') IS NOT NULL,
+     NULLIF(btrim(p_event_module), ''), NULLIF(btrim(p_event_feature), ''), NULLIF(btrim(p_event_type), ''))
   ON CONFLICT (feature_key) DO UPDATE
     SET title          = EXCLUDED.title,
         module         = COALESCE(EXCLUDED.module, public.feature_registry.module),
@@ -472,13 +492,87 @@ BEGIN
         core_action    = EXCLUDED.core_action,
         shipped_at     = COALESCE(p_shipped_at, public.feature_registry.shipped_at),
         source_pr      = COALESCE(EXCLUDED.source_pr, public.feature_registry.source_pr),
+        -- wiring is sticky: once something records a key, a re-label cannot un-wire it
+        usage_wired    = public.feature_registry.usage_wired OR EXCLUDED.usage_wired,
+        usage_event_module  = COALESCE(EXCLUDED.usage_event_module,  public.feature_registry.usage_event_module),
+        usage_event_feature = COALESCE(EXCLUDED.usage_event_feature, public.feature_registry.usage_event_feature),
+        usage_event_type    = COALESCE(EXCLUDED.usage_event_type,    public.feature_registry.usage_event_type),
         updated_at     = now();
 
   RETURN jsonb_build_object('success', true, 'feature_key', p_feature_key);
 END;
 $$;
-REVOKE EXECUTE ON FUNCTION public.fn_adoption_register(text, text, text, text[], text, integer, timestamptz) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_adoption_register(text, text, text, text[], text, integer, timestamptz) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_adoption_register(text, text, text, text[], text, integer, timestamptz, boolean, text, text, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_adoption_register(text, text, text, text[], text, integer, timestamptz, boolean, text, text, text) TO authenticated, service_role;
+
+-- ---------------------------------------------------------------------
+-- 5b) fn_adoption_sync_usage_events(days) — the bridge. MyJKKN's usage log
+--     (usage_events, lib/utils/track-usage.ts) already carries real feature
+--     events (e.g. academic/attendance · mark_attendance: 229 people in the
+--     30 days to 2026-09-17). A registered feature that names its event
+--     (usage_event_module [+ feature] [+ type]) is measured from that log:
+--     one feature_usage row per person per IST day, count = events that day.
+--     page_visit events never count unless the mapping asks for them.
+-- ---------------------------------------------------------------------
+-- ci:allow-secdef-authenticated the body RAISES 42501 unless is_super_admin(); copies the caller's own platform telemetry between two tables and exposes nothing.
+CREATE OR REPLACE FUNCTION public.fn_adoption_sync_usage_events(p_days integer DEFAULT 30)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_feat  record;
+  v_rows  integer := 0;
+  v_n     integer;
+  v_feats integer := 0;
+  v_from  timestamptz := (((now() AT TIME ZONE 'Asia/Kolkata')::date - GREATEST(COALESCE(p_days, 30), 1)) ::timestamp AT TIME ZONE 'Asia/Kolkata');
+BEGIN
+  IF NOT COALESCE(is_super_admin(), false) THEN
+    RAISE EXCEPTION 'super admin required' USING ERRCODE = '42501';
+  END IF;
+  IF NOT COALESCE(public.fn_get_policy_bool('adoption.loop.enabled', false), false) THEN
+    RETURN jsonb_build_object('success', false, 'error', 'adoption loop is switched off (policy adoption.loop.enabled)');
+  END IF;
+
+  FOR v_feat IN
+    SELECT fr.feature_key, fr.usage_event_module, fr.usage_event_feature, fr.usage_event_type
+    FROM public.feature_registry fr
+    WHERE fr.usage_event_module IS NOT NULL AND fr.status <> 'retired'
+  LOOP
+    INSERT INTO public.feature_usage (user_id, feature_key, day, count, institution_id, role, first_at, last_at)
+    SELECT ue.user_id, v_feat.feature_key,
+           (ue.created_at AT TIME ZONE 'Asia/Kolkata')::date,
+           count(*)::integer,
+           COALESCE((array_agg(ue.institution_id) FILTER (WHERE ue.institution_id IS NOT NULL))[1],
+                    (array_agg(p.institution_id)  FILTER (WHERE p.institution_id  IS NOT NULL))[1]),
+           COALESCE(max(ue.role), max(p.role)),
+           min(ue.created_at), max(ue.created_at)
+    FROM public.usage_events ue
+    JOIN public.profiles p ON p.id = ue.user_id
+    WHERE ue.module = v_feat.usage_event_module
+      AND (v_feat.usage_event_feature IS NULL OR ue.feature = v_feat.usage_event_feature)
+      AND (CASE WHEN v_feat.usage_event_type IS NULL THEN ue.event_type <> 'page_visit'
+                ELSE ue.event_type = v_feat.usage_event_type END)
+      AND ue.created_at >= v_from
+    GROUP BY ue.user_id, (ue.created_at AT TIME ZONE 'Asia/Kolkata')::date
+    ON CONFLICT (user_id, feature_key, day) DO UPDATE
+      SET count    = GREATEST(public.feature_usage.count, EXCLUDED.count),
+          first_at = LEAST(public.feature_usage.first_at, EXCLUDED.first_at),
+          last_at  = GREATEST(public.feature_usage.last_at, EXCLUDED.last_at);
+    GET DIAGNOSTICS v_n = ROW_COUNT;
+    v_rows := v_rows + v_n;
+    v_feats := v_feats + 1;
+    UPDATE public.feature_registry SET usage_wired = true, updated_at = now()
+    WHERE feature_key = v_feat.feature_key AND usage_wired = false;
+  END LOOP;
+
+  RETURN jsonb_build_object('success', true, 'features', v_feats, 'rows', v_rows, 'since', v_from);
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_adoption_sync_usage_events(integer) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_adoption_sync_usage_events(integer) TO authenticated, service_role;
 
 -- ---------------------------------------------------------------------
 -- 6) fn_adoption_propose / fn_adoption_decide — ruling 8. The desk proposes

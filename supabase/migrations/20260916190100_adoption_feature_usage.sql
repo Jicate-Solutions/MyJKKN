@@ -71,6 +71,11 @@ BEGIN
     RETURN false;
   END IF;
 
+  -- Off by default (platform_policies 'adoption.loop.enabled').
+  IF NOT COALESCE(public.fn_get_policy_bool('adoption.loop.enabled', false), false) THEN
+    RETURN false;
+  END IF;
+
   IF NOT EXISTS (
     SELECT 1 FROM public.feature_registry
     WHERE feature_key = p_feature_key AND status <> 'retired'

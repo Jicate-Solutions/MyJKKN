@@ -53,6 +53,7 @@ import {
 } from '@/lib/adoption/summarise';
 import { FeatureActions, type PendingProposal } from './_components/feature-actions';
 import { RegisterFeatureForm } from './_components/register-feature-form';
+import { SyncUsageButton } from './_components/sync-usage-button';
 
 interface LoginDay {
   day: string;
@@ -168,6 +169,13 @@ export default async function FeatureAdoptionPage() {
 
   const supabase = await createServerSupabaseClient();
 
+  // Off by default: nothing is recorded or asked until this policy is true.
+  const { data: loopEnabledData } = await supabase.rpc('fn_get_policy_bool', {
+    p_key: 'adoption.loop.enabled',
+    p_default: false,
+  });
+  const loopEnabled = loopEnabledData === true;
+
   const [metricsResult, loginsResult, proposalsResult] = await Promise.all([
     supabase.rpc('fn_adoption_metrics', { p_week_start: null, p_institution_id: null }),
     supabase.rpc('fn_adoption_logins_daily', { p_days: 30, p_institution_id: null }),
@@ -217,6 +225,15 @@ export default async function FeatureAdoptionPage() {
           </p>
         </div>
 
+        {!loopEnabled ? (
+          <div className="rounded-xl border border-amber-400/60 bg-amber-50/60 p-4 text-sm text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/30 dark:text-amber-200">
+            <span className="font-medium">Recording is switched off.</span> Nothing is being
+            recorded, pulled from the usage log, or asked until the platform policy
+            <code className="mx-1 rounded bg-muted px-1 py-0.5 text-xs">adoption.loop.enabled</code>
+            is turned on. The numbers below are whatever was recorded before.
+          </div>
+        ) : null}
+
         {metricsError ? (
           <div className="rounded-xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
             The numbers could not be read: {metricsError.message}. Nothing below is
@@ -233,7 +250,7 @@ export default async function FeatureAdoptionPage() {
           <Headline
             value={measured}
             label="Measured this week"
-            hint="Labelled features that have intended people to measure."
+            hint="Labelled features that something records and that have intended people."
           />
           <Headline
             value={dead}
@@ -253,6 +270,17 @@ export default async function FeatureAdoptionPage() {
         </div>
 
         <RegisterFeatureForm />
+
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card p-4 shadow-sm dark:shadow-none">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-foreground">Measure from the usage log</p>
+            <p className="text-xs text-muted-foreground">
+              Features labelled with a usage-log event are measured from what the platform already
+              records (last 30 days), no new code needed. Safe to press again.
+            </p>
+          </div>
+          <SyncUsageButton disabled={!loopEnabled} />
+        </div>
 
         {groups.length === 0 ? (
           <div className="rounded-xl border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
@@ -390,6 +418,11 @@ export default async function FeatureAdoptionPage() {
                           {featureIsDead ? (
                             <div className="mt-1 text-xs font-medium text-red-600 dark:text-red-400">
                               dead
+                            </div>
+                          ) : null}
+                          {!group.usage_wired ? (
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              not measured — nothing records this key yet
                             </div>
                           ) : null}
                           {pending ? (

@@ -23,6 +23,9 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 const NO_STORE = { 'Cache-Control': 'private, no-store' } as const;
 
+const str = (v: unknown): string | null =>
+  typeof v === 'string' && v.trim() ? v.trim() : null;
+
 export async function POST(request: Request) {
   await connection();
 
@@ -89,6 +92,13 @@ export async function POST(request: Request) {
     p_module: typeof body?.module === 'string' && body.module.trim() ? body.module.trim() : null,
     p_source_pr: sourcePr,
     p_shipped_at: typeof body?.shipped_at === 'string' && body.shipped_at ? body.shipped_at : null,
+    // Where usage comes from: a route calling fn_feature_used (usage_wired) and/or
+    // the existing usage log (module [+ feature] [+ event type]). Neither given =
+    // labelled but not measured, never judged dead.
+    p_usage_wired: body?.usage_wired === true,
+    p_event_module: str(body?.usage_event_module),
+    p_event_feature: str(body?.usage_event_feature),
+    p_event_type: str(body?.usage_event_type),
   });
 
   if (error) {

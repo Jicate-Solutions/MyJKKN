@@ -57,6 +57,7 @@ function row(overrides: Partial<AdoptionMetricRow> = {}): AdoptionMetricRow {
     asked_count: 0,
     answers: {},
     week_start: '2026-09-14',
+    usage_wired: true,
     ...overrides,
   };
 }
@@ -215,6 +216,7 @@ describe('isDeadFeature', () => {
           source_pr: null,
           asked_count: 0,
           answers: {},
+          usage_wired: true,
           rows: [],
         },
         NOW
@@ -224,6 +226,12 @@ describe('isDeadFeature', () => {
 
   it('does NOT count a feature with nobody intended as dead — it is unmeasured, a labelling gap', () => {
     const [group] = groupByFeature([row({ intended_count: 0, pct_weekly: 0 })]);
+    expect(isMeasured(group)).toBe(false);
+    expect(isDeadFeature(group, NOW)).toBe(false);
+  });
+
+  it('does NOT count an unrecorded (unwired) feature as dead — zero use of an unrecorded key is not evidence', () => {
+    const [group] = groupByFeature([row({ usage_wired: false, intended_count: 40, pct_weekly: 0 })]);
     expect(isMeasured(group)).toBe(false);
     expect(isDeadFeature(group, NOW)).toBe(false);
   });

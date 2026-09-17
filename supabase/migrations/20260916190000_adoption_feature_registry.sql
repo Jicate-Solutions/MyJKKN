@@ -30,6 +30,17 @@ CREATE TABLE IF NOT EXISTS public.feature_registry (
   core_action    text NOT NULL,
   shipped_at     timestamptz NOT NULL DEFAULT now(),
   source_pr      integer,
+  -- Where usage comes from. usage_wired = false means NOBODY records this key
+  -- yet: the feature is labelled but NOT measured, so it is never judged dead
+  -- and its people are never asked why (critic finding, 2026-09-17).
+  usage_wired         boolean NOT NULL DEFAULT false,
+  -- Optional bridge to the usage log that already exists (usage_events, fed by
+  -- lib/utils/track-usage.ts since 2026-02-06): events with this module
+  -- (+ feature, + event_type when set) ARE the core action, and
+  -- fn_adoption_sync_usage_events copies them into feature_usage.
+  usage_event_module  text,
+  usage_event_feature text,
+  usage_event_type    text,
   status         text NOT NULL DEFAULT 'live'
                  CHECK (status IN ('live', 'simplify', 'retrain', 'retired')),
   created_by     uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
@@ -150,10 +161,29 @@ ON CONFLICT (loop_key) DO NOTHING;
 --    is labelled by the desks — no other seed (spec build step 1).
 -- ---------------------------------------------------------------------
 INSERT INTO public.feature_registry
-  (feature_key, title, module, intended_roles, core_action, shipped_at)
+  (feature_key, title, module, intended_roles, core_action, shipped_at, usage_wired)
 VALUES
-  ('app.login', 'MyJKKN sign-in', 'platform', '{all}'::text[], 'sign in to MyJKKN', '2026-01-01T00:00:00+05:30')
+  ('app.login', 'MyJKKN sign-in', 'platform', '{all}'::text[], 'sign in to MyJKKN', '2026-01-01T00:00:00+05:30', true)
 ON CONFLICT (feature_key) DO NOTHING;
+
+-- ---------------------------------------------------------------------
+-- 7) Off by default (same shape as the Usage Beacon switch, PR #2440).
+--    While false: fn_feature_used records nothing, the usage-log bridge
+--    copies nothing, and no why-not question can be sent. The pages still
+--    read. Flip it on /admin/platform-policies when the Director says go.
+-- ---------------------------------------------------------------------
+INSERT INTO public.platform_policies
+  (policy_key, scope_type, value, data_type, description,
+   is_system, is_active, classification, publication_state, ui_widget, ui_category)
+SELECT * FROM (VALUES
+  ('adoption.loop.enabled','global','false'::jsonb,'boolean',
+   'Master switch for the adoption loop (spec 2026-09-16). When true: fn_feature_used writes one feature_usage row per person per feature per day at each labelled core action, fn_adoption_sync_usage_events may copy matching usage_events into it, and fn_adoption_ask_why may send the one-tap "why not" question (must-answer notice) to intended people of a 14-day-old feature with zero use — at most once per feature ever and once per person per 7 days. When false none of that happens; /admin/adoption and /adoption still read whatever was recorded. Off by default so nothing is recorded or asked until the Director flips it.',
+   true, true, 'major','published','toggle','analytics')
+) v(policy_key, scope_type, value, data_type, description,
+    is_system, is_active, classification, publication_state, ui_widget, ui_category)
+WHERE NOT EXISTS (
+  SELECT 1 FROM public.platform_policies p
+  WHERE p.policy_key = v.policy_key AND p.scope_type = 'global');
 
 -- ---------------------------------------------------------------------
 -- 6) Who may open the principal page (/adoption): adoption.view.
