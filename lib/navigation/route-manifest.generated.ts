@@ -5111,6 +5111,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "children": []
               }
             ]
+          },
+          {
+            "path": "/ims/stock/reorder",
+            "label": "Reorder",
+            "iconName": "FileText",
+            "children": []
           }
         ]
       },

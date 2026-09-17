@@ -61,16 +61,24 @@ export default function PurchaseRequestsPage() {
 
   return (
     <ContentLayout title="Purchase Requests">
-      <div className="space-y-6">
+      <div className="space-y-4 sm:space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h2 className="text-2xl font-bold tracking-tight">Purchase Requests</h2>
-            <p className="text-muted-foreground">
+            <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Purchase Requests</h2>
+            <p className="hidden text-muted-foreground sm:block">
               Restock and new-item requests routed for approval.
             </p>
           </div>
           {canCreate && (
-            <Button onClick={() => router.push('/procurement/requests/new')}>
+            <Button
+              onClick={() =>
+                router.push(
+                  effectiveInstitution
+                    ? `/procurement/requests/new?institution=${effectiveInstitution}`
+                    : '/procurement/requests/new'
+                )
+              }
+            >
               <Plus className="mr-2 h-4 w-4" />
               New Request
             </Button>
@@ -79,7 +87,7 @@ export default function PurchaseRequestsPage() {
 
         <Card>
           <CardContent className="pt-6">
-            <div className="flex flex-col sm:flex-row gap-4">
+            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input

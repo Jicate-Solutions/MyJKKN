@@ -5,6 +5,21 @@ import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
 import { generateTemporaryPassword } from '@/lib/utils/temporary-password';
+import { INDUCTION_ELIGIBLE_LIFECYCLE_STATUSES } from '@/lib/constants/induction-access';
+
+// Statuses eligible for a login here, not just 'active'. The induction-access
+// spec (specs/pre-onboarding-induction-access-2026-06-29.md) already grants
+// admitted/reserved/enquiry_submitted/enquiry/account learners restricted
+// module access (My Induction, Service Requests, AI Pulse) and expects them
+// to be able to log in for it — auto_link_profile_to_approved_learner links a
+// profile for the same list on self-service OAuth sign-in. This route is the
+// OTHER path (staff-triggered, temp password) and must grant the same
+// eligibility, or a reserved/admitted learner who hasn't happened to sign in
+// with OAuth yet has no way to get a login at all.
+const ONBOARDING_ELIGIBLE_LIFECYCLE_STATUSES = [
+  'active',
+  ...INDUCTION_ELIGIBLE_LIFECYCLE_STATUSES,
+] as const;
 
 // ============================================
 // LEARNER ONBOARDING API
@@ -61,9 +76,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (learner.lifecycle_status !== 'active') {
+    if (!(ONBOARDING_ELIGIBLE_LIFECYCLE_STATUSES as readonly string[]).includes(learner.lifecycle_status)) {
       return NextResponse.json(
-        { error: 'Learner must be active to create user account' },
+        { error: `Learner status '${learner.lifecycle_status}' is not eligible for a login account` },
         { status: 400 }
       );
     }
