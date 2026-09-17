@@ -40,7 +40,8 @@ import {
   Search,
   ArrowUpDown,
   Shield,
-  Pencil
+  Pencil,
+  Trash2
 } from 'lucide-react';
 import {
   Table,
@@ -61,6 +62,16 @@ import toast from 'react-hot-toast';
 import type { DetailedAttendanceReport } from '@/types/attendance-reports';
 import type { AttendanceAuditEntry } from '@/types/attendance';
 import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '@/components/ui/alert-dialog';
 
 // Color scheme constants - Using primary (blue), success (green), danger (red)
 const COLORS = {
@@ -104,6 +115,9 @@ export default function AttendanceReportDetailPage() {
   const [auditLog, setAuditLog] = useState<AttendanceAuditEntry[] | null>(null);
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditError, setAuditError] = useState(false);
+  // Added: 2026-09-17 (BUG-006133) - undo a mis-marked period
+  const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
+  const [removing, setRemoving] = useState(false);
 
   // Determine user role
   const userRole = useMemo(() => {
@@ -306,6 +320,60 @@ export default function AttendanceReportDetailPage() {
     (p) => p.period_id === selectedPeriod
   );
 
+  // Added: 2026-09-17 (BUG-006133) - "I have marked the attendance
+  // unfortunately for the upcoming Period". Before this there was no unmark
+  // path at all, so the only way out of a mis-mark was a bug report. The rule
+  // itself lives in the service (canDeletePeriodAttendance) and is enforced
+  // there; this is only the affordance.
+  const removePermission = periodToEdit
+    ? AttendanceService.canDeletePeriodAttendance({
+        period: periodToEdit as any,
+        attendanceDate: report.attendance_date,
+        actor: {
+          id: profile?.id || '',
+          role: isSuperAdmin ? 'super_admin' : profile?.role || '',
+          department_id: profile?.department_id,
+          institution_id: profile?.institution_id
+        },
+        record: {
+          department_id: report.department_id,
+          institution_id: report.institution_id
+        },
+        auditEntries: (auditLog || []) as any
+      })
+    : { allowed: false, reason: 'Select a period below to remove its attendance' };
+
+  const handleRemovePeriod = async () => {
+    if (!periodToEdit || !profile?.id) return;
+    setRemoving(true);
+    try {
+      const result = await AttendanceService.deletePeriodAttendance({
+        attendanceId: reportId,
+        periodKey: periodToEdit.period_id,
+        actor: {
+          id: profile.id,
+          full_name: profile.full_name || 'Unknown',
+          role: isSuperAdmin ? 'super_admin' : profile.role || '',
+          department_id: profile.department_id,
+          institution_id: profile.institution_id
+        }
+      });
+
+      if (!result.success) {
+        toast.error(result.error || 'Could not remove the attendance');
+        return;
+      }
+
+      toast.success(
+        `Attendance removed for ${periodToEdit.period_name || 'this period'}`
+      );
+      setRemoveDialogOpen(false);
+      router.push('/academic/attendance/reports');
+    } finally {
+      setRemoving(false);
+    }
+  };
+
   return (
     <ContentLayout title='Attendance Report Details'>
       <Breadcrumb className='print:hidden'>
@@ -380,6 +448,27 @@ export default function AttendanceReportDetailPage() {
                 Edit Attendance
               </Button>
             )}
+
+            {/* Added: 2026-09-17 (BUG-006133) - remove a period marked by mistake */}
+            <Button
+              variant='outline'
+              size='sm'
+              disabled={!removePermission.allowed}
+              title={
+                removePermission.allowed
+                  ? `Remove attendance for ${periodToEdit?.period_name || 'this period'}`
+                  : removePermission.reason
+              }
+              onClick={() => setRemoveDialogOpen(true)}
+              className={
+                removePermission.allowed
+                  ? 'text-red-600 hover:text-red-700 dark:text-red-400'
+                  : undefined
+              }
+            >
+              <Trash2 className='h-4 w-4 mr-2' />
+              Remove Attendance
+            </Button>
             <Button variant='outline' size='sm' onClick={() => window.print()}>
               <Printer className='h-4 w-4 mr-2' />
               Print
@@ -1178,6 +1267,47 @@ export default function AttendanceReportDetailPage() {
           </div>
         )}
       </div>
+
+      {/* Added: 2026-09-17 (BUG-006133) - confirm before removing a period.
+          A Radix dialog rather than window.confirm: a native modal blocks the
+          page and there is no undo for the undo. */}
+      <AlertDialog open={removeDialogOpen} onOpenChange={setRemoveDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Remove attendance for {periodToEdit?.period_name || 'this period'}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This deletes the recorded attendance for{' '}
+              {periodToEdit?.students?.length ?? 0} student
+              {(periodToEdit?.students?.length ?? 0) === 1 ? '' : 's'} on{' '}
+              {report.attendance_date}. The period goes back to unmarked and can
+              be marked again. The change is recorded in the audit log. This
+              cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={removing}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                handleRemovePeriod();
+              }}
+              disabled={removing}
+              className='bg-red-600 hover:bg-red-700 text-white'
+            >
+              {removing ? (
+                <>
+                  <Loader2 className='h-4 w-4 mr-2 animate-spin' />
+                  Removing...
+                </>
+              ) : (
+                'Remove Attendance'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </ContentLayout>
   );
 }
