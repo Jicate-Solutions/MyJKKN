@@ -2,14 +2,16 @@
  * Student Attendance Page
  * Created: 2025-12-29
  * Description: Student self-service attendance view with analytics
+ *
+ * Every read this page needs happens in _lib/load-attendance-page.ts, under one
+ * deadline, so a stalled or refused read ends as a retry the learner can act on
+ * rather than a skeleton that never resolves (BUG-004853, BUG-004856).
  */
 
 import { Suspense } from 'react';
 import { redirect } from 'next/navigation';
-import { createClient } from '@/lib/supabase/server';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { StudentValidationService } from '@/lib/services/auth/student-validation-service';
 import { SemesterFilter } from './_components/semester-filter';
 import { AttendanceStatisticsCards } from './_components/statistics-cards';
 import { AttendanceTrendChart } from './_components/trend-chart';
@@ -23,7 +25,11 @@ import { TableSkeleton } from '@/components/Loading';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { buttonVariants } from '@/components/ui/button';
 import { AlertCircle, RefreshCw } from 'lucide-react';
-import { loadAttendanceOverview, resolveAttendanceViewState } from './_lib/load-attendance-overview';
+import {
+  loadAttendancePage,
+  resolveAttendanceViewState,
+  STAGE_LABEL
+} from './_lib/load-attendance-page';
 
 interface PageProps {
   searchParams: Promise<{ semester?: string }>;
@@ -31,79 +37,60 @@ interface PageProps {
 
 export default async function StudentAttendancePage({ searchParams }: PageProps) {
   const params = await searchParams;
-  const supabase = await createClient();
 
-  // Get current user
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
-    redirect('/auth/login');
+  // One bounded load covering sign-in, profile, lifecycle, learner record,
+  // semester list and attendance. It returns a decision; it never redirects.
+  const load = await loadAttendancePage(params.semester);
+
+  if (load.status === 'redirect') {
+    redirect(load.to);
   }
 
-  // Get profile and validate student
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('learner_id, role')
-    .eq('id', user.id)
-    .single();
-
-  if (profile?.role !== 'student' || !profile.learner_id) {
-    redirect('/');
-  }
-
-  // Validate student access (lifecycle status check)
-  const validation = await StudentValidationService.validateStudentAccess(user.id);
-  if (!validation.allowed) {
-    redirect(`/auth/login?reason=${validation.reason}`);
-  }
-
-  // Get learner's current semester and program
-  const { data: learner } = await supabase
-    .from('learners_profiles')
-    .select('semester_id, program_id, institution_id')
-    .eq('id', profile.learner_id)
-    .single();
-
-  const currentSemesterId = learner?.semester_id || '';
-  const selectedSemester = params.semester || currentSemesterId;
-
-  // Get all semesters for dropdown (from same program)
-  // Fetch semester_code to filter out future semesters
-  const { data: allSemesters } = await supabase
-    .from('semesters')
-    .select('id, semester_name, semester_code')
-    .eq('program_id', learner?.program_id)
-    .eq('institution_id', learner?.institution_id)
-    .eq('is_active', true)
-    .order('semester_name');
-
-  // Extract semester number from semester_code (e.g., "BPHARM-SEM-5" → 5)
-  const extractSemesterNumber = (code: string | null): number => {
-    if (!code) return 0;
-    const match = code.match(/(\d+)$/);
-    return match ? parseInt(match[1], 10) : 0;
-  };
-
-  // Find current semester's number to filter out future semesters
-  const currentSem = (allSemesters || []).find(s => s.id === currentSemesterId);
-  const currentSemNumber = extractSemesterNumber(currentSem?.semester_code || null);
-
-  // Only show current and past semesters (not future ones)
-  const semesters = (allSemesters || [])
-    .filter(s => extractSemesterNumber(s.semester_code) <= currentSemNumber)
-    .map(({ id, semester_name }) => ({ id, semester_name }));
-
-  // Fetch the attendance records ONCE; statistics, course-wise and trend are
-  // derived from that single result. Asking for them separately made the same
-  // heavy JSONB fetch run four times per page view. The load carries its own
-  // deadline, so a read that never comes back ends as a retryable error rather
-  // than a skeleton the learner is stuck on.
-  const outcome = await loadAttendanceOverview(profile.learner_id, selectedSemester);
-  const viewState = resolveAttendanceViewState(outcome);
-  const overview = outcome.status === 'ok' ? outcome.overview : null;
-
-  const retryHref = selectedSemester
-    ? `/learners/my-attendance?semester=${encodeURIComponent(selectedSemester)}`
+  const viewState = resolveAttendanceViewState(load);
+  const semesterForRetry = load.status === 'ok' ? load.selectedSemester : params.semester;
+  const retryHref = semesterForRetry
+    ? `/learners/my-attendance?semester=${encodeURIComponent(semesterForRetry)}`
     : '/learners/my-attendance';
+
+  // A failed load cannot say which semester is current or list the others, so
+  // the retry card stands alone rather than beside a half-built filter.
+  if (load.status === 'failed') {
+    return (
+      <ContentLayout title="My Attendance">
+        <PageBreadcrumb
+          items={[
+            { label: 'Home', href: '/' },
+            { label: 'Learners' },
+            { label: 'Attendance' }
+          ]}
+        />
+
+        <div className="space-y-6 mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <AlertCircle className="h-5 w-5 text-destructive" />
+                Attendance could not be loaded
+              </CardTitle>
+              <CardDescription>
+                We couldn&apos;t load {STAGE_LABEL[load.stage]} just now. This is a problem on our
+                side, not with your account, and none of your attendance has changed. Please try
+                again.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <a href={retryHref} className={buttonVariants({ variant: 'outline' })}>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Try again
+              </a>
+            </CardContent>
+          </Card>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  const { overview, semesters, selectedSemester, currentSemesterId, learnerId } = load;
 
   return (
     <ContentLayout title="My Attendance">
@@ -129,69 +116,43 @@ export default async function StudentAttendancePage({ searchParams }: PageProps)
 
         {/* Semester Filter */}
         <SemesterFilter
-          semesters={semesters || []}
+          semesters={semesters}
           selected={selectedSemester}
           currentSemester={currentSemesterId}
         />
 
-        {/* Load failed or ran out of time — say so and offer a retry, never an
-            endless skeleton */}
-        {viewState === 'error' || !overview ? (
+        {/* Statistics Cards — always shown so attendance % is visible even with no records */}
+        <AttendanceStatisticsCards stats={overview.statistics} />
+
+        {/* Show message if no attendance data, otherwise show full breakdown */}
+        {viewState === 'empty' ? (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <AlertCircle className="h-5 w-5 text-destructive" />
-                Attendance could not be loaded
+                <AlertCircle className="h-5 w-5 text-muted-foreground" />
+                No Attendance Records
               </CardTitle>
               <CardDescription>
-                Something went wrong while loading your attendance for this semester. Your records are safe — this is a display problem. Please try again.
+                No attendance records found for the selected semester. Attendance will appear here
+                once your Senior Learners start marking attendance.
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              <a href={retryHref} className={buttonVariants({ variant: 'outline' })}>
-                <RefreshCw className="mr-2 h-4 w-4" />
-                Try again
-              </a>
-            </CardContent>
           </Card>
         ) : (
           <>
-            {/* Statistics Cards — always shown so attendance % is visible even with no records */}
-            <AttendanceStatisticsCards stats={overview.statistics} />
+            {/* Trend Chart */}
+            {overview.trend.length > 0 && <AttendanceTrendChart data={overview.trend} />}
 
-            {/* Show message if no attendance data, otherwise show full breakdown */}
-            {viewState === 'empty' ? (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <AlertCircle className="h-5 w-5 text-muted-foreground" />
-                    No Attendance Records
-                  </CardTitle>
-                  <CardDescription>
-                    No attendance records found for the selected semester. Attendance will appear here once your Senior Learners start marking attendance.
-                  </CardDescription>
-                </CardHeader>
-              </Card>
-            ) : (
-              <>
-                {/* Trend Chart */}
-                {overview.trend.length > 0 && <AttendanceTrendChart data={overview.trend} />}
+            {/* Course-wise Table */}
+            <CourseWiseTable data={overview.courseWise} />
 
-                {/* Course-wise Table */}
-                <CourseWiseTable data={overview.courseWise} />
+            {/* Export Actions */}
+            <ExportActions learnerId={learnerId} semesterId={selectedSemester} />
 
-                {/* Export Actions */}
-                <ExportActions
-                  learnerId={profile.learner_id}
-                  semesterId={selectedSemester}
-                />
-
-                {/* Period-wise Table */}
-                <Suspense fallback={<TableSkeleton />}>
-                  <PeriodWiseAttendanceTable data={overview.records} />
-                </Suspense>
-              </>
-            )}
+            {/* Period-wise Table */}
+            <Suspense fallback={<TableSkeleton />}>
+              <PeriodWiseAttendanceTable data={overview.records} />
+            </Suspense>
           </>
         )}
       </div>
