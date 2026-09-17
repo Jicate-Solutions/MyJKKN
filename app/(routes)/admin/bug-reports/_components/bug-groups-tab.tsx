@@ -1390,7 +1390,7 @@ function LoopStepper({
               ) : (
                 <MessageCircleQuestion className='w-4 h-4 mr-1.5' />
               )}
-              Ask the reporters
+              Send the question
             </Button>
             <span className='text-[11px] text-muted-foreground'>
               Sends one &quot;is this fixed for you?&quot; per reporter. They
