@@ -43,6 +43,8 @@ import {
   useIsSoiCoordinator,
   withSoiCoordinatorNavAccess,
 } from '@/hooks/school-of-influence/use-soi-coordinator-nav-access';
+import { useIsInductionOnly } from '@/hooks/use-my-lifecycle-status';
+import { isInductionOnlyAllowedPath } from '@/lib/constants/induction-access';
 
 interface AutoTabNavProps {
   maxDepth?: number;
@@ -210,7 +212,11 @@ export function AutoTabNav({
   const pathname = usePathname();
   const adaptFn = useAdaptiveLabels();
   const adapt = typeof adaptFn === 'function' ? adaptFn : (label: string) => label;
-  const { permissions: rolePermissions, isSuperAdmin, isLoading } = usePermissions();
+  const { permissions: rolePermissions, isSuperAdmin, isLoading, userProfile } = usePermissions();
+  // Pre-onboarding (induction-only) learners: proxy.ts bounces every path outside
+  // the induction whitelist back to My Induction, so a chip pointing there is a
+  // dead link. Mirrors the sidebar and bottom nav (BUG-005921 cluster).
+  const isInductionOnly = useIsInductionOnly(userProfile?.role === 'student');
   // An appointed School of Influence coordinator holds no cohort.manage key, so
   // every chip of their own programme was filtered away and the tab strip they
   // needed rendered empty (BUG-005799 / BUG-005800). Visibility only — each
@@ -238,6 +244,9 @@ export function AutoTabNav({
   }
 
   const canShowChip = (href: string): boolean => {
+    if (isInductionOnly && !isInductionOnlyAllowedPath(normalizeRoute(href))) {
+      return false;
+    }
     if (isLoading) return true;
     if (isSuperAdmin) return true;
     const perm = MENU_PERMISSIONS[normalizeRoute(href)];
