@@ -225,3 +225,160 @@ export function resolvePeriodSectionId(
   // searchContext.section_id is initialised to '', so guard on truthiness.
   return searchContextSectionId || undefined;
 }
+
+/**
+ * Whether the batch or group the user is marking can narrow the roster at all.
+ *
+ * Added: 2026-09-17 (BUG-006033, BUG-006034 — cluster ad0e2dca, both from JKKN
+ * College of Arts and Science (Aided), reported 2026-09-03).
+ *
+ * A non-major elective is chosen PER LEARNER inside one section: 3 of the 35
+ * learners in I B.Sc Commerce "A" took NME-I-SERICULTURE. The timetable can
+ * express that in exactly one way — by naming those 3 on the sub-slot
+ * (`SubdivisionGroup.student_ids`) or on the practical batch
+ * (`BatchDefinition.student_ids`), the fields and pickers added by e57c978c0b
+ * on 2026-08-17. Neither report's slot named anybody:
+ *
+ *   BUG-006033  combined slot, 2 sub-slots, both pointed at section f2cf7de7,
+ *               neither carried student_ids       -> 35 listed, 3 belong
+ *   BUG-006034  practical slot, 3 batches, all pointed at section 54f6f44a,
+ *               none carried student_ids          -> 51 listed, 3 belong
+ *               (Batch C's own `estimated_count` says 3)
+ *
+ * When nobody is named, both code paths skip their narrowing and the whole host
+ * section loads. That is the defect, and its shape is precise: a slot divided
+ * into several parts whose parts all cover the SAME sections and name NO
+ * learners is not a division at all — every part shows the same full roster.
+ *
+ * This decides only that question. It cannot decide who elected the course:
+ * there is no academic course-enrolment table on this database (`course_enrollments`
+ * belongs to the public/online-courses module — course_events, packages, payments),
+ * so the enrolment set genuinely does not exist anywhere but the timetable slot.
+ * The caller's job is therefore to SAY SO, not to guess a narrower roster.
+ *
+ * Deliberately NOT a refusal. Measured against production on 2026-09-17, active
+ * timetables hold 96 practical batches and 32 subdivision groups that narrow
+ * nothing, and the last 90 days carry 1,024 marked practical periods and 150
+ * marked subdivided periods. Blanking those rosters would take attendance
+ * marking away from every one of them, which is the trade this screen has
+ * already refused twice in writing (see the 2026-08-06 note in mark/page.tsx and
+ * scopeRosterToAcademicYear: a roster slightly too wide beats no roster).
+ */
+export type RosterDivisionKind = 'practical_batch' | 'subdivision_group';
+
+export interface RosterDivision {
+  /** Identity within the slot: `batch_id`, or the sub-slot order as a string. */
+  key: string;
+  /** What the division is called on screen ("Batch C", "Group B"). */
+  label: string;
+  /** Learners this division names. Empty or absent means it names nobody. */
+  studentIds?: readonly (string | null | undefined)[] | null;
+  /** Sections this division covers. */
+  sectionIds?: readonly (string | null | undefined)[] | null;
+  /** The course this division teaches, when the divisions differ by course. */
+  courseId?: string | null;
+  /** Headcount the timetable recorded for this division, if it recorded one. */
+  expectedCount?: number | null;
+}
+
+export type RosterDivisionOutcome =
+  /** Names learners — the existing narrowing applies and is authoritative. */
+  | 'narrowed_by_learners'
+  /** Names nobody, but its own sections set it apart from its siblings. */
+  | 'narrowed_by_section'
+  /** The only division in the slot: the whole cohort is meant to be here. */
+  | 'sole_division'
+  /** Names nobody AND shares its sections with a sibling. The defect. */
+  | 'narrows_nothing'
+  /** The chosen key is not among the divisions; nothing to judge. */
+  | 'unknown';
+
+export interface RosterDivisionVerdict {
+  outcome: RosterDivisionOutcome;
+  /** True only for 'narrows_nothing'. The one flag callers need. */
+  narrowsNothing: boolean;
+  /** Labels of the siblings that cover exactly the same sections. */
+  sharesScopeWith: string[];
+  /**
+   * True when one of those siblings teaches a DIFFERENT course — the elective
+   * shape, where the listed learners are provably not all taking this course.
+   * A same-course split lists the right cohort divided the wrong way, so the
+   * message can be gentler; both are still reported.
+   */
+  siblingTeachesAnotherCourse: boolean;
+  /** The division's recorded headcount, when it has one. */
+  expectedCount: number | null;
+}
+
+/** Non-empty string ids, de-duplicated. Mirrors `nonEmpty` above for readonly input. */
+function cleanDivisionIds(
+  ids: readonly (string | null | undefined)[] | null | undefined
+): string[] {
+  if (!Array.isArray(ids)) return [];
+  const seen = new Set<string>();
+  for (const id of ids) {
+    if (typeof id === 'string' && id.length > 0) seen.add(id);
+  }
+  return Array.from(seen);
+}
+
+/** Sorted section key. Order inside the JSONB blob is not stable. */
+function sectionScopeKey(
+  ids: readonly (string | null | undefined)[] | null | undefined
+): string {
+  return cleanDivisionIds(ids).sort().join(',');
+}
+
+/**
+ * Judge whether `chosenKey` narrows the roster within `divisions`.
+ *
+ * Anything it cannot judge narrows: an unknown key, a single division, a
+ * division whose sections differ from every sibling's. Only the exact defect
+ * shape — names nobody, and a sibling covers the identical sections — comes
+ * back as `narrowsNothing`.
+ *
+ * A division with no sections at all is judged the same way as one with
+ * sections: two parts that both say "no section" are equally indistinguishable,
+ * and on this screen a sectionless slot falls back to programme/semester scope
+ * (the 2026-08-06 note in mark/page.tsx), which is wider still.
+ */
+export function assessDivisionRosterScope(
+  chosenKey: string | null | undefined,
+  divisions: readonly RosterDivision[] | null | undefined
+): RosterDivisionVerdict {
+  const all = Array.isArray(divisions) ? divisions : [];
+  const chosen = chosenKey ? all.find((d) => d.key === chosenKey) : undefined;
+
+  const base = {
+    narrowsNothing: false,
+    sharesScopeWith: [] as string[],
+    siblingTeachesAnotherCourse: false,
+    expectedCount:
+      typeof chosen?.expectedCount === 'number' ? chosen.expectedCount : null
+  };
+
+  if (!chosen) return { ...base, outcome: 'unknown' };
+  if (cleanDivisionIds(chosen.studentIds).length > 0) {
+    return { ...base, outcome: 'narrowed_by_learners' };
+  }
+  if (all.length < 2) return { ...base, outcome: 'sole_division' };
+
+  const chosenScope = sectionScopeKey(chosen.sectionIds);
+  const siblings = all.filter(
+    (d) => d.key !== chosen.key && sectionScopeKey(d.sectionIds) === chosenScope
+  );
+
+  if (siblings.length === 0) {
+    return { ...base, outcome: 'narrowed_by_section' };
+  }
+
+  return {
+    ...base,
+    outcome: 'narrows_nothing',
+    narrowsNothing: true,
+    sharesScopeWith: siblings.map((d) => d.label),
+    siblingTeachesAnotherCourse: siblings.some(
+      (d) => !!d.courseId && !!chosen.courseId && d.courseId !== chosen.courseId
+    )
+  };
+}

@@ -51,7 +51,12 @@ import type { LeaveBlockInfo } from '@/types/leaves';
 import { logger } from '@/lib/utils/enhanced-logger';
 import {
   verifySectionInTimetableScope,
-  resolveAttendanceSaveScope
+  resolveAttendanceSaveScope,
+  assessDivisionRosterScope
+} from '@/lib/utils/academic/attendance-section-scope';
+import type {
+  RosterDivision,
+  RosterDivisionKind
 } from '@/lib/utils/academic/attendance-section-scope';
 import { narrowRosterToPracticalBatch } from '@/lib/utils/academic/practical-batch-roster';
 import type { PracticalBatchRosterResult } from '@/lib/utils/academic/practical-batch-roster';
@@ -151,6 +156,19 @@ export default function AttendanceMarkPage() {
     // sections. Empty for section-assigned batches.
     student_ids?: string[];
     staff?: { id: string; first_name: string; last_name: string; email?: string }[];
+  } | null>(null);
+
+  // Added: 2026-09-17 (BUG-006033, BUG-006034) - set when the batch or group
+  // being marked names no learners AND covers the same sections as a sibling,
+  // so picking it narrows the roster by nothing and the whole host section is
+  // listed. Rendered above the roster; see assessDivisionRosterScope.
+  const [divisionScopeNotice, setDivisionScopeNotice] = useState<{
+    kind: RosterDivisionKind;
+    label: string;
+    sharesScopeWith: string[];
+    differentCourse: boolean;
+    expectedCount: number | null;
+    listed: number;
   } | null>(null);
 
   // Updated: 2025-01-16 - Leave block checking state
@@ -448,6 +466,12 @@ export default function AttendanceMarkPage() {
         // Check if this is a multi-section slot by looking at the timetable_data
         let slotSectionIds: string[] = [];
         let slotSections: any[] = [];
+        // Added: 2026-09-17 (BUG-006033) - the sub-slots as the roster sees
+        // them, so loadStudents can tell a real division from one that narrows
+        // nothing. Read here rather than from `subdivisionGroups` state: that
+        // state is set in this same effect and is NOT in loadStudents'
+        // dependency list, so reading it there would see the previous slot's.
+        let subSlotDivisions: RosterDivision[] = [];
 
         if (periodId && timetable.timetable_data) {
           // Parse timetable_data to find the specific period's section_ids
@@ -496,9 +520,27 @@ export default function AttendanceMarkPage() {
                     setIsSubdividedSlot(true);
                     setSubdivisionGroups(groups);
                     setSubdivisionType(slot.subdivision_type || 'practical');
+
+                    // Added: 2026-09-17 (BUG-006033) - keep each sub-slot's own
+                    // section_ids. `groups` drops them, and they are what decides
+                    // whether picking a group narrows anything at all.
+                    subSlotDivisions = slot.sub_slots.map((subSlot: any) => ({
+                      key: String(subSlot.sub_slot_order || 1),
+                      label:
+                        subSlot.group_name ||
+                        `Group ${subSlot.sub_slot_order || 1}`,
+                      studentIds: subSlot.student_ids || [],
+                      sectionIds: subSlot.section_ids || [],
+                      courseId: subSlot.course_id || slot.course_id || null,
+                      expectedCount:
+                        typeof subSlot.max_capacity === 'number'
+                          ? subSlot.max_capacity
+                          : null
+                    }));
                   } else {
                     setIsSubdividedSlot(false);
                     setSubdivisionGroups([]);
+                    subSlotDivisions = [];
                   }
 
                   // NEW: Check if this is a practical period (Updated: 2025-10-25)
@@ -633,6 +675,8 @@ export default function AttendanceMarkPage() {
           timetable_type: timetable.timetable_type || 'section', // Track timetable type
           section_data: sectionData,
           slot_sections: slotSections, // All sections for this slot
+          // Added: 2026-09-17 (BUG-006033) - read by loadStudents' division check.
+          sub_slot_divisions: subSlotDivisions,
           academic_year_name: (timetableData as any).academic_years
             ?.academic_year_name,
           degree_name: (timetableData as any).degrees?.degree_name,
@@ -1105,6 +1149,97 @@ export default function AttendanceMarkPage() {
           }
         }
 
+        // Updated: 2026-09-17 (BUG-006033, BUG-006034) - Never widen in silence.
+        // Both reports are a non-major elective taught to 3 learners inside a
+        // 35- and a 51-learner section, and both slots divide the period without
+        // naming anybody: BUG-006033's two sub-slots both point at section
+        // f2cf7de7 with no student_ids, BUG-006034's three practical batches all
+        // point at section 54f6f44a with no student_ids (Batch C's own
+        // estimated_count says 3). Every branch above therefore skipped its
+        // narrowing and the whole host section loaded, with nothing logged and
+        // nothing on screen to say why.
+        //
+        // The roster is NOT blanked. 96 practical batches and 32 subdivision
+        // groups on active timetables narrow nothing today, and the last 90 days
+        // carry 1,024 marked practical and 150 marked subdivided periods, so
+        // refusing would take marking away from all of them - the trade this
+        // screen has already declined twice in writing (the 2026-08-06 note
+        // above, and scopeRosterToAcademicYear). What it CAN do is stop being
+        // silent: name the division, say nobody is assigned to it, and point at
+        // the timetable picker that is the only place the answer can live. No
+        // course-enrolment table exists on this database to consult instead.
+        const practicalDivisions: RosterDivision[] = (
+          (practicalConfig?.batches as any[]) || []
+        ).map((batch) => ({
+          key: batch?.batch_id,
+          label: batch?.batch_name || 'this batch',
+          studentIds: batch?.student_ids || [],
+          sectionIds: batch?.section_ids || [],
+          courseId: (batch?.assigned_courses || [])[0] || null,
+          expectedCount:
+            typeof batch?.estimated_count === 'number'
+              ? batch.estimated_count
+              : null
+        }));
+
+        const isPractical = periodMode === 'practical';
+        const divisions: RosterDivision[] = isPractical
+          ? practicalDivisions
+          : (contextData.sub_slot_divisions as RosterDivision[]) || [];
+
+        // A group's learners can arrive on the URL even when the stored sub-slot
+        // names none; that IS a narrowing (applied above), so do not re-judge it.
+        const urlNarrowedTheGroup =
+          !isPractical && isSubdividedFromUrl && !!subdivisionStudentIds;
+
+        const chosenDivisionKey = isPractical
+          ? practicalSelection?.batch_id ?? null
+          : isSubdividedFromUrl && subdivisionGroupOrder
+            ? subdivisionGroupOrder
+            : null;
+
+        const divisionVerdict =
+          chosenDivisionKey && !urlNarrowedTheGroup
+            ? assessDivisionRosterScope(chosenDivisionKey, divisions)
+            : null;
+
+        if (divisionVerdict?.narrowsNothing) {
+          const divisionKind: RosterDivisionKind = isPractical
+            ? 'practical_batch'
+            : 'subdivision_group';
+          const divisionLabel =
+            divisions.find((d) => d.key === chosenDivisionKey)?.label ||
+            (isPractical ? 'this batch' : 'this group');
+
+          logger.warn(
+            'academic/attendance/mark',
+            'Division names no learners and shares its sections with a sibling - the whole section is listed',
+            {
+              periodId,
+              timetableId,
+              kind: divisionKind,
+              divisionKey: chosenDivisionKey,
+              divisionLabel,
+              sharesScopeWith: divisionVerdict.sharesScopeWith,
+              siblingTeachesAnotherCourse:
+                divisionVerdict.siblingTeachesAnotherCourse,
+              expectedCount: divisionVerdict.expectedCount,
+              listed: filteredStudents.length
+            }
+          );
+
+          setDivisionScopeNotice({
+            kind: divisionKind,
+            label: divisionLabel,
+            sharesScopeWith: divisionVerdict.sharesScopeWith,
+            differentCourse: divisionVerdict.siblingTeachesAnotherCourse,
+            expectedCount: divisionVerdict.expectedCount,
+            listed: filteredStudents.length
+          });
+        } else {
+          setDivisionScopeNotice(null);
+        }
+
         // Initialize attendance data (all present by default)
         const initialAttendance: Record<string, 'Present' | 'Absent'> = {};
         filteredStudents.forEach((student: any) => {
@@ -1162,6 +1297,11 @@ export default function AttendanceMarkPage() {
     subdivisionGroupName,
     periodMode,
     practicalSelection,
+    // Added 2026-09-17: read by the division check above. Both are set once per
+    // slot (practicalConfig in the context effect, subdivisionGroupOrder is a URL
+    // param), so neither adds a refetch.
+    practicalConfig,
+    subdivisionGroupOrder,
     // Added 2026-08-06: read by the no-section diagnostic above. Both are URL
     // params and change only on navigation, so this adds no refetch churn.
     periodId,
@@ -2605,6 +2745,59 @@ export default function AttendanceMarkPage() {
               )}
             </h2>
           </div>
+
+          {/* Added: 2026-09-17 (BUG-006033, BUG-006034) - The batch or group being
+              marked names no learners and covers the same sections as another
+              part of the same period, so it narrows the roster by nothing and
+              everyone in the section is listed below. Say that here rather than
+              letting the screen imply the list is the elective's. */}
+          {!loadingStudents && divisionScopeNotice && (
+            <Card className='mb-4 border-0 shadow-lg border-l-4 border-l-amber-500'>
+              <CardContent className='p-5'>
+                <div className='flex items-start gap-4'>
+                  <div className='bg-amber-100 dark:bg-amber-900/30 p-2.5 rounded-full flex-shrink-0'>
+                    <AlertTriangle className='h-5 w-5 text-amber-600 dark:text-amber-400' />
+                  </div>
+                  <div className='space-y-1'>
+                    <h3 className='font-semibold text-gray-900 dark:text-gray-100'>
+                      No learners are assigned to {divisionScopeNotice.label} yet
+                    </h3>
+                    <p className='text-sm text-gray-700 dark:text-gray-300'>
+                      {divisionScopeNotice.label} covers the same section
+                      {divisionScopeNotice.sharesScopeWith.length > 0 && (
+                        <>
+                          {' '}
+                          as {divisionScopeNotice.sharesScopeWith.join(' and ')}
+                        </>
+                      )}
+                      , so all {divisionScopeNotice.listed} learners in the
+                      section are listed below
+                      {typeof divisionScopeNotice.expectedCount === 'number' &&
+                        divisionScopeNotice.expectedCount > 0 && (
+                          <>
+                            {' '}
+                            even though the timetable expects{' '}
+                            {divisionScopeNotice.expectedCount}
+                          </>
+                        )}
+                      .{' '}
+                      {divisionScopeNotice.differentCourse
+                        ? 'The other part of this period teaches a different course, so some of these learners are not taking this one.'
+                        : 'Marking everyone here records this period for the whole section.'}
+                    </p>
+                    <p className='text-sm text-gray-700 dark:text-gray-300'>
+                      Ask the timetable coordinator to name the learners on{' '}
+                      {divisionScopeNotice.label} in the timetable slot
+                      {divisionScopeNotice.kind === 'practical_batch'
+                        ? ' (edit the timetable, open this practical period, and pick the learners for the batch).'
+                        : ' (edit the timetable, open this period, and pick the learners for the group).'}{' '}
+                      Only they can be marked once that is done.
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {loadingStudents ? (
             <Card className='border-0 shadow-lg'>
