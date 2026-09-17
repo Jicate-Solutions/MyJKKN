@@ -216,3 +216,23 @@ BEGIN
   FROM agg a;
 END;
 $function$;
+
+-- ---------------------------------------------------------------------
+-- Grants: the LIVE posture, restated, not changed.
+-- CREATE OR REPLACE FUNCTION keeps a function's existing ACL, so nothing
+-- above opens anything. Both functions read `postgres=X | authenticated=X
+-- | service_role=X` on production today (checked 2026-09-17) - anon and
+-- PUBLIC already hold nothing. These four statements say that out loud so
+-- the anon-lock gate can see it, and are no-ops at apply time.
+--
+-- ci:allow-secdef-authenticated Both functions are self-scoped learner
+-- reads and take no id from the caller: each resolves auth.uid() to the
+-- caller's OWN learners_profiles row, returns zero rows when there is no
+-- such row, and every predicate below is bound to that one learner id. So
+-- every signed-in user may call them and can only ever see themselves -
+-- which is also the grant production has carried since 20260705120200.
+-- ---------------------------------------------------------------------
+REVOKE EXECUTE ON FUNCTION public.fn_scf_confirmation_status(date, date) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_scf_confirmation_status(date, date) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_scf_my_confirmed_attendance(date, date) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_scf_my_confirmed_attendance(date, date) TO authenticated, service_role;
