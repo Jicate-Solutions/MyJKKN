@@ -82,6 +82,11 @@ export interface CommentThreadHandlers {
   onEdit: (id: string, body: string) => Promise<unknown>;
   onResolve: (id: string, resolved: boolean) => Promise<unknown>;
   onDelete: (id: string) => Promise<unknown>;
+  /**
+   * Remove one tag from a comment, revoking the access it granted; the comment
+   * stays. Omit it and tags are shown without a remove control.
+   */
+  onUntag?: (commentId: string, userId: string) => Promise<unknown>;
 }
 
 export interface CommentThreadPanelProps {
@@ -110,8 +115,7 @@ export interface CommentThreadPanelProps {
   canDeleteAny: boolean;
   handlers: CommentThreadHandlers;
   /**
-   * Turns tagging ON. Omit it and the composer has no tag control at all —
-   * the reservation thread, which shares this panel, does not support tags.
+   * Turns tagging ON. Omit it and the composer has no tag control at all.
    */
   peopleSearch?: (query: string) => Promise<TaggablePerson[]>;
 }
@@ -482,18 +486,83 @@ function MentionText({ body, mentions }: { body: string; mentions?: ThreadCommen
   );
 }
 
+/**
+ * Who is tagged on a comment. The author gets a remove control per person when
+ * the thread supports untagging: removing a tag revokes the access it granted,
+ * and the comment — including the "@Name" text — stays as written.
+ */
+function TagList({
+  comment,
+  canUntag,
+  onUntag,
+}: {
+  comment: ThreadComment;
+  canUntag: boolean;
+  onUntag?: (commentId: string, userId: string) => Promise<unknown>;
+}) {
+  const [removing, setRemoving] = useState<string | null>(null);
+  const mentions = comment.mentions ?? [];
+  if (mentions.length === 0) return null;
+
+  const remove = async (userId: string) => {
+    if (!onUntag) return;
+    setRemoving(userId);
+    try {
+      await onUntag(comment.id, userId);
+    } catch {
+      /* the toast says why; the tag stays listed */
+    } finally {
+      setRemoving(null);
+    }
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
+      <AtSign className="h-3 w-3" />
+      <span>Tagged:</span>
+      {mentions.map((m) => (
+        <Badge
+          key={m.id}
+          variant="secondary"
+          className="h-5 gap-0.5 px-1.5 text-[11px] font-normal"
+        >
+          {m.name}
+          {canUntag && onUntag && (
+            <button
+              type="button"
+              className="ml-0.5 rounded-sm opacity-70 hover:opacity-100 disabled:opacity-40"
+              aria-label={`Untag ${m.name}`}
+              title={`Untag ${m.name} — removes their access to this discussion`}
+              disabled={removing !== null}
+              onClick={() => remove(m.id)}
+            >
+              {removing === m.id ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <X className="h-3 w-3" />
+              )}
+            </button>
+          )}
+        </Badge>
+      ))}
+    </div>
+  );
+}
+
 function CommentBody({
   comment,
   isMine,
   canDelete,
   onEdit,
   onRequestDelete,
+  onUntag,
 }: {
   comment: ThreadComment;
   isMine: boolean;
   canDelete: boolean;
   onEdit: (id: string, body: string) => Promise<unknown>;
   onRequestDelete: (comment: ThreadComment) => void;
+  onUntag?: (commentId: string, userId: string) => Promise<unknown>;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(comment.body);
@@ -569,6 +638,7 @@ function CommentBody({
         </p>
       )}
 
+      {!editing && <TagList comment={comment} canUntag={isMine} onUntag={onUntag} />}
 
 
       {!editing && (isMine || canDelete) && (
@@ -691,6 +761,7 @@ function Thread({
         canDelete={isMine(thread.author_id) || canDeleteAny}
         onEdit={handlers.onEdit}
         onRequestDelete={onRequestDelete}
+        onUntag={handlers.onUntag}
       />
 
       {thread.replies.length > 0 && (
@@ -703,6 +774,7 @@ function Thread({
               canDelete={isMine(r.author_id) || canDeleteAny}
               onEdit={handlers.onEdit}
               onRequestDelete={onRequestDelete}
+              onUntag={handlers.onUntag}
             />
           ))}
         </div>

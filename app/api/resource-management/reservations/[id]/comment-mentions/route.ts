@@ -17,8 +17,11 @@ export const dynamic = 'force-dynamic';
 // writes user_notifications rows for other people. It runs only for rows the
 // session insert actually created, so a refused tag never notifies anyone.
 //
-// Tagging grants the tagged person read access to this booking's thread — see
-// supabase/migrations/20261224090000_resource_reservation_comment_mentions.sql.
+// Tagging grants the tagged person read access to this booking's thread, and
+// only people of the booking's institution can be tagged. Untagging is a
+// direct, RLS-checked delete from the browser (no notification to send). See
+// supabase/migrations/20261224090000_resource_reservation_comment_mentions.sql
+// and 20261224100000_reservation_comment_mentions_same_institution_untag.sql.
 // ============================================================================
 
 import { createHash } from 'node:crypto';
@@ -83,12 +86,13 @@ export async function POST(
 
   // Split out people who cannot be tagged BEFORE the insert: the guard trigger
   // refuses the whole batch on the first one, which would drop every valid tag
-  // alongside a single learner. The rule stays in SQL — this asks the same
-  // function the trigger uses.
+  // alongside a single ineligible pick. The rule stays in SQL — this asks the
+  // same function the trigger uses (team member of the booking's institution).
   const eligibility = await Promise.all(
     wanted.map(async (uid) => {
-      const { data } = await (service as any).rpc('fn_can_be_tagged_in_event_review', {
+      const { data } = await (service as any).rpc('fn_can_be_tagged_on_reservation', {
         p_user_id: uid,
+        p_reservation_id: reservationId,
       });
       return { id: uid, ok: data === true };
     }),
@@ -111,7 +115,7 @@ export async function POST(
     return NextResponse.json(
       {
         success: false,
-        error: 'Only team members can be tagged on a booking.',
+        error: "Only team members of this booking's institution can be tagged.",
         skipped: ineligible.map((uid) => names.get(uid) ?? 'Unknown'),
       },
       { status: 400 },
