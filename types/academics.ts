@@ -294,6 +294,11 @@ export interface Timetable {
   timetable_format: 'regular' | 'batch' | 'cycle';
   // Updated: 2026-03-22 - Added cycle-based timetable support
   num_cycles?: number | null; // Only set when timetable_format = 'cycle' (1-52)
+  // Updated: 2026-09-10 (BUG-006085) - Which cycle the FIRST working day on or
+  // after start_date carries. NULL means 1. Lets a programme starting mid-term
+  // rotate in step with the rest of its institution without misstating when it
+  // begins.
+  start_cycle?: number | null;
   // Updated: 2026-06-10 - Attendance behaviour is driven explicitly by the
   // timetable row (default by entity_type at creation, then authoritative here).
   attendance_mode?: AttendanceMode; // 'period_wise' (default) | 'session_wise'
@@ -337,6 +342,8 @@ export interface CreateTimetableDto {
   timetable_format?: 'regular' | 'batch' | 'cycle';
   // Updated: 2026-03-22 - Required when timetable_format='cycle', ignored otherwise
   num_cycles?: number; // 1-52 cycles for cycle-format timetables
+  // Updated: 2026-09-10 - Day order the first working day carries (BUG-006085)
+  start_cycle?: number | null;
   // Updated: 2026-06-10 - School day-wise attendance support
   attendance_mode?: AttendanceMode; // defaults to 'period_wise' server-side
   class_incharge_id?: string | null; // required (UI) when attendance_mode='session_wise'
@@ -408,6 +415,7 @@ export interface CreateTemplateDto {
   section_id?: string;
   timetable_format?: 'regular' | 'batch' | 'cycle';
   num_cycles?: number;
+  start_cycle?: number | null;
   periods?: any;
   timetable_data?: any;
   selected_days?: DayOfWeek[];

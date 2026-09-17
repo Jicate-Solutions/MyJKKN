@@ -78,7 +78,7 @@ describe('getReportDetails - HOD access (BUG-006125)', () => {
     expect(error).toMatch(/not assigned/);
   });
 
-  it('still denies an unassigned Senior Learner of the same department', async () => {
+  it('still denies an unassigned senior learner of the same department', async () => {
     tables.profiles = { role: 'faculty', is_super_admin: false, department_id: 'dept-1', institution_id: 'inst-1' };
 
     const { data, error } = await AttendanceReportService.getReportDetails('report-1', 'faculty', USER);
@@ -87,7 +87,7 @@ describe('getReportDetails - HOD access (BUG-006125)', () => {
     expect(error).toMatch(/not assigned/);
   });
 
-  it('shows an assigned Senior Learner only their own period', async () => {
+  it('shows an assigned senior learner only their own period', async () => {
     tables.profiles = { role: 'faculty', is_super_admin: false, department_id: 'dept-1', institution_id: 'inst-1' };
     tables.staff = [{ id: 'someone-else' }];
 
