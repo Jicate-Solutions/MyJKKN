@@ -1756,7 +1756,7 @@ export default function EditTimetablePage() {
                             <FormDescription>
                               Templates are hidden from attendance pending lists,
                               the dashboard and attendance reports. Untick if
-                              classes actually run on this timetable.
+                              sessions actually run on this timetable.
                             </FormDescription>
                           </div>
                         </FormItem>

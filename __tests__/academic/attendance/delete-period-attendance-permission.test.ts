@@ -27,7 +27,9 @@ const period = (overrides: any = {}) =>
     end_time: '16:30:00',
     course_id: 'c1',
     course_name: 'Oral Medicine',
-    students: [{ student_id: 's1', status: 'Present' }],
+    students: [
+      { student_id: 's1', status: 'Present' },
+    ],
     marked_by_details: {
       marker_id: MARKER,
       marker_name: 'MR. ARUN V P',
@@ -49,14 +51,14 @@ const check = (overrides: any = {}) =>
   });
 
 describe('canDeletePeriodAttendance', () => {
-  it('lets the faculty who marked it undo their own mistake the same day', () => {
+  it('lets the person who marked it undo their own mistake the same day', () => {
     const result = check({
       actor: { id: MARKER, role: 'faculty', department_id: DEPT, institution_id: INSTITUTION }
     });
     expect(result.allowed).toBe(true);
   });
 
-  it('refuses a different faculty member', () => {
+  it('refuses a different senior learner', () => {
     const result = check({
       actor: { id: 'someone-else', role: 'faculty', department_id: DEPT, institution_id: INSTITUTION }
     });
@@ -129,7 +131,7 @@ describe('canDeletePeriodAttendance', () => {
     expect(result.allowed).toBe(false);
   });
 
-  it('refuses a student outright', () => {
+  it('refuses a learner outright', () => {
     const result = check({ actor: { id: 'stu', role: 'student' } });
     expect(result.allowed).toBe(false);
   });
