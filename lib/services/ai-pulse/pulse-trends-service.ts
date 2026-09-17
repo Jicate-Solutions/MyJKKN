@@ -28,6 +28,10 @@
 //   `ai_pulse_live_attendance.left_at` is DEAD — zero of ~2,978 production rows
 //   carry a value. "Stayed" is read from engagement_signals.stayed_until, whose
 //   PRESENCE (not value) is the signal. Never reintroduce left_at here.
+//   The replacement is not ground truth either — stayed_until is only
+//   last_heartbeat_at rendered as IST "HH:MM". See the caveat on
+//   `isPresentAtEnd` in lib/services/live-engine/engagement-gates.ts before
+//   reporting any of this as a duration or a drop-off.
 //
 // DAY_TYPE — deliberate difference from the per-cycle card
 //   participation-service filters `day_type = 'live_session'`. This service does
