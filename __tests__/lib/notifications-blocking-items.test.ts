@@ -7,8 +7,13 @@
  * the snooze state the gate decides "Ask me later" from, and an untagged row
  * (older payload) still reads as an ack.
  */
-import { describe, it, expect } from 'vitest';
-import { mapBlockingItems, BUG_FEEDBACK_MAX_SNOOZES } from '@/lib/notifications/blocking-items';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import {
+  mapBlockingItems,
+  fetchBlockingItems,
+  isMissingBlockingSchema,
+  BUG_FEEDBACK_MAX_SNOOZES
+} from '@/lib/notifications/blocking-items';
 
 const NOW = new Date('2026-09-16T10:00:00.000Z');
 
@@ -94,5 +99,102 @@ describe('mapBlockingItems', () => {
 
   it('returns an empty list for null input', () => {
     expect(mapBlockingItems(null)).toEqual([]);
+  });
+});
+
+/**
+ * fetchBlockingItems — the missing-migration path (blind-critic gap 4,
+ * 2026-09-18).
+ *
+ * The ship wave merges code and applies migrations in separate rounds, so the
+ * built app can call get_blocking_items against a database that has never
+ * heard of it. Every signed-in page polls this through /api/notifications/pulse
+ * every 60 s; before this, each of those polls answered 500 and the gate showed
+ * its error state to everyone until the migrations landed.
+ */
+describe('fetchBlockingItems — degrading when the migrations are not applied', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const ackRow = { kind: 'ack', id: 'un-1', notification_id: 'n-1', sent_at: '2026-09-16T09:00:00.000Z' };
+
+  function client(answers: Record<string, { data: any; error: any }>) {
+    const rpc = vi.fn((fn: string) =>
+      Promise.resolve(answers[fn] ?? { data: null, error: { code: '42883', message: `no ${fn}` } })
+    );
+    return { rpc };
+  }
+
+  it('recognises the four codes a pending migration produces, and nothing else', () => {
+    for (const code of ['42883', '42703', 'PGRST202', 'PGRST204']) {
+      expect(isMissingBlockingSchema({ code, message: 'x' })).toBe(true);
+    }
+    expect(isMissingBlockingSchema({ code: 'PGRST301', message: 'JWT expired' })).toBe(false);
+    expect(isMissingBlockingSchema({ message: 'boom' })).toBe(false);
+    expect(isMissingBlockingSchema(null)).toBe(false);
+    // PostgREST does not always set a code; its wording names the missing object.
+    expect(
+      isMissingBlockingSchema({
+        message: 'Could not find the function public.get_blocking_items(p_user_id) in the schema cache'
+      })
+    ).toBe(true);
+  });
+
+  it('serves the rows when the function is there (no fallback call)', async () => {
+    const c = client({ get_blocking_items: { data: [ackRow], error: null } });
+    const res = await fetchBlockingItems(c, 'user-1', NOW);
+    expect(res.error).toBeNull();
+    expect(res.degraded).toBe(false);
+    expect(res.items).toHaveLength(1);
+    expect(c.rpc).toHaveBeenCalledTimes(1);
+    expect(c.rpc).toHaveBeenCalledWith('get_blocking_items', { p_user_id: 'user-1' });
+  });
+
+  it('a missing function (42883) falls back to the pre-existing queue, and warns', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const c = client({
+      get_blocking_items: { data: null, error: { code: '42883', message: 'function does not exist' } },
+      get_unacknowledged_notifications: { data: [ackRow], error: null }
+    });
+
+    const res = await fetchBlockingItems(c, 'user-1', NOW);
+
+    // Mandatory acknowledgments keep blocking; the two new kinds just do not appear.
+    expect(res.error).toBeNull();
+    expect(res.degraded).toBe(true);
+    expect(res.items).toHaveLength(1);
+    expect(res.items![0].kind).toBe('ack');
+    expect(c.rpc).toHaveBeenCalledWith('get_unacknowledged_notifications', { p_user_id: 'user-1' });
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it('a missing column (42703) degrades the same way', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const c = client({
+      get_blocking_items: { data: null, error: { code: '42703', message: 'column r.ask_after does not exist' } },
+      get_unacknowledged_notifications: { data: [], error: null }
+    });
+    const res = await fetchBlockingItems(c, 'user-1', NOW);
+    expect(res).toMatchObject({ degraded: true, error: null });
+    expect(res.items).toEqual([]);
+  });
+
+  it('no blocking items at all when the fallback is missing too — never an error', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const c = client({}); // every RPC answers 42883
+    const res = await fetchBlockingItems(c, 'user-1', NOW);
+    expect(res).toEqual({ items: [], degraded: true, error: null });
+    expect(warn).toHaveBeenCalledTimes(2);
+  });
+
+  it('passes a REAL fault straight back so the route can still answer 500', async () => {
+    const c = client({
+      get_blocking_items: { data: null, error: { code: '57014', message: 'canceling statement due to statement timeout' } }
+    });
+    const res = await fetchBlockingItems(c, 'user-1', NOW);
+    expect(res.items).toBeNull();
+    expect(res.degraded).toBe(false);
+    expect(res.error).toMatchObject({ code: '57014' });
+    // A timeout must NOT be papered over with an empty queue.
+    expect(c.rpc).toHaveBeenCalledTimes(1);
   });
 });

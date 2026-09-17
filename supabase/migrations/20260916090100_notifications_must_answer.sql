@@ -214,7 +214,14 @@ BEGIN
   -- CHANGED 2026-09-16: answers per notification (option → count)
   answer_rollup AS (
     SELECT notification_id,
-           count(*) AS answered,
+           -- CHANGED 2026-09-18 (blind-critic gap 2: "100 identical answers can
+           -- display as 1 respondent"). The inner query has ONE row per option,
+           -- so count(*) here counted OPTIONS USED, not people: a whole college
+           -- picking "Yes" read as `Answers 1/900` on the compliance page.
+           -- sum(cnt) is the respondent count, and it equals
+           -- count(DISTINCT user_id) because notification_answers_one_per_user
+           -- allows a person only one row per announcement.
+           sum(cnt)::int AS answered,
            jsonb_object_agg(answer, cnt) AS answers
     FROM (
       SELECT notification_id, answer, count(*) AS cnt

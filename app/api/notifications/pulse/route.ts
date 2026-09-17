@@ -7,7 +7,7 @@ import {
   createServiceRoleClient
 } from '@/lib/supabase/server';
 import type { PendingAction } from '@/types/notifications';
-import { mapBlockingItems } from '@/lib/notifications/blocking-items';
+import { fetchBlockingItems } from '@/lib/notifications/blocking-items';
 
 /**
  * GET /api/notifications/pulse
@@ -53,12 +53,17 @@ export async function GET(request: NextRequest) {
     // Service role for get_pending_actions, exactly as pending-actions/route.ts
     // does (the function reads across RLS); the user client for the
     // acknowledgment list, exactly as acknowledge/route.ts does.
+    const now = new Date();
+
     const [ackResult, pendingResult] = await Promise.all([
       // 2026-09-16: get_blocking_items = the old acknowledgment list PLUS
       // "must answer" announcements and the person's due "is this fixed for
       // you?" questions, each row tagged with `kind`. Ack rows keep their
       // field names, so nothing downstream changes for them.
-      (supabase as any).rpc('get_blocking_items', { p_user_id: user.id }),
+      // 2026-09-18: fetchBlockingItems degrades to the pre-existing queue (and
+      // then to nothing) when the migrations have not been applied yet, so a
+      // deploy that lands ahead of them does not 500 this poll on every page.
+      fetchBlockingItems(supabase as any, user.id, now),
       wantPending
         ? (createServiceRoleClient() as any).rpc('get_pending_actions', { p_user_id: user.id })
         : Promise.resolve({ data: null, error: null })
@@ -81,8 +86,7 @@ export async function GET(request: NextRequest) {
     }
 
     // --- unacknowledged: one shared mapping with acknowledge/route.ts GET ---
-    const now = new Date();
-    const unacknowledged = mapBlockingItems(ackResult.data, now);
+    const unacknowledged = ackResult.items ?? [];
 
     // --- pending: same counts as pending-actions/route.ts; null when not asked ---
     let pending: { actions: PendingAction[]; urgent_count: number; tracked_count: number } | null = null;

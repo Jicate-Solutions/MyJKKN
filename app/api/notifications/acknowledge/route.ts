@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { mapBlockingItems } from '@/lib/notifications/blocking-items';
+import { fetchBlockingItems } from '@/lib/notifications/blocking-items';
 
 /**
  * POST /api/notifications/acknowledge
@@ -97,18 +97,20 @@ export async function GET() {
     // causing already-acknowledged notifications to reappear
     // 2026-09-16: same queue as /api/notifications/pulse (ack + must-answer +
     // due bug-feedback questions, tagged by `kind`).
-    const { data: items, error } = await (supabase as any)
-      .rpc('get_blocking_items', { p_user_id: user.id });
+    // 2026-09-18: and the same degradation — a deploy that lands before the
+    // migrations falls back to get_unacknowledged_notifications, then to an
+    // empty queue, instead of answering 500.
+    const result = await fetchBlockingItems(supabase as any, user.id, new Date());
 
-    if (error) {
-      console.error('Error fetching unacknowledged notifications:', error);
+    if (result.error) {
+      console.error('Error fetching unacknowledged notifications:', result.error);
       return NextResponse.json(
         { error: 'Failed to fetch unacknowledged notifications' },
         { status: 500 }
       );
     }
 
-    const unacknowledged = mapBlockingItems(items, new Date());
+    const unacknowledged = result.items ?? [];
 
     return NextResponse.json({
       unacknowledged,

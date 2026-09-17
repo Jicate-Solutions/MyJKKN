@@ -27,7 +27,7 @@ vi.mock('@/components/ui/rich-text-editor', () => ({
   RichTextDisplay: ({ content }: { content: string }) => <div data-testid='body'>{content}</div>,
 }));
 
-import { AcknowledgmentModal, BugFeedbackModal } from '@/components/notifications/acknowledgment-gate';
+import { AcknowledgmentModal, BugFeedbackModal, bugAnswerMessage } from '@/components/notifications/acknowledgment-gate';
 
 const scrollBox = { scrollHeight: 0, clientHeight: 0 };
 beforeEach(() => {
@@ -189,5 +189,47 @@ describe('AcknowledgmentModal (kind answer)', () => {
     });
     expect(screen.getByRole('button', { name: /I Acknowledge/ })).toBeEnabled();
     expect(screen.queryByTestId('answer-options')).toBeNull();
+  });
+});
+
+/**
+ * What the screen SAYS after "Not fixed" (blind-critic gap 1, 2026-09-18).
+ *
+ * The message used to be a fixed sentence — "The report is open again and the
+ * fixer has been told" — printed on every "not fixed" answer. It was a claim,
+ * not a report: the reopen could have been rolled back, the report could have
+ * been open all along, and most fixes on live data have no user on file to
+ * tell (`claimed_by` holds a machine name). It is now derived from what the
+ * RPC read back out of bug_reports.
+ */
+describe('bugAnswerMessage', () => {
+  it('claims a reopen and a told fixer only when both happened', () => {
+    expect(bugAnswerMessage({ reopened: 1, bug_status: 'new', fixer_notified: true })).toBe(
+      'Thanks for telling us. The report is open again and the fixer has been told.'
+    );
+  });
+
+  it('drops the fixer clause when nobody is on file to tell', () => {
+    expect(bugAnswerMessage({ reopened: 1, bug_status: 'new', fixer_notified: false })).toBe(
+      'Thanks for telling us. The report is open again.'
+    );
+  });
+
+  it('claims no reopen when the bug came back still closed', () => {
+    expect(bugAnswerMessage({ reopened: 0, bug_status: 'resolved', fixer_notified: false })).toBe(
+      'Thanks for telling us — your answer is recorded.'
+    );
+  });
+
+  it('counts an already-open report as open (reopened is a row count, not the state)', () => {
+    for (const bug_status of ['new', 'seen', 'in_progress']) {
+      expect(bugAnswerMessage({ reopened: 0, bug_status, fixer_notified: false })).toMatch(
+        /open again/
+      );
+    }
+  });
+
+  it('claims nothing at all from an older response with neither field', () => {
+    expect(bugAnswerMessage({})).toBe('Thanks for telling us — your answer is recorded.');
   });
 });

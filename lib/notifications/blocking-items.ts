@@ -13,6 +13,76 @@ import type { UnacknowledgedNotification } from '@/types/notifications';
  */
 export const BUG_FEEDBACK_MAX_SNOOZES = 3;
 
+/**
+ * Codes that mean "this deploy is ahead of its migrations", not "the database
+ * is broken" (blind-critic gap 4, 2026-09-18).
+ *
+ * The ship wave merges code and applies migrations in separate rounds, so for
+ * a window of minutes to hours the built app calls get_blocking_items against
+ * a database that has never heard of it. Postgres answers 42883
+ * (undefined_function), or 42703 (undefined_column) when only part of
+ * migration A is there; PostgREST answers PGRST202/PGRST204 from its schema
+ * cache without reaching Postgres at all.
+ *
+ * Before this, each of those became an HTTP 500 from
+ * /api/notifications/pulse — which the gate polls on every signed-in page
+ * every 60 s — so the whole app would have shown the gate's error state until
+ * the migrations landed.
+ */
+const MISSING_SCHEMA_CODES = new Set(['42883', '42703', 'PGRST202', 'PGRST204']);
+
+export function isMissingBlockingSchema(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const e = error as { code?: unknown; message?: unknown };
+  if (typeof e.code === 'string' && MISSING_SCHEMA_CODES.has(e.code)) return true;
+  // PostgREST does not always set `code`; its message names the missing object.
+  const message = typeof e.message === 'string' ? e.message : '';
+  return /could not find the function|schema cache|does not exist/i.test(message);
+}
+
+type RpcClient = {
+  rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: any; error: any }>;
+};
+
+export type BlockingItemsResult =
+  | { items: UnacknowledgedNotification[]; degraded: boolean; error: null }
+  | { items: null; degraded: false; error: any };
+
+/**
+ * The one read of the blocking queue, shared by the pulse route and the older
+ * acknowledge route. On a missing-schema error it degrades instead of failing:
+ * first to get_unacknowledged_notifications, which predates this PR, so
+ * mandatory acknowledgments keep blocking while the two new kinds simply do
+ * not appear; and if that is gone too, to an empty queue. Both steps warn.
+ *
+ * Any other error comes back untouched — a real fault still answers 500.
+ */
+export async function fetchBlockingItems(
+  client: RpcClient,
+  userId: string,
+  now: Date = new Date()
+): Promise<BlockingItemsResult> {
+  const { data, error } = await client.rpc('get_blocking_items', { p_user_id: userId });
+  if (!error) return { items: mapBlockingItems(data, now), degraded: false, error: null };
+  if (!isMissingBlockingSchema(error)) return { items: null, degraded: false, error };
+
+  console.warn(
+    '[notifications] get_blocking_items is not on this database yet (migrations pending); ' +
+      'falling back to get_unacknowledged_notifications.',
+    { code: error?.code, message: error?.message }
+  );
+
+  const fallback = await client.rpc('get_unacknowledged_notifications', { p_user_id: userId });
+  if (fallback.error) {
+    console.warn(
+      '[notifications] get_unacknowledged_notifications is unavailable too; serving no blocking items.',
+      { code: fallback.error?.code, message: fallback.error?.message }
+    );
+    return { items: [], degraded: true, error: null };
+  }
+  return { items: mapBlockingItems(fallback.data, now), degraded: true, error: null };
+}
+
 export function mapBlockingItems(
   rows: any[] | null | undefined,
   now: Date = new Date()

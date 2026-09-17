@@ -28,6 +28,7 @@ vi.mock('next/server', async () => {
 
 import { POST as snoozePOST } from '@/app/api/bug-reports/feedback/[id]/snooze/route';
 import { POST as answerPOST } from '@/app/api/notifications/answer/route';
+import { POST as bugAnswerPOST } from '@/app/api/bug-reports/feedback/[id]/route';
 import { NextRequest } from 'next/server';
 
 const params = Promise.resolve({ id: 'req-1' });
@@ -102,5 +103,79 @@ describe('POST /api/notifications/answer', () => {
     const res = await answerPOST(req({ notification_id: 'n-1', answer: 'Maybe' }));
     expect(res.status).toBe(400);
     expect((await res.json()).error).toMatch(/one of the offered options/);
+  });
+});
+
+/**
+ * POST /api/bug-reports/feedback/[id] with action 'answer' — the reopen has to
+ * be visible to the caller (blind-critic gap 1, 2026-09-18).
+ *
+ * The route used to answer a bare `{ ok, answer }`, so nothing outside the
+ * database could tell a reopen from a silent no-op, and the screen said "the
+ * report is open again" either way. It now passes the RPC's `reopened` count
+ * and, more importantly, `bug_status` — read back from bug_reports inside
+ * fn_bug_feedback_answer AFTER the reopen, so it cannot be a claim.
+ */
+describe('POST /api/bug-reports/feedback/[id] — answer', () => {
+  const answerReq = (answer: string) =>
+    new NextRequest('https://jkkn.ai/api/bug-reports/feedback/req-1', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'answer', answer })
+    });
+
+  it('passes the reopen through: a "not fixed" answer returns the bug back open', async () => {
+    rpcResult = {
+      data: { success: true, answer: 'not_fixed', reopened: 2, bug_status: 'new', ledger_recorded: true, fixer_notified: true },
+      error: null
+    };
+
+    const res = await bugAnswerPOST(answerReq('not_fixed'), { params });
+
+    expect(res.status).toBe(200);
+    expect(rpc).toHaveBeenCalledWith('fn_bug_feedback_answer', {
+      p_request_id: 'req-1',
+      p_answer: 'not_fixed'
+    });
+    expect(await res.json()).toEqual({
+      ok: true,
+      answer: 'not_fixed',
+      reopened: 2,
+      bug_status: 'new',
+      fixer_notified: true
+    });
+  });
+
+  it('does not invent a reopen when the RPC reports the bug still closed', async () => {
+    // The shape a rolled-back reopen would produce. The route must report it,
+    // not smooth it over — this is the state the critic said could pass silently.
+    rpcResult = {
+      data: { success: true, answer: 'not_fixed', reopened: 0, bug_status: 'resolved', fixer_notified: false },
+      error: null
+    };
+    const res = await bugAnswerPOST(answerReq('not_fixed'), { params });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ reopened: 0, bug_status: 'resolved', fixer_notified: false });
+  });
+
+  it('a "fixed" answer reopens nothing', async () => {
+    rpcResult = { data: { success: true, answer: 'fixed', reopened: 0, bug_status: 'resolved' }, error: null };
+    const res = await bugAnswerPOST(answerReq('fixed'), { params });
+    expect(await res.json()).toMatchObject({ ok: true, answer: 'fixed', reopened: 0 });
+  });
+
+  it('400 with the RPC reason when the question is not the caller’s', async () => {
+    rpcResult = { data: { success: false, error: 'not found' }, error: null };
+    const res = await bugAnswerPOST(answerReq('not_fixed'), { params });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('not found');
+  });
+
+  it('500 when the reopen itself fails — the answer is re-askable, a closed bug is not', async () => {
+    // fn_bug_feedback_answer no longer swallows a failed reopen, so the RPC
+    // raises and the route must surface it instead of reporting success.
+    rpcResult = { data: null, error: { message: 'deadlock detected', code: '40P01' } };
+    const res = await bugAnswerPOST(answerReq('not_fixed'), { params });
+    expect(res.status).toBe(500);
   });
 });

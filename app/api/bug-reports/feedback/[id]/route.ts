@@ -55,7 +55,17 @@ export async function POST(
       if (!data?.success) {
         return NextResponse.json({ error: data?.error ?? 'answer failed' }, { status: 400 });
       }
-      return NextResponse.json({ ok: true, answer: data.answer });
+      // 2026-09-18 (blind-critic gap 1): pass the reopen result through instead
+      // of a bare ok. `bug_status` is read back from bug_reports inside the RPC
+      // after the reopen, so the screen can only say "the report is open again"
+      // when it truly is, and a test can assert the end-to-end reopen.
+      return NextResponse.json({
+        ok: true,
+        answer: data.answer,
+        reopened: data.reopened ?? 0,
+        bug_status: data.bug_status ?? null,
+        fixer_notified: !!data.fixer_notified
+      });
     }
 
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 });

@@ -517,6 +517,9 @@ GRANT  EXECUTE ON FUNCTION public.fn_bug_fix_outcome_record(uuid) TO service_rol
 --    ruling 5: 'not_fixed' reopens the bug and the group's canonical bug,
 --    leaves a system message, and notifies the fixer of record.
 --    Also clears any snooze and releases a queued question for this reporter.
+--    CHANGED 2026-09-18 (critic gap 1): the reopen is no longer inside a
+--    catch-all block that its own cosmetic side effects could roll back, and
+--    the return value carries the bug's status read back from the table.
 -- ---------------------------------------------------------------------
 -- ci:allow-secdef-authenticated every signed-in reporter may answer THEIR OWN question (the loop's ground truth): every read/write is scoped WHERE reporter_user_id = auth.uid(); the reopen/notify side effects act only on that row's own bug/group. Same shape as the 2026-07-18 original.
 CREATE OR REPLACE FUNCTION public.fn_bug_feedback_answer(p_request_id uuid, p_answer text)
@@ -527,12 +530,14 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_row       public.bug_fix_feedback_requests%ROWTYPE;
-  v_seed      uuid;
-  v_display   text;
-  v_fixer     uuid;
-  v_nid       uuid;
-  v_reopened  int := 0;
+  v_row        public.bug_fix_feedback_requests%ROWTYPE;
+  v_seed       uuid;
+  v_display    text;
+  v_fixer      uuid;
+  v_nid        uuid;
+  v_reopened   int := 0;
+  v_bug_status text;             -- CHANGED 2026-09-18: read back, never assumed
+  v_ledger_ok  boolean := false; -- CHANGED 2026-09-18: reported, never swallowed
 BEGIN
   IF p_answer NOT IN ('fixed','not_fixed') THEN
     RETURN jsonb_build_object('success', false, 'error', 'answer must be fixed or not_fixed');
@@ -566,11 +571,14 @@ BEGIN
       updated_at = now()
   WHERE id = p_request_id AND reporter_user_id = auth.uid();
 
-  -- Learn (#3): refresh the measured-outcome ledger. Never fail the answer.
+  -- Learn (#3): refresh the measured-outcome ledger. Never fail the answer —
+  -- but CHANGED 2026-09-18: say whether it landed. A swallowed ledger refresh
+  -- used to be indistinguishable from a recorded one in the return value.
   BEGIN
     PERFORM public.fn_bug_fix_outcome_record(v_row.cluster_id);
+    v_ledger_ok := true;
   EXCEPTION WHEN OTHERS THEN
-    NULL;
+    v_ledger_ok := false;
   END;
 
   -- CHANGED 2026-09-16: a slot freed → release this reporter's next queued question.
@@ -600,40 +608,68 @@ BEGIN
       NULL;
     END;
 
-    -- CHANGED 2026-09-16 (ruling 5): reopen the bug + the group's canonical bug.
+    -- Reopen the bug + the group's canonical bug (ruling 5).
+    --
+    -- CHANGED 2026-09-18 (blind-critic gap 1: "'not fixed' can silently leave
+    -- the bug closed"). The reopen has NO exception handler around it any more,
+    -- and its result is READ BACK from bug_reports.
+    --
+    -- It used to sit in ONE `BEGIN … EXCEPTION WHEN OTHERS THEN NULL` block
+    -- together with the system message, the group record and the fixer
+    -- notification. PL/pgSQL turns such a block into a subtransaction: a
+    -- failure in ANY of those four statements rolled the whole block back —
+    -- the reopen included — while v_reopened kept the value it had, because a
+    -- caught error rolls back database work and never local variables. The
+    -- function then answered `reopened: 1` over a bug that was still
+    -- 'resolved', and the gate told the reporter "the report is open again".
+    -- Nothing anywhere logged it.
+    --
+    -- Now: the reopen either happens or the whole answer fails loudly (the
+    -- route returns 500 and the question comes back on the next poll — a
+    -- re-askable question beats a bug that is closed and looks reopened). The
+    -- three cosmetic side effects each get their own handler below, so none of
+    -- them can undo the reopen.
+    SELECT seed_bug_id, decided_by INTO v_seed, v_fixer
+    FROM public.bug_clusters WHERE id = v_row.cluster_id;
+
+    WITH reopened AS (
+      UPDATE public.bug_reports b
+      SET status      = 'new',
+          resolved_at = NULL,
+          reopened_at = now(),
+          metadata    = COALESCE(b.metadata, '{}'::jsonb) || jsonb_build_object(
+                          'reopened_at',     now(),
+                          'reopened_by',     'feedback_gate',
+                          'reopen_reason',   'reporter says not fixed',
+                          'reopen_request',  p_request_id),
+          updated_at  = now()
+      WHERE b.id IN (v_row.bug_id, v_seed)
+        AND b.status IN ('resolved','duplicate','wont_fix')
+      RETURNING b.id
+    )
+    SELECT count(*) INTO v_reopened FROM reopened;
+
+    -- The reporter's own report, read back after the write. 'bug_status' is
+    -- the field a caller should trust: 'reopened' is a row count, and a bug
+    -- that was already open makes it legitimately 0.
+    SELECT status, display_id INTO v_bug_status, v_display
+    FROM public.bug_reports WHERE id = v_row.bug_id;
+
+    -- The system message on the reporter's own report (sender = the reporter:
+    -- it is their word, recorded by the gate). Cosmetic: own handler.
     BEGIN
-      SELECT seed_bug_id, decided_by INTO v_seed, v_fixer
-      FROM public.bug_clusters WHERE id = v_row.cluster_id;
-
-      WITH reopened AS (
-        UPDATE public.bug_reports b
-        SET status      = 'new',
-            resolved_at = NULL,
-            reopened_at = now(),
-            metadata    = COALESCE(b.metadata, '{}'::jsonb) || jsonb_build_object(
-                            'reopened_at',     now(),
-                            'reopened_by',     'feedback_gate',
-                            'reopen_reason',   'reporter says not fixed',
-                            'reopen_request',  p_request_id),
-            updated_at  = now()
-        WHERE b.id IN (v_row.bug_id, v_seed)
-          AND b.status IN ('resolved','duplicate','wont_fix')
-        RETURNING b.id
-      )
-      SELECT count(*) INTO v_reopened FROM reopened;
-
-      SELECT display_id INTO v_display FROM public.bug_reports WHERE id = v_row.bug_id;
-
-      -- The system message on the reporter's own report (sender = the reporter:
-      -- it is their word, recorded by the gate).
       INSERT INTO public.bug_report_messages
         (bug_report_id, sender_user_id, message_text, message_type, is_internal)
       VALUES
         (v_row.bug_id, v_row.reporter_user_id,
          'Reporter says not fixed (feedback gate). The report has been reopened.',
          'system', false);
+    EXCEPTION WHEN OTHERS THEN
+      NULL;
+    END;
 
-      -- Group record: safe append with ||, never jsonb_set on a missing parent.
+    -- Group record: safe append with ||, never jsonb_set on a missing parent.
+    BEGIN
       UPDATE public.bug_clusters
       SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
             'reopened', jsonb_build_object(
@@ -641,10 +677,14 @@ BEGIN
               'reporter_user_id', v_row.reporter_user_id)),
           updated_at = now()
       WHERE id = v_row.cluster_id;
+    EXCEPTION WHEN OTHERS THEN
+      NULL;
+    END;
 
-      -- Fixer of record: the bug's assignee, else the admin who confirmed the
-      -- group. Nobody on file → no notification; the reopened status itself is
-      -- what the bugs desk picks up.
+    -- Fixer of record: the bug's assignee, else the admin who confirmed the
+    -- group. Nobody on file → no notification; the reopened status itself is
+    -- what the bugs desk picks up.
+    BEGIN
       SELECT COALESCE(
                (SELECT assigned_to_user_id FROM public.bug_reports WHERE id = v_row.bug_id),
                (SELECT assigned_to_user_id FROM public.bug_reports WHERE id = v_seed),
@@ -675,12 +715,17 @@ BEGIN
         VALUES (v_nid, v_fixer);
       END IF;
     EXCEPTION WHEN OTHERS THEN
-      NULL; -- the reopen is best-effort; the reporter's answer is already written
+      -- The insert was rolled back with this subtransaction; v_nid survived it
+      -- (local variables are not rolled back), so clear it or the return value
+      -- would report a notification that does not exist.
+      v_nid := NULL;
     END;
   END IF;
 
   RETURN jsonb_build_object('success', true, 'answer', p_answer,
                             'reopened', v_reopened,
+                            'bug_status', v_bug_status,      -- CHANGED 2026-09-18
+                            'ledger_recorded', v_ledger_ok,  -- CHANGED 2026-09-18
                             'fixer_notified', v_nid IS NOT NULL);
 END;
 $$;

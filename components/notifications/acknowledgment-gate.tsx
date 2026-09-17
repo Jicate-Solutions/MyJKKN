@@ -39,6 +39,32 @@ interface VerificationQuestion {
   correct_index: number;
 }
 
+/** The bug statuses that mean a report is open (bug_reports_status_check). */
+const OPEN_BUG_STATUSES = ['new', 'seen', 'in_progress'];
+
+/**
+ * What to tell a reporter who answered "Not fixed". Exported for the test.
+ *
+ * 2026-09-18 (blind-critic gap 1): the message is derived from what the RPC
+ * reports — `reopened` (rows it flipped) and `bug_status` (read back from
+ * bug_reports afterwards) — instead of being a fixed sentence. The fixed
+ * sentence claimed a reopen and a notified fixer on every answer, including
+ * when the report was already open and when nobody is on file to tell.
+ */
+export function bugAnswerMessage(data: {
+  reopened?: number;
+  bug_status?: string | null;
+  fixer_notified?: boolean;
+}): string {
+  const openAgain =
+    Number(data.reopened ?? 0) > 0 ||
+    OPEN_BUG_STATUSES.includes(String(data.bug_status ?? ''));
+  if (!openAgain) return 'Thanks for telling us — your answer is recorded.';
+  return data.fixer_notified
+    ? 'Thanks for telling us. The report is open again and the fixer has been told.'
+    : 'Thanks for telling us. The report is open again.';
+}
+
 /**
  * AcknowledgmentGate — The core component that replaces Google Chat's voluntary 🙏
  *
@@ -134,11 +160,14 @@ function AcknowledgmentGateInner({ children }: { children: React.ReactNode }) {
     },
     onSuccess: (data) => {
       dropFromPulse(data.requestId);
-      toast.success(
-        data.answer === 'fixed'
-          ? 'Thanks! Glad it works for you now.'
-          : 'Thanks for telling us. The report is open again and the fixer has been told.'
-      );
+      if (data.answer === 'fixed') {
+        toast.success('Thanks! Glad it works for you now.');
+        return;
+      }
+      // 2026-09-18 (critic gap 1): say what actually happened. This used to
+      // promise a reopen and a told fixer unconditionally — including when the
+      // report was already open, or when nobody is on file to tell.
+      toast.success(bugAnswerMessage(data));
     },
     onError: (err: any) => toast.error(err?.message || 'Could not record your answer')
   });
