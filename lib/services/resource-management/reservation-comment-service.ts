@@ -37,7 +37,13 @@ import type { RawThreadRow, ThreadComment } from '@/lib/services/shared/comment-
 
 const MOD = 'resource-management/reservation-comments';
 const TABLE = 'resource_reservation_comments';
-const SELECT_COLUMNS = threadSelectColumns(TABLE);
+// Tag embed (BUG-006139). The FK constraint is named because mentions reference
+// profiles twice (mentioned_user_id, mentioned_by).
+const SELECT_COLUMNS = `${threadSelectColumns(TABLE)},
+    mentions:resource_reservation_comment_mentions (
+      mentioned_user_id,
+      person:profiles!resource_reservation_comment_mentions_mentioned_user_id_fkey (full_name)
+    )`;
 
 /** A comment on a booking, i.e. a thread comment that knows which booking. */
 export interface ReservationComment extends ThreadComment {
@@ -54,9 +60,30 @@ export interface CreateReservationCommentDto {
 
 interface RawRow extends RawThreadRow {
   reservation_id: string;
+  mentions?: { mentioned_user_id: string; person?: { full_name: string | null } | null }[] | null;
 }
 
-const toComment = (row: RawRow) => toThreadComment(row) as ReservationComment;
+const toComment = (row: RawRow): ReservationComment => {
+  const { mentions, ...rest } = row;
+  // Via unknown: the raw `mentions` shape is stripped above and the resolved
+  // one assigned below, which TS cannot follow through toThreadComment's generic.
+  const comment = toThreadComment(rest) as unknown as ReservationComment;
+  comment.mentions = (mentions ?? []).map((m) => ({
+    id: m.mentioned_user_id,
+    name: m.person?.full_name?.trim() || 'Unknown',
+  }));
+  return comment;
+};
+
+export interface TagPeopleResult {
+  /** Names newly tagged (and notified) by this call. */
+  tagged: string[];
+  /** Names refused because they are not team members. */
+  skipped: string[];
+  notified: number;
+  /** Set when the tags saved but the notification could not be sent. */
+  notifyError: string | null;
+}
 
 export class ReservationCommentService {
   private static supabase = createClientSupabaseClient();
@@ -125,6 +152,47 @@ export class ReservationCommentService {
       logger.error(MOD, 'Unexpected error in createComment', error);
       throw error;
     }
+  }
+
+  /**
+   * Tag team members on a comment you wrote, and notify them.
+   *
+   * Goes through an API route only because the NOTIFICATION needs a
+   * service-role client. The tag itself is written with the caller's session
+   * inside that route, so RLS and the guard trigger stay the authority.
+   */
+  static async tagPeople(
+    reservationId: string,
+    commentId: string,
+    userIds: string[],
+  ): Promise<TagPeopleResult> {
+    const res = await fetch(`/api/resource-management/reservations/${reservationId}/comment-mentions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ comment_id: commentId, user_ids: userIds }),
+    });
+    const json = await res.json().catch(() => null);
+    if (!res.ok || !json?.success) {
+      // A non-JSON answer is almost always a 404 page (route not deployed) or a
+      // crash page. Say which, with the status.
+      const reason =
+        json?.error ??
+        (res.status === 404
+          ? 'the tagging service was not found (HTTP 404) — restart the dev server or redeploy'
+          : `the server answered HTTP ${res.status}`);
+      logger.error(MOD, `Tagging failed: ${reason}`, {
+        reservationId,
+        commentId,
+        status: String(res.status),
+      });
+      throw new Error(reason);
+    }
+    return {
+      tagged: json.tagged ?? [],
+      skipped: json.skipped ?? [],
+      notified: json.notified ?? 0,
+      notifyError: json.notify_error ?? null,
+    };
   }
 
   /** Edit your own words. The trigger refuses anyone else, admin or not. */

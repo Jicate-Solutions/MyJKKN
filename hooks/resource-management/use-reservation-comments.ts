@@ -121,8 +121,39 @@ function useInvalidate(reservationId: string) {
 export function useCreateReservationComment(reservationId: string) {
   const invalidate = useInvalidate(reservationId);
   return useMutation({
-    mutationFn: (dto: CreateReservationCommentDto) =>
-      ReservationCommentService.createComment(dto),
+    // Post first, tag second. A comment that landed must NOT be reported as a
+    // failure because tagging hit a problem afterwards — the user would re-post
+    // and the thread would carry the remark twice. So a tagging failure is
+    // surfaced on its own and the mutation still resolves.
+    mutationFn: async (dto: CreateReservationCommentDto & { mention_ids?: string[] }) => {
+      const { mention_ids, ...rest } = dto;
+      const comment = await ReservationCommentService.createComment(rest);
+      if (mention_ids && mention_ids.length > 0) {
+        try {
+          const result = await ReservationCommentService.tagPeople(
+            reservationId,
+            comment.id,
+            mention_ids,
+          );
+          if (result.tagged.length > 0) {
+            toast.success(`Tagged ${result.tagged.join(', ')}`);
+          }
+          if (result.tagged.length > 0 && result.notifyError) {
+            toast.error(
+              `Tagged, but the notification could not be sent — tell ${result.tagged.join(', ')} directly.`,
+            );
+          }
+          if (result.skipped.length > 0) {
+            toast.error(`Not tagged (not a team member): ${result.skipped.join(', ')}`);
+          }
+        } catch (e) {
+          toast.error(
+            `Comment posted, but tagging failed: ${(e as Error).message || 'unknown error'}`,
+          );
+        }
+      }
+      return comment;
+    },
     onSuccess: (_data, dto) => {
       invalidate();
       toast.success(dto.parent_id ? 'Reply posted' : 'Comment posted');

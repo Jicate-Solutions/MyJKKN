@@ -39,8 +39,8 @@ export interface ThreadMention {
 /** One comment, with its author resolved and its replies attached (roots only). */
 export interface ThreadComment {
   /**
-   * People tagged on this comment. Optional because only the event review
-   * thread supports tagging; the reservation thread never sets it, and the
+   * People tagged on this comment. Optional because tagging is added per
+   * thread (event review, reservation) via each service's own select; the
    * panel renders nothing when it is absent.
    */
   mentions?: ThreadMention[];
