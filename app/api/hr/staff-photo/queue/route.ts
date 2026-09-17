@@ -62,12 +62,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   // Zero rows is a legitimate answer here — an empty queue and "you may see
   // nothing" look identical on purpose, because RLS is what decided.
-  if (list.length === 0) {
-    return NextResponse.json({ success: true, submissions: [], count: 0 });
-  }
+  // NB: no early return for an empty queue. An orphaned object outlives the
+  // decision that created it, so the one moment a reviewer has time to notice
+  // it is exactly when there is nothing waiting.
+  const isEmpty = list.length === 0;
 
   const admin = createServiceRoleClient();
-  const { data: signed } = await admin.storage
+  const { data: signed } = isEmpty ? { data: [] } : await admin.storage
     .from(BUCKET)
     .createSignedUrls(
       list.map((r) => (r as { storage_path: string }).storage_path),
@@ -118,5 +119,37 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     };
   });
 
-  return NextResponse.json({ success: true, submissions, count: submissions.length });
+  // Photographs a failed delete left behind. Not part of the queue — a
+  // separate, smaller thing the reviewer nonetheless has to be able to SEE,
+  // because BUG-006145's actual harm was a picture of a person sitting in a
+  // bucket with nothing surfacing it. Recording it in a column and never
+  // rendering it would have moved the silence one layer down.
+  // Scoped by the same RLS as everything else here.
+  const { data: orphanRows } = await supabase
+    .from('hr_staff_photo_submissions')
+    .select('id, orphaned_object, status, person:staff_id (first_name, last_name)')
+    .not('orphaned_object', 'is', null)
+    .limit(50);
+
+  const orphans = (orphanRows ?? []).map((r) => {
+    const row = r as unknown as {
+      id: string;
+      orphaned_object: string;
+      status: string;
+      person: { first_name: string | null; last_name: string | null } | null;
+    };
+    return {
+      id: row.id,
+      object: row.orphaned_object,
+      status: row.status,
+      name: [row.person?.first_name, row.person?.last_name].filter(Boolean).join(' ') || 'Unnamed',
+    };
+  });
+
+  return NextResponse.json({
+    success: true,
+    submissions,
+    count: submissions.length,
+    orphans,
+  });
 }

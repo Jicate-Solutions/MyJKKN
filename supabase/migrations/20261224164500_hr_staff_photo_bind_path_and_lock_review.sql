@@ -247,14 +247,33 @@ BEGIN
   IF p_approve THEN
     -- Bind the stored value to the bucket the renderer already reads and to
     -- this person's own folder.
-    -- ANCHORED, not "contains". position(v_staff in url) matched the uuid
-    -- ANYWHERE, so .../staff-images/<someone-else>/<v_staff>.jpg and
-    -- ...?x=<v_staff> both passed — and this is the only server-side tie
-    -- between the URL and the person. Require the folder itself.
+    -- MATCHED WHOLE, not searched. Two rounds of this check were wrong in the
+    -- same way, so it is worth naming both:
+    --
+    --   v1 (shipped)  position(v_staff in url) — the uuid ANYWHERE, so
+    --                 .../staff-images/<someone-else>/<v_staff>.jpg passed.
+    --   v2            position('/storage/.../staff-images/<v_staff>/' in url)
+    --                 — the right FOLDER, but still anywhere in the string and
+    --                 with no host pinned, so
+    --                 https://attacker.example/storage/v1/object/public/staff-images/<v_staff>/x.jpg
+    --                 passed and staff.profile_picture would point at a
+    --                 photograph somebody else controls and can change after
+    --                 approval.
+    --
+    -- Both failures are the same mistake: asking whether the expected text is
+    -- PRESENT rather than whether the value IS the expected shape. Anchored
+    -- top and tail now — scheme, a Supabase host, the bucket, this person's
+    -- folder, and exactly one filename segment with no query or fragment.
+    --
+    -- RESIDUAL, stated rather than hidden: the host pattern accepts any
+    -- *.supabase.co, so a reviewer could still name an object in a DIFFERENT
+    -- Supabase project. Closing that needs the project's own base URL, which
+    -- SQL cannot read from the environment. It requires reviewer privilege,
+    -- which today means super admin, who can write this column directly
+    -- anyway — so it buys an attacker nothing they do not already have.
     IF p_public_url IS NULL
-       OR p_public_url NOT LIKE 'https://%'
-       OR position('/storage/v1/object/public/staff-images/' || v_staff::text || '/' in p_public_url) = 0
-       OR position('..' in p_public_url) > 0 THEN
+       OR p_public_url !~ ('^https://[a-z0-9-]+\.supabase\.co/storage/v1/object/public/staff-images/'
+                           || v_staff::text || '/[^/?#]+$') THEN
       RAISE EXCEPTION 'Approved photograph must be a staff-images URL for this person'
         USING ERRCODE = '22023';
     END IF;

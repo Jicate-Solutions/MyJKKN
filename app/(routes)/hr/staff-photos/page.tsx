@@ -30,7 +30,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { Check, ImageOff, Inbox, Loader2, UserX, X } from 'lucide-react';
+import { AlertTriangle, Check, ImageOff, Inbox, Loader2, UserX, X } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator,
@@ -85,6 +85,10 @@ export default function StaffPhotoQueuePage() {
   // Which card is currently asking "why?" — a send-back without a reason is
   // the thing this screen exists to prevent.
   const [askingWhy, setAskingWhy] = useState<string | null>(null);
+  // Photographs a failed delete left behind. Shown on this screen because it is
+  // the screen whose action created them, and because a record nobody renders
+  // is the same silence BUG-006145 was about.
+  const [orphans, setOrphans] = useState<{ id: string; object: string; name: string; status: string }[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -93,6 +97,7 @@ export default function StaffPhotoQueuePage() {
       const body = await res.json();
       if (!res.ok || !body?.success) throw new Error(body?.error ?? 'Could not load the queue.');
       setRows(body.submissions ?? []);
+      setOrphans(body.orphans ?? []);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not load the queue.');
     } finally {
@@ -163,6 +168,31 @@ export default function StaffPhotoQueuePage() {
       </Breadcrumb>
 
       <div className="mt-6 space-y-4">
+        {orphans.length > 0 ? (
+          <div className="flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50/60 p-3 text-sm">
+            <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-700" />
+            <div>
+              <p className="font-medium text-amber-900">
+                {orphans.length === 1
+                  ? 'One photograph could not be deleted and is still stored'
+                  : `${orphans.length} photographs could not be deleted and are still stored`}
+              </p>
+              <p className="text-amber-800">
+                The decision was saved, but removing the picture afterwards failed. These are
+                photographs of people that nobody agreed to keep. Ask someone with access to the
+                file storage to remove them.
+              </p>
+              <ul className="mt-2 space-y-0.5 font-mono text-[11px] text-amber-900">
+                {orphans.map((o) => (
+                  <li key={o.id}>
+                    {o.name} · {o.status} · {o.object}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        ) : null}
+
         <div className="flex gap-2">
           <Button
             variant={view === 'queue' ? 'default' : 'outline'}
