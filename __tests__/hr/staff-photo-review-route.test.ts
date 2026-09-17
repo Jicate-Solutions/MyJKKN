@@ -41,13 +41,25 @@ const publicRemovals: string[] = [];
 const privateRemovals: string[] = [];
 /** How many times the private-bucket delete should fail before succeeding. */
 let privateRemoveFailures = 0;
+/** How many times the private-bucket delete should THROW rather than return an error. */
+let privateRemoveThrows = 0;
 let privateRemoveAttempts = 0;
 
 let rpcResult: { data: unknown; error: { message: string } | null } = { data: [{}], error: null };
 let submissionRow: Record<string, unknown> | null = null;
 
+const orphansRecorded: { id: string; path: string }[] = [];
+
 function makeAdmin() {
   return {
+    from: () => ({
+      update: (patch: { orphaned_object: string }) => ({
+        eq: async (_col: string, id: string) => {
+          orphansRecorded.push({ id, path: patch.orphaned_object });
+          return { error: null };
+        },
+      }),
+    }),
     storage: {
       from(bucket: string) {
         return {
@@ -65,6 +77,10 @@ function makeAdmin() {
               return { error: null };
             }
             privateRemoveAttempts++;
+            if (privateRemoveThrows > 0) {
+              privateRemoveThrows--;
+              throw new Error('socket hang up');
+            }
             if (privateRemoveFailures > 0) {
               privateRemoveFailures--;
               // Supabase RETURNS storage errors rather than throwing them,
@@ -115,6 +131,8 @@ beforeEach(() => {
   privateRemovals.length = 0;
   privateRemoveFailures = 0;
   privateRemoveAttempts = 0;
+  orphansRecorded.length = 0;
+  privateRemoveThrows = 0;
   rpcResult = { data: [{}], error: null };
   submissionRow = {
     id: 'sub-1',
@@ -207,10 +225,14 @@ describe('team member photo review route', () => {
     expect(res.status).toBe(200);
     expect(body.success).toBe(true);
     expect(body.status).toBe('rejected');
-    // But the caller is told the truth about the file.
+    // The caller is told the truth about the file...
     expect(body.pending_copy_removed).toBe(false);
     expect(privateRemoveAttempts).toBe(2);
     expect(privateRemovals).toHaveLength(0);
+    // ...and — the part that actually answers BUG-006145 — it is written down
+    // somewhere a person can find it. A console line and a response field
+    // nothing reads would have moved the silence, not removed it.
+    expect(orphansRecorded).toEqual([{ id: 'sub-1', path: 'staff-1/111.jpg' }]);
   });
 
   it('a transient failure is absorbed by the retry and reported as cleaned', async () => {
@@ -222,5 +244,22 @@ describe('team member photo review route', () => {
     expect(body.pending_copy_removed).toBe(true);
     expect(privateRemoveAttempts).toBe(2);
     expect(privateRemovals).toEqual(['staff-1/111.jpg']);
+    // Absorbed, so nothing to record.
+    expect(orphansRecorded).toHaveLength(0);
+  });
+
+  // Review finding: the helper inspected only the RETURNED error, so a storage
+  // call that THREW propagated into an unhandled 500 — after the decision had
+  // already committed. The caller saw failure for a review that succeeded.
+  it('a thrown storage error does not turn a committed decision into a 500', async () => {
+    privateRemoveThrows = 2;
+
+    const res = await POST(req({ submission_id: 'sub-1', approve: false, note: 'Blurred' }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.status).toBe('rejected');
+    expect(body.pending_copy_removed).toBe(false);
+    expect(orphansRecorded).toHaveLength(1);
   });
 });

@@ -30,35 +30,72 @@ const PRIVATE_BUCKET = 'hr-staff-photo-submissions';
 const PUBLIC_BUCKET = 'staff-images';
 
 /**
- * Remove the pending copy, and do not pretend it worked when it did not
- * (BUG-006145).
+ * Delete one storage object and tell the truth about whether it went.
  *
- * Supabase storage RETURNS its errors rather than throwing them, so the
- * original `await ...remove([path])` discarded a failure silently: the decision
- * was recorded, the response said success, and an unreviewed photograph of a
- * person stayed in the bucket with nothing anywhere saying so.
+ * Three things the first version got wrong, all found by review:
  *
- * One retry, because the realistic failure here is a transient network blip
- * rather than a permanent refusal. After that the caller is TOLD — the decision
- * itself already committed in the database and must not be undone over a
- * cleanup problem, so this reports rather than throws.
+ *  - It read only the RETURNED error. Supabase surfaces most storage failures
+ *    that way, but a fetch/abort THROWS, and a throw here escaped into an
+ *    unhandled 500 *after* the decision had already committed — the caller saw
+ *    failure for a review that succeeded. Both are caught now.
+ *  - The retry fired instantly, so for the transient blip it exists for it
+ *    landed inside the same failure window. There is a short delay now.
+ *  - Nothing bounded the call, and the retry doubled the worst case. Each
+ *    attempt now loses to a timeout rather than hanging the route.
  */
-async function removePendingCopy(
+async function removeObject(
   admin: ReturnType<typeof createServiceRoleClient>,
+  bucket: string,
   path: string,
 ): Promise<boolean> {
   for (let attempt = 0; attempt < 2; attempt++) {
-    const { error } = await admin.storage.from(PRIVATE_BUCKET).remove([path]);
-    if (!error) return true;
-    if (attempt === 1) {
-      console.error(
-        '[hr/staff-photo/review] pending copy left behind:',
-        path,
-        error.message,
-      );
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 400));
+    try {
+      const outcome = await Promise.race([
+        admin.storage.from(bucket).remove([path]),
+        new Promise<{ error: { message: string } }>((resolve) =>
+          setTimeout(() => resolve({ error: { message: 'timed out' } }), 5000),
+        ),
+      ]);
+      if (!outcome.error) return true;
+      if (attempt === 1) {
+        console.error('[hr/staff-photo/review] object left behind:', bucket, path, outcome.error.message);
+      }
+    } catch (e) {
+      if (attempt === 1) {
+        console.error(
+          '[hr/staff-photo/review] object left behind (threw):',
+          bucket,
+          path,
+          e instanceof Error ? e.message : String(e),
+        );
+      }
     }
   }
   return false;
+}
+
+/**
+ * Record, on the submission row itself, that an object was left behind.
+ *
+ * Written with the service-role client because the table carries no UPDATE
+ * policy for anyone — that is deliberate, the two functions are the only write
+ * path for decisions. This is not a decision; it is a note for whoever sweeps.
+ * Best-effort by design: it must never turn a committed review into an error.
+ */
+async function recordOrphan(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  submissionId: string,
+  path: string,
+): Promise<void> {
+  try {
+    await admin
+      .from('hr_staff_photo_submissions')
+      .update({ orphaned_object: path })
+      .eq('id', submissionId);
+  } catch (e) {
+    console.error('[hr/staff-photo/review] could not record orphan:', path, e);
+  }
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -124,7 +161,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ success: false, error: error.message }, { status: 403 });
     }
     // The rejected picture has no further use and is a photograph of a person.
-    const cleaned = await removePendingCopy(admin, sub.storage_path);
+    const cleaned = await removeObject(admin, PRIVATE_BUCKET, sub.storage_path);
+    if (!cleaned) await recordOrphan(admin, submission_id, sub.storage_path);
     return NextResponse.json({
       success: true,
       result: data,
@@ -165,7 +203,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const publicUrl = urlData?.publicUrl ?? null;
 
   if (!publicUrl) {
-    await admin.storage.from(PUBLIC_BUCKET).remove([publicPath]);
+    await removeObject(admin, PUBLIC_BUCKET, publicPath);
     return NextResponse.json(
       { success: false, error: 'The photograph could not be published. Nothing was changed.' },
       { status: 500 },
@@ -181,13 +219,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   });
 
   if (error) {
-    // Step 4 — undo the publish.
-    await admin.storage.from(PUBLIC_BUCKET).remove([publicPath]);
+    // Step 4 — undo the publish. Checked, unlike the first version: this bucket
+    // is PUBLIC, so an object left here after a refused approval is a
+    // world-readable photograph of a person. That is a worse orphan than the
+    // private one and it was going unrecorded.
+    const undone = await removeObject(admin, PUBLIC_BUCKET, publicPath);
+    if (!undone) await recordOrphan(admin, submission_id, publicPath);
     return NextResponse.json({ success: false, error: error.message }, { status: 403 });
   }
 
   // The pending copy has served its purpose; the approved one is the record.
-  const cleaned = await removePendingCopy(admin, sub.storage_path);
+  const cleaned = await removeObject(admin, PRIVATE_BUCKET, sub.storage_path);
+  if (!cleaned) await recordOrphan(admin, submission_id, sub.storage_path);
 
   return NextResponse.json({
     success: true,
