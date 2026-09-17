@@ -39,11 +39,52 @@ const MOD = 'resource-management/reservation-comments';
 const TABLE = 'resource_reservation_comments';
 // Tag embed (BUG-006139). The FK constraint is named because mentions reference
 // profiles twice (mentioned_user_id, mentioned_by).
-const SELECT_COLUMNS = `${threadSelectColumns(TABLE)},
+const BASE_COLUMNS = threadSelectColumns(TABLE);
+const SELECT_COLUMNS = `${BASE_COLUMNS},
     mentions:resource_reservation_comment_mentions (
       mentioned_user_id,
       person:profiles!resource_reservation_comment_mentions_mentioned_user_id_fkey (full_name)
     )`;
+
+// Until 20261224090000 is applied, PostgREST does not know the mentions table
+// and rejects the WHOLE select (PGRST200, "Could not find a relationship") —
+// which took the entire Comments card down. Fall back to the
+// untagged columns so comments keep working in either deploy order; remember
+// the answer so the session asks once. The Tag action still fails, loudly, in
+// the API route.
+let mentionsAvailable = true;
+
+const isMissingMentions = (error: { code?: string; message?: string } | null | undefined) =>
+  !!error &&
+  (error.code === 'PGRST200' || error.code === '42P01') &&
+  String(error.message ?? '').includes('resource_reservation_comment_mentions');
+
+/** Plain fields only — the raw PostgREST error serialises to "{}" in the logger. */
+const errInfo = (error: any) => ({
+  code: error?.code,
+  message: error?.message,
+  details: error?.details,
+  hint: error?.hint,
+});
+
+async function withMentions<T>(
+  run: (columns: string) => PromiseLike<{ data: T; error: any }>,
+): Promise<{ data: T; error: any }> {
+  if (mentionsAvailable) {
+    const result = await run(SELECT_COLUMNS);
+    if (!isMissingMentions(result.error)) return result;
+    mentionsAvailable = false;
+    logger.warn(MOD, 'Tag table not deployed yet — loading comments without tags', errInfo(result.error));
+  }
+  return run(BASE_COLUMNS);
+}
+
+/**
+ * Columns for a WRITE's returning select. Never retried — a retried insert
+ * risks a duplicate comment — so it relies on listThreads, which always runs
+ * first when the card mounts, having already learned whether tags exist.
+ */
+const writeColumns = () => (mentionsAvailable ? SELECT_COLUMNS : BASE_COLUMNS);
 
 /** A comment on a booking, i.e. a thread comment that knows which booking. */
 export interface ReservationComment extends ThreadComment {
@@ -99,21 +140,26 @@ export class ReservationCommentService {
    */
   static async listThreads(reservationId: string): Promise<ReservationComment[]> {
     try {
-      const { data, error } = await (this.supabase as any)
-        .from(TABLE)
-        .select(SELECT_COLUMNS)
-        .eq('reservation_id', reservationId)
-        .order('created_at', { ascending: true });
+      const { data, error } = await withMentions<RawRow[] | null>((columns) =>
+        (this.supabase as any)
+          .from(TABLE)
+          .select(columns)
+          .eq('reservation_id', reservationId)
+          .order('created_at', { ascending: true }),
+      );
 
       if (error) {
-        logger.error(MOD, 'Failed to list reservation comments', { reservationId, error });
+        logger.error(MOD, 'Failed to list reservation comments', {
+          reservationId,
+          ...errInfo(error),
+        });
         throw error;
       }
 
       const rows = ((data as RawRow[]) ?? []).map(toComment);
       return groupIntoThreads(rows).sort(compareThreads);
     } catch (error) {
-      logger.error(MOD, 'Unexpected error in listThreads', error);
+      logger.error(MOD, 'Unexpected error in listThreads', errInfo(error));
       throw error;
     }
   }
@@ -133,14 +179,14 @@ export class ReservationCommentService {
       const { data, error } = await (this.supabase as any)
         .from(TABLE)
         .insert([{ reservation_id: dto.reservation_id, parent_id: dto.parent_id ?? null, body }])
-        .select(SELECT_COLUMNS)
+        .select(writeColumns())
         .single();
 
       if (error) {
         logger.error(MOD, 'Failed to create reservation comment', {
           reservationId: dto.reservation_id,
           isReply: !!dto.parent_id,
-          error,
+          ...errInfo(error),
         });
         throw new Error(
           commentWriteMessage(error, dto.parent_id ? 'reply here' : 'comment on this reservation'),
@@ -149,7 +195,7 @@ export class ReservationCommentService {
 
       return toComment(data as RawRow);
     } catch (error) {
-      logger.error(MOD, 'Unexpected error in createComment', error);
+      logger.error(MOD, 'Unexpected error in createComment', errInfo(error));
       throw error;
     }
   }
@@ -205,16 +251,16 @@ export class ReservationCommentService {
         .from(TABLE)
         .update({ body: next })
         .eq('id', id)
-        .select(SELECT_COLUMNS)
+        .select(writeColumns())
         .single();
 
       if (error) {
-        logger.error(MOD, 'Failed to edit reservation comment', { id, error });
+        logger.error(MOD, 'Failed to edit reservation comment', { id, ...errInfo(error) });
         throw new Error(commentWriteMessage(error, 'edit this comment'));
       }
       return toComment(data as RawRow);
     } catch (error) {
-      logger.error(MOD, 'Unexpected error in updateBody', error);
+      logger.error(MOD, 'Unexpected error in updateBody', errInfo(error));
       throw error;
     }
   }
@@ -234,14 +280,14 @@ export class ReservationCommentService {
         .update({ is_resolved: resolved })
         .eq('id', id)
         .is('parent_id', null)
-        .select(SELECT_COLUMNS)
+        .select(writeColumns())
         .single();
 
       if (error) {
         logger.error(MOD, 'Failed to change reservation comment resolution', {
           id,
           resolved,
-          error,
+          ...errInfo(error),
         });
         throw new Error(
           commentWriteMessage(error, resolved ? 'close this thread' : 'reopen this thread'),
@@ -251,7 +297,7 @@ export class ReservationCommentService {
 
       return toComment(data as RawRow);
     } catch (error) {
-      logger.error(MOD, 'Unexpected error in setResolved', error);
+      logger.error(MOD, 'Unexpected error in setResolved', errInfo(error));
       throw error;
     }
   }
@@ -273,7 +319,7 @@ export class ReservationCommentService {
         .select('id');
 
       if (error) {
-        logger.error(MOD, 'Failed to delete reservation comment', { id, error });
+        logger.error(MOD, 'Failed to delete reservation comment', { id, ...errInfo(error) });
         throw new Error(commentWriteMessage(error, 'delete this comment'));
       }
       if (!((data as unknown[]) ?? []).length) {
@@ -281,7 +327,7 @@ export class ReservationCommentService {
         throw new Error(commentWriteMessage({ code: 'PGRST116' }, 'delete this comment'));
       }
     } catch (error) {
-      logger.error(MOD, 'Unexpected error in deleteComment', error);
+      logger.error(MOD, 'Unexpected error in deleteComment', errInfo(error));
       throw error;
     }
   }
