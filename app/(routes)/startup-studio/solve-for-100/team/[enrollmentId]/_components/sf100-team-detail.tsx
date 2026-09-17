@@ -156,7 +156,11 @@ function OverviewTab({ enrollmentId }: { enrollmentId: string }) {
   const teamName = reg.team_name ?? enrollment.team_name ?? enrollment.teamName ?? 'Unknown Team';
   const appName = reg.submission?.app_name ?? enrollment.app_name ?? enrollment.appName;
   const appUrl = reg.submission?.live_app_url ?? enrollment.live_app_url;
-  const value = enrollment.value_declaration ?? enrollment.valueDeclaration ?? {};
+  const value = {
+    problem_domain: enrollment.problem_domain,
+    customer_segment: enrollment.target_segment,
+    pricing_model: enrollment.pricing_model,
+  };
 
   return (
     <div className="space-y-5">
