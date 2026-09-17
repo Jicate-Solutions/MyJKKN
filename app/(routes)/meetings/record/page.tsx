@@ -26,6 +26,19 @@ import { MeetingRecorder } from './_components/meeting-recorder';
 
 export const dynamic = 'force-dynamic';
 
+function formatWhen(iso: string | null): string {
+  if (!iso) return '';
+  return new Intl.DateTimeFormat('en-IN', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: 'Asia/Kolkata',
+  }).format(new Date(iso));
+}
+
 function Shell({ children }: { children: React.ReactNode }) {
   return (
     <ContentLayout title="Record a meeting">
@@ -47,7 +60,13 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default async function MeetingRecordPage() {
+interface RecordPageProps {
+  /** ?booking=<uid> — arrives from the Record button on a meeting's own page. */
+  searchParams: Promise<{ booking?: string }>;
+}
+
+export default async function MeetingRecordPage({ searchParams }: RecordPageProps) {
+  const { booking: bookingUid } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -88,13 +107,49 @@ export default async function MeetingRecordPage() {
     );
   }
 
+  // The meeting this recording belongs to, when the page was opened from one.
+  // Read through the session client, so a uid the viewer does not host reads as
+  // absent and the page records standalone rather than leaking that it exists.
+  let attachedTo: { id: string; label: string; whenText: string } | null = null;
+  let bookingMissing = false;
+  if (bookingUid) {
+    const { data: row } = await supabase
+      .from('meeting_bookings')
+      .select('id, uid, attendee_name, start_time, meeting_type_id')
+      .eq('uid', bookingUid)
+      .maybeSingle();
+    if (row) {
+      const b = row as Record<string, unknown>;
+      const { data: mt } = await supabase
+        .from('meeting_types')
+        .select('title')
+        .eq('id', b.meeting_type_id as string)
+        .maybeSingle();
+      const who = (b.attendee_name as string | null) ?? null;
+      const what = ((mt as Record<string, unknown> | null)?.title as string | null) ?? 'Meeting';
+      attachedTo = {
+        id: b.id as string,
+        label: who ? `${what} with ${who}` : what,
+        whenText: formatWhen(b.start_time as string | null),
+      };
+    } else {
+      bookingMissing = true;
+    }
+  }
+
   return (
     <Shell>
       <Card>
         <CardContent className="pt-6">
-          <MeetingRecorder canRecord={mayRecord === true} />
+          <MeetingRecorder canRecord={mayRecord === true} attachedTo={attachedTo} />
         </CardContent>
       </Card>
+      {bookingMissing ? (
+        <p className="mt-4 text-sm text-muted-foreground">
+          That meeting could not be found, so this recording will be saved on its own rather
+          than against it. You can still record.
+        </p>
+      ) : null}
       <p className="mt-4 text-xs text-muted-foreground">
         Audio is stored privately and kept for 90 days, then deleted. The written
         notes are kept.
