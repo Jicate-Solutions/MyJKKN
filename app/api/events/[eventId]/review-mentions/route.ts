@@ -15,22 +15,25 @@ export const dynamic = 'force-dynamic';
 //
 // The NOTIFICATION needs the service-role client, because fanoutNotification
 // writes user_notifications rows for other people and RLS rightly refuses that
-// from `authenticated`. It runs only for rows the session insert actually
-// created, so a refused tag can never produce a notification.
+// from `authenticated`. It runs only for tags the session can read back, so a
+// refused tag can never produce a notification. Grant and alert are one
+// resumable step (grantAndNotifyTags): a tag whose alert failed is finished by
+// the next request for that person — the author's Resend.
 //
 // Tagging grants the tagged person read access to this event's review thread
-// (fn_can_read_event_review_comments) — see
-// supabase/migrations/20261220096000_event_review_comment_mentions.sql.
+// (fn_can_read_event_review_comments), and only team members of the event's
+// institution can be tagged. Untagging is a direct, RLS-checked delete from the
+// browser. See supabase/migrations/20261220096000_event_review_comment_mentions.sql
+// and 20261224110000_event_review_mentions_same_institution_untag.sql.
 // ============================================================================
 
-import { createHash } from 'node:crypto';
 import { NextResponse, type NextRequest } from 'next/server';
 import {
   getAuthUser,
   createServerSupabaseClient,
   createServiceRoleClient,
 } from '@/lib/supabase/server';
-import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
+import { grantAndNotifyTags } from '@/lib/services/shared/comment-mention-alerts';
 import { commentWriteMessage } from '@/lib/services/shared/comment-threads';
 import { logger } from '@/lib/utils/enhanced-logger';
 
@@ -71,12 +74,7 @@ export async function POST(
   // Tagging yourself notifies nobody and grants nothing you do not already hold.
   const wanted = requested.filter((id) => id !== user.id);
   if (wanted.length === 0) {
-    return NextResponse.json({
-      success: true,
-      tagged: [],
-      skipped: [],
-      notified: 0,
-    });
+    return NextResponse.json({ success: true, tagged: [], skipped: [], notified: [] });
   }
   if (wanted.length > MAX_TAGS) {
     return NextResponse.json(
@@ -97,8 +95,10 @@ export async function POST(
   // itself stays in SQL: this asks the same function the trigger uses.
   const eligibility = await Promise.all(
     wanted.map(async (id) => {
-      const { data } = await (service as any).rpc('fn_can_be_tagged_in_event_review', {
+      // Team member of THIS event's institution (20261224110000).
+      const { data } = await (service as any).rpc('fn_can_be_tagged_on_event', {
         p_user_id: id,
+        p_event_id: eventId,
       });
       return { id, ok: data === true };
     }),
@@ -122,51 +122,26 @@ export async function POST(
     return NextResponse.json(
       {
         success: false,
-        error: 'Only team members can be tagged in review comments — learners never see this thread.',
+        error: "Only team members of this event's institution can be tagged — learners never see this thread.",
         skipped: ineligible.map((id) => names.get(id) ?? 'Unknown'),
       },
       { status: 400 },
     );
   }
 
-  // Session insert: RLS + trigger decide. ON CONFLICT DO NOTHING, so re-tagging
-  // someone already tagged on this comment is a no-op and returns no row —
-  // which is exactly what keeps them from being notified twice.
-  const { data: inserted, error: insertError } = await (db as any)
-    .from('event_review_comment_mentions')
-    .upsert(
-      eligible.map((id) => ({
-        comment_id: commentId,
-        event_id: eventId,
-        mentioned_user_id: id,
-      })),
-      { onConflict: 'comment_id,mentioned_user_id', ignoreDuplicates: true },
-    )
-    .select('mentioned_user_id');
-
-  if (insertError) {
-    logger.error(MOD, 'Tag insert refused', {
-      eventId,
-      commentId,
-      error: insertError,
-    });
-    return NextResponse.json(
-      {
-        success: false,
-        error: commentWriteMessage(insertError, 'tag people on this comment'),
-      },
-      { status: insertError.code === '42501' ? 403 : 400 },
-    );
-  }
-
-  const newlyTagged = ((inserted as { mentioned_user_id: string }[]) ?? []).map(
-    (r) => r.mentioned_user_id,
-  );
-
-  let notified = 0;
-  let notifyError: string | null = null;
-  if (newlyTagged.length > 0) {
-    try {
+  // Grant and tell, as one resumable step: a tag whose alert failed earlier is
+  // finished here, and an explicit re-tag sends a reminder.
+  const outcome = await grantAndNotifyTags({
+    db,
+    service,
+    table: 'event_review_comment_mentions',
+    parentColumn: 'event_id',
+    parentId: eventId,
+    commentId,
+    userIds: eligible,
+    callerId: user.id,
+    keyPrefix: 'event-review-mention',
+    buildAlert: async () => {
       const [{ data: event }, { data: comment }, { data: me }] = await Promise.all([
         (service as any).from('events').select('name, event_type').eq('id', eventId).maybeSingle(),
         (service as any)
@@ -182,55 +157,59 @@ export async function POST(
       const excerpt = String(comment?.body ?? '')
         .replace(/\s+/g, ' ')
         .trim();
-      const url =
-        event?.event_type === 'sports_tournament'
-          ? `/events/tournament/${eventId}`
-          : `/events/${eventId}`;
 
-      const outcome = await fanoutNotification(service as any, {
+      // No `type` column: public.notifications has none (verified 2026-09-16),
+      // so the legacy `type: 'events'` envelope is not sent. The events inbox
+      // matches metadata.source ('events_review_mention').
+      return {
         title: `${who} tagged you on "${eventName}"`,
         body:
           excerpt.length > 240
             ? `${excerpt.slice(0, 237)}…`
             : excerpt || 'You were tagged in a review comment.',
-        userIds: newlyTagged,
-        createdBy: user.id,
+        url:
+          event?.event_type === 'sports_tournament'
+            ? `/events/tournament/${eventId}`
+            : `/events/${eventId}`,
         source: 'events_review_mention',
-        url,
-        // One key per (comment, recipient set): a retried request re-derives the
-        // same key and the helper skips it instead of notifying twice.
-        idempotencyKey: `event-review-mention:${commentId}:${createHash('sha1')
-          .update([...newlyTagged].sort().join(','))
-          .digest('hex')}`,
-        metadata: {
-          event_id: eventId,
-          comment_id: commentId,
-          tagged_by: user.id,
-        },
-        // No `type` column: public.notifications has none (verified 2026-09-16 —
-        // "column notifications.type does not exist"), so passing the legacy
-        // `type: 'events'` envelope made this insert throw. The bell reads
-        // user_notifications, which the fanout writes.
-      });
-      notified = outcome.notified;
-    } catch (e) {
-      // The tags are already saved and they are what grants access. A failed
-      // notification must not turn that success into a 500 — say so instead, so
-      // the author knows to tell the person another way.
-      notifyError = (e as { message?: string })?.message ?? 'notification failed';
-      logger.error(MOD, 'Tagged, but the notification failed', {
-        eventId,
-        commentId,
-        error: notifyError,
-      });
-    }
+        metadata: { event_id: eventId, tagged_by: user.id },
+      };
+    },
+  });
+
+  if (outcome.grantError) {
+    logger.error(MOD, 'Tag insert refused', {
+      eventId,
+      commentId,
+      code: outcome.grantError.code,
+      message: outcome.grantError.message,
+    });
+    return NextResponse.json(
+      {
+        success: false,
+        error: commentWriteMessage(outcome.grantError, 'tag people on this comment'),
+      },
+      { status: outcome.grantError.code === '42501' ? 403 : 400 },
+    );
   }
 
+  if (outcome.notNotified.length > 0) {
+    logger.error(MOD, 'Tagged, but the alert did not go out — Resend will retry', {
+      eventId,
+      commentId,
+      count: outcome.notNotified.length,
+      error: outcome.alertError,
+    });
+  }
+
+  const toNames = (ids: string[]) => ids.map((id) => names.get(id) ?? 'Unknown');
   return NextResponse.json({
     success: true,
-    tagged: newlyTagged.map((id) => names.get(id) ?? 'Unknown'),
-    skipped: ineligible.map((id) => names.get(id) ?? 'Unknown'),
-    notified,
-    notify_error: notifyError,
+    tagged: toNames(outcome.tagged),
+    skipped: toNames(ineligible),
+    notified: toNames(outcome.notified),
+    reminded: toNames(outcome.reminded),
+    recently_notified: toNames(outcome.recentlyNotified),
+    not_notified: toNames(outcome.notNotified),
   });
 }

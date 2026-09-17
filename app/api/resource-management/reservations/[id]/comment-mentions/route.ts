@@ -14,21 +14,25 @@ export const dynamic = 'force-dynamic';
 // to the comment's) are the authority — this route does not restate them.
 //
 // The NOTIFICATION needs the service-role client, because fanoutNotification
-// writes user_notifications rows for other people. It runs only for rows the
-// session insert actually created, so a refused tag never notifies anyone.
+// writes user_notifications rows for other people. It runs only for tags the
+// session can read back, so a refused tag never notifies anyone. Grant and
+// alert are one resumable step (grantAndNotifyTags): a tag whose alert failed
+// is finished by the next request for that person — the author's Resend.
 //
-// Tagging grants the tagged person read access to this booking's thread — see
-// supabase/migrations/20261224090000_resource_reservation_comment_mentions.sql.
+// Tagging grants the tagged person read access to this booking's thread, and
+// only people of the booking's institution can be tagged. Untagging is a
+// direct, RLS-checked delete from the browser (no notification to send). See
+// supabase/migrations/20261224090000_resource_reservation_comment_mentions.sql
+// and 20261224103700_reservation_comment_mentions_same_institution_untag.sql.
 // ============================================================================
 
-import { createHash } from 'node:crypto';
 import { NextResponse, type NextRequest } from 'next/server';
 import {
   getAuthUser,
   createServerSupabaseClient,
   createServiceRoleClient,
 } from '@/lib/supabase/server';
-import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
+import { grantAndNotifyTags } from '@/lib/services/shared/comment-mention-alerts';
 import { commentWriteMessage } from '@/lib/services/shared/comment-threads';
 import { logger } from '@/lib/utils/enhanced-logger';
 
@@ -69,7 +73,7 @@ export async function POST(
   // Tagging yourself notifies nobody and grants nothing you do not already hold.
   const wanted = requested.filter((uid) => uid !== user.id);
   if (wanted.length === 0) {
-    return NextResponse.json({ success: true, tagged: [], skipped: [], notified: 0 });
+    return NextResponse.json({ success: true, tagged: [], skipped: [], notified: [] });
   }
   if (wanted.length > MAX_TAGS) {
     return NextResponse.json(
@@ -83,12 +87,13 @@ export async function POST(
 
   // Split out people who cannot be tagged BEFORE the insert: the guard trigger
   // refuses the whole batch on the first one, which would drop every valid tag
-  // alongside a single learner. The rule stays in SQL — this asks the same
-  // function the trigger uses.
+  // alongside a single ineligible pick. The rule stays in SQL — this asks the
+  // same function the trigger uses (team member of the booking's institution).
   const eligibility = await Promise.all(
     wanted.map(async (uid) => {
-      const { data } = await (service as any).rpc('fn_can_be_tagged_in_event_review', {
+      const { data } = await (service as any).rpc('fn_can_be_tagged_on_reservation', {
         p_user_id: uid,
+        p_reservation_id: reservationId,
       });
       return { id: uid, ok: data === true };
     }),
@@ -111,44 +116,26 @@ export async function POST(
     return NextResponse.json(
       {
         success: false,
-        error: 'Only team members can be tagged on a booking.',
+        error: "Only team members of this booking's institution can be tagged.",
         skipped: ineligible.map((uid) => names.get(uid) ?? 'Unknown'),
       },
       { status: 400 },
     );
   }
 
-  // Session insert: RLS + trigger decide. ignoreDuplicates, so re-tagging
-  // someone already tagged on this comment returns no row — which is exactly
-  // what keeps them from being notified twice.
-  const { data: inserted, error: insertError } = await (db as any)
-    .from('resource_reservation_comment_mentions')
-    .upsert(
-      eligible.map((uid) => ({
-        comment_id: commentId,
-        reservation_id: reservationId,
-        mentioned_user_id: uid,
-      })),
-      { onConflict: 'comment_id,mentioned_user_id', ignoreDuplicates: true },
-    )
-    .select('mentioned_user_id');
-
-  if (insertError) {
-    logger.error(MOD, 'Tag insert refused', { reservationId, commentId, error: insertError });
-    return NextResponse.json(
-      { success: false, error: commentWriteMessage(insertError, 'tag people on this comment') },
-      { status: insertError.code === '42501' ? 403 : 400 },
-    );
-  }
-
-  const newlyTagged = ((inserted as { mentioned_user_id: string }[]) ?? []).map(
-    (r) => r.mentioned_user_id,
-  );
-
-  let notified = 0;
-  let notifyError: string | null = null;
-  if (newlyTagged.length > 0) {
-    try {
+  // Grant and tell, as one resumable step: a tag whose alert failed earlier is
+  // finished here, and an explicit re-tag sends a reminder.
+  const outcome = await grantAndNotifyTags({
+    db,
+    service,
+    table: 'resource_reservation_comment_mentions',
+    parentColumn: 'reservation_id',
+    parentId: reservationId,
+    commentId,
+    userIds: eligible,
+    callerId: user.id,
+    keyPrefix: 'reservation-comment-mention',
+    buildAlert: async () => {
       const [{ data: reservation }, { data: comment }, { data: me }] = await Promise.all([
         (service as any)
           .from('resource_reservations')
@@ -173,46 +160,52 @@ export async function POST(
         .replace(/\s+/g, ' ')
         .trim();
 
-      const outcome = await fanoutNotification(service as any, {
+      return {
         title: `${who} tagged you on a "${label}" booking`,
         body:
           excerpt.length > 240
             ? `${excerpt.slice(0, 237)}…`
             : excerpt || 'You were tagged in a booking comment.',
-        userIds: newlyTagged,
-        createdBy: user.id,
-        source: 'resource_reservation_mention',
         url: `/resource-management/reservations/${reservationId}`,
-        // One key per (comment, recipient set): a retried request re-derives the
-        // same key and the helper skips it instead of notifying twice.
-        idempotencyKey: `reservation-comment-mention:${commentId}:${createHash('sha1')
-          .update([...newlyTagged].sort().join(','))
-          .digest('hex')}`,
-        metadata: {
-          reservation_id: reservationId,
-          comment_id: commentId,
-          tagged_by: user.id,
-        },
-      });
-      notified = outcome.notified;
-    } catch (e) {
-      // The tags are saved and they are what grants access. A failed
-      // notification must not turn that into a 500 — say so instead, so the
-      // author knows to tell the person another way.
-      notifyError = (e as { message?: string })?.message ?? 'notification failed';
-      logger.error(MOD, 'Tagged, but the notification failed', {
-        reservationId,
-        commentId,
-        error: notifyError,
-      });
-    }
+        source: 'resource_reservation_mention',
+        metadata: { reservation_id: reservationId, tagged_by: user.id },
+      };
+    },
+  });
+
+  if (outcome.grantError) {
+    logger.error(MOD, 'Tag insert refused', {
+      reservationId,
+      commentId,
+      code: outcome.grantError.code,
+      message: outcome.grantError.message,
+    });
+    return NextResponse.json(
+      {
+        success: false,
+        error: commentWriteMessage(outcome.grantError, 'tag people on this comment'),
+      },
+      { status: outcome.grantError.code === '42501' ? 403 : 400 },
+    );
   }
 
+  if (outcome.notNotified.length > 0) {
+    logger.error(MOD, 'Tagged, but the alert did not go out — Resend will retry', {
+      reservationId,
+      commentId,
+      count: outcome.notNotified.length,
+      error: outcome.alertError,
+    });
+  }
+
+  const toNames = (ids: string[]) => ids.map((uid) => names.get(uid) ?? 'Unknown');
   return NextResponse.json({
     success: true,
-    tagged: newlyTagged.map((uid) => names.get(uid) ?? 'Unknown'),
-    skipped: ineligible.map((uid) => names.get(uid) ?? 'Unknown'),
-    notified,
-    notify_error: notifyError,
+    tagged: toNames(outcome.tagged),
+    skipped: toNames(ineligible),
+    notified: toNames(outcome.notified),
+    reminded: toNames(outcome.reminded),
+    recently_notified: toNames(outcome.recentlyNotified),
+    not_notified: toNames(outcome.notNotified),
   });
 }
