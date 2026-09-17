@@ -681,7 +681,7 @@ export class AttendanceReportService {
    */
   static async getReportDetails(
     reportId: string,
-    userRole: 'super_admin' | 'admin' | 'faculty',
+    userRole: 'super_admin' | 'admin' | 'faculty' | 'hod',
     userId?: string
   ) {
     try {
@@ -700,64 +700,84 @@ export class AttendanceReportService {
         return { data: null, error: 'Report not found' };
       }
 
-      // Check role-based access for faculty (only for strict faculty role)
-      if (userRole === 'faculty' && userId) {
-        // First check if user has super admin access or admin role
+      // Role-based access. Faculty and HOD callers are restricted to the periods
+      // they are assigned to (or marked) - EXCEPT an HOD viewing a report from
+      // their own department + institution, who sees the whole report.
+      // Updated: 2026-09-17 (BUG-006125) - the details page used to send every HOD
+      // as 'faculty', so HODs were denied their own department's reports.
+      let restrictToAssigned = false;
+      if ((userRole === 'faculty' || userRole === 'hod') && userId) {
         const { data: profileData } = await this.supabase
           .from('profiles')
-          .select('role, is_super_admin')
+          .select('role, is_super_admin, department_id, institution_id')
           .eq('id', userId)
-          .single() as { data: { role: string; is_super_admin: boolean } | null };
+          .single() as {
+            data: {
+              role: string;
+              is_super_admin: boolean;
+              department_id: string | null;
+              institution_id: string | null;
+            } | null;
+          };
 
-        // Allow access if user is super admin or admin
-        if (profileData?.is_super_admin || profileData?.role === 'admin') {
-          // Super admin or admin - full access
+        const isHodOfReportDepartment =
+          profileData?.role === 'hod' &&
+          !!profileData.department_id &&
+          profileData.department_id === (data as any).department_id &&
+          profileData.institution_id === (data as any).institution_id;
+
+        restrictToAssigned = !(
+          profileData?.is_super_admin ||
+          profileData?.role === 'admin' ||
+          isHodOfReportDepartment
+        );
+      }
+
+      if (restrictToAssigned) {
+        // For regular faculty, check staff assignment.
+        // Updated: 2026-06-19 (FIX 5) - Match against ALL of the user's staff ids, not a
+        // single one. A person can have more than one staff record; the id stored in
+        // attendance_data.assigned_faculty.faculty_id may be a different staff row than the
+        // first, which produced false "Faculty not assigned" denials. Using a plain select
+        // (not .single()) also avoids throwing when duplicate staff rows exist.
+        const { data: staffRows } = await this.supabase
+          .from('staff')
+          .select('id')
+          .eq('profile_id', userId) as { data: { id: string }[] | null };
+
+        const staffIds = new Set((staffRows || []).map((s) => s.id));
+
+        if (staffIds.size === 0) {
+          logger.warn('academic/attendance-reports', 'Faculty profile not found in staff table', { userId });
+          // Don't block access - allow faculty to view reports even without staff record
+          // This handles cases where faculty users don't have corresponding staff records
         } else {
-          // For regular faculty, check staff assignment.
-          // Updated: 2026-06-19 (FIX 5) - Match against ALL of the user's staff ids, not a
-          // single one. A person can have more than one staff record; the id stored in
-          // attendance_data.assigned_faculty.faculty_id may be a different staff row than the
-          // first, which produced false "Faculty not assigned" denials. Using a plain select
-          // (not .single()) also avoids throwing when duplicate staff rows exist.
-          const { data: staffRows } = await this.supabase
-            .from('staff')
-            .select('id')
-            .eq('profile_id', userId) as { data: { id: string }[] | null };
+          // Check if faculty is assigned to any period
+          const attendanceData = (data as any).attendance_data as any;
+          // attendance_data is an object with timetable_slot_id as keys and period data as values
+          const periods = Object.values(attendanceData || {});
 
-          const staffIds = new Set((staffRows || []).map((s) => s.id));
+          const isAssigned = periods.some((period: any) => {
+            const facultyMatch = Array.isArray(period.assigned_faculty)
+              ? period.assigned_faculty.some((f: any) => staffIds.has(f.faculty_id))
+              : staffIds.has(period.assigned_faculty?.faculty_id);
+            // Also allow if this user was the one who marked the attendance
+            const isMarker = period.marked_by_details?.marker_id === userId;
+            return facultyMatch || isMarker;
+          });
 
-          if (staffIds.size === 0) {
-            logger.warn('academic/attendance-reports', 'Faculty profile not found in staff table', { userId });
-            // Don't block access - allow faculty to view reports even without staff record
-            // This handles cases where faculty users don't have corresponding staff records
-          } else {
-            // Check if faculty is assigned to any period
-            const attendanceData = (data as any).attendance_data as any;
-            // attendance_data is an object with timetable_slot_id as keys and period data as values
-            const periods = Object.values(attendanceData || {});
-
-            const isAssigned = periods.some((period: any) => {
-              const facultyMatch = Array.isArray(period.assigned_faculty)
-                ? period.assigned_faculty.some((f: any) => staffIds.has(f.faculty_id))
-                : staffIds.has(period.assigned_faculty?.faculty_id);
-              // Also allow if this user was the one who marked the attendance
-              const isMarker = period.marked_by_details?.marker_id === userId;
-              return facultyMatch || isMarker;
+          if (!isAssigned) {
+            // Expected business outcome (not a system error) - log at warn.
+            logger.warn('academic/attendance-reports', 'Faculty not assigned to this report', {
+              userId,
+              staffIds: Array.from(staffIds),
+              reportId: (data as any).id
             });
-
-            if (!isAssigned) {
-              // Expected business outcome (not a system error) - log at warn.
-              logger.warn('academic/attendance-reports', 'Faculty not assigned to this report', {
-                userId,
-                staffIds: Array.from(staffIds),
-                reportId: (data as any).id
-              });
-              // Deny access - faculty can only view reports they are assigned to
-              return {
-                data: null,
-                error: 'Access denied: You are not assigned to this report'
-              };
-            }
+            // Deny access - faculty can only view reports they are assigned to
+            return {
+              data: null,
+              error: 'Access denied: You are not assigned to this report'
+            };
           }
         }
       }
@@ -773,48 +793,34 @@ export class AttendanceReportService {
         })
       );
 
-      // Filter periods for faculty users - only show periods they are assigned to
-      if (userRole === 'faculty' && userId) {
-        // Get staff ID if not super admin or admin
-        const { data: profileData } = await this.supabase
-          .from('profiles')
-          .select('role, is_super_admin')
-          .eq('id', userId)
-          .single() as { data: { role: string; is_super_admin: boolean } | null };
+      // Filter periods for restricted users - only show periods they are assigned to
+      if (restrictToAssigned) {
+        const { data: staffRows } = await this.supabase
+          .from('staff')
+          .select('id')
+          .eq('profile_id', userId) as { data: { id: string }[] | null };
 
-        if (!profileData?.is_super_admin && profileData?.role !== 'admin') {
-          // Match against ALL of the user's staff ids, not a single one - mirrors
-          // the access check above (FIX 5). A `.single()` lookup here could return
-          // a different staff row than the one recorded in the period's
-          // assigned_faculty, dropping the viewer's own just-marked period and
-          // zeroing out total_students/average_attendance.
-          const { data: staffRows } = await this.supabase
-            .from('staff')
-            .select('id')
-            .eq('profile_id', userId) as { data: { id: string }[] | null };
+        const facultyStaffIds = new Set((staffRows || []).map((s) => s.id));
 
-          const facultyStaffIds = new Set((staffRows || []).map((s) => s.id));
+        if (facultyStaffIds.size > 0) {
+          // Filter periods to only include those assigned to this faculty.
+          // Updated: 2026-06-17 - Also keep periods this faculty MARKED, mirroring
+          // the access check above (assigned OR marker). Without this, a period
+          // saved with an empty assigned_faculty (e.g. older cycle-timetable
+          // records marked before assigned-faculty resolution was fixed) is
+          // hidden from the very faculty who recorded it → "0 periods" report.
+          periods = periods.filter((period: any) => {
+            const isAssigned = Array.isArray(period.assigned_faculty)
+              ? period.assigned_faculty.some(
+                  (f: any) => facultyStaffIds.has(f.faculty_id)
+                )
+              : facultyStaffIds.has(period.assigned_faculty?.faculty_id);
+            const isMarker = period.marked_by_details?.marker_id === userId;
+            return isAssigned || isMarker;
+          });
 
-          if (facultyStaffIds.size > 0) {
-            // Filter periods to only include those assigned to this faculty.
-            // Updated: 2026-06-17 - Also keep periods this faculty MARKED, mirroring
-            // the access check above (assigned OR marker). Without this, a period
-            // saved with an empty assigned_faculty (e.g. older cycle-timetable
-            // records marked before assigned-faculty resolution was fixed) is
-            // hidden from the very faculty who recorded it → "0 periods" report.
-            periods = periods.filter((period: any) => {
-              const isAssigned = Array.isArray(period.assigned_faculty)
-                ? period.assigned_faculty.some(
-                    (f: any) => facultyStaffIds.has(f.faculty_id)
-                  )
-                : facultyStaffIds.has(period.assigned_faculty?.faculty_id);
-              const isMarker = period.marked_by_details?.marker_id === userId;
-              return isAssigned || isMarker;
-            });
-
-            if (periods.length === 0) {
-              logger.warn('academic/attendance-reports', 'No periods found for these Senior Learners in the report', { facultyStaffIds: Array.from(facultyStaffIds) });
-            }
+          if (periods.length === 0) {
+            logger.warn('academic/attendance-reports', 'No periods found for these Senior Learners in the report', { facultyStaffIds: Array.from(facultyStaffIds) });
           }
         }
       }

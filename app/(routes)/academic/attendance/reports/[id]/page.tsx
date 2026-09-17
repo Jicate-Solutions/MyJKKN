@@ -109,6 +109,9 @@ export default function AttendanceReportDetailPage() {
   const userRole = useMemo(() => {
     if (isSuperAdmin || profile?.is_super_admin) return 'super_admin';
     if (profile?.role === 'admin') return 'admin';
+    // BUG-006125: HODs must not be sent as 'faculty' - that denied them every
+    // report in their department they had not personally taught or marked.
+    if (profile?.role === 'hod') return 'hod';
     return 'faculty';
   }, [isSuperAdmin, profile?.role, profile?.is_super_admin]);
 
