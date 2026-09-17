@@ -229,8 +229,8 @@ export function CreateMissingProfilesButton() {
               : checkData
               ? checkData.summary.total_needing_sync > 0
                 ? `Found ${checkData.summary.total_needing_sync} learners needing profile sync (${checkData.summary.with_incomplete_profiles} incomplete, ${checkData.summary.without_profiles} missing) out of ${checkData.summary.total_learners} total.`
-                : `All ${checkData.summary.total_learners} active learners have complete profiles.`
-              : 'Check for active learners with incomplete or missing user profiles, and sync them in bulk.'}
+                : `All ${checkData.summary.total_learners} active/reserved/admitted learners have complete profiles.`
+              : 'Check for active, reserved, or admitted learners with incomplete or missing user profiles, and sync them in bulk.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -246,8 +246,8 @@ export function CreateMissingProfilesButton() {
                 <CheckCircle className='h-4 w-4' />
                 <AlertTitle>All Set!</AlertTitle>
                 <AlertDescription>
-                  All {checkData.summary.total_learners} active learners with
-                  complete profiles have correct user profiles. No action needed.
+                  All {checkData.summary.total_learners} active/reserved/admitted learners
+                  with complete profiles have correct user profiles. No action needed.
                 </AlertDescription>
               </Alert>
             ) : (
@@ -258,7 +258,7 @@ export function CreateMissingProfilesButton() {
                   <AlertDescription>
                     <div className='space-y-2 mt-2'>
                       <div>
-                        Total Active Learners:{' '}
+                        Total Learners (active/reserved/admitted):{' '}
                         <strong>{checkData.summary.total_learners}</strong>
                       </div>
                       <div className='text-green-600'>

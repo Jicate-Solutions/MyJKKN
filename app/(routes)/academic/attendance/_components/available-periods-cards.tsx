@@ -24,6 +24,10 @@ import type { LeaveBlockInfo } from '@/types/leaves';
 import { cn } from '@/lib/utils';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
+import {
+  getPeriodTimeStatus,
+  formatPeriodTime
+} from '@/lib/utils/academic/period-time-window';
 
 interface AvailablePeriodsCardsProps {
   periods: AttendancePeriodOption[];
@@ -53,6 +57,16 @@ export function AvailablePeriodsCards({
   // Updated: 2025-01-16 - Leave checking state
   const [leaveInfo, setLeaveInfo] = useState<Map<string, LeaveBlockInfo | null>>(new Map());
   const [checkingLeaves, setCheckingLeaves] = useState(false);
+
+  // Updated: 2026-09-17 (BUG-006133) - A ticking clock, so a period that is
+  // still 'upcoming' when the page renders unlocks itself the moment the class
+  // begins. Without it, faculty who open the screen a few minutes early would
+  // see a disabled button and have to reload to get past it.
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const targetDate = selectedDate || format(new Date(), 'yyyy-MM-dd');
   const displayDate = format(
@@ -191,39 +205,17 @@ export function AvailablePeriodsCards({
     checkLeavesForDate();
   }, [periods, targetDate]);
 
-  const getTimeStatus = (startTime: string) => {
-    // TEMPORARY: Remove time-based restrictions - faculty can mark attendance anytime
-    // TODO: Implement proper time restriction logic in future
-    // For now, always allow attendance marking regardless of time
-    return 'current';
-
-    /* COMMENTED OUT - Original time-based logic for future implementation
-    if (!startTime) return 'upcoming';
-
-    const now = new Date();
-    const [time, period] = startTime.split(' ');
-    const [hours, minutes] = time.split(':').map(Number);
-
-    // Create period time using the selected date, not today's date
-    const periodTime = new Date(targetDate + 'T00:00:00');
-    periodTime.setHours(
-      period === 'PM' && hours !== 12 ? hours + 12 : hours,
-      minutes,
-      0,
-      0
-    );
-
-    // Add buffer time (e.g., allow marking attendance up to 2 hours after period ends)
-    const bufferMinutes = 240; // 4 hours buffer
-    const periodEndTime = new Date(
-      periodTime.getTime() + bufferMinutes * 60000
-    );
-
-    if (now < periodTime) return 'upcoming';
-    if (now > periodEndTime) return 'past';
-    return 'current';
-    */
-  };
+  // Updated: 2026-09-17 (BUG-006133) - The time guard is back, and it now lives
+  // in lib/utils/academic/period-time-window so the cards and the write path
+  // share one rule. It had been short-circuited to `return 'current'` with a
+  // "TEMPORARY ... TODO implement in future" note, which let a faculty member
+  // mark a 15:45 period at 13:09 and then left him no way to undo it.
+  //
+  // The old implementation also treated anything past a 4-hour buffer as
+  // 'past'; that is deliberately not restored, because late marking is
+  // legitimate and blocking it would be a new bug. Only the future is closed.
+  const getTimeStatus = (period: AttendancePeriodOption) =>
+    getPeriodTimeStatus(targetDate, period.start_time, period.end_time, now);
 
   const handlePeriodClick = (period: AttendancePeriodOption) => {
     const isMarked = markedPeriods.has(period.timetable_slot_id);
@@ -314,9 +306,12 @@ export function AvailablePeriodsCards({
       <CardContent>
         <div className='grid gap-4'>
           {filteredPeriods.map((period) => {
-            const timeStatus = getTimeStatus(period.start_time);
+            const timeStatus = getTimeStatus(period);
             const isMarked = markedPeriods.has(period.timetable_slot_id);
             const isMultiSection = period.sections && period.sections.length > 1;
+            // An already-marked upcoming period keeps its "View Details" route
+            // open — the block is on creating attendance, not on reading it.
+            const isUpcoming = timeStatus === 'upcoming' && !isMarked;
 
             return (
               <Card
@@ -358,6 +353,21 @@ export function AvailablePeriodsCards({
                         )}
                       </div>
                     </div>
+
+                    {/* Updated: 2026-09-17 (BUG-006133) - Upcoming period notice */}
+                    {isUpcoming && (
+                      <Alert className='mt-3'>
+                        <Clock className='h-4 w-4' />
+                        <AlertDescription>
+                          <strong>Not started yet:</strong> this period begins at{' '}
+                          {formatPeriodTime(period.start_time) || period.start_time}.
+                          <br />
+                          <span className='text-xs'>
+                            Attendance can be marked once the period begins.
+                          </span>
+                        </AlertDescription>
+                      </Alert>
+                    )}
 
                     {/* Updated: 2025-01-16 - Leave Block Indicator */}
                     {leaveInfo.get(period.timetable_slot_id) && (
@@ -494,7 +504,11 @@ export function AvailablePeriodsCards({
                     <div className='pt-3 border-t border-border/50'>
                       <Button
                         onClick={() => handlePeriodClick(period)}
-                        disabled={leaveInfo.get(period.timetable_slot_id) !== null || checkingLeaves}
+                        disabled={
+                          leaveInfo.get(period.timetable_slot_id) !== null ||
+                          checkingLeaves ||
+                          isUpcoming
+                        }
                         size='sm'
                         className={cn(
                           'w-full h-10 font-medium transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]',
@@ -508,6 +522,14 @@ export function AvailablePeriodsCards({
                           <>
                             <CheckCircle className='h-4 w-4 mr-2 flex-shrink-0' />
                             <span className='text-sm'>View Details</span>
+                          </>
+                        ) : isUpcoming ? (
+                          <>
+                            <Clock className='h-4 w-4 mr-2 flex-shrink-0' />
+                            <span className='text-sm'>
+                              Starts at{' '}
+                              {formatPeriodTime(period.start_time) || period.start_time}
+                            </span>
                           </>
                         ) : (
                           <>

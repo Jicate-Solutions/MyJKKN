@@ -27,6 +27,7 @@ import {
   FileText,
   ExternalLink,
   UserSearch,
+  Mic,
 } from 'lucide-react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -39,6 +40,7 @@ import { createClient } from '@/lib/supabase/server';
 import { MeetingAgendaService } from '@/lib/services/meetings/meeting-agenda-service';
 import { MeetingActionItemService } from '@/lib/services/meetings/meeting-action-item-service';
 import { MeetingPersonHistoryService } from '@/lib/services/meetings/meeting-person-history-service';
+import { contextLabelFor } from '@/lib/services/meetings/booking-context';
 import {
   effectiveLocationMode,
   switchBackState,
@@ -320,6 +322,29 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
   const isOnline =
     effectiveLocationMode(meetingType?.location_mode, booking.location_mode_override) ===
     'online';
+
+  // Record this meeting (16 Sep 2026, Director: the recorder must be reachable
+  // from the meeting it is for, not only from its own page). Shown for a
+  // meeting that happens in a room — online ones record themselves through
+  // Meet, and a phone call is not a room. Gated by the same allow-list the
+  // record page uses: fn_may_record_meetings() runs as the caller and RLS keeps
+  // the answer to their own row, so asking here reveals nothing about anyone
+  // else. A recording already made is shown whether or not the viewer may make
+  // another.
+  const happensInARoom =
+    effectiveLocationMode(meetingType?.location_mode, booking.location_mode_override) ===
+    'in_person';
+  const { data: mayRecord } = happensInARoom
+    ? await supabase.rpc('fn_may_record_meetings')
+    : { data: false };
+  const canRecordHere = happensInARoom && !isCancelled && !isPast && mayRecord === true;
+
+  const { data: recordingRows } = await supabase
+    .from('meeting_recordings')
+    .select('id, title, status, chunk_count, duration_seconds, started_at, error')
+    .eq('booking_id', booking.id)
+    .order('started_at', { ascending: false });
+  const recordings = (recordingRows ?? []) as Array<Record<string, unknown>>;
   const canSwitchToOnline =
     !isCancelled &&
     !isPast &&
@@ -517,12 +542,18 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
                 </a>
               </div>
             ) : null}
+            {/* What the visitor said when booking. Rendered as readable
+                question-and-answer rather than the raw key: since 16 Sep a long
+                booking must answer three real questions, and three paragraphs
+                squeezed into a grey strip is the same as not showing them. */}
             {Object.keys(answers).length > 0 ? (
-              <div className="rounded-md bg-muted/50 p-2 text-xs space-y-1">
+              <div className="space-y-2 rounded-md bg-muted/50 p-3 text-sm">
                 {Object.entries(answers).map(([q, a]) => (
-                  <div key={q}>
-                    <span className="text-muted-foreground">{q}:</span>{' '}
-                    <span className="font-medium">{a}</span>
+                  <div key={q} className="space-y-0.5">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      {contextLabelFor(q)}
+                    </p>
+                    <p className="whitespace-pre-wrap leading-relaxed">{a}</p>
                   </div>
                 ))}
               </div>
@@ -681,6 +712,39 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
           </Card>
         ) : null}
 
+        {recordings.length > 0 ? (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Mic className="h-4 w-4" aria-hidden />
+                Recording
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              {recordings.map((r) => {
+                const secs = (r.duration_seconds as number | null) ?? null;
+                const mins = secs === null ? null : Math.max(1, Math.round(secs / 60));
+                const pieces = (r.chunk_count as number | null) ?? 0;
+                const problem = (r.error as string | null) ?? null;
+                return (
+                  <div key={r.id as string} className="space-y-1">
+                    <p className="font-medium">{(r.title as string) ?? 'Recording'}</p>
+                    <p className="text-muted-foreground">
+                      {mins === null ? 'Length not recorded' : `${mins} min`}
+                      {pieces > 0 ? ` · ${pieces} pieces of audio` : ''}
+                      {r.status === 'recording' ? ' · still recording' : ''}
+                    </p>
+                    {problem ? <p className="text-amber-600 dark:text-amber-500">{problem}</p> : null}
+                  </div>
+                );
+              })}
+              <p className="text-xs text-muted-foreground">
+                The audio is kept privately for 90 days. Written notes are kept.
+              </p>
+            </CardContent>
+          </Card>
+        ) : null}
+
         {/* The Actions card is no longer hidden once a meeting has ended: a host
             must be able to move a meeting that was missed (Director ruling
             2026-08-21). Each control decides for itself —
@@ -697,6 +761,14 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
           </CardHeader>
           <CardContent className="space-y-3">
             <RescheduleBookingButton uid={booking.uid} hasEnded={isPast || isCancelled} />
+            {canRecordHere ? (
+              <Link href={`/meetings/record?booking=${booking.uid}`} className="block">
+                <Button variant="outline" className="w-full justify-start">
+                  <Mic className="mr-2 h-4 w-4" aria-hidden />
+                  Record this meeting
+                </Button>
+              </Link>
+            ) : null}
             {canSwitchToOnline ? <SwitchToOnlineButton uid={booking.uid} /> : null}
             {canSwitchBack ? (
               <SwitchBackButton uid={booking.uid} backTo={switchBackTo} />

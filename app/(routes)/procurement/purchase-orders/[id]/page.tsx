@@ -227,6 +227,11 @@ export default function PurchaseOrderDetailPage() {
   };
   const statusHint = STATUS_HINT[po.status];
 
+  // One workflow action at a time — a second click while the first is in
+  // flight would try the same transition from a state the PO has already left.
+  const transitionBusy =
+    submitPO.isPending || approvePO.isPending || markSent.isPending || cancelPO.isPending || rejectPO.isPending;
+
   const run = async (fn: () => Promise<unknown>, ok: string) => {
     try {
       await fn();
@@ -277,6 +282,7 @@ export default function PurchaseOrderDetailPage() {
             <Button
               className="w-full sm:w-auto"
               onClick={() => run(() => submitPO.mutateAsync({ id, userId: profile!.id }), 'Submitted for approval')}
+              disabled={transitionBusy}
             >
               <Send className="mr-2 h-4 w-4" />
               Submit for approval
@@ -287,6 +293,7 @@ export default function PurchaseOrderDetailPage() {
               <Button
                 className="w-full sm:w-auto"
                 onClick={() => run(() => approvePO.mutateAsync({ id, userId: profile!.id }), 'PO approved')}
+                disabled={transitionBusy}
               >
                 <Check className="mr-2 h-4 w-4" />
                 Approve
@@ -305,6 +312,7 @@ export default function PurchaseOrderDetailPage() {
             <Button
               className="w-full sm:w-auto"
               onClick={() => run(() => markSent.mutateAsync({ id, userId: profile!.id }), 'PO marked as sent')}
+              disabled={transitionBusy}
             >
               <Send className="mr-2 h-4 w-4" />
               Send to vendor
@@ -321,6 +329,7 @@ export default function PurchaseOrderDetailPage() {
               variant="ghost"
               className="w-full sm:w-auto"
               onClick={() => run(() => cancelPO.mutateAsync({ id, userId: profile!.id }), 'PO cancelled')}
+              disabled={transitionBusy}
             >
               Cancel PO
             </Button>

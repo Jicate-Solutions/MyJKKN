@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { PublicHostService } from '@/lib/services/meetings/public-host-service';
+import { checkBookingContext } from '@/lib/services/meetings/booking-context';
 import { NativeSchedulingService } from '@/lib/services/meetings/native-scheduling-service';
 import { BookingIdentityService } from '@/lib/services/meetings/booking-identity-service';
 import {
@@ -132,6 +133,24 @@ export async function POST(
       isRazorpayBookingConfigured();
     const depositPaise = depositActive ? fullType.deposit_amount_paise! : 0;
 
+    // What the visitor has to say, scaled to how much of the host's day they
+    // are taking (Director, 16 Sep). Checked HERE, before any order is created:
+    // refusing a booking after taking a deposit would be the same defect with a
+    // payment attached. Older clients send only `note`; the current widgets
+    // send `answers`. Both are accepted, and checkBookingContext decides what
+    // is stored — a body the caller controls must not write arbitrary keys into
+    // a column the host's screen renders back.
+    const submitted: Record<string, unknown> = {
+      ...(body.answers && typeof body.answers === 'object' && !Array.isArray(body.answers)
+        ? (body.answers as Record<string, unknown>)
+        : {}),
+    };
+    if (note) submitted.note = note;
+    const context = checkBookingContext(fullType.duration_min, submitted);
+    if (!context.ok) {
+      return NextResponse.json({ error: context.error, field: context.key }, { status: 400 });
+    }
+
     // ── Step 1 (deposit types only): create the Razorpay order ─────────────────
     if (mode === 'order') {
       if (!depositActive) {
@@ -182,11 +201,13 @@ export async function POST(
       attendeeEmail,
       attendeePhone: phone || null,
       attendeeProfileId,
-      answers: note ? { note } : {},
+      answers: context.answers,
       source: 'meet-page',
       payment: verifiedPayment,
     });
-    if (!booking.success) {
+    // `=== false`, not `!booking.success`: strictNullChecks is off repo-wide, and
+    // without it a negation does not narrow the result to its failure shape.
+    if (booking.success === false) {
       if (booking.error === 'SLOT_TAKEN' || booking.error === 'INVALID_SLOT') {
         return NextResponse.json({ error: 'slot_taken' }, { status: 409 });
       }
