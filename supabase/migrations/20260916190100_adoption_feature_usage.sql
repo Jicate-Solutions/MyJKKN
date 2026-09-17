@@ -38,13 +38,16 @@ REVOKE ALL ON TABLE public.feature_usage FROM anon, PUBLIC;
 GRANT SELECT ON TABLE public.feature_usage TO authenticated;
 GRANT ALL    ON TABLE public.feature_usage TO service_role;
 
--- Ruling 7: per-person rows are visible to the person and to super admins /
--- admins. Principals get their institution's names through fn_adoption_people,
--- which checks the institution — never through a table read.
+-- Ruling 7: per-person rows are visible to the person and to SUPER admins only.
+-- An ordinary admin of one college must not read another college's people
+-- through the table (critic finding, 2026-09-17), so is_admin() is NOT here.
+-- Principals get their institution's names through fn_adoption_people, which
+-- checks the institution — never through a table read.
 DROP POLICY IF EXISTS "feature_usage_select_own_or_admin" ON public.feature_usage;
-CREATE POLICY "feature_usage_select_own_or_admin" ON public.feature_usage
+DROP POLICY IF EXISTS "feature_usage_select_own_or_super_admin" ON public.feature_usage;
+CREATE POLICY "feature_usage_select_own_or_super_admin" ON public.feature_usage
   FOR SELECT TO authenticated
-  USING (user_id = auth.uid() OR is_super_admin() OR is_admin());
+  USING (user_id = auth.uid() OR is_super_admin());
 
 -- No INSERT/UPDATE/DELETE policy: writes go through the function below.
 

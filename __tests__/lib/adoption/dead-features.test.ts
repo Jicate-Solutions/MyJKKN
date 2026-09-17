@@ -58,6 +58,8 @@ function row(overrides: Partial<AdoptionMetricRow> = {}): AdoptionMetricRow {
     answers: {},
     week_start: '2026-09-14',
     usage_wired: true,
+    usage_bridged: false,
+    usage_synced_at: null,
     ...overrides,
   };
 }
@@ -217,6 +219,8 @@ describe('isDeadFeature', () => {
           asked_count: 0,
           answers: {},
           usage_wired: true,
+          usage_bridged: false,
+          usage_synced_at: null,
           rows: [],
         },
         NOW
@@ -234,6 +238,19 @@ describe('isDeadFeature', () => {
     const [group] = groupByFeature([row({ usage_wired: false, intended_count: 40, pct_weekly: 0 })]);
     expect(isMeasured(group)).toBe(false);
     expect(isDeadFeature(group, NOW)).toBe(false);
+  });
+
+  it('does NOT count a bridged feature as dead while its log pull is stale (>7 days) or missing', () => {
+    const never = groupByFeature([row({ usage_bridged: true, usage_synced_at: null, pct_weekly: 0 })])[0];
+    expect(isDeadFeature(never, NOW)).toBe(false);
+    const old = groupByFeature([
+      row({ usage_bridged: true, usage_synced_at: shippedDaysAgo(9), pct_weekly: 0 }),
+    ])[0];
+    expect(isDeadFeature(old, NOW)).toBe(false);
+    const fresh = groupByFeature([
+      row({ usage_bridged: true, usage_synced_at: shippedDaysAgo(1), pct_weekly: 0 }),
+    ])[0];
+    expect(isDeadFeature(fresh, NOW)).toBe(true);
   });
 
   it('does NOT count an already-retired feature as dead — the Director decided', () => {

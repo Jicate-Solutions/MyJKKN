@@ -41,6 +41,10 @@ CREATE TABLE IF NOT EXISTS public.feature_registry (
   usage_event_module  text,
   usage_event_feature text,
   usage_event_type    text,
+  -- When the bridge last pulled this feature's events. A bridged feature not
+  -- pulled in 7 days is STALE: not judged dead, nobody asked (a forgotten
+  -- pull must never look like abandonment).
+  usage_synced_at     timestamptz,
   status         text NOT NULL DEFAULT 'live'
                  CHECK (status IN ('live', 'simplify', 'retrain', 'retired')),
   created_by     uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
@@ -97,10 +101,13 @@ REVOKE ALL ON TABLE public.adoption_asks FROM anon, PUBLIC;
 GRANT SELECT ON TABLE public.adoption_asks TO authenticated;
 GRANT ALL    ON TABLE public.adoption_asks TO service_role;
 
+-- Own row or super admin only — an ordinary admin of another college may not see
+-- who was asked (critic finding, 2026-09-17).
 DROP POLICY IF EXISTS "adoption_asks_select_own_or_admin" ON public.adoption_asks;
-CREATE POLICY "adoption_asks_select_own_or_admin" ON public.adoption_asks
+DROP POLICY IF EXISTS "adoption_asks_select_own_or_super_admin" ON public.adoption_asks;
+CREATE POLICY "adoption_asks_select_own_or_super_admin" ON public.adoption_asks
   FOR SELECT TO authenticated
-  USING (user_id = auth.uid() OR is_super_admin() OR is_admin());
+  USING (user_id = auth.uid() OR is_super_admin());
 
 -- ---------------------------------------------------------------------
 -- 3) adoption_proposals — ruling 8 cards
@@ -137,9 +144,12 @@ REVOKE ALL ON TABLE public.adoption_proposals FROM anon, PUBLIC;
 GRANT SELECT ON TABLE public.adoption_proposals TO authenticated;
 GRANT ALL    ON TABLE public.adoption_proposals TO service_role;
 
+-- Cards are the Director's: super admins only (the Waiting-on-Director panel
+-- reads them with the service role).
 DROP POLICY IF EXISTS "adoption_proposals_select_admin" ON public.adoption_proposals;
-CREATE POLICY "adoption_proposals_select_admin" ON public.adoption_proposals
-  FOR SELECT TO authenticated USING (is_super_admin() OR is_admin());
+DROP POLICY IF EXISTS "adoption_proposals_select_super_admin" ON public.adoption_proposals;
+CREATE POLICY "adoption_proposals_select_super_admin" ON public.adoption_proposals
+  FOR SELECT TO authenticated USING (is_super_admin());
 
 -- ---------------------------------------------------------------------
 -- 4) The loop itself, in the control tower

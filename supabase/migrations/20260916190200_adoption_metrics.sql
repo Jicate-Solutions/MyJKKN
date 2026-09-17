@@ -131,7 +131,9 @@ RETURNS TABLE (
   asked_count    bigint,
   answers        jsonb,
   week_start     date,
-  usage_wired    boolean
+  usage_wired    boolean,
+  usage_bridged  boolean,
+  usage_synced_at timestamptz
 )
 LANGUAGE plpgsql
 STABLE
@@ -161,6 +163,7 @@ BEGIN
   WITH f AS (
     SELECT fr.feature_key, fr.title, fr.module, fr.core_action, fr.shipped_at,
            fr.status, fr.source_pr, fr.usage_wired,
+           (fr.usage_event_module IS NOT NULL) AS usage_bridged, fr.usage_synced_at,
            CASE WHEN cardinality(fr.intended_roles) = 0 THEN 'all' ELSE r.role END AS role
     FROM public.feature_registry fr
     LEFT JOIN LATERAL unnest(fr.intended_roles) AS r(role) ON true
@@ -209,7 +212,9 @@ BEGIN
          COALESCE(k.asked_count, 0)::bigint,
          public.fn_adoption_answers(f.feature_key, v_scope),
          v_week,
-         f.usage_wired
+         f.usage_wired,
+         f.usage_bridged,
+         f.usage_synced_at
   FROM f
   LEFT JOIN agg a   ON a.feature_key = f.feature_key AND a.role = f.role
   LEFT JOIN asked k ON k.feature_key = f.feature_key
@@ -373,6 +378,11 @@ BEGIN
   IF NOT v_feat.usage_wired THEN
     -- Nobody records this key yet, so "zero use" is not evidence of anything.
     RETURN jsonb_build_object('success', false, 'error', 'no usage recording for this feature yet — it cannot be judged dead');
+  END IF;
+  IF v_feat.usage_event_module IS NOT NULL
+     AND (v_feat.usage_synced_at IS NULL OR v_feat.usage_synced_at < now() - interval '7 days') THEN
+    -- Bridged from the usage log but not pulled in a week: the zeros may be ours.
+    RETURN jsonb_build_object('success', false, 'error', 'usage for this feature was last pulled from the log more than 7 days ago — pull first');
   END IF;
   IF v_feat.status = 'retired' THEN
     RETURN jsonb_build_object('success', false, 'error', 'feature is retired');
@@ -564,8 +574,9 @@ BEGIN
     GET DIAGNOSTICS v_n = ROW_COUNT;
     v_rows := v_rows + v_n;
     v_feats := v_feats + 1;
-    UPDATE public.feature_registry SET usage_wired = true, updated_at = now()
-    WHERE feature_key = v_feat.feature_key AND usage_wired = false;
+    UPDATE public.feature_registry
+    SET usage_wired = true, usage_synced_at = now(), updated_at = now()
+    WHERE feature_key = v_feat.feature_key;
   END LOOP;
 
   RETURN jsonb_build_object('success', true, 'features', v_feats, 'rows', v_rows, 'since', v_from);

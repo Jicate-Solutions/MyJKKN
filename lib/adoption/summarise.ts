@@ -35,6 +35,17 @@ export const DEAD_WEEKLY_PCT = 5;
  *  visible before the tap, not after. */
 export const ASK_WHY_MIN_AGE_DAYS = 14;
 
+/** A bridged feature whose last log pull is older than this is stale: its zeros
+ *  may be ours, so it is never called dead. Mirrors fn_adoption_ask_why. */
+export const STALE_AFTER_DAYS = 7;
+
+export function isStale(group: FeatureGroup, now: Date = new Date()): boolean {
+  if (!group.usage_bridged) return false;
+  if (!group.usage_synced_at) return true;
+  const ageMs = now.getTime() - new Date(group.usage_synced_at).getTime();
+  return ageMs > STALE_AFTER_DAYS * 86_400_000;
+}
+
 /** Postgres `numeric` and `bigint` may arrive as a JSON number or, depending on
  *  the driver, as a string. Every count is read through toNumber. */
 export type Numeric = number | string | null | undefined;
@@ -61,6 +72,10 @@ export interface AdoptionMetricRow {
   week_start: string | null;
   /** false = nothing records this key yet: labelled, NOT measured, never dead. */
   usage_wired?: boolean | null;
+  /** true = measured from the usage log (needs a pull); when the last pull is
+   *  older than STALE_AFTER_DAYS the feature is stale, never judged dead. */
+  usage_bridged?: boolean | null;
+  usage_synced_at?: string | null;
 }
 
 /** One feature with every role row that belongs to it. */
@@ -76,6 +91,8 @@ export interface FeatureGroup {
   answers: Record<string, number>;
   /** Something records this key (a route calls fn_feature_used, or the usage-log bridge). */
   usage_wired: boolean;
+  usage_bridged: boolean;
+  usage_synced_at: string | null;
   rows: AdoptionMetricRow[];
 }
 
@@ -135,6 +152,8 @@ export function groupByFeature(rows: AdoptionMetricRow[]): FeatureGroup[] {
         shipped_at: row.shipped_at,
         status: row.status,
         usage_wired: row.usage_wired === true,
+        usage_bridged: row.usage_bridged === true,
+        usage_synced_at: row.usage_synced_at ?? null,
         source_pr: row.source_pr,
         // asked_count and answers are per FEATURE, not per role — the RPC
         // repeats the same value on every role row, so the first one is it.
@@ -177,6 +196,7 @@ export function isDeadFeature(group: FeatureGroup, now: Date = new Date()): bool
   if (!isOldEnoughToJudge(group, now)) return false;
   if (group.status === 'retired') return false;
   if (!group.usage_wired) return false; // zero use of an unrecorded key is not evidence
+  if (isStale(group, now)) return false; // a forgotten pull is not abandonment
   const measured = group.rows.filter((row) => toNumber(row.intended_count) > 0);
   if (measured.length === 0) return false;
   return measured.every((row) => toNumber(row.pct_weekly) < DEAD_WEEKLY_PCT);

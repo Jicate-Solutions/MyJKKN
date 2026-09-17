@@ -44,6 +44,7 @@ import {
   canAskWhy,
   daysSinceShipped,
   isDeadFeature,
+  isStale,
   isOldEnoughToJudge,
   shippedAgo,
   summariseAdoption,
@@ -423,6 +424,12 @@ export default async function FeatureAdoptionPage() {
                           {!group.usage_wired ? (
                             <div className="mt-1 text-xs text-muted-foreground">
                               not measured — nothing records this key yet
+                            </div>
+                          ) : null}
+                          {isStale(group, now) ? (
+                            <div className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                              stale — last pulled from the usage log{' '}
+                              {group.usage_synced_at ? `${daysSinceShipped(group.usage_synced_at, now)} days ago` : 'never'}
                             </div>
                           ) : null}
                           {pending ? (
