@@ -23,12 +23,22 @@ export function useImsStockSummary(filters: ImsStockFilters) {
   });
 }
 
-export function useImsLowStockItems(storeId: string, institutionId?: string) {
+export function useImsLowStockItems(storeId: string) {
   return useQuery({
     queryKey: ['ims-low-stock', storeId],
-    queryFn: () => ImsStockService.getLowStockItems(storeId, institutionId),
+    queryFn: () => ImsStockService.getLowStockItems(storeId),
     enabled: !!storeId,
     staleTime: 2 * 60 * 1000,
+    retry: 1,
+  });
+}
+
+export function useImsStoreReorderList(storeId: string) {
+  return useQuery({
+    queryKey: ['ims-reorder-list', storeId],
+    queryFn: () => ImsStockService.getStoreReorderList(storeId),
+    enabled: !!storeId,
+    staleTime: 60 * 1000,
     retry: 1,
   });
 }

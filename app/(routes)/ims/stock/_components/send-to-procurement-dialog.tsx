@@ -4,6 +4,7 @@ import { useState } from 'react';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -22,99 +23,91 @@ import {
 } from '@/components/ui/table';
 import { X } from 'lucide-react';
 import { toast } from 'sonner';
-import { useCreatePurchaseRequest } from '@/hooks/procurement/use-purchase-requests';
-import type { ImsStockSummary } from '@/types/ims';
-import type { CreatePurchaseRequestItemDto } from '@/types/procurement';
+import { useCreateImsReorderRequest } from '@/hooks/procurement/use-purchase-requests';
+import { errorMessage } from '@/lib/utils/supabase-error';
+import type { ImsReorderRequestResult, ImsReorderRow } from '@/types/ims';
 
 interface SendToProcurementDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  selectedRows: ImsStockSummary[];
+  storeId: string;
+  storeName: string | null;
+  selectedRows: ImsReorderRow[];
   onRemove: (itemId: string) => void;
-  institutionId: string;
-  storeId: string | null;
-  userId: string;
-  onSuccess: (request: { id: string; request_number: string }) => void;
+  onSuccess: (request: ImsReorderRequestResult) => void;
 }
 
-/** Top up to the item's max stock level; never less than 1. */
-function defaultQuantity(row: ImsStockSummary): number {
-  const suggested = (row.item?.max_stock_level ?? 0) - row.current_quantity;
-  return suggested > 0 ? suggested : 1;
-}
+const defaultQuantity = (row: ImsReorderRow) => String(row.suggested_quantity ?? 1);
 
+/**
+ * Confirms a reorder selection and raises ONE purchase request for it.
+ * Quantities start at the list's suggestion (top-up to max level) and stay editable.
+ */
 export function SendToProcurementDialog({
   open,
   onOpenChange,
+  storeId,
+  storeName,
   selectedRows,
   onRemove,
-  institutionId,
-  storeId,
-  userId,
   onSuccess,
 }: SendToProcurementDialogProps) {
   const [quantities, setQuantities] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState('');
-  const createPR = useCreatePurchaseRequest();
+  const createRequest = useCreateImsReorderRequest();
 
-  const quantityFor = (row: ImsStockSummary) =>
-    quantities[row.item_id] ?? String(defaultQuantity(row));
+  const quantityFor = (row: ImsReorderRow) => quantities[row.item_id] ?? defaultQuantity(row);
+  const invalidRow = selectedRows.find((row) => !(Number(quantityFor(row)) > 0));
 
-  const handleConfirm = async () => {
-    if (!userId || !institutionId) {
-      toast.error('No institution selected — pick one or contact an administrator.');
-      return;
-    }
-    if (selectedRows.length === 0) return;
-
-    const items: CreatePurchaseRequestItemDto[] = selectedRows.map((row) => ({
-      domain_item_id: row.item_id,
-      item_name: row.item?.name ?? '',
-      item_spec: null,
-      required_quantity: Number(quantityFor(row)) || 1,
-      unit_id: null,
-      unit_label: row.item?.base_unit?.abbreviation ?? null,
-      current_stock: row.current_quantity,
-      reorder_level: row.item?.reorder_level ?? null,
-      estimated_cost: null,
-    }));
-
+  const send = async (submit: boolean) => {
+    if (selectedRows.length === 0 || invalidRow) return;
     try {
-      const created = await createPR.mutateAsync({
-        data: {
-          institution_id: institutionId,
-          store_id: storeId,
-          domain: 'ims',
-          notes: notes.trim() || null,
-          items,
-        },
-        userId,
+      const result = await createRequest.mutateAsync({
+        storeId,
+        items: selectedRows.map((row) => ({
+          item_id: row.item_id,
+          quantity: Number(quantityFor(row)),
+        })),
+        notes: notes.trim() || null,
+        submit,
       });
-      toast.success(`Purchase request ${created.request_number} created`);
+      toast.success(
+        submit
+          ? `${result.request_number} sent for approval with ${result.item_count} items`
+          : `${result.request_number} saved as a draft with ${result.item_count} items`
+      );
       setQuantities({});
       setNotes('');
-      onSuccess({ id: created.id, request_number: created.request_number });
+      onSuccess(result);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to create purchase request');
+      toast.error(errorMessage(e, 'Could not raise the purchase request'));
     }
   };
 
+  const busy = createRequest.isPending;
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+    <Dialog open={open} onOpenChange={(o) => !busy && onOpenChange(o)}>
+      <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle>Send to Procurement</DialogTitle>
+          <DialogDescription>
+            {selectedRows.length} item{selectedRows.length === 1 ? '' : 's'} from{' '}
+            {storeName ?? 'this store'} go into one purchase request. The approver sees each
+            item&apos;s current stock and reorder level alongside the quantity.
+          </DialogDescription>
         </DialogHeader>
+
         <div className="space-y-4">
-          <div className="max-h-[50vh] overflow-y-auto overflow-x-auto rounded-md border">
+          <div className="max-h-[50vh] overflow-auto rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Item</TableHead>
-                  <TableHead className="text-right">In stock</TableHead>
+                  <TableHead className="text-right">On hand</TableHead>
                   <TableHead className="text-right">Reorder</TableHead>
                   <TableHead className="text-right">Max</TableHead>
-                  <TableHead className="w-[120px] text-right">Qty to request</TableHead>
+                  <TableHead className="w-[130px] text-right">Qty to order</TableHead>
                   <TableHead className="w-[40px]" />
                 </TableRow>
               </TableHeader>
@@ -126,62 +119,89 @@ export function SendToProcurementDialog({
                     </TableCell>
                   </TableRow>
                 ) : (
-                  selectedRows.map((row) => (
-                    <TableRow key={row.item_id}>
-                      <TableCell>
-                        <div className="font-medium">{row.item?.name ?? '—'}</div>
-                        <div className="text-xs text-muted-foreground">{row.item?.code ?? '—'}</div>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {row.current_quantity} {row.item?.base_unit?.abbreviation ?? ''}
-                      </TableCell>
-                      <TableCell className="text-right">{row.item?.reorder_level ?? '—'}</TableCell>
-                      <TableCell className="text-right">{row.item?.max_stock_level ?? '—'}</TableCell>
-                      <TableCell>
-                        <Input
-                          type="number"
-                          min={1}
-                          value={quantityFor(row)}
-                          onChange={(e) =>
-                            setQuantities((prev) => ({ ...prev, [row.item_id]: e.target.value }))
-                          }
-                          className="text-right"
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => onRemove(row.item_id)}
-                          aria-label={`Remove ${row.item?.name ?? 'item'}`}
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))
+                  selectedRows.map((row) => {
+                    const qty = quantityFor(row);
+                    const bad = !(Number(qty) > 0);
+                    return (
+                      <TableRow key={row.item_id}>
+                        <TableCell>
+                          <div className="font-medium">{row.item_name}</div>
+                          <div className="text-xs text-muted-foreground">{row.item_code ?? '—'}</div>
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {row.on_hand} {row.unit_abbreviation ?? ''}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">{row.reorder_level}</TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {row.max_stock_level > row.reorder_level ? row.max_stock_level : '—'}
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            id={`reorder-qty-${row.item_id}`}
+                            type="number"
+                            min={1}
+                            inputMode="decimal"
+                            value={qty}
+                            aria-invalid={bad}
+                            aria-label={`Quantity for ${row.item_name}`}
+                            onChange={(e) =>
+                              setQuantities((prev) => ({ ...prev, [row.item_id]: e.target.value }))
+                            }
+                            className={`text-right ${bad ? 'border-destructive' : ''}`}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={busy}
+                            onClick={() => onRemove(row.item_id)}
+                            aria-label={`Remove ${row.item_name}`}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
                 )}
               </TableBody>
             </Table>
           </div>
+
+          {invalidRow && (
+            <p className="text-sm text-destructive">
+              Enter a quantity greater than zero for {invalidRow.item_name}.
+            </p>
+          )}
+
           <div className="space-y-2">
-            <Label>Notes (optional)</Label>
+            <Label htmlFor="reorder-notes">Note for the approver (optional)</Label>
             <Textarea
+              id="reorder-notes"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Any context for the approver..."
+              placeholder="e.g. Needed before the practical exams start"
             />
           </div>
         </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+
+        <DialogFooter className="gap-2 sm:gap-2">
+          <Button variant="ghost" disabled={busy} onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button
-            onClick={handleConfirm}
-            disabled={selectedRows.length === 0 || createPR.isPending}
+            variant="outline"
+            disabled={busy || selectedRows.length === 0 || !!invalidRow}
+            onClick={() => send(false)}
           >
-            {createPR.isPending ? 'Creating...' : `Create request (${selectedRows.length})`}
+            Save as draft
+          </Button>
+          <Button
+            disabled={busy || selectedRows.length === 0 || !!invalidRow}
+            onClick={() => send(true)}
+          >
+            {busy ? 'Sending…' : `Submit for approval (${selectedRows.length})`}
           </Button>
         </DialogFooter>
       </DialogContent>

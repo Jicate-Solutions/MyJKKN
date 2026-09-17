@@ -171,6 +171,9 @@ export async function GET(): Promise<NextResponse> {
     const visible = drives.filter((d) => {
       if (myStatus.has(d.id)) return true; // already answered → always visible
       if (!VISIBLE_STATUSES.includes(d.status)) return false;
+      // Still collecting willingness but outside its dates: don't offer a drive
+      // whose own page would say the window has shut or not opened (#3769).
+      if (d.status === 'willingness_open' && computeWillingnessWindowState(d) !== 'open') return false;
       return computeEligibility(
         { institutions: d.institutions ?? [], institution_semesters: d.institution_semesters ?? [] },
         eligByDrive.get(d.id) ?? null,

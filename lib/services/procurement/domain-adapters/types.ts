@@ -38,6 +38,8 @@ export interface CatalogItem {
   hsnCode?: string | null;
   gstRate?: number | null;
   isChemical?: boolean;
+  /** Resource Management: this item's subcategory defaults to per-unit serial tracking. */
+  requiresSerialNumber?: boolean;
   costPrice?: number | null;
   reorderLevel?: number | null;
   currentStock?: number | null;
@@ -65,6 +67,8 @@ export interface AcceptedReceiptLine {
   batchNumber?: string | null;
   expiryDate?: string | null;        // ISO date
   manufacturingDate?: string | null; // ISO date
+  /** Resource Management: one serial per accepted unit, length must equal acceptedQuantity. */
+  serialNumbers?: string[] | null;
   // Traceability back to the procurement documents:
   grnId: string;
   grnNumber: string;

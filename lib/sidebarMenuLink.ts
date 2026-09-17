@@ -51,6 +51,7 @@ import {
   PlusCircle,
   Clock,
   RefreshCw,
+  QrCode,
   Bug,
   CalendarX2,
   UserCheck,
@@ -1381,6 +1382,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Campus gate (all learners + staff), fed by Service Requests gate-pass types.
   '/gate-security': 'gate_security.scan.view',
   '/reports/gate-in-out': 'gate_security.reports.view',
+  // Every signed-in person can raise their own pass (learners are routed to
+  // the Gate Pass service request; team members get a QR immediately).
+  '/gate-pass': 'view_profile',
   // The learner's lane. `.create` is the "Request Gate Pass" key, held by
   // student among others.
   '/campus-living/gate-passes/request': 'campus_living.gate_passes.create',
@@ -1940,6 +1944,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ims/stock/adjustments': 'ims.stock.adjust',
   '/ims/stock/batches': 'ims.stock.view',
   '/ims/stock/department': 'ims.stock.view',
+  '/ims/stock/reorder': 'ims.stock.view',
   '/ims/stock/grn': 'ims.stock.grn.view',
   '/ims/stock/grn/new': 'ims.stock.grn.create',
   '/ims/stock/grn/[id]': 'ims.stock.grn.view',
@@ -2529,6 +2534,13 @@ export function GetPages(pathname: string): MenuGroup[] {
     {
       groupLabel: 'Gate Security',
       menus: [
+        {
+          href: '/gate-pass',
+          label: 'My Gate Pass',
+          active: pathname === '/gate-pass' || pathname.startsWith('/gate-pass/'),
+          icon: QrCode,
+          submenus: []
+        },
         {
           href: '/gate-security',
           label: 'Gate Security',
@@ -3420,6 +3432,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/ims/stock/adjustments', label: 'Stock · Adjustments', active: pathname === '/ims/stock/adjustments' },
             { href: '/ims/stock/batches', label: 'Stock · Batches', active: pathname === '/ims/stock/batches' },
             { href: '/ims/stock/department', label: 'Stock · Department', active: pathname === '/ims/stock/department' },
+            { href: '/ims/stock/reorder', label: 'Stock · Reorder', active: pathname === '/ims/stock/reorder' },
             { href: '/ims/indents', label: 'Indents', active: pathname === '/ims/indents' },
             { href: '/ims/indents/new', label: 'Indents · New', active: pathname === '/ims/indents/new' },
             { href: '/ims/indents/pending', label: 'Indents · Pending Approval', active: pathname === '/ims/indents/pending' },

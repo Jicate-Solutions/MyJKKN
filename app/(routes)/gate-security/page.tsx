@@ -30,12 +30,11 @@ import {
   CameraOff,
   CheckCircle2,
   Clock,
-  Keyboard,
   Loader2,
   LogIn,
   LogOut,
   QrCode,
-  Search,
+  ScanLine,
   ShieldAlert,
   ShieldCheck,
   UserRound,
@@ -109,6 +108,14 @@ function Row({ label, value }: { label: string; value: string | null | undefined
   );
 }
 
+/** Pass / staff tokens, ID-card UUIDs, JKKN ids. */
+function looksLikeCode(v: string): boolean {
+  const t = v.trim();
+  return /^(GS:|SP-|QR-|GP-)/i.test(t)
+    || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(t)
+    || /^[0-9]{6}-[0-9]$/.test(t);
+}
+
 const fmtDate = (d: string | null | undefined) =>
   d ? new Date(d.length === 10 ? `${d}T00:00:00` : d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null;
 
@@ -119,10 +126,9 @@ export default function GateSecurityPage() {
   const canRecord =
     isSuperAdmin || canAccess('gate_security.movements', 'record') || canAccess('campus_living.gate_passes', 'edit');
 
-  const [scanMode, setScanMode] = useState<'qr' | 'manual'>('qr');
   const [cameraActive, setCameraActive] = useState(false);
-  const [manualInput, setManualInput] = useState('');
   const [query, setQuery] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
   const [lookupBusy, setLookupBusy] = useState(false);
   const [subject, setSubject] = useState<GateSubject | null>(null);
   const [subjectCode, setSubjectCode] = useState<string>('');
@@ -131,7 +137,7 @@ export default function GateSecurityPage() {
   const [shiftLog, setShiftLog] = useState<ShiftEntry[]>([]);
 
   const today = useGateTodayActivity(canScan);
-  const search = useGateSearch(query, canScan);
+  const search = useGateSearch(query, canScan && !looksLikeCode(query));
   const record = useRecordGateMovement();
 
   const scannerRef = useRef<any>(null);
@@ -177,10 +183,39 @@ export default function GateSecurityPage() {
     (raw: string) => {
       const code = (raw ?? '').trim();
       if (!code) return;
-      void present(code, () => GateSecurityService.resolveCode(code));
+      void present(code, async () => {
+        const direct = await GateSecurityService.resolveCode(code);
+        if (direct) return direct;
+        // A register / roll number typed, or read from a barcode.
+        const hits = await GateSecurityService.search(code).catch(() => []);
+        const exact =
+          hits.find((h) => (h.code ?? '').toLowerCase() === code.toLowerCase()) ??
+          (hits.length === 1 ? hits[0] : undefined);
+        if (!exact) return null;
+        if (exact.person_type === 'staff' && exact.staff_id) return GateSecurityService.resolveStaff(exact.staff_id);
+        return exact.profile_id ? GateSecurityService.resolveLearner(exact.profile_id) : null;
+      });
     },
     [present]
   );
+
+  /** Enter in the field: a code shape is resolved directly; anything else
+   *  picks the first search hit (a name / email typed by the guard). */
+  const submitTyped = async () => {
+    const text = query.trim();
+    if (!text) return;
+    if (looksLikeCode(text)) {
+      setQuery('');
+      handleCode(text);
+      return;
+    }
+    const hits = search.data ?? (await GateSecurityService.search(text).catch(() => []));
+    if (hits.length > 0) {
+      pickHit(hits[0]);
+    } else {
+      setUnrecognised(text);
+    }
+  };
 
   const pickHit = (hit: SearchHit) => {
     setQuery('');
@@ -193,7 +228,7 @@ export default function GateSecurityPage() {
 
   // ── Camera ───────────────────────────────────────────────────────────
   useEffect(() => {
-    if (scanMode !== 'qr' || !cameraActive) return;
+    if (!cameraActive) return;
     let scanner: any = null;
     let cancelled = false;
     const start = async () => {
@@ -216,10 +251,7 @@ export default function GateSecurityPage() {
         );
       } catch (err) {
         console.error('Gate scanner start failed', err);
-        if (!cancelled) {
-          setCameraActive(false);
-          setScanMode('manual');
-        }
+        if (!cancelled) setCameraActive(false);
         toast.error('Camera unavailable — type the code or search instead');
       }
     };
@@ -237,7 +269,7 @@ export default function GateSecurityPage() {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scanMode, cameraActive]);
+  }, [cameraActive]);
 
   useEffect(() => {
     if (!cameraActive) return;
@@ -265,6 +297,7 @@ export default function GateSecurityPage() {
     setUnrecognised(null);
     setStaffReason('');
     lastScanTokenRef.current = '';
+    inputRef.current?.focus();
   };
 
   const finish = (name: string, kind: 'learner' | 'staff', direction: 'out' | 'in') => {
@@ -305,6 +338,7 @@ export default function GateSecurityPage() {
       staffId: subject.snapshot.staff_id,
       direction,
       reason: staffReason || null,
+      staffPassId: subject.staffPassId,
     });
     finish(subject.snapshot.full_name || 'Team member', 'staff', direction);
   };
@@ -484,12 +518,23 @@ export default function GateSecurityPage() {
                 <Row label="Status" value={subject.snapshot.last_direction === 'out' ? 'Currently OUT' : subject.snapshot.last_direction === 'in' ? 'Currently IN' : null} />
               </div>
             </div>
+            {subject.snapshot.open_pass && (
+              <div className="mx-4 mt-3 rounded-lg border p-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-sm font-bold">{subject.snapshot.open_pass.pass_number}</span>
+                  <Badge variant="secondary">{subject.snapshot.open_pass.status === 'out' ? 'OUT' : 'Ready'}</Badge>
+                </div>
+                <Row label="Reason" value={subject.snapshot.open_pass.reason} />
+                <Row label="Created" value={formatClock(subject.snapshot.open_pass.created_at)} />
+                <Row label="Approval" value="Not required for team members" />
+              </div>
+            )}
             <div className="space-y-3 bg-background px-4 py-4">
               {subject.snapshot.is_active !== false && canRecord && (
                 <>
                   <Select value={staffReason} onValueChange={setStaffReason}>
                     <SelectTrigger className="h-12 text-base">
-                      <SelectValue placeholder="Reason (optional)" />
+                      <SelectValue placeholder={subject.snapshot.open_pass ? `Reason: ${subject.snapshot.open_pass.reason}` : 'Reason (optional)'} />
                     </SelectTrigger>
                     <SelectContent>
                       {STAFF_REASONS.map((r) => (
@@ -527,82 +572,58 @@ export default function GateSecurityPage() {
           </div>
         )}
 
-        {/* ── Scan ────────────────────────────────────────────────── */}
-        <Card>
+        {/* ── Scan / search — one field, like the library counter ───── */}
+        <Card className={`border-2 ${cameraActive ? 'border-primary' : 'border-primary/40'}`}>
           <CardContent className="space-y-3 p-4">
-            <div className="grid grid-cols-2 gap-2">
-              <Button variant={scanMode === 'qr' ? 'default' : 'outline'} className="h-12 text-base" onClick={() => setScanMode('qr')}>
-                <QrCode className="mr-2 h-5 w-5" /> Scan QR
-              </Button>
-              <Button
-                variant={scanMode === 'manual' ? 'default' : 'outline'}
-                className="h-12 text-base"
-                onClick={() => {
-                  setScanMode('manual');
-                  setCameraActive(false);
-                }}
-              >
-                <Keyboard className="mr-2 h-5 w-5" /> Type code
-              </Button>
-            </div>
-            {scanMode === 'qr' ? (
-              <div className="space-y-3">
-                <div id={QR_ELEMENT_ID} className={`aspect-square w-full overflow-hidden rounded-lg bg-black ${!cameraActive ? 'flex items-center justify-center' : ''}`}>
-                  {!cameraActive && (
-                    <div className="text-center">
-                      <Camera className="mx-auto mb-2 h-10 w-10 text-slate-400" />
-                      <p className="text-sm text-slate-400">Camera is off</p>
-                    </div>
-                  )}
-                </div>
-                <Button onClick={() => setCameraActive((v) => !v)} variant={cameraActive ? 'destructive' : 'default'} className="h-14 w-full text-lg">
-                  {cameraActive ? (<><CameraOff className="mr-2 h-5 w-5" /> Stop camera</>) : (<><Camera className="mr-2 h-5 w-5" /> SCAN QR / BARCODE</>)}
-                </Button>
-              </div>
-            ) : (
-              <div className="flex gap-2">
+            <p className="flex items-center gap-2 text-sm font-semibold">
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-xs text-primary">1</span>
+              Scan pass / card
+            </p>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <ScanLine className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
                 <Input
+                  ref={inputRef}
+                  autoFocus
                   autoComplete="off"
-                  className="h-14 text-base"
-                  placeholder="Pass ID, card code or GS: token"
-                  value={manualInput}
-                  onChange={(e) => setManualInput(e.target.value)}
+                  inputMode="search"
+                  className="h-14 border-2 pl-10 pr-10 font-mono text-base"
+                  placeholder="Scan QR — or type Pass ID / register no. / MyJKKN ID / name and press Enter…"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
-                      handleCode(manualInput);
-                      setManualInput('');
+                      e.preventDefault();
+                      void submitTyped();
                     }
                   }}
                   disabled={lookupBusy}
                 />
-                <Button className="h-14 px-5" onClick={() => { handleCode(manualInput); setManualInput(''); }} disabled={lookupBusy || !manualInput.trim()}>
-                  <Search className="h-5 w-5" />
-                </Button>
+                {query && (
+                  <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground" onClick={() => setQuery('')} aria-label="Clear">
+                    <X className="h-5 w-5" />
+                  </button>
+                )}
               </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* ── Search ──────────────────────────────────────────────── */}
-        <Card>
-          <CardContent className="space-y-2 p-4">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                inputMode="search"
-                autoComplete="off"
-                className="h-14 pl-10 pr-10 text-base"
-                placeholder="Search roll / name / email / ID / pass"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
-              {query && (
-                <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground" onClick={() => setQuery('')} aria-label="Clear search">
-                  <X className="h-5 w-5" />
-                </button>
-              )}
+              <Button
+                type="button"
+                variant={cameraActive ? 'destructive' : 'default'}
+                className="h-14 w-14 shrink-0 p-0"
+                aria-label={cameraActive ? 'Stop camera' : 'Scan with camera'}
+                onClick={() => setCameraActive((v) => !v)}
+              >
+                {cameraActive ? <CameraOff className="h-6 w-6" /> : <Camera className="h-6 w-6" />}
+              </Button>
             </div>
-            {query.trim().length >= 2 && (
+            <p className="text-xs text-muted-foreground">
+              A handheld scanner types into this field. Tap the camera to scan with the phone.
+            </p>
+
+            {cameraActive && (
+              <div id={QR_ELEMENT_ID} className="aspect-square w-full overflow-hidden rounded-lg bg-black" />
+            )}
+
+            {!lookupBusy && query.trim().length >= 2 && !looksLikeCode(query) && (
               <ul className="divide-y rounded-lg border">
                 {search.isFetching && !search.data?.length && (
                   <li className="p-3 text-sm text-muted-foreground">Searching…</li>
@@ -629,7 +650,6 @@ export default function GateSecurityPage() {
             )}
           </CardContent>
         </Card>
-
         {/* ── Today ───────────────────────────────────────────────── */}
         <Card>
           <CardContent className="p-4">

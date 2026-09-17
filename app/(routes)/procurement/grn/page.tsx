@@ -54,10 +54,10 @@ export default function GrnListPage() {
 
   return (
     <ContentLayout title="Goods Receipt">
-      <div className="space-y-6">
+      <div className="space-y-4 sm:space-y-6">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">Goods Receipt Notes</h2>
-          <p className="text-muted-foreground">
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Goods Receipt Notes</h2>
+          <p className="hidden text-muted-foreground sm:block">
             Receive deliveries against a PO, run three-way matching, and post accepted
             stock to inventory on verification.
           </p>
@@ -65,7 +65,7 @@ export default function GrnListPage() {
 
         <Card>
           <CardContent className="pt-6">
-            <div className="flex flex-col sm:flex-row gap-4">
+            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input

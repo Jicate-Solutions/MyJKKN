@@ -262,6 +262,10 @@ export class ServiceRequestService {
     // Pending state is already represented by service_requests.status +
     // current_approval_step; the approvals table is now the action log only.
 
+    if (initialStatus === 'submitted') {
+      await this.issueStaffGatePassOnSubmit(request.id, serviceType, userId);
+    }
+
     const noApprovalSteps = (serviceType.approval_steps || []).length === 0;
     if (initialStatus === 'submitted' && noApprovalSteps && serviceType.auto_fulfill_on_approval) {
       await this.finalizeAutoApproval(request.id, serviceType, userId, 'submitted');
@@ -269,6 +273,34 @@ export class ServiceRequestService {
     }
 
     return request;
+  }
+
+  /**
+   * Gate Pass category, team-member requester: the pass is issued the moment
+   * the request is submitted. Prior approval is not required for staff /
+   * faculty and a configured approval step must never block the gate. The
+   * DEFINER RPC does nothing for learner requesters (they wait for approval)
+   * and is idempotent per request. Logged, never thrown.
+   */
+  private static async issueStaffGatePassOnSubmit(
+    requestId: string,
+    serviceType: any,
+    userId: string
+  ): Promise<void> {
+    if (!serviceType?.issues_gate_pass) return;
+    const supabase = await getSupabase();
+    const { data: me } = await supabase
+      .from('profiles')
+      .select('learner_id')
+      .eq('id', userId)
+      .maybeSingle();
+    if (me?.learner_id) return; // learner: approval path
+    const { error } = await supabase.rpc('issue_gate_pass_for_service_request', {
+      p_request_id: requestId,
+    });
+    if (error) {
+      console.error('[service-requests] Team-member gate pass issue on submit failed:', error);
+    }
   }
 
   /**
@@ -436,6 +468,8 @@ export class ServiceRequestService {
     );
 
     const st = request.service_type;
+    await this.issueStaffGatePassOnSubmit(id, st, userId);
+
     const noApprovalSteps = (st?.approval_steps || []).length === 0;
     if (noApprovalSteps && st?.auto_fulfill_on_approval) {
       await this.finalizeAutoApproval(id, st, userId, 'submitted');

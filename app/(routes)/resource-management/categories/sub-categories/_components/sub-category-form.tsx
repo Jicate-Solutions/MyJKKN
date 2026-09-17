@@ -69,7 +69,8 @@ const subCategorySchema = z.object({
   description: z.string().optional(),
   status: z.enum(['active', 'inactive']),
   // inherit_parent_attributes removed - obsolete field
-  display_order: z.number().min(0).optional()
+  display_order: z.number().min(0).optional(),
+  requires_serial_number: z.boolean().optional()
 });
 
 type FormData = z.infer<typeof subCategorySchema>;
@@ -111,7 +112,8 @@ export function SubCategoryForm({ category, mode }: SubCategoryFormProps) {
         (category?.status === 'archived' ? 'inactive' : category?.status) ||
         'active',
       // inherit_parent_attributes removed - obsolete field
-      display_order: category?.display_order || 0
+      display_order: category?.display_order || 0,
+      requires_serial_number: category?.requires_serial_number ?? false
     }
   });
 
@@ -218,6 +220,7 @@ export function SubCategoryForm({ category, mode }: SubCategoryFormProps) {
         status: data.status,
         // inherit_parent_attributes removed - obsolete field
         display_order: data.display_order || undefined,
+        requires_serial_number: data.requires_serial_number ?? false,
         image_url: finalImageUrl
         // Removed: attribute_definitions - no longer used
       };
@@ -376,6 +379,30 @@ export function SubCategoryForm({ category, mode }: SubCategoryFormProps) {
                           resources
                         </FormDescription>
                         <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='requires_serial_number'
+                    render={({ field }) => (
+                      <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3'>
+                        <div className='space-y-0.5'>
+                          <FormLabel>Requires serial number</FormLabel>
+                          <FormDescription>
+                            Pre-checks &quot;track serial numbers&quot; on the Procurement
+                            receiving screen for items in this subcategory (e.g. laptops,
+                            monitors). The receiver can still override per receipt.
+                          </FormDescription>
+                        </div>
+                        <FormControl>
+                          <Switch
+                            checked={field.value ?? false}
+                            onCheckedChange={field.onChange}
+                            disabled={operationLoading}
+                          />
+                        </FormControl>
                       </FormItem>
                     )}
                   />

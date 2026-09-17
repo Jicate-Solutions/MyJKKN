@@ -193,6 +193,14 @@ export class ProcurementGrnService {
           );
         }
 
+        // Serial numbers are optional per line, but if given they must account for
+        // every accepted unit — a partial list would silently leave units unidentified.
+        if (line.serial_numbers?.length && line.serial_numbers.length !== accepted) {
+          throw new Error(
+            `"${poItem.item_name}": ${line.serial_numbers.length} serial number(s) given for ${accepted} accepted unit(s).`
+          );
+        }
+
         const invoiceUnitPrice = line.cost != null && Number(line.cost) > 0 ? Number(line.cost) : null;
         const match = matchLine({
           orderedRemaining,
@@ -236,6 +244,7 @@ export class ProcurementGrnService {
           batch_number: line.batch_number ?? null,
           expiry_date: line.expiry_date ?? null,
           manufacturing_date: line.manufacturing_date ?? null,
+          serial_numbers: line.serial_numbers?.length ? line.serial_numbers : null,
           cost_price: costPrice,
           invoice_unit_price: invoiceUnitPrice,
           is_chemical: isChemical,
@@ -426,6 +435,7 @@ export class ProcurementGrnService {
                   batchNumber: line.batch_number,
                   expiryDate: line.expiry_date,
                   manufacturingDate: line.manufacturing_date,
+                  serialNumbers: line.serial_numbers,
                   grnId: grn.id,
                   grnNumber: grn.grn_number,
                   purchaseOrderId: grn.purchase_order_id,
@@ -584,6 +594,11 @@ export class ProcurementGrnService {
   ): Promise<ProcurementGrn> {
     const accepted = Number(input.accepted_quantity);
     if (!(accepted > 0)) throw new Error('Accepted replacement quantity must be greater than zero.');
+    if (input.serial_numbers?.length && input.serial_numbers.length !== accepted) {
+      throw new Error(
+        `${input.serial_numbers.length} serial number(s) given for ${accepted} accepted unit(s).`
+      );
+    }
 
     // 1) Load the pending replacement + its originating line + parent GRN.
     const { data: rep, error: repErr } = await this.supabase
@@ -695,6 +710,7 @@ export class ProcurementGrnService {
           batch_number: input.batch_number ?? null,
           expiry_date: input.expiry_date ?? null,
           manufacturing_date: input.manufacturing_date ?? null,
+          serial_numbers: input.serial_numbers?.length ? input.serial_numbers : null,
           cost_price: costPrice,
           is_chemical: originItem.is_chemical ?? false,
         })
@@ -751,6 +767,7 @@ export class ProcurementGrnService {
             batchNumber: input.batch_number,
             expiryDate: input.expiry_date,
             manufacturingDate: input.manufacturing_date,
+            serialNumbers: input.serial_numbers,
             grnId: grn.id,
             grnNumber,
             purchaseOrderId: parentGrn.purchase_order_id,

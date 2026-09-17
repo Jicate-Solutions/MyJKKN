@@ -14,7 +14,7 @@ import {
   buildBackElement,
   type BackRenderInput
 } from '@/lib/id-cards/render-card';
-import { formatDateLabel, type CardPersonData } from '@/lib/id-cards/render-data';
+import { formatDateDMY, formatDateLabel, type CardPersonData } from '@/lib/id-cards/render-data';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Code 39 encoder
@@ -118,7 +118,14 @@ describe('formatDateLabel', () => {
   it('formats ISO prefixes and passes non-ISO strings through as stored', () => {
     expect(formatDateLabel('2001-11-09')).toBe('09 Nov 2001');
     expect(formatDateLabel('2006-06-12T00:00:00')).toBe('12 Jun 2006');
-    expect(formatDateLabel('+042607-01')).toBe('+042607-01'); // prod junk value — printed as stored
+    // Excel serial stored as the ISO year (live corruption) → real date
+    expect(formatDateLabel('+042642-01-01')).toBe('29 Sep 2016');
+    expect(formatDateLabel('42642')).toBe('29 Sep 2016');
+    // DOB uses DD-MM-YYYY
+    expect(formatDateDMY('2001-11-09')).toBe('09-11-2001');
+    expect(formatDateDMY('+042642-01-01')).toBe('29-09-2016');
+    expect(formatDateDMY('junk')).toBe('junk');
+    expect(formatDateLabel('+042607-01')).toBe('+042607-01'); // no day part → printed as stored
     expect(formatDateLabel('2001-13-09')).toBe('2001-13-09'); // invalid month → as stored
     expect(formatDateLabel(null)).toBe('');
     expect(formatDateLabel('  ')).toBe('');
@@ -212,7 +219,7 @@ const person: CardPersonData = {
   // Completed 2026-09-03: isSchool is new; studyPeriod / staffId /
   // courseEndDate were missing since they were added to CardPersonData —
   // invisible because tsconfig excludes __tests__ from a local tsc run.
-  isSchool: false,
+  isSchool: false, qrId: null, academicYearLabel: null,
   studyPeriod: null,
   staffId: null,
   courseEndDate: null,
@@ -220,7 +227,7 @@ const person: CardPersonData = {
   photoCandidates: [],
   valueBag: {},
   bloodGroup: 'B+',
-  dateOfBirthLabel: '09 Nov 2001',
+  dateOfBirthLabel: '09-11-2001',
   guardianName: 'R. Kumar',
   guardianPhone: '9876543210',
   address: '12 Main Street, Komarapalayam, Namakkal, Tamil Nadu, 638183',
@@ -276,7 +283,7 @@ describe('buildBackElement — default design', () => {
     // Headings are hidden by default (values only) — 2026-09-05.
     expect(text).not.toContain('BLOOD GROUP');
     expect(text).toContain('B+');
-    expect(text).toContain('09 Nov 2001');
+    expect(text).toContain('09-11-2001');
     expect(text).toContain('R. Kumar');
     expect(text).toContain('9876543210');
     expect(text).toContain('12 Main Street');

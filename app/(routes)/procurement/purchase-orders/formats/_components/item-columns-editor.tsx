@@ -70,7 +70,7 @@ export function ItemColumnsEditor({ columns, onChange }: ItemColumnsEditorProps)
       <div className="flex items-center justify-between">
         <div>
           <Label className="text-base font-semibold">Item Table Columns</Label>
-          <p className="text-xs text-muted-foreground">
+          <p className="hidden text-xs text-muted-foreground sm:block">
             The line-item table on the PO document. Order here is the print order.
           </p>
         </div>
@@ -101,7 +101,7 @@ export function ItemColumnsEditor({ columns, onChange }: ItemColumnsEditorProps)
                   </Button>
                 </div>
 
-                <div className="min-w-0 flex-1 grid grid-cols-1 lg:grid-cols-12 gap-3">
+                <div className="min-w-0 flex-1 grid grid-cols-1 lg:grid-cols-12 gap-2 sm:gap-3">
                   <div className="lg:col-span-3 space-y-1">
                     <Label className="text-xs">Column Label</Label>
                     <Input

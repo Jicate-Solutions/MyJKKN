@@ -45,6 +45,9 @@ export interface BulkPrintLearner {
   learnerId: string;
   name: string;
   rollNumber?: string | null;
+  /** Optional grouping (class / programme) — drives "one PDF per class". */
+  groupKey?: string | null;
+  groupLabel?: string | null;
 }
 
 interface BulkPrintResults {

@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { useAuth } from '@/hooks/use-auth';
 import { useCreatePurchaseRequest } from '@/hooks/procurement/use-purchase-requests';
@@ -64,6 +64,7 @@ const emptyRow = (): ItemRow => ({
 
 export default function NewPurchaseRequestPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { profile } = useAuth();
   const createPR = useCreatePurchaseRequest();
 
@@ -77,9 +78,14 @@ export default function NewPurchaseRequestPage() {
   const [items, setItems] = useState<ItemRow[]>([emptyRow()]);
   const [previewOpen, setPreviewOpen] = useState(false);
 
-  // Institution scope — defaults to the user's own; a multi-institution user can
-  // switch, which re-scopes the catalog search and the institution the PR is raised for.
-  const [institutionId, setInstitutionId] = useState<string | undefined>(undefined);
+  // Institution scope — carries over whatever the requester had filtered the
+  // Requests list to (?institution=…), so a multi-institution user isn't asked to
+  // pick the same institution twice in one flow. Falls back to their own when
+  // this page is opened directly. They can still switch it here if they mean to
+  // raise this particular request against a different institution.
+  const [institutionId, setInstitutionId] = useState<string | undefined>(
+    () => searchParams.get('institution') ?? undefined
+  );
   const effectiveInstitution = institutionId ?? profile?.institution_id ?? '';
 
   // Ambient context handed to the domain adapter's catalog search.
@@ -166,14 +172,14 @@ export default function NewPurchaseRequestPage() {
 
   return (
     <ContentLayout title="New Purchase Request">
-      <div className="space-y-6 max-w-5xl">
-        <div className="flex items-center gap-3">
+      <div className="space-y-4 sm:space-y-6 max-w-5xl">
+        <div className="flex items-center gap-2 sm:gap-3">
           <Button variant="ghost" size="sm" aria-label="Go back" onClick={() => router.back()}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
-            <h2 className="text-2xl font-bold tracking-tight">New Purchase Request</h2>
-            <p className="text-muted-foreground">
+            <h2 className="text-xl sm:text-2xl font-bold tracking-tight">New Purchase Request</h2>
+            <p className="hidden text-muted-foreground sm:block">
               Mix restock and new-item lines freely — each item picks its own type.
             </p>
           </div>
@@ -216,7 +222,7 @@ export default function NewPurchaseRequestPage() {
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="hidden text-[11px] text-muted-foreground sm:block">
                 Consumables and chemicals are tracked by batch and expiry. Equipment and
                 furniture are tracked as assets.
               </p>
@@ -241,12 +247,12 @@ export default function NewPurchaseRequestPage() {
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <CardHeader className="flex flex-col gap-2 sm:gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <CardTitle className="text-base">
                 Items{cleanedItems.length ? ` (${cleanedItems.length})` : ''}
               </CardTitle>
-              <p className="mt-1 text-sm text-muted-foreground">
+              <p className="mt-1 hidden text-sm text-muted-foreground sm:block">
                 Pick each item from the catalog. If something is not stocked yet, choose
                 “New item” and say why it is needed.
               </p>
@@ -386,11 +392,11 @@ export default function NewPurchaseRequestPage() {
           </CardContent>
         </Card>
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-muted-foreground">
+        <div className="flex flex-col gap-2 sm:gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="hidden text-sm text-muted-foreground sm:block">
             This saves the request as a draft. You send it for approval from the request page.
           </p>
-          <div className="flex justify-end gap-3">
+          <div className="flex justify-end gap-2 sm:gap-3">
             <Button variant="outline" onClick={() => router.back()}>
               Cancel
             </Button>
@@ -453,7 +459,7 @@ export default function NewPurchaseRequestPage() {
               </table>
             </div>
           </div>
-          <p className="text-sm text-muted-foreground">
+          <p className="hidden text-sm text-muted-foreground sm:block">
             The request is saved as a draft. Send it for approval from the request page.
           </p>
           <DialogFooter>

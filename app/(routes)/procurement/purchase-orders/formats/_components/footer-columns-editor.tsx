@@ -76,14 +76,14 @@ export function FooterColumnsEditor({ columns, onChange }: FooterColumnsEditorPr
     <div className="space-y-3">
       <div>
         <Label className="text-base font-semibold">Footer (3 columns)</Label>
-        <p className="text-xs text-muted-foreground">
+        <p className="hidden text-xs text-muted-foreground sm:block">
           Matches the standard PO footer layout: Terms &amp; Condition, Enclosure, Special Note.
           Rename titles or fields per vendor; toggle a group to free text if it should just be a
           paragraph (e.g. Special Note).
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2 sm:gap-3">
         {groups.map((group, gi) => (
           <Card key={group.key}>
             <CardHeader className="p-3 pb-0 space-y-2">
@@ -107,7 +107,7 @@ export function FooterColumnsEditor({ columns, onChange }: FooterColumnsEditorPr
             </CardHeader>
             <CardContent className="p-3 pt-2 space-y-2">
               {group.freeText ? (
-                <p className="text-xs text-muted-foreground">
+                <p className="hidden text-xs text-muted-foreground sm:block">
                   Rendered as a single free-text paragraph, filled in per PO.
                 </p>
               ) : (
