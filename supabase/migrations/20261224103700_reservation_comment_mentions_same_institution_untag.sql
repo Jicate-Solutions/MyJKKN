@@ -27,6 +27,13 @@
 --
 -- No BEGIN/COMMIT: applied through exec_sql (scripts/apply-migration-file.mjs).
 -- Idempotent. Depends on 20261224090000.
+--
+-- ci:allow-secdef-authenticated SELF-SCOPED: fn_is_reservation_comment_mention
+-- takes no user id and answers only "am *I* (auth.uid()) tagged on this
+-- booking"; authenticated needs EXECUTE because fn_can_read_reservation_comments
+-- — which every RLS policy on the thread calls as the signed-in user — calls
+-- it. The one function here that takes an arbitrary user id,
+-- fn_can_be_tagged_on_reservation, is revoked from authenticated below.
 
 -- ── 1. Who can be tagged on THIS booking ────────────────────────────────────
 -- Takes an arbitrary user id, so NOT granted to authenticated (a browser could

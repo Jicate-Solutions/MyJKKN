@@ -23,7 +23,7 @@ export const dynamic = 'force-dynamic';
 // only people of the booking's institution can be tagged. Untagging is a
 // direct, RLS-checked delete from the browser (no notification to send). See
 // supabase/migrations/20261224090000_resource_reservation_comment_mentions.sql
-// and 20261224100000_reservation_comment_mentions_same_institution_untag.sql.
+// and 20261224103700_reservation_comment_mentions_same_institution_untag.sql.
 // ============================================================================
 
 import { NextResponse, type NextRequest } from 'next/server';

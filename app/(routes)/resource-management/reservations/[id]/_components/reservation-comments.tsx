@@ -122,7 +122,7 @@ export function ReservationComments({
       // Tagging (BUG-006139): a tagged team member of the booking's institution
       // is notified and can read and reply in this booking's thread until the
       // author untags them. See supabase/migrations/20261224090000_* and
-      // 20261224100000_reservation_comment_mentions_same_institution_untag.sql.
+      // 20261224103700_reservation_comment_mentions_same_institution_untag.sql.
       peopleSearch={peopleSearch}
       handlers={{
         onPost: (body, mentionIds) =>

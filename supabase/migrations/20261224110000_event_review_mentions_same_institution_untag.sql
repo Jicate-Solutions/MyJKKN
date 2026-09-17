@@ -1,5 +1,5 @@
 -- ─── Event review tags — same institution only, and untag ───────────────────
--- 2026-09-17  [BUG-006139 follow-up; same fix as 20261224100000 for bookings]
+-- 2026-09-17  [BUG-006139 follow-up; same fix as 20261224103700 for bookings]
 --
 -- THE GAP (20261220096000). Event Review Comments tagging had the same two
 -- problems the reservation thread had:
@@ -28,6 +28,14 @@
 --
 -- No BEGIN/COMMIT: applied through exec_sql (scripts/apply-migration-file.mjs).
 -- Idempotent. Depends on 20261220096000.
+--
+-- ci:allow-secdef-authenticated SELF-SCOPED: fn_is_event_review_mention and
+-- fn_has_any_tournament_role take no user id and answer only about auth.uid()
+-- (am *I* tagged / do *I* hold a tournament role); authenticated needs EXECUTE
+-- because RLS policies and the tournament route guard call them as the
+-- signed-in user. Same grants and reason as 20261220096000, which defined
+-- them. The one function here that takes an arbitrary user id,
+-- fn_can_be_tagged_on_event, is revoked from authenticated below.
 
 -- ── 1. Who can be tagged on THIS event ──────────────────────────────────────
 -- Takes an arbitrary user id, so NOT granted to authenticated. Callers: the
