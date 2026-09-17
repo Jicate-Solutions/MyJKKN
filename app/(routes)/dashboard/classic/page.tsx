@@ -1,6 +1,7 @@
 import { Suspense } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { dedupeTrailingInitials } from '@/lib/utils/display-name';
 import { DashboardBentoGrid } from './_components/dashboard-bento-grid';
 import { LoadingSkeleton } from '@/components/loading-skeleton';
 import StudentDashboard from './_components/dashboards/student-dashboard';
@@ -58,7 +59,13 @@ async function BentoGridSection() {
     .eq('id', user.id)
     .single();
 
-  const currentUser = profile?.full_name || user.email?.split('@')[0] || 'User';
+  // The stored full_name repeats the initials on 193 live rows, because it was
+  // composed from a first name that already carried them (BUG-002481,
+  // BUG-002482 — the greeting read "... PRIYA M M"). Repair it for display.
+  const currentUser =
+    dedupeTrailingInitials(profile?.full_name) ||
+    user.email?.split('@')[0] ||
+    'User';
 
   return (
     <div className='w-full'>
