@@ -20,40 +20,51 @@ name: Production Build
 # the switch died, cancelled ~18 min in with no error of their own. #3856 sized
 # the swapfile to the disk that is actually there: necessary, not sufficient.
 #
-# So the build itself was shrunk, with ONE knob:
+# So the build itself was shrunk. TWO variables, both set on the build step and
+# NOWHERE else, so dev and Vercel compile exactly what they compiled before:
 #
-#   SENTRY_SOURCEMAPS_DISABLE=1 on the build step (read by next.config.ts, set
-#   NOWHERE else). Under Turbopack @sentry/nextjs force-enables
-#   productionBrowserSourceMaps for you — maybeEnableTurbopackSourcemaps() in
-#   getFinalConfigObjectBundlerUtils — so the build holds a source map for every
+#   SENTRY_SOURCEMAPS_DISABLE=1 — under Turbopack @sentry/nextjs force-enables
+#   productionBrowserSourceMaps for you (maybeEnableTurbopackSourcemaps() in
+#   getFinalConfigObjectBundlerUtils), so the build holds a source map for every
 #   module of every client chunk: 15,638 .map files and 1.4 GB of .next, in a job
 #   that holds no SENTRY_AUTH_TOKEN, uploads none of them, and (the SDK's own
 #   deleteSourcemapsAfterUpload default) deletes them again.
 #
-#   plus build:ci's V8 old-space cap 6144 -> 4096 MB (package.json). Its SEMI
-#   space stays at 128 MB — see the rejected list below, that one is
-#   load-bearing. `build`, which is what Vercel runs, is untouched.
+#   NEXT_TURBOPACK_MEMORY_LIMIT_MB=3072 — Turbopack's Rust arena, 4 GiB by
+#   default in next.config.ts. Rust allocations live OUTSIDE the V8 heap, so
+#   NODE_OPTIONS never touched this.
 #
-# MEASURED ON THE RUNNER ITSELF, which is the only measurement that settles it.
-# Run 35256747013 carried the source-map knob alone, on a 2 vCPU / 7.8 GiB box
-# with the 10 GiB swapfile #3856 gives it:
+# MEASURED ON THE RUNNER ITSELF, which is the only thing that settles it. Two
+# runs on the 2 vCPU / 7.8 GiB box with the 10 GiB swapfile #3856 gives it:
 #
-#   18:06:46  Creating an optimized production build ...
-#   18:08:24  used=7318MB avail=619MB swap=345/10239MB    node 5625M
-#   18:10:25  used=7733MB avail=204MB swap=5206/10239MB   node 6684M
-#   18:20:26  used=7765MB avail=172MB swap=8460/10239MB   node 6819M
-#   18:26:25  ✓ Compiled successfully in 19.6min          ← FIRST TIME SINCE 09-16
-#   18:26:28  Collecting page data using 1 worker ...
-#   18:26:58  used=7793MB avail=144MB swap=10239/10239MB  node 6949M  worker 124M
-#   18:28:13  ##[error]The operation was canceled.        ← swap 100% full
+#   35256747013  source maps off, V8 cap 6144
+#     18:06:46  Creating an optimized production build ...
+#     18:08:24  used=7318MB avail=619MB swap=345/10239MB    node 5625M
+#     18:20:26  used=7765MB avail=172MB swap=8460/10239MB   node 6819M
+#     18:26:25  ✓ Compiled successfully in 19.6min          ← FIRST TIME SINCE 09-16
+#     18:26:28  Collecting page data using 1 worker ...
+#     18:26:58  used=7793MB avail=144MB swap=10239/10239MB  node 6949M  worker 124M
+#     18:28:13  ##[error]The operation was canceled.        ← swapfile 100% full
 #
-# So the knob is real: every run since the runner halved had died BEFORE or AT
-# the compile, and this one finished compiling and got into page-data collection.
-# It is also not yet enough — `node` sat pinned at ~6.8-6.9 GB resident for
-# twenty minutes while the rest of its working set went to swap, and the job died
-# when the single page-data worker asked for memory that neither RAM nor a full
-# swapfile had. 6144 MB of V8 old space on a 7.8 GiB box is most of the box, so
-# the cap comes down to 4096 with it.
+#   35259789465  same, V8 cap lowered to 4096
+#     18:55:30  ✓ Compiled successfully in 18.8min
+#     18:56:06  used=7775MB avail=162MB swap=10235/10239MB  node 6948M  worker 124M
+#     18:56:35  ##[error]The operation was canceled.
+#
+# Read those two together, because they are the whole argument:
+#
+#   • The source-map knob is REAL. Every run since the runner halved had died
+#     BEFORE or AT the compile. Both of these finished compiling and got into
+#     page-data collection.
+#   • The V8 cap is IRRELEVANT here. `node` held ~6.8-6.9 GB resident at 6144 and
+#     at 4096 alike. Whatever is resident is therefore not the V8 heap — it is
+#     the Rust arena, and only turbopackMemoryLimit bounds that. package.json is
+#     left exactly as it was.
+#
+# Hence the second variable. A 48 GB workstation says 2 GiB of arena makes the
+# build thrash (evict, recompute, a 4.5-min compile unfinished at 9 min) — but
+# that machine never swaps, and this one is already paging with the swapfile
+# full. On two cores a recompute beats a page-in, so CI takes the trade at 3 GiB.
 #
 # For reference, the same two-part measurement on a 14-core workstation (cold
 # `.next`, /usr/bin/time -l, this job's env): baseline peak RSS 13.04 GB in
@@ -64,21 +75,20 @@ name: Production Build
 #
 # TWO THINGS MEASURED AND REJECTED, both of which look obviously right:
 #
-#   • Lowering experimental.turbopackMemoryLimit for CI. The Rust arena does sit
-#     outside the V8 heap, so --max-old-space-size really does not bound it —
-#     but at 2 GiB the arena cannot hold the module graph of 1,572 pages, so
-#     Turbopack evicts and recomputes in a loop. A compile that takes 4.5 min at
-#     the shipped 4 GiB had not finished after 9 min, RSS sawtoothing 13 GB ->
-#     3 GB with no phase progress. Two cores would be worse at that, not better.
+#   • Lowering build:ci's --max-old-space-size (6144 -> 4096). Run 35259789465
+#     above: identical resident figure, identical death. The V8 heap is not what
+#     fills this box. Do not spend a round on it again.
 #
-#   • Lowering --max-semi-space-size (128 -> 16), tried together with the old
-#     space above. This made it WORSE: 12.6 GB peak and a GC-bound crawl at 1.1x
-#     parallelism against the baseline's 2.3x. That is the too-small-young-
-#     generation pathology — short-lived objects survive the tiny scavenger, get
-#     tenured, old space bloats, major GC never stops. NODE_OPTIONS is inherited
-#     by every process the build forks, so it looked like the obvious per-isolate
-#     saving; it is not. The existing 128 is load-bearing; leave it alone. The
-#     OLD space is a different question and does come down, to 4096.
+#   • Lowering --max-semi-space-size (128 -> 16), tried together with that.
+#     WORSE: 12.6 GB peak and a GC-bound crawl at 1.1x parallelism against a
+#     2.3x baseline — the too-small-young-generation pathology, where short-lived
+#     objects survive the tiny scavenger, get tenured, old space bloats and major
+#     GC never stops. NODE_OPTIONS is inherited by every process the build forks,
+#     so it looked like the obvious per-isolate saving. It is not. The existing
+#     128 is load-bearing; leave it alone.
+#
+#   • 2 GiB of Turbopack arena, measured on a 48 GB workstation — see above for
+#     why the shipped CI value is 3 GiB and why that box was the wrong judge.
 #
 # `timeout-minutes` went 30 -> 45 regardless, because halving the cores also
 # halves Next's static-export worker pool (see the job's own comment).
@@ -512,7 +522,7 @@ jobs:
         run: |
           echo "vCPU: $(nproc)"
           free -h
-          echo "This job runs 'npm run build:ci' (heap cap 4096). Vercel runs 'npm run build' (12288)."
+          echo "This job runs 'npm run build:ci' (heap cap 6144). Vercel runs 'npm run build' (12288)."
           echo "If this job dies with a bare non-zero exit or 'Killed', compare that to MemTotal above."
 
       # `build:ci`, NOT `build`. Same steps in the same order — the parity guard
@@ -606,6 +616,14 @@ jobs:
           # 5s after "Compiled successfully", inside Sentry's
           # runAfterProductionCompile hook — the source-map step itself.
           SENTRY_SOURCEMAPS_DISABLE: '1'
+          # ── THE ARENA THE V8 CAP DOES NOT BOUND ──────────────────────────────
+          # next.config.ts defaults experimental.turbopackMemoryLimit to 4 GiB, a
+          # figure chosen for a 16 GB laptop. Turbopack is Rust: that allocation
+          # lives outside the V8 heap, so NODE_OPTIONS does not touch it. Runs
+          # 35256747013 and 35259789465 proved which one is holding the box — the
+          # same ~6.8 GB resident at V8 caps of 6144 AND 4096, swap 100% full both
+          # times. Set nowhere but here, so dev and Vercel keep 4 GiB.
+          NEXT_TURBOPACK_MEMORY_LIMIT_MB: '3072'
         run: |
           # A memory sampler streaming to STDOUT, not to a file summarised at the
           # end. That distinction is the whole point: when a job dies of memory
@@ -648,7 +666,7 @@ jobs:
               echo "## Production Build passed"
               echo ""
               echo "\`npm run build:ci\` completed — the same steps Vercel runs on deploy, at a"
-              echo "lower V8 heap cap (4 GB here, 12 GB on Vercel)."
+              echo "lower V8 heap cap (8 GB here, 12 GB on Vercel)."
             else
               echo "## Production Build FAILED"
               echo ""
@@ -665,8 +683,8 @@ jobs:
               echo 'npm run build:ci'
               echo '```'
               echo ""
-              echo "One failure mode is specific to CI: \`build:ci\` caps V8 at 4 GB where Vercel"
-              echo "allows 12 GB, so a change that genuinely needs more than 4 GB fails here and"
+              echo "One failure mode is specific to CI: \`build:ci\` caps V8 at 8 GB where Vercel"
+              echo "allows 12 GB, so a change that genuinely needs more than 8 GB fails here and"
               echo "would have shipped there. The memory trace in the log tells you which — an"
               echo "out-of-memory death has no named error, just the runner's own shutdown"
               echo "message, with the last samples reading avail < 300MB. If that is what you"

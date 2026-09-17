@@ -126,14 +126,20 @@ const nextConfig: NextConfig = {
     //
     // 4 GB suits a 16 GB machine. Raise to 8 GB on 32 GB+ devices.
     //
-    // MEASURED AND REJECTED 2026-09-17: lowering this for CI (the obvious move
-    // when the runner halved) makes the build THRASH. At 2 GiB the arena cannot
-    // hold the module graph of 1,572 pages, so Turbopack evicts and recomputes
-    // in a loop: a compile that takes 4.5 min at 4 GiB had not finished after
-    // 9 min at 2 GiB, with RSS sawtoothing 13 GB -> 3 GB and no phase progress.
-    // Two cores would be worse at it than fourteen, not better. If this is ever
-    // revisited, move it UP, and measure the wall clock as well as the peak.
-    turbopackMemoryLimit: 4 * 1024 * 1024 * 1024,
+    // 2026-09-17: overridable, because on the 2-vCPU / 7.8 GiB runner GitHub now
+    // gives this repo, THIS is the memory that matters. Two Production Build
+    // runs on that box (35256747013 and 35259789465) held `node` at ~6.8 GB
+    // resident with the swapfile 100% full, at V8 caps of 6144 AND 4096 — the
+    // same figure at both, so what is resident is not the V8 heap. It is this
+    // arena, which --max-old-space-size does not bound.
+    //
+    // A 48 GB workstation says 2 GiB makes it thrash (evict, recompute, a 4.5-min
+    // compile unfinished at 9 min). That machine never swaps. The runner is
+    // ALREADY paging, and a recompute beats a page-in on two cores, so CI takes
+    // the trade at 3 GiB via NEXT_TURBOPACK_MEMORY_LIMIT_MB. The variable is set
+    // nowhere else, so dev and Vercel keep the 4 GiB this line has always meant.
+    turbopackMemoryLimit:
+      Number(process.env.NEXT_TURBOPACK_MEMORY_LIMIT_MB || 4096) * 1024 * 1024,
 
     // Optimize large barrel-file packages — tree-shake unused exports.
     // NOTE: Only list barrel-file packages here (ones with a large index.js
