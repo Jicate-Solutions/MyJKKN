@@ -458,11 +458,25 @@ jobs:
           set -euo pipefail
           echo "before:"; free -h
           sudo swapoff -a || true
-          sudo rm -f /mnt/swapfile
-          sudo fallocate -l 24G /mnt/swapfile || sudo dd if=/dev/zero of=/mnt/swapfile bs=1M count=24576 status=none
-          sudo chmod 600 /mnt/swapfile
-          sudo mkswap /mnt/swapfile > /dev/null
-          sudo swapon /mnt/swapfile
+          sudo rm -f /mnt/swapfile /swapfile
+          # Size the swapfile to the disk that is actually there. From 2026-09-16
+          # 22:34 IST the hosted runner's /mnt no longer holds 24G ("fallocate:
+          # No space left on device") and three builds in a row died here before
+          # compiling a line. Take the emptier of /mnt and /, keep 4G of headroom,
+          # cap at 24G, and never fail the build over swap — a smaller file is
+          # still better than none.
+          pick=/mnt; [ "$(df --output=avail -BG /mnt | tail -1 | tr -dc 0-9)" -ge "$(df --output=avail -BG / | tail -1 | tr -dc 0-9)" ] || pick=/
+          avail=$(df --output=avail -BG "$pick" | tail -1 | tr -dc 0-9)
+          size=$(( avail - 4 )); [ "$size" -gt 24 ] && size=24
+          swapfile="$pick/swapfile"; [ "$pick" = / ] && swapfile=/swapfile
+          echo "swap: $pick has ${avail}G free -> ${size}G swapfile at $swapfile"
+          if [ "$size" -ge 2 ]; then
+            (sudo fallocate -l "${size}G" "$swapfile" || sudo dd if=/dev/zero of="$swapfile" bs=1M count=$(( size * 1024 )) status=none) \
+              && sudo chmod 600 "$swapfile" && sudo mkswap "$swapfile" > /dev/null && sudo swapon "$swapfile" \
+              || echo "::warning::could not enable a ${size}G swapfile at $swapfile — building with what the runner has"
+          else
+            echo "::warning::only ${avail}G free on $pick — building without extra swap"
+          fi
           # Prefer swapping over dying. The default (60) is tuned for interactive
           # machines; a batch build would rather page than be killed.
           sudo sysctl -w vm.swappiness=80 > /dev/null
