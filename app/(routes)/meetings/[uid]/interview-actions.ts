@@ -79,8 +79,13 @@ export async function linkMeetingToInterview(
 
   const start = booking.start_time as string | null;
   const end = booking.end_time as string | null;
+  // scheduled_at is NOT NULL. A confirmed booking always has a start; saying so
+  // plainly beats letting the database refuse it as a generic failure.
+  if (!start) {
+    return { success: false, error: 'This meeting has no start time, so it cannot be recorded as an interview.' };
+  }
   const durationMinutes =
-    start && end ? Math.round((new Date(end).getTime() - new Date(start).getTime()) / 60000) : null;
+    end ? Math.round((new Date(end).getTime() - new Date(start).getTime()) / 60000) : null;
 
   const { error } = await supabase.from('hr_recruitment_interviews').insert({
     candidate_id: candidateId,
@@ -89,9 +94,19 @@ export async function linkMeetingToInterview(
     round_number: (count ?? 0) + 1,
     round_name: `Round ${(count ?? 0) + 1} — scheduled in MyJKKN`,
     scheduled_at: start,
-    duration_minutes: durationMinutes,
+    // Omitted rather than sent as null when the booking has no end time: the
+    // column is NOT NULL with a default of 30, and an explicit null is refused.
+    ...(durationMinutes && durationMinutes > 0 ? { duration_minutes: durationMinutes } : {}),
     mode: booking.video_url ? 'video' : 'in_person',
     location_or_link: (booking.video_url as string | null) ?? null,
+    // THE PANEL. NOT NULL, and CHECK (array_length(panel_member_ids, 1) > 0) —
+    // this insert never set it, so every Link since the feature shipped failed
+    // with 23502 and was reported as "Could not link this meeting. Please try
+    // again.", which is untrue and unactionable. The person linking the meeting
+    // is the person who was in it, so they are the panel until someone edits it
+    // in Recruitment. It also makes the row visible to them: the table's SELECT
+    // policy admits anyone listed here.
+    panel_member_ids: [user.id],
     status: 'scheduled',
     created_by: user.id,
   });
@@ -109,7 +124,23 @@ export async function linkMeetingToInterview(
     if (error.code === '23505') {
       return { success: false, error: 'This meeting is already linked to an interview.' };
     }
-    return { success: false, error: 'Could not link this meeting. Please try again.' };
+    if (error.code === '23503') {
+      // A foreign key: the candidate or the post no longer exists.
+      return {
+        success: false,
+        error: 'That candidate or post no longer exists. Reload the page and pick again.',
+      };
+    }
+    // Anything else is a defect, not a user error. It gets logged with its code,
+    // because the previous version of this line returned "please try again" for
+    // a NOT NULL violation that could never succeed however often it was tried.
+    console.error(
+      `[meetings/interview] link failed for ${uid}: ${error.code ?? 'no code'} ${error.message}`,
+    );
+    return {
+      success: false,
+      error: 'Could not link this meeting. The reason has been logged for the team.',
+    };
   }
 
   revalidatePath(`/meetings/${uid}`);

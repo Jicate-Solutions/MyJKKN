@@ -25,7 +25,7 @@ import { toast } from 'sonner';
 
 import { CustomerSearch } from './customer-search';
 import { UpiQrPayment } from './upi-qr-payment';
-import { GatewayPaymentLauncher } from './gateway-payment';
+import { GatewayQrPayment } from './gateway-qr-payment';
 import { formatCurrencyINR } from '@/lib/utils/ims-receipt';
 import type { ImsPaymentMethod, ImsCustomerType, ImsSale } from '@/types/ims';
 import type { ImsCartItem } from '@/lib/stores/ims-cart-store';
@@ -530,20 +530,30 @@ export function PaymentModal({
               Razorpay takes the payment and confirms the credit itself, so nobody
               has to type a reference number and be believed. Note this tab does NOT
               call onCreateSale: the server books the sale from the cart IT priced
-              when the order opened. Routing it back through the browser would
+              when the payment opened. Routing it back through the browser would
               reopen the very gap this closes.
 
-              The browser leaves for Razorpay's page here and returns to
-              /ims/sales?gp=<id>, where the POS picks the payment back up — so this
-              tab ends at "handed over", not at "paid". */}
+              This tab now ends at "paid AND booked", not at "handed over". The QR
+              renders here and the modal stays mounted, so unlike the redirect it
+              used to launch there is no round trip through /ims/sales?gp=<id> to
+              survive. That return path is NOT dead code: when the merchant account
+              has no QR product, GatewayQrPayment falls back to the redirect and the
+              POS page picks the payment up exactly as before. */}
           <TabsContent value="upi_verified" className="space-y-4">
-            <GatewayPaymentLauncher
+            <GatewayQrPayment
               storeId={storeId}
               items={items}
               customerType={customerType}
               customerName={customerName}
               customerPhone={customerPhone}
               amount={total}
+              // The sale is ALREADY booked by the time this fires — the server did
+              // it. onSaleComplete only reads .id and re-fetches the rest, which is
+              // the same contract the ?gp= return path uses on the sales page.
+              onSaleBooked={(saleId) => {
+                resetForm();
+                onSaleComplete({ id: saleId } as ImsSale);
+              }}
               onCancel={() => onOpenChange(false)}
             />
           </TabsContent>

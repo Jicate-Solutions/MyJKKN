@@ -3822,6 +3822,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     ]
   },
   {
+    "path": "/gate-pass",
+    "label": "Gate Pass",
+    "iconName": "FileText",
+    "children": []
+  },
+  {
     "path": "/gate-security",
     "label": "Gate Security",
     "iconName": "FileText",
@@ -5105,6 +5111,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "children": []
               }
             ]
+          },
+          {
+            "path": "/ims/stock/reorder",
+            "label": "Reorder",
+            "iconName": "FileText",
+            "children": []
           }
         ]
       },

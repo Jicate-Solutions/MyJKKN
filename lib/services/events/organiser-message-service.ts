@@ -8,10 +8,10 @@
 // ---------------------------------------------------------------------------
 // Delivery goes through fanoutNotification() — the canonical helper in
 // lib/services/_shared/notifications/notify.ts that app/api/events/notify/
-// route.ts already uses — with the same legacy `type: 'events'` column, so the
-// existing read path (EventsNotificationService.getUnread → the `type ===
-// 'events'` filter → useEventsUnreadNotifications) surfaces these messages
-// without a single change on that side. Nothing here writes user_notifications
+// route.ts already uses. The events read path (EventsNotificationService
+// .getUnread → useEventsUnreadNotifications) recognises these rows by
+// metadata.source; the old `type: 'events'` column never existed and was
+// removed on 2026-09-16. Nothing here writes user_notifications
 // itself; nothing here is a second notification path.
 //
 // What did NOT exist, and is added here, is the audience: the events module's
@@ -873,9 +873,11 @@ export async function sendRegistrantMessage(
       message_id: row.id,
       sent_by: actorId,
     },
-    // Legacy column the events read path filters on — same envelope
-    // app/api/events/notify/route.ts writes, so these land in the same inbox.
-    extraColumns: { type: 'events' },
+    // No `type: 'events'` envelope: public.notifications has no `type` column
+    // ("column notifications.type does not exist", 42703, verified 2026-09-16),
+    // so sending it made this insert throw and every Send fail. The events
+    // inbox now recognises its rows by metadata.source instead — see
+    // EVENTS_NOTIFICATION_SOURCES in lib/services/events/notification-service.ts.
   });
 
   const ledger = ledgerUpdateFor(row, audience.recipientIds.length, outcome);

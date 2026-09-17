@@ -124,6 +124,8 @@ export interface SubCategory {
   status: CategoryStatus;
   display_order: number;
   // inherit_parent_attributes removed - obsolete field, parent categories never had attributes
+  /** Procurement GRN receiving screen defaults to per-unit serial capture for resources in this subcategory. */
+  requires_serial_number?: boolean;
   created_at: string;
   updated_at: string;
   created_by: string;
@@ -499,6 +501,7 @@ export interface CreateSubCategoryDto {
   status: CategoryStatus;
   // inherit_parent_attributes removed - obsolete, parent categories never had attributes
   display_order?: number;
+  requires_serial_number?: boolean;
   // attribute_definitions removed - custom attributes now managed per-resource
 }
 

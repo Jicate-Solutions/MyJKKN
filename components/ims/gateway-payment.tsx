@@ -9,18 +9,24 @@
 // nothing is checked. Here Razorpay confirms the credit and the amount, and these
 // components only watch.
 //
-// WHY A REDIRECT AND NOT A QR ON OUR OWN SCREEN. The QR Codes API is not provisioned
-// on this merchant account. Orders + hosted checkout is what the account actually
-// has, and Razorpay's hosted page renders a UPI QR itself — so the customer still
-// scans with their phone, and the counter experience survives the change.
+// STATUS: this is now the FALLBACK path, not the default one.
+//
+// The counter's default is gateway-qr-payment.tsx, which renders a Razorpay QR on
+// the till itself and never leaves the page. This redirect is what runs when the
+// resolved merchant account has no QR Codes product — a per-account fact, so both
+// paths stay live. See the header of gateway-payment-service.ts.
 //
 // Two components because the browser leaves and comes back:
 //
-//   GatewayPaymentLauncher — inside the payment modal. Prices the cart server-side,
-//     opens an order, and hands the browser to Razorpay.
+//   GatewayPaymentLauncher — SUPERSEDED and currently unreferenced. GatewayQrPayment
+//     opens the session itself and renders RazorpayHostedRedirect inline when it is
+//     handed `mode: 'checkout'`, so nothing mounts this any more. Kept rather than
+//     deleted because it is the complete, working statement of the launch half of
+//     the redirect flow; delete it once the QR path has held at a live counter.
 //
-//   GatewayPaymentReturn — on the POS page, when it loads with ?gp=<id>. Polls
-//     until the sale exists.
+//   GatewayPaymentReturn — LIVE AND LOAD-BEARING. The fallback redirect still comes
+//     back to /ims/sales?gp=<id>, and this is what picks it up. Deleting it would
+//     strand every payment taken on a non-QR account.
 //
 // Three rules hold across both:
 //

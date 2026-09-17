@@ -67,7 +67,7 @@ export function HeaderFieldsEditor({ fields, onChange }: HeaderFieldsEditorProps
       <div className="flex items-center justify-between">
         <div>
           <Label className="text-base font-semibold">Header Fields</Label>
-          <p className="text-xs text-muted-foreground">
+          <p className="hidden text-xs text-muted-foreground sm:block">
             Ref No, Date, vendor block, and any vendor-specific reference fields (e.g. Proforma
             Invoice Quotation No., Quotation Date).
           </p>
@@ -97,7 +97,7 @@ export function HeaderFieldsEditor({ fields, onChange }: HeaderFieldsEditorProps
                   </Button>
                 </div>
 
-                <div className="min-w-0 flex-1 grid grid-cols-1 lg:grid-cols-12 gap-3">
+                <div className="min-w-0 flex-1 grid grid-cols-1 lg:grid-cols-12 gap-2 sm:gap-3">
                   <div className="lg:col-span-4 space-y-1 min-w-0">
                     <Label className="text-xs">Field Label</Label>
                     <Input

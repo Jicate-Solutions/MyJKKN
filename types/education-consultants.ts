@@ -859,3 +859,101 @@ export interface CommissionLiabilityReport {
     amount: number;
   }[];
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SERVICE-CHARGE RATE CARD (commission_rate_cards / _groups / _slabs)
+//
+// The standard card every agency is paid against — one card per intake year,
+// not a per-consultant negotiated deal. See the 20260916090000 migration for
+// why it does not live in consultant_commission_structures.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** A slab line: "1 to 10 → ₹5,000". max_count null = "& above". */
+export interface CommissionRateSlab {
+  id: string;
+  group_id: string;
+  min_count: number;
+  max_count: number | null;
+  /** Gross rupees PER qualifying admission, not for the band as a whole. */
+  amount: number;
+}
+
+/** One printed line of the card ("Arts & Science", "Engineering UG ( Regular )"). */
+export interface CommissionRateGroup {
+  id: string;
+  card_id: string;
+  name: string;
+  /** Lower is tested first; an admission lands in the first group it matches. */
+  priority: number;
+  institution_ids: string[];
+  degree_ids: string[];
+  program_ids: string[];
+  entry_types: string[];
+  notes: string | null;
+  slabs: CommissionRateSlab[];
+}
+
+export interface CommissionRateCard {
+  id: string;
+  name: string;
+  /** 2026 = the "2026-27" intake. */
+  academic_year: number;
+  notes: string | null;
+  effective_from: string | null;
+  effective_to: string | null;
+  is_active: boolean;
+  groups: CommissionRateGroup[];
+}
+
+/** One row of fn_consultant_rate_card_earnings — the card applied to a consultant. */
+export interface ConsultantRateCardEarning {
+  group_id: string;
+  group_name: string;
+  priority: number;
+  /** Admissions in the card's year whose learner is account / admitted / active. */
+  qualifying_count: number;
+  slab_min: number | null;
+  slab_max: number | null;
+  /** Rate per admission at the slab the count reached; null = no slab reached. */
+  rate_amount: number | null;
+  /** qualifying_count × rate_amount. */
+  total_amount: number | null;
+  /** Net of recorded payments minus recoveries for this group. */
+  paid_amount: number;
+  /** Earned − paid, when positive: still to be paid. */
+  balance_amount: number;
+  /** Paid − earned, when positive: to be recovered (e.g. a paid student went Rejected). */
+  excess_amount: number;
+}
+
+export type RateCardPaymentEntryType = 'payment' | 'recovery';
+
+/** A lump-sum payment (or recovery) against one card group for one consultant. */
+export interface RateCardPayment {
+  id: string;
+  consultant_id: string;
+  group_id: string;
+  entry_type: RateCardPaymentEntryType;
+  /** Always positive; entry_type gives the direction. */
+  amount: number;
+  paid_on: string;
+  payment_mode: string | null;
+  reference: string | null;
+  notes: string | null;
+  created_at: string;
+  group?: { id: string; name: string };
+}
+
+export interface RateCardPaymentInput {
+  consultant_id: string;
+  group_id: string;
+  entry_type: RateCardPaymentEntryType;
+  amount: number;
+  paid_on: string;
+  payment_mode?: string | null;
+  reference?: string | null;
+  notes?: string | null;
+}
+
+/** The three learner statuses that earn a service charge. Nothing else counts. */
+export const COMMISSION_QUALIFYING_STATUSES = ['account', 'admitted', 'active'] as const;

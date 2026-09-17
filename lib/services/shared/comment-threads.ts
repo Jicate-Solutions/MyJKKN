@@ -30,8 +30,20 @@ export interface ThreadCommentAuthor {
   role: string | null;
 }
 
+/** A person tagged on a comment. */
+export interface ThreadMention {
+  id: string;
+  name: string;
+}
+
 /** One comment, with its author resolved and its replies attached (roots only). */
 export interface ThreadComment {
+  /**
+   * People tagged on this comment. Optional because tagging is added per
+   * thread (event review, reservation) via each service's own select; the
+   * panel renders nothing when it is absent.
+   */
+  mentions?: ThreadMention[];
   id: string;
   parent_id: string | null;
   author_id: string;

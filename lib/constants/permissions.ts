@@ -1078,6 +1078,19 @@ export const PERMISSION_CATEGORIES = [
       // overriding a record outright and exporting the tamper log are six
       // different amounts of trust.
       { key: 'hr.attendance.mark_self', label: 'Mark Own Attendance Punch' },
+
+      // ── Staff photograph — the reviewer side (2026-09-16) ────────────────
+      // ONE key, not two. Submitting your own photograph is deliberately
+      // ungated: fn_submit_my_staff_photo() resolves the staff row from
+      // auth.uid() itself, so a caller can only ever submit for themselves and
+      // a permission key would add nothing but a rollout blocker — nobody could
+      // photograph themselves until 22 roles were re-granted.
+      //
+      // Reviewing is the institutional act (Director ruling 2026-09-03: a
+      // self-supplied photograph is not evidence the institution photographed
+      // anyone), so THAT is what is gated, and the RLS + the review function
+      // both demand this key.
+      { key: 'hr.staff_photo.review', label: 'Approve Team Member Photographs' },
       { key: 'hr.attendance.view_all', label: 'View Attendance for Everyone' },
       { key: 'hr.attendance.approve_team', label: 'Approve Attendance for Own Team' },
       { key: 'hr.attendance.regularize_approve', label: 'Approve Attendance Regularization Requests' },
@@ -2729,6 +2742,32 @@ export const PERMISSION_CATEGORIES = [
       { key: 'events.marathon.create', label: 'Create Marathon Events' },
       // Events Platform Promotion — shared logistics
       { key: 'events.budget.approve', label: 'Approve Event Budgets (finance sign-off)' },
+      // Drafting budget LINES, as distinct from signing the budget off
+      // (2026-09-16, BUG-006124). event_budget_items' only policy was FOR ALL
+      // with USING and no WITH CHECK, so its "the event's institution is my
+      // institution" test silently became the INSERT gate — refusing the event
+      // in-charge that EventLogistics shows the Add Budget Line button to, and
+      // every institution_scope='all' executive (they sit at Main Office, which
+      // hosts no events). See
+      // 20261220092000_event_budget_items_incharge_and_permission_write.sql.
+      { key: 'events.budget.manage', label: 'Add & Edit Event Budget Lines' },
+      // The remaining Event Logistics boards — Sponsors, Committees, Incidents
+      // and event categories (2026-09-16). ONE key for all four because
+      // EventLogistics passes a single canManage prop to every board; splitting
+      // the DB gate finer than the UI gate would grant rights nobody can use.
+      // Budget stays separate (events.budget.manage) as it alone has a finance
+      // sign-off flow. See
+      // 20261220093000_event_logistics_incharge_and_permission_write.sql.
+      { key: 'events.logistics.manage', label: 'Manage Event Sponsors, Committees & Incidents' },
+      // Sending an event's registrants an announcement, and reading the log of
+      // what was already sent (2026-09-16). fn_can_manage_event_messages gated
+      // on is_admin(), which accepts only admin/super_admin/administrator — so
+      // event_coordinator, which every OTHER event logistics policy admits by
+      // name, could edit an event's budget but not tell its registrants the
+      // venue changed. Institution-scoped like the is_admin() arm: this reaches
+      // real people's notifications, so it stays narrower than the sponsor and
+      // budget boards. See 20261220094000_event_messages_coordinator_key.sql.
+      { key: 'events.messages.send', label: 'Message Event Registrants (sends real notifications)' },
       { key: 'events.presets.manage', label: 'Publish Official Event Presets' },
       // Event-date requests (CARRE instrumentation, 2026-07-25): grants deciding
       // (confirm/decline/supersede) a raised "please confirm a date" request via
@@ -2768,7 +2807,18 @@ export const PERMISSION_CATEGORIES = [
       // fn_can_read_event_review_comments / fn_is_event_review_admin
       // (20261130090000). Never fold into events.view — students hold it.
       { key: 'events.review_comments.view', label: 'View & Reply to Event Review Comments' },
-      { key: 'events.review_comments.resolve', label: "Resolve Others' Event Review Comments" }
+      { key: 'events.review_comments.resolve', label: "Resolve Others' Event Review Comments" },
+      // Registration list on any event's Logistics → Registrations tab
+      // (2026-09-16). Before this, reading events_registrations was gated by
+      // hardcoded role names plus a test that the registrant's institution_id
+      // equalled the caller's — which no institution_scope='all' role satisfies,
+      // because their profiles.institution_id is NULL. A COO therefore saw
+      // "No registrations yet." on an event full of registrants while a
+      // facilitator of the registrants' own college saw the list.
+      // See 20261220090000_events_registrations_view_permission_key.sql.
+      // Never fold into events.view — students hold it, and these rows carry
+      // every participant's phone number and email.
+      { key: 'events.registrations.view', label: 'View Event Registration Lists (participant contact details)' }
     ]
   },
   // Course Events (2026-08-13). Paid, multi-session learning courses open to
