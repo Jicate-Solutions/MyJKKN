@@ -278,6 +278,18 @@ BEGIN
     -- PENDING rather than skipped. Skipping it would leave the initiative with
     -- no participants at all, which reads downstream as "no department ran
     -- this" — a worse lie than "the department has not confirmed yet".
+    --
+    -- KNOW THIS BEFORE YOU WRITE AN IMPORT. Confirmed on production by a
+    -- BEGIN..ROLLBACK rehearsal, 2026-09-18: with recorded_by NULL the lead row
+    -- is born is_lead = true, confirmation_status = 'pending', confirmed_by
+    -- NULL — so THE RECORDING DEPARTMENT GETS NO CREDIT FOR ITS OWN WORK in
+    -- either read function until a human confirms it. Every writer that exists
+    -- today is a signed-in browser path and always supplies recorded_by, so this
+    -- is currently unreachable; it becomes reachable the moment a seed, backfill
+    -- or bulk import is added. Such an import must either set recorded_by, or
+    -- confirm the lead rows afterwards passing confirmed_by explicitly (§4b
+    -- refuses a confirmation it cannot attribute), or accept that its rows count
+    -- nowhere until each department confirms.
     -- Name this insert to the §4b guard, which otherwise demotes every
     -- born-confirmed row a signed-in session produces. Transaction-local, and
     -- cleared on the very next line: a flag left standing would let a SECOND,
@@ -404,7 +416,49 @@ BEGIN
 
     IF NEW.confirmation_status IS DISTINCT FROM OLD.confirmation_status THEN
         IF NEW.confirmation_status = 'confirmed' THEN
-            NEW.confirmed_by := auth.uid();
+            -- WHO confirmed is derived from the caller for a client, and may be
+            -- stated explicitly by a trusted one.
+            --
+            -- Found by a production BEGIN..ROLLBACK rehearsal, 2026-09-18: this
+            -- line used to be an unconditional `NEW.confirmed_by := auth.uid()`.
+            -- In a session with no JWT — a service-role write, an admin script,
+            -- a backfill, a seed — auth.uid() is NULL, so the guard OVERWROTE a
+            -- perfectly good confirmed_by with NULL and then left
+            -- confirmation_status = 'confirmed', building by hand the row that
+            -- violates its own §3 pairing check. The caller got a bare
+            -- `23514 sh_ce_participants_confirmation_paired` naming a constraint
+            -- they never touched, and no way to act on it.
+            --
+            -- For a PostgREST client the rule is unchanged and must not weaken:
+            -- confirmed_by is auth.uid(), never what they sent. A trusted role
+            -- may state it, which adds no attack surface — service_role already
+            -- bypasses RLS entirely — and without it NO server-side path can
+            -- ever record an attributed confirmation.
+            IF v_caller_role IN ('authenticated', 'anon') THEN
+                NEW.confirmed_by := auth.uid();
+            ELSE
+                NEW.confirmed_by := COALESCE(auth.uid(), NEW.confirmed_by, OLD.confirmed_by);
+            END IF;
+
+            -- RAISE rather than quietly demote to 'pending'. The caller ASKED to
+            -- confirm; turning that into 'pending' behind their back is a silent
+            -- write discard, the same class that lost roughly a hundred groupable
+            -- bug reports for weeks (2026-09-16) and that §4's ON CONFLICT note
+            -- exists to avoid. Demotion is right on INSERT, where the client is
+            -- forging and no legitimate request is being thrown away; it is wrong
+            -- here. The message names both ways out.
+            IF NEW.confirmed_by IS NULL THEN
+                RAISE EXCEPTION
+                    'Cannot record a confirmation without a confirmer. There is '
+                    'no auth.uid() in this session and no confirmed_by was '
+                    'supplied, so who agreed cannot be recorded. A signed-in user '
+                    'always has one; a service-role, admin or backfill write must '
+                    'pass confirmed_by explicitly, or write '
+                    'confirmation_status = ''pending'' and let the department '
+                    'confirm for itself.'
+                    USING ERRCODE = '22023';
+            END IF;
+
             NEW.confirmed_at := now();
             NEW.decline_note := NULL;
         ELSE
@@ -440,7 +494,12 @@ COMMENT ON FUNCTION public.guard_community_participant_confirmation() IS
   'demoted to ''pending'' unless it came from the §4 lead trigger, decided by '
   'current_setting(''role'') plus the trigger''s own stamp — NOT by '
   'current_user, which is the function OWNER inside a SECURITY DEFINER body on '
-  'every path and made the first version of this guard dead code.';
+  'every path and made the first version of this guard dead code. On UPDATE, a '
+  'client''s confirmed_by is always auth.uid() and never what they sent, while '
+  'a trusted (non-PostgREST) role may state it explicitly; if neither can be '
+  'resolved the confirmation is REFUSED with SQLSTATE 22023 rather than quietly '
+  'demoted, because the caller asked to confirm and a silent demotion is a lost '
+  'write.';
 
 REVOKE EXECUTE ON FUNCTION public.guard_community_participant_confirmation() FROM anon, PUBLIC;
 
