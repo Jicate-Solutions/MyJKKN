@@ -11070,3 +11070,22 @@ CREATE POLICY reservation_communications_insert ON public.reservation_communicat
 
 REVOKE ALL ON public.reservation_communications FROM anon, PUBLIC;
 GRANT SELECT, INSERT ON public.reservation_communications TO authenticated;
+
+
+-- ── Config seed: learners.activate_on_first_present.enabled — ships ON ──────
+-- Row created by 20260821030000_attendance_activates_learner.sql (OFF) and
+-- switched ON by 20260919010000_enable_activate_learner_on_first_present.sql
+-- after the Director's decision of 2026-09-18 23:48. Seeded here 2026-09-19
+-- because setup/ never carried the row: a database rebuilt from these files
+-- would have had the trigger (04_triggers.sql) with no switch to read, so
+-- fn_get_policy_bool would fall back to its `false` default and the 2026-08-11
+-- rule would be silently off in every fresh environment.
+--
+-- ON CONFLICT DO NOTHING, so a re-apply can never switch OFF a switch somebody
+-- deliberately turned off on a given database.
+INSERT INTO platform_policies
+  (policy_key, scope_type, scope_id, value, description, data_type, enum_options, is_system) VALUES
+('learners.activate_on_first_present.enabled', 'global', NULL, 'true'::jsonb,
+  'MASTER SWITCH. While true, a learner sitting at `reserved` or `admitted` is moved to `active` the first time they are marked PRESENT (Director ruling 2026-08-11, switched on 2026-09-18). Not retroactive — the trigger fires on an attendance write, so existing Present marks do not activate anybody. Enabling also means a `reserved` learner reaches `active` WITHOUT clearing the 30%% / 60%% fee thresholds in admission_statuses; every activation records fee_thresholds_bypassed: true in learners_profile_status_history.',
+  'boolean', NULL, true)
+ON CONFLICT (policy_key, scope_type, COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'::uuid)) DO NOTHING;

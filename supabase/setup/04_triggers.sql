@@ -2778,3 +2778,21 @@ CREATE TRIGGER trg_guard_accommodation_type_change
   BEFORE UPDATE OF accommodation_type_id ON learners_profiles
   FOR EACH ROW
   EXECUTE FUNCTION public._guard_accommodation_type_change();
+
+
+-- ── attendance activates a learner ──────────────────────────────────────────
+-- Migration: supabase/migrations/20260821030000_attendance_activates_learner.sql
+-- Switched ON by 20260919010000_enable_activate_learner_on_first_present.sql.
+-- Mirrored here 2026-09-19 (it was never copied into setup/ when it shipped).
+--
+-- AFTER, not BEFORE: the attendance write is the fact, activation is a
+-- consequence of it, and an AFTER trigger cannot silently swallow a teaching
+-- session's attendance. `UPDATE OF attendance_data` narrows firing to
+-- statements that actually touch the payload, so the semester_id / period
+-- backfill updates elsewhere in the services never wake it.
+DROP TRIGGER IF EXISTS trg_activate_learner_on_first_present ON public.student_attendance;
+
+CREATE TRIGGER trg_activate_learner_on_first_present
+AFTER INSERT OR UPDATE OF attendance_data ON public.student_attendance
+FOR EACH ROW
+EXECUTE FUNCTION public.fn_activate_learner_on_first_present();
