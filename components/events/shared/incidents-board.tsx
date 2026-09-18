@@ -14,6 +14,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -115,6 +116,7 @@ function LogIncidentDialog({
       <DialogContent className="max-w-sm">
         <DialogHeader>
           <DialogTitle>Log Incident</DialogTitle>
+          <DialogDescription className="sr-only">Record a new incident for this event.</DialogDescription>
         </DialogHeader>
         <div className="space-y-3 py-1">
           <div className="grid grid-cols-2 gap-2">
@@ -210,7 +212,7 @@ function ResolveDialog({
         <DialogHeader>
           <DialogTitle>Resolve Incident</DialogTitle>
         </DialogHeader>
-        <p className="truncate text-sm text-muted-foreground">{incident?.title}</p>
+        <DialogDescription className="truncate text-sm text-muted-foreground">{incident?.title}</DialogDescription>
         <div className="space-y-1 py-1">
           <Label className="text-xs">Resolution notes</Label>
           <Textarea
