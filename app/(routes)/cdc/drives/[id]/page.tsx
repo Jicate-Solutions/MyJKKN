@@ -35,6 +35,7 @@ import {
   Pencil,
   Users,
   XCircle,
+  ClipboardCheck,
 } from 'lucide-react';
 import {
   useCdcDrive,
@@ -454,6 +455,17 @@ function CdcDriveDetailContent({ params }: { params: Promise<{ id: string }> }) 
                     <Users className="h-4 w-4 mr-2" /> View responses
                   </Link>
                 </Button>
+                {/* Marking attendance needs the same permission as editing the
+                    drive, so the link is guarded the same way the Edit button is.
+                    Without this the attendance screen is reachable only by typing
+                    the URL — which is the exact failure it was built to fix. */}
+                <PermissionGuard module="cdc.drives" action="edit" fallback={null}>
+                  <Button asChild variant="outline" size="sm" className="justify-start">
+                    <Link href={`/cdc/drives/${id}/attendance`}>
+                      <ClipboardCheck className="h-4 w-4 mr-2" /> Mark attendance
+                    </Link>
+                  </Button>
+                </PermissionGuard>
                 {data.willingness_count > 0 ? (
                   <Button asChild variant="outline" size="sm" className="justify-start">
                     <a href={cdcDriveResponsesExportUrl(id)}>
