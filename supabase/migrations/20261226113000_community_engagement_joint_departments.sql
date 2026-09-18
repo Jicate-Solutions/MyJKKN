@@ -160,7 +160,11 @@ COMMENT ON COLUMN public.sh_community_engagement_participants.department_id IS
 COMMENT ON COLUMN public.sh_community_engagement_participants.hours_contributed IS
   'Hours THIS department put in, not the initiative''s total. The per-college '
   'read sums these; the cluster read uses the initiative''s own hours_spent. '
-  'NULL means the department confirmed without stating hours.';
+  'NULL means the department confirmed without stating hours — which is why '
+  'sh_ce_participants_hours_non_negative permits NULL and forbids a negative: '
+  'the UPDATE policy lets a head of department write their own row, so without '
+  'that constraint a signed-in caller can pull their college''s hours total '
+  'below zero, exactly as the parent register''s hours_spent CHECK prevents.';
 
 COMMENT ON COLUMN public.sh_community_engagement_participants.is_lead IS
   'The department that recorded the initiative. Exactly one row per engagement '
@@ -205,10 +209,37 @@ BEGIN
       ) NOT VALID;
   END IF;
 
+  -- Hours are summed straight into fn_community_college_totals(), and the
+  -- UPDATE policy deliberately lets a head of department write their OWN row.
+  -- That is the intended power, but it means the only thing standing between
+  -- `hours_contributed: -9999` over PostgREST and a college's hours total going
+  -- negative is a constraint here: the confirm screen and the service both
+  -- reject a negative before sending, and the route is never the only caller.
+  -- Reproduced on Postgres 16 against the version without this check — the
+  -- UPDATE was accepted and the per-college read returned -9999.
+  --
+  -- The parent register already holds the same rule
+  -- (`hours_spent numeric(8,2) ... CHECK (hours_spent >= 0)`, 20261013000000),
+  -- so this makes the child agree with its parent rather than inventing a rule.
+  -- NULL stays legal, in the same IS NULL OR form sh_solutions.beneficiaries_count
+  -- uses: the COMMENT on this column says NULL means "confirmed without stating
+  -- hours", which is a real answer and must not become a constraint violation.
+  -- Rejecting rather than clamping is deliberate: a clamp would silently record
+  -- an hours figure nobody typed, and two sibling lanes already translate the
+  -- resulting 23514 into "Hours cannot be negative" for the user.
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                  WHERE conname = 'sh_ce_participants_hours_non_negative'
+                    AND conrelid = 'public.sh_community_engagement_participants'::regclass) THEN
+    ALTER TABLE public.sh_community_engagement_participants
+      ADD CONSTRAINT sh_ce_participants_hours_non_negative
+      CHECK (hours_contributed IS NULL OR hours_contributed >= 0) NOT VALID;
+  END IF;
+
   FOR r IN SELECT conname FROM pg_constraint
             WHERE conrelid = 'public.sh_community_engagement_participants'::regclass
               AND convalidated = false
-              AND conname IN ('sh_ce_participants_confirmation_paired')
+              AND conname IN ('sh_ce_participants_confirmation_paired',
+                              'sh_ce_participants_hours_non_negative')
   LOOP
     EXECUTE format('ALTER TABLE public.sh_community_engagement_participants VALIDATE CONSTRAINT %I', r.conname);
   END LOOP;
@@ -844,6 +875,18 @@ BEGIN
     END IF;
 
     IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+         WHERE conname = 'sh_ce_participants_hours_non_negative'
+           AND conrelid = 'public.sh_community_engagement_participants'::regclass
+           AND convalidated
+    ) THEN
+        RAISE EXCEPTION
+            'The non-negative hours check is absent or NOT VALID. Without it a '
+            'department''s own approver can drive their college''s hours total '
+            'negative through PostgREST.';
+    END IF;
+
+    IF NOT EXISTS (
         SELECT 1 FROM pg_trigger
          WHERE tgname = 'trg_community_engagement_lead_participant'
            AND tgrelid = 'public.sh_community_engagements'::regclass
@@ -886,7 +929,7 @@ BEGIN
 
     RAISE NOTICE
         'Joint community initiatives: participants table, D1 link, D3 '
-        'confirmation policy, pairing check, a live (not inert) confirmation '
-        'guard and both read functions in place.';
+        'confirmation policy, pairing check, non-negative hours check, a live '
+        '(not inert) confirmation guard and both read functions in place.';
 END
 $verify$;
