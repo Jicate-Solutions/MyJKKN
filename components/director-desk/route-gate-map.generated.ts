@@ -5,7 +5,7 @@
 // Drift guard: __tests__/director-desk/route-gate-map.test.ts
 //
 // Every route whose real gate is NOT simply its MENU_PERMISSIONS key.
-// 119 routes cannot be handed over at all; 391 declare
+// 119 routes cannot be handed over at all; 392 declare
 // their own permission keys through PermissionGuard / PolicyPageShell.
 // ============================================================================
 
@@ -313,6 +313,7 @@ export const ROUTE_GATE_MAP: Record<string, RouteGateEntry> = {
   "/cdc/clubs/new": { keys: ['cdc.clubs.create'] },
   "/cdc/drives": { keys: ['cdc.drives.view'] },
   "/cdc/drives/[id]": { keys: ['cdc.drives.view'] },
+  "/cdc/drives/[id]/attendance": { keys: ['cdc.drives.view'] },
   "/cdc/drives/[id]/edit": { keys: ['cdc.drives.edit'] },
   "/cdc/drives/[id]/notifications": { keys: ['cdc.drives.view'] },
   "/cdc/drives/[id]/responses": { keys: ['cdc.drives.view'] },
