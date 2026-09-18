@@ -27,6 +27,7 @@ import type {
   ClinicalQuestion,
   ClinicalSubmissionSummary,
 } from '@/types/pde-clinical-reasoning';
+import { DEFAULT_CLINICAL_PASSING_THRESHOLD_PCT } from '@/types/pde-clinical-reasoning';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,6 +57,23 @@ async function readPolicyAttemptsCap(supabase: any): Promise<number> {
   if (error || data === null || data === undefined) return 5;
   const n = typeof data === 'number' ? data : Number(data);
   return Number.isFinite(n) && n > 0 ? n : 5;
+}
+
+/**
+ * clinical_reasoning.scoring.passing_threshold_pct — the pass mark, 80 since
+ * 2026-09-18. Read here so the client's provisional `passed` stamp is decided
+ * by the policy instead of a literal that cannot follow it when it moves.
+ */
+async function readPolicyPassingThresholdPct(supabase: any): Promise<number> {
+  const { data, error } = await supabase.rpc('fn_get_policy_clinical_reasoning', {
+    p_key: 'scoring.passing_threshold_pct',
+    p_default: DEFAULT_CLINICAL_PASSING_THRESHOLD_PCT,
+  });
+  if (error || data === null || data === undefined) {
+    return DEFAULT_CLINICAL_PASSING_THRESHOLD_PCT;
+  }
+  const n = typeof data === 'number' ? data : Number(data);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_CLINICAL_PASSING_THRESHOLD_PCT;
 }
 
 /** null unless `value` is a positive whole number — 0, NULL and junk all fall back. */
@@ -201,8 +219,18 @@ export default async function CaseAttemptPage({ params }: CasePageProps) {
   // nothing here, so "Grant 3 more attempts" left the learner just as locked
   // out as before. The counter, the remaining-attempts text and the cap screen
   // all read attemptsCap, so they now agree with what was actually granted.
+  //
+  // Read with the SERVICE-ROLE client, not this learner's session.
+  // pde_attempt_grants has RLS disabled today — 20260709000000 lists it among
+  // the "real operational RLS-off tables ... LEFT for a careful
+  // enable-RLS-+-policy pass" — so a session read works now and would start
+  // returning zero rows, silently, the moment that pass lands without a
+  // learner-own-row policy. The learner would be re-locked with nothing
+  // raising. The query is pinned to this case and to user.id, which the session
+  // above already authenticated, so service-role widens no one's view of
+  // anything but their own grants.
   const { effectiveCap: attemptsCap } = await resolveEffectiveAttemptsCap(
-    supabase,
+    createServiceRoleClient(),
     { assessmentId: assessment.id, learnerId: user.id, baseCap: baseAttemptsCap },
   );
 
@@ -330,6 +358,7 @@ export default async function CaseAttemptPage({ params }: CasePageProps) {
     bestSubmission,
     capReached,
     facultyNotified,
+    passingThresholdPct: await readPolicyPassingThresholdPct(supabase),
     learnerProfileId: user.id,
   };
 

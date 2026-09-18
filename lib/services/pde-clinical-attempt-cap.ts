@@ -29,6 +29,18 @@
 //   an unreadable row or a thrown error all return 0 extra attempts, which is
 //   exactly today's behaviour — a fault can restore the old lockout, it can
 //   never hand out attempts nobody granted.
+//
+// PASS A SERVICE-ROLE CLIENT
+//   pde_attempt_grants has RLS disabled today: 20260709000000 lists it among
+//   the "real operational RLS-off tables ... LEFT for a careful
+//   enable-RLS-+-policy pass". A learner's own session can therefore read it
+//   right now and would start returning zero rows, silently, the moment that
+//   pass lands without a learner-own-row policy — re-locking every learner who
+//   had been granted attempts, with nothing raising. Because this function
+//   fails toward the base cap by design, that failure would look exactly like
+//   "no grants exist". Every caller passes the service-role client for that
+//   reason; each query is pinned to one (case, learner) the caller has already
+//   authenticated.
 // ============================================================================
 
 import type { SupabaseClient } from '@supabase/supabase-js';

@@ -59,6 +59,7 @@ import {
 } from '@/lib/services/aiu/prompt-trail-service';
 import { notifyFacultyOfCapReached } from '@/lib/services/pde-clinical-cap-notice';
 import { resolveEffectiveAttemptsCap } from '@/lib/services/pde-clinical-attempt-cap';
+import { DEFAULT_CLINICAL_PASSING_THRESHOLD_PCT } from '@/types/pde-clinical-reasoning';
 
 interface RequestBody {
   submissionId: string;
@@ -105,8 +106,12 @@ async function getEvidenceThresholdPct(
  *
  * Not to be confused with evidence_threshold_pct just above, which stays at 60:
  * generating accreditation evidence is a separate judgement from passing.
+ *
+ * Imported rather than declared here: the attempt page's client needs the same
+ * number for its provisional stamp, and two copies is exactly how the old 60
+ * survived on one side after the other moved.
  */
-const DEFAULT_PASSING_THRESHOLD_PCT = 80;
+const DEFAULT_PASSING_THRESHOLD_PCT = DEFAULT_CLINICAL_PASSING_THRESHOLD_PCT;
 
 async function getPassingThresholdPct(
   supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,

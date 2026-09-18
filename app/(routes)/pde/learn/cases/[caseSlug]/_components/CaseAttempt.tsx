@@ -24,6 +24,7 @@ import type {
   ClinicalAnswerEnvelope,
   ClinicalEvidenceEnvelope,
 } from '@/types/pde-clinical-reasoning';
+import { DEFAULT_CLINICAL_PASSING_THRESHOLD_PCT } from '@/types/pde-clinical-reasoning';
 import { AttemptCounter } from './AttemptCounter';
 import { CapReachedState } from './CapReachedState';
 import { FreeTextSocraticQuestion } from './FreeTextSocraticQuestion';
@@ -184,7 +185,21 @@ export function CaseAttempt({ bundle, rollNumberSnapshot }: CaseAttemptProps) {
         evidence,
         timeSpentSeconds,
         autoScore,
-        passed: autoScore !== null ? autoScore >= 60 : null,
+        // The pass mark comes from clinical_reasoning.scoring.passing_threshold_pct,
+        // resolved server-side and carried on the bundle. It used to be a bare
+        // 60 here, which meant the policy could move (60 -> 80 on 2026-09-18)
+        // while this stamp stayed on the old bar.
+        //
+        // This value is PROVISIONAL: /api/pde/clinical-reasoning/score
+        // overwrites `passed` moments later with the rubric score judged against
+        // the same policy. But that call's failure is swallowed below so the
+        // learner never loses a saved attempt — and when it is swallowed, this
+        // stamp is the one that survives. It has to be right on its own.
+        passed:
+          autoScore !== null
+            ? autoScore >=
+              (bundle.passingThresholdPct ?? DEFAULT_CLINICAL_PASSING_THRESHOLD_PCT)
+            : null,
       });
 
       // Fire Agent E's OSCE scoring + engagement event + evidence mapping.
