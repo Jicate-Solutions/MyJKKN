@@ -265,8 +265,59 @@ export function ConfirmationsPanel({
     );
   }
 
+  const degraded = data?.degraded ?? [];
+  const hiddenByScope = data?.hiddenByScope ?? 0;
+
   return (
     <div className='space-y-6'>
+      {/* A supplementary lookup failed. Said out loud, because every one of
+          them otherwise renders as a confident statement about the register:
+          a missing department name prints "department not readable from here"
+          (which means RLS), a missing college prints "college not recorded"
+          (which says the register holds none), and a missing siblings read
+          just drops the "Also named" line, so a head reads it as "nobody else
+          was named". None of that is knowable from a failed read. */}
+      {degraded.length > 0 && (
+        <NoAccessNotice title='Some details on this page could not be loaded'>
+          <p>
+            The initiatives below are real and your answers will save normally.
+            What could not be read is {degraded.join(', ')} — so where a name is
+            missing, that is this failure and not a limit on what you are
+            allowed to see.
+          </p>
+          <p>
+            This looks like a connection problem. Reload the page; if the names
+            are still missing, report it with the red bug button at the bottom
+            right.
+          </p>
+        </NoAccessNotice>
+      )}
+
+      {/* The cross-college case, made visible instead of inferred. The empty
+          state below explains it too, but only fires when NOTHING survived —
+          a head with two readable initiatives and three unreadable ones would
+          have seen two and been told nothing at all. */}
+      {hiddenByScope > 0 && (
+        <NoAccessNotice
+          title={`${hiddenByScope} ${
+            hiddenByScope === 1 ? 'initiative names' : 'initiatives name'
+          } your department but cannot be shown`}
+        >
+          <p>
+            {hiddenByScope === 1 ? 'It was' : 'They were'} recorded by a college
+            your roles cannot read, so there is no title, date or beneficiary
+            count to show you — and showing a blank row would be worse than
+            showing none. Your department is still named on{' '}
+            {hiddenByScope === 1 ? 'it' : 'them'} and still counts for nothing
+            there until someone can answer.
+          </p>
+          <p>
+            Nothing you can do on this screen fixes this. Report it with the red
+            bug button at the bottom right so the reading scope can be widened.
+          </p>
+        </NoAccessNotice>
+      )}
+
       {!canConfirm && (
         <NoAccessNotice title='You can see these, but you cannot answer them'>
           <p>

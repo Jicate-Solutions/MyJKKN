@@ -122,6 +122,40 @@ export interface ParticipationQueue {
    *                         there is nothing this screen could ever be about.
    */
   visibility: 'ok' | 'no_department';
+  /**
+   * Which SUPPLEMENTARY lookups failed, in words a head of department can read.
+   *
+   * The three reads that decorate the queue — department names, college names,
+   * and who else was named — used to drop their errors on the floor. Each
+   * failure then rendered as a confident statement of fact: a failed department
+   * read printed "department not readable from here", which means RLS and sends
+   * someone to ask for a permission; a failed college read printed "college not
+   * recorded", which says the register holds no college; and a failed siblings
+   * read simply omitted the "Also named" line, so a head concluded nobody else
+   * was on the initiative.
+   *
+   * None of those is knowable from an empty result. An empty answer is not
+   * proof of absence, so the failures are carried out to the screen and named
+   * instead of being dressed up as findings.
+   */
+  degraded: string[];
+  /**
+   * How many rows naming this department were dropped because the INITIATIVE
+   * behind them could not be read.
+   *
+   * This is the feature's central known gap made countable. The participants
+   * SELECT policy reads through the parent register, and the parent is scoped
+   * to the recording college — so a Nursing head named on a Pharmacy camp has
+   * a participant row and cannot read the camp. Such a row carries no title, no
+   * date and no beneficiary count, so it is dropped rather than rendered blank.
+   *
+   * Dropping it SILENTLY is the problem. The panel's empty state explains this
+   * situation, but it only appears when the queue is entirely empty — a head
+   * with two readable initiatives and three unreadable ones would have seen two
+   * and been told nothing. The count is carried out so the screen can say that
+   * something is being withheld and why, whether the queue is empty or not.
+   */
+  hiddenByScope: number;
 }
 
 // ============================================
@@ -171,22 +205,58 @@ function describeConfirmFailure(error: PostgrestLikeError): Error {
   }
 
   if (error.code === CHECK_VIOLATION) {
+    // 23514 is not one fact. THREE different CHECK constraints on this table
+    // raise it, and they have three different remedies:
+    //
+    //   sh_ce_participants_hours_non_negative   the hours figure
+    //   confirmation_status IN (...)            the answer value
+    //   sh_ce_participants_confirmation_paired  a confirmation that could not
+    //                                           be stamped with WHO confirmed
+    //                                           it — i.e. no auth.uid(), a
+    //                                           dead session, nothing to do
+    //                                           with hours at all
+    //
+    // Saying "hours cannot be negative" for all three is the same
+    // confidently-wrong refusal `explainRefusedAnswer` below exists to avoid.
+    // Postgres names the constraint it violated in the message, so branch on
+    // it where it is there and ENUMERATE, never assert, where it is not.
+    const detail = `${error.message ?? ''}`;
+
+    if (detail.includes('hours_non_negative')) {
+      return new Error(
+        'Hours cannot be negative. Enter the hours your department actually ' +
+          'gave, or leave the box blank to confirm without stating a figure.'
+      );
+    }
+
+    if (detail.includes('confirmation_paired')) {
+      return new Error(
+        'Your answer was not saved, because the database could not record WHO ' +
+          'confirmed it. That is a signed-out session, not a problem with what ' +
+          'you typed. Reload the page, sign in again, and answer once more.'
+      );
+    }
+
+    if (detail.includes('confirmation_status')) {
+      return new Error(
+        'Your answer was not saved: the database did not recognise it as either ' +
+          'a confirmation or a decline. Reload the page and answer again; if it ' +
+          'happens twice, report it with the red bug button at the bottom right.'
+      );
+    }
+
     return new Error(
-      'The database rejected these values. Hours cannot be negative, and the ' +
-        'answer must be either a confirmation or a decline.'
+      'The database rejected these values, and did not say which rule was ' +
+        'broken. It is one of: hours that cannot be negative, an answer that ' +
+        'must be a confirmation or a decline, or a confirmation that could not ' +
+        'be stamped with who made it. Reload the page and try once more, then ' +
+        'report it with the red bug button at the bottom right.'
     );
   }
 
   return new Error(error.message || 'Your answer could not be saved.');
 }
 
-/**
- * The silent half of rule 27. An RLS `USING` clause does not raise — it
- * filters. An UPDATE the policy refuses comes back HTTP 200 with an empty
- * array, so the caller sees success and the reader sees nothing change. Zero
- * rows returned from a write that named exactly one row IS a refusal and has to
- * be reported as one.
- */
 /**
  * The caller's session carries no department, so there is no row this answer
  * could belong to. Said out loud rather than sent to the database to fail
@@ -203,14 +273,84 @@ function noDepartmentToAnswerFor(): Error {
   );
 }
 
-function refusedSilently(): Error {
+/**
+ * The silent half of rule 27 — and then the same question asked once more, of
+ * the answer itself.
+ *
+ * An RLS `USING` clause does not raise, it filters. An UPDATE the policy
+ * refuses comes back HTTP 200 with an empty array, so the caller sees success
+ * and the reader sees nothing change. Zero rows from a write that named exactly
+ * one row IS a refusal and has to be reported as one.
+ *
+ * WHY THIS READS THE ROW BACK INSTEAD OF EXPLAINING. THREE different situations
+ * produce that same empty array here, and the write's OWN filter is one of
+ * them:
+ *
+ *   • no row — your department is not named on this initiative, or the
+ *     initiative belongs to a college your roles cannot read;
+ *   • a row that is already answered — `.eq('confirmation_status','pending')`
+ *     in the write excludes it, which any stale list or a second tab reaches;
+ *   • a row still pending — then the UPDATE policy refused it, and that means
+ *     `solutions.societal.confirm`.
+ *
+ * Naming one of those as "most likely" is the confidently-wrong refusal this
+ * file's own 42501 handling exists to avoid — and the first version of this
+ * function did exactly that, telling a head of department their own department
+ * was not the one named. So the row is read back and the answer established.
+ * Where the read itself comes back empty the two cases it genuinely cannot
+ * separate are BOTH named, rather than one of them being picked.
+ */
+async function explainRefusedAnswer(
+  supabase: ReturnType<typeof createClientSupabaseClient>,
+  engagementId: string,
+  ownDepartmentId: string
+): Promise<Error> {
+  const { data, error } = await (supabase as any)
+    .from('sh_community_engagement_participants')
+    // UNIQUE (engagement_id, department_id) on the table, so at most one row
+    // can match and maybeSingle() cannot throw on a multiple-rows result.
+    .select('confirmation_status')
+    .eq('engagement_id', engagementId)
+    .eq('department_id', ownDepartmentId)
+    .maybeSingle();
+
+  if (error) {
+    return new Error(
+      'Your answer was not saved, and the reason could not be read back either. ' +
+        'Reload the page to see where this initiative stands; if it still shows ' +
+        'as waiting for you, report it with the red bug button at the bottom ' +
+        'right.'
+    );
+  }
+
+  const status = (data as { confirmation_status?: string } | null)?.confirmation_status ?? null;
+
+  if (status === 'confirmed' || status === 'declined') {
+    return new Error(
+      `Your answer was not saved, because your department has already answered ` +
+        `this initiative — the record says ${status}. Somebody else with the same ` +
+        'permission may have answered it while this page was open. Reload to see ' +
+        'the answer that stands. An answer cannot be changed from this screen.'
+    );
+  }
+
+  if (status === 'pending') {
+    return new Error(
+      'Your answer was not saved — the database refused it, even though the row ' +
+        'is still waiting for an answer. Answering your department\'s own part ' +
+        'needs the permission solutions.societal.confirm. Show this to your ' +
+        'Solutions Hub administrator, who can add it under Users, then Role ' +
+        'Management.'
+    );
+  }
+
   return new Error(
-    'Your answer was not saved. The database accepted the request and then ' +
-      'changed nothing, which is how it refuses a row you may not touch. The ' +
-      "most likely reason is that this initiative names a different department " +
-      'than yours — only the named department itself can answer for its own ' +
-      'part. Reload the page; if the row is still there, report it with the red ' +
-      'bug button at the bottom right.'
+    'Your answer was not saved, and no row for your department could be read on ' +
+      'this initiative. That is either because your department is not named on ' +
+      'it, or because the initiative was recorded by a college your roles cannot ' +
+      'read — the two are indistinguishable from here, so neither is claimed. ' +
+      'Reload the page; if it is still listed as waiting for you, report it with ' +
+      'the red bug button at the bottom right.'
   );
 }
 
@@ -362,7 +502,7 @@ export const ParticipationClient = {
 
     if (error) throw describeConfirmFailure(error);
     const rows = (data ?? []) as RawParticipant[];
-    if (rows.length === 0) throw refusedSilently();
+    if (rows.length === 0) throw await explainRefusedAnswer(supabase, engagementId, ownDepartmentId);
     return rows[0]!;
   },
 
@@ -394,7 +534,7 @@ export const ParticipationClient = {
 
     if (error) throw describeConfirmFailure(error);
     const rows = (data ?? []) as RawParticipant[];
-    if (rows.length === 0) throw refusedSilently();
+    if (rows.length === 0) throw await explainRefusedAnswer(supabase, engagementId, ownDepartmentId);
     return rows[0]!;
   },
 };
@@ -413,7 +553,7 @@ export const ParticipationClient = {
  * decides every row that comes back.
  */
 async function listForDepartment(departmentId: string | null): Promise<ParticipationQueue> {
-  if (!departmentId) return { rows: [], visibility: 'no_department' };
+  if (!departmentId) return { rows: [], visibility: 'no_department', degraded: [], hiddenByScope: 0 };
 
   const supabase = createClientSupabaseClient();
 
@@ -432,7 +572,11 @@ async function listForDepartment(departmentId: string | null): Promise<Participa
   }
 
   const mine = (mineRaw ?? []) as RawParticipant[];
-  if (mine.length === 0) return { rows: [], visibility: 'ok' };
+  if (mine.length === 0) return { rows: [], visibility: 'ok', degraded: [], hiddenByScope: 0 };
+
+  // What could not be looked up, named rather than swallowed. See the doc on
+  // `ParticipationQueue.degraded`.
+  const degraded: string[] = [];
 
   const engagementIds = Array.from(new Set(mine.map((p) => p.engagement_id)));
 
@@ -459,10 +603,15 @@ async function listForDepartment(departmentId: string | null): Promise<Participa
 
   // Every department named on the same initiatives — so a head can see who else
   // was asked and where each of them stands, not just their own row.
-  const { data: siblingsRaw } = await (supabase as any)
+  const { data: siblingsRaw, error: siblingsError } = await (supabase as any)
     .from('sh_community_engagement_participants')
     .select('engagement_id, department_id, confirmation_status, is_lead')
     .in('engagement_id', engagementIds);
+
+  // Not fatal — the rows themselves are already read, and losing the "Also
+  // named" line is worth less than losing the queue. But it must not read as
+  // "nobody else was named", which is what an empty list looks like.
+  if (siblingsError) degraded.push('the other departments named on these initiatives');
 
   const siblings = (siblingsRaw ?? []) as Array<{
     engagement_id: string;
@@ -484,32 +633,68 @@ async function listForDepartment(departmentId: string | null): Promise<Participa
 
   const departmentNames = new Map<string, string | null>();
   if (departmentIds.length > 0) {
-    const { data: deptRaw } = await (supabase as any)
+    // `display_name` first, then the formal name — the order `mapParticipantRow`
+    // uses in societal-service.ts, which is where these reads land once
+    // `ParticipationClient` is swapped out for `SocietalService`. Reading only
+    // `department_name` would print one name here and another there for the
+    // same department, across a swap that is meant to be mechanical.
+    //
+    // Stated exactly, because it is not unanimous: there is no SQL precedent
+    // for DEPARTMENT names (fn_community_college_totals() renders colleges,
+    // not departments), and the record-side picker on
+    // feat/community-collab-record-ui still renders `department_name` alone.
+    // That lane has been told. The service mapper is the one this file
+    // converges on.
+    const { data: deptRaw, error: deptError } = await (supabase as any)
       .from('departments')
-      .select('id, department_name')
+      .select('id, department_name, display_name')
       .in('id', departmentIds);
-    for (const d of (deptRaw ?? []) as Array<{ id: string; department_name: string | null }>) {
-      departmentNames.set(d.id, d.department_name);
+    for (const d of (deptRaw ?? []) as Array<{
+      id: string;
+      department_name: string | null;
+      display_name: string | null;
+    }>) {
+      departmentNames.set(d.id, d.display_name || d.department_name);
     }
+    // Without this the card prints "department not readable from here", which
+    // means RLS and sends a head off to ask for a permission they already hold.
+    if (deptError) degraded.push('department names');
   }
 
   const institutionNames = new Map<string, string | null>();
   if (institutionIds.length > 0) {
-    const { data: instRaw } = await (supabase as any)
+    // Colleges are unambiguous: fn_community_college_totals() itself renders
+    // COALESCE(i.display_name, i.name) (20261226113000, §6), and the service
+    // mapper agrees. Reading `name` alone would print a different college here
+    // than the totals this screen's confirmations feed.
+    const { data: instRaw, error: instError } = await (supabase as any)
       .from('institutions')
-      .select('id, name')
+      .select('id, name, display_name')
       .in('id', institutionIds);
-    for (const i of (instRaw ?? []) as Array<{ id: string; name: string | null }>) {
-      institutionNames.set(i.id, i.name);
+    for (const i of (instRaw ?? []) as Array<{
+      id: string;
+      name: string | null;
+      display_name: string | null;
+    }>) {
+      institutionNames.set(i.id, i.display_name || i.name);
     }
+    // Without this the card prints "college not recorded", asserting something
+    // about the register that the failed read never established.
+    if (instError) degraded.push('college names');
   }
 
   const rows: ParticipationRow[] = [];
+  let hiddenByScope = 0;
   for (const p of mine) {
     const eng = engagements.get(p.engagement_id);
     // The parent is unreadable from here, so there is nothing truthful to show
-    // about this row. Dropping it is correct; claiming a blank initiative is not.
-    if (!eng) continue;
+    // about this row. Dropping it is correct; claiming a blank initiative is
+    // not. Dropping it SILENTLY is also not — counted, and surfaced by the
+    // panel whether or not anything else survived.
+    if (!eng) {
+      hiddenByScope += 1;
+      continue;
+    }
 
     const others = siblings
       .filter((s) => s.engagement_id === p.engagement_id && s.department_id !== p.department_id)
@@ -551,7 +736,7 @@ async function listForDepartment(departmentId: string | null): Promise<Participa
   // thing to answer next. Answered rows are ordered newest first by the panel.
   rows.sort((a, b) => a.created_at.localeCompare(b.created_at));
 
-  return { rows, visibility: 'ok' };
+  return { rows, visibility: 'ok', degraded, hiddenByScope };
 }
 
 // ============================================
