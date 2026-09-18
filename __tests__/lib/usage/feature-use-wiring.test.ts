@@ -2,7 +2,6 @@ import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { recordFeatureUse, FEATURE_KEYS } from '@/lib/usage/record';
-import { toldSomeoneNew } from '@/lib/services/shared/comment-mention-alerts';
 
 /**
  * BUG-006178 — labelled features whose core action recorded nothing, so the
@@ -48,18 +47,11 @@ describe('adoption loop — resource-management features record their use', () =
     );
   });
 
-  it('only a first-time alert counts as tagging; repeats, reminders and failed alerts do not', () => {
-    expect(toldSomeoneNew({ notified: [] })).toBe(false);
-    expect(toldSomeoneNew({ notified: ['u1'] })).toBe(true);
-    // A cooldown no-op, a reminder and an undelivered alert all leave `notified` empty.
-    const repeat = { tagged: ['u1'], notified: [], reminded: ['u1'], recentlyNotified: ['u2'], notNotified: ['u3'] };
-    expect(toldSomeoneNew(repeat)).toBe(false);
-  });
-
-  it('the tag route records a use on the session client, only when somebody new was tagged', () => {
+  it('the tag route records a use on the session client, only when this call created a tag', () => {
+    // `created` itself is exercised in lib/services/shared/__tests__/comment-mention-alerts.test.ts
     const src = read('app/api/resource-management/reservations/[id]/comment-mentions/route.ts');
     expect(src).toMatch(
-      /if\s*\(\s*toldSomeoneNew\(outcome\)\s*\)\s*\{\s*await recordFeatureUse\(\s*db\s*,\s*FEATURE_KEYS\.RESOURCES_TAG_COLLEAGUE\s*\)/,
+      /if\s*\(\s*outcome\.created\.length\s*>\s*0\s*\)\s*\{\s*await recordFeatureUse\(\s*db\s*,\s*FEATURE_KEYS\.RESOURCES_TAG_COLLEAGUE\s*\)/,
     );
   });
 });
