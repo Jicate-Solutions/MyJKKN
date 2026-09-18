@@ -114,21 +114,26 @@ export class EventCommitteeService {
   /**
    * Add MyJKKN users (picked from the member directory) to a committee.
    * Appends member_names and — when the arrays are index-aligned — member_ids
-   * (staff profile_id / learner id), so the RLS membership checks
+   * (the person's login id, profiles.id), so the RLS membership checks
    * (auth.uid() = ANY(member_ids) OR full_name = ANY(member_names)) both work.
+   * A person with no MyJKKN login (member_id null) gets a NULL id slot, which
+   * keeps the arrays aligned and matches no login (BUG-006132).
    * Committees with legacy free-text names (ids shorter than names) keep their
    * misaligned ids untouched and rely on the name match.
    */
   static addInternalMembers(
     committee: MarathonCommittee,
-    people: { member_id: string; name: string }[]
+    people: { member_id: string | null; name: string }[]
   ) {
     const names = committee.member_names ?? [];
     const ids = committee.member_ids ?? [];
     const nameSet = new Set(names.map((n) => n.toLowerCase()));
     const idSet = new Set(ids);
     const fresh = people.filter(
-      (p) => p.name.trim() && !nameSet.has(p.name.trim().toLowerCase()) && !idSet.has(p.member_id)
+      (p) =>
+        p.name.trim() &&
+        !nameSet.has(p.name.trim().toLowerCase()) &&
+        !(p.member_id && idSet.has(p.member_id))
     );
     if (fresh.length === 0) return Promise.resolve(committee);
 
@@ -137,7 +142,8 @@ export class EventCommitteeService {
       member_names: [...names, ...fresh.map((p) => p.name.trim())],
     };
     if (ids.length === names.length) {
-      payload.member_ids = [...ids, ...fresh.map((p) => p.member_id)];
+      // member_ids is uuid[] — NULL elements are valid; the TS type predates them.
+      payload.member_ids = [...ids, ...fresh.map((p) => p.member_id)] as string[];
     }
     return this.updateCommittee(committee.id, payload);
   }

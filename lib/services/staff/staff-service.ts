@@ -828,6 +828,9 @@ export class StaffService {
       department_id?: string;
       institution_id?: string;
       is_super_admin?: boolean;
+      // Holds the digital_coordinator role as ANY of their roles (primary or
+      // secondary) — profiles.role only carries the primary one.
+      is_digital_coordinator?: boolean;
     }
   ): Promise<StaffListResponse> {
     try {
@@ -839,6 +842,18 @@ export class StaffService {
       // Super admins see all staff
       if (userProfile?.is_super_admin) {
         return await this.getStaff(effectiveFilters);
+      }
+
+      // Digital coordinators manage their own institution's staff. Checked
+      // before the faculty branch: most coordinators are faculty by primary
+      // role and would otherwise see only their own record. Filtered to the
+      // institution explicitly because RLS alone is wider for coordinators
+      // who also hold an all-institutions role such as admission_counselor.
+      if (userProfile?.is_digital_coordinator && userProfile.institution_id) {
+        return await this.getStaffOptimizedForHOD(
+          effectiveFilters,
+          userProfile.institution_id
+        );
       }
 
       // Faculty users can only view their own staff record
