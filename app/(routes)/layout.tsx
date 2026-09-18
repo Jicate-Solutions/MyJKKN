@@ -7,6 +7,7 @@ import { Toaster as SonnerToaster } from 'sonner';
 import AdminPanelLayout from '@/components/layout/admin-panel-layout';
 import { QueryClientProvider } from '@/providers/query-provider';
 import { BugReporterWidget } from '@/components/bug-reporter/bug-reporter-widget';
+import { BugReportFocus } from '@/components/bug-reporter/bug-report-focus';
 import { WorkPulseFab } from '@/components/work-pulse-fab';
 import { AcknowledgmentGate } from '@/components/notifications/acknowledgment-gate';
 import { AutoTabNav } from '@/components/navigation/auto-tab-nav';
@@ -82,6 +83,13 @@ const Dashboardlayout = ({ children }: DashboardLayoutProps) => {
           }}
         />
         <BugReporterWidget key='bug-reporter' />
+        {/*
+          BugReportFocus: reads ?bugFocus / ?bugScroll off the URL and scrolls
+          the reported element into view with a brief outline, so verifying a
+          bug report lands on the spot rather than the top of the page. Renders
+          null and does nothing when neither param is present.
+         */}
+        <BugReportFocus key='bug-report-focus' />
         <WorkPulseFab key='work-pulse' />
         {/*
           HandoverLauncher: the Director's "hand this page over" control.
