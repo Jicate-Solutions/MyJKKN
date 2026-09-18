@@ -5,33 +5,47 @@ name: Production Build (main)
 # demand. `build` itself is never modified by this workflow, so what Vercel runs
 # is byte-identical to what it ran before this file existed.
 #
-# ── R16 (Director ruling, 2026-09-18): WHY THIS IS NO LONGER A PER-PR GATE ─────
+# ── R16 AS AMENDED (Director ruling, 2026-09-19 04:24): BOTH, NOT INSTEAD ──────
 #
-# This job used to run on every pull request, from
-# .github/workflows/production-build.yml. Since 2026-09-16 GitHub has been giving
-# this repository 2-vCPU / 7.8 GB runners instead of the 4-vCPU / 15 GiB boxes
-# every measurement below was taken on, and the ~13 GB `next build` cannot finish
-# on them. It died on PRs that were perfectly fine, and a gate that always fails
-# is worse than no gate: it teaches everybody to read a red mark as noise.
+# The heavy build runs in TWO places, and the Director's word for it was "BOTH":
 #
-# So the heavy build moved here, unchanged in substance. It runs on `push` to
-# `main` (after each merge) and on `workflow_dispatch`, and it votes on no pull
-# request. The cheap, PR-scoped jobs that used to share its file — the relevance
-# filter's own test suite and the `build:ci` vs `build` parity check — stayed on
-# `pull_request` in .github/workflows/production-build.yml.
+#   • On every pull request, from .github/workflows/production-build.yml, as
+#     ADVICE. Unchanged — that file is exactly what it was, and it keeps voting
+#     on PRs the way it always did.
+#   • On `main` after each merge, from THIS file, as the REAL check. That is what
+#     this workflow adds, together with the `red-main` job at the bottom.
 #
-# What this trades away is real: a build break is now found AFTER the merge
-# rather than before it. What surfaces it instead is the `red-main` job at the
-# bottom of this file, which opens or updates ONE issue titled
-# "Production Build on main is red" whenever this build does not pass, and closes
-# it again when main goes green. Branch protection is untouched by this move —
-# "Production Build" was never one of main's required checks, so nothing that
+# An earlier draft of this file removed the per-PR build and said so in this
+# header ("no longer a per-PR gate"). The 04:24 amendment reverses that half: the
+# PR build stays. Nothing in production-build.yml is touched by this PR.
+#
+# ── WHY MAIN NEEDS ITS OWN RUN ANYWAY ──────────────────────────────────────────
+#
+# Since 2026-09-16 GitHub has been giving this repository 2-vCPU / 7.8 GB runners
+# instead of the 4-vCPU / 15 GiB boxes every measurement below was taken on, and
+# the ~13 GB `next build` is a poor fit for them: on PRs it died on trees that
+# were perfectly fine, and a gate that fails for reasons of its own teaches
+# everybody to read a red mark as noise. That is precisely why the PR run is
+# ADVICE — informative, never blocking — and why the answer that counts is taken
+# here, once, on the tree that will actually be deployed.
+#
+# The PR run also cannot answer the question this one answers. It builds the PR's
+# head, not the merge result, so "two green PRs break when combined" is invisible
+# to it. A post-merge run on main's tip is the only place that class shows up
+# before Vercel finds it.
+#
+# A build break found here is found AFTER the merge. What surfaces it is the
+# `red-main` job at the bottom of this file, which opens or updates ONE issue
+# titled "Production Build on main is red" whenever this build does not pass, and
+# closes it again when main goes green. Branch protection is untouched by either
+# half — "Production Build" was never one of main's required checks (verified
+# 2026-09-18: that list is the four migration/typecheck contexts), so nothing that
 # used to block a merge stops blocking one.
 #
 # Everything below is the original measurement record, moved here verbatim with
 # the build job it explains. It was taken on 4-vCPU / 15 GiB runners; the swap
 # sizing (PR #3856) already copes with a smaller /mnt, and the 2-vCPU box is the
-# reason this is no longer a gate.
+# reason the per-PR run is advice rather than a gate.
 #
 # The build does not fit in a standard runner's RAM. It fits once the runner is
 # given enough swap, which this workflow does for itself — see "MEASURED" below.
@@ -97,15 +111,18 @@ name: Production Build (main)
 #     a bad import boundary, a failing `generateStaticParams`, or a module that
 #     throws at import time during page-data collection.
 #
-# ── PROMOTION: NO (R16, 2026-09-18) ────────────────────────────────────────────
+# ── PROMOTION: NO (R16 as amended, 2026-09-19 04:24) ───────────────────────────
 #
 # This section used to argue that "Production Build" was ready to be promoted to
 # a required check on main once a few days of real PRs looked right. R16 settles
-# it the other way. On the 2-vCPU / 7.8 GB runners this repository now gets, the
-# build cannot complete at all, so it is not a candidate for a required check and
-# it no longer runs on pull requests. It was never in main's required-checks list
-# (verified 2026-09-18: that list is the four migration/typecheck contexts), so
-# moving it changes nothing about what can merge.
+# it the other way, and the 04:24 amendment does not reopen it. On the 2-vCPU /
+# 7.8 GB runners this repository now gets, the per-PR build is unreliable for
+# reasons that have nothing to do with the PR, which is exactly why it stays
+# ADVICE and is not a candidate for a required check. This post-merge run is not
+# one either: it reports after the merge, so it could not block one. Neither was
+# ever in main's required-checks list (verified 2026-09-18: that list is the four
+# migration/typecheck contexts), so adding this workflow changes nothing about
+# what can merge.
 #
 # The argument that survives, and the reason the job still ALWAYS reports a
 # conclusion rather than using a `paths-ignore:` trigger: a docs-only merge skips
@@ -310,9 +327,25 @@ name: Production Build (main)
 # here, in the file, rather than only in a step summary nobody will receive.
 
 on:
-  # After each merge — the whole point of R16. The build is checked once, on the
-  # tree that will actually be deployed, instead of once per PR on a tree that
-  # will not be.
+  # After each merge — the whole point of R16 as amended (2026-09-19 04:24). The
+  # PR copy of this build, in .github/workflows/production-build.yml, still runs
+  # on every pull request as advice; this run is the one that counts, taken on the
+  # tree that will actually be deployed rather than on a PR head that will not be.
+  #
+  # Only `push` and `workflow_dispatch` here — deliberately NO `pull_request` and
+  # no `merge_group`. Both of those belong to production-build.yml, whose `build`
+  # job also reports a check named "Production Build". Disjoint triggers are what
+  # keep the two names off the same commit.
+  #
+  # ⚠️ THE ONE CASE THAT WOULD BREAK THAT, checked 2026-09-19 and currently safe:
+  # if a MERGE QUEUE is ever enabled on `main`, production-build.yml's inert
+  # `merge_group:` trigger wakes up and builds the queue's merged commit C, and
+  # main is then fast-forwarded to that same C — so `push` fires here on C too and
+  # commit C ends up carrying TWO check runs both called "Production Build".
+  # Verified today that this cannot happen yet: `mergeQueue(branch:"main")` is
+  # null and neither active ruleset ("Protect main branch", "Require PR to main")
+  # carries a `merge_queue` rule. Whoever enables one must rename this job to
+  # "Production Build (main)" in the same change.
   push:
     branches: [main]
   # For a human who wants the answer now: after a revert, after changing the swap
@@ -631,18 +664,20 @@ jobs:
             echo ""
             echo "---"
             echo ""
-            echo "_**Post-merge check (R16, 2026-09-18).** This runs after the merge, not on the"
-            echo "pull request, because the 2-vCPU runners GitHub now gives this repo cannot finish"
-            echo "a ~13 GB \`next build\`. It blocks nothing; when it is red the \`red-main\` job opens"
-            echo "or updates the issue **Production Build on main is red**._"
+            echo "_**Post-merge check (R16 as amended, 2026-09-19 04:24).** The heavy build runs in"
+            echo "BOTH places: on every pull request as advice, from \`production-build.yml\`, and"
+            echo "here on \`main\` after each merge as the check that counts. It blocks nothing; when"
+            echo "it is red the \`red-main\` job opens or updates the issue"
+            echo "**Production Build on main is red**._"
           } >> "$GITHUB_STEP_SUMMARY"
 
   # ── MAKING A RED MAIN VISIBLE ────────────────────────────────────────────────
   #
-  # A per-PR gate announced itself on the PR page. A post-merge build announces
-  # itself nowhere, so without this job R16 would trade a noisy gate for a silent
-  # one. This keeps exactly ONE issue open: created on the first red build,
-  # commented on for each subsequent one, closed when main builds again.
+  # The per-PR run announces itself on the PR page. A post-merge build announces
+  # itself nowhere — nobody is looking at main's commit list — so without this job
+  # the half of R16 that actually decides would be the silent half. This keeps
+  # exactly ONE issue open: created on the first red build, commented on for each
+  # subsequent one, closed when main builds again.
   #
   # It is a separate job on purpose. When this build dies of memory exhaustion the
   # runner agent is torn down with it, and `always()` cannot save a step on a
@@ -717,11 +752,14 @@ jobs:
             "the next production deploy is blocked for the whole repository, not just for the" \
             "module the last merge touched." \
             "" \
-            "Since R16 (2026-09-18) this build runs after each merge instead of on every pull" \
-            "request, because the 2-vCPU / 7.8 GB runners GitHub now gives this repository" \
-            "cannot finish a ~13 GB \`next build\`. If the run above died with no named error" \
-            "and the memory trace's last samples read \`avail < 300MB\`, that is the runner," \
-            "not the merge." \
+            "Under R16 as amended (2026-09-19 04:24) this build runs in BOTH places: on every" \
+            "pull request as advice, and here on main after each merge as the check that" \
+            "counts. So look at the merged PR's own Production Build run too — if it was" \
+            "already red there, the break came in with that PR rather than out of the merge." \
+            "" \
+            "If the run above died with no named error and the memory trace's last samples read" \
+            "\`avail < 300MB\`, that is the 2-vCPU / 7.8 GB runner GitHub now gives this" \
+            "repository, not the merge." \
             "" \
             "This issue is opened once, commented on for each further red build, and closed" \
             "automatically when main builds again.")
