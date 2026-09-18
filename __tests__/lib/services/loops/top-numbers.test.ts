@@ -20,11 +20,14 @@ import {
   isCronGroup,
   isUserFacingLevel,
   lastCompleteIsoWeek,
+  loadTopNumberConstants,
   T1_MINUTES_PER_AFFECTED_USER,
   T1_MINUTES_PER_REPORTER,
   T2_INSUFFICIENT_GAP,
   TOP_ADOPTION_SHARE_KEY,
   TOP_DEFECT_HOURS_KEY,
+  TOP_NUMBER_FALLBACKS,
+  TOP_NUMBER_POLICY_KEYS,
   type IsoWeek,
   type SentryReader,
 } from '@/lib/services/loops/top-numbers';
@@ -50,10 +53,14 @@ function makeT1Admin(opts: { bugCount?: number | null; bugError?: string }) {
 
 const sentryOk =
   (groups: Array<Record<string, unknown>>): SentryReader =>
-  async () => ({ groups: groups as never });
+  async () => ({ groups: groups as never, tokenSource: 'SENTRY_READ_TOKEN' });
 const sentryDown =
   (reason: string): SentryReader =>
-  async () => ({ error: reason });
+  async () => ({ error: reason, tokenSource: 'SENTRY_READ_TOKEN' });
+/** The already-configured production token, used because no read-only one exists. */
+const sentryOnFallback =
+  (groups: Array<Record<string, unknown>>): SentryReader =>
+  async () => ({ groups: groups as never, tokenSource: 'SENTRY_AUTH_TOKEN (fallback)' });
 
 describe('lastCompleteIsoWeek', () => {
   it('returns the Monday-to-Sunday week that has already ENDED, in IST', () => {
@@ -159,12 +166,33 @@ describe('computeDefectHours (T1)', () => {
 });
 
 // ── T2 stand-in ─────────────────────────────────────────────────────────────
+type PersonRow = { user_id: string; role: string | null };
+type UsageRow = { user_id: string; feature_key: string };
+
+/**
+ * The stand-in also RECORDS the columns each paged read sorts on.
+ *
+ * Offset paging (`.range()`) only returns every row exactly once when the sort
+ * is a total order. Both of T2's paged reads have thousands of rows sharing a
+ * user_id, so sorting on user_id alone lets PostgreSQL return a tied row twice
+ * and another never — a silent under- or over-count. The sort columns are
+ * therefore asserted directly, and the pages below are also made to OVERLAP on
+ * a tie so the count is checked to be exact even when a page repeats a row.
+ */
 function makeT2Admin(opts: {
   features?: Array<{ feature_key: string; title?: string; intended_roles: string[] }>;
   featuresError?: string;
-  people?: Array<{ user_id: string; role: string | null }>;
-  usage?: Array<{ user_id: string; feature_key: string }>;
+  people?: PersonRow[];
+  peoplePages?: PersonRow[][];
+  usage?: UsageRow[];
+  usagePages?: UsageRow[][];
 }) {
+  const orderedBy = { people: [] as string[], usage: [] as string[] };
+  const pageOf = <T,>(pages: T[][] | undefined, single: T[] | undefined, fromRow: number): T[] => {
+    if (pages) return pages[Math.floor(fromRow / 1000)] ?? [];
+    return fromRow === 0 ? (single ?? []) : [];
+  };
+
   const from = vi.fn((table: string) => {
     if (table === 'feature_registry') {
       const chain: Record<string, unknown> = {};
@@ -186,9 +214,12 @@ function makeT2Admin(opts: {
       in: self,
       gte: self,
       lte: self,
-      order: self,
+      order: (col: string) => {
+        orderedBy.usage.push(col);
+        return chain;
+      },
       range: async (fromRow: number) => ({
-        data: fromRow === 0 ? (opts.usage ?? []) : [],
+        data: pageOf(opts.usagePages, opts.usage, fromRow),
         error: null,
       }),
     });
@@ -198,16 +229,46 @@ function makeT2Admin(opts: {
   const rpc = vi.fn(() => {
     const chain: Record<string, unknown> = {};
     Object.assign(chain, {
-      order: () => chain,
+      order: (col: string) => {
+        orderedBy.people.push(col);
+        return chain;
+      },
       range: async (fromRow: number) => ({
-        data: fromRow === 0 ? (opts.people ?? []) : [],
+        data: pageOf(opts.peoplePages, opts.people, fromRow),
         error: null,
       }),
     });
     return chain;
   });
 
-  return { from, rpc } as unknown as Parameters<typeof computeAdoptionShare>[0];
+  const admin = { from, rpc } as unknown as Parameters<typeof computeAdoptionShare>[0];
+  return Object.assign(admin, { __orderedBy: orderedBy }) as typeof admin & {
+    __orderedBy: typeof orderedBy;
+  };
+}
+
+/** A stand-in for the platform_policies read that resolves the five dials. */
+function makePolicyAdmin(
+  rows: Array<{ policy_key: string; value: unknown }> | { reject: string }
+) {
+  const from = vi.fn(() => {
+    const chain: Record<string, unknown> = {};
+    const self = () => chain;
+    Object.assign(chain, {
+      in: self,
+      eq: () => ({
+        then: (
+          ok: (r: { data: unknown }) => unknown,
+          fail: (e: unknown) => unknown
+        ) =>
+          'reject' in rows
+            ? Promise.resolve(fail(new Error(rows.reject)))
+            : Promise.resolve(ok({ data: rows })),
+      }),
+    });
+    return { select: () => chain };
+  });
+  return { from } as unknown as Parameters<typeof loadTopNumberConstants>[0];
 }
 
 describe('computeAdoptionShare (T2)', () => {
@@ -301,5 +362,200 @@ describe('computeAdoptionShare (T2)', () => {
     );
     // 1 of 4 people = 25% ≥ 20% → the one feature counts as used.
     expect(reading.value).toBe(100);
+  });
+});
+
+// ── The five dials live in platform_policies, not in this file ──────────────
+// House rule: docs/architecture/config-table-pattern.md. The spec says these
+// numbers WILL be recalibrated, so a recalibration must not need a deploy —
+// and a reading must still carry the values it was actually computed with.
+describe('loadTopNumberConstants', () => {
+  it('reads all six policy rows', async () => {
+    const admin = makePolicyAdmin([
+      { policy_key: TOP_NUMBER_POLICY_KEYS.t1MinutesPerAffectedUser, value: 7 },
+      { policy_key: TOP_NUMBER_POLICY_KEYS.t1MinutesPerReporter, value: 11 },
+      { policy_key: TOP_NUMBER_POLICY_KEYS.t1BugMinAgeDays, value: 3 },
+      { policy_key: TOP_NUMBER_POLICY_KEYS.t2UsedSharePct, value: 35 },
+      { policy_key: TOP_NUMBER_POLICY_KEYS.t2MinAgeDays, value: 21 },
+      { policy_key: TOP_NUMBER_POLICY_KEYS.t2ExcludedFeatureKeys, value: ['app.login', 'x.y'] },
+    ]);
+    expect(await loadTopNumberConstants(admin)).toEqual({
+      t1MinutesPerAffectedUser: 7,
+      t1MinutesPerReporter: 11,
+      t1BugMinAgeDays: 3,
+      t2UsedSharePct: 35,
+      t2MinAgeDays: 21,
+      t2ExcludedFeatureKeys: ['app.login', 'x.y'],
+    });
+  });
+
+  it('falls back per key — an absent or malformed row never yields a nonsense number', async () => {
+    const admin = makePolicyAdmin([
+      { policy_key: TOP_NUMBER_POLICY_KEYS.t1MinutesPerAffectedUser, value: 9 },
+      { policy_key: TOP_NUMBER_POLICY_KEYS.t2UsedSharePct, value: 'not a number' },
+      { policy_key: TOP_NUMBER_POLICY_KEYS.t2ExcludedFeatureKeys, value: 'app.login' },
+    ]);
+    const k = await loadTopNumberConstants(admin);
+    expect(k.t1MinutesPerAffectedUser).toBe(9);
+    expect(k.t2UsedSharePct).toBe(TOP_NUMBER_FALLBACKS.t2UsedSharePct);
+    expect(k.t1MinutesPerReporter).toBe(TOP_NUMBER_FALLBACKS.t1MinutesPerReporter);
+    expect(k.t2ExcludedFeatureKeys).toEqual(TOP_NUMBER_FALLBACKS.t2ExcludedFeatureKeys);
+  });
+
+  it('accepts zero — a bug age of 0 days is a legitimate retune, not a bad row', async () => {
+    const admin = makePolicyAdmin([
+      { policy_key: TOP_NUMBER_POLICY_KEYS.t1BugMinAgeDays, value: 0 },
+    ]);
+    expect((await loadTopNumberConstants(admin)).t1BugMinAgeDays).toBe(0);
+  });
+
+  it('falls back to every in-code default when the policy table cannot be read', async () => {
+    const admin = makePolicyAdmin({ reject: 'permission denied for table platform_policies' });
+    expect(await loadTopNumberConstants(admin)).toEqual(TOP_NUMBER_FALLBACKS);
+  });
+});
+
+describe('the numbers are computed with the RESOLVED constants', () => {
+  it('T1 uses the policy minutes and records them, not the in-code defaults', async () => {
+    const admin = makeT1Admin({ bugCount: 10 });
+    const reading = await computeDefectHours(
+      admin,
+      sentryOk([{ id: 'a', level: 'error', culprit: 'GET /learners', userCount: 60 }]),
+      WEEK,
+      { ...TOP_NUMBER_FALLBACKS, t1MinutesPerAffectedUser: 10, t1MinutesPerReporter: 30 }
+    );
+    // 60 × 10 + 10 × 30 = 900 min = 15 h. On the in-code defaults it would be 2.83 h.
+    expect(reading.value).toBe(15);
+    const run = JSON.parse(reading.runId);
+    expect(run.constants.sentry_minutes_per_affected_user).toBe(10);
+    expect(run.constants.bug_minutes_per_reporter).toBe(30);
+    expect(reading.gap).toContain('10 min each');
+  });
+
+  it('T2 uses the policy bar — 25% clears 20 but misses 30', async () => {
+    const setup = {
+      features: [{ feature_key: 'academic.mark_attendance', intended_roles: ['faculty'] }],
+      people: [
+        { user_id: 'f1', role: 'faculty' },
+        { user_id: 'f2', role: 'faculty' },
+        { user_id: 'f3', role: 'faculty' },
+        { user_id: 'f4', role: 'faculty' },
+      ],
+      usage: [{ user_id: 'f1', feature_key: 'academic.mark_attendance' }],
+    };
+    const at20 = await computeAdoptionShare(makeT2Admin(setup), WEEK, TOP_NUMBER_FALLBACKS);
+    const at30 = await computeAdoptionShare(makeT2Admin(setup), WEEK, {
+      ...TOP_NUMBER_FALLBACKS,
+      t2UsedSharePct: 30,
+    });
+    expect(at20.value).toBe(100);
+    expect(at30.value).toBe(0);
+    expect(JSON.parse(at30.runId).constants.used_share_pct).toBe(30);
+  });
+});
+
+// ── The exclusion is a policy row, not a silent filter ──────────────────────
+describe('T2 excluded feature keys', () => {
+  const twoFeatures = {
+    features: [
+      { feature_key: 'app.login', intended_roles: ['all'] },
+      { feature_key: 'academic.mark_attendance', intended_roles: ['faculty'] },
+    ],
+    people: [
+      { user_id: 'f1', role: 'faculty' },
+      { user_id: 'f2', role: 'faculty' },
+    ],
+    // Everybody signs in; nobody marks attendance.
+    usage: [
+      { user_id: 'f1', feature_key: 'app.login' },
+      { user_id: 'f2', feature_key: 'app.login' },
+    ],
+  };
+
+  it("leaves app.login out by default — it is the sign-in line, not a shipped feature", async () => {
+    const reading = await computeAdoptionShare(makeT2Admin(twoFeatures), WEEK);
+    // Only mark-attendance is measured, and nobody used it.
+    expect(reading.value).toBe(0);
+    const run = JSON.parse(reading.runId);
+    expect(run.measurable_features).toBe(1);
+    // The exclusion travels WITH the measurement — nobody has to read the code.
+    expect(run.constants.excluded_feature_keys).toEqual(['app.login']);
+  });
+
+  it('counts every key when the Director empties the exclusion list', async () => {
+    const reading = await computeAdoptionShare(makeT2Admin(twoFeatures), WEEK, {
+      ...TOP_NUMBER_FALLBACKS,
+      t2ExcludedFeatureKeys: [],
+    });
+    // Both features measured; sign-in cleared the bar, attendance did not.
+    expect(reading.value).toBe(50);
+    expect(JSON.parse(reading.runId).measurable_features).toBe(2);
+  });
+});
+
+// ── Page boundaries ─────────────────────────────────────────────────────────
+describe('T2 paged reads cannot skip or double-count at a page boundary', () => {
+  const oneFeature = [
+    { feature_key: 'academic.mark_attendance', intended_roles: ['faculty'] },
+  ];
+  const tenFaculty = Array.from({ length: 10 }, (_, i) => ({
+    user_id: `f${String(i).padStart(2, '0')}`,
+    role: 'faculty',
+  }));
+
+  it('sorts both paged reads on a key that is unique, not on user_id alone', async () => {
+    const admin = makeT2Admin({
+      features: oneFeature,
+      people: tenFaculty,
+      usage: [{ user_id: 'f00', feature_key: 'academic.mark_attendance' }],
+    });
+    await computeAdoptionShare(admin, WEEK);
+    // feature_usage's primary key IS (user_id, feature_key, day) — it has no id.
+    expect(admin.__orderedBy.usage).toEqual(['user_id', 'feature_key', 'day']);
+    // fn_adoption_person_roles UNIONs, so (user_id, role) is unique in its output.
+    expect(admin.__orderedBy.people).toEqual(['user_id', 'role']);
+  });
+
+  it('counts each person once even when two pages overlap on a tie', async () => {
+    const key = 'academic.mark_attendance';
+    // A full first page whose tail ties on user_id, then a second page that
+    // REPEATS the boundary row — exactly what a non-unique sort produces.
+    const page0 = [
+      ...Array.from({ length: 999 }, () => ({ user_id: 'f00', feature_key: key })),
+      { user_id: 'f01', feature_key: key },
+    ];
+    const page1 = [
+      { user_id: 'f01', feature_key: key }, // the duplicate
+      { user_id: 'f02', feature_key: key },
+    ];
+    const reading = await computeAdoptionShare(
+      makeT2Admin({ features: oneFeature, people: tenFaculty, usagePages: [page0, page1] }),
+      WEEK
+    );
+    // Three DISTINCT faculty of ten = 30%. Counting rows would say 40%.
+    const run = JSON.parse(reading.runId);
+    expect(run.per_feature[0].best_pct).toBe(30);
+    expect(reading.value).toBe(100);
+  });
+});
+
+// ── The Sentry token the reading was actually taken with ───────────────────
+describe('T1 records which Sentry secret it ran on', () => {
+  it('names the fallback explicitly when SENTRY_READ_TOKEN is unset', async () => {
+    const admin = makeT1Admin({ bugCount: 4 });
+    const reading = await computeDefectHours(
+      admin,
+      sentryOnFallback([{ id: 'a', level: 'error', userCount: 5 }]),
+      WEEK
+    );
+    expect(reading.tokenSource).toBe('SENTRY_AUTH_TOKEN (fallback)');
+    expect(JSON.parse(reading.runId).constants.token_source).toBe('SENTRY_AUTH_TOKEN (fallback)');
+  });
+
+  it('records the token source even on a reading that came back NULL', async () => {
+    const admin = makeT1Admin({ bugCount: 4 });
+    const reading = await computeDefectHours(admin, sentryDown('HTTP 403 forbidden'), WEEK);
+    expect(reading.value).toBeNull();
+    expect(JSON.parse(reading.runId).constants.token_source).toBe('SENTRY_READ_TOKEN');
   });
 });

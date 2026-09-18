@@ -36,6 +36,7 @@ import {
   computeDefectHours,
   createSentryReader,
   lastCompleteIsoWeek,
+  loadTopNumberConstants,
   type TopNumberReading,
 } from '@/lib/services/loops/top-numbers';
 
@@ -44,6 +45,8 @@ interface RecordedReading {
   value: number | null;
   recorded: boolean;
   gap: string;
+  /** T1 only — which Sentry secret the reading was actually taken with. */
+  token_source?: string;
   error?: string;
 }
 
@@ -64,6 +67,7 @@ async function record(
     value: reading.value,
     recorded: !error,
     gap: reading.gap,
+    ...(reading.tokenSource ? { token_source: reading.tokenSource } : {}),
     ...(error ? { error: error.message } : {}),
   };
 }
@@ -80,9 +84,15 @@ export async function GET(request: NextRequest) {
   const admin = createServiceRoleClient();
   const week = lastCompleteIsoWeek(new Date());
 
+  // The five dials and the exclusion list are platform_policies rows read at
+  // run time (config-table pattern), not deployed literals — a recalibration
+  // changes next Monday's reading with no PR. Absent rows fall back to the
+  // in-code defaults, so this route works before the seed is applied.
+  const constants = await loadTopNumberConstants(admin);
+
   const [t1, t2] = await Promise.all([
-    computeDefectHours(admin, createSentryReader(), week),
-    computeAdoptionShare(admin, week),
+    computeDefectHours(admin, createSentryReader(), week, constants),
+    computeAdoptionShare(admin, week, constants),
   ]);
 
   const results = [await record(admin, t1), await record(admin, t2)];

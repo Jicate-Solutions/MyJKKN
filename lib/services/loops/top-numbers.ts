@@ -31,7 +31,30 @@ import type { createServiceRoleClient } from '@/lib/supabase/server';
 
 type Admin = ReturnType<typeof createServiceRoleClient>;
 
-// ── Constants (the first honest guess — recorded with every measurement) ─────
+// ── Constants — platform_policies rows, read at run time ────────────────────
+//
+// HOUSE RULE: docs/architecture/config-table-pattern.md. Every threshold a
+// super admin might retune — "even once" — is a DATABASE ROW read at run time
+// with an in-code fallback, never a literal that needs a deploy to change.
+// The spec says outright that these five WILL be recalibrated from the
+// adoption "why not" answers and reporter comments, which makes them the
+// pattern's central case, not an edge of it.
+//
+// Same shape as loops.proven_green.* (seeded by 20260813033300, read by
+// /admin/loops): scope_type = 'global' rows, numeric jsonb value, in-code
+// fallback when the row is absent — so both numbers are computable before the
+// seed migration is applied, and a retune changes the NEXT reading only.
+// Every measurement still records the values it actually used inside run_id,
+// so a recalibration never rewrites a past reading.
+
+export const TOP_NUMBER_POLICY_KEYS = {
+  t1MinutesPerAffectedUser: 'top_numbers.t1_minutes_per_affected_user',
+  t1MinutesPerReporter: 'top_numbers.t1_minutes_per_reporter',
+  t1BugMinAgeDays: 'top_numbers.t1_bug_min_age_days',
+  t2UsedSharePct: 'top_numbers.t2_used_share_pct',
+  t2MinAgeDays: 'top_numbers.t2_min_age_days',
+  t2ExcludedFeatureKeys: 'top_numbers.t2_excluded_feature_keys',
+} as const;
 
 /** T1: minutes one affected person loses to one user-facing production error. */
 export const T1_MINUTES_PER_AFFECTED_USER = 2;
@@ -44,8 +67,99 @@ export const T2_USED_SHARE_PCT = 20;
 /** T2: a feature younger than this has not had a fair chance to be adopted. */
 export const T2_MIN_AGE_DAYS = 14;
 
+/**
+ * T2: feature keys that are NOT features whose adoption is measured.
+ *
+ * `app.login` is the app-wide daily sign-in line, not something shipped for a
+ * role to adopt: every signed-in person records it, so leaving it in would add
+ * one permanently-"used" feature to every week's share. The merged adoption
+ * metric excludes it on exactly this ground
+ * (20260916190200_adoption_metrics.sql: `WHERE fr.feature_key <> 'app.login'`,
+ * with supabase/tests/adoption/10_scenarios.sql asserting it appears in no
+ * metrics row), so dropping the exclusion here would make T2 disagree with the
+ * adoption loop it is supposed to be the top number FOR.
+ *
+ * It is a POLICY ROW rather than a silent filter: the exclusion is visible on
+ * /admin's policy table, editable without a deploy, and recorded inside every
+ * measurement's run_id, so nobody has to read this file to learn that one key
+ * is left out.
+ */
+export const T2_EXCLUDED_FEATURE_KEYS: readonly string[] = ['app.login'];
+
 /** bug_reports statuses that mean the report is NOT costing anybody time. */
 export const T1_CLOSED_BUG_STATUSES = ['resolved', 'closed', 'wont_fix', 'duplicate'] as const;
+
+/** The five dials plus the exclusion list, as actually resolved for one run. */
+export interface TopNumberConstants {
+  t1MinutesPerAffectedUser: number;
+  t1MinutesPerReporter: number;
+  t1BugMinAgeDays: number;
+  t2UsedSharePct: number;
+  t2MinAgeDays: number;
+  t2ExcludedFeatureKeys: string[];
+}
+
+/** What the numbers are computed with when no policy row is readable. */
+export const TOP_NUMBER_FALLBACKS: TopNumberConstants = {
+  t1MinutesPerAffectedUser: T1_MINUTES_PER_AFFECTED_USER,
+  t1MinutesPerReporter: T1_MINUTES_PER_REPORTER,
+  t1BugMinAgeDays: T1_BUG_MIN_AGE_DAYS,
+  t2UsedSharePct: T2_USED_SHARE_PCT,
+  t2MinAgeDays: T2_MIN_AGE_DAYS,
+  t2ExcludedFeatureKeys: [...T2_EXCLUDED_FEATURE_KEYS],
+};
+
+/**
+ * Reads the six policy rows, falling back per-key to the in-code default.
+ *
+ * Mirrors the `policyNum` read on /admin/loops: a single global-scope select,
+ * a rejected read treated as "no rows" rather than an exception, and a value
+ * that is not a finite number ignored in favour of the fallback — a malformed
+ * row must never turn a top number into nonsense. Zero IS accepted (a bug age
+ * of 0 days is a legitimate retune); only non-numbers and negatives are not.
+ */
+export async function loadTopNumberConstants(admin: Admin): Promise<TopNumberConstants> {
+  const rows = await admin
+    .from('platform_policies')
+    .select('policy_key, value')
+    .in('policy_key', Object.values(TOP_NUMBER_POLICY_KEYS))
+    .eq('scope_type', 'global')
+    .then(
+      (r) => (r.data ?? []) as { policy_key: string; value: unknown }[],
+      () => [] as { policy_key: string; value: unknown }[]
+    );
+
+  const raw = (key: string): unknown => rows.find((p) => p.policy_key === key)?.value;
+
+  const num = (key: string, fallback: number): number => {
+    const v = raw(key);
+    const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN;
+    return Number.isFinite(n) && n >= 0 ? n : fallback;
+  };
+
+  const list = (key: string, fallback: string[]): string[] => {
+    const v = raw(key);
+    if (!Array.isArray(v)) return fallback;
+    const strings = v.filter((x): x is string => typeof x === 'string');
+    // An array that is present but holds nothing usable is an EMPTY exclusion
+    // list, deliberately — that is how the Director turns the exclusion off.
+    return strings.length === v.length ? strings : fallback;
+  };
+
+  return {
+    t1MinutesPerAffectedUser: num(
+      TOP_NUMBER_POLICY_KEYS.t1MinutesPerAffectedUser,
+      T1_MINUTES_PER_AFFECTED_USER
+    ),
+    t1MinutesPerReporter: num(TOP_NUMBER_POLICY_KEYS.t1MinutesPerReporter, T1_MINUTES_PER_REPORTER),
+    t1BugMinAgeDays: num(TOP_NUMBER_POLICY_KEYS.t1BugMinAgeDays, T1_BUG_MIN_AGE_DAYS),
+    t2UsedSharePct: num(TOP_NUMBER_POLICY_KEYS.t2UsedSharePct, T2_USED_SHARE_PCT),
+    t2MinAgeDays: num(TOP_NUMBER_POLICY_KEYS.t2MinAgeDays, T2_MIN_AGE_DAYS),
+    t2ExcludedFeatureKeys: list(TOP_NUMBER_POLICY_KEYS.t2ExcludedFeatureKeys, [
+      ...T2_EXCLUDED_FEATURE_KEYS,
+    ]),
+  };
+}
 
 export const TOP_DEFECT_HOURS_KEY = 'top-defect-hours';
 export const TOP_ADOPTION_SHARE_KEY = 'top-adoption-share';
@@ -122,6 +236,8 @@ export interface TopNumberReading {
   gap: string;
   /** JSON: the week, the constants used, and the working. Never rewritten. */
   runId: string;
+  /** T1 only: which Sentry secret was actually used, fallback included. */
+  tokenSource?: SentryTokenSource;
 }
 
 // ── T1: weekly hours real users lose to defects ─────────────────────────────
@@ -134,8 +250,24 @@ export interface SentryGroup {
   userCount?: number | null;
 }
 
+/**
+ * Which secret the Sentry read ran on.
+ *
+ * The fallback is deliberate — production already holds SENTRY_AUTH_TOKEN and
+ * /api/cron/sentry-lane-2 runs on it, so T1 is not dark while a dedicated
+ * read-only secret is minted. It is NOT silent: the value travels into the
+ * measurement's recorded constants and the cron's own JSON, so "which token
+ * was this number read with" is answerable from the row, months later.
+ */
+export type SentryTokenSource =
+  | 'SENTRY_READ_TOKEN'
+  | 'SENTRY_AUTH_TOKEN (fallback)'
+  | 'none';
+
 /** Either the groups for the window, or the honest reason there are none. */
-export type SentryReadResult = { groups: SentryGroup[] } | { error: string };
+export type SentryReadResult =
+  | { groups: SentryGroup[]; tokenSource: SentryTokenSource }
+  | { error: string; tokenSource: SentryTokenSource };
 
 export type SentryReader = (week: IsoWeek) => Promise<SentryReadResult>;
 
@@ -160,20 +292,15 @@ export function isUserFacingLevel(group: SentryGroup): boolean {
 export async function computeDefectHours(
   admin: Admin,
   readSentry: SentryReader,
-  week: IsoWeek
+  week: IsoWeek,
+  k: TopNumberConstants = TOP_NUMBER_FALLBACKS
 ): Promise<TopNumberReading> {
-  const constants = {
-    sentry_minutes_per_affected_user: T1_MINUTES_PER_AFFECTED_USER,
-    bug_minutes_per_reporter: T1_MINUTES_PER_REPORTER,
-    bug_min_age_days: T1_BUG_MIN_AGE_DAYS,
-  };
-
   // ── the reported half: open bug_reports at least a day old ───────────────
   // A COUNT, not a page of rows: a `select()` would stop at PostgREST's row
   // cap and undercount in silence — the "an empty answer is not proof of
   // absence" class. One report = one reporter; rows already marked a duplicate
   // of another report are excluded so the same complaint is counted once.
-  const olderThan = new Date(week.endUtc.getTime() - T1_BUG_MIN_AGE_DAYS * DAY_MS).toISOString();
+  const olderThan = new Date(week.endUtc.getTime() - k.t1BugMinAgeDays * DAY_MS).toISOString();
   let reporterCount: number | null = null;
   let bugError: string | null = null;
   try {
@@ -197,11 +324,22 @@ export async function computeDefectHours(
   // ── the unreported half: Sentry ──────────────────────────────────────────
   const sentry = await readSentry(week);
 
+  // The constants carried INTO the row, including which Sentry secret this
+  // reading was actually taken with — a fallback nobody can see is a fallback
+  // nobody can audit.
+  const constants = {
+    sentry_minutes_per_affected_user: k.t1MinutesPerAffectedUser,
+    bug_minutes_per_reporter: k.t1MinutesPerReporter,
+    bug_min_age_days: k.t1BugMinAgeDays,
+    token_source: sentry.tokenSource,
+  };
+
   if ('error' in sentry) {
     return {
       loopKey: TOP_DEFECT_HOURS_KEY,
       value: null,
       gap: `insufficient — ${sentry.error}`,
+      tokenSource: sentry.tokenSource,
       runId: JSON.stringify({
         week: week.label,
         week_start: week.startDay,
@@ -210,7 +348,7 @@ export async function computeDefectHours(
         sentry: { read: false, reason: sentry.error },
         bugs: bugError
           ? { read: false, reason: bugError }
-          : { read: true, reporters: reporterCount, minutes: (reporterCount ?? 0) * T1_MINUTES_PER_REPORTER },
+          : { read: true, reporters: reporterCount, minutes: (reporterCount ?? 0) * k.t1MinutesPerReporter },
       }),
     };
   }
@@ -220,6 +358,7 @@ export async function computeDefectHours(
       loopKey: TOP_DEFECT_HOURS_KEY,
       value: null,
       gap: `insufficient — bug_reports could not be read: ${bugError ?? 'no rows returned'}`,
+      tokenSource: sentry.tokenSource,
       runId: JSON.stringify({
         week: week.label,
         week_start: week.startDay,
@@ -233,17 +372,18 @@ export async function computeDefectHours(
 
   const counted = sentry.groups.filter((g) => isUserFacingLevel(g) && !isCronGroup(g));
   const affectedUsers = counted.reduce((sum, g) => sum + Math.max(0, g.userCount ?? 0), 0);
-  const sentryMinutes = affectedUsers * T1_MINUTES_PER_AFFECTED_USER;
-  const bugMinutes = reporterCount * T1_MINUTES_PER_REPORTER;
+  const sentryMinutes = affectedUsers * k.t1MinutesPerAffectedUser;
+  const bugMinutes = reporterCount * k.t1MinutesPerReporter;
   const hours = Math.round(((sentryMinutes + bugMinutes) / 60) * 100) / 100;
 
   return {
     loopKey: TOP_DEFECT_HOURS_KEY,
     value: hours,
+    tokenSource: sentry.tokenSource,
     gap:
       `${hours} h lost in ${week.label}: ${affectedUsers} people hit ${counted.length} live production ` +
-      `error groups (${T1_MINUTES_PER_AFFECTED_USER} min each) and ${reporterCount} open bug reports at ` +
-      `least ${T1_BUG_MIN_AGE_DAYS} day old (${T1_MINUTES_PER_REPORTER} min each). No bar yet.`,
+      `error groups (${k.t1MinutesPerAffectedUser} min each) and ${reporterCount} open bug reports at ` +
+      `least ${k.t1BugMinAgeDays} day old (${k.t1MinutesPerReporter} min each). No bar yet.`,
     runId: JSON.stringify({
       week: week.label,
       week_start: week.startDay,
@@ -292,13 +432,18 @@ const USAGE_MAX_ROWS = 200_000;
  * it, so counting it would read as "shipped and unused" when the truth is
  * "shipped and unmeasured" — the exact confusion #3844 was careful to avoid.
  */
-export async function computeAdoptionShare(admin: Admin, week: IsoWeek): Promise<TopNumberReading> {
+export async function computeAdoptionShare(
+  admin: Admin,
+  week: IsoWeek,
+  k: TopNumberConstants = TOP_NUMBER_FALLBACKS
+): Promise<TopNumberReading> {
   const constants = {
-    used_share_pct: T2_USED_SHARE_PCT,
-    min_age_days: T2_MIN_AGE_DAYS,
+    used_share_pct: k.t2UsedSharePct,
+    min_age_days: k.t2MinAgeDays,
+    excluded_feature_keys: k.t2ExcludedFeatureKeys,
   };
   const base = { week: week.label, week_start: week.startDay, week_end: week.endDay, constants };
-  const shippedBefore = new Date(week.endUtc.getTime() - T2_MIN_AGE_DAYS * DAY_MS).toISOString();
+  const shippedBefore = new Date(week.endUtc.getTime() - k.t2MinAgeDays * DAY_MS).toISOString();
 
   const insufficient = (reason: string, detail: Record<string, unknown> = {}): TopNumberReading => ({
     loopKey: TOP_ADOPTION_SHARE_KEY,
@@ -314,7 +459,6 @@ export async function computeAdoptionShare(admin: Admin, week: IsoWeek): Promise
       .select('feature_key, title, intended_roles')
       .eq('status', 'live')
       .eq('usage_wired', true)
-      .neq('feature_key', 'app.login')
       .lte('shipped_at', shippedBefore);
     if (error) return insufficient(`${T2_INSUFFICIENT_GAP} (feature_registry: ${error.message})`);
     features = (data ?? []) as RegistryFeature[];
@@ -323,16 +467,33 @@ export async function computeAdoptionShare(admin: Admin, week: IsoWeek): Promise
     return insufficient(`${T2_INSUFFICIENT_GAP} (feature_registry: ${msg})`);
   }
 
+  // The exclusion list is applied HERE rather than in the query: the keys are
+  // dotted, and a PostgREST `not.in.(a.b)` list needs quoting that is easy to
+  // get silently wrong. The registry is dozens of rows, so filtering the read
+  // costs nothing and the excluded keys travel into run_id either way.
+  const excluded = new Set(k.t2ExcludedFeatureKeys);
+  features = features.filter((f) => !excluded.has(f.feature_key));
+
   if (features.length === 0) return insufficient(T2_INSUFFICIENT_GAP, { eligible_features: 0 });
 
   // Paged for the same reason as feature_usage: one row per person per role
   // key, and a truncated roll would shrink the intended denominator silently.
+  //
+  // ORDERED BY A KEY THAT IS UNIQUE, NOT JUST user_id. Offset paging only
+  // returns each row once if the sort is a TOTAL order: with 7,851 role rows
+  // over 7,048 people, thousands of user_ids tie, and PostgreSQL is free to
+  // order tied rows differently on each of the eight queries a page walk
+  // makes — so a row can be returned twice and another never at all.
+  // fn_adoption_person_roles UNIONs two branches whose non-key columns both
+  // come from the same profiles row, so the UNION dedupes and (user_id, role)
+  // is unique in its output: ordering on both makes the walk exact.
   const people: PersonRole[] = [];
   try {
     for (let from = 0; from < USAGE_MAX_ROWS; from += USAGE_PAGE) {
       const { data, error } = await admin
         .rpc('fn_adoption_person_roles')
         .order('user_id', { ascending: true })
+        .order('role', { ascending: true })
         .range(from, from + USAGE_PAGE - 1);
       if (error) {
         return insufficient(`${T2_INSUFFICIENT_GAP} (fn_adoption_person_roles: ${error.message})`);
@@ -351,6 +512,12 @@ export async function computeAdoptionShare(admin: Admin, week: IsoWeek): Promise
   // One row per person × feature × day, so a week easily exceeds PostgREST's
   // row cap. Paged deliberately — a truncated read would report a real fall in
   // adoption that never happened.
+  //
+  // Ordered on the WHOLE primary key (user_id, feature_key, day), not on
+  // user_id alone: one person using three features on five days is fifteen
+  // rows sharing a user_id, and offset paging over a non-unique sort can skip
+  // or repeat rows at every page boundary. feature_usage has no id column —
+  // its primary key IS that triple — so the triple is the unique sort.
   const usage: UsageRow[] = [];
   try {
     const keys = features.map((f) => f.feature_key);
@@ -362,6 +529,8 @@ export async function computeAdoptionShare(admin: Admin, week: IsoWeek): Promise
         .gte('day', week.startDay)
         .lte('day', week.endDay)
         .order('user_id', { ascending: true })
+        .order('feature_key', { ascending: true })
+        .order('day', { ascending: true })
         .range(from, from + USAGE_PAGE - 1);
       if (error) return insufficient(`${T2_INSUFFICIENT_GAP} (feature_usage: ${error.message})`);
       const page = (data ?? []) as UsageRow[];
@@ -421,7 +590,7 @@ export async function computeAdoptionShare(admin: Admin, week: IsoWeek): Promise
     });
   }
 
-  const usedCount = measurable.filter((f) => (f.best_pct ?? 0) >= T2_USED_SHARE_PCT).length;
+  const usedCount = measurable.filter((f) => (f.best_pct ?? 0) >= k.t2UsedSharePct).length;
   const share = Math.round(((usedCount * 100) / measurable.length) * 10) / 10;
 
   return {
@@ -429,8 +598,8 @@ export async function computeAdoptionShare(admin: Admin, week: IsoWeek): Promise
     value: share,
     gap:
       `${share}% of shipped features were actually used in ${week.label}: ${usedCount} of ` +
-      `${measurable.length} live features (shipped ${T2_MIN_AGE_DAYS}+ days ago, usage wired) reached ` +
-      `at least ${T2_USED_SHARE_PCT}% of an intended role. No bar yet.`,
+      `${measurable.length} live features (shipped ${k.t2MinAgeDays}+ days ago, usage wired) reached ` +
+      `at least ${k.t2UsedSharePct}% of an intended role. No bar yet.`,
     runId: JSON.stringify({
       ...base,
       measured: true,
@@ -459,7 +628,14 @@ const SENTRY_API_BASE = 'https://sentry.io/api/0';
 export function createSentryReader(env: NodeJS.ProcessEnv = process.env): SentryReader {
   return async (week: IsoWeek): Promise<SentryReadResult> => {
     const token = env.SENTRY_READ_TOKEN || env.SENTRY_AUTH_TOKEN;
-    if (!token) return { error: 'SENTRY_READ_TOKEN not set' };
+    // Recorded with the measurement, so a reading taken on the fallback is
+    // never mistaken later for one taken on the dedicated read-only secret.
+    const tokenSource: SentryTokenSource = env.SENTRY_READ_TOKEN
+      ? 'SENTRY_READ_TOKEN'
+      : env.SENTRY_AUTH_TOKEN
+        ? 'SENTRY_AUTH_TOKEN (fallback)'
+        : 'none';
+    if (!token) return { error: 'SENTRY_READ_TOKEN not set', tokenSource };
 
     const org = env.SENTRY_ORG || env.SENTRY_ORG_SLUG || 'jkkn-em';
     const project = env.SENTRY_PROJECT || env.SENTRY_PROJECT_SLUG || 'javascript-nextjs';
@@ -479,14 +655,16 @@ export function createSentryReader(env: NodeJS.ProcessEnv = process.env): Sentry
       });
       if (!res.ok) {
         const body = (await res.text()).slice(0, 200);
-        return { error: `Sentry read failed: HTTP ${res.status} ${body}` };
+        return { error: `Sentry read failed: HTTP ${res.status} ${body}`, tokenSource };
       }
       const groups = (await res.json()) as SentryGroup[];
-      if (!Array.isArray(groups)) return { error: 'Sentry read failed: unexpected response shape' };
-      return { groups };
+      if (!Array.isArray(groups)) {
+        return { error: 'Sentry read failed: unexpected response shape', tokenSource };
+      }
+      return { groups, tokenSource };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      return { error: `Sentry read failed: ${msg}` };
+      return { error: `Sentry read failed: ${msg}`, tokenSource };
     }
   };
 }

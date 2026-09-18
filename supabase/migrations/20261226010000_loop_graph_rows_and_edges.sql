@@ -9,7 +9,10 @@
 -- The loops were already a graph — each one's output is another's input — but
 -- five of the nodes existed only in prose and NINE of the edges existed
 -- nowhere at all. /admin/loops draws loop_registry + loop_edges literally, so
--- a node that is not a row is a node nobody can see. This file is the rows.
+-- a node that is not a row is a node nobody can see. This file is the rows —
+-- and, since repair round 2, the six platform_policies rows holding the two
+-- top numbers' dials, so the constants the spec says WILL be recalibrated are
+-- config rather than code (docs/architecture/config-table-pattern.md).
 --
 -- ADD-ONLY. Every statement is ON CONFLICT DO NOTHING on an identity key
 -- (loop_key; (from_key, to_key, what_flows) — the UNIQUE from 20260710233000),
@@ -118,7 +121,96 @@ VALUES
    false)
 ON CONFLICT (from_key, to_key, what_flows) DO NOTHING;
 
--- ── 3. Guard ────────────────────────────────────────────────────────────────
+-- ── 3. The two top numbers' dials, as config rows ───────────────────────────
+-- House rule: docs/architecture/config-table-pattern.md — every threshold a
+-- super admin might retune gets a ROW read at run time, never a literal that
+-- needs a deploy. The spec states outright that these five WILL be
+-- recalibrated from the adoption "why not" answers and the reporter comments,
+-- which makes them the pattern's central case.
+--
+-- Shape copied from 20260813033300 (loops.proven_green.*): global scope,
+-- numeric jsonb value, is_system, published. INSERT … SELECT … WHERE NOT
+-- EXISTS is that file's add-only idiom and is what runs here — the table's
+-- uniqueness is an EXPRESSION index (policy_key, scope_type,
+-- COALESCE(scope_id, …)), which a plain ON CONFLICT (policy_key) has no
+-- constraint to match; the bare ON CONFLICT DO NOTHING below covers a
+-- concurrent insert without naming one. A value the Director has since
+-- retuned is therefore never clobbered by a re-run.
+--
+-- lib/services/loops/top-numbers.ts falls back to the same values in code, so
+-- both numbers are computable before this file is applied, and every
+-- measurement records the values it actually used inside run_id — a
+-- recalibration changes the NEXT reading and rewrites no past one.
+
+INSERT INTO platform_policies
+  (policy_key, scope_type, scope_id, value, description, data_type, is_system, is_active, classification, publication_state)
+SELECT
+  'top_numbers.t1_minutes_per_affected_user', 'global', NULL,
+  '2'::jsonb,
+  'T1 (hours lost to defects): minutes ONE person loses to ONE user-facing production error group in the week. The spec''s first honest guess; recalibrate from reporter comments. Tune without deploy.',
+  'number', true, true, 'major', 'published'
+WHERE NOT EXISTS (SELECT 1 FROM platform_policies WHERE policy_key = 'top_numbers.t1_minutes_per_affected_user')
+ON CONFLICT DO NOTHING;
+
+INSERT INTO platform_policies
+  (policy_key, scope_type, scope_id, value, description, data_type, is_system, is_active, classification, publication_state)
+SELECT
+  'top_numbers.t1_minutes_per_reporter', 'global', NULL,
+  '5'::jsonb,
+  'T1 (hours lost to defects): minutes ONE reporter loses to ONE open bug report. The spec''s first honest guess; recalibrate from reporter comments. Tune without deploy.',
+  'number', true, true, 'major', 'published'
+WHERE NOT EXISTS (SELECT 1 FROM platform_policies WHERE policy_key = 'top_numbers.t1_minutes_per_reporter')
+ON CONFLICT DO NOTHING;
+
+INSERT INTO platform_policies
+  (policy_key, scope_type, scope_id, value, description, data_type, is_system, is_active, classification, publication_state)
+SELECT
+  'top_numbers.t1_bug_min_age_days', 'global', NULL,
+  '1'::jsonb,
+  'T1 (hours lost to defects): a bug report younger than this many days is still being triaged and is not yet counted as lost time. 0 counts every open report from the minute it is filed. Tune without deploy.',
+  'number', true, true, 'major', 'published'
+WHERE NOT EXISTS (SELECT 1 FROM platform_policies WHERE policy_key = 'top_numbers.t1_bug_min_age_days')
+ON CONFLICT DO NOTHING;
+
+INSERT INTO platform_policies
+  (policy_key, scope_type, scope_id, value, description, data_type, is_system, is_active, classification, publication_state)
+SELECT
+  'top_numbers.t2_used_share_pct', 'global', NULL,
+  '20'::jsonb,
+  'T2 (share of shipped features actually used): a feature counts as USED in a week when it reached at least this percentage of one intended role (best role wins). Tune without deploy.',
+  'number', true, true, 'major', 'published'
+WHERE NOT EXISTS (SELECT 1 FROM platform_policies WHERE policy_key = 'top_numbers.t2_used_share_pct')
+ON CONFLICT DO NOTHING;
+
+INSERT INTO platform_policies
+  (policy_key, scope_type, scope_id, value, description, data_type, is_system, is_active, classification, publication_state)
+SELECT
+  'top_numbers.t2_min_age_days', 'global', NULL,
+  '14'::jsonb,
+  'T2 (share of shipped features actually used): a feature shipped fewer than this many days ago has not had a fair chance to be adopted and is left out of the week entirely. Tune without deploy.',
+  'number', true, true, 'major', 'published'
+WHERE NOT EXISTS (SELECT 1 FROM platform_policies WHERE policy_key = 'top_numbers.t2_min_age_days')
+ON CONFLICT DO NOTHING;
+
+-- Not a threshold — the one feature key T2 deliberately leaves out, made
+-- visible instead of living as a silent filter in the service. app.login is
+-- the app-wide sign-in line: every signed-in person records it, so leaving it
+-- in would add one permanently-"used" feature to every week. The merged
+-- adoption metric already excludes it on the same ground
+-- (20260916190200_adoption_metrics.sql: WHERE fr.feature_key <> 'app.login'),
+-- so removing the exclusion would make T2 disagree with the adoption loop it
+-- is the top number FOR. An empty array turns the exclusion off.
+INSERT INTO platform_policies
+  (policy_key, scope_type, scope_id, value, description, data_type, is_system, is_active, classification, publication_state)
+SELECT
+  'top_numbers.t2_excluded_feature_keys', 'global', NULL,
+  '["app.login"]'::jsonb,
+  'T2 (share of shipped features actually used): feature_registry keys that are NOT shipped features whose adoption is measured. app.login is the app-wide sign-in line, excluded for the same reason fn_adoption_metrics excludes it. Set to [] to count every key. Tune without deploy.',
+  'array', true, true, 'major', 'published'
+WHERE NOT EXISTS (SELECT 1 FROM platform_policies WHERE policy_key = 'top_numbers.t2_excluded_feature_keys')
+ON CONFLICT DO NOTHING;
+
+-- ── 4. Guard ────────────────────────────────────────────────────────────────
 -- RAISE EXCEPTION, never RAISE NOTICE: a NOTICE-only miss path writes nothing
 -- and still reads as success
 -- (ref feedback_a_raise_notice_guard_reads_as_success). The counts are
@@ -126,8 +218,9 @@ ON CONFLICT (from_key, to_key, what_flows) DO NOTHING;
 -- row that already existed (ON CONFLICT DO NOTHING) still satisfies the guard.
 DO $$
 DECLARE
-  v_rows  int;
-  v_edges int;
+  v_rows     int;
+  v_edges    int;
+  v_policies int;
 BEGIN
   SELECT count(*) INTO v_rows
     FROM public.loop_registry
@@ -151,6 +244,21 @@ BEGIN
    );
   IF v_edges < 9 THEN
     RAISE EXCEPTION 'loop graph: expected at least 9 edges after seed, found %', v_edges;
+  END IF;
+
+  SELECT count(*) INTO v_policies
+    FROM public.platform_policies
+   WHERE scope_type = 'global'
+     AND policy_key IN (
+       'top_numbers.t1_minutes_per_affected_user',
+       'top_numbers.t1_minutes_per_reporter',
+       'top_numbers.t1_bug_min_age_days',
+       'top_numbers.t2_used_share_pct',
+       'top_numbers.t2_min_age_days',
+       'top_numbers.t2_excluded_feature_keys'
+     );
+  IF v_policies <> 6 THEN
+    RAISE EXCEPTION 'top numbers: expected 6 global policy rows after seed, found %', v_policies;
   END IF;
 END $$;
 
