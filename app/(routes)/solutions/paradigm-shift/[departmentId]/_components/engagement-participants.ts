@@ -194,9 +194,14 @@ export function buildDepartmentNameMap(
   const map = new Map<string, string>();
   for (const row of rows) {
     if (!row.department_id || map.has(row.department_id)) continue;
-    const name = row.department?.department_name;
+    // `display_name` first, then the formal name — the SAME order
+    // SocietalService.mapParticipantRow uses for a participant row, and the
+    // same order fn_community_college_totals() uses for a college. A department
+    // that read its display name on the confirmation screen and its formal name
+    // here would look like two different departments to the person confirming.
+    const name = row.department?.display_name || row.department?.department_name;
     if (!name) continue;
-    const college = row.institution?.name;
+    const college = row.institution?.display_name || row.institution?.name;
     map.set(row.department_id, college ? `${name} — ${college}` : name);
   }
   return map;

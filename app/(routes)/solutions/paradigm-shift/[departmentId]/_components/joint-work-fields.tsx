@@ -84,9 +84,14 @@ export function JointDepartmentsField({
       if (!departmentId || seen.has(departmentId)) continue;
       seen.add(departmentId);
 
-      const name = row.department?.department_name ?? 'Unnamed department';
+      // `display_name` first, then the formal name — the order
+      // SocietalService.mapParticipantRow and fn_community_college_totals()
+      // both use. A department picked here is the same department that appears
+      // on the confirmation screen, and it must read identically in both.
+      const name =
+        row.department?.display_name || row.department?.department_name || 'Unnamed department';
       const code = row.department?.department_code;
-      const college = row.institution?.name;
+      const college = row.institution?.display_name || row.institution?.name;
       const label = [code ? `${name} (${code})` : name, college].filter(Boolean).join(' — ');
 
       list.push({ id: departmentId, label });
