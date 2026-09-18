@@ -256,7 +256,7 @@ export function BulkImportBoard({
             <div className="space-y-2 rounded-md border bg-muted/20 p-3">
               <p className="text-xs text-muted-foreground">
                 Paste comma-separated rows. First line must be the headers (e.g. <code>Name,Phone,Email,Gender</code>
-                {' '}— common variants like <code>Student Name</code>, <code>Mobile Number</code> or <code>Email ID</code> also work).
+                {' '}— common variants like <code>Learner Name</code>, <code>Mobile Number</code> or <code>Email ID</code> also work).
               </p>
               <textarea
                 className="h-32 w-full rounded-md border bg-background p-2 font-mono text-xs"

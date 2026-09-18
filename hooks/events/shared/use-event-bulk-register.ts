@@ -109,7 +109,7 @@ const ROSTER_FIELDS: RosterField[] = [
     key: 'participant_name',
     label: 'Name',
     required: true,
-    aliases: ['name', 'participant name', 'student name', 'full name', 'learner name'],
+    aliases: ['name', 'participant name', 'full name', 'learner name'],
   },
   {
     key: 'participant_phone',
