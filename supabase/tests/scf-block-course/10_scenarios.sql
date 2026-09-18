@@ -66,15 +66,13 @@ SET request.jwt.claim.sub = '22222222-0000-0000-0000-000000000001';
 \echo '--- 1. fn_scf_feedback_matches_mark'
 DO $t$
 DECLARE cx uuid := '77777777-0000-0000-0000-0000000000c1'; cy uuid := '77777777-0000-0000-0000-0000000000c2';
-        t1 uuid := '55555555-0000-0000-0000-00000000000a'; t2 uuid := '55555555-0000-0000-0000-00000000000b';
 BEGIN
-  IF NOT public.fn_scf_feedback_matches_mark('p1',cx,t1,'p1',cx,t1,true) THEN RAISE EXCEPTION 'FAIL exact period must match'; END IF;
-  IF NOT public.fn_scf_feedback_matches_mark('p1',cx,t1,'p2',cx,t1,true) THEN RAISE EXCEPTION 'FAIL sibling period of the same course must match'; END IF;
-  IF     public.fn_scf_feedback_matches_mark('p1',cx,t1,'p3',cy,t1,true) THEN RAISE EXCEPTION 'FAIL a different course must not match'; END IF;
-  IF     public.fn_scf_feedback_matches_mark('p1',cx,t1,'p2',cx,t2,true) THEN RAISE EXCEPTION 'FAIL cross-timetable must not match when required'; END IF;
-  IF NOT public.fn_scf_feedback_matches_mark('p1',cx,t1,'p2',cx,t2,false) THEN RAISE EXCEPTION 'FAIL cross-timetable must match when not required'; END IF;
-  IF     public.fn_scf_feedback_matches_mark('p1',cx,t1,'p2',NULL,t1,true) THEN RAISE EXCEPTION 'FAIL a mark with no course keeps exact-period behaviour'; END IF;
-  IF NOT public.fn_scf_feedback_matches_mark('p2',cx,t1,'p2',NULL,t1,true) THEN RAISE EXCEPTION 'FAIL a mark with no course still matches its own period'; END IF;
+  IF NOT public.fn_scf_feedback_matches_mark('p1',cx,'p1',cx) THEN RAISE EXCEPTION 'FAIL exact period must match'; END IF;
+  IF NOT public.fn_scf_feedback_matches_mark('p1',cx,'p2',cx) THEN RAISE EXCEPTION 'FAIL sibling period of the same course must match'; END IF;
+  IF     public.fn_scf_feedback_matches_mark('p1',cx,'p3',cy) THEN RAISE EXCEPTION 'FAIL a different course must not match'; END IF;
+  IF     public.fn_scf_feedback_matches_mark('p1',cx,'p2',NULL) THEN RAISE EXCEPTION 'FAIL a mark with no course keeps exact-period behaviour'; END IF;
+  IF NOT public.fn_scf_feedback_matches_mark('p2',cx,'p2',NULL) THEN RAISE EXCEPTION 'FAIL a mark with no course still matches its own period'; END IF;
+  IF     public.fn_scf_feedback_matches_mark('p1',NULL,'p2',cx) THEN RAISE EXCEPTION 'FAIL feedback with no course must not match a sibling'; END IF;
   RAISE NOTICE 'ok';
 END $t$;
 
@@ -99,25 +97,29 @@ BEGIN
   END LOOP;
 
   -- THE FIX: one feedback for the block course confirms BOTH its periods.
-  IF (got->>'p1') <> 'true'  THEN RAISE EXCEPTION 'FAIL p1 (the period fed back) must be confirmed'; END IF;
-  IF (got->>'p2') <> 'true'  THEN RAISE EXCEPTION 'FAIL p2 (sibling of the block course) must be confirmed — this is the reported defect'; END IF;
-  IF (got->>'p3') <> 'true'  THEN RAISE EXCEPTION 'FAIL p3 single-period course must be confirmed'; END IF;
+  IF coalesce(got->>'p1','MISSING') <> 'true'  THEN RAISE EXCEPTION 'FAIL p1 (the period fed back) must be confirmed'; END IF;
+  IF coalesce(got->>'p2','MISSING') <> 'true'  THEN RAISE EXCEPTION 'FAIL p2 (sibling of the block course) must be confirmed — this is the reported defect'; END IF;
+  IF coalesce(got->>'p3','MISSING') <> 'true'  THEN RAISE EXCEPTION 'FAIL p3 single-period course must be confirmed'; END IF;
 
   -- A mark with no course_id keeps exact-period behaviour.
-  IF (got->>'p4') <> 'false' THEN RAISE EXCEPTION 'FAIL p4 has no course_id and no feedback of its own'; END IF;
+  IF coalesce(got->>'p4','MISSING') <> 'false' THEN RAISE EXCEPTION 'FAIL p4 has no course_id and no feedback of its own'; END IF;
 
   -- A MALFORMED course_id must neither confirm nor raise 22P02. Reaching this
   -- line at all is the real assertion: a raise would have aborted the call.
-  IF (got->>'p5') <> 'false' THEN RAISE EXCEPTION 'FAIL p5 malformed course_id must not confirm'; END IF;
-  IF got ? 'p5' IS FALSE     THEN RAISE EXCEPTION 'FAIL p5 vanished — the malformed row was dropped, not survived'; END IF;
+  IF coalesce(got->>'p5','MISSING') <> 'false' THEN RAISE EXCEPTION 'FAIL p5 malformed course_id must not confirm'; END IF;
+  IF NOT (got ? 'p5')        THEN RAISE EXCEPTION 'FAIL p5 vanished — the malformed row was dropped, not survived'; END IF;
 
   -- Decision #11: a late feedback confirms nothing, and nor does its sibling.
-  IF (got->>'p6') <> 'false' THEN RAISE EXCEPTION 'FAIL p6 late feedback must not confirm'; END IF;
-  IF (got->>'p7') <> 'false' THEN RAISE EXCEPTION 'FAIL p7 sibling of a LATE feedback must not confirm'; END IF;
+  IF coalesce(got->>'p6','MISSING') <> 'false' THEN RAISE EXCEPTION 'FAIL p6 late feedback must not confirm'; END IF;
+  IF coalesce(got->>'p7','MISSING') <> 'false' THEN RAISE EXCEPTION 'FAIL p7 sibling of a LATE feedback must not confirm'; END IF;
 
-  -- The Director's aligned tick rule: feedback filed under another timetable
-  -- does not confirm. Pinned so a future change to it is deliberate.
-  IF (got->>'q1') <> 'false' THEN RAISE EXCEPTION 'FAIL q1 cross-timetable feedback must not confirm'; END IF;
+  -- Cross-timetable. The reference migration 20260718200000 matches on
+  -- (learner, day, period OR course) with NO timetable equality, so feedback
+  -- for course CZ recorded under timetable T1 suppresses the CZ item in the
+  -- pending list. This reader therefore has to confirm it, or the mark would
+  -- be neither offered nor confirmable. Assertion 6 proves that invariant on
+  -- every mark; this pins the specific row.
+  IF coalesce(got->>'q1','MISSING') <> 'true' THEN RAISE EXCEPTION 'FAIL q1 cross-timetable feedback must confirm, as the pending list already assumes'; END IF;
 
   -- The absent mark is not a confirmable session at all.
   IF got ? 'p8' THEN RAISE EXCEPTION 'FAIL p8 is Absent and must not appear'; END IF;
@@ -135,8 +137,9 @@ BEGIN
   IF r.present_marks <> 8 THEN RAISE EXCEPTION 'FAIL present_marks expected 8, got %', r.present_marks; END IF;
   IF r.absent_marks  <> 1 THEN RAISE EXCEPTION 'FAIL absent_marks expected 1, got %', r.absent_marks; END IF;
   IF r.total_marks   <> 9 THEN RAISE EXCEPTION 'FAIL total_marks (DENOMINATOR) expected 9, got %', r.total_marks; END IF;
-  -- NUMERATOR: p1, p2, p3. Without the sibling branch this would be 2.
-  IF r.confirmed_present <> 3 THEN RAISE EXCEPTION 'FAIL confirmed_present expected 3 (p1,p2,p3), got %', r.confirmed_present; END IF;
+  -- NUMERATOR: p1, p2, p3 and q1. Without the sibling branch it would be 2;
+  -- with the old timetable equality q1 would be excluded and it would be 3.
+  IF r.confirmed_present <> 4 THEN RAISE EXCEPTION 'FAIL confirmed_present expected 4 (p1,p2,p3,q1), got %', r.confirmed_present; END IF;
   RAISE NOTICE 'ok';
 END $t$;
 
@@ -167,12 +170,54 @@ BEGIN
   WHERE EXISTS (
     SELECT 1 FROM public.session_feedback f
     WHERE f.student_id = m.sid AND f.attendance_date = m.attendance_date
-      AND public.fn_scf_feedback_matches_mark(f.period_id, f.course_id, f.timetable_id,
-                                              m.pid, m.cid, NULL, false));
+      AND public.fn_scf_feedback_matches_mark(f.period_id, f.course_id, m.pid, m.cid));
   IF r.confirmed <> v_predicate THEN
     RAISE EXCEPTION 'FAIL rollup numerator % disagrees with the shared predicate %', r.confirmed, v_predicate;
   END IF;
   RAISE NOTICE 'ok (rollup confirmed=% matches predicate)', r.confirmed;
+END $t$;
+
+-- ===== 6. the invariant: offered, or confirmed, never neither =====
+\echo '--- 6. what the pending list withholds, the confirmation reader confirms'
+SET request.jwt.claim.sub = '22222222-0000-0000-0000-000000000001';
+DO $t$
+DECLARE v_bad int;
+BEGIN
+  -- For every Present mark still inside its window, the two rules must not
+  -- disagree: a mark the pending list suppresses (because feedback exists for
+  -- its period OR its course, ANY timetable) must read confirmed. A mark that
+  -- is neither offered nor confirmed is the trap this whole change is about,
+  -- and before the timetable equality came out, q1 was exactly that.
+  SELECT count(*) INTO v_bad
+  FROM (
+    SELECT sa.attendance_date, period.key AS pid,
+           public.fn_scf_uuid_or_null(period.value ->> 'course_id') AS cid
+    FROM public.student_attendance sa
+    CROSS JOIN LATERAL jsonb_each(sa.attendance_data) period
+    CROSS JOIN LATERAL jsonb_array_elements(public.fn_attendance_slot_students(period.value)) st
+    WHERE sa.attendance_date = '2026-09-10'
+      AND st ->> 'status' = 'Present'
+      AND (st ->> 'student_id')::uuid = '33333333-0000-0000-0000-000000000001'
+  ) m
+  JOIN public.fn_scf_confirmation_status('2026-09-10','2026-09-10') cs
+    ON cs.period_id = m.pid
+  WHERE
+    -- the pending list would withhold it ...
+    EXISTS (SELECT 1 FROM public.session_feedback f
+            WHERE f.student_id = '33333333-0000-0000-0000-000000000001'
+              AND f.attendance_date = m.attendance_date
+              AND public.fn_scf_feedback_matches_mark(f.period_id, f.course_id, m.pid, m.cid)
+              -- in-window only: outside it, decision #11 governs and the
+              -- closed-window rule (explicitly NOT fixed here) takes over.
+              AND f.created_at <= ((m.attendance_date::timestamp AT TIME ZONE 'Asia/Kolkata')
+                                   + make_interval(hours => 48)))
+    -- ... and yet this reader does not confirm it.
+    AND cs.confirmed IS NOT TRUE;
+
+  IF v_bad <> 0 THEN
+    RAISE EXCEPTION 'FAIL % mark(s) are neither offered nor confirmed — the pending list and the confirmation reader disagree', v_bad;
+  END IF;
+  RAISE NOTICE 'ok (no mark is both withheld and unconfirmed)';
 END $t$;
 
 \echo 'ALL SCENARIOS PASSED'
