@@ -215,7 +215,7 @@ function refusedSilently(): Error {
 }
 
 // ============================================
-// THE THREE SERVICE-SHAPED PRIMITIVES
+// THE SERVICE-SHAPED PRIMITIVES
 // ============================================
 
 const PARTICIPANT_COLUMNS =
@@ -269,11 +269,16 @@ interface RawEngagement {
  * actually belong to, and an admin with no department matches no row and is
  * told so, rather than silently answering for everybody.
  */
-async function callerDepartmentId(): Promise<string | null> {
+async function callerDepartmentId(): Promise<string> {
   const supabase = createClientSupabaseClient();
   const { data: auth } = await supabase.auth.getUser();
   const userId = auth?.user?.id;
-  if (!userId) return null;
+  if (!userId) {
+    throw new Error(
+      'Your session could not be read, so this answer was not sent. Reload the ' +
+        'page and sign in again.'
+    );
+  }
 
   const { data, error } = await (supabase as any)
     .from('profiles')
@@ -281,8 +286,21 @@ async function callerDepartmentId(): Promise<string | null> {
     .eq('id', userId)
     .maybeSingle();
 
-  if (error) return null;
-  return (data?.department_id as string | null) ?? null;
+  // A FAILED READ IS NOT AN ANSWER. Collapsing it to null would make the next
+  // line tell someone their account has no department when in fact we never
+  // found out — the same confidently-wrong refusal this file's 42501 handling
+  // exists to avoid.
+  if (error) {
+    throw new Error(
+      'Your department could not be looked up, so nothing was sent. This looks ' +
+        'like a connection problem rather than a permission problem. Reload the ' +
+        'page and try again.'
+    );
+  }
+
+  const departmentId = (data?.department_id as string | null) ?? null;
+  if (!departmentId) throw noDepartmentToAnswerFor();
+  return departmentId;
 }
 
 /**
@@ -328,7 +346,6 @@ export const ParticipationClient = {
     }
 
     const ownDepartmentId = await callerDepartmentId();
-    if (!ownDepartmentId) throw noDepartmentToAnswerFor();
 
     const supabase = createClientSupabaseClient();
     const { data, error } = await (supabase as any)
@@ -361,7 +378,6 @@ export const ParticipationClient = {
     }
 
     const ownDepartmentId = await callerDepartmentId();
-    if (!ownDepartmentId) throw noDepartmentToAnswerFor();
 
     const supabase = createClientSupabaseClient();
     const { data, error } = await (supabase as any)
