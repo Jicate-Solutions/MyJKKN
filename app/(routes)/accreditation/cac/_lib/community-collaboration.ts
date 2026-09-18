@@ -296,10 +296,24 @@ export function communityVolume(
     },
     {
       key: 'hours',
-      label: 'Hours given',
+      // NAMED FOR ITS SOURCE, AND NOT THE SAME QUANTITY AS THE HOURS COLUMN IN
+      // THE PER-COLLEGE TABLE. This figure is `hours_spent` off the engagement
+      // row — the effort recorded once for the initiative by whoever ran it.
+      // The table's column is `hours_contributed`, which is what a department
+      // head confirmed for their own people and which only they may state
+      // (decision D3). The two measure different things and will not add up.
+      //
+      // That is why the label differs from the column's while "People reached"
+      // is worded identically in both places: beneficiaries ARE one quantity
+      // read at two levels, and their gap is deliberate and explained on
+      // screen. Hours are two quantities. Wording them alike would invite a
+      // reader to reconcile figures that were never the same measure — and a
+      // second unexplained mismatch beside the explained one costs the
+      // explained one its credibility. Do not normalise these two labels.
+      label: 'Hours logged on the work',
       value: num(totals?.total_hours),
       empty: anyInitiative ? 'no hours recorded against it' : NOTHING_RECORDED,
-      meaning: 'Time recorded against the work itself, not against a calendar.',
+      meaning: 'Recorded once for each initiative, by whoever ran it.',
     },
   ];
 }

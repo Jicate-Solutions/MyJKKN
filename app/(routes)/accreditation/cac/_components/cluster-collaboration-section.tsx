@@ -1129,7 +1129,15 @@ function CommunityCollaborationPanel() {
                       <th className="px-3 py-2 text-right font-medium">Initiatives</th>
                       <th className="px-3 py-2 text-right font-medium">Of those, shared</th>
                       <th className="px-3 py-2 text-right font-medium">People reached</th>
-                      <th className="px-3 py-2 text-right font-medium">Hours</th>
+                      {/* Named for its source. This is `hours_contributed` —
+                          what each of this college's departments confirmed for
+                          its own people — and NOT the cluster card's
+                          `hours_spent`, which is the effort recorded once for
+                          the initiative. Two quantities, so they are worded
+                          apart and are not expected to reconcile. */}
+                      <th className="px-3 py-2 text-right font-medium">
+                        Hours its departments confirmed
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
