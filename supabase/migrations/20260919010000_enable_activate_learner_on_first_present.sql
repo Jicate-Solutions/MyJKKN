@@ -107,14 +107,37 @@ BEGIN
   END IF;
 
   -- 2. The switch itself. UPDATE of an existing row — never DELETE, never
-  --    re-INSERT: `is_system`, `description`, `classification`,
-  --    `publication_state` and `ui_category` on that row are the ones the
-  --    super-admin Policies screen renders, and they stay exactly as shipped.
+  --    re-INSERT: `is_system`, `classification`, `publication_state` and
+  --    `ui_category` stay exactly as shipped, and `id`, `created_at` and every
+  --    per-institution override row are untouched.
+  --
+  --    `description` IS rewritten, deliberately and in the same statement. The
+  --    text on the row today is the ships-OFF text, and it ends with
+  --    "DO NOT ENABLE until PR #2936 … is merged and proven live". That warning
+  --    is spent — #2936 merged 2026-08-13 — but it renders on the super-admin
+  --    Policies screen beside the switch. Leaving a "DO NOT ENABLE" note on a
+  --    switch that is now ON is an invitation to turn it off, which would
+  --    silently revert the Director's decision. A row whose own text argues
+  --    against its own value is worse than no text.
+  --
   --    `AND pp.value IS DISTINCT FROM 'true'::jsonb` makes the write a no-op on
   --    a re-run instead of bumping `updated_at` every time.
   UPDATE public.platform_policies pp
-     SET value      = 'true'::jsonb,
-         updated_at = now()
+     SET value       = 'true'::jsonb,
+         description =
+           'MASTER SWITCH — ON since 2026-09-18. A learner sitting at '
+           '`reserved` or `admitted` is moved to `active` the FIRST time they '
+           'are marked PRESENT (Director ruling 2026-08-11, chosen again on '
+           '2026-09-18 over the induction-completion alternative). NOT '
+           'RETROACTIVE: the trigger fires on an attendance write, so Present '
+           'marks already recorded activate nobody — a learner activates at '
+           'their NEXT one. Turning this OFF stops all future automatic '
+           'activation and reverses nothing already done. While ON, a '
+           '`reserved` learner can reach `active` WITHOUT clearing the 30% / '
+           '60% fee thresholds in admission_statuses; every activation is '
+           'audited to learners_profile_status_history with reason_code '
+           'first_present_attendance and fee_thresholds_bypassed: true.',
+         updated_at  = now()
    WHERE pp.policy_key = k_policy_key
      AND pp.scope_type = 'global'
      AND pp.scope_id IS NULL
