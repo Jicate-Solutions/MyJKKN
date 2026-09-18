@@ -129,37 +129,30 @@ FOR SELECT USING (
   )
 );
 
+-- Write: the creator of the parent case, or an admin — mirroring
+-- pde_questions_write in 20260721234500_pde_assessment_write_rls.sql exactly.
+-- A stage and the questions inside it are authored together, so the same people
+-- should be able to edit both.
+--
+-- An earlier draft of this policy gated on `pde.faculty.manage`. That key is not
+-- registered in lib/constants/permissions.ts and exists nowhere else in the
+-- codebase — it was invented here. A permission nobody can be granted is not a
+-- stricter policy, it is a branch that is always false, so the OR arm would
+-- simply never have fired. Reusing the module's real predicate is both
+-- grantable and consistent with the sibling table.
 DROP POLICY IF EXISTS pde_case_stages_staff_write ON public.pde_case_stages;
 CREATE POLICY pde_case_stages_staff_write ON public.pde_case_stages
 FOR ALL USING (
-  is_super_admin() OR is_admin()
+  (select is_super_admin()) OR (select is_admin())
   OR EXISTS (
     SELECT 1 FROM public.pde_assessments a
-    WHERE a.id = pde_case_stages.assessment_id AND a.created_by = auth.uid()
-  )
-  OR (
-    user_has_permission('pde.faculty.manage')
-    AND EXISTS (
-      SELECT 1 FROM public.pde_assessments a
-      JOIN public.vac_courses c ON c.id = a.course_id
-      WHERE a.id = pde_case_stages.assessment_id
-        AND role_has_institution_access(c.institution_id)
-    )
+    WHERE a.id = pde_case_stages.assessment_id AND a.created_by = (select auth.uid())
   )
 ) WITH CHECK (
-  is_super_admin() OR is_admin()
+  (select is_super_admin()) OR (select is_admin())
   OR EXISTS (
     SELECT 1 FROM public.pde_assessments a
-    WHERE a.id = pde_case_stages.assessment_id AND a.created_by = auth.uid()
-  )
-  OR (
-    user_has_permission('pde.faculty.manage')
-    AND EXISTS (
-      SELECT 1 FROM public.pde_assessments a
-      JOIN public.vac_courses c ON c.id = a.course_id
-      WHERE a.id = pde_case_stages.assessment_id
-        AND role_has_institution_access(c.institution_id)
-    )
+    WHERE a.id = pde_case_stages.assessment_id AND a.created_by = (select auth.uid())
   )
 );
 
@@ -185,6 +178,40 @@ FOR SELECT USING (
     )
   )
 );
+
+-- ----------------------------------------------------------------------------
+-- 3b. Anon lock-out — table grants, NOT a restatement of RLS
+-- ----------------------------------------------------------------------------
+-- Supabase ships `ALTER DEFAULT PRIVILEGES ... GRANT ALL ON TABLES TO anon`, so
+-- a newly created table is readable by the anon key embedded in every page of
+-- the public site unless the migration says otherwise. RLS being enabled is not
+-- a substitute: a policy written TO PUBLIC applies to anon too, and both of the
+-- policies above are unrestricted-role policies.
+--
+-- For THIS pair of tables that would have undone the whole feature.
+-- pde_case_stages stores the locked stage's title, scenario text and image —
+-- precisely the content fn_pde_get_case_stages exists to withhold until the
+-- learner has earned it. Leaving the default grant in place would let anyone
+-- read every stage of every case straight off the table, without logging in,
+-- and the careful gating in the RPCs would be decoration.
+--
+-- Grants are therefore stated explicitly rather than inherited:
+--   pde_case_stages          — faculty author these through the API using their
+--                              OWN client (createClient()), so `authenticated`
+--                              needs full DML; the RLS policy above narrows it
+--                              to the case creator or an admin.
+--   pde_case_stage_progress  — written ONLY by fn_pde_submit_stage, which is
+--                              SECURITY DEFINER and runs as the function owner,
+--                              so `authenticated` needs no write grant at all.
+--                              SELECT only, narrowed by RLS to the learner's own
+--                              rows plus staff. Marking stays unforgeable.
+-- ----------------------------------------------------------------------------
+
+REVOKE ALL ON TABLE public.pde_case_stages FROM anon, PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.pde_case_stages TO authenticated;
+
+REVOKE ALL ON TABLE public.pde_case_stage_progress FROM anon, PUBLIC, authenticated;
+GRANT SELECT ON TABLE public.pde_case_stage_progress TO authenticated;
 
 -- ----------------------------------------------------------------------------
 -- 4. Helpers
