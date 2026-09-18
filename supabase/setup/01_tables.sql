@@ -10174,3 +10174,52 @@ CREATE INDEX IF NOT EXISTS idx_reservation_communications_institution
   ON public.reservation_communications (institution_id);
 
 -- ---------------------------------------------------------------------------
+
+
+-- ---------------------------------------------------------------------------
+-- learner_activation_failures
+--   Migration: supabase/migrations/20260919005000_harden_first_present_activation.sql
+--   Updated: 2026-09-19 - Added so a failed first-present activation is visible
+--   to a human instead of taking a teacher's attendance save down with it.
+--
+-- `trg_activate_learner_on_first_present` is an AFTER trigger, and an AFTER
+-- trigger that raises ABORTS the statement that fired it — here, a teacher
+-- saving a whole class's marks. The trigger body now catches everything and
+-- writes what went wrong here. A row in this table means: the attendance WAS
+-- saved, and the learner was NOT activated. Somebody has to look.
+--
+-- 🔒 NO FOREIGN KEYS, ON PURPOSE. This table exists because a write failed;
+-- every FK on it would be one more way for the failure RECORD to fail, which is
+-- the silent swallow all over again.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.learner_activation_failures (
+  id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  occurred_at            timestamptz NOT NULL DEFAULT now(),
+  student_attendance_id  uuid,
+  attendance_date        date,
+  section_id             uuid,
+  timetable_id           uuid,
+  institution_id         uuid,
+  trigger_op             text,
+  learner_ids            uuid[] NOT NULL DEFAULT '{}'::uuid[],
+  marked_by              uuid,
+  attempted_by           uuid,
+  sqlstate               text,
+  error_message          text NOT NULL,
+  error_detail           text,
+  error_context          text,
+  resolved_at            timestamptz,
+  resolved_by            uuid,
+  resolution_notes       text
+);
+
+CREATE INDEX IF NOT EXISTS idx_learner_activation_failures_occurred
+  ON public.learner_activation_failures (occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_learner_activation_failures_unresolved
+  ON public.learner_activation_failures (occurred_at DESC)
+  WHERE resolved_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_learner_activation_failures_institution
+  ON public.learner_activation_failures (institution_id, occurred_at DESC);
+
+COMMENT ON TABLE public.learner_activation_failures IS
+  'Activations that FAILED while a learner was being moved to active on their first Present mark. Written by fn_activate_learner_on_first_present() from inside an exception handler so the attendance save itself is never rejected. A row here means the attendance was saved and the learner was NOT activated — someone has to look.';

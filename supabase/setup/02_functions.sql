@@ -66154,11 +66154,16 @@ GRANT  EXECUTE ON FUNCTION public.fn_wa_bridge_ack(uuid, text, text, text, integ
 -- ---------------------------------------------------------------------------
 
 
+
 -- ============================================================================
--- fn_activate_learner_on_first_present() — MIRROR
---   Migration: supabase/migrations/20260821030000_attendance_activates_learner.sql
+-- FIRST-PRESENT ACTIVATION — MIRROR
+--   Shipped by: supabase/migrations/20260821030000_attendance_activates_learner.sql
+--   Hardened by: supabase/migrations/20260919005000_harden_first_present_activation.sql
 --   Switched ON by:
 --     supabase/migrations/20260919010000_enable_activate_learner_on_first_present.sql
+--   Updated: 2026-09-19 - Repair round 1 (PR #3924): activation can no longer
+--   reject an attendance save; an UPDATE activates only learners who BECOME
+--   present; the audit row now carries who marked the attendance.
 --
 -- Director's rule (2026-08-11): a learner becomes `active` by ATTENDING — the
 -- FIRST time they are marked PRESENT. Re-affirmed 2026-09-18 23:48 when the
@@ -66166,42 +66171,31 @@ GRANT  EXECUTE ON FUNCTION public.fn_wa_bridge_ack(uuid, text, text, text, integ
 -- this one.
 --
 -- Mirrored here 2026-09-19: the function and its trigger shipped in the
--- migration above but were never copied into supabase/setup/, so a database
+-- 2026-08-11 migration but were never copied into supabase/setup/, so a database
 -- rebuilt from these files would carry the master switch (now `true`, seeded in
 -- 03_policies.sql) with NO trigger behind it — a switch that reads as on and
--- does nothing. Body is verbatim from that migration.
+-- does nothing.
 --
 -- `students[].student_id` in `student_attendance.attendance_data` is
 -- `learners_profiles.id`, NOT `profiles.id` — joining the wrong identity space
 -- returns a confident, silent zero.
 -- ============================================================================
-CREATE OR REPLACE FUNCTION public.fn_activate_learner_on_first_present()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
+
+-- ── Who is marked present in one attendance payload ─────────────────────────
+-- Lifted out of the trigger body so the SAME reading is used for NEW and OLD:
+-- "who became present" is a difference between two payloads, and computing it
+-- with two copies of the parsing SQL is how the two copies drift.
+CREATE OR REPLACE FUNCTION public.fn_present_learner_ids(p_attendance_data jsonb)
+RETURNS uuid[]
+LANGUAGE sql
+IMMUTABLE
 SET search_path = public
 AS $function$
-DECLARE
-  v_present_ids uuid[];
-BEGIN
-  -- (a) Master switch. Read before any parsing so the disabled cost is one
-  --     policy lookup per attendance write and nothing else.
-  IF NOT COALESCE(
-       public.fn_get_policy_bool('learners.activate_on_first_present.enabled', false, NULL),
-       false) THEN
-    RETURN NULL;
-  END IF;
-
-  -- (b) Re-saving an unchanged payload must not thrash any learner row.
-  IF TG_OP = 'UPDATE'
-     AND OLD.attendance_data IS NOT DISTINCT FROM NEW.attendance_data THEN
-    RETURN NULL;
-  END IF;
-
-  -- (c) Everyone marked PRESENT anywhere in this row, across every period.
   SELECT array_agg(DISTINCT (s.rec ->> 'student_id')::uuid)
-    INTO v_present_ids
-  FROM jsonb_each(NEW.attendance_data) AS per(period_key, period_val),
+  FROM jsonb_each(
+         CASE WHEN jsonb_typeof(p_attendance_data) = 'object'
+              THEN p_attendance_data
+              ELSE '{}'::jsonb END) AS per(period_key, period_val),
        jsonb_array_elements(
          CASE WHEN jsonb_typeof(per.period_val -> 'students') = 'array'
               THEN per.period_val -> 'students'
@@ -66209,21 +66203,53 @@ BEGIN
   WHERE lower(COALESCE(s.rec ->> 'status', '')) = 'present'
     AND COALESCE(s.rec ->> 'student_id', '') ~*
         '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
+$function$;
 
-  IF v_present_ids IS NULL OR cardinality(v_present_ids) = 0 THEN
-    RETURN NULL;
+REVOKE EXECUTE ON FUNCTION public.fn_present_learner_ids(jsonb) FROM anon, PUBLIC;
+
+COMMENT ON FUNCTION public.fn_present_learner_ids(jsonb) IS
+  'The distinct learners_profiles.id values marked Present anywhere in one student_attendance.attendance_data payload. Case-insensitive on the status token (production holds a lowercase absent). Not granted to anybody: called only from SECURITY DEFINER code that owns it.';
+
+
+-- ── The activation itself — promote + audit, callable ───────────────────────
+-- Takes its context as arguments instead of reading NEW.*, so the
+-- Director-gated one-time catch-up (scripts/rehearsals/3924-catchup-apply.sql)
+-- runs through this same body rather than hand-rolling a second status UPDATE.
+--
+-- NOT GRANTED TO ANYBODY. It is SECURITY DEFINER and would move learners to
+-- `active` for whatever ids it is handed, so a grant to `authenticated` would
+-- hand every signed-in user a lifecycle write over PostgREST.
+CREATE OR REPLACE FUNCTION public.fn_activate_learners_for_first_present(
+  p_learner_ids           uuid[],
+  p_student_attendance_id uuid,
+  p_attendance_date       date,
+  p_section_id            uuid,
+  p_timetable_id          uuid,
+  p_institution_id        uuid,
+  p_marked_by             uuid,
+  p_changed_by            uuid,
+  p_trigger_op            text,
+  p_source                text DEFAULT 'fn_activate_learner_on_first_present'
+)
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+DECLARE
+  v_activated integer := 0;
+BEGIN
+  IF p_learner_ids IS NULL OR cardinality(p_learner_ids) = 0 THEN
+    RETURN 0;
   END IF;
 
-  -- (d) Promote, and audit exactly what was promoted. Eligibility is an
-  --     ALLOWLIST OF TWO — a blocklist would fail open at the next enum label.
-  --     Idempotent by construction: an already-`active` learner fails the
-  --     status predicate, so the UPDATE matches no row and no audit row is
-  --     written. The predicate is repeated inside the UPDATE so a concurrent
-  --     activation loses the race cleanly under READ COMMITTED.
+  -- ELIGIBILITY IS AN ALLOWLIST OF TWO. A blocklist would fail open the day a
+  -- sixteenth enum label is added. The predicate is repeated inside the UPDATE
+  -- so a concurrent activation loses the race cleanly under READ COMMITTED.
   WITH eligible AS (
     SELECT lp.id, lp.lifecycle_status AS from_status
     FROM public.learners_profiles lp
-    WHERE lp.id = ANY(v_present_ids)
+    WHERE lp.id = ANY(p_learner_ids)
       AND lp.lifecycle_status::text IN ('reserved', 'admitted')
   ),
   promoted AS (
@@ -66234,36 +66260,154 @@ BEGIN
      WHERE lp.id = e.id
        AND lp.lifecycle_status::text IN ('reserved', 'admitted')
     RETURNING lp.id AS learner_id, e.from_status
+  ),
+  audited AS (
+    INSERT INTO public.learners_profile_status_history
+      (learner_id, from_status, to_status, reason_code, changed_by, metadata)
+    SELECT
+      p.learner_id,
+      p.from_status,
+      'active'::lifecycle_status,
+      'first_present_attendance',
+      p_changed_by,
+      jsonb_build_object(
+        'source',                  p_source,
+        'trigger_op',              p_trigger_op,
+        'from_status',             p.from_status::text,
+        'student_attendance_id',   p_student_attendance_id,
+        'attendance_date',         p_attendance_date,
+        'section_id',              p_section_id,
+        'timetable_id',            p_timetable_id,
+        'institution_id',          p_institution_id,
+        -- Who actually marked the attendance. `changed_by` above is auth.uid(),
+        -- which is NULL on every service-role / SQL write path;
+        -- student_attendance.marked_by is NOT NULL, so the office can always see
+        -- whose mark caused this.
+        'marked_by',               p_marked_by,
+        'fee_thresholds_bypassed', true)
+    FROM promoted p
+    RETURNING 1 AS wrote
   )
-  INSERT INTO public.learners_profile_status_history
-    (learner_id, from_status, to_status, reason_code, changed_by, metadata)
-  SELECT
-    p.learner_id,
-    p.from_status,
-    'active'::lifecycle_status,
-    'first_present_attendance',
-    auth.uid(),
-    jsonb_build_object(
-      'source',                'fn_activate_learner_on_first_present',
-      'trigger_op',            TG_OP,
-      'from_status',           p.from_status::text,
-      'student_attendance_id', NEW.id,
-      'attendance_date',       NEW.attendance_date,
-      'section_id',            NEW.section_id,
-      'timetable_id',          NEW.timetable_id,
-      'institution_id',        NEW.institution_id,
-      'fee_thresholds_bypassed', true)
-  FROM promoted p;
+  SELECT count(*)::integer INTO v_activated FROM audited;
 
-  RETURN NULL;
+  RETURN COALESCE(v_activated, 0);
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_activate_learners_for_first_present(
+  uuid[], uuid, date, uuid, uuid, uuid, uuid, uuid, text, text) FROM anon, PUBLIC;
+
+COMMENT ON FUNCTION public.fn_activate_learners_for_first_present(
+  uuid[], uuid, date, uuid, uuid, uuid, uuid, uuid, text, text) IS
+  'Moves the reserved/admitted learners among p_learner_ids to active and writes one learners_profile_status_history row each (reason_code first_present_attendance). Returns how many were activated. Allowlist of two statuses; idempotent — an already-active learner matches nothing and gets no history row. Granted to NOBODY: the trigger reaches it as owner, the Director-gated catch-up runs it as the operator.';
+
+
+-- ── The trigger function — cannot reject an attendance save ─────────────────
+CREATE OR REPLACE FUNCTION public.fn_activate_learner_on_first_present()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+DECLARE
+  v_newly_present uuid[];
+  v_err_state     text;
+  v_err_msg       text;
+  v_err_detail    text;
+  v_err_context   text;
+BEGIN
+  -- EVERYTHING below runs inside an exception-handled sub-block. An AFTER
+  -- trigger that raises aborts the statement that fired it, and the statement
+  -- here is somebody saving a whole class's attendance. Activation is a
+  -- consequence of that save and must never be a condition of it.
+  BEGIN
+
+    -- (a) Master switch. Read before any parsing, so the disabled cost is one
+    --     policy lookup per attendance write and nothing else.
+    IF NOT COALESCE(
+         public.fn_get_policy_bool('learners.activate_on_first_present.enabled', false, NULL),
+         false) THEN
+      RETURN NULL;
+    END IF;
+
+    -- (b) Re-saving an unchanged payload must not thrash any learner row.
+    IF TG_OP = 'UPDATE'
+       AND OLD.attendance_data IS NOT DISTINCT FROM NEW.attendance_data THEN
+      RETURN NULL;
+    END IF;
+
+    -- (c) WHO BECAME PRESENT — not "who is present". On INSERT the row did not
+    --     exist, so every Present mark on it is new. On UPDATE only the ids that
+    --     were NOT already present in OLD count: an edit that corrects somebody
+    --     else's mark, adds a period, or fixes a typo leaves every
+    --     already-present learner exactly where they are. Without this, editing
+    --     an attendance row written before the switch was turned on
+    --     retroactively activated everyone marked present on it.
+    IF TG_OP = 'UPDATE' THEN
+      SELECT array_agg(n)
+        INTO v_newly_present
+        FROM unnest(COALESCE(public.fn_present_learner_ids(NEW.attendance_data), '{}'::uuid[])) AS n
+       WHERE NOT (n = ANY(COALESCE(public.fn_present_learner_ids(OLD.attendance_data), '{}'::uuid[])));
+    ELSE
+      v_newly_present := public.fn_present_learner_ids(NEW.attendance_data);
+    END IF;
+
+    IF v_newly_present IS NULL OR cardinality(v_newly_present) = 0 THEN
+      RETURN NULL;
+    END IF;
+
+    -- (d) Promote and audit, through the one shared body.
+    PERFORM public.fn_activate_learners_for_first_present(
+      v_newly_present,
+      NEW.id,
+      NEW.attendance_date,
+      NEW.section_id,
+      NEW.timetable_id,
+      NEW.institution_id,
+      NEW.marked_by,
+      auth.uid(),
+      TG_OP,
+      'fn_activate_learner_on_first_present');
+
+    RETURN NULL;
+
+  EXCEPTION WHEN OTHERS THEN
+    -- The attendance row is SAVED. Only the activation failed, and it is
+    -- written where somebody will find it.
+    GET STACKED DIAGNOSTICS
+      v_err_state   = RETURNED_SQLSTATE,
+      v_err_msg     = MESSAGE_TEXT,
+      v_err_detail  = PG_EXCEPTION_DETAIL,
+      v_err_context = PG_EXCEPTION_CONTEXT;
+
+    -- The recorder gets its own handler. A failure table that can itself abort
+    -- the attendance save would reintroduce the exact defect being fixed.
+    BEGIN
+      INSERT INTO public.learner_activation_failures
+        (student_attendance_id, attendance_date, section_id, timetable_id,
+         institution_id, trigger_op, learner_ids, marked_by, attempted_by,
+         sqlstate, error_message, error_detail, error_context)
+      VALUES
+        (NEW.id, NEW.attendance_date, NEW.section_id, NEW.timetable_id,
+         NEW.institution_id, TG_OP, COALESCE(v_newly_present, '{}'::uuid[]),
+         NEW.marked_by, auth.uid(),
+         v_err_state, COALESCE(v_err_msg, 'unknown error'), v_err_detail, v_err_context);
+    EXCEPTION WHEN OTHERS THEN
+      RAISE WARNING
+        '[learners] first-present activation failed for student_attendance % AND the failure could not be recorded: % %',
+        NEW.id, SQLSTATE, SQLERRM;
+    END;
+
+    RAISE WARNING
+      '[learners] first-present activation failed for student_attendance % (%): % — the attendance save is unaffected; see public.learner_activation_failures',
+      NEW.id, v_err_state, v_err_msg;
+
+    RETURN NULL;
+  END;
 END;
 $function$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_activate_learner_on_first_present() FROM anon, PUBLIC;
 
 COMMENT ON FUNCTION public.fn_activate_learner_on_first_present() IS
-  'Moves a reserved/admitted learner to active on their FIRST Present mark '
-  '(Director ruling 2026-08-11, switched on 2026-09-18). Gated by platform '
-  'policy learners.activate_on_first_present.enabled. Audits every activation '
-  'to learners_profile_status_history with reason_code first_present_attendance '
-  'and fee_thresholds_bypassed: true.';
+  'Moves a reserved/admitted learner to active on their FIRST Present mark (Director ruling 2026-08-11). Gated by platform policy learners.activate_on_first_present.enabled. Activates only learners who BECOME present on this write — an UPDATE that does not move somebody into Present activates nobody. Cannot reject the attendance save: every failure is caught and written to public.learner_activation_failures.';

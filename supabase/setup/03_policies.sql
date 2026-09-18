@@ -11089,3 +11089,28 @@ INSERT INTO platform_policies
   'MASTER SWITCH — ON since 2026-09-18. A learner sitting at `reserved` or `admitted` is moved to `active` the FIRST time they are marked PRESENT (Director ruling 2026-08-11, chosen again on 2026-09-18 over the induction-completion alternative). NOT RETROACTIVE: the trigger fires on an attendance write, so Present marks already recorded activate nobody — a learner activates at their NEXT one. Turning this OFF stops all future automatic activation and reverses nothing already done. While ON, a `reserved` learner can reach `active` WITHOUT clearing the 30% / 60% fee thresholds in admission_statuses; every activation is audited to learners_profile_status_history with reason_code first_present_attendance and fee_thresholds_bypassed: true.',
   'boolean', NULL, true)
 ON CONFLICT (policy_key, scope_type, COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'::uuid)) DO NOTHING;
+
+
+-- ── learner_activation_failures — admin-gated read, no client write path ────
+-- Updated: 2026-09-19 - Added with the table (01_tables.sql) in repair round 1
+-- of PR #3924. Migration: 20260919005000_harden_first_present_activation.sql.
+--
+-- Same gate that already guards `learners_profile_status_history`: whoever can
+-- read a learner's status history can read the activations that did NOT happen.
+-- No INSERT/UPDATE/DELETE policy — rows are written by SECURITY DEFINER only,
+-- from inside the attendance trigger's exception handler.
+ALTER TABLE public.learner_activation_failures ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS learner_activation_failures_select ON public.learner_activation_failures;
+CREATE POLICY learner_activation_failures_select
+  ON public.learner_activation_failures
+  FOR SELECT
+  TO authenticated
+  USING (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('learners.profiles.view')
+        AND role_has_institution_access(institution_id))
+  );
+
+REVOKE ALL    ON public.learner_activation_failures FROM anon, PUBLIC;
+GRANT  SELECT ON public.learner_activation_failures TO authenticated;

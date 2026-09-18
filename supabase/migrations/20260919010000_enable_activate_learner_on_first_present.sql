@@ -78,8 +78,63 @@
 -- Deliberately carries NO `BEGIN;`/`COMMIT;` so a reviewer's `BEGIN … ROLLBACK`
 -- rehearsal against production actually rolls back.
 --
+-- ── 🛑 IT REFUSES TO TURN ON OVER AN UNHARDENED TRIGGER (repair round 1) ─────
+--
+--   The reviewer's first finding was that an activation failure could reject a
+--   whole attendance save, and the second that editing an OLD
+--   attendance row could activate learners retroactively. Both are fixed in
+--   20260919005000_harden_first_present_activation.sql, which is numbered below
+--   this file so `supabase db push` applies it first.
+--
+--   Version order is not a guarantee anybody has to trust here: the guard block
+--   below asserts, before the switch is touched, that the trigger is installed
+--   AND that the body installed is the hardened one. If either is untrue the
+--   file raises and the rule stays off. The PR body's old caveat — "an operator
+--   should confirm the trigger is installed before merging" — is now enforced by
+--   the migration instead of asked of a person.
+--
 -- MIGRATION IS FILE ONLY — NOT APPLIED. Director-gated.
 -- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- 0. Pre-flight. Nothing is switched on over a mechanism that is absent, or
+--    over the pre-repair body that could reject an attendance save.
+-- ----------------------------------------------------------------------------
+DO $guard$
+DECLARE
+  v_body text;
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger t
+    JOIN pg_class     c ON c.oid = t.tgrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relname = 'student_attendance'
+      AND t.tgname  = 'trg_activate_learner_on_first_present'
+      AND NOT t.tgisinternal
+  ) THEN
+    RAISE EXCEPTION
+      'trg_activate_learner_on_first_present is not installed on public.student_attendance — migration 20260821030000_attendance_activates_learner.sql has not been applied to this database. Turning the switch on here would be silent, not broken: the policy would read true and nothing would ever activate'
+      USING ERRCODE = 'no_data_found';
+  END IF;
+
+  IF to_regprocedure('public.fn_activate_learners_for_first_present(uuid[],uuid,date,uuid,uuid,uuid,uuid,uuid,text,text)') IS NULL THEN
+    RAISE EXCEPTION
+      'migration 20260919005000_harden_first_present_activation.sql has not been applied — the rule must not be switched on while an activation failure can still reject an attendance save'
+      USING ERRCODE = 'no_data_found';
+  END IF;
+
+  v_body := pg_get_functiondef('public.fn_activate_learner_on_first_present()'::regprocedure);
+
+  IF position('EXCEPTION' in v_body) = 0
+     OR position('learner_activation_failures' in v_body) = 0
+     OR position('fn_activate_learners_for_first_present' in v_body) = 0 THEN
+    RAISE EXCEPTION
+      'the installed fn_activate_learner_on_first_present() is the UNHARDENED 2026-08-11 body — apply 20260919005000_harden_first_present_activation.sql first'
+      USING ERRCODE = 'check_violation';
+  END IF;
+END
+$guard$;
 
 DO $do$
 DECLARE
