@@ -5,7 +5,15 @@
  *
  * Every learner who declared willing (or was confirmed) for the drive, with a
  * present / absent control, a reason box that appears only on an absence, and a
- * running "N of M marked" count. Data comes from
+ * running "N of M marked" count.
+ *
+ * Learners who DECLINED are listed too, below the invited ones and flagged
+ * "Declined" (Director ruling, 2026-09-18 — "let them be marked"): someone who
+ * said no and then walked in on the day can be recorded present. They are kept
+ * out of the "N of M marked" count so that count can still reach M; the number
+ * of declined learners who turned up is reported on its own.
+ *
+ * Data comes from
  * GET  /api/cdc/drives/[id]/attendance (gate: cdc.drives.view) and is saved by
  * POST /api/cdc/drives/[id]/attendance (gate: cdc.drives.edit).
  *
@@ -126,7 +134,13 @@ function AttendanceContent({ params }: { params: Promise<{ id: string }> }) {
   }, [rows, drafts]);
 
   const summary = useMemo(
-    () => summariseRoster(rows.map((r) => ({ attended: effective.get(r.learner_id)?.attended ?? null }))),
+    () =>
+      summariseRoster(
+        rows.map((r) => ({
+          attended: effective.get(r.learner_id)?.attended ?? null,
+          declined: r.declined,
+        }))
+      ),
     [rows, effective]
   );
 
@@ -230,6 +244,12 @@ function AttendanceContent({ params }: { params: Promise<{ id: string }> }) {
               <span>· {summary.present} present</span>
               <span>· {summary.absent} absent</span>
               <span>· {summary.unmarked} not yet marked</span>
+              {summary.declined > 0 ? (
+                <span>
+                  · {summary.declined} declined
+                  {summary.declined_present > 0 ? `, ${summary.declined_present} turned up anyway` : ''}
+                </span>
+              ) : null}
             </p>
           </div>
           <PermissionGuard module="cdc.drives" action="edit" fallback={null}>
@@ -308,7 +328,7 @@ function AttendanceContent({ params }: { params: Promise<{ id: string }> }) {
                 <p className="text-xs text-muted-foreground">
                   {rows.length > 0
                     ? 'No rows match your search.'
-                    : 'The roster is every learner who declared willing for this drive. Nobody has declared yet.'}
+                    : 'The roster is every learner who answered this drive, whether they said yes or no. Nobody has answered yet.'}
                 </p>
               </div>
             ) : (
@@ -331,7 +351,18 @@ function AttendanceContent({ params }: { params: Promise<{ id: string }> }) {
                         <TableRow key={r.learner_id}>
                           <TableCell className="text-muted-foreground">{i + 1}</TableCell>
                           <TableCell>
-                            <div className="font-medium">{r.learner_name ?? '—'}</div>
+                            <div className="font-medium flex flex-wrap items-center gap-2">
+                              <span>{r.learner_name ?? '—'}</span>
+                              {r.declined ? (
+                                <Badge
+                                  variant="outline"
+                                  className="text-xs font-normal border-amber-500/60 text-amber-700 dark:text-amber-400"
+                                  title="This learner told the CDC they were not coming. Mark them present if they turned up anyway."
+                                >
+                                  Declined
+                                </Badge>
+                              ) : null}
+                            </div>
                             <div className="text-xs text-muted-foreground">{r.register_number ?? ''}</div>
                           </TableCell>
                           <TableCell>

@@ -5,8 +5,10 @@ export const dynamic = 'force-dynamic';
  *
  * GET   /api/cdc/drives/[id]/attendance?round_no=1
  *         → the roster: every learner who declared willing / confirmed for this
- *           drive, plus whatever attendance they already carry for that round,
- *           plus the marked / unmarked counts.
+ *           drive, plus everyone who declined (flagged `declined: true`, listed
+ *           last, markable — Director ruling 2026-09-18 "let them be marked"),
+ *           plus whatever attendance each already carries for that round, plus
+ *           the marked / unmarked counts.
  * POST  /api/cdc/drives/[id]/attendance
  * PATCH /api/cdc/drives/[id]/attendance
  *         → { round_no?, round_type?, marks: [{ learner_id, attended, no_show_reason? }] }
@@ -60,6 +62,9 @@ export async function GET(
 
     // Service-role read AFTER the gate: a drive's audience is multi-college by
     // design, and a coordinator's own RLS scope would silently drop rows.
+    // The roster the service returns includes declined learners; the write path
+    // below needs no matching change, because cdc_drive_attendance has no
+    // constraint tying a mark to the learner's willingness state.
     const roster = await getDriveAttendanceRoster(
       createServiceRoleClient(),
       id,

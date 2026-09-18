@@ -60,8 +60,41 @@ export const CDC_ATTENDANCE_ROUND_TYPE_LABEL: Record<CdcAttendanceRoundType, str
   final: 'Final',
 };
 
-/** Willingness states that put a learner on the attendance roster. */
-export const ROSTER_WILLINGNESS_STATUSES: readonly CdcWillingnessStatus[] = ['willing', 'confirmed'] as const;
+/**
+ * Who appears on the attendance roster.
+ *
+ * Two groups, deliberately kept apart (Director ruling, 2026-09-18 — "let them
+ * be marked"):
+ *
+ *   INVITED  — declared willing, or was confirmed. The people the drive expected.
+ *   DECLINED — said no, then turned up anyway. Until this ruling they could not be
+ *              marked at all: the roster query filtered them out, so a coordinator
+ *              standing in the hall with a learner in front of them had no row to
+ *              press. They are listed, and markable, but never blended into the
+ *              invited count — a coordinator reading the sheet must be able to see
+ *              at a glance who was expected and who walked in.
+ *
+ * `no_show` is NOT on the roster: it is an outcome the system records after the
+ * fact, not a declaration a learner made, so a row in that state is already the
+ * answer to the question this screen asks.
+ */
+export const INVITED_WILLINGNESS_STATUSES: readonly CdcWillingnessStatus[] = [
+  'willing',
+  'confirmed',
+] as const;
+
+export const DECLINED_WILLINGNESS_STATUSES: readonly CdcWillingnessStatus[] = ['withdrawn'] as const;
+
+/** Every willingness state that puts a learner on the roster — the query filter. */
+export const ROSTER_WILLINGNESS_STATUSES: readonly CdcWillingnessStatus[] = [
+  ...INVITED_WILLINGNESS_STATUSES,
+  ...DECLINED_WILLINGNESS_STATUSES,
+] as const;
+
+/** True when this learner declined and is on the roster only so a walk-in can be marked. */
+export function isDeclinedWillingness(status: unknown): boolean {
+  return DECLINED_WILLINGNESS_STATUSES.includes(status as CdcWillingnessStatus);
+}
 
 export const MIN_ROUND_NO = 1;
 export const MAX_ROUND_NO = 10;
@@ -77,6 +110,11 @@ export interface CdcAttendanceRosterRow {
   department_name: string | null;
   semester_label: string | null;
   willingness_status: CdcWillingnessStatus;
+  /**
+   * Derived from `willingness_status`, carried explicitly so the screen and the
+   * counts never have to re-derive the rule and drift from it.
+   */
+  declined: boolean;
   declared_at: string;
   /** null when this learner has not been marked for this round yet. */
   attendance_id: string | null;
@@ -88,12 +126,23 @@ export interface CdcAttendanceRosterRow {
   marked_at: string | null;
 }
 
+/**
+ * The five headline counts are over the INVITED learners only, so "N of M marked"
+ * can actually reach M. Declined walk-ins are reported separately rather than
+ * folded in — otherwise a coordinator who has marked every learner they expected
+ * still reads "150 of 170 marked" and goes looking for twenty people who told the
+ * CDC weeks ago that they were not coming.
+ */
 export interface CdcAttendanceSummary {
   total: number;
   marked: number;
   unmarked: number;
   present: number;
   absent: number;
+  /** Declined learners listed on the roster (not counted in `total`). */
+  declined: number;
+  /** ...of whom this many actually turned up and were marked present. */
+  declined_present: number;
 }
 
 export interface CdcAttendanceRosterResponse {
@@ -222,22 +271,45 @@ export function buildAttendanceUpsertRows(
   return Array.from(byLearner.values());
 }
 
-/** Counts for the "12 of 150 marked" line on the screen. Pure. */
-export function summariseRoster(rows: Pick<CdcAttendanceRosterRow, 'attended'>[]): CdcAttendanceSummary {
+/**
+ * Counts for the "12 of 150 marked" line on the screen. Pure.
+ *
+ * Declined rows are counted on their own track — see CdcAttendanceSummary.
+ */
+export function summariseRoster(
+  rows: Pick<CdcAttendanceRosterRow, 'attended' | 'declined'>[]
+): CdcAttendanceSummary {
   let present = 0;
   let absent = 0;
   let unmarked = 0;
+  let declined = 0;
+  let declinedPresent = 0;
   for (const r of rows) {
+    if (r.declined) {
+      declined += 1;
+      if (r.attended === true) declinedPresent += 1;
+      continue;
+    }
     if (r.attended === true) present += 1;
     else if (r.attended === false) absent += 1;
     else unmarked += 1;
   }
-  return { total: rows.length, marked: present + absent, unmarked, present, absent };
+  return {
+    total: present + absent + unmarked,
+    marked: present + absent,
+    unmarked,
+    present,
+    absent,
+    declined,
+    declined_present: declinedPresent,
+  };
 }
 
 /**
- * The roster: every learner who declared willing (or was confirmed) for this
- * drive, with whatever attendance they already carry for `roundNo`.
+ * The roster: every learner who declared willing or was confirmed for this drive,
+ * PLUS everyone who declined, with whatever attendance they already carry for
+ * `roundNo`. The declined are listed last and flagged, never merged into the
+ * invited group — see ROSTER_WILLINGNESS_STATUSES.
  *
  * `service` must be a service-role client — see the file header.
  */
@@ -330,6 +402,7 @@ export async function getDriveAttendanceRoster(
 
     return {
       learner_id: learnerId,
+      declined: isDeclinedWillingness(w.status),
       learner_name: (w.learner_name as string | null) || fallbackName || null,
       register_number: (l?.register_number as string | null) ?? null,
       institution_name: l?.institution_id ? instName.get(l.institution_id as string) ?? null : null,
@@ -345,6 +418,11 @@ export async function getDriveAttendanceRoster(
       marked_at: a ? ((a.updated_at as string | null) ?? null) : null,
     };
   });
+
+  // Invited first, declined walk-ins after them, each still in declared_at order
+  // (Array.prototype.sort is stable). A coordinator works down the list they
+  // expected; the people who said no sit below it rather than scattered through it.
+  rows.sort((a, b) => Number(a.declined) - Number(b.declined));
 
   return {
     drive_id: driveId,
@@ -396,4 +474,5 @@ export const CdcAttendanceService = {
   summariseRoster,
   normaliseRoundNo,
   normaliseRoundType,
+  isDeclinedWillingness,
 };

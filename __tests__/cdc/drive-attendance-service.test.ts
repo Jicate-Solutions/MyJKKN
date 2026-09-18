@@ -15,6 +15,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   buildAttendanceUpsertRows,
   getDriveAttendanceRoster,
+  isDeclinedWillingness,
   normaliseRoundNo,
   normaliseRoundType,
   saveDriveAttendance,
@@ -199,17 +200,71 @@ describe('summariseRoster', () => {
     // The whole point of the screen is the difference between "we checked and
     // they were not there" and "nobody has got to them yet".
     const s = summariseRoster([
-      { attended: true },
-      { attended: true },
-      { attended: false },
-      { attended: null },
+      { attended: true, declined: false },
+      { attended: true, declined: false },
+      { attended: false, declined: false },
+      { attended: null, declined: false },
     ]);
-    expect(s).toEqual({ total: 4, marked: 3, unmarked: 1, present: 2, absent: 1 });
+    expect(s).toEqual({
+      total: 4,
+      marked: 3,
+      unmarked: 1,
+      present: 2,
+      absent: 1,
+      declined: 0,
+      declined_present: 0,
+    });
   });
 
   it('reports an untouched roster as entirely unmarked', () => {
-    const s = summariseRoster([{ attended: null }, { attended: null }]);
-    expect(s).toEqual({ total: 2, marked: 0, unmarked: 2, present: 0, absent: 0 });
+    const s = summariseRoster([
+      { attended: null, declined: false },
+      { attended: null, declined: false },
+    ]);
+    expect(s).toEqual({
+      total: 2,
+      marked: 0,
+      unmarked: 2,
+      present: 0,
+      absent: 0,
+      declined: 0,
+      declined_present: 0,
+    });
+  });
+
+  it('keeps declined learners out of "N of M marked" and counts them on their own', () => {
+    // Director ruling 2026-09-18: a learner who declined and turned up anyway can
+    // be marked. If they were folded into `total`, a coordinator who has marked
+    // every learner they expected would read "2 of 4 marked" and go hunting for
+    // two people who said weeks ago that they were not coming.
+    const s = summariseRoster([
+      { attended: true, declined: false },
+      { attended: false, declined: false },
+      { attended: true, declined: true }, // declined, walked in
+      { attended: null, declined: true }, // declined, stayed away
+    ]);
+    expect(s.total).toBe(2);
+    expect(s.marked).toBe(2);
+    expect(s.unmarked).toBe(0);
+    expect(s.present).toBe(1);
+    expect(s.declined).toBe(2);
+    expect(s.declined_present).toBe(1);
+  });
+});
+
+describe('isDeclinedWillingness', () => {
+  it('treats withdrawn as declined', () => {
+    expect(isDeclinedWillingness('withdrawn')).toBe(true);
+  });
+
+  it('does not treat willing, confirmed or no_show as declined', () => {
+    // Non-vacuity control. `no_show` matters especially: it is an outcome the
+    // system records after the fact, not a declaration the learner made, so it
+    // must not be dressed up on the screen as "this learner said no".
+    expect(isDeclinedWillingness('willing')).toBe(false);
+    expect(isDeclinedWillingness('confirmed')).toBe(false);
+    expect(isDeclinedWillingness('no_show')).toBe(false);
+    expect(isDeclinedWillingness(null)).toBe(false);
   });
 });
 
@@ -289,7 +344,15 @@ describe('getDriveAttendanceRoster', () => {
 
     expect(roster.round_no).toBe(2);
     expect(roster.data).toHaveLength(2);
-    expect(roster.summary).toEqual({ total: 2, marked: 1, unmarked: 1, present: 1, absent: 0 });
+    expect(roster.summary).toEqual({
+      total: 2,
+      marked: 1,
+      unmarked: 1,
+      present: 1,
+      absent: 0,
+      declined: 0,
+      declined_present: 0,
+    });
 
     const marked = roster.data.find((r) => r.learner_id === 'l1');
     expect(marked?.attended).toBe(true);
@@ -303,13 +366,119 @@ describe('getDriveAttendanceRoster', () => {
     expect(unmarked?.learner_name).toBe('Bala K');
   });
 
-  it('scopes the roster to willing/confirmed and the attendance read to the round asked for', async () => {
+  it('scopes the roster to answered willingness and the attendance read to the round asked for', async () => {
     // Non-vacuity control: proves the two filters were actually applied rather
     // than the stub simply handing back everything it holds.
+    //
+    // 'withdrawn' joined this list on 2026-09-18 (Director ruling — "let them be
+    // marked"). 'no_show' deliberately did NOT: it is an outcome the system
+    // records, not an answer a learner gave.
     const client = makeReadClient(tables);
     await getDriveAttendanceRoster(client as never, DRIVE, '2');
-    expect(client.seenStatusFilter.value).toEqual(['willing', 'confirmed']);
+    expect(client.seenStatusFilter.value).toEqual(['willing', 'confirmed', 'withdrawn']);
+    expect(client.seenStatusFilter.value).not.toContain('no_show');
     expect(client.seenRoundFilter.value).toBe(2);
+  });
+});
+
+describe('a learner who declined and turned up anyway', () => {
+  // Director ruling, 2026-09-18: "let them be marked." Before it, the roster query
+  // filtered withdrawn learners out entirely, so a coordinator standing in the hall
+  // with that learner in front of them had no row to press — the only way to record
+  // the truth was to not record it.
+  //
+  // `l3` is listed FIRST in the willingness rows and declared EARLIEST on purpose:
+  // the stub's .order() is a no-op, so if the service did not re-order the roster
+  // itself, l3 would come back at position 0 and the ordering assertion would fail.
+  const declinedTables: StubTables = {
+    willingness: [
+      { learner_id: 'l3', learner_name: 'Chitra M', status: 'withdrawn', declared_at: '2026-09-16T03:00:00Z' },
+      { learner_id: 'l1', learner_name: 'Anitha R', status: 'willing', declared_at: '2026-09-16T04:00:00Z' },
+      { learner_id: 'l2', learner_name: 'Bala K', status: 'confirmed', declared_at: '2026-09-16T05:00:00Z' },
+    ],
+    attendance: [
+      {
+        id: 'a3',
+        learner_id: 'l3',
+        round_type: 'aptitude',
+        attended: true,
+        attended_at: '2026-09-17T04:10:00Z',
+        no_show_reason: null,
+        marked_by: MARKER,
+        updated_at: '2026-09-17T04:10:00Z',
+      },
+    ],
+    learners: [
+      { id: 'l1', first_name: 'Anitha', last_name: 'R', register_number: 'REG1', institution_id: null, department_id: null, semester_id: null },
+      { id: 'l2', first_name: 'Bala', last_name: 'K', register_number: 'REG2', institution_id: null, department_id: null, semester_id: null },
+      { id: 'l3', first_name: 'Chitra', last_name: 'M', register_number: 'REG3', institution_id: null, department_id: null, semester_id: null },
+    ],
+  };
+
+  it('appears on the roster, flagged as declined and listed after the invited ones', async () => {
+    const roster = await getDriveAttendanceRoster(makeReadClient(declinedTables) as never, DRIVE, '1');
+
+    const declined = roster.data.find((r) => r.learner_id === 'l3');
+    expect(declined).toBeDefined();
+    expect(declined?.declined).toBe(true);
+    expect(declined?.willingness_status).toBe('withdrawn');
+    // Flagged, not blended: a coordinator reading the sheet can see who was
+    // expected and who walked in.
+    expect(roster.data.map((r) => r.learner_id)).toEqual(['l1', 'l2', 'l3']);
+  });
+
+  it('still returns the willing and confirmed learners, unflagged', async () => {
+    // Non-vacuity control for the case above. Without this, "the declined learner
+    // appears" could pass simply because the filter stopped excluding anyone —
+    // including because it had started returning rows it should not.
+    const roster = await getDriveAttendanceRoster(makeReadClient(declinedTables) as never, DRIVE, '1');
+
+    const willing = roster.data.find((r) => r.learner_id === 'l1');
+    const confirmed = roster.data.find((r) => r.learner_id === 'l2');
+    expect(willing?.willingness_status).toBe('willing');
+    expect(confirmed?.willingness_status).toBe('confirmed');
+    expect(willing?.declined).toBe(false);
+    expect(confirmed?.declined).toBe(false);
+    expect(roster.data).toHaveLength(3);
+  });
+
+  it('can be marked present, and that mark is read back off the roster', async () => {
+    const roster = await getDriveAttendanceRoster(makeReadClient(declinedTables) as never, DRIVE, '1');
+
+    const declined = roster.data.find((r) => r.learner_id === 'l3');
+    expect(declined?.attended).toBe(true);
+    expect(declined?.attendance_id).toBe('a3');
+    expect(declined?.attended_at).toBe('2026-09-17T04:10:00Z');
+
+    // ...and the counts keep the two groups apart: both invited learners are still
+    // waiting to be marked, and the walk-in is reported on its own track.
+    expect(roster.summary.total).toBe(2);
+    expect(roster.summary.marked).toBe(0);
+    expect(roster.summary.unmarked).toBe(2);
+    expect(roster.summary.present).toBe(0);
+    expect(roster.summary.declined).toBe(1);
+    expect(roster.summary.declined_present).toBe(1);
+  });
+
+  it('is written like any other mark — nothing on the write path blocks a declined learner', async () => {
+    // cdc_drive_attendance has no constraint tying a mark to willingness (verified
+    // against the table DDL), so "let them be marked" needed no migration. This
+    // asserts the service does not add a rule of its own on the way through.
+    const upsert = vi.fn(() => ({ select: async () => ({ data: [{ id: 'a3' }], error: null }) }));
+    const out = await saveDriveAttendance(
+      { from: () => ({ upsert }) } as never,
+      DRIVE,
+      { round_no: 1, marks: [{ learner_id: 'l3', attended: true }] },
+      MARKER,
+      NOW
+    );
+
+    expect(out).toEqual({ saved: 1, round_no: 1 });
+    const [rows] = upsert.mock.calls[0] as unknown as [Array<Record<string, unknown>>];
+    expect(rows).toHaveLength(1);
+    expect(rows[0].learner_id).toBe('l3');
+    expect(rows[0].attended).toBe(true);
+    expect(rows[0].attended_at).toBe(NOW.toISOString());
   });
 });
 
