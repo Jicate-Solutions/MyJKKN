@@ -98,6 +98,18 @@ function bodyOf(sql: string, fn: string): string {
 
 const migrations = loadMigrations();
 
+const PGHOST = process.env.PGHOST ?? '127.0.0.1';
+const PGPORT = process.env.PGPORT ?? '5432';
+/** Probed once at load so the behaviour case can be SKIPPED, not silently passed. */
+const HAS_DATABASE = (() => {
+  const probe = spawnSync('psql', ['-d', 'postgres', '-tAc', 'select 1'], {
+    encoding: 'utf8',
+    timeout: 15_000,
+    env: { ...process.env, PGHOST, PGPORT },
+  });
+  return probe.status === 0;
+})();
+
 /** Last file in version order to define `fn` — what an ordered apply leaves. */
 function winningDefinition(fn: string): Migration {
   const owners = migrations.filter((m) => definesFunction(m.sql, fn));
@@ -130,8 +142,13 @@ describe('SCF confirmed-with-feedback — one predicate, block-course siblings',
       /p_mark_course_id\s+IS\s+NOT\s+NULL/i.test(body),
       'the course branch must be guarded on the mark having a course at all'
     ).toBe(true);
-    // The timetable dimension stays a parameter, not a hardcoded rule.
-    expect(/p_require_same_timetable/.test(body)).toBe(true);
+    // And the rule is the reference migration's: no timetable equality, so the
+    // pending list and the confirmation readers cannot disagree about a mark.
+    expect(
+      /timetable/i.test(body),
+      'the predicate mentions a timetable — fn_scf_pending_for_learner has no ' +
+        'such rule, and a mark it withholds must stay confirmable'
+    ).toBe(false);
   });
 
   it.each(PREDICATE_CALLERS)('%s calls the shared predicate and nothing of its own', (fn) => {
@@ -141,11 +158,12 @@ describe('SCF confirmed-with-feedback — one predicate, block-course siblings',
       `${fn} does not call ${PREDICATE} — a private copy of the match is how the ` +
         'numerators drifted apart in the first place'
     ).toBe(true);
-    // The old private match, spelled out inline, must be gone: no reader may
-    // pair a period equality with a timetable equality on its own again.
+    // No reader may match feedback on the timetable again, inline or otherwise:
+    // that is exactly the asymmetry with the pending list that left marks
+    // neither offered nor confirmable.
     expect(
-      /f\.period_id\s*=\s*[^\s]+\s+AND\s+f\.timetable_id\s*=/i.test(body),
-      `${fn} still carries an inline period+timetable match`
+      /f\.timetable_id\s*=/i.test(body),
+      `${fn} still matches feedback on timetable_id, which fn_scf_pending_for_learner does not`
     ).toBe(false);
   });
 
@@ -164,6 +182,14 @@ describe('SCF confirmed-with-feedback — one predicate, block-course siblings',
     // The DISTINCT is load-bearing: a learner can have several feedback rows for
     // one course in a day, which is the whole point of a block course.
     expect(/SELECT\s+DISTINCT\s+f\.student_id,\s*f\.attendance_date,\s*f\.course_id/i.test(body)).toBe(true);
+    // min(course_id) over the (date, period, student) group silently picks ONE
+    // course and loses feedback for the other. The course belongs in the
+    // grouping, with a collapse afterwards so the denominator cannot move.
+    expect(
+      /min\s*\(\s*period\.value\s*->>\s*'course_id'/i.test(body),
+      'the rollup is back to picking an arbitrary course with min()'
+    ).toBe(false);
+    expect(/bool_or\s*\(/i.test(body), 'the rollup lost its collapse back to one row per mark').toBe(true);
   });
 
   it('every course_id cast goes through the uuid guard', () => {
@@ -191,24 +217,30 @@ describe('SCF confirmed-with-feedback — one predicate, block-course siblings',
     expect(readFileSync(HARNESS, 'utf8')).toContain(THIS_FIX_VERSION);
   });
 
-  it('behaviour: the SQL harness passes against a real database', () => {
-    // Runs the real functions against seeded rows. Skipped, loudly, when no
-    // local Postgres is reachable — a skip must never read as a pass.
-    const probe = spawnSync('psql', ['-d', 'postgres', '-tAc', 'select 1'], {
-      encoding: 'utf8',
-      env: { ...process.env, PGHOST: process.env.PGHOST ?? '127.0.0.1', PGPORT: process.env.PGPORT ?? '5432' },
-    });
-    if (probe.status !== 0) {
-      console.warn(
-        '[scf-block-course] SKIPPED the behaviour harness: no local Postgres on ' +
-          `${process.env.PGHOST ?? '127.0.0.1'}:${process.env.PGPORT ?? '5432'}. ` +
-          'Run `bash supabase/tests/scf-block-course/run.sh` where one is available.'
-      );
-      return;
-    }
+  // Probed ONCE, at load, so the result can drive it.skipIf and vitest reports
+  // the case as SKIPPED rather than as a pass. A silent pass here would be the
+  // worst outcome available: it would say the behaviour was proved when nothing
+  // ran at all.
+  it.skipIf(!HAS_DATABASE)('behaviour: the SQL harness passes against a real database', () => {
     const run = spawnSync('bash', [HARNESS], { encoding: 'utf8', cwd: ROOT, timeout: 120_000 });
     const out = `${run.stdout ?? ''}${run.stderr ?? ''}`;
     expect(out, out.slice(-2000)).toContain('ALL SCENARIOS PASSED');
     expect(run.status, out.slice(-2000)).toBe(0);
   }, 130_000);
+
+  it('the behaviour harness was actually exercised, or its skip is visible', () => {
+    // The one assertion that cannot be skipped. When there is no database the
+    // suite must SAY so — here, and in the skipped case above — never imply the
+    // behaviour was checked. Set SCF_REQUIRE_DB=1 (CI with a database) to turn
+    // the absence into a failure instead of a notice.
+    if (!HAS_DATABASE) {
+      const msg =
+        `no Postgres on ${PGHOST}:${PGPORT} — the block-course BEHAVIOUR was NOT ` +
+        'verified by this run. Only the structural assertions above ran. Run ' +
+        '`bash supabase/tests/scf-block-course/run.sh` where a database is available.';
+      if (process.env.SCF_REQUIRE_DB === '1') throw new Error(msg);
+      console.warn(`[scf-block-course] ${msg}`);
+    }
+    expect(existsSync(HARNESS)).toBe(true);
+  });
 });

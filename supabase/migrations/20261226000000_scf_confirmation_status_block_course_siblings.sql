@@ -1,85 +1,87 @@
 -- =====================================================================
 -- SCF: ONE predicate for "did this learner's feedback confirm this
--- mark?", and it recognises the sibling periods of a block-scheduled
--- course
+-- mark?", and it is the rule the pending list already uses
 -- Updated: 2026-09-17 (BUG-004651, BUG-004690, BUG-004707, BUG-004728,
 --   BUG-004741, BUG-005120, BUG-005178, BUG-005491; clusters 3149b52f,
 --   0961c22e)
 --
 -- DEFECT. A block-scheduled course occupies several periods of one day.
 -- fn_scf_pending_for_learner has known that since 20260718200000: it
--- groups those siblings by course and OFFERS a learner exactly one
--- feedback per course per day. Five readers that answer "is this mark
--- confirmed?" were never told, and each carried its OWN copy of the
--- match against the exact (attendance_date, period_id) pair. So the
--- sibling periods the pending list deliberately withholds were counted
--- as never confirmed, permanently, with nothing the learner could do.
--- Eight reports from two learners across three weeks: "I have already
--- submitted my feedback ... however the app is still showing Not Yet
--- Confirmed."
+-- matches on (learner, day, period OR course) and so OFFERS a learner
+-- exactly one feedback per course per day. FIVE readers decide whether a
+-- mark is CONFIRMED, and each carried its own copy of the match against
+-- the exact period. There was therefore no single place the July fix
+-- could have landed, and the sibling periods the pending list withholds
+-- were counted as never confirmed, permanently, with nothing the learner
+-- could do. Eight reports from two learners across three weeks: "I have
+-- already submitted my feedback ... however the app is still showing Not
+-- Yet Confirmed."
 --
--- FIX, and why it is shaped like this. Five private copies of one rule
--- is how the drift happened, so the rule is now ONE inlineable function,
--- fn_scf_feedback_matches_mark, and every reader calls it:
+-- FIX. fn_scf_feedback_matches_mark is now the only definition of the
+-- match, it is the reference migration's rule verbatim, and all five
+-- readers use it:
 --   * fn_scf_confirmation_status       - the learner's history badges
 --   * fn_scf_my_confirmed_attendance   - the learner's own percentage
 --   * fn_scf_effective_attendance      - the admin at-risk list
 --   * fn_scf_faculty_completion        - the team-member completion view
 --   * fn_scf_confirmation_rollup       - the attendance dashboard split
--- The numerators now agree by construction. Before this, the at-risk
--- list could call a learner short for a session the learner's own screen
--- showed confirmed.
+-- What the pending list withholds, these confirm. The invariant is
+-- asserted directly by supabase/tests/scf-block-course.
+--
+-- WHAT THIS REVERSES, stated plainly rather than buried. Migration
+-- 20260731020000 added `f.timetable_id = <mark>.timetable_id` to the four
+-- session-identity readers, with the note "late or cross-timetable
+-- feedback no longer shows a tick" (Director, 2026-07-31 20:40, taken
+-- informed of a 37,252-row flip). That equality is GONE here, because the
+-- pending list has no such rule and the mismatch left marks that were
+-- neither offered nor confirmable. Two measurements on production,
+-- 2026-09-17, say the change moves nothing:
+--   * The gap it could close: on the only days it can arise - the 33 of
+--     2,971 section-days in 30 days carrying two timetables, 2,533
+--     Present marks, 1,516 of them suppressed from the pending list - a
+--     mark suppressed by cross-timetable feedback yet unconfirmable
+--     occurs ZERO times. ZERO of 33,542 feedback groups in 30 days span
+--     more than one timetable, because fn_scf_submit_feedback takes the
+--     timetable from the session the learner opened.
+--   * The risk it could open: the equality existed to stop feedback for a
+--     different class sharing a period slot inflating the count. Of the
+--     86 period keys present on those dual-timetable days, ZERO appear in
+--     two timetables - period_id is a slot uuid, not a "P1" label, so
+--     there is no slot to share.
+-- The Director's actual decision, that the badge means exactly what the
+-- percentage counts, is PRESERVED and strengthened: both now come from
+-- one predicate, along with three more readers that did not before.
 --
 -- EVERY DENOMINATOR IS UNCHANGED. Nothing here touches a present/absent
--- count, a total_marks, a total_present or an official_pct. The rollup's
--- new course key is an AGGREGATE precisely so its GROUP BY, and
--- therefore its total_present, cannot move. Measured in the rehearsal:
--- official_pct and total_present identical before and after.
---
--- fn_scf_confirmation_rollup expresses the rule as two hash joins rather
--- than calling the predicate, because the predicate's OR of two
--- equalities cannot be hashed and that function was rewritten
--- specifically to replace ~99k per-row EXISTS probes under a 20s
--- statement_timeout. Its own comment says so, and a test pins the two
--- forms to the same answer on the same rows.
---
--- THE TIMETABLE DIMENSION IS A PARAMETER, NOT A NEW RULE. The four
--- session-identity readers pass p_require_same_timetable => true (the
--- Director's aligned tick rule, 2026-07-31 20:40, taken informed of a
--- 37,252-row flip); fn_scf_confirmation_rollup has always matched
--- period-only and still does. Keeping that asymmetry rather than
--- "mirroring the pending list exactly" is a measured choice, not an
--- oversight, because the pending list requires no timetable match and so
--- can suppress an item that these readers would not confirm. Measured on
--- production 2026-09-17 on the only days that gap can occur - the 33
--- section-days in 30 days carrying two timetables, 2,533 Present marks,
--- 1,516 of them suppressed from the pending list: the gap occurs ZERO
--- times, and ZERO of 33,542 feedback groups in 30 days span more than
--- one timetable, because fn_scf_submit_feedback takes the timetable from
--- the session the learner opened. Dropping the requirement would reverse
--- an explicit Director decision to fix a case with no instances. The
--- cross-timetable behaviour is pinned by a test so a future change to it
--- is deliberate.
+-- count, a total_marks, a total_present or an official_pct. The rollup
+-- now carries course IN its grouping and collapses back with bool_or
+-- precisely so its (date, period, student) identity, and therefore
+-- total_present, cannot move - an earlier draft used min(course_id),
+-- which silently picks one course and drops feedback for the other when
+-- duplicate substitute rows disagree (0 of 75,756 mark groups in 14 days
+-- span two courses, so latent, but the arbitrary pick is gone).
 --
 -- A MALFORMED course_id CANNOT ABORT A READ. NULLIF(x,'') covers the
 -- empty string and nothing else, so a non-empty malformed value raises
 -- 22P02 and, because these readers explode one JSONB document into every
 -- mark, would abort the whole read for every learner in it. Every
 -- course_id cast goes through fn_scf_uuid_or_null, the course twin of
--- the student_id guard added by 20260722062012 after exactly that.
--- Live today: 0 malformed and 238 absent course_id values across 3,871
--- periods in 14 days - latent, not firing.
+-- the student_id guard added by 20260722062012 after exactly that. Live:
+-- 0 malformed and 238 absent across 3,871 periods in 14 days.
 --
 -- Bodies are otherwise VERBATIM from pg_get_functiondef read on
 -- 2026-09-17: signatures, return shapes, SECURITY DEFINER, search_path,
 -- statement_timeout, authorization checks, own-college scope, the
 -- inlined rosters and their 22P02 student_id guards, outage days,
 -- approved leave/OD, forward-only floors and the DISTINCT ON dedupes.
+-- Decision #11's feedback window is untouched in every reader that had
+-- it.
 --
 -- NOT fixed here, and named so it is not mistaken for done: a class
 -- whose feedback window has closed stays in the denominator for good, so
 -- a learner cannot recover from a missed window. Both cluster verdicts
--- raise it. It is a different rule and a different decision.
+-- raise it, and it is the larger part of what these two learners were
+-- actually looking at - see the per-report table in the pull request.
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -103,55 +105,46 @@ AS $function$
 $function$;
 
 -- ---------------------------------------------------------------------
--- 2. THE ONE PREDICATE. Every reader that answers "did this learner's
--- feedback confirm this mark?" calls this and nothing else, so the
--- numerators cannot drift apart again - which is how the reported defect
--- arose: 20260718200000 taught the pending list to consolidate sibling
--- periods of a block-scheduled course, and the confirmation readers were
--- never told, each carrying its own copy of the match.
+-- 2. THE ONE PREDICATE, and it is the reference migration's rule verbatim.
 --
--- The rule: feedback confirms a mark when it is for the same period, OR
--- for the same course (which is what makes the sibling periods of a
--- block-scheduled course one confirmable unit, exactly as
--- fn_scf_pending_for_learner treats them). A mark with no course_id
--- keeps exact-period behaviour. Single-period courses are unchanged,
--- because for them a course match IS the period match.
+-- fn_scf_pending_for_learner (20260718200000) decides what a learner is
+-- OFFERED, and it has matched on (learner, day, period OR course) ever
+-- since. Every reader that decides what a learner is CREDITED now matches
+-- on exactly the same thing, so the two can no longer disagree: what the
+-- pending list withholds, these confirm.
 --
--- p_require_same_timetable is a PARAMETER, not a second rule, because
--- the readers already differ on it today and this migration is not the
--- place to change that: the four session-identity readers pass true (the
--- Director's aligned tick rule of 2026-07-31 20:40), and
--- fn_scf_confirmation_rollup has always matched period-only and still
--- does. See the migration header for what that costs, measured.
+-- Same period, or same course - the course branch is what makes the
+-- sibling periods of a block-scheduled course one confirmable unit. A
+-- mark with no course_id keeps exact-period behaviour. A single-period
+-- course is unchanged, because for it a course match IS the period match.
 --
--- Inlineable by design, same three conditions as above, so it is free
--- inside an EXISTS over ~100k marks.
+-- NO TIMETABLE EQUALITY, and that is a change from the four readers'
+-- previous behaviour - see the migration header, which states what it
+-- reverses and the two measurements that say it moves nothing.
+--
+-- Inlineable by design (plain SQL, IMMUTABLE, no SET, no SECURITY
+-- DEFINER), so it is free inside an EXISTS over ~100k marks.
 -- ---------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn_scf_feedback_matches_mark(
-  p_feedback_period_id   text,
-  p_feedback_course_id   uuid,
-  p_feedback_timetable_id uuid,
-  p_mark_period_id       text,
-  p_mark_course_id       uuid,
-  p_mark_timetable_id    uuid,
-  p_require_same_timetable boolean
+  p_feedback_period_id text,
+  p_feedback_course_id uuid,
+  p_mark_period_id     text,
+  p_mark_course_id     uuid
 )
 RETURNS boolean
 LANGUAGE sql
 IMMUTABLE
 PARALLEL SAFE
 AS $function$
-  SELECT (NOT p_require_same_timetable
-          OR p_feedback_timetable_id = p_mark_timetable_id)
-     AND (p_feedback_period_id = p_mark_period_id
-          OR (p_mark_course_id IS NOT NULL
-              AND p_feedback_course_id = p_mark_course_id))
+  SELECT p_feedback_period_id = p_mark_period_id
+      OR (p_mark_course_id IS NOT NULL
+          AND p_feedback_course_id = p_mark_course_id)
 $function$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_scf_uuid_or_null(text) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_scf_uuid_or_null(text) TO authenticated, service_role;
-REVOKE EXECUTE ON FUNCTION public.fn_scf_feedback_matches_mark(text, uuid, uuid, text, uuid, uuid, boolean) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_scf_feedback_matches_mark(text, uuid, uuid, text, uuid, uuid, boolean) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_scf_feedback_matches_mark(text, uuid, text, uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_scf_feedback_matches_mark(text, uuid, text, uuid) TO authenticated, service_role;
 
 -- =============== 3. The five readers ===============
 
@@ -178,18 +171,17 @@ BEGIN
            -- fn_scf_my_confirmed_attendance counts - same timetable AND submitted
            -- within the institution's feedback window (class day at IST midnight
            -- + window_hours). Late or cross-timetable feedback no longer shows a tick.
-           -- ONE predicate (see fn_scf_feedback_matches_mark): same period, or
-           -- same course so a block-scheduled course's sibling periods are one
-           -- confirmable unit. Same timetable required (2026-07-31 aligned tick
-           -- rule); the window below is decision #11. Both unchanged.
+           -- ONE predicate, and it is fn_scf_pending_for_learner's rule: same
+           -- period, or same course so a block-scheduled course's siblings are
+           -- one confirmable unit. What the pending list withholds, this
+           -- confirms. The 2026-07-31 timetable equality is GONE (header).
+           -- The window below is decision #11 and is untouched.
            SELECT 1 FROM public.session_feedback f
            WHERE f.student_id = v_lp AND f.attendance_date = sa.attendance_date
              AND public.fn_scf_feedback_matches_mark(
-                   f.period_id, f.course_id, f.timetable_id,
+                   f.period_id, f.course_id,
                    period.key,
-                   public.fn_scf_uuid_or_null(period.value ->> 'course_id'),
-                   sa.timetable_id,
-                   true)
+                   public.fn_scf_uuid_or_null(period.value ->> 'course_id'))
              AND f.created_at <= ((sa.attendance_date::timestamp AT TIME ZONE 'Asia/Kolkata')
                                   + make_interval(hours => v_window_hours))
          ) AS confirmed
@@ -302,13 +294,10 @@ BEGIN
       count(*) FILTER (WHERE d.status='Present') AS pm,
       count(*) FILTER (WHERE d.status='Absent')  AS am,
       count(*) FILTER (WHERE d.status='Present' AND EXISTS (
-        -- ONE predicate. This is the number every one of the eight reports
-        -- screenshotted.
+        -- ONE predicate. This is the number all eight reports screenshotted.
         SELECT 1 FROM public.session_feedback f
         WHERE f.student_id = v_lp AND f.attendance_date = d.attendance_date
-          AND public.fn_scf_feedback_matches_mark(
-                f.period_id, f.course_id, f.timetable_id,
-                d.pid, d.cid, d.ttid, true)
+          AND public.fn_scf_feedback_matches_mark(f.period_id, f.course_id, d.pid, d.cid)
           -- Decision #11: only feedback submitted within window_hours of the class
           -- (class day interpreted at IST midnight) confirms attendance.
           AND f.created_at <= ((d.attendance_date::timestamp AT TIME ZONE 'Asia/Kolkata')
@@ -427,17 +416,17 @@ BEGIN
       count(*) FILTER (WHERE d.status = 'Absent')  AS absent_marks,
       count(*) FILTER (WHERE d.status = 'Present' AND EXISTS (
         -- ONE predicate, the same one the learner's own card uses, so the
-        -- at-risk list on the attendance consolidation report can no longer
-        -- call a learner short for a sibling period they were never offered.
-        -- Same session identity as before (session_feedback.timetable_id is
-        -- NOT NULL), so feedback for a different class sharing a period slot
-        -- still cannot inflate confirmed_present.
+        -- at-risk list can no longer call a learner short for a sibling period
+        -- they were never offered. The old same-timetable guard here existed to
+        -- stop feedback for a different class sharing a period slot inflating
+        -- this count; measured on production 2026-09-17, no period key appears
+        -- in two timetables on any of the 86 period keys present on the only
+        -- days a section has two (see header), so there is no such slot to share.
         SELECT 1 FROM public.session_feedback f
         WHERE f.student_id      = d.sid
           AND f.attendance_date = d.attendance_date
           AND public.fn_scf_feedback_matches_mark(
-                f.period_id, f.course_id, f.timetable_id,
-                d.period_id, d.course_id, d.timetable_id, true)
+                f.period_id, f.course_id, d.period_id, d.course_id)
           -- Decision #11: only feedback submitted within window_hours of the class
           -- (class day interpreted at IST midnight, mirroring fn_scf_faculty_completion)
           -- counts as a confirmation. A late confirmation still exists but no longer
@@ -538,15 +527,12 @@ BEGIN
                             '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
                        THEN (st.value ->> 'student_id')::uuid END
                  AND f.attendance_date = s.attendance_date
-                 -- ONE predicate. Same session identity as before (see v1 note
-                 -- re: shared period slots), plus the block-course branch, so a
-                 -- team member is not shown Incomplete for sibling periods the
-                 -- pending list never offered the learners.
+                 -- ONE predicate, so a team member is not shown Incomplete for
+                 -- sibling periods the pending list never offered the learners.
                  AND public.fn_scf_feedback_matches_mark(
-                       f.period_id, f.course_id, f.timetable_id,
+                       f.period_id, f.course_id,
                        s.period_id,
-                       public.fn_scf_uuid_or_null(s.pv ->> 'course_id'),
-                       s.timetable_id, true)
+                       public.fn_scf_uuid_or_null(s.pv ->> 'course_id'))
                  -- Decision #11: only feedback submitted within window_hours
                  -- of the class confirms attendance.
                  AND f.created_at    <= s.deadline))::int AS confirmed_count
@@ -632,15 +618,16 @@ BEGIN
     SELECT sa.attendance_date,
            period.key AS period_id,
            (sid.j #>> '{}') AS student_text,
-           min(pe.session_end_local) AS session_end_local,
-           -- Block-course key for the second join below. AGGREGATED, never added
-           -- to the GROUP BY: the grouping deliberately collapses duplicate
-           -- substitute / re-provisioned rows for one (date, period, student),
-           -- and grouping by course as well would split such a pair in two and
-           -- inflate total_present - the denominator this change must not touch.
-           -- min() over the raw text (min(uuid) is not a built-in aggregate);
-           -- the shape guard is applied where it is read.
-           min(period.value ->> 'course_id') AS course_id_text
+           -- The block-course key, IN the grouping rather than aggregated.
+           -- An earlier draft used min(course_id) over the (date, period,
+           -- student) group, which silently picks one course and loses
+           -- feedback for the other when duplicate substitute rows disagree.
+           -- Grouping instead keeps every course; `scored` below collapses
+           -- back to the original identity, so total_present cannot move.
+           -- Measured 2026-09-17: 0 of 75,756 mark groups in 14 days span
+           -- more than one course - latent, but the arbitrary pick is gone.
+           public.fn_scf_uuid_or_null(period.value ->> 'course_id') AS course_id,
+           min(pe.session_end_local) AS session_end_local
     FROM public.student_attendance sa
     CROSS JOIN LATERAL jsonb_each(
                          CASE WHEN jsonb_typeof(sa.attendance_data) = 'object'
@@ -672,31 +659,30 @@ BEGIN
       AND (p_department_id  IS NULL OR sa.department_id  = p_department_id)
       AND (p_section_id     IS NULL OR sa.section_id     = p_section_id)
       AND (v_super OR sa.institution_id IS NULL OR sa.institution_id = ANY(v_insts))
-    GROUP BY sa.attendance_date, period.key, (sid.j #>> '{}')
+    GROUP BY sa.attendance_date, period.key, (sid.j #>> '{}'),
+             public.fn_scf_uuid_or_null(period.value ->> 'course_id')
   ),
-  scored AS (
-    -- Confirmed = the SAME rule fn_scf_feedback_matches_mark states: this
-    -- learner's feedback that day for this PERIOD, or for this COURSE (the
-    -- block-course branch, so sibling periods of one block-scheduled course
-    -- are one confirmable unit). Period-only on the timetable dimension, as
-    -- this function has always been - it is the p_require_same_timetable
-    -- => false case of that predicate.
+  scored_raw AS (
+    -- Confirmed = the SAME rule fn_scf_feedback_matches_mark states, and the
+    -- same rule fn_scf_pending_for_learner uses to decide what a learner is
+    -- offered: this learner's feedback that day for this PERIOD, or for this
+    -- COURSE (the block-course branch, so sibling periods of one block course
+    -- are a single confirmable unit).
     --
-    -- WHY TWO JOINS AND NOT THE PREDICATE FUNCTION ITSELF: the predicate's
-    -- OR of two equalities cannot be hashed, and this function exists in its
-    -- current shape because a prior migration replaced ~99k per-row EXISTS
-    -- probes with one hash join under a 20s statement_timeout. Two equi-joins
-    -- keep that plan and mean exactly what the predicate means; the test
-    -- __tests__/ci/scf-confirmation-block-course-siblings.test.ts pins the
-    -- two forms to the same answer on the same rows, which is a stronger
-    -- anti-drift device than sharing a call site.
+    -- WHY TWO JOINS AND NOT THE PREDICATE FUNCTION: the predicate's OR of two
+    -- equalities cannot be hashed, and this function exists in its current
+    -- shape because a prior migration replaced ~99k per-row EXISTS probes
+    -- with one hash join under a 20s statement_timeout. Two equi-joins keep
+    -- that plan and mean exactly what the predicate means; the scenario file
+    -- supabase/tests/scf-block-course/10_scenarios.sql recomputes this
+    -- numerator straight from the predicate and requires the same answer, so
+    -- the two forms are pinned together by outcome, not by a shared call.
     --
     -- Neither join can multiply: the UNIQUE constraint on (student_id,
     -- attendance_date, period_id) settles the first, and a learner CAN have
-    -- several feedback rows for one course in a day (that is the whole point
-    -- of a block course), so the DISTINCT on the second is load-bearing, not
-    -- belt-and-braces.
-    SELECT pm.session_end_local,
+    -- several feedback rows for one course in a day - that is the whole point
+    -- of a block course - so the DISTINCT on the second is load-bearing.
+    SELECT pm.attendance_date, pm.period_id, pm.student_text, pm.session_end_local,
            (fb.student_id IS NOT NULL OR fbc.student_id IS NOT NULL) AS is_confirmed
     FROM present_marks pm
     LEFT JOIN (SELECT DISTINCT f.student_id, f.attendance_date, f.period_id
@@ -711,7 +697,17 @@ BEGIN
                  AND f.course_id IS NOT NULL) fbc
       ON fbc.student_id      = (pm.student_text)::uuid
      AND fbc.attendance_date = pm.attendance_date
-     AND fbc.course_id       = public.fn_scf_uuid_or_null(pm.course_id_text)
+     AND fbc.course_id       = pm.course_id
+  ),
+  scored AS (
+    -- Collapse back to ONE row per (date, period, student) - the identity this
+    -- function has always counted, and therefore the denominator. bool_or, so
+    -- a match on ANY of the group's courses counts; min(session_end_local) is
+    -- the original earliest-class-end pick, unchanged.
+    SELECT min(sr.session_end_local) AS session_end_local,
+           bool_or(sr.is_confirmed)  AS is_confirmed
+    FROM scored_raw sr
+    GROUP BY sr.attendance_date, sr.period_id, sr.student_text
   )
   SELECT
     count(*)::bigint,
@@ -736,10 +732,9 @@ $function$;
 -- opens anything. All five read
 -- `postgres=X | authenticated=X | service_role=X` on production today
 -- (pg_proc.proacl, checked 2026-09-17) - anon and PUBLIC hold nothing.
--- Restated so the anon-lock gate, which is a text scan and cannot know
--- what CREATE OR REPLACE preserves, can see it. Proven no-ops: the ACL
--- of every function here is byte-identical before and after in the
--- production rehearsal.
+-- Restated so the anon-lock gate, a text scan that cannot know what
+-- CREATE OR REPLACE preserves, can see it. Proven no-ops: every ACL here
+-- is byte-identical before and after in the production rehearsal.
 --
 -- ci:allow-secdef-authenticated fn_scf_confirmation_status and
 -- fn_scf_my_confirmed_attendance are self-scoped learner reads that take
@@ -769,62 +764,61 @@ GRANT  EXECUTE ON FUNCTION public.fn_scf_confirmation_rollup(date, date, uuid, u
 -- leave the numerators disagreeing again.
 -- ---------------------------------------------------------------------
 DO $assert$
-DECLARE
-  v_missing text[] := '{}';
-  v_fn text;
+DECLARE v_missing text[] := '{}'; v_fn text;
 BEGIN
   FOREACH v_fn IN ARRAY ARRAY[
-    'fn_scf_confirmation_status',
-    'fn_scf_my_confirmed_attendance',
-    'fn_scf_effective_attendance',
-    'fn_scf_faculty_completion'
+    'fn_scf_confirmation_status', 'fn_scf_my_confirmed_attendance',
+    'fn_scf_effective_attendance', 'fn_scf_faculty_completion'
   ] LOOP
     IF NOT EXISTS (
       SELECT 1 FROM pg_proc pr JOIN pg_namespace n ON n.oid = pr.pronamespace
       WHERE n.nspname = 'public' AND pr.proname = v_fn
         AND pg_get_functiondef(pr.oid) LIKE '%fn_scf_feedback_matches_mark%'
+    ) THEN v_missing := v_missing || v_fn; END IF;
+  END LOOP;
+  IF array_length(v_missing, 1) > 0 THEN
+    RAISE EXCEPTION 'scf confirmation predicate not shared by: %', array_to_string(v_missing, ', ');
+  END IF;
+
+  -- No reader may reintroduce a private timetable equality on the match.
+  FOREACH v_fn IN ARRAY ARRAY[
+    'fn_scf_confirmation_status', 'fn_scf_my_confirmed_attendance',
+    'fn_scf_effective_attendance', 'fn_scf_faculty_completion'
+  ] LOOP
+    IF EXISTS (
+      SELECT 1 FROM pg_proc pr JOIN pg_namespace n ON n.oid = pr.pronamespace
+      WHERE n.nspname = 'public' AND pr.proname = v_fn
+        AND pg_get_functiondef(pr.oid) ~ 'f\.timetable_id\s*='
     ) THEN
-      v_missing := v_missing || v_fn;
+      RAISE EXCEPTION '% still matches feedback on timetable_id, which the pending list does not', v_fn;
     END IF;
   END LOOP;
 
-  IF array_length(v_missing, 1) > 0 THEN
-    RAISE EXCEPTION 'scf confirmation predicate not shared by: %',
-      array_to_string(v_missing, ', ');
-  END IF;
-
-  -- The rollup carries the rule as two joins; assert the course join is there.
   IF NOT EXISTS (
     SELECT 1 FROM pg_proc pr JOIN pg_namespace n ON n.oid = pr.pronamespace
     WHERE n.nspname = 'public' AND pr.proname = 'fn_scf_confirmation_rollup'
       AND pg_get_functiondef(pr.oid) LIKE '%fbc.course_id%'
+      AND pg_get_functiondef(pr.oid) LIKE '%bool_or%'
   ) THEN
-    RAISE EXCEPTION 'fn_scf_confirmation_rollup lost its block-course join';
+    RAISE EXCEPTION 'fn_scf_confirmation_rollup lost its block-course join or its collapse';
   END IF;
 
-  -- Both helpers must be inlineable: plain SQL, IMMUTABLE, not SECURITY
-  -- DEFINER, no SET. If any of that changes, the planner stops folding them
-  -- and the EXISTS over ~100k marks stops being free.
+  -- Both helpers must stay inlineable: plain SQL, IMMUTABLE, not SECURITY
+  -- DEFINER, no SET. Otherwise the planner stops folding them and the EXISTS
+  -- over ~100k marks stops being free.
   IF EXISTS (
     SELECT 1 FROM pg_proc pr JOIN pg_namespace n ON n.oid = pr.pronamespace
     WHERE n.nspname = 'public'
       AND pr.proname IN ('fn_scf_uuid_or_null', 'fn_scf_feedback_matches_mark')
       AND (pr.prolang <> (SELECT oid FROM pg_language WHERE lanname = 'sql')
-           OR pr.provolatile <> 'i'
-           OR pr.prosecdef
-           OR pr.proconfig IS NOT NULL)
-  ) THEN
-    RAISE EXCEPTION 'scf predicate helpers are no longer inlineable';
-  END IF;
+           OR pr.provolatile <> 'i' OR pr.prosecdef OR pr.proconfig IS NOT NULL)
+  ) THEN RAISE EXCEPTION 'scf predicate helpers are no longer inlineable'; END IF;
 
-  -- And anon must hold nothing on either helper.
   IF EXISTS (
     SELECT 1 FROM pg_proc pr JOIN pg_namespace n ON n.oid = pr.pronamespace
     WHERE n.nspname = 'public'
       AND pr.proname IN ('fn_scf_uuid_or_null', 'fn_scf_feedback_matches_mark')
       AND has_function_privilege('anon', pr.oid, 'EXECUTE')
-  ) THEN
-    RAISE EXCEPTION 'scf predicate helpers are callable by anon';
-  END IF;
+  ) THEN RAISE EXCEPTION 'scf predicate helpers are callable by anon'; END IF;
 END
 $assert$;
