@@ -27,3 +27,23 @@ UPDATE public.admission_call_intelligence
        updated_at     = now()
  WHERE analyze_status IN ('pending', 'submitted')
    AND analyze_job_id IS NULL;
+
+-- 3. Postcondition: refuse to finish half-done.
+DO $$
+DECLARE
+  v_on    bigint;
+  v_stuck bigint;
+BEGIN
+  SELECT count(*) INTO v_on
+    FROM public.institution_call_settings
+   WHERE auto_transcribe_enabled IS DISTINCT FROM false;
+
+  SELECT count(*) INTO v_stuck
+    FROM public.admission_call_intelligence
+   WHERE analyze_status IN ('pending', 'submitted')
+     AND analyze_job_id IS NULL;
+
+  IF v_on > 0 OR v_stuck > 0 THEN
+    RAISE EXCEPTION 'retire_exotel_call_analysis: % settings row(s) still on, % record(s) still stuck', v_on, v_stuck;
+  END IF;
+END $$;
