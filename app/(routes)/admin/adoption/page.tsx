@@ -44,9 +44,12 @@ import {
   canAskWhy,
   daysSinceShipped,
   isDeadFeature,
+  isSkipped,
   isStale,
   isOldEnoughToJudge,
+  isTermFeature,
   shippedAgo,
+  skippedGroups,
   summariseAdoption,
   toNumber,
   type AdoptionMetricRow,
@@ -210,6 +213,11 @@ export default async function FeatureAdoptionPage() {
   const now = new Date();
   const { labelled, measured, dead, groups } = summariseAdoption(rows, now);
   const weekStart = rows[0]?.week_start ?? null;
+  // Skipped features are labelled but deliberately not measured. They are out
+  // of the three numbers and out of the table; they get a plain list at the
+  // bottom instead, so the decision stays visible and reversible.
+  const tracked = groups.filter((group) => !isSkipped(group));
+  const skipped = skippedGroups(groups);
 
   return (
     <ContentLayout title="Feature adoption" fullWidth>
@@ -222,7 +230,9 @@ export default async function FeatureAdoptionPage() {
             What share of the people a feature was built for actually used it this week
             {weekStart ? ` (week beginning ${weekStart})` : ''}. A feature is called dead
             when it is at least {DEAD_AFTER_DAYS} days old and under {DEAD_WEEKLY_PCT}% for
-            every role it was meant for.
+            every role it was meant for. A seasonal feature — marked{' '}
+            <span className="font-medium text-foreground">term</span> — is judged by who
+            used it at any point this term, and only once the term has ended.
           </p>
         </div>
 
@@ -283,10 +293,10 @@ export default async function FeatureAdoptionPage() {
           <SyncUsageButton disabled={!loopEnabled} />
         </div>
 
-        {groups.length === 0 ? (
+        {tracked.length === 0 ? (
           <div className="rounded-xl border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
-            No features are labelled yet, so nothing is being measured. Label one above and
-            it will appear here from the next use onward.
+            Nothing is being measured yet. Label a feature above and it will appear here
+            from the next use onward.
           </div>
         ) : (
           <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-sm dark:shadow-none">
@@ -297,7 +307,9 @@ export default async function FeatureAdoptionPage() {
                   <TableHead>For whom</TableHead>
                   <TableHead>Core action</TableHead>
                   <TableHead>Shipped</TableHead>
-                  <TableHead className="text-right">Weekly</TableHead>
+                  {/* One table, two cadences: the column header stays neutral and
+                      each cell says which share it is showing. */}
+                  <TableHead className="text-right">Active</TableHead>
                   <TableHead className="text-right">Ever</TableHead>
                   <TableHead className="text-right">Asked</TableHead>
                   <TableHead>Answers</TableHead>
@@ -306,12 +318,13 @@ export default async function FeatureAdoptionPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {groups.map((group) => {
+                {tracked.map((group) => {
                   const span = group.rows.length;
                   const daysOld = daysSinceShipped(group.shipped_at, now);
                   const featureIsDead = isDeadFeature(group, now);
                   const answers = Object.entries(group.answers);
                   const pending = pendingByFeature.get(group.feature_key) ?? null;
+                  const seasonal = isTermFeature(group);
 
                   return group.rows.map((row, index) => (
                     <TableRow key={`${group.feature_key}-${row.role ?? index}`}>
@@ -321,6 +334,14 @@ export default async function FeatureAdoptionPage() {
                           <div className="text-xs text-muted-foreground">
                             {group.feature_key}
                           </div>
+                          {seasonal ? (
+                            <div className="text-xs text-muted-foreground">
+                              judged by term
+                              {group.term_start && group.term_end
+                                ? ` · current term ${group.term_start} → ${group.term_end}`
+                                : ' · no term window set'}
+                            </div>
+                          ) : null}
                           {group.module ? (
                             <div className="text-xs text-muted-foreground">
                               {group.module}
@@ -361,18 +382,24 @@ export default async function FeatureAdoptionPage() {
                         </TableCell>
                       ) : null}
 
+                      {/* A seasonal feature shows its TERM share here instead of
+                          its weekly one — the weekly number is meaningless for
+                          something done once a term, and showing it would make a
+                          working feature look abandoned. */}
                       <TableCell className="align-top text-right text-sm tabular-nums">
                         <span
                           className={
-                            toNumber(row.pct_weekly) < DEAD_WEEKLY_PCT && featureIsDead
+                            toNumber(seasonal ? row.pct_term : row.pct_weekly) <
+                              DEAD_WEEKLY_PCT && featureIsDead
                               ? 'font-semibold text-red-600 dark:text-red-400'
                               : 'text-foreground'
                           }
                         >
-                          {pct(row.pct_weekly)}
+                          {pct(seasonal ? row.pct_term : row.pct_weekly)}
                         </span>
                         <div className="text-xs text-muted-foreground">
-                          {toNumber(row.weekly_active)} of {toNumber(row.intended_count)}
+                          {toNumber(seasonal ? row.term_active : row.weekly_active)} of{' '}
+                          {toNumber(row.intended_count)} {seasonal ? 'this term' : 'this week'}
                         </div>
                       </TableCell>
 
@@ -410,12 +437,17 @@ export default async function FeatureAdoptionPage() {
 
                       {index === 0 ? (
                         <TableCell rowSpan={span} className="align-top">
-                          <Badge
-                            variant="outline"
-                            className={STATUS_TONE[group.status] ?? 'text-foreground'}
-                          >
-                            {group.status}
-                          </Badge>
+                          <div className="flex flex-wrap items-center gap-1">
+                            <Badge
+                              variant="outline"
+                              className={STATUS_TONE[group.status] ?? 'text-foreground'}
+                            >
+                              {group.status}
+                            </Badge>
+                            <Badge variant="outline" className="text-muted-foreground">
+                              {seasonal ? 'term' : 'weekly'}
+                            </Badge>
+                          </div>
                           {featureIsDead ? (
                             <div className="mt-1 text-xs font-medium text-red-600 dark:text-red-400">
                               dead
@@ -449,6 +481,7 @@ export default async function FeatureAdoptionPage() {
                             canAsk={canAskWhy(group, now)}
                             askedCount={group.asked_count}
                             pendingProposal={pending}
+                            cadence={group.cadence}
                           />
                         </TableCell>
                       ) : null}
@@ -459,6 +492,28 @@ export default async function FeatureAdoptionPage() {
             </Table>
           </div>
         )}
+
+        {skipped.length > 0 ? (
+          <div className="rounded-xl border border-border bg-muted/30 p-4">
+            <p className="text-sm font-medium text-foreground">Skipped on purpose</p>
+            <p className="mb-3 text-xs text-muted-foreground">
+              Labelled so the list stays complete, then kept out of every number above.
+              These are not dead and nobody is asked about them. Clear the skip reason on a
+              label to start measuring it again.
+            </p>
+            <ul className="space-y-1.5">
+              {skipped.map((group) => (
+                <li key={group.feature_key} className="text-sm">
+                  <span className="font-medium text-foreground">{group.title}</span>
+                  <span className="text-muted-foreground"> · {group.feature_key}</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {group.skip_reason}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </div>
     </ContentLayout>
   );

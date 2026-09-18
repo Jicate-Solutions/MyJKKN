@@ -187,4 +187,40 @@ SELECT * FROM fn_adoption_logins_daily(30, NULL);
 SELECT * FROM fn_adoption_logins_daily(30, 'aaaaaaaa-0000-0000-0000-000000000001');
 \echo '--- app.login is NOT in the feature table (EXPECT 0)'
 SELECT count(*) AS login_rows_in_metrics FROM fn_adoption_metrics(NULL,NULL) WHERE feature_key='app.login';
+-- ===== R-A1 / R-A4: term cadence =====
+SELECT set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000001',false);
+\echo '--- term window with default [6,12] on a September day: EXPECT Jun 1 .. Nov 30'
+SELECT * FROM fn_adoption_term_window(DATE '2026-09-18');
+DO $$ DECLARE s date; e date; BEGIN
+  SELECT term_start, term_end INTO s, e FROM fn_adoption_term_window(DATE '2026-09-18');
+  IF s <> DATE '2026-06-01' OR e <> DATE '2026-11-30' THEN RAISE EXCEPTION 'FAIL term window: % .. %', s, e; END IF;
+  SELECT term_start, term_end INTO s, e FROM fn_adoption_term_window(DATE '2027-02-10');
+  IF s <> DATE '2026-12-01' OR e <> DATE '2027-05-31' THEN RAISE EXCEPTION 'FAIL term window (wrap): % .. %', s, e; END IF;
+END $$;
+\echo '--- a term-judged feature: metrics carry cadence + this-term share'
+SELECT fn_adoption_register('seasonal.thing','Seasonal thing','do the seasonal thing','{hod}',NULL,NULL, now() - interval '60 days', true, NULL, NULL, NULL, 'term');
+SELECT fn_adoption_register('bad.cadence','x','y','{hod}',NULL,NULL,NULL,true,NULL,NULL,NULL,'yearly');
+SELECT feature_key, cadence, term_active, pct_term, term_start, term_end FROM fn_adoption_metrics(NULL,NULL) WHERE feature_key='seasonal.thing';
+DO $$ DECLARE r record; BEGIN
+  SELECT * INTO r FROM fn_adoption_metrics(NULL,NULL) m WHERE m.feature_key='seasonal.thing';
+  IF r.cadence <> 'term' OR r.term_start IS NULL OR r.term_end IS NULL THEN RAISE EXCEPTION 'FAIL: term columns missing: %', r; END IF;
+END $$;
+\echo '--- mid-term: EXPECT ask refused (asked only in the last 14 days of the term)'
+SELECT fn_adoption_ask_why('seasonal.thing') AS midterm_ask;
+DO $$ DECLARE r jsonb; BEGIN r := fn_adoption_ask_why('seasonal.thing');
+  IF (r->>'success')::boolean THEN RAISE EXCEPTION 'FAIL: asked mid-term'; END IF; END $$;
+\echo '--- 30 days before term end: EXPECT refused; 3 days before: EXPECT allowed (success true)'
+DO $$ DECLARE e date; r jsonb; BEGIN
+  SELECT term_end INTO e FROM fn_adoption_term_window();
+  r := fn_adoption_ask_why('seasonal.thing', e - 30);
+  IF (r->>'success')::boolean THEN RAISE EXCEPTION 'FAIL: asked 30 days before term end'; END IF;
+  r := fn_adoption_ask_why('seasonal.thing', e - 3);
+  IF NOT (r->>'success')::boolean THEN RAISE EXCEPTION 'FAIL: not asked 3 days before term end: %', r; END IF;
+  RAISE NOTICE 'term-end ask ok: %', r;
+END $$;
+\echo '--- skipped on purpose: registered with a reason, never asked'
+SELECT fn_adoption_register('cron.thing','Nightly job','runs by itself','{all}',NULL,NULL, now() - interval '40 days', false, NULL,NULL,NULL,'weekly','a cron job — nobody uses it');
+SELECT feature_key, skip_reason FROM fn_adoption_metrics(NULL,NULL) WHERE feature_key='cron.thing';
+DO $$ DECLARE r jsonb; BEGIN r := fn_adoption_ask_why('cron.thing');
+  IF (r->>'success')::boolean OR r->>'error' NOT LIKE 'this feature is skipped on purpose%' THEN RAISE EXCEPTION 'FAIL skipped ask: %', r; END IF; END $$;
 \echo '=== ALL SCENARIOS PASSED ==='

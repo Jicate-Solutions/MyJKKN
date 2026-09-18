@@ -43,7 +43,15 @@ interface FeatureActionsProps {
   canAsk: boolean;
   askedCount: number;
   pendingProposal: PendingProposal | null;
+  /** How the feature is judged. A seasonal one is only asked near the end of
+   *  its term, so the reason the button is off differs from a new feature's. */
+  cadence: 'weekly' | 'term';
 }
+
+/** Why the ask button is off for a seasonal feature. The database sends the
+ *  question only in the last two weeks of term, so saying "too new" — the
+ *  weekly reason — would be wrong on a feature shipped a year ago. */
+const TERM_WINDOW_REASON = 'asked only in the last two weeks of the term';
 
 const PROPOSE_OPTIONS = [
   { value: 'simplify', label: 'Simplify — it is too hard to use' },
@@ -82,6 +90,7 @@ export function FeatureActions({
   canAsk,
   askedCount,
   pendingProposal,
+  cadence,
 }: FeatureActionsProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -93,6 +102,19 @@ export function FeatureActions({
   const [recommendation, setRecommendation] = useState('');
 
   const working = isPending || busy !== null;
+
+  // One reason, used for both the tooltip and the line under the buttons, so
+  // the two can never disagree. Age is checked first: a seasonal feature
+  // shipped last week is off because it is new, not because of its term.
+  const daysToWait = ASK_WHY_MIN_AGE_DAYS - daysOld;
+  const tooNew = daysToWait > 0;
+  const askDisabledReason = canAsk
+    ? null
+    : tooNew
+      ? `Too new to ask — ${daysToWait} more ${daysToWait === 1 ? 'day' : 'days'}.`
+      : cadence === 'term'
+        ? `Asked only in the last two weeks of the term.`
+        : null;
 
   async function run(label: string, work: () => Promise<void>) {
     setBusy(label);
@@ -158,6 +180,7 @@ export function FeatureActions({
           variant="outline"
           onClick={askWhy}
           disabled={!canAsk || working}
+          title={!canAsk && !tooNew && cadence === 'term' ? TERM_WINDOW_REASON : undefined}
           aria-label={`Ask why people have not used ${title}`}
         >
           {busy === 'ask' ? 'Asking…' : 'Ask why'}
@@ -237,11 +260,8 @@ export function FeatureActions({
         ) : null}
       </div>
 
-      {!canAsk ? (
-        <p className="text-xs text-muted-foreground">
-          Too new to ask — {ASK_WHY_MIN_AGE_DAYS - daysOld} more{' '}
-          {ASK_WHY_MIN_AGE_DAYS - daysOld === 1 ? 'day' : 'days'}.
-        </p>
+      {askDisabledReason ? (
+        <p className="text-xs text-muted-foreground">{askDisabledReason}</p>
       ) : null}
       {lastAsk ? <p className="text-xs text-muted-foreground">{lastAsk}</p> : null}
       {!lastAsk && askedCount > 0 ? (

@@ -34,7 +34,10 @@ import { Badge } from '@/components/ui/badge';
 import {
   DEAD_AFTER_DAYS,
   DEAD_WEEKLY_PCT,
+  activeShareLabel,
   isDeadFeature,
+  isSkipped,
+  isTermFeature,
   shippedAgo,
   summariseAdoption,
   toNumber,
@@ -133,13 +136,17 @@ export default async function AdoptionPage() {
   const rows = (metricsData ?? []) as AdoptionMetricRow[];
   const { labelled, measured, dead, groups } = summariseAdoption(rows, now);
   const institutionName = profile.institutions?.name ?? null;
+  // Features skipped on purpose are out of the three numbers, so they are out
+  // of the list too — otherwise the headline would count two and the page
+  // would show three. A principal has no decision to make about them.
+  const tracked = groups.filter((group) => !isSkipped(group));
 
   // Names, one read per feature. Scoped to this person's own institution and
   // nothing else: no other id is ever passed, so a principal cannot reach
   // another college's people even by accident.
   const peopleByFeature = new Map<string, PeopleResult>(
     await Promise.all(
-      groups.map(async (group): Promise<[string, PeopleResult]> => {
+      tracked.map(async (group): Promise<[string, PeopleResult]> => {
         const { data, error } = await supabase.rpc('fn_adoption_people', {
           p_feature_key: group.feature_key,
           p_institution_id: institutionId,
@@ -162,7 +169,8 @@ export default async function AdoptionPage() {
             What share of the people a feature was built for actually used it this week
             {institutionName ? ` at ${institutionName}` : ''}. A feature counts as dead when
             it is at least {DEAD_AFTER_DAYS} days old and under {DEAD_WEEKLY_PCT}% for every
-            role it was meant for.
+            role it was meant for. A seasonal feature is counted over the whole term
+            instead, and only judged once the term has ended.
           </p>
         </div>
 
@@ -184,15 +192,16 @@ export default async function AdoptionPage() {
           />
         </div>
 
-        {groups.length === 0 ? (
+        {tracked.length === 0 ? (
           <div className="rounded-xl border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
-            No features are labelled yet, so nothing is being measured here.
+            Nothing is being measured here yet.
           </div>
         ) : null}
 
-        {groups.map((group) => {
+        {tracked.map((group) => {
           const result = peopleByFeature.get(group.feature_key);
           const featureIsDead = isDeadFeature(group, now);
+          const seasonal = isTermFeature(group);
           const people = result?.kind === 'names' ? result.people : [];
           const shown = people.slice(0, PEOPLE_LIMIT);
           const notUsed = people.filter((person) => !person.ever_used).length;
@@ -234,8 +243,13 @@ export default async function AdoptionPage() {
                     <TableRow>
                       <TableHead>For whom</TableHead>
                       <TableHead className="text-right">Intended</TableHead>
-                      <TableHead className="text-right">Used this week</TableHead>
-                      <TableHead className="text-right">Weekly</TableHead>
+                      {/* A seasonal feature is counted over the term, not the
+                          week: a timetable made once at the term boundary reads
+                          as 0% every week that is not that one. */}
+                      <TableHead className="text-right">
+                        Used {seasonal ? 'this term' : 'this week'}
+                      </TableHead>
+                      <TableHead className="text-right">{activeShareLabel(group)}</TableHead>
                       <TableHead className="text-right">Ever</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -249,10 +263,10 @@ export default async function AdoptionPage() {
                           {toNumber(row.intended_count)}
                         </TableCell>
                         <TableCell className="text-right text-sm tabular-nums">
-                          {toNumber(row.weekly_active)}
+                          {toNumber(seasonal ? row.term_active : row.weekly_active)}
                         </TableCell>
                         <TableCell className="text-right text-sm tabular-nums text-foreground">
-                          {toNumber(row.pct_weekly).toFixed(1)}%
+                          {toNumber(seasonal ? row.pct_term : row.pct_weekly).toFixed(1)}%
                         </TableCell>
                         <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
                           {toNumber(row.pct_ever).toFixed(1)}%
