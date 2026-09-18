@@ -66152,3 +66152,105 @@ REVOKE EXECUTE ON FUNCTION public.fn_wa_bridge_ack(uuid, text, text, text, integ
 GRANT  EXECUTE ON FUNCTION public.fn_wa_bridge_ack(uuid, text, text, text, integer) TO service_role;
 
 -- ---------------------------------------------------------------------------
+
+-- ============================================================================
+-- Learner auto-activation on induction completion — added 2026-09-18
+-- Migration: supabase/migrations/20260918170000_learner_auto_activate_on_induction.sql
+-- Spec: docs/features/2026-09-18-FEATURE-learner-auto-activation-on-induction.md
+--
+-- Director ruling 2026-09-18 14:30: activation becomes AUTOMATIC when induction
+-- completes. The signal is induction_completion.outcome_complete — the single
+-- column both writers of induction completion land on
+-- (fn_induction_recompute_completion and fn_induction_completion_on_feedback),
+-- which is why the hook is a row trigger on that table rather than a change
+-- inside either function.
+--
+-- Eligibility is an ALLOWLIST OF ONE: only `admitted`. On production 2026-09-18,
+-- 673 learners have a complete induction — 470 already active, 155 admitted,
+-- 24 inactive, 12 rejected, 9 reserved, 3 account. Only the 155 move.
+--
+-- Gated by platform policy `learners.auto_activate_on_induction` (default true).
+-- Fail-soft: trg_validate_learner_semester_year_scope re-validates FK scope on
+-- every learners_profiles UPDATE, so a learner with inconsistent rows raises —
+-- and a raise in an AFTER row trigger would abort the induction recompute for
+-- the whole event. The handler downgrades it to a WARNING.
+--
+-- ⚠️ KEEP IN SYNC with the migration above. The two are guarded against drift by
+-- __tests__/lib/induction/auto-activation-on-induction.test.ts.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.fn_activate_learner_on_induction_complete()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+DECLARE
+  v_from_status public.lifecycle_status;
+BEGIN
+  -- (a) Master switch, read FIRST so the disabled cost is one policy lookup.
+  IF NOT COALESCE(
+       public.fn_get_policy_bool('learners.auto_activate_on_induction', true, NULL),
+       true) THEN
+    RETURN NULL;
+  END IF;
+
+  -- (b) Only the write that MADE the learner complete does the work.
+  IF TG_OP = 'UPDATE' AND OLD.outcome_complete IS TRUE THEN
+    RETURN NULL;
+  END IF;
+
+  IF NEW.learner_id IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  -- (c) Promote, and audit exactly what was promoted. The status predicate sits
+  --     INSIDE the UPDATE so a concurrent activation loses the race cleanly.
+  BEGIN
+    WITH promoted AS (
+      UPDATE public.learners_profiles lp
+         SET lifecycle_status = 'active'::lifecycle_status,
+             updated_at       = now()
+       WHERE lp.id = NEW.learner_id
+         AND lp.lifecycle_status::text = 'admitted'
+      RETURNING lp.id AS learner_id
+    )
+    INSERT INTO public.learners_profile_status_history
+      (learner_id, from_status, to_status, reason_code, changed_by, metadata)
+    SELECT
+      p.learner_id,
+      'admitted'::lifecycle_status,
+      'active'::lifecycle_status,
+      'induction_completed',
+      auth.uid(),
+      jsonb_build_object(
+        'source',                  'fn_activate_learner_on_induction_complete',
+        'trigger_op',              TG_OP,
+        'from_status',             'admitted',
+        'induction_completion_id', NEW.id,
+        'event_id',                NEW.event_id,
+        'institution_id',          NEW.institution_id,
+        'completed_at',            NEW.completed_at,
+        'attendance_pct',          NEW.attendance_pct,
+        'fee_thresholds_bypassed', true)
+    FROM promoted p;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING
+      'fn_activate_learner_on_induction_complete: learner % not activated (%): %',
+      NEW.learner_id, SQLSTATE, SQLERRM;
+  END;
+
+  RETURN NULL;
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_activate_learner_on_induction_complete()
+  FROM anon, PUBLIC;
+
+COMMENT ON FUNCTION public.fn_activate_learner_on_induction_complete() IS
+  'Moves an ADMITTED learner to active the moment induction_completion.'
+  'outcome_complete becomes true (Director ruling 2026-09-18). Allowlist of one '
+  'status: reserved, account, inactive and rejected are never touched. Gated by '
+  'platform policy learners.auto_activate_on_induction (default true). Audits '
+  'every activation to learners_profile_status_history with reason_code '
+  'induction_completed. Fail-soft: any error warns and lets the induction '
+  'recompute finish.';

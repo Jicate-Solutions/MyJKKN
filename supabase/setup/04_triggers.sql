@@ -2778,3 +2778,31 @@ CREATE TRIGGER trg_guard_accommodation_type_change
   BEFORE UPDATE OF accommodation_type_id ON learners_profiles
   FOR EACH ROW
   EXECUTE FUNCTION public._guard_accommodation_type_change();
+
+-- =====================================================
+-- Learner auto-activation on induction completion — Added 2026-09-18
+-- Migration: supabase/migrations/20260918170000_learner_auto_activate_on_induction.sql
+-- Spec: docs/features/2026-09-18-FEATURE-learner-auto-activation-on-induction.md
+--
+-- AFTER, not BEFORE: the completion row must be durable before a learner is
+-- moved on the strength of it. `UPDATE OF outcome_complete` narrows the
+-- wake-ups — a recompute that only changes attendance_pct or a referral count
+-- does not fire this at all. The WHEN clause keeps the false case free.
+--
+-- This is the FIRST trigger on public.induction_completion.
+-- =====================================================
+DROP TRIGGER IF EXISTS trg_activate_learner_on_induction_complete
+  ON public.induction_completion;
+
+CREATE TRIGGER trg_activate_learner_on_induction_complete
+  AFTER INSERT OR UPDATE OF outcome_complete ON public.induction_completion
+  FOR EACH ROW
+  WHEN (NEW.outcome_complete IS TRUE)
+  EXECUTE FUNCTION public.fn_activate_learner_on_induction_complete();
+
+COMMENT ON TRIGGER trg_activate_learner_on_induction_complete
+  ON public.induction_completion IS
+  'Activates an admitted learner when their induction completes. Catches BOTH '
+  'writers of outcome_complete (fn_induction_recompute_completion and '
+  'fn_induction_completion_on_feedback) because it sits on the column they '
+  'share, not inside either function.';
