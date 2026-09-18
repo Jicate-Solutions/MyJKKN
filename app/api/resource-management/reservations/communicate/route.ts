@@ -202,9 +202,10 @@ export async function POST(request: NextRequest) {
     sent += inserted?.length ?? 0;
   }
 
-  // Adoption loop: count the use only when a message actually went out. The
-  // session client carries auth.uid(); the helper never throws.
-  if (sent > 0) {
+  // Adoption loop: count the use only when the message reached somebody —
+  // `notified` counts deliveries, `sent` only counts log rows. The session
+  // client carries auth.uid(); the helper never throws.
+  if (notified > 0) {
     await recordFeatureUse(session, FEATURE_KEYS.RESOURCES_MESSAGE_BOOKED_USERS);
   }
 

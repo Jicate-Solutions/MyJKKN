@@ -32,7 +32,7 @@ import {
   createServerSupabaseClient,
   createServiceRoleClient,
 } from '@/lib/supabase/server';
-import { grantAndNotifyTags } from '@/lib/services/shared/comment-mention-alerts';
+import { grantAndNotifyTags, toldSomeoneNew } from '@/lib/services/shared/comment-mention-alerts';
 import { commentWriteMessage } from '@/lib/services/shared/comment-threads';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { recordFeatureUse, FEATURE_KEYS } from '@/lib/usage/record';
@@ -199,9 +199,10 @@ export async function POST(
     });
   }
 
-  // Adoption loop: count the use only when someone was actually tagged. `db`
-  // is the session client (auth.uid()); the helper never throws.
-  if (outcome.tagged.length > 0) {
+  // Adoption loop: count the use only when this call told somebody for the
+  // first time — a repeat or a reminder is not a new tag. `db` is the session
+  // client (auth.uid()); the helper never throws.
+  if (toldSomeoneNew(outcome)) {
     await recordFeatureUse(db, FEATURE_KEYS.RESOURCES_TAG_COLLEAGUE);
   }
 

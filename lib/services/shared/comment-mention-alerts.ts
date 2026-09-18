@@ -75,6 +75,17 @@ export interface GrantAndNotifyResult {
   alertError?: string;
 }
 
+/**
+ * Did this call tell somebody for the FIRST time that they were tagged? That
+ * is the completed act of tagging. `tagged` also lists tags that already
+ * existed, `reminded` and `recentlyNotified` are repeats, and `notNotified`
+ * mixes undelivered new tags with failed reminders — a new tag whose alert
+ * failed is counted when its Resend succeeds, once.
+ */
+export function toldSomeoneNew(result: Pick<GrantAndNotifyResult, 'notified'>): boolean {
+  return result.notified.length > 0;
+}
+
 export async function grantAndNotifyTags(o: GrantAndNotifyOptions): Promise<GrantAndNotifyResult> {
   const result: GrantAndNotifyResult = {
     tagged: [],
