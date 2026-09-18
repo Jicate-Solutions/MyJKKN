@@ -712,12 +712,12 @@ echo $$ > "$LOCK/pid"; trap unlock EXIT
 # "required checks never ran on this head" for PRs whose required checks were all green. So the bypass is read once
 # per run and, when it holds, a BLOCKED+REVIEW_REQUIRED PR with nothing failing is classified exactly like a CLEAN
 # one. Either read failing (login or protection rule unreadable) keeps today's behaviour: unknown ⇒ still blocked.
-REVIEW_BYPASS=""; _REVIEW_BYPASS_READ=""
+REVIEW_BYPASS=""; _REVIEW_BYPASS_READ=""; REQUIRED_CONTEXTS=""
 review_bypass_read() {   # sets $REVIEW_BYPASS to 1 when the merging login may bypass main's review rule, else "".
-  # Called from the parent shell, never in a $( ) — the whole point is that the two gh reads happen ONCE per run.
+  # Called from the parent shell, never in a $( ) — the whole point is that the gh reads happen ONCE per run.
   [ -n "$_REVIEW_BYPASS_READ" ] && return 0
   _REVIEW_BYPASS_READ=1
-  local me prot
+  local me prot rsc
   me=$(gh api user --jq .login 2>/dev/null)
   [ -n "$me" ] || { say "  review-bypass: could not read the merging login — a BLOCKED PR stays blocked"; return 0; }
   prot=$(gh api "repos/$REPO/branches/main/protection/required_pull_request_reviews" 2>/dev/null)
@@ -727,7 +727,25 @@ try: d = json.load(sys.stdin)
 except Exception: sys.exit(0)
 users = ((d.get("bypass_pull_request_allowances") or {}).get("users") or [])
 print("1" if any((u or {}).get("login") == os.environ["ME"] for u in users) else "")' <<<"$prot" 2>/dev/null)
-  [ -n "$REVIEW_BYPASS" ] && say "  review-bypass: $me is in main's bypass list — a review-required PR is READY, not blocked"
+  # 2026-09-19 (repair round 1): the merge call uses --admin on the bypass path, and --admin ALSO skips GitHub's own
+  # required-status-check enforcement. So on that path the wave has to prove the required checks itself, which means
+  # knowing their NAMES. Read them from the same protection API, once per run, and never hardcode them: the names
+  # change (the retired "Build & Type Check" is why every PR read BLOCKED for a day). An unreadable or empty list is
+  # not "no checks required" — merge_one HOLDs the bypass path on it rather than merging with --admin.
+  rsc=$(gh api "repos/$REPO/branches/main/protection/required_status_checks" 2>/dev/null)
+  REQUIRED_CONTEXTS=$(python3 -c 'import json,sys
+try: d = json.load(sys.stdin)
+except Exception: sys.exit(0)
+names = [c for c in (d.get("contexts") or []) if isinstance(c, str) and c.strip()]
+for c in (d.get("checks") or []):
+    n = (c or {}).get("context")
+    if isinstance(n, str) and n.strip() and n not in names: names.append(n)
+print("\n".join(names))' <<<"$rsc" 2>/dev/null)
+  if [ -n "$REVIEW_BYPASS" ]; then
+    say "  review-bypass: $me is in main's bypass list — a review-required PR is READY, not blocked"
+    [ -n "$REQUIRED_CONTEXTS" ] \
+      || say "  review-bypass: main's required checks could not be read — the merge call will NOT use the bypass"
+  fi
   return 0
 }
 
@@ -1138,7 +1156,7 @@ run_once() {
     return 0
   }
   merge_one() {  # $1=number $2=tier — re-verify the instant before the irreversible step
-    local n="$1" t="$2" st i touches_index=0 use_bypass=""
+    local n="$1" t="$2" st i touches_index=0 use_bypass="" bypass_head=""
     for i in 1 2 3 4 5 6; do
       st=$(gh pr view "$n" --repo "$REPO" --json state,mergeStateStatus,isDraft,baseRefName -q '"\(.state) \(.mergeStateStatus) \(.isDraft) \(.baseRefName)"')
       [ "$st" = "OPEN UNKNOWN false main" ] && { sleep 10; continue; }; break
@@ -1154,11 +1172,50 @@ run_once() {
     # not — so without this the run would list them READY and refuse every one here (the 09-11 advisory lesson, again).
     # Narrow on purpose: the bypass must have been read, the PR must be red on nothing real, and GitHub is still the
     # final word — if the bypass is not actually ours the merge call below is refused and nothing is forced.
+    # 2026-09-19 (repair round 1, blind critic): the rollup test used to be an inline `[ -z "$(gh pr view …)" ]`, which
+    # is TRUE when gh errors, times out or prints nothing — a failed lookup read as "all clear" and the PR then merged
+    # with --admin. And an absent required check escaped entirely: zero checks means NOT STARTED, never PASSED. Because
+    # --admin skips GitHub's own required-status-check enforcement, on this path the wave's checks are the ONLY guard,
+    # so the test is now POSITIVE and fail-closed: one rollup read, gh's exit status honoured, the JSON must parse, and
+    # every one of main's required contexts must be present with conclusion SUCCESS (SKIPPED/NEUTRAL are not SUCCESS).
+    # Anything unreadable, missing or not-success HOLDs the PR — no --admin anywhere in the run for it.
     if [ "$st" = "OPEN BLOCKED false main" ] && [ -n "${REVIEW_BYPASS:-}" ] \
-       && [ "$(gh pr view "$n" --repo "$REPO" --json reviewDecision -q '.reviewDecision // ""' 2>/dev/null)" = "REVIEW_REQUIRED" ] \
-       && { [ -z "$(gh pr view "$n" --repo "$REPO" --json statusCheckRollup -q '.statusCheckRollup[]? | select(((.conclusion // "") | ascii_upcase) as $k | $k=="FAILURE" or $k=="ERROR" or $k=="TIMED_OUT" or $k=="ACTION_REQUIRED" or $k=="STARTUP_FAILURE" or $k=="CANCELLED") | (.name // .context // "?")' 2>/dev/null | { if [ -s "$STATE/advisory-checks" ]; then grep -vxF -f "$STATE/advisory-checks"; else cat; fi; })" ]; }; then
-      say "  note   $t #$n — BLOCKED only for a review the merging login may bypass (R11) — merging"; st="OPEN CLEAN false main"
-      use_bypass=1   # 2026-09-19: the merge CALL needs --admin for this one PR — see the comment above it
+       && [ "$(gh pr view "$n" --repo "$REPO" --json reviewDecision -q '.reviewDecision // ""' 2>/dev/null)" = "REVIEW_REQUIRED" ]; then
+      local roll verdict
+      if ! roll=$(gh pr view "$n" --repo "$REPO" --json statusCheckRollup,headRefOid 2>/dev/null) || [ -z "$roll" ]; then
+        say "  HOLD   $t #$n — could not read checks — not merging with the bypass"; return 1
+      fi
+      verdict=$(REQ="$REQUIRED_CONTEXTS" ADV="$(cat "$STATE/advisory-checks" 2>/dev/null)" python3 -c 'import json,os,sys
+BAD = ("FAILURE","ERROR","TIMED_OUT","ACTION_REQUIRED","STARTUP_FAILURE","CANCELLED")
+def hold(msg): print(msg); sys.exit(0)
+try: d = json.load(sys.stdin)
+except Exception: hold("could not read checks — not merging with the bypass")
+if not isinstance(d, dict): hold("could not read checks — not merging with the bypass")
+req = [c.strip() for c in os.environ.get("REQ","").splitlines() if c.strip()]
+adv = {c.strip() for c in os.environ.get("ADV","").splitlines() if c.strip()}
+if not req: hold("main required checks unreadable or empty — not merging with the bypass")
+runs = d.get("statusCheckRollup"); head = (d.get("headRefOid") or "").strip()
+if not isinstance(runs, list): hold("could not read checks — not merging with the bypass")
+if not head: hold("could not read the head commit — not merging with the bypass")
+seen = {}
+for r in runs:
+    r = r or {}
+    name = r.get("name") or r.get("context") or ""
+    state = (r.get("conclusion") or r.get("state") or "").upper()
+    if state in BAD and name not in adv: hold("check %s is %s — not merging with the bypass" % (name or "?", state))
+    if name: seen.setdefault(name, set()).add(state)
+for c in req:
+    if c not in seen: hold("required check %s never ran — not merging with the bypass" % c)
+    if seen[c] != {"SUCCESS"}: hold("required check %s is %s, not SUCCESS — not merging with the bypass" % (c, "/".join(sorted(s or "pending" for s in seen[c]))))
+print("OK " + head)' <<<"$roll" 2>/dev/null)
+      case "${verdict:-}" in
+        "OK "*)
+          say "  note   $t #$n — BLOCKED only for a review the merging login may bypass (R11) — merging"
+          st="OPEN CLEAN false main"
+          use_bypass=1   # 2026-09-19: the merge CALL needs --admin for this one PR — see the comment above it
+          bypass_head="${verdict#OK }";;
+        *) say "  HOLD   $t #$n — ${verdict:-could not read checks — not merging with the bypass}"; return 1;;
+      esac
     fi
     if [ "$st" != "OPEN CLEAN false main" ]; then say "  HOLD   $t #$n — state now '$st' (changed since sweep), not merging"; return 1; fi
     # Director 14:45: SQL_FILE_INDEX.md is a hand-edited append-only ledger — every merge that touches it re-conflicts
@@ -1184,10 +1241,13 @@ run_once() {
     # the same non-advisory red/CANCELLED test the R11 branch runs, plus the failing/pending count above, which
     # has already returned 1 by this line if anything real is red or still running. Every other PR merges exactly
     # as before, with no --admin: nothing is forced past a gate the wave would otherwise wait for.
+    # 2026-09-19 (repair round 1): --match-head-commit rides along with --admin. Everything above was verified against
+    # ONE head sha; a push landing between that read and this call would otherwise be merged unverified, with --admin
+    # skipping the required checks that would have caught it. GitHub refuses the merge if the head has moved.
     local admin_flag=""
     if [ -n "$use_bypass" ]; then
-      admin_flag="--admin"
-      say "  note   #$n — review required, bypass applies, checks OK — merging with the bypass"
+      admin_flag="--admin --match-head-commit $bypass_head"
+      say "  note   #$n — review required, bypass applies, checks OK — merging with the bypass (head $bypass_head)"
     fi
     # shellcheck disable=SC2086  # $admin_flag is a fixed literal or empty — unquoted so empty expands to nothing
     if gh pr merge "$n" --repo "$REPO" --squash --delete-branch $admin_flag >/dev/null 2>"$run/merge-$n.err"; then

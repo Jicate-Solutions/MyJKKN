@@ -126,10 +126,29 @@ git -C "$MWT" add -A >/dev/null
 git -C "$MWT" -c user.name=t -c user.email=t@t commit -q -m genesis
 git -C "$MWT" push -q jicate HEAD:main 2>/dev/null
 
-# merge_case <name> <bypass users JSON> <live state line> <reviewDecision> <red check names> <pending check names>
+# merge_case <name> <bypass users JSON> <live state line> <reviewDecision> <red check names> <pending check names> \
+#            [rollup JSON | FAIL | ""] [required_status_checks body | FAIL | ""]
+# 2026-09-19 (repair round 1): the bypass path now reads statusCheckRollup + headRefOid in ONE gh call and demands
+# that every context main requires is present with conclusion SUCCESS. Args 7/8 let a case break exactly one of those
+# (the read fails, the rollup is empty, a required context is missing/SKIPPED, the protection read gives no contexts);
+# left empty they describe a healthy PR — the one green required check plus whatever reds/pendings the case asked for.
 merge_case() {
   # two statements on purpose: `local a=$1 b=$a` expands $a BEFORE the builtin assigns it, so b would be empty
   local name="$1"; local S="$MTMP/$name"; mkdir -p "$S/home/.config/obsidian/.ship-wave"
+  local roll="${7-}" reqbody="${8-}"
+  [ -n "$reqbody" ] || reqbody='{"strict":false,"contexts":["TypeCheck (PR-scoped)"],"checks":[{"context":"TypeCheck (PR-scoped)"}]}'
+  if [ -z "$roll" ]; then
+    roll=$(RED="$5" PEND="$6" python3 - <<'PY'
+import json, os
+runs = [{"name": "TypeCheck (PR-scoped)", "status": "COMPLETED", "conclusion": "SUCCESS"}]
+for n in os.environ.get("RED", "").splitlines():
+    if n.strip(): runs.append({"name": n.strip(), "status": "COMPLETED", "conclusion": "FAILURE"})
+for n in os.environ.get("PEND", "").splitlines():
+    if n.strip(): runs.append({"name": n.strip(), "status": "IN_PROGRESS", "conclusion": None})
+print(json.dumps({"statusCheckRollup": runs, "headRefOid": "abcdef1234567890"}))
+PY
+)
+  fi
   python3 - "$S/plan.json" <<'PY'
 import json, sys
 row = {"number": 10, "title": "feat: thing 10", "branch": "b10", "tier": "NORMAL", "tier_reasons": [], "ci": "OK",
@@ -142,7 +161,7 @@ json.dump({"stacked": [], "draft": [], "conflicted": [], "blocked": [], "waiting
 PY
   (
     export HOME="$S/home" MYJKKN_LOCAL="$MTMP/local"; cd "$ROOT" || exit 9
-    export ME="w12-ship-wave" BYPASS_USERS="$2" ST10="$3" REV10="$4" RED10="$5" PEND10="$6"
+    export ME="w12-ship-wave" BYPASS_USERS="$2" ST10="$3" REV10="$4" RED10="$5" PEND10="$6" ROLL10="$roll" REQBODY="$reqbody"
     TRACE="$S/trace.txt"; : > "$TRACE"; export TRACE FIXPLAN="$S/plan.json" MWT
     set -- go --approve-normal
     . "$TMP/wave.sh" >/dev/null 2>&1
@@ -159,10 +178,18 @@ PY
         "api repos/"*"required_pull_request_reviews")
           [ -n "$BYPASS_USERS" ] || return 1
           printf '{"required_approving_review_count":1,"bypass_pull_request_allowances":{"users":%s}}\n' "$BYPASS_USERS";;
+        # main's required status-check contexts — read once per run alongside the review rule (repair round 1)
+        "api repos/"*"required_status_checks")
+          [ "$REQBODY" = FAIL ] && return 1
+          printf '%s\n' "$REQBODY";;
         *"--json state,mergeStateStatus"*) printf '%s\n' "$ST10";;
         *"--json reviewDecision"*) printf '%s\n' "$REV10";;
-        # the merge-time failing/pending count is the only statusCheckRollup query naming IN_PROGRESS;
-        # the R11 fence's own query names CANCELLED and never IN_PROGRESS — that is how the two are told apart
+        # the R11 fence's own read — rollup + head sha in ONE call, so it is matched BEFORE the two patterns below
+        *"--json statusCheckRollup,headRefOid"*)
+          [ "$ROLL10" = FAIL ] && return 1
+          printf '%s\n' "$ROLL10";;
+        # the merge-time failing/pending count is the only remaining statusCheckRollup query naming IN_PROGRESS;
+        # advisory_only()'s query names neither — that is how the two are told apart
         *IN_PROGRESS*) [ -n "$RED10" ] && printf '%s\n' "$RED10"; [ -n "$PEND10" ] && printf '%s\n' "$PEND10";;
         *"--json statusCheckRollup"*) [ -n "$RED10" ] && printf '%s\n' "$RED10";;
         "pr merge "*) git -C "$MWT" -c user.name=t -c user.email=t@t commit -q --allow-empty -m "merged (#$3)" \
@@ -181,6 +208,8 @@ PY
 merges()       { grep -c "^gh pr merge 10 " "$TMP/mergecall/$1/trace.txt"; }
 admin_merges() { grep -c "^gh pr merge 10 .*--admin" "$TMP/mergecall/$1/trace.txt"; }
 any_admin()    { grep -c -- "--admin" "$TMP/mergecall/$1/trace.txt"; }
+any_match()    { grep -c -- "--match-head-commit" "$TMP/mergecall/$1/trace.txt"; }
+merge_line()   { grep "^gh pr merge 10 " "$TMP/mergecall/$1/trace.txt"; }
 NOTE='  note   #10 — review required, bypass applies, checks OK — merging with the bypass'
 
 echo "── the merge call: --admin only behind the fence (2026-09-19) ──"
@@ -213,6 +242,68 @@ check "m7 no bypass, CLEAN PR → merged by the call it has always used, no --ad
 merge_case m8 '[{"login":"w12-ship-wave"}]' "OPEN CLEAN false main" "REVIEW_REQUIRED" "" ""
 check "m8 CLEAN PR in a run where the bypass DOES apply → still no --admin (the flag does not leak)" \
       $([ "$(merges m8)" -eq 1 ] && [ "$(any_admin m8)" -eq 0 ]; echo $?) "$(grep '^gh pr merge' "$TMP/mergecall/m8/trace.txt")"
+
+# ── repair round 1 (2026-09-19, blind critic): --admin also skips REQUIRED STATUS CHECKS ─────────────────────────
+# So on the bypass path the wave's own checks are the ONLY guard, and the three ways they used to be no guard at all:
+#   GAP 1  the rollup lookup failing read as "all clear" — `[ -z "$(gh … 2>/dev/null)" ]` is TRUE when gh errors
+#   GAP 2  a required check that never appeared escaped — zero checks means NOT STARTED, never PASSED
+#   GAP 3  a push between the check and the merge was merged unverified — no --match-head-commit
+# m9–m13 are the fail-closed cases (nothing merges, --admin appears NOWHERE in the run); m14 is the healthy one.
+echo "── the bypass path proves the checks before --admin (repair round 1) ──"
+
+merge_case m9 '[{"login":"w12-ship-wave"}]' "OPEN BLOCKED false main" "REVIEW_REQUIRED" "" "" FAIL
+check "m9 GAP1 the rollup read FAILS → NOT merged, --admin appears nowhere (a failed lookup is not 'all clear')" \
+      $([ "$(merges m9)" -eq 0 ] && [ "$(any_admin m9)" -eq 0 ] \
+        && grep -q 'HOLD   NORMAL #10 — could not read checks — not merging with the bypass' "$TMP/mergecall/m9/receipt.txt"; echo $?) \
+      "$(grep -E '#10' "$TMP/mergecall/m9/receipt.txt")"
+
+merge_case m10 '[{"login":"w12-ship-wave"}]' "OPEN BLOCKED false main" "REVIEW_REQUIRED" "" "" \
+      '{"statusCheckRollup":[],"headRefOid":"abcdef1234567890"}'
+check "m10 GAP2 the rollup is EMPTY → NOT merged, no --admin (nothing ran is not everything passed)" \
+      $([ "$(merges m10)" -eq 0 ] && [ "$(any_admin m10)" -eq 0 ] \
+        && grep -q 'HOLD   NORMAL #10 — required check TypeCheck (PR-scoped) never ran' "$TMP/mergecall/m10/receipt.txt"; echo $?) \
+      "$(grep -E '#10' "$TMP/mergecall/m10/receipt.txt")"
+
+merge_case m11 '[{"login":"w12-ship-wave"}]' "OPEN BLOCKED false main" "REVIEW_REQUIRED" "" "" "" \
+      '{"strict":false,"contexts":["TypeCheck (PR-scoped)","Terminology delta"],"checks":[{"context":"TypeCheck (PR-scoped)"},{"context":"Terminology delta"}]}'
+check "m11 GAP2 one required context ABSENT, the rest SUCCESS → NOT merged, no --admin" \
+      $([ "$(merges m11)" -eq 0 ] && [ "$(any_admin m11)" -eq 0 ] \
+        && grep -q 'HOLD   NORMAL #10 — required check Terminology delta never ran' "$TMP/mergecall/m11/receipt.txt"; echo $?) \
+      "$(grep -E '#10' "$TMP/mergecall/m11/receipt.txt")"
+
+merge_case m12 '[{"login":"w12-ship-wave"}]' "OPEN BLOCKED false main" "REVIEW_REQUIRED" "" "" \
+      '{"statusCheckRollup":[{"name":"TypeCheck (PR-scoped)","status":"COMPLETED","conclusion":"SKIPPED"}],"headRefOid":"abcdef1234567890"}'
+check "m12 GAP2 a required context SKIPPED → NOT merged, no --admin (SKIPPED is not SUCCESS)" \
+      $([ "$(merges m12)" -eq 0 ] && [ "$(any_admin m12)" -eq 0 ] \
+        && grep -q 'HOLD   NORMAL #10 — required check TypeCheck (PR-scoped) is SKIPPED, not SUCCESS' "$TMP/mergecall/m12/receipt.txt"; echo $?) \
+      "$(grep -E '#10' "$TMP/mergecall/m12/receipt.txt")"
+
+merge_case m13 '[{"login":"w12-ship-wave"}]' "OPEN BLOCKED false main" "REVIEW_REQUIRED" "" "" "" FAIL
+check "m13 GAP2 main's required contexts UNREADABLE → NOT merged, no --admin" \
+      $([ "$(merges m13)" -eq 0 ] && [ "$(any_admin m13)" -eq 0 ] \
+        && grep -q 'HOLD   NORMAL #10 — main required checks unreadable or empty' "$TMP/mergecall/m13/receipt.txt"; echo $?) \
+      "$(grep -E '#10' "$TMP/mergecall/m13/receipt.txt")"
+
+merge_case m13b '[{"login":"w12-ship-wave"}]' "OPEN BLOCKED false main" "REVIEW_REQUIRED" "" "" "" \
+      '{"strict":false,"contexts":[],"checks":[]}'
+check "m13b GAP2 main's required contexts EMPTY → NOT merged, no --admin (empty is not 'nothing required')" \
+      $([ "$(merges m13b)" -eq 0 ] && [ "$(any_admin m13b)" -eq 0 ] \
+        && grep -q 'HOLD   NORMAL #10 — main required checks unreadable or empty' "$TMP/mergecall/m13b/receipt.txt"; echo $?) \
+      "$(grep -E '#10' "$TMP/mergecall/m13b/receipt.txt")"
+
+merge_case m14 '[{"login":"w12-ship-wave"}]' "OPEN BLOCKED false main" "REVIEW_REQUIRED" "" "" \
+      '{"statusCheckRollup":[{"name":"TypeCheck (PR-scoped)","status":"COMPLETED","conclusion":"SUCCESS"}],"headRefOid":"cafebabe0000111122223333"}'
+check "m14 every required context SUCCESS → the merge call carries BOTH --admin AND --match-head-commit <that sha>" \
+      $([ "$(merges m14)" -eq 1 ] && [ "$(admin_merges m14)" -eq 1 ] \
+        && merge_line m14 | grep -q -- '--match-head-commit cafebabe0000111122223333' \
+        && grep -q 'MERGED NORMAL #10' "$TMP/mergecall/m14/receipt.txt"; echo $?) "$(merge_line m14)"
+
+check "m15 GAP3 does not leak: m7/m8 (no bypass path) still merge with the exact call they always used" \
+      $([ "$(merges m7)" -eq 1 ] && [ "$(any_admin m7)" -eq 0 ] && [ "$(any_match m7)" -eq 0 ] \
+        && [ "$(merge_line m7)" = "gh pr merge 10 --repo Jicate-Solutions/MyJKKN --squash --delete-branch" ] \
+        && [ "$(merges m8)" -eq 1 ] && [ "$(any_admin m8)" -eq 0 ] && [ "$(any_match m8)" -eq 0 ] \
+        && [ "$(merge_line m8)" = "gh pr merge 10 --repo Jicate-Solutions/MyJKKN --squash --delete-branch" ]; echo $?) \
+      "m7: $(merge_line m7) | m8: $(merge_line m8)"
 
 echo "── syntax ──"
 for f in "$SW/ship-wave.sh" "$SW/unblock-lanes.sh" "$0"; do
