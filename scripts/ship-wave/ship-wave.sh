@@ -992,6 +992,11 @@ fix_deploy_now() {
   case "$st" in "OPEN CLEAN false main") ;; "OPEN UNSTABLE false main") [ "$reds" -eq 0 ] || { say "  fix-deploy #$n refused — red on a real check ($reds)"; return 1; };; *) say "  fix-deploy #$n refused — state '$st' (needs OPEN, mergeable, non-draft, base main)"; return 1;; esac
   [ "$reds" -eq 0 ] || { say "  fix-deploy #$n refused — $reds red check(s) that are not advisory"; return 1; }
   say "  fix-deploy: merging #$n (Director's number; the last production build is ERROR and this PR is its fix)"
+  # 2026-09-19: no --admin fence here, unlike merge_one. This path cannot REACH this line with a review-required PR:
+  # the case above accepts only "OPEN CLEAN false main" / "OPEN UNSTABLE false main", and a PR awaiting the required
+  # review is "OPEN BLOCKED false main" — refused two lines up, before any merge is attempted. So a fence would be
+  # dead code. (It does mean `go --fix-deploy <n>` now refuses an unreviewed fix PR outright; that is a separate gap,
+  # in the state gate rather than in the merge call, and is not changed here.)
   gh pr merge "$n" --repo "$REPO" --squash >/dev/null 2>&1 || { say "  fix-deploy #$n — merge failed"; return 1; }
   local r dpl; r=$(curl -s -X POST "$HOOK"); dpl=$(python3 -c "import json,sys;print(json.load(sys.stdin)['job']['id'])" <<<"$r" 2>/dev/null)
   printf '%s\t%s\t%s\n' "$(date '+%F %T')" "W12 fix-deploy #$n" "$dpl" >> "$_CFG/v5-deploy-fires.tsv"
@@ -1133,7 +1138,7 @@ run_once() {
     return 0
   }
   merge_one() {  # $1=number $2=tier — re-verify the instant before the irreversible step
-    local n="$1" t="$2" st i touches_index=0
+    local n="$1" t="$2" st i touches_index=0 use_bypass=""
     for i in 1 2 3 4 5 6; do
       st=$(gh pr view "$n" --repo "$REPO" --json state,mergeStateStatus,isDraft,baseRefName -q '"\(.state) \(.mergeStateStatus) \(.isDraft) \(.baseRefName)"')
       [ "$st" = "OPEN UNKNOWN false main" ] && { sleep 10; continue; }; break
@@ -1153,6 +1158,7 @@ run_once() {
        && [ "$(gh pr view "$n" --repo "$REPO" --json reviewDecision -q '.reviewDecision // ""' 2>/dev/null)" = "REVIEW_REQUIRED" ] \
        && { [ -z "$(gh pr view "$n" --repo "$REPO" --json statusCheckRollup -q '.statusCheckRollup[]? | select(((.conclusion // "") | ascii_upcase) as $k | $k=="FAILURE" or $k=="ERROR" or $k=="TIMED_OUT" or $k=="ACTION_REQUIRED" or $k=="STARTUP_FAILURE" or $k=="CANCELLED") | (.name // .context // "?")' 2>/dev/null | { if [ -s "$STATE/advisory-checks" ]; then grep -vxF -f "$STATE/advisory-checks"; else cat; fi; })" ]; }; then
       say "  note   $t #$n — BLOCKED only for a review the merging login may bypass (R11) — merging"; st="OPEN CLEAN false main"
+      use_bypass=1   # 2026-09-19: the merge CALL needs --admin for this one PR — see the comment above it
     fi
     if [ "$st" != "OPEN CLEAN false main" ]; then say "  HOLD   $t #$n — state now '$st' (changed since sweep), not merging"; return 1; fi
     # Director 14:45: SQL_FILE_INDEX.md is a hand-edited append-only ledger — every merge that touches it re-conflicts
@@ -1167,7 +1173,24 @@ run_once() {
       | { if [ -s "$STATE/advisory-checks" ]; then grep -vxF -f "$STATE/advisory-checks"; else cat; fi; } | grep -c .)
     [ "${runs:-0}" != "0" ] && { say "  HOLD   $t #$n — $runs non-advisory check(s) failing/pending at merge time"; return 1; }
     local pre_main; pre_main=$(main_sha_now)
-    if gh pr merge "$n" --repo "$REPO" --squash --delete-branch >/dev/null 2>"$run/merge-$n.err"; then
+    # 2026-09-19: #3866 taught the SWEEP and the re-check above that a BLOCKED+REVIEW_REQUIRED PR is mergeable when
+    # this login is in main's bypass_pull_request_allowances — but NOT this call. gh refuses a BLOCKED PR locally,
+    # before the API is touched, unless --admin is given: "the base branch policy prohibits the merge … add the
+    # --admin flag". So the runs at 2026-09-19 00:23 and 02:23 IST listed #3878 and #3915 READY, printed the R11
+    # note, and then failed on that refusal — zero merges for six hours with required_approving_review_count=1.
+    # --admin also skips REQUIRED STATUS CHECKS, so the fence below is the whole safety of this flag: it is added
+    # only when use_bypass=1, i.e. (a) review_bypass_read succeeded this run and named this login, (b) the live
+    # re-check saw BLOCKED + reviewDecision REVIEW_REQUIRED, and (c) the wave's own verdict for this PR is OK —
+    # the same non-advisory red/CANCELLED test the R11 branch runs, plus the failing/pending count above, which
+    # has already returned 1 by this line if anything real is red or still running. Every other PR merges exactly
+    # as before, with no --admin: nothing is forced past a gate the wave would otherwise wait for.
+    local admin_flag=""
+    if [ -n "$use_bypass" ]; then
+      admin_flag="--admin"
+      say "  note   #$n — review required, bypass applies, checks OK — merging with the bypass"
+    fi
+    # shellcheck disable=SC2086  # $admin_flag is a fixed literal or empty — unquoted so empty expands to nothing
+    if gh pr merge "$n" --repo "$REPO" --squash --delete-branch $admin_flag >/dev/null 2>"$run/merge-$n.err"; then
       say "  MERGED $t #$n"; [ "$touches_index" = 1 ] && INDEX_MERGED=$(( ${INDEX_MERGED:-0} + 1 )); sleep 4
       # Round-3 verifier N8b/N8d: the merged-map row used to be a side effect of `gh pr view --json files`; one transient
       # empty answer left no row (the wave's own merge was later listed as "merged by hand") AND an empty file list
