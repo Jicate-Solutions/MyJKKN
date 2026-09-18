@@ -19,6 +19,8 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { CaseAttempt } from './_components/CaseAttempt';
 import { OverdueClosedState } from './_components/OverdueClosedState';
+import { notifyFacultyOfCapReached } from '@/lib/services/pde-clinical-cap-notice';
+import { resolveEffectiveAttemptsCap } from '@/lib/services/pde-clinical-attempt-cap';
 import type {
   ClinicalCaseBundle,
   ClinicalCaseScenario,
@@ -193,7 +195,16 @@ export default async function CaseAttemptPage({ params }: CasePageProps) {
   const attemptsUsed = prior.length;
   // Per-case number first; the policy RPC is only consulted when the case set none.
   const perCaseCap = positiveIntOrNull(assessment.max_attempts);
-  const attemptsCap = perCaseCap ?? (await readPolicyAttemptsCap(supabase));
+  const baseAttemptsCap = perCaseCap ?? (await readPolicyAttemptsCap(supabase));
+  // Plus anything a Senior Learner has granted this learner on this case. Those
+  // grants were written, audited and shown on the faculty roster but read by
+  // nothing here, so "Grant 3 more attempts" left the learner just as locked
+  // out as before. The counter, the remaining-attempts text and the cap screen
+  // all read attemptsCap, so they now agree with what was actually granted.
+  const { effectiveCap: attemptsCap } = await resolveEffectiveAttemptsCap(
+    supabase,
+    { assessmentId: assessment.id, learnerId: user.id, baseCap: baseAttemptsCap },
+  );
 
   const bestSubmission: ClinicalSubmissionSummary | null = prior.length
     ? prior.reduce<ClinicalSubmissionSummary | null>((best, cur) => {
@@ -270,6 +281,38 @@ export default async function CaseAttemptPage({ params }: CasePageProps) {
     );
   }
 
+  // ---- 7. Out of attempts: tell the Senior Learner, then say so -------------
+  // The learner is about to be shown a wall whose only instruction is "ask your
+  // faculty". Telling them to go chase someone is the silent dead end this
+  // repo forbids, so the person who can grant more attempts is notified here,
+  // at the moment the learner actually hits it.
+  //
+  // The scoring route fires the same notice the instant a final attempt lands,
+  // which covers the learner who never comes back. This call is what covers the
+  // one who does — including every learner already over the cap before any of
+  // this shipped, whose attempts were spent long before there was anything to
+  // fire. It is idempotent per (learner, case), so between the two of them a
+  // Senior Learner still gets exactly one bell item, no matter how many times
+  // this page is reloaded.
+  //
+  // A write during a render is deliberate and bounded: this page is
+  // force-dynamic so nothing caches it, the helper never throws, and its first
+  // act is an idempotency read that costs one indexed lookup on a repeat view.
+  // The alternative — claiming "your Senior Learner has been told" on a page
+  // that never told anyone — is a lie the learner would act on.
+  const capReached = attemptsUsed >= attemptsCap;
+  let facultyNotified = false;
+  if (capReached) {
+    const outcome = await notifyFacultyOfCapReached(createServiceRoleClient(), {
+      learnerId: user.id,
+      assessmentId: assessment.id,
+      attemptsUsed,
+      attemptsCap,
+      caseTitle: assessment.title,
+    });
+    facultyNotified = outcome.delivered;
+  }
+
   const bundle: ClinicalCaseBundle = {
     assessment: {
       id: assessment.id,
@@ -285,7 +328,8 @@ export default async function CaseAttemptPage({ params }: CasePageProps) {
     attemptsUsed,
     attemptsCap,
     bestSubmission,
-    capReached: attemptsUsed >= attemptsCap,
+    capReached,
+    facultyNotified,
     learnerProfileId: user.id,
   };
 

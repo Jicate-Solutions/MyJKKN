@@ -90,6 +90,9 @@ export function CaseAttempt({ bundle, rollNumberSnapshot }: CaseAttemptProps) {
         bestSubmission={bundle.bestSubmission}
         caseTitle={bundle.assessment.title}
         caseSlug={bundle.assessment.id}
+        // Only `true` counts. An older bundle without the field, or a notice
+        // that could not be delivered, must not tell the learner someone knows.
+        facultyNotified={bundle.facultyNotified === true}
       />
     );
   }

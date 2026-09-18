@@ -108,6 +108,13 @@ export interface ClinicalCaseBundle {
   attemptsCap: number; // policy-driven (default 5)
   bestSubmission: ClinicalSubmissionSummary | null;
   capReached: boolean;
+  /**
+   * True only when a notice about this learner being capped provably exists for
+   * their Senior Learner. Optional, and absence means no, on purpose: the cap
+   * screen may only claim someone was told when that is confirmed, so anything
+   * other than `true` falls back to the ask-them wording.
+   */
+  facultyNotified?: boolean;
   learnerProfileId: string; // profiles.id (auth.uid())
 }
 
