@@ -128,7 +128,11 @@ name: Production Build
 #
 # ── WHAT THE MEMORY TRACE ACTUALLY SHOWS (it is NOT the page-data workers) ──
 #
-# Runner is 4 vCPU / 15 GiB + 3 GiB swap — printed by the "Runner capacity" step
+# Runner WAS 4 vCPU / 15 GiB + 3 GiB swap when this was written — printed by
+# the "Runner capacity" step. It is NOT any more: job 105352305594 on
+# 2026-09-17 reported Mem 7.8Gi, roughly half. Every conclusion below that
+# rests on headroom was measured on the larger box; read them with that in
+# mind rather than as current figures.
 # in all four runs (`vCPU: 4`, `Mem: 15Gi`). The trace from job 103692773340,
 # against that run's own phase timestamps:
 #
@@ -452,6 +456,57 @@ jobs:
       #
       # Nothing here touches package.json, next.config.ts, or anything Vercel
       # executes — it is runner configuration, not build configuration.
+      # ── RECLAIM DISK SO THE SWAPFILE CAN BE THE SIZE THAT WORKED ──────────
+      #
+      # WHY THIS EXISTS (2026-09-18). The swap step below is capped at 24G and
+      # sizes itself to whatever is free, "never failing the build over swap".
+      # That is the right instinct, and it quietly turned a hard failure into a
+      # smaller one: on job 105352305594 it printed
+      #
+      #     swap: /mnt has 14G free -> 10G swapfile at /mnt/swapfile
+      #
+      # and the build died anyway, at avail=102MB with the swapfile completely
+      # consumed. 10G is not 24G, and the header above records 24G as the
+      # configuration that went green.
+      #
+      # AND THE RUNNER ITSELF HALVED, which matters more than the disk and is
+      # why the older numbers no longer describe this box. The header says
+      # "Runner is 4 vCPU / 15 GiB"; `free -h` on that same failing job says:
+      #
+      #     Mem: 7.8Gi        Swap: 3.0Gi
+      #
+      # So the 24G-of-swap remedy was tuned for a 15 GiB machine and is now
+      # being asked to carry a 7.8 GiB one. RAM plus swap came to about 17G and
+      # this build needs more than that.
+      #
+      # WHAT THIS STEP DOES. The hosted image ships several toolchains this
+      # repository never builds with — the Android SDK, .NET, GHC, and part of
+      # the hosted tool cache — and they sit on /. Clearing them frees enough
+      # for the swap step below to pick / and reach its 24G cap, instead of
+      # settling for 10G on a nearly-full /mnt.
+      #
+      # It clears nothing this build uses: node and npm arrive via
+      # actions/setup-node, which installs somewhere this does not touch.
+      # Failures are swallowed for the same reason the swap step swallows its
+      # own — a smaller swapfile is worse than a bigger one, and both are far
+      # better than no build at all.
+      - name: Reclaim disk so the swapfile can reach its cap
+        if: steps.relevant.outputs.count != '0'
+        run: |
+          set -uo pipefail
+          echo "before:"; df -h / /mnt | sed 's/^/  /'
+          for d in /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+                   /usr/local/share/boost /usr/local/share/powershell \
+                   /opt/hostedtoolcache/CodeQL; do
+            if [ -e "$d" ]; then
+              sudo rm -rf "$d" 2>/dev/null && echo "  cleared $d"
+            fi
+          done
+          echo "after:"; df -h / /mnt | sed 's/^/  /'
+          # Informational only. If this freed nothing, the swap step still runs
+          # and still does the best it can — it just does it with less.
+          true
+
       - name: Give the runner more swap
         if: steps.relevant.outputs.count != '0'
         run: |
