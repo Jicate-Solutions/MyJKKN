@@ -317,7 +317,7 @@ jobs:
     # A real build here is 3-7 minutes. 30 is deliberately generous: a timeout
     # reports `cancelled`, which reads as neither pass nor fail, so a clock that
     # is merely tight turns this gate into a source of unreadable verdicts.
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     # NOTE: deliberately NO `if: ${{ !github.event.pull_request.draft }}`.
     #
@@ -452,6 +452,17 @@ jobs:
       #
       # Nothing here touches package.json, next.config.ts, or anything Vercel
       # executes — it is runner configuration, not build configuration.
+      - name: Free disk so the swap step can reach its cap
+        # MEASURED 2026-09-18 (run 35373539312, the first green build since the runner halved to
+        # 2 vCPU / 7.8 GiB on 09-16): with only 14G free the swap step settled for 10G and every
+        # build died with that swapfile 100% full. Clearing toolchains this repo never uses
+        # (.NET, Android, GHC, CodeQL, Swift, PowerShell, JVM) frees ~30G; the build then peaked at
+        # 14.4G of swap and finished. Failures here are swallowed — less swap beats no build.
+        if: steps.relevant.outputs.count != '0'
+        run: |
+          df -h / /mnt | sed 's/^/before: /'
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/share/swift /usr/local/share/powershell /usr/lib/jvm 2>/dev/null || true
+          df -h / /mnt | sed 's/^/after: /'
       - name: Give the runner more swap
         if: steps.relevant.outputs.count != '0'
         run: |
@@ -485,6 +496,12 @@ jobs:
       - name: Build (same steps as Vercel, lower heap cap)
         if: steps.relevant.outputs.count != '0'
         env:
+          # CI is unset ON PURPOSE (measured 2026-09-18, run 35373539312): next.config.ts wraps the
+          # build in Sentry only when CI is truthy, and under Turbopack that wrapper force-enables a
+          # source map for every module (#3877 counted 15,638 of them). This job has no Sentry token,
+          # so they were generated and discarded — at the cost of the memory that killed the build.
+          # Vercel (which does upload them) is untouched: it never reads this file.
+          CI: ''
           # ── PLACEHOLDERS, NOT SECRETS ────────────────────────────────────────
           # Nothing here is real and nothing here may become real. This job
           # compiles the app; it must never hold a credential that could reach a
