@@ -132,8 +132,17 @@ export interface AddParticipantsOutcome {
 export interface CommunityClusterTotals {
   /** Approved initiatives, counted once each. */
   initiatives: number;
-  beneficiaries: number;
-  hours: number;
+  /**
+   * Named `total_beneficiaries`, not `beneficiaries`, because that is what the
+   * function's `RETURNS TABLE` says and a TypeScript field that disagrees with
+   * it reads `undefined` at runtime with no error anywhere — the defect that
+   * left 5 of 7 figures blank on the CAC lane. The name is also a cross-lane
+   * contract: `app/(routes)/accreditation/cac/_lib/community-collaboration.ts`
+   * reads the same key off the same row.
+   */
+  total_beneficiaries: number;
+  /** Hours across every approved initiative, each counted once. */
+  total_hours: number;
   /** Approved initiatives with more than one CONFIRMED department. */
   joint_initiatives: number;
   /** Approved initiatives with one confirmed department, or none. */

@@ -934,10 +934,14 @@ export class SocietalService extends BaseService {
    * department is a CLAIM, and only that department can turn it into a fact.
    *
    * This never writes `confirmed`, and could not if it tried: the BEFORE INSERT
-   * trigger rewrites a client-supplied `confirmed` back to `pending` for any
-   * caller whose `current_user` is `authenticated`. `institution_id` is not sent
-   * either — the same trigger sets it from the department's own college, so
-   * sending it would be a claim the database overwrites.
+   * trigger demotes a client-supplied `confirmed` back to `pending`. It decides
+   * that from `current_setting('role')` — the role PostgREST sets per request —
+   * together with the lead trigger's own transaction-local stamp, NOT from
+   * `current_user`, which inside a SECURITY DEFINER body is the function owner
+   * on every path and made the first version of that guard dead code.
+   * `institution_id` is not sent either — the same trigger sets it from the
+   * department's own college, so sending it would be a claim the database
+   * overwrites.
    *
    * Departments already on the initiative are LEFT EXACTLY AS THEY ARE and
    * reported back separately. Re-inserting them would either fail the unique
@@ -1200,8 +1204,8 @@ export class SocietalService extends BaseService {
 
     return {
       initiatives: toNumber(row.initiatives as number | string | null),
-      beneficiaries: toNumber(row.beneficiaries as number | string | null),
-      hours: toNumber(row.hours as number | string | null),
+      total_beneficiaries: toNumber(row.total_beneficiaries as number | string | null),
+      total_hours: toNumber(row.total_hours as number | string | null),
       joint_initiatives: toNumber(row.joint_initiatives as number | string | null),
       solo_initiatives: toNumber(row.solo_initiatives as number | string | null),
       // NULL survives on purpose: "nothing recorded yet" must not become a 0
