@@ -135,10 +135,19 @@ export interface CommunityClusterTotals {
   /**
    * Named `total_beneficiaries`, not `beneficiaries`, because that is what the
    * function's `RETURNS TABLE` says and a TypeScript field that disagrees with
-   * it reads `undefined` at runtime with no error anywhere — the defect that
-   * left 5 of 7 figures blank on the CAC lane. The name is also a cross-lane
-   * contract: `app/(routes)/accreditation/cac/_lib/community-collaboration.ts`
-   * reads the same key off the same row.
+   * it reads `undefined` at runtime with no error anywhere. The name is also a
+   * cross-lane contract:
+   * `app/(routes)/accreditation/cac/_lib/community-collaboration.ts` reads the
+   * same key off the same row.
+   *
+   * The CAC lane shipped both halves of that failure, and they had DIFFERENT
+   * causes — matching the names here only fixes one. Two figures were a NAMING
+   * error, which a rename catches. Four more, plus the whole shared-versus-
+   * divided paragraph, were a GRAIN error, which no rename catches:
+   * `fn_community_college_totals()` returns one row per (college, initiative)
+   * and the panel read it as one aggregated row per college. See
+   * `CommunityCollegeEngagementRow` below, which is named for its real grain
+   * for that reason.
    */
   total_beneficiaries: number;
   /** Hours across every approved initiative, each counted once. */
