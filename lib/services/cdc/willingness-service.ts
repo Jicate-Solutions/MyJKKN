@@ -39,6 +39,7 @@ import type {
   CdcDriveType,
   CdcDriveWillingness,
   CdcRecruiter,
+  CdcWillingnessStatus,
 } from '@/types/cdc';
 import { isWindowOpen } from '@/lib/services/courses/application-window';
 import { CdcDriveService, driveCircularOf } from './drive-service';
@@ -96,6 +97,18 @@ export interface LearnerWillingnessSnapshot {
   is_window_open: boolean;
   /** willingness_window_close_at is in the past. */
   deadline_passed: boolean;
+  /**
+   * Ruling A — other drives on the SAME DAY the learner has already said yes to.
+   * A warning only; the page never blocks on it.
+   */
+  same_day_clashes: SameDayClash[];
+  /**
+   * Ruling B — CDC has reopened this learner's declined answer and the drive day
+   * has not arrived, so the learner may answer again even with the window shut.
+   */
+  reopened_for_learner: boolean;
+  /** The one thing the page asks: may this learner act right now? */
+  can_respond: boolean;
 }
 
 export interface DeclareWillingnessInput {
@@ -266,6 +279,10 @@ export class CdcWillingnessService {
     const academic =
       opts.includeAcademic === false ? null : await this.loadAcademic(learner);
 
+    const willingness = (willingnessRes.data ?? null) as CdcDriveWillingness | null;
+    const reopened_for_learner = isReopenedForLearner(willingness, drive);
+    const same_day_clashes = await this.loadSameDayClashes(supabase, drive, learner);
+
     return {
       drive,
       circular: driveCircularOf(drive),
@@ -285,14 +302,137 @@ export class CdcWillingnessService {
       },
       missing_profile_fields,
       academic,
-      willingness: (willingnessRes.data ?? null) as CdcDriveWillingness | null,
+      willingness,
       is_eligible,
       ineligible_reason: is_eligible ? null : reason,
       uses_semester_targeting: hasSemesterTargeting(drive),
       window_state,
       is_window_open,
       deadline_passed,
+      same_day_clashes,
+      reopened_for_learner,
+      can_respond: is_window_open || reopened_for_learner,
     };
+  }
+
+  /**
+   * Ruling A — the learner's OTHER accepted drives that fall on this drive's day.
+   *
+   * Two small reads rather than a join: PostgREST embedding across
+   * cdc_drive_willingness → cdc_drives is not available to a learner's RLS scope
+   * on the willingness side, and the second read is already filtered to the one
+   * date so it returns almost nothing. Runs on the learner's own client — the
+   * willingness rows are theirs (RLS), and `cdc_drives_read` is any authenticated
+   * user, so no service-role escalation is needed to answer "when is it".
+   *
+   * Never throws: a clash warning that cannot be computed must not take the page
+   * down with it.
+   */
+  static async loadSameDayClashes(
+    supabase: SupabaseClient,
+    drive: Pick<CdcDrive, 'id' | 'drive_date'>,
+    learner: Pick<ResolvedLearner, 'id'>
+  ): Promise<SameDayClash[]> {
+    if (!drive.drive_date) return [];
+    try {
+      const { data: mine, error: mineErr } = await supabase
+        .from('cdc_drive_willingness')
+        .select('drive_id, status')
+        .eq('learner_id', learner.id)
+        .in('status', ACCEPTED_WILLINGNESS_STATUSES as string[])
+        .neq('drive_id', drive.id)
+        .limit(500);
+      if (mineErr) throw mineErr;
+      const rows = (mine ?? []) as Array<{ drive_id: string; status: CdcWillingnessStatus }>;
+      if (rows.length === 0) return [];
+
+      const { data: drives, error: drivesErr } = await supabase
+        .from('cdc_drives')
+        .select('id, title, drive_date, drive_start_time, status')
+        .in('id', rows.map((r) => r.drive_id))
+        .eq('drive_date', drive.drive_date)
+        .limit(500);
+      if (drivesErr) throw drivesErr;
+
+      const statusByDrive = new Map(rows.map((r) => [r.drive_id, r.status]));
+      const candidates: ClashCandidate[] = (drives ?? []).map((d) => ({
+        drive_id: d.id as string,
+        title: (d.title as string) ?? 'Another drive',
+        drive_date: (d.drive_date as string | null) ?? null,
+        drive_start_time: (d.drive_start_time as string | null) ?? null,
+        drive_status: d.status as CdcDriveStatus,
+        my_status: statusByDrive.get(d.id as string) as CdcWillingnessStatus,
+      }));
+      return findSameDayClashes(drive, candidates);
+    } catch (err) {
+      console.error('[cdc/willingness] same-day clash lookup failed:', err);
+      return [];
+    }
+  }
+
+  /**
+   * Ruling B — a CDC team member reopens ONE learner's declined answer.
+   *
+   * What it does NOT do: change the learner's answer. The row stays
+   * `withdrawn`; what changes is that the learner may now answer again, which
+   * the audit entry records and `isReopenedForLearner` reads back. CDC never
+   * declares willingness on a learner's behalf.
+   *
+   * Refuses after the drive day — the Director's rule is that once the drive has
+   * happened nobody can reopen it, CDC included.
+   */
+  static async reopenDeclinedResponse(
+    supabase: SupabaseClient,
+    driveId: string,
+    willingnessId: string,
+    actorUserId: string,
+    now: Date = new Date()
+  ): Promise<CdcDriveWillingness> {
+    const { data: driveRow, error: driveErr } = await supabase
+      .from('cdc_drives')
+      .select('id, drive_date')
+      .eq('id', driveId)
+      .maybeSingle();
+    if (driveErr) throw driveErr;
+    if (!driveRow) throw new Error('Drive not found');
+
+    const { data: row, error: rowErr } = await supabase
+      .from('cdc_drive_willingness')
+      .select('*')
+      .eq('id', willingnessId)
+      .eq('drive_id', driveId)
+      .maybeSingle();
+    if (rowErr) throw rowErr;
+    if (!row) throw new Error('That response does not belong to this drive.');
+
+    const existing = row as CdcDriveWillingness;
+    const gate = canReopenDeclinedResponse(
+      { drive_date: (driveRow.drive_date as string | null) ?? null },
+      existing.status,
+      now
+    );
+    if (!gate.allowed) throw new Error(gate.reason ?? 'This response cannot be reopened.');
+
+    const at = now.toISOString();
+    const previousAudit = Array.isArray(existing.willingness_audit)
+      ? (existing.willingness_audit as unknown[])
+      : [];
+    const auditEntry = {
+      at,
+      actor: actorUserId,
+      from_status: existing.status,
+      to_status: existing.status,
+      via: REOPEN_AUDIT_VIA,
+    };
+
+    const { data, error } = await supabase
+      .from('cdc_drive_willingness')
+      .update({ willingness_audit: [...previousAudit, auditEntry], updated_at: at })
+      .eq('id', willingnessId)
+      .select()
+      .single();
+    if (error) throw error;
+    return data as CdcDriveWillingness;
   }
 
   /**
@@ -321,7 +461,10 @@ export class CdcWillingnessService {
       includeAcademic: input.intent === 'willing',
     });
     if (!snapshot) throw new Error('Drive not found');
-    if (!snapshot.is_window_open) {
+    // Ruling B: a CDC reopening is a per-learner exception to the shut window —
+    // the ONE way past `computeWillingnessWindowState`, and only for the learner
+    // whose declined answer was reopened, only before the drive day.
+    if (!snapshot.can_respond) {
       throw new Error(describeClosedWindow(snapshot.window_state, snapshot.drive.status));
     }
     if (!snapshot.is_eligible) {
@@ -607,4 +750,180 @@ export function describeClosedWindow(
       // Unreachable — callers only ask when the window is shut.
       return 'The willingness window for this drive is not open.';
   }
+}
+
+/**
+ * ---------------------------------------------------------------------------
+ * RULING A (Director, 2026-09-18) — SAME-DAY CLASH, LEARNER SIDE.
+ *
+ * A learner about to say yes to a drive, who has ALREADY said yes to a DIFFERENT
+ * drive on the SAME DATE, is warned. It is a warning, not a block: the learner
+ * may go ahead. Verified on production before this was written — 11 learners
+ * said yes to both Foxconn and INDO-MIM, both 17 Sep 10:00–16:00, and nothing
+ * anywhere told them.
+ *
+ * Deliberately NOT the coordinator-side clash rule (another lane owns
+ * lib/services/cdc/drive-clash.ts). That one asks "do two drives collide for the
+ * institution"; this one asks "do two drives collide for ME", which needs the
+ * learner's own answers and nothing else.
+ * ---------------------------------------------------------------------------
+ */
+
+/** A drive the learner has already accepted that falls on the same day. */
+export interface SameDayClash {
+  drive_id: string;
+  title: string;
+  drive_date: string;
+  drive_start_time: string | null;
+  /** The learner's own answer on the OTHER drive. */
+  my_status: 'willing' | 'confirmed';
+}
+
+/** "Said yes and has not taken it back." `withdrawn` and `no_show` are not yes. */
+export const ACCEPTED_WILLINGNESS_STATUSES: readonly CdcWillingnessStatus[] = [
+  'willing',
+  'confirmed',
+];
+
+/** A drive in one of these states will not be attended, so it cannot clash. */
+const NON_CLASHING_DRIVE_STATUSES: ReadonlySet<CdcDriveStatus> = new Set<CdcDriveStatus>([
+  'cancelled',
+  'closed',
+]);
+
+/** One of the learner's other answers, joined to the drive it belongs to. */
+export interface ClashCandidate {
+  drive_id: string;
+  title: string;
+  drive_date: string | null;
+  drive_start_time: string | null;
+  drive_status: CdcDriveStatus;
+  /** The learner's willingness status on that other drive. */
+  my_status: CdcWillingnessStatus;
+}
+
+/**
+ * The clash predicate. Pure, so tests pin it without a database.
+ *
+ * Same date → clash. Different date → not. A withdrawn (or no_show) answer is
+ * not a clash, because the learner is not going. The drive being asked about is
+ * never a clash with itself. A NULL date on either side means nobody knows when
+ * it is, and a warning about an unknown day would be noise.
+ */
+export function findSameDayClashes(
+  thisDrive: { id: string; drive_date: string | null },
+  others: ClashCandidate[]
+): SameDayClash[] {
+  if (!thisDrive.drive_date) return [];
+  const out: SameDayClash[] = [];
+  const seen = new Set<string>();
+  for (const other of others) {
+    if (other.drive_id === thisDrive.id) continue;
+    if (!other.drive_date) continue;
+    if (other.drive_date !== thisDrive.drive_date) continue;
+    if (other.my_status !== 'willing' && other.my_status !== 'confirmed') continue;
+    if (NON_CLASHING_DRIVE_STATUSES.has(other.drive_status)) continue;
+    if (seen.has(other.drive_id)) continue;
+    seen.add(other.drive_id);
+    out.push({
+      drive_id: other.drive_id,
+      title: other.title,
+      drive_date: other.drive_date,
+      drive_start_time: other.drive_start_time,
+      my_status: other.my_status,
+    });
+  }
+  // Earliest first so the learner reads the day in order; ties settled by title
+  // so the list is stable between renders.
+  return out.sort(
+    (a, b) =>
+      (a.drive_start_time ?? '').localeCompare(b.drive_start_time ?? '') ||
+      a.title.localeCompare(b.title)
+  );
+}
+
+/**
+ * ---------------------------------------------------------------------------
+ * RULING B (Director, 2026-09-18) — CDC MAY REOPEN A DECLINED ANSWER,
+ * BEFORE THE DRIVE DAY.
+ *
+ * Until now a learner who declined could not change their mind once the window
+ * shut. Any CDC team member may now reopen that one answer, but only while the
+ * drive has not yet arrived — after the drive day nobody can, not even CDC.
+ *
+ * The reopening is recorded in `willingness_audit`, the jsonb the row already
+ * carries: one `{ at, actor, from_status, to_status, via: 'cdc-reopen' }` entry.
+ * No new table, no new column — and because the learner's own next answer
+ * appends a `via: 'learner-ui'` entry after it, the grant is consumed by being
+ * used, with no state left to clean up.
+ * ---------------------------------------------------------------------------
+ */
+
+/** The `via` marker that distinguishes a CDC reopening from a learner's own move. */
+export const REOPEN_AUDIT_VIA = 'cdc-reopen';
+
+/**
+ * Today in IST as YYYY-MM-DD. `cdc_drives.drive_date` is a plain DATE meaning an
+ * Indian calendar day; the server clock is UTC, which reads the previous day
+ * until 05:30 IST. en-CA renders as YYYY-MM-DD.
+ */
+export function istDayKey(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
+}
+
+/**
+ * Is the drive day still ahead? A drive with no date has not happened — it
+ * cannot be in the past — so reopening stays available for it.
+ */
+export function driveDayStillAhead(driveDate: string | null, now: Date = new Date()): boolean {
+  if (!driveDate) return true;
+  return istDayKey(now) < driveDate;
+}
+
+/**
+ * May a CDC team member reopen THIS response right now? Only a declined
+ * ('withdrawn') answer can be reopened, and only before the drive date.
+ */
+export function canReopenDeclinedResponse(
+  drive: { drive_date: string | null },
+  willingnessStatus: CdcWillingnessStatus,
+  now: Date = new Date()
+): { allowed: boolean; reason: string | null } {
+  if (willingnessStatus !== 'withdrawn') {
+    return {
+      allowed: false,
+      reason: 'Only a declined response can be reopened — this learner has not declined.',
+    };
+  }
+  if (!driveDayStillAhead(drive.drive_date, now)) {
+    return {
+      allowed: false,
+      reason: 'The drive day has arrived. A declined response can no longer be reopened.',
+    };
+  }
+  return { allowed: true, reason: null };
+}
+
+/**
+ * Has CDC reopened this learner's declined answer, and is that reopening still
+ * live? True only while the LAST audit entry is the reopening — the learner's
+ * own next answer supersedes it — and only before the drive day.
+ */
+export function isReopenedForLearner(
+  willingness: Pick<CdcDriveWillingness, 'status' | 'willingness_audit'> | null,
+  drive: { drive_date: string | null },
+  now: Date = new Date()
+): boolean {
+  if (!willingness) return false;
+  if (willingness.status !== 'withdrawn') return false;
+  if (!driveDayStillAhead(drive.drive_date, now)) return false;
+  const audit = Array.isArray(willingness.willingness_audit) ? willingness.willingness_audit : [];
+  const last = audit[audit.length - 1];
+  if (!last || typeof last !== 'object') return false;
+  return (last as { via?: unknown }).via === REOPEN_AUDIT_VIA;
 }

@@ -71,6 +71,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   Building2,
   Calendar,
+  CalendarClock,
   CheckCircle2,
   Clock,
   Download,
@@ -82,6 +83,7 @@ import {
   Mail,
   MapPin,
   Phone,
+  RotateCcw,
   ShieldCheck,
   ThumbsDown,
   ThumbsUp,
@@ -203,7 +205,12 @@ export function LearnerWillingnessView({ id }: { id: string }) {
   // Academic figures only matter while the learner can still respond.
   const { data: academicLazy, isLoading: academicLoading } = useLearnerAcademic(
     id,
-    !!snapshot && snapshot.is_eligible && snapshot.is_window_open && snapshot.willingness?.status !== 'confirmed'
+    !!snapshot &&
+      snapshot.is_eligible &&
+      // A CDC reopening (Ruling B) lets the learner answer with the window shut,
+      // so the figures they must fill in have to arrive then too.
+      (snapshot.can_respond ?? snapshot.is_window_open) &&
+      snapshot.willingness?.status !== 'confirmed'
   );
   const declare = useDeclareWillingness(id);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -287,6 +294,11 @@ export function LearnerWillingnessView({ id }: { id: string }) {
     eligibility,
     window_state,
   } = snapshot;
+  // Ruling A / Ruling B (Director, 2026-09-18). Older cached snapshots predate
+  // both fields, so neither is assumed present.
+  const sameDayClashes = snapshot.same_day_clashes ?? [];
+  const reopenedForLearner = snapshot.reopened_for_learner === true;
+  const canRespond = snapshot.can_respond ?? (is_window_open || reopenedForLearner);
   const academic = academicLazy ?? snapshot.academic ?? null;
   const hasCriteria =
     !!eligibility &&
@@ -317,7 +329,7 @@ export function LearnerWillingnessView({ id }: { id: string }) {
   }
 
   const currentStatus = willingness?.status ?? null;
-  const canAct = is_window_open && is_eligible;
+  const canAct = canRespond && is_eligible;
   const showInitialButtons = canAct && !currentStatus;
   const showWithdrawButton = canAct && currentStatus === 'willing';
   const showOptInAgainButton = canAct && currentStatus === 'withdrawn';
@@ -609,7 +621,18 @@ export function LearnerWillingnessView({ id }: { id: string }) {
               <CardTitle className="text-base">Your response</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {!is_window_open ? (
+              {reopenedForLearner ? (
+                <Alert>
+                  <RotateCcw className="h-4 w-4" />
+                  <AlertTitle>The Career Development Centre has reopened your response</AlertTitle>
+                  <AlertDescription>
+                    You declined this drive earlier. CDC has reopened it so you can change your mind.
+                    You can answer until the drive day.
+                  </AlertDescription>
+                </Alert>
+              ) : null}
+
+              {!canRespond ? (
                 <Alert>
                   <Info className="h-4 w-4" />
                   <AlertTitle>
@@ -637,11 +660,43 @@ export function LearnerWillingnessView({ id }: { id: string }) {
                 </Alert>
               ) : null}
 
-              {is_window_open && !is_eligible ? (
+              {canRespond && !is_eligible ? (
                 <Alert>
                   <XCircle className="h-4 w-4" />
                   <AlertTitle>Not in this drive&apos;s audience</AlertTitle>
                   <AlertDescription>{ineligible_reason ?? 'You are not eligible for this drive.'}</AlertDescription>
+                </Alert>
+              ) : null}
+
+              {/*
+                Ruling A — you already said yes to something else that day. A
+                WARNING, not a block: the buttons below stay live, and the
+                learner decides.
+              */}
+              {canAct && sameDayClashes.length > 0 ? (
+                <Alert>
+                  <CalendarClock className="h-4 w-4" />
+                  <AlertTitle>
+                    You already said yes to{' '}
+                    {sameDayClashes.length === 1 ? 'another drive' : `${sameDayClashes.length} other drives`} on
+                    this date
+                  </AlertTitle>
+                  <AlertDescription>
+                    <ul className="mt-1 space-y-1">
+                      {sameDayClashes.map((c) => (
+                        <li key={c.drive_id}>
+                          <Link href={`/cdc/drives/${c.drive_id}/willingness`} className="underline">
+                            {c.title}
+                          </Link>
+                          {c.drive_start_time ? ` · from ${c.drive_start_time}` : ''}
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-2">
+                      You can still take part in this one — but you may not be able to attend both. Check the
+                      timings, and tell the Career Development Centre if you need to change an answer.
+                    </p>
+                  </AlertDescription>
                 </Alert>
               ) : null}
 
