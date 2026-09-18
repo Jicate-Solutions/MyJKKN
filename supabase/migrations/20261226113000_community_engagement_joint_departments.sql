@@ -289,7 +289,9 @@ BEGIN
     -- or bulk import is added. Such an import must either set recorded_by, or
     -- confirm the lead rows afterwards passing confirmed_by explicitly (§4b
     -- refuses a confirmation it cannot attribute), or accept that its rows count
-    -- nowhere until each department confirms.
+    -- nowhere until each department confirms. Note while you are there that §4b
+    -- always stamps confirmed_at with now(), so a backfill cannot carry an
+    -- original confirmation time across — see the note on that line.
     -- Name this insert to the §4b guard, which otherwise demotes every
     -- born-confirmed row a signed-in session produces. Transaction-local, and
     -- cleared on the very next line: a flag left standing would let a SECOND,
@@ -459,6 +461,16 @@ BEGIN
                     USING ERRCODE = '22023';
             END IF;
 
+            -- confirmed_at is ALWAYS now(), never what the caller sent — including
+            -- for a trusted role, which may state confirmed_by but not the time.
+            -- KNOWN LIMIT, DELIBERATELY NOT BUILT: a historical backfill therefore
+            -- cannot preserve an original confirmation timestamp; every row it
+            -- confirms is stamped with the moment the backfill ran. Nobody has
+            -- asked for it, no import path exists today (see §4), and a setting
+            -- built for a caller who does not exist is a setting nobody will
+            -- test. Whoever writes the first import and actually needs the
+            -- original time should widen this line then, with a real requirement
+            -- in hand, and say what stops a client supplying a false one.
             NEW.confirmed_at := now();
             NEW.decline_note := NULL;
         ELSE
