@@ -25,6 +25,18 @@
 //     is the state the Director will actually see first.
 // ============================================================================
 
+/**
+ * loop_registry.gates — the four loop gates, each 'on' | 'half' | 'off'.
+ * Populated on every one of the 43 active rows (read 2026-09-19). `m` is the
+ * Measure gate, the only one this page reads.
+ */
+export interface LoopGates {
+  g?: string | null;
+  a?: string | null;
+  m?: string | null;
+  f?: string | null;
+}
+
 /** The bar columns of a loop_registry row (migration 20261225070000). */
 export interface LoopRegistryBarRow {
   loop_key: string;
@@ -34,6 +46,10 @@ export interface LoopRegistryBarRow {
   bar_set_at: string | null;
   bar_set_by: string | null;
   bar_miss_streak: number | null;
+  /** The four gates. Required so the page's select cannot quietly drop it. */
+  gates: LoopGates | null;
+  /** The dispatcher routine wired to this loop, when it has one. */
+  routine_id: string | null;
 }
 
 /** One loop_measurements row. */
@@ -81,12 +97,81 @@ export interface LiveLoopRow {
   inProgress: LiveMeasurement | null;
   /** False when the loop has no measurement rows at all. */
   hasAnyMeasurement: boolean;
+  /**
+   * Why there is no settled number — NULL whenever there IS one, so the page
+   * never explains an absence that is not on screen.
+   */
+  why: string | null;
 }
 
 /** Wording used wherever a loop has never been measured. */
 export const NO_MEASUREMENT_YET = 'no measurement recorded yet';
 /** Wording for a loop whose only readings are still in progress. */
 export const NO_FINAL_YET = 'no settled measurement yet';
+
+// ---------------------------------------------------------------------------
+// WHY THERE IS NO NUMBER
+// ---------------------------------------------------------------------------
+// 41 of 43 active loops show "no measurement recorded yet", and the sentence
+// alone cannot tell "nobody has built a measurer for this loop" apart from
+// "the measurer exists and tonight's run has not landed". Those need opposite
+// responses, so each empty row carries its own reason.
+//
+// ORDER MATTERS, and not the way it first looks. The obvious rule — read the
+// Measure gate, then look for a measurer — is wrong against the live registry
+// (read 2026-09-19): the only two loops that HAVE a measurer are the two whose
+// gate is not 'on'. attendance-intervention is m='off' with
+// attendance-intervention-measure running daily, and counselor-briefing-effect
+// is m='half' with counselor-briefing-measure. Gate-first wording would print
+// "no measurer is wired for this loop yet" on the one loop whose measurer has
+// been running for months — the first row a reviewer would check. So the
+// measurer is checked FIRST and the gate only answers for loops that have none.
+
+/**
+ * Dispatcher routines that actually run a measurement today, checked against
+ * loop_registry.routine_id. Two, live. PR #3888 (open) adds the consultants
+ * measurer; it joins this list when that PR merges.
+ */
+export const MEASURER_ROUTINE_IDS: readonly string[] = [
+  'attendance-intervention-measure',
+  'counselor-briefing-measure',
+];
+
+export const WHY_MEASURER_SCHEDULED = 'measurer scheduled — no run recorded yet';
+export const WHY_GATE_OFF =
+  'Measure gate off — no measurer is wired for this loop yet';
+export const WHY_GATE_ON_NO_MEASURER =
+  'Measure gate on, but no scheduled run records a measurement yet';
+export const WHY_GATE_HALF_NO_MEASURER =
+  'Measure gate half-closed, and no scheduled run records a measurement yet';
+/** gates is jsonb; a row that does not say gets a sentence that claims nothing. */
+export const WHY_GATE_UNKNOWN =
+  'no Measure gate recorded for this loop, and no run records a measurement yet';
+
+function measureGate(gates: LoopGates | null | undefined): string {
+  const m = gates && typeof gates === 'object' ? gates.m : null;
+  return typeof m === 'string' ? m.trim().toLowerCase() : '';
+}
+
+function hasMeasurer(routineId: string | null | undefined): boolean {
+  const id = typeof routineId === 'string' ? routineId.trim() : '';
+  return id !== '' && MEASURER_ROUTINE_IDS.includes(id);
+}
+
+/** The reason a loop has no settled number. Measurer first, then the gate. */
+function whyNoMeasurement(loop: LoopRegistryBarRow): string {
+  if (hasMeasurer(loop.routine_id)) return WHY_MEASURER_SCHEDULED;
+  switch (measureGate(loop.gates)) {
+    case 'off':
+      return WHY_GATE_OFF;
+    case 'on':
+      return WHY_GATE_ON_NO_MEASURER;
+    case 'half':
+      return WHY_GATE_HALF_NO_MEASURER;
+    default:
+      return WHY_GATE_UNKNOWN;
+  }
+}
 
 /**
  * A bar is only a number when it IS a plain number — "85", "-2.5". Prose such
@@ -135,6 +220,7 @@ export function buildLiveLoopRow(
   );
   const newest = sorted[0] ?? null;
   const newestFinal = sorted.find((m) => m.status === 'final') ?? null;
+  const lastFinal = newestFinal ? toLive(newestFinal) : null;
 
   const bar = loop.bar && loop.bar.trim() !== '' ? loop.bar.trim() : null;
   const barDirection: BarDirection | null =
@@ -160,9 +246,10 @@ export function buildLiveLoopRow(
     missStreak: Number.isFinite(Number(loop.bar_miss_streak))
       ? Number(loop.bar_miss_streak)
       : 0,
-    lastFinal: newestFinal ? toLive(newestFinal) : null,
+    lastFinal,
     inProgress: newest && newest.status === 'in_progress' ? toLive(newest) : null,
     hasAnyMeasurement: sorted.length > 0,
+    why: lastFinal === null ? whyNoMeasurement(loop) : null,
   };
 }
 

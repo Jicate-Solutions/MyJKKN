@@ -39,6 +39,7 @@ import {
 import { LiveLoopsTable } from './_components/live-loops-table';
 import {
   buildLiveLoopRows,
+  type LoopGates,
   type LoopMeasurementRow,
   type LoopRegistryBarRow,
 } from './_lib/build-live-rows';
@@ -109,7 +110,10 @@ export default async function LiveLoopsPage() {
   // to the columns that have always existed and render every loop barless —
   // an honest partial page beats a 500 (the /admin/loops idiom).
   const loops: LoopRegistryBarRow[] = await (async () => {
-    const base = 'loop_key,name';
+    // gates and routine_id predate the bar migration, so they belong in the
+    // base select — they must survive the barless fallback below, since they
+    // are what tells the reader WHY a loop has no number.
+    const base = 'loop_key,name,gates,routine_id';
     try {
       const r = await admin
         .from('loop_registry')
@@ -117,7 +121,12 @@ export default async function LiveLoopsPage() {
         .eq('is_active', true);
       if (!r.error) return (r.data ?? []) as unknown as LoopRegistryBarRow[];
       const f = await admin.from('loop_registry').select(base).eq('is_active', true);
-      return ((f.data ?? []) as { loop_key: string; name: string | null }[]).map((l) => ({
+      return ((f.data ?? []) as unknown as {
+        loop_key: string;
+        name: string | null;
+        gates: LoopGates | null;
+        routine_id: string | null;
+      }[]).map((l) => ({
         loop_key: l.loop_key,
         name: l.name,
         bar: null,
@@ -125,6 +134,8 @@ export default async function LiveLoopsPage() {
         bar_set_at: null,
         bar_set_by: null,
         bar_miss_streak: 0,
+        gates: l.gates ?? null,
+        routine_id: l.routine_id ?? null,
       }));
     } catch {
       return [] as LoopRegistryBarRow[];

@@ -21,6 +21,10 @@
 
 import type { LiveLoopRow, LiveMeasurement, Verdict } from '../_lib/build-live-rows';
 import { NO_FINAL_YET, NO_MEASUREMENT_YET } from '../_lib/build-live-rows';
+// Both formatters pin Asia/Kolkata. Without that the page renders in the
+// server's zone (UTC on Vercel) under an en-IN label, filing a 01:00 IST
+// measurement under the previous evening.
+import { formatDay, formatWhen } from '../_lib/format-when';
 
 const VERDICT_BADGE: Record<Verdict, string> = {
   cleared:
@@ -42,26 +46,6 @@ const VERDICT_WORD: Record<Verdict, string> = {
   missed: 'missed',
   'not-comparable': 'not comparable',
 };
-
-function formatWhen(iso: string | null): string {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleString('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
-function formatDay(iso: string | null): string {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-}
 
 function formatNumber(n: number | null): string {
   if (n === null || !Number.isFinite(n)) return '—';
@@ -146,9 +130,18 @@ export function LiveLoopsTable({ rows }: { rows: LiveLoopRow[] }) {
                 {row.lastFinal ? (
                   <SettledCell m={row.lastFinal} />
                 ) : (
-                  <span className="text-sm text-muted-foreground">
-                    {row.hasAnyMeasurement ? NO_FINAL_YET : NO_MEASUREMENT_YET}
-                  </span>
+                  <div className="space-y-1">
+                    <div className="text-sm text-muted-foreground">
+                      {row.hasAnyMeasurement ? NO_FINAL_YET : NO_MEASUREMENT_YET}
+                    </div>
+                    {/* Why the space is empty: a loop with no measurer at all
+                        and a loop whose run is merely late need opposite
+                        responses, and the sentence above cannot tell them
+                        apart. */}
+                    {row.why ? (
+                      <div className="text-xs text-muted-foreground/80">{row.why}</div>
+                    ) : null}
+                  </div>
                 )}
                 {row.inProgress ? <InProgressCell m={row.inProgress} /> : null}
               </td>

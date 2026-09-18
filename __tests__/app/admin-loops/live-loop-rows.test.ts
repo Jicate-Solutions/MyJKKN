@@ -20,8 +20,14 @@ import { describe, expect, it } from 'vitest';
 import {
   buildLiveLoopRow,
   buildLiveLoopRows,
+  MEASURER_ROUTINE_IDS,
   NO_FINAL_YET,
   NO_MEASUREMENT_YET,
+  WHY_GATE_HALF_NO_MEASURER,
+  WHY_GATE_OFF,
+  WHY_GATE_ON_NO_MEASURER,
+  WHY_GATE_UNKNOWN,
+  WHY_MEASURER_SCHEDULED,
   type LoopMeasurementRow,
   type LoopRegistryBarRow,
 } from '@/app/(routes)/admin/loops/live/_lib/build-live-rows';
@@ -35,6 +41,10 @@ function loop(over: Partial<LoopRegistryBarRow> = {}): LoopRegistryBarRow {
     bar_set_at: null,
     bar_set_by: null,
     bar_miss_streak: 0,
+    // Mirrors the live attendance-intervention row (read 2026-09-19): every
+    // active loop carries all four gates, and this one's Measure gate is off.
+    gates: { g: 'on', a: 'on', m: 'off', f: 'off' },
+    routine_id: null,
     ...over,
   };
 }
@@ -206,5 +216,134 @@ describe('buildLiveLoopRows — ordering', () => {
       {}
     );
     expect(rows[0].missStreak).toBe(0);
+  });
+});
+
+// ============================================================================
+// WHY THERE IS NO NUMBER
+// ============================================================================
+// 41 of 43 active loops show "no measurement recorded yet". The sentence alone
+// cannot separate "nobody built a measurer" from "the measurer ran late", and
+// those need opposite responses, so each empty row carries its own reason.
+//
+// The ordering case below is the one that matters: against the live registry
+// the two loops that HAVE a measurer are exactly the two whose Measure gate is
+// not 'on' (attendance-intervention is off, counselor-briefing-effect is half,
+// read 2026-09-19). A gate-first rule would print "no measurer is wired" on the
+// loop whose measurer has been running daily for months.
+// ============================================================================
+
+describe('buildLiveLoopRow — why there is no measurement', () => {
+  it('says the Measure gate is off when no measurer is wired', () => {
+    const row = buildLiveLoopRow(loop({ gates: { g: 'on', a: 'on', m: 'off', f: 'off' } }), []);
+
+    expect(row.why).toBe(WHY_GATE_OFF);
+    expect(row.why).toBe('Measure gate off — no measurer is wired for this loop yet');
+  });
+
+  it('says the gate is on but nothing is scheduled, when the loop has no routine', () => {
+    const row = buildLiveLoopRow(
+      loop({ loop_key: 'decisions', gates: { g: 'on', a: 'on', m: 'on', f: 'off' }, routine_id: null }),
+      []
+    );
+
+    expect(row.why).toBe(WHY_GATE_ON_NO_MEASURER);
+    expect(row.why).toBe('Measure gate on, but no scheduled run records a measurement yet');
+  });
+
+  it('says the same when the routine that IS wired does not measure anything', () => {
+    // bug-triage: gate on, routine bug-cluster-scan — a scanner, not a measurer.
+    const row = buildLiveLoopRow(
+      loop({
+        loop_key: 'bug-triage',
+        gates: { g: 'on', a: 'on', m: 'on', f: 'half' },
+        routine_id: 'bug-cluster-scan',
+      }),
+      []
+    );
+
+    expect(row.why).toBe(WHY_GATE_ON_NO_MEASURER);
+  });
+
+  it('says a measurer is scheduled when one is wired', () => {
+    const row = buildLiveLoopRow(
+      loop({ gates: { g: 'on', a: 'on', m: 'on', f: 'off' }, routine_id: 'attendance-intervention-measure' }),
+      []
+    );
+
+    expect(row.why).toBe(WHY_MEASURER_SCHEDULED);
+    expect(row.why).toBe('measurer scheduled — no run recorded yet');
+  });
+
+  it('names the measurer even when the loop’s Measure gate is off', () => {
+    // THE LIVE SHAPE. attendance-intervention runs
+    // attendance-intervention-measure every day while its gate still reads
+    // 'off'. Checking the gate first would call that loop unwired.
+    const row = buildLiveLoopRow(
+      loop({
+        loop_key: 'attendance-intervention',
+        gates: { g: 'on', a: 'on', m: 'off', f: 'off' },
+        routine_id: 'attendance-intervention-measure',
+      }),
+      []
+    );
+
+    expect(row.why).toBe(WHY_MEASURER_SCHEDULED);
+    expect(row.why).not.toBe(WHY_GATE_OFF);
+  });
+
+  it('names the measurer on a half-closed gate too', () => {
+    // counselor-briefing-effect, live: m='half', counselor-briefing-measure.
+    const row = buildLiveLoopRow(
+      loop({
+        loop_key: 'counselor-briefing-effect',
+        gates: { g: 'on', a: 'on', m: 'half', f: 'half' },
+        routine_id: 'counselor-briefing-measure',
+      }),
+      []
+    );
+
+    expect(row.why).toBe(WHY_MEASURER_SCHEDULED);
+  });
+
+  it('calls a half-closed gate half-closed, not on, when nothing measures', () => {
+    const row = buildLiveLoopRow(
+      loop({ loop_key: 'consultants', gates: { g: 'on', a: 'half', m: 'half', f: 'off' } }),
+      []
+    );
+
+    expect(row.why).toBe(WHY_GATE_HALF_NO_MEASURER);
+  });
+
+  it('claims nothing about a row whose gates are missing or malformed', () => {
+    expect(buildLiveLoopRow(loop({ gates: null }), []).why).toBe(WHY_GATE_UNKNOWN);
+    expect(buildLiveLoopRow(loop({ gates: {} }), []).why).toBe(WHY_GATE_UNKNOWN);
+    expect(buildLiveLoopRow(loop({ gates: { m: null } }), []).why).toBe(WHY_GATE_UNKNOWN);
+  });
+
+  it('explains an in-progress-only loop too, since it still shows no settled number', () => {
+    const row = buildLiveLoopRow(
+      loop({ gates: { g: 'on', a: 'on', m: 'on', f: 'off' } }),
+      [measurement({ value: 12, met: null, status: 'in_progress' })]
+    );
+
+    expect(row.lastFinal).toBeNull();
+    expect(row.why).toBe(WHY_GATE_ON_NO_MEASURER);
+  });
+
+  it('explains nothing when there IS a settled number', () => {
+    const row = buildLiveLoopRow(loop(), [measurement()]);
+
+    expect(row.lastFinal?.value).toBe(90);
+    expect(row.why).toBeNull();
+  });
+
+  it('keeps the measurer list to the routines that actually measure today', () => {
+    // PR #3888 (open) adds the consultants measurer; until it merges these two
+    // are the whole list, and a stale extra would print a false "scheduled".
+    expect([...MEASURER_ROUTINE_IDS].sort()).toEqual([
+      'attendance-intervention-measure',
+      'counselor-briefing-measure',
+    ]);
   });
 });
