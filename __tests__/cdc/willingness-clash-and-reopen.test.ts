@@ -6,8 +6,9 @@
  * tests pin what the warning lists and — just as importantly — what it must not
  * list: a withdrawn answer, a different day, the drive itself.
  *
- * RULING B — any CDC team member may reopen ONE declined answer, but only
- * before the drive date; after the drive day nobody can. The reopening is
+ * RULING B — any CDC team member may reopen ONE declined answer, up to and
+ * INCLUDING the drive day; only once that day has passed can nobody. The
+ * reopening is
  * recorded in the row's existing `willingness_audit` jsonb, naming the actor,
  * and it is consumed the moment the learner answers again.
  */
@@ -17,7 +18,7 @@ import {
   findSameDayClashes,
   canReopenDeclinedResponse,
   isReopenedForLearner,
-  driveDayStillAhead,
+  driveDayNotPassed,
   istDayKey,
   REOPEN_AUDIT_VIA,
   type ClashCandidate,
@@ -112,13 +113,45 @@ describe('Ruling B — canReopenDeclinedResponse', () => {
     expect(r.reason).toBeNull();
   });
 
-  it('is REFUSED on the drive date itself', () => {
+  // THE RULING (Director, 2026-09-18 — "allow on the drive day too"). This was
+  // REFUSED before: reopening stopped strictly before the drive date, so a
+  // learner who turned up on the morning and asked to be let back in could not
+  // be. The boundary is now the END of the drive day, read in Asia/Kolkata.
+  it('is ALLOWED on the drive date itself', () => {
     const r = canReopenDeclinedResponse({ drive_date: '2026-09-17' }, 'withdrawn', onTheDay);
-    expect(r.allowed).toBe(false);
-    expect(r.reason).toMatch(/drive day has arrived/i);
+    expect(r.allowed).toBe(true);
+    expect(r.reason).toBeNull();
   });
 
-  it('is REFUSED after the drive date', () => {
+  it('is ALLOWED late on the drive day — 23:55 IST, which is already the 18th in UTC', () => {
+    // 2026-09-17T23:55+05:30 is 2026-09-17T18:25Z. Anything that read the day off
+    // the UTC clock would still call this the 17th and pass by luck, so the
+    // sharper case is the one below: the first minute of the 18th IST, which is
+    // STILL the 17th in UTC and must nonetheless be refused.
+    const lateOnTheDay = new Date('2026-09-17T23:55:00+05:30');
+    expect(istDayKey(lateOnTheDay)).toBe('2026-09-17');
+    expect(
+      canReopenDeclinedResponse({ drive_date: '2026-09-17' }, 'withdrawn', lateOnTheDay).allowed
+    ).toBe(true);
+  });
+
+  it('is REFUSED from the first minute of the next IST day, though UTC still reads the drive date', () => {
+    // 2026-09-18T00:05+05:30 is 2026-09-17T18:35Z. A UTC day key would say
+    // '2026-09-17' and wrongly keep reopening open for another 5h25m. The IST
+    // key says '2026-09-18' and closes it exactly at IST midnight.
+    const justAfterMidnightIst = new Date('2026-09-18T00:05:00+05:30');
+    expect(justAfterMidnightIst.toISOString().slice(0, 10)).toBe('2026-09-17'); // what UTC would say
+    expect(istDayKey(justAfterMidnightIst)).toBe('2026-09-18'); // what IST says
+    const r = canReopenDeclinedResponse(
+      { drive_date: '2026-09-17' },
+      'withdrawn',
+      justAfterMidnightIst
+    );
+    expect(r.allowed).toBe(false);
+    expect(r.reason).toMatch(/drive day has passed/i);
+  });
+
+  it('is REFUSED the day after the drive date', () => {
     expect(
       canReopenDeclinedResponse({ drive_date: '2026-09-17' }, 'withdrawn', afterTheDay).allowed
     ).toBe(false);
@@ -138,11 +171,19 @@ describe('Ruling B — canReopenDeclinedResponse', () => {
     );
   });
 
-  it('reads the day in IST, not UTC — 00:30 IST is still the 16th', () => {
+  it('reads the day in IST, not UTC — 00:30 IST is already the 16th', () => {
     // 2026-09-15T19:00:00Z is 2026-09-16 00:30 IST. A UTC reading would call it
-    // the 15th; either way the 17th is ahead, so assert the day key directly.
-    expect(istDayKey(new Date('2026-09-15T19:00:00Z'))).toBe('2026-09-16');
-    expect(driveDayStillAhead('2026-09-16', new Date('2026-09-15T19:00:00Z'))).toBe(false);
+    // the 15th, which would leave a 15 Sep drive reopenable after its day ended.
+    const justPastMidnightIst = new Date('2026-09-15T19:00:00Z');
+    expect(istDayKey(justPastMidnightIst)).toBe('2026-09-16');
+    // The 16th itself: still open, because the day has not passed.
+    expect(driveDayNotPassed('2026-09-16', justPastMidnightIst)).toBe(true);
+    // The 15th: closed — in IST that day is over, even though UTC still reads it.
+    expect(driveDayNotPassed('2026-09-15', justPastMidnightIst)).toBe(false);
+  });
+
+  it('keeps a drive with no date reopenable', () => {
+    expect(driveDayNotPassed(null, afterTheDay)).toBe(true);
   });
 });
 
@@ -199,9 +240,21 @@ describe('Ruling B — isReopenedForLearner (the audit entry IS the state)', () 
     expect(isReopenedForLearner(null, drive, now)).toBe(false);
   });
 
-  it('expires on the drive day — a stale reopening does not outlive the drive', () => {
+  it('still holds ON the drive day — the learner can act on the morning of the drive', () => {
+    // Mirrors the ruling on the CDC side: if a team member may reopen on the day,
+    // the learner they reopened it for must be able to answer on the day. If these
+    // two ever disagree, a learner is shown an open door the server refuses.
     expect(
       isReopenedForLearner(row([reopenEntry]), drive, new Date('2026-09-17T09:00:00+05:30'))
+    ).toBe(true);
+    expect(
+      isReopenedForLearner(row([reopenEntry]), drive, new Date('2026-09-17T23:55:00+05:30'))
+    ).toBe(true);
+  });
+
+  it('expires once the drive day has passed — a stale reopening does not outlive the drive', () => {
+    expect(
+      isReopenedForLearner(row([reopenEntry]), drive, new Date('2026-09-18T00:05:00+05:30'))
     ).toBe(false);
   });
 

@@ -104,7 +104,7 @@ export interface LearnerWillingnessSnapshot {
   same_day_clashes: SameDayClash[];
   /**
    * Ruling B — CDC has reopened this learner's declined answer and the drive day
-   * has not arrived, so the learner may answer again even with the window shut.
+   * has not passed, so the learner may answer again even with the window shut.
    */
   reopened_for_learner: boolean;
   /** The one thing the page asks: may this learner act right now? */
@@ -378,8 +378,10 @@ export class CdcWillingnessService {
    * the audit entry records and `isReopenedForLearner` reads back. CDC never
    * declares willingness on a learner's behalf.
    *
-   * Refuses after the drive day — the Director's rule is that once the drive has
-   * happened nobody can reopen it, CDC included.
+   * Allowed up to and including the drive day, and refused once that day has
+   * passed — the Director's rule (2026-09-18) is that a learner can still be let
+   * back in on the morning of the drive, but once the day is over nobody can
+   * reopen it, CDC included.
    */
   static async reopenDeclinedResponse(
     supabase: SupabaseClient,
@@ -463,7 +465,7 @@ export class CdcWillingnessService {
     if (!snapshot) throw new Error('Drive not found');
     // Ruling B: a CDC reopening is a per-learner exception to the shut window —
     // the ONE way past `computeWillingnessWindowState`, and only for the learner
-    // whose declined answer was reopened, only before the drive day.
+    // whose declined answer was reopened, and only until the drive day has passed.
     if (!snapshot.can_respond) {
       throw new Error(describeClosedWindow(snapshot.window_state, snapshot.drive.status));
     }
@@ -845,11 +847,14 @@ export function findSameDayClashes(
 /**
  * ---------------------------------------------------------------------------
  * RULING B (Director, 2026-09-18) — CDC MAY REOPEN A DECLINED ANSWER,
- * BEFORE THE DRIVE DAY.
+ * UP TO AND INCLUDING THE DRIVE DAY.
  *
  * Until now a learner who declined could not change their mind once the window
- * shut. Any CDC team member may now reopen that one answer, but only while the
- * drive has not yet arrived — after the drive day nobody can, not even CDC.
+ * shut. Any CDC team member may now reopen that one answer, up to and including
+ * the day of the drive itself — a learner who turns up on the morning and asks
+ * to be let back in can be. Once the drive day has passed nobody can reopen it,
+ * CDC included. `driveDayNotPassed` states exactly where that boundary falls and
+ * why it has to be read in Asia/Kolkata.
  *
  * The reopening is recorded in `willingness_audit`, the jsonb the row already
  * carries: one `{ at, actor, from_status, to_status, via: 'cdc-reopen' }` entry.
@@ -877,17 +882,38 @@ export function istDayKey(now: Date = new Date()): string {
 }
 
 /**
- * Is the drive day still ahead? A drive with no date has not happened — it
- * cannot be in the past — so reopening stays available for it.
+ * Has the drive day NOT yet passed?
+ *
+ * THE BOUNDARY, stated exactly (Director ruling, 2026-09-18 — "allow on the
+ * drive day too"): reopening is allowed while the CURRENT IST CALENDAR DAY is on
+ * or before `drive_date`. It stops at 00:00 Asia/Kolkata on the day AFTER the
+ * drive date. So a drive on 17 Sep can be reopened at 23:59 IST on 17 Sep, and
+ * not at 00:01 IST on 18 Sep.
+ *
+ * It was `<` before this ruling, which refused the drive day itself.
+ *
+ * Both sides of the comparison are IST calendar days, which is the only way this
+ * is correct. `cdc_drives.drive_date` is a plain `date` column — an Indian
+ * calendar day, with no time and no zone — and the server clock is UTC. Reading
+ * "today" off the UTC clock would move the cut-off to 05:30 IST on the day after
+ * the drive, giving five and a half hours of reopening that the ruling does not
+ * grant; reading it off a UTC-derived day key on the drive day itself would cut
+ * learners off five and a half hours early. `istDayKey` renders the day in
+ * Asia/Kolkata, so neither happens, and the comparison is a plain
+ * YYYY-MM-DD string compare between two values that mean the same kind of thing.
+ *
+ * A drive with no date has not happened — it cannot be in the past — so
+ * reopening stays available for it.
  */
-export function driveDayStillAhead(driveDate: string | null, now: Date = new Date()): boolean {
+export function driveDayNotPassed(driveDate: string | null, now: Date = new Date()): boolean {
   if (!driveDate) return true;
-  return istDayKey(now) < driveDate;
+  return istDayKey(now) <= driveDate;
 }
 
 /**
  * May a CDC team member reopen THIS response right now? Only a declined
- * ('withdrawn') answer can be reopened, and only before the drive date.
+ * ('withdrawn') answer can be reopened, and only up to and including the drive
+ * day — see `driveDayNotPassed` for where that boundary falls.
  */
 export function canReopenDeclinedResponse(
   drive: { drive_date: string | null },
@@ -900,10 +926,10 @@ export function canReopenDeclinedResponse(
       reason: 'Only a declined response can be reopened — this learner has not declined.',
     };
   }
-  if (!driveDayStillAhead(drive.drive_date, now)) {
+  if (!driveDayNotPassed(drive.drive_date, now)) {
     return {
       allowed: false,
-      reason: 'The drive day has arrived. A declined response can no longer be reopened.',
+      reason: 'The drive day has passed. A declined response can no longer be reopened.',
     };
   }
   return { allowed: true, reason: null };
@@ -912,7 +938,9 @@ export function canReopenDeclinedResponse(
 /**
  * Has CDC reopened this learner's declined answer, and is that reopening still
  * live? True only while the LAST audit entry is the reopening — the learner's
- * own next answer supersedes it — and only before the drive day.
+ * own next answer supersedes it — and only until the drive day has passed. The
+ * learner's grant and the CDC's ability to grant it expire at the same moment,
+ * so a learner is never shown an open door the server would refuse.
  */
 export function isReopenedForLearner(
   willingness: Pick<CdcDriveWillingness, 'status' | 'willingness_audit'> | null,
@@ -921,7 +949,7 @@ export function isReopenedForLearner(
 ): boolean {
   if (!willingness) return false;
   if (willingness.status !== 'withdrawn') return false;
-  if (!driveDayStillAhead(drive.drive_date, now)) return false;
+  if (!driveDayNotPassed(drive.drive_date, now)) return false;
   const audit = Array.isArray(willingness.willingness_audit) ? willingness.willingness_audit : [];
   const last = audit[audit.length - 1];
   if (!last || typeof last !== 'object') return false;

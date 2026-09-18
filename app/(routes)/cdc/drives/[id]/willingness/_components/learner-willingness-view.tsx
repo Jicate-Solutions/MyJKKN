@@ -627,7 +627,7 @@ export function LearnerWillingnessView({ id }: { id: string }) {
                   <AlertTitle>The Career Development Centre has reopened your response</AlertTitle>
                   <AlertDescription>
                     You declined this drive earlier. CDC has reopened it so you can change your mind.
-                    You can answer until the drive day.
+                    You can answer up to the end of the drive day.
                   </AlertDescription>
                 </Alert>
               ) : null}

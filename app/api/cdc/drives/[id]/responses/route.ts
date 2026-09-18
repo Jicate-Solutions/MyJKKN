@@ -23,7 +23,7 @@ export const runtime = 'nodejs';
  *   { action: 'reopen', willingness_id }
  *
  * Ruling B (Director, 2026-09-18): ANY CDC team member may reopen ONE learner's
- * DECLINED answer, but only before the drive date — after the drive has happened
+ * DECLINED answer, up to and including the drive day — once that day has passed
  * nobody can. Gated on cdc.drives.view, the same permission that puts this
  * screen in front of a team member at all, because the ruling says "any CDC team
  * member" rather than "the drive's editor". The rule itself lives in
@@ -228,8 +228,9 @@ export async function GET(
 
 /**
  * Reopen ONE learner's declined answer (Ruling B). Body: { action: 'reopen',
- * willingness_id }. Refused on/after the drive date by the service; a refusal is
- * a 400 carrying the plain-English reason, never a silent no-op.
+ * willingness_id }. Refused by the service once the drive day has passed (the
+ * drive day itself is allowed); a refusal is a 400 carrying the plain-English
+ * reason, never a silent no-op.
  */
 export async function POST(
   request: NextRequest,
