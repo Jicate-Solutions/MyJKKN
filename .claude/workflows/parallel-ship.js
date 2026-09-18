@@ -178,6 +178,14 @@ const usageLimitInfo = (e) => {
 
 const errText = (e) => String((e && e.message) || e || 'unknown error')
 
+// One failure line must stay ONE readable line. An agent's error text can carry a
+// whole stack trace, and an unclipped copy of it in the summary pushed the field
+// that actually decides — the branch name — off the end of the line.
+const clip = (s, n = 200) => {
+  const t = String(s == null ? '' : s).replace(/\s+/g, ' ').trim()
+  return t.length > n ? `${t.slice(0, n)}…` : t
+}
+
 // parallel() is documented to swallow a throwing thunk into `null` ("the call
 // itself never rejects"), so an error inside verify-A, verify-B round 0, the
 // persona sweep or the gate mirror can NEVER reach a try/catch around the
@@ -205,21 +213,40 @@ const buildLane = async (spec) => {
       log(`USAGE-LIMIT-RESET: ${u.reset_hint} — resume with Workflow({scriptPath, resumeFromRunId})`)
       return { branch: spec.branch, failed: true, ...u }
     }
-    log(`lane ${spec.branch}: build agent threw — ${errText(e)}`)
-    return { branch: spec.branch, failed: true, surprises: `build agent threw: ${errText(e)}` }
+    // ONE line, clipped: the lane must be nameable in the summary even when the
+    // builder dies with a stack trace attached.
+    const why = clip(errText(e))
+    log(`lane ${spec.branch}: build threw — ${why}`)
+    return { branch: spec.branch, failed: true, error: why, surprises: `build agent threw: ${why}` }
   }
 }
 
 const verifyLane = async (built, spec) => {
-    const names = ['verify-A', 'verify-B']
-    const thunks = [caught(() => verifyA(built, spec)), caught(() => verifyB(built, spec, built.head_sha, 0))]
-    if (spec.uiSweep) { names.push('persona sweep'); thunks.push(caught(() => personaSweep(built, spec))) }
-    if (spec.cheapTrial) { names.push('gate mirror'); thunks.push(caught(() => gateMirror(built))) }
+    // Results are indexed BY NAME, never by position. Two of these four stages are
+    // optional and independently so, so the array's shape is not fixed: with
+    // cheapTrial:true and uiSweep:false the thunks are [A, B, gate-mirror] and a
+    // positional `const [a, b0, s, m] =` bound the gate-mirror result to `s` and
+    // left `m` undefined — the cheap-mode measurement was then silently dropped
+    // (no log line, cheapTrial:null) while the lane reported perfectly healthy.
+    const stages = [
+      { name: 'verify-A', run: () => verifyA(built, spec) },
+      { name: 'verify-B', run: () => verifyB(built, spec, built.head_sha, 0) },
+    ]
+    if (spec.uiSweep) stages.push({ name: 'persona sweep', run: () => personaSweep(built, spec) })
+    if (spec.cheapTrial) stages.push({ name: 'gate mirror', run: () => gateMirror(built) })
     const threw = []
-    const [a, b0, s, m] = (await parallel(thunks)).map((r, i) => {
-      if (r && r.__threw) { threw.push({ stage: names[i], ...r }); return null }
-      return r
+    const byStage = new Map()
+    ;(await parallel(stages.map((st) => caught(st.run)))).forEach((r, i) => {
+      const name = stages[i].name
+      if (r && r.__threw) { threw.push({ stage: name, ...r }); byStage.set(name, null); return }
+      byStage.set(name, r)
     })
+    // `byStage.has(name)` = the stage was REQUESTED; its value null = it was requested
+    // and reported nothing. The two are different facts and must not collapse.
+    const a = byStage.get('verify-A')
+    const b0 = byStage.get('verify-B')
+    const s = byStage.has('persona sweep') ? byStage.get('persona sweep') : undefined
+    const m = byStage.has('gate mirror') ? byStage.get('gate mirror') : undefined
     // A usage limit inside any of those four can never surface on its own (see
     // caught()). Re-raise it here, where the lane's own catch — which already
     // knows the PR exists — turns it into {usage_limit, reset_hint} instead of a
@@ -253,22 +280,49 @@ const verifyLane = async (built, spec) => {
     for (const t of threw) problems.push(`[${t.stage}] stage threw, verdict NOT obtained: ${t.__threw}`)
     const dead = new Set(threw.map((t) => t.stage))
     if (!a && !dead.has('verify-A')) {
-      log(`lane ${spec.branch}: reviewer A for #${built.pr_number} returned nothing — readiness UNVERIFIED`)
-      problems.push('[verify-A] reviewer returned nothing (agent died or was skipped) — readiness UNVERIFIED, not approved')
+      const msg = `#${built.pr_number}: reviewer A returned nothing (died or skipped) — NOT reviewer-ready`
+      log(`lane ${spec.branch}: ${msg}`)
+      problems.push(`[verify-A] ${msg}`)
     }
     if (!b && !dead.has('verify-B')) {
-      log(`lane ${spec.branch}: reviewer B for #${built.pr_number} returned nothing — readiness UNVERIFIED`)
-      problems.push('[B/opus] reviewer returned nothing (agent died or was skipped) — readiness UNVERIFIED, not approved')
+      const msg = `#${built.pr_number}: reviewer B returned nothing (died or skipped) — NOT reviewer-ready`
+      log(`lane ${spec.branch}: ${msg}`)
+      problems.push(`[B/opus] ${msg}`)
     }
     let sweep = null
+    // A CRASHED sweep is not decision E4. E4 is a REPORTED refusal: the agent ran,
+    // said {ran:false, reason:'…no prodAck'} and applied the not-browser-checked
+    // label itself — a known-unswept UI ships Ready by the Director's ruling. A
+    // sweep that returned nothing or threw reported NOTHING: it never reached the
+    // label step, so the PR carries no not-browser-checked mark, and the UI state
+    // is unknown rather than known-unswept. Ready would be a claim nobody made.
+    let sweepCrashed = false
     if (spec.uiSweep) {
-      sweep = s || { ran: false, reason: 'sweep agent returned nothing' }
-      if (!sweep.ran) log(`persona sweep for #${built.pr_number} did NOT run: ${sweep.reason} — PR labelled not-browser-checked; the scripted Step 2.5 delta is the only browser evidence`)
+      const sweepThrew = threw.find((t) => t.stage === 'persona sweep')
+      if (!s) {
+        sweepCrashed = true
+        const why = sweepThrew ? `sweep agent threw: ${clip(sweepThrew.__threw)}` : 'sweep agent returned nothing (died or skipped)'
+        const msg = sweepThrew
+          ? `#${built.pr_number}: persona sweep threw — NOT reviewer-ready; no not-browser-checked label was applied`
+          : `#${built.pr_number}: persona sweep returned nothing (died or skipped) — NOT reviewer-ready; no not-browser-checked label was applied`
+        sweep = { ran: false, crashed: true, reason: why }
+        log(`lane ${spec.branch}: ${msg} — ${why}`)
+        problems.push(`[persona-sweep] ${msg} (${why})`)
+      } else {
+        sweep = s
+        if (!sweep.ran) log(`persona sweep for #${built.pr_number} did NOT run: ${sweep.reason} — PR labelled not-browser-checked; the scripted Step 2.5 delta is the only browser evidence`)
+      }
       for (const f of (sweep.findings || [])) problems.push(`[persona-sweep] ${f}`)
     }
-    if (spec.cheapTrial && m) log(`cheap-mode trial for #${built.pr_number}: all_green=${m.all_green} — ${(m.exit_lines || []).join(' | ')}`)
+    // The gate mirror MEASURES cheap mode; it does not gate readiness. But a
+    // measurement that vanished is indistinguishable from one that was never asked
+    // for, which is how the positional-destructuring bug above stayed invisible.
+    if (spec.cheapTrial) {
+      if (m) log(`cheap-mode trial for #${built.pr_number}: all_green=${m.all_green} — ${(m.exit_lines || []).join(' | ')}`)
+      else log(`lane ${spec.branch}: cheap-mode trial for #${built.pr_number} returned nothing (died or skipped) — no cheap-mode measurement for this lane; readiness is unaffected`)
+    }
     const reviewersAgree = !!(a?.ready && (b?.ready || (tie && tie.ready)))
-    const ready = reviewersAgree && (!sweep || !sweep.ran || (sweep.findings || []).length === 0)
+    const ready = reviewersAgree && !sweepCrashed && (!sweep || !sweep.ran || (sweep.findings || []).length === 0)
     return { ...built, verify: { ready, ciA: a?.ci, ciB: b?.ci, tieBreak: tie, problems, sweep, reconciled, cheapTrial: m || null }, risky_assumptions: built.risky_assumptions || [] }
 }
 
@@ -336,7 +390,7 @@ const usageLimited = shipped.filter(r => r.usage_limit)
 const failed = shipped.filter(r => r.failed && !r.usage_limit)
 const risky = opened.flatMap(r => (r.risky_assumptions || []).map(a => `#${r.pr_number}: ${a}`))
 const drafts = opened.filter(r => (r.risky_assumptions || []).length > 0).map(r => r.pr_number)
-log(`${opened.length}/${args.length} PRs opened; ${opened.filter((r) => r.verify?.ready).length} reviewer-ready; ${stopped.length} stopped (already exists); ${risky.length} risky assumption(s) → Director tap-questions, 3 per round, before PRs ${drafts.join(', ') || '(none)'} flip from Draft${failed.length ? `; ${failed.length} lane(s) failed — ${failed.map(r => `${r.branch}: ${r.surprises || '(no reason given)'}`).join(' | ')}` : ''}${usageLimited.length ? `; ${usageLimited.length} lane(s) died on a usage limit — ${usageLimited.map(r => `${r.branch}: ${r.reset_hint}`).join(' | ')}` : ''}`)
+log(`${opened.length}/${args.length} PRs opened; ${opened.filter((r) => r.verify?.ready).length} reviewer-ready; ${stopped.length} stopped (already exists); ${risky.length} risky assumption(s) → Director tap-questions, 3 per round, before PRs ${drafts.join(', ') || '(none)'} flip from Draft${failed.length ? `; ${failed.length} lane(s) failed — ${failed.map(r => `${r.branch}: ${clip(r.error || r.surprises || '(no reason given)')}`).join(' | ')}` : ''}${usageLimited.length ? `; ${usageLimited.length} lane(s) died on a usage limit — ${usageLimited.map(r => `${r.branch}: ${r.reset_hint}`).join(' | ')}` : ''}`)
 // a usage-limited lane that had already opened its PR appears in BOTH shipped
 // (with verify.ready false) and usage_limited — deliberately, so neither the PR
 // nor the reason verification stopped can go missing from the summary.
