@@ -5,6 +5,7 @@
 
 import { BaseService, type BaseListResponse } from '../base-service';
 import { sanitizeSearch } from '@/lib/config/pagination';
+import { createServiceRoleClient } from '@/lib/supabase/server';
 import type {
   SF100Program,
   SF100Enrollment,
@@ -453,9 +454,17 @@ export class SF100Service extends BaseService {
 
   /**
    * Get a single enrollment with full joined details.
+   *
+   * Reads via the service-role client: sf100_enrollments' own SELECT policy
+   * already allows any authenticated caller to read every enrollment (this is
+   * a transparency view), but the caller's RLS-scoped client silently drops
+   * the embedded `registration` (event_registrations) join for anyone who
+   * isn't the team owner or an admin — team_name/team_members/submission come
+   * back null and the page reads as "team details not showing". Bypassing RLS
+   * here just matches the enrollment row's own already-public access level.
    */
   static async getEnrollment(enrollmentId: string): Promise<SF100Enrollment | null> {
-    const { data, error } = await this.supabase
+    const { data, error } = await createServiceRoleClient()
       .from('sf100_enrollments')
       .select(ENROLLMENT_DETAIL_SELECT)
       .eq('id', enrollmentId)
