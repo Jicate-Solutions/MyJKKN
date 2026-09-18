@@ -31,8 +31,8 @@ import path from 'node:path';
 const ROOT = process.cwd();
 const read = (rel: string) => readFileSync(path.join(ROOT, rel), 'utf8');
 
-const MIGRATION_A = 'supabase/migrations/20260916090000_bug_feedback_gate_timing_snooze_reopen.sql';
-const MIGRATION_B = 'supabase/migrations/20260916090100_notifications_must_answer.sql';
+const MIGRATION_A = 'supabase/migrations/20261227090000_bug_feedback_gate_timing_snooze_reopen.sql';
+const MIGRATION_B = 'supabase/migrations/20261227090100_notifications_must_answer.sql';
 
 /** The plpgsql body of one function in a migration file. */
 function functionBody(sql: string, fnName: string): string {
@@ -115,7 +115,7 @@ describe('gap 1 — the reopen on "not fixed" cannot be silently rolled back', (
   });
 
   it('reports whether the outcome ledger refresh actually landed', () => {
-    expect(body).toMatch(/v_ledger_ok := true;/);
+    expect(body).toMatch(/v_ledger_ok := COALESCE\(v_ledger ->> 'success', 'false'\) = 'true'/);
     expect(body).toMatch(/'ledger_recorded',\s*v_ledger_ok/);
   });
 
@@ -149,7 +149,7 @@ describe('gap 2 — the answer rollup counts respondents, not options', () => {
 
 describe('reconciled with the "still happening?" prompt kind (20261223000000, live 17 Sep)', () => {
   const a = read(MIGRATION_A);
-  const c = read('supabase/migrations/20260916090200_get_blocking_items.sql');
+  const c = read('supabase/migrations/20261227090200_get_blocking_items.sql');
 
   it('fn_bug_feedback_answer keeps the LIVE still_open branch: fixed resolves the report, not_fixed stamps it', () => {
     const body = functionBody(a, 'fn_bug_feedback_answer');
@@ -211,6 +211,39 @@ describe('deep review 2026-09-17 — the findings that were real', () => {
     const using = policy.slice(0, policy.indexOf(';'));
     expect(using).toMatch(/USING \(is_super_admin\(\)\)/);
     expect(using).not.toMatch(/is_admin\(\)/);
+  });
+});
+
+describe('critic round 1 (2026-09-18) — the problems that were real', () => {
+  const a = read(MIGRATION_A);
+  const body = functionBody(a, 'fn_bug_feedback_answer');
+
+  it('reads bug_reports.resolved_by BEFORE the reopen (the trigger clears it) and prefers it as the fixer of record', () => {
+    const readAt = body.indexOf('SELECT resolved_by INTO v_resolver');
+    const reopenAt = body.indexOf('WITH reopened AS');
+    const fixerAt = body.indexOf('SELECT COALESCE(\n               v_resolver,');
+    expect(readAt).toBeGreaterThan(-1);
+    expect(readAt).toBeLessThan(reopenAt);
+    expect(fixerAt).toBeGreaterThan(reopenAt);
+  });
+
+  it('reports the ledger as NOT recorded when fn_bug_fix_outcome_record answers success=false, not only when it raises', () => {
+    expect(body).toMatch(/v_ledger := public\.fn_bug_fix_outcome_record\(v_row\.cluster_id\)/);
+    expect(body).toMatch(/v_ledger_ok := COALESCE\(v_ledger ->> 'success', 'false'\) = 'true'/);
+  });
+
+  it('every swallowed side effect leaves a WARNING in the database log', () => {
+    const swallowed = body.split('EXCEPTION WHEN OTHERS THEN').length - 1;
+    const warned = (body.match(/RAISE WARNING 'fn_bug_feedback_answer:/g) || []).length;
+    expect(swallowed).toBeGreaterThanOrEqual(5);
+    expect(warned).toBeGreaterThanOrEqual(swallowed); // at least one per handler
+  });
+
+  it('the three migrations sort after every migration that introduced what they read (kind, 20261223000000)', () => {
+    for (const f of [MIGRATION_A, MIGRATION_B, 'supabase/migrations/20261227090200_get_blocking_items.sql']) {
+      const v = f.split('/').pop()!.slice(0, 14);
+      expect(v > '20261224120000').toBe(true);
+    }
   });
 });
 

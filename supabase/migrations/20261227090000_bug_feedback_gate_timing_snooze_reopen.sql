@@ -25,6 +25,11 @@
 -- older migration files.
 -- =====================================================================
 
+-- RENUMBERED 2026-09-18 from 20260916090000 (critic round 1): this file reads
+-- bug_fix_feedback_requests.kind, which 20261223000000 introduces, and rewrites
+-- fn_bug_feedback_answer, which that file also defines. A fresh chronological
+-- replay must run this AFTER it, so the version now sorts after every migration
+-- on main (max 20261224120000) and every open PR (max 20261226000000).
 -- ---------------------------------------------------------------------
 -- 1) bug_fix_feedback_requests — timing + snooze + dropped
 -- ---------------------------------------------------------------------
@@ -549,6 +554,9 @@ DECLARE
   v_reopened   int := 0;
   v_bug_status text;             -- CHANGED 2026-09-18: read back, never assumed
   v_ledger_ok  boolean := false; -- CHANGED 2026-09-18: reported, never swallowed
+  v_ledger     jsonb;            -- CHANGED 2026-09-18 (critic r1): the ledger's own verdict
+  v_resolver   uuid;             -- CHANGED 2026-09-18 (critic r1): bug_reports.resolved_by, read BEFORE the reopen clears it
+  v_seed_resolver uuid;
 BEGIN
   IF p_answer NOT IN ('fixed','not_fixed') THEN
     RETURN jsonb_build_object('success', false, 'error', 'answer must be fixed or not_fixed');
@@ -623,17 +631,23 @@ BEGIN
   -- but CHANGED 2026-09-18: say whether it landed. A swallowed ledger refresh
   -- used to be indistinguishable from a recorded one in the return value.
   BEGIN
-    PERFORM public.fn_bug_fix_outcome_record(v_row.cluster_id);
-    v_ledger_ok := true;
+    v_ledger := public.fn_bug_fix_outcome_record(v_row.cluster_id);
+    -- the ledger function answers success=false instead of raising (e.g. group
+    -- not found) — that is "not recorded" too (critic round 1)
+    v_ledger_ok := COALESCE(v_ledger ->> 'success', 'false') = 'true';
+    IF NOT v_ledger_ok THEN
+      RAISE WARNING 'fn_bug_feedback_answer: outcome ledger not recorded for cluster % (%)', v_row.cluster_id, v_ledger ->> 'error';
+    END IF;
   EXCEPTION WHEN OTHERS THEN
     v_ledger_ok := false;
+    RAISE WARNING 'fn_bug_feedback_answer: outcome ledger refresh failed for cluster %: %', v_row.cluster_id, SQLERRM;
   END;
 
   -- CHANGED 2026-09-16: a slot freed → release this reporter's next queued question.
   BEGIN
     PERFORM public.fn_bug_feedback_release_queued(v_row.reporter_user_id);
   EXCEPTION WHEN OTHERS THEN
-    NULL;
+    RAISE WARNING 'fn_bug_feedback_answer: release_queued failed for reporter %: %', v_row.reporter_user_id, SQLERRM;
   END;
 
   IF p_answer = 'not_fixed' THEN
@@ -653,7 +667,7 @@ BEGIN
          WHERE policy_key = 'bug_reports.auto_resolve.suspended' AND scope_type = 'global';
       END IF;
     EXCEPTION WHEN OTHERS THEN
-      NULL;
+      RAISE WARNING 'fn_bug_feedback_answer: auto-resolve breaker not updated for cluster %: %', v_row.cluster_id, SQLERRM;
     END;
 
     -- Reopen the bug + the group's canonical bug (ruling 5).
@@ -679,6 +693,13 @@ BEGIN
     -- them can undo the reopen.
     SELECT seed_bug_id, decided_by INTO v_seed, v_fixer
     FROM public.bug_clusters WHERE id = v_row.cluster_id;
+
+    -- CHANGED 2026-09-18 (critic round 1): the person who RESOLVED the bug is
+    -- the fixer of record when there is one. bug_reports.resolved_by exists
+    -- since 20261223093000 and its trigger clears it the moment the status
+    -- leaves 'resolved' — so it is read here, before the reopen below.
+    SELECT resolved_by INTO v_resolver FROM public.bug_reports WHERE id = v_row.bug_id;
+    SELECT resolved_by INTO v_seed_resolver FROM public.bug_reports WHERE id = v_seed;
 
     WITH reopened AS (
       UPDATE public.bug_reports b
@@ -719,7 +740,7 @@ BEGIN
          'Reporter says not fixed (feedback gate). The report has been reopened.',
          'system', false);
     EXCEPTION WHEN OTHERS THEN
-      NULL;
+      RAISE WARNING 'fn_bug_feedback_answer: system message not written for bug %: %', v_row.bug_id, SQLERRM;
     END;
 
     -- Group record: safe append with ||, never jsonb_set on a missing parent.
@@ -732,14 +753,18 @@ BEGIN
           updated_at = now()
       WHERE id = v_row.cluster_id;
     EXCEPTION WHEN OTHERS THEN
-      NULL;
+      RAISE WARNING 'fn_bug_feedback_answer: group record not updated for cluster %: %', v_row.cluster_id, SQLERRM;
     END;
 
-    -- Fixer of record: the bug's assignee, else the admin who confirmed the
-    -- group. Nobody on file → no notification; the reopened status itself is
-    -- what the bugs desk picks up.
+    -- Fixer of record: whoever resolved the bug (or the group's canonical bug),
+    -- else the bug's assignee, else the admin who confirmed the group. Nobody
+    -- on file → no notification; the reopened status itself is what the bugs
+    -- desk picks up. (Live 18 Sep: 46 resolved bugs carry resolved_by, 0 closed
+    -- bugs carry an assignee — the resolver is the signal that exists.)
     BEGIN
       SELECT COALESCE(
+               v_resolver,
+               v_seed_resolver,
                (SELECT assigned_to_user_id FROM public.bug_reports WHERE id = v_row.bug_id),
                (SELECT assigned_to_user_id FROM public.bug_reports WHERE id = v_seed),
                v_fixer)
@@ -773,6 +798,7 @@ BEGIN
       -- (local variables are not rolled back), so clear it or the return value
       -- would report a notification that does not exist.
       v_nid := NULL;
+      RAISE WARNING 'fn_bug_feedback_answer: fixer % not notified for bug %: %', v_fixer, v_row.bug_id, SQLERRM;
     END;
     END IF;  -- v_reopened > 0
   END IF;

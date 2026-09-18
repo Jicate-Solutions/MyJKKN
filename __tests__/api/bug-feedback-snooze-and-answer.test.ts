@@ -142,8 +142,19 @@ describe('POST /api/bug-reports/feedback/[id] — answer', () => {
       answer: 'not_fixed',
       reopened: 2,
       bug_status: 'new',
-      fixer_notified: true
+      fixer_notified: true,
+      ledger_recorded: true
     });
+  });
+
+  it('passes an unrecorded ledger through instead of hiding it (critic round 1)', async () => {
+    rpcResult = {
+      data: { success: true, answer: 'fixed', reopened: 0, bug_status: 'resolved', ledger_recorded: false },
+      error: null
+    };
+    const res = await bugAnswerPOST(answerReq('fixed'), { params });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, ledger_recorded: false });
   });
 
   it('does not invent a reopen when the RPC reports the bug still closed', async () => {

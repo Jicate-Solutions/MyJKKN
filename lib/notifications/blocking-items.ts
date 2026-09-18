@@ -6,7 +6,7 @@ import type { UnacknowledgedNotification } from '@/types/notifications';
  * twin). Both used to derive deadline_at / is_overdue inline; now they call
  * this so the two can never drift.
  *
- * Rows come from get_blocking_items(p_user_id) (migration 20260916090200):
+ * Rows come from get_blocking_items(p_user_id) (migration 20261227090200):
  *   kind 'ack'          — field names unchanged from get_unacknowledged_notifications
  *   kind 'answer'       — plus answer_options
  *   kind 'bug_feedback' — plus request_id / bug_id / display_id / snooze_count

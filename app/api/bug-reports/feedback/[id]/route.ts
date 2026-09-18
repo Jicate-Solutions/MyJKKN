@@ -64,7 +64,11 @@ export async function POST(
         answer: data.answer,
         reopened: data.reopened ?? 0,
         bug_status: data.bug_status ?? null,
-        fixer_notified: !!data.fixer_notified
+        fixer_notified: !!data.fixer_notified,
+        // false = the outcome ledger did not record this answer (the RPC warned);
+        // the request row is the source of truth and the next ledger refresh
+        // recounts it, but a caller must be able to see it (critic round 1)
+        ledger_recorded: data.ledger_recorded !== false
       });
     }
 
