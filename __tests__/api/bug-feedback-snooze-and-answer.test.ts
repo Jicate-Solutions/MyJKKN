@@ -143,8 +143,15 @@ describe('POST /api/bug-reports/feedback/[id] — answer', () => {
       reopened: 2,
       bug_status: 'new',
       fixer_notified: true,
-      ledger_recorded: true
+      ledger_recorded: true,
+      kind: 'fix_check'
     });
+  });
+
+  it('passes the prompt kind through so the still-open box can pick its own message', async () => {
+    rpcResult = { data: { success: true, answer: 'fixed', kind: 'still_open' }, error: null };
+    const res = await bugAnswerPOST(answerReq('fixed'), { params });
+    expect(await res.json()).toMatchObject({ ok: true, answer: 'fixed', kind: 'still_open' });
   });
 
   it('passes an unrecorded ledger through instead of hiding it (critic round 1)', async () => {

@@ -170,8 +170,10 @@ export async function POST(request: NextRequest) {
         metadata: notificationData.metadata || {},
         requires_acknowledgment: notificationData.requires_acknowledgment || false,
         acknowledgment_deadline_hours: notificationData.acknowledgment_deadline_hours || 4,
-        requires_answer: requiresAnswer,
-        answer_options: answerOptions,
+        // The two must-answer columns are written only when the sender asked for
+        // them, so an ordinary announcement still sends if this code is live
+        // before migration 20261227090100 (critic round 3).
+        ...(requiresAnswer ? { requires_answer: true, answer_options: answerOptions } : {}),
         action_type: (notificationData as any).action_type || null,
         action_config: (notificationData as any).action_config || null
       })

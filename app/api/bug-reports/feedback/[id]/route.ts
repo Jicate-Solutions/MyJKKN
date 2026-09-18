@@ -62,6 +62,10 @@ export async function POST(
       return NextResponse.json({
         ok: true,
         answer: data.answer,
+        // 'still_open' for an "is this still happening?" prompt (20261223000000):
+        // the /my-bug-reports box picks its closure message from this. main's
+        // route never passed it, so that message had never shown (critic round 3).
+        kind: data.kind ?? 'fix_check',
         reopened: data.reopened ?? 0,
         bug_status: data.bug_status ?? null,
         fixer_notified: !!data.fixer_notified,
