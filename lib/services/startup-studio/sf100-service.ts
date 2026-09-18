@@ -4,6 +4,7 @@
 // graduation, interviews, pivots, roster changes, notifications, and export.
 
 import { BaseService, type BaseListResponse } from '../base-service';
+import { createServiceRoleClient } from '@/lib/supabase/server';
 import { sanitizeSearch } from '@/lib/config/pagination';
 import type {
   SF100Program,
@@ -453,9 +454,20 @@ export class SF100Service extends BaseService {
 
   /**
    * Get a single enrollment with full joined details.
+   *
+   * Reads via the service-role client: this backs the team detail page, a
+   * public transparency view linked from the SF100 leaderboard, but
+   * `event_registrations_select` RLS only grants the nested `registration`
+   * embed (team_name, team_members, submission) to the team owner/admins/SF100
+   * permission holders. Under the caller's RLS-scoped client, any other
+   * viewer got `registration: null` — team name, members, and app all blank —
+   * exactly the "Team details not shown" symptom the leaderboard link surfaces.
+   * sf100_enrollments itself is already readable by any authenticated user
+   * (`sf100_enrollments_select_authenticated`), so this only restores the
+   * embed the transparency view depends on; it changes no write path.
    */
   static async getEnrollment(enrollmentId: string): Promise<SF100Enrollment | null> {
-    const { data, error } = await this.supabase
+    const { data, error } = await createServiceRoleClient()
       .from('sf100_enrollments')
       .select(ENROLLMENT_DETAIL_SELECT)
       .eq('id', enrollmentId)
