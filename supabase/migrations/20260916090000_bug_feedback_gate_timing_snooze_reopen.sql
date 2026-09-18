@@ -59,14 +59,19 @@ ALTER TABLE public.bug_fix_feedback_requests
   ADD CONSTRAINT bug_fix_feedback_requests_snooze_count_check
   CHECK (snooze_count >= 0 AND snooze_count <= 3);
 
--- New rows live 60 days (ruling 3), not 14.
-ALTER TABLE public.bug_fix_feedback_requests
-  ALTER COLUMN expires_at SET DEFAULT now() + interval '60 days';
+-- RECONCILED 2026-09-18 with 20261223000000 (the "is this still happening?"
+-- prompt, kind = 'still_open', live since 17 Sep): that kind is created by
+-- fn_bug_stale_prompt_prepare WITHOUT an explicit expires_at and lives 14 days
+-- off the column DEFAULT. This file therefore leaves the DEFAULT alone; the
+-- 60-day life of a fix-check row (ruling 3) is set explicitly by
+-- fn_bug_feedback_prepare and fn_bug_feedback_release_queued below. Every
+-- filter in this file is scoped to kind = 'fix_check' for the same reason:
+-- a still_open prompt has no fix, no group and its own cap and expiry.
 
 -- The gate reads "open, due, not snoozed" rows per reporter on every poll.
 CREATE INDEX IF NOT EXISTS idx_bug_fix_feedback_gate_due
   ON public.bug_fix_feedback_requests (reporter_user_id, ask_after)
-  WHERE status IN ('sent','delivered');
+  WHERE status IN ('sent','delivered') AND kind = 'fix_check';
 
 -- Backfill the rows already open on 2026-09-16 (33 sent + 2 delivered on
 -- production). The fix was live when they were sent, so sent_at stands in
@@ -78,7 +83,8 @@ SET fix_live_at = COALESCE(fix_live_at, sent_at, created_at),
     remind_at   = COALESCE(remind_at,  COALESCE(sent_at, created_at) + interval '14 days'),
     expires_at  = GREATEST(expires_at, COALESCE(sent_at, created_at) + interval '60 days'),
     updated_at  = now()
-WHERE status IN ('sent','delivered');
+WHERE status IN ('sent','delivered')
+  AND kind = 'fix_check';   -- RECONCILED 2026-09-18: never a still_open prompt
 
 -- Rows that never got a send (pending_send) still get their clock set from
 -- creation so the release path below has something to compare.
@@ -87,7 +93,8 @@ SET fix_live_at = COALESCE(fix_live_at, created_at),
     ask_after   = COALESCE(ask_after,  created_at + interval '3 days'),
     remind_at   = COALESCE(remind_at,  created_at + interval '14 days'),
     updated_at  = now()
-WHERE status = 'pending_send';
+WHERE status = 'pending_send'
+  AND kind = 'fix_check';   -- RECONCILED 2026-09-18: never a still_open prompt
 
 -- ---------------------------------------------------------------------
 -- 2) bug_reports.reopened_at — the bugs desk already looks for this
@@ -134,6 +141,7 @@ BEGIN
         dropped_reason = 'no_reporter',
         updated_at = now()
     WHERE r.status IN ('pending_send','sent','delivered')
+      AND r.kind = 'fix_check'   -- RECONCILED 2026-09-18: still_open rows expire on their own
       AND NOT EXISTS (
         SELECT 1 FROM public.profiles p
         WHERE p.id = r.reporter_user_id
@@ -180,12 +188,14 @@ BEGIN
   SELECT count(*) INTO v_open
   FROM public.bug_fix_feedback_requests
   WHERE reporter_user_id = p_reporter_user_id
+    AND kind = 'fix_check'   -- RECONCILED 2026-09-18: still_open has its own cap
     AND status IN ('sent','delivered')
     AND expires_at > now();
 
   FOR r IN
     SELECT id FROM public.bug_fix_feedback_requests
     WHERE reporter_user_id = p_reporter_user_id AND status = 'pending_send'
+      AND kind = 'fix_check'   -- RECONCILED 2026-09-18
     ORDER BY created_at ASC
     FOR UPDATE SKIP LOCKED
   LOOP
@@ -383,6 +393,7 @@ BEGIN
     SELECT count(*) INTO v_open
     FROM public.bug_fix_feedback_requests
     WHERE reporter_user_id = r.reporter_user_id
+      AND kind = 'fix_check'   -- RECONCILED 2026-09-18: still_open has its own cap
       AND status IN ('sent','delivered')
       AND expires_at > now();
     IF v_open < 3 THEN
@@ -571,6 +582,43 @@ BEGIN
       updated_at = now()
   WHERE id = p_request_id AND reporter_user_id = auth.uid();
 
+  -- RECONCILED 2026-09-18: this branch is the LIVE body's (20261223000000,
+  -- applied 17 Sep) and must survive this CREATE OR REPLACE. A "still
+  -- happening?" prompt (kind = still_open) has no group and no fix behind it.
+  -- Its answer acts on the REPORT and never touches the fix-outcome ledger,
+  -- which must only ever learn from fix checks.
+  --   fixed      = "no, it works now"  -> the report is resolved, by its reporter
+  --   not_fixed  = "yes, still broken" -> stays open, stamped so it is not asked
+  --                                      again for a while and can be ranked
+  -- FIXED 2026-09-18 (found by this PR's production rehearsal, check 28): the
+  -- live branch set no resolved_by, and 20261223093000's trigger
+  -- fn_bug_reports_enforce_resolved_by refuses status = 'resolved' without one
+  -- — so on production every "No, it works now" tap has failed since 17 Sep.
+  -- The resolver IS the reporter (that is what "by its reporter" means).
+  IF v_row.kind = 'still_open' THEN
+    IF p_answer = 'fixed' THEN
+      UPDATE public.bug_reports
+         SET status = 'resolved',
+             resolved_at = now(),
+             resolved_by = v_row.reporter_user_id,
+             updated_at = now(),
+             metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+               'resolved_by', 'reporter_still_open_prompt',
+               'still_open_prompt_id', v_row.id::text,
+               'still_open_answered_at', to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'))
+       WHERE id = v_row.bug_id
+         AND status IN ('new','seen','in_progress');
+    ELSE
+      UPDATE public.bug_reports
+         SET updated_at = now(),
+             metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+               'still_open_confirmed_at', to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+               'still_open_prompt_id', v_row.id::text)
+       WHERE id = v_row.bug_id;
+    END IF;
+    RETURN jsonb_build_object('success', true, 'answer', p_answer, 'kind', 'still_open');
+  END IF;
+
   -- Learn (#3): refresh the measured-outcome ledger. Never fail the answer —
   -- but CHANGED 2026-09-18: say whether it landed. A swallowed ledger refresh
   -- used to be indistinguishable from a recorded one in the return value.
@@ -655,6 +703,12 @@ BEGIN
     SELECT status, display_id INTO v_bug_status, v_display
     FROM public.bug_reports WHERE id = v_row.bug_id;
 
+    -- CHANGED 2026-09-18 (deep review #2): the three side effects below run
+    -- only when THIS answer reopened a bug. A reporter may answer again (their
+    -- late word replaces an admin's — unchanged rule), but a repeat "not fixed"
+    -- on a bug that is already open must not add another system message or
+    -- send the fixer another work item.
+    IF v_reopened > 0 THEN
     -- The system message on the reporter's own report (sender = the reporter:
     -- it is their word, recorded by the gate). Cosmetic: own handler.
     BEGIN
@@ -720,6 +774,7 @@ BEGIN
       -- would report a notification that does not exist.
       v_nid := NULL;
     END;
+    END IF;  -- v_reopened > 0
   END IF;
 
   RETURN jsonb_build_object('success', true, 'answer', p_answer,

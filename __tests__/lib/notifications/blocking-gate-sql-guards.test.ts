@@ -146,3 +146,71 @@ describe('gap 2 — the answer rollup counts respondents, not options', () => {
     );
   });
 });
+
+describe('reconciled with the "still happening?" prompt kind (20261223000000, live 17 Sep)', () => {
+  const a = read(MIGRATION_A);
+  const c = read('supabase/migrations/20260916090200_get_blocking_items.sql');
+
+  it('fn_bug_feedback_answer keeps the LIVE still_open branch: fixed resolves the report, not_fixed stamps it', () => {
+    const body = functionBody(a, 'fn_bug_feedback_answer');
+    expect(body).toMatch(/IF v_row\.kind = 'still_open' THEN/);
+    expect(body).toMatch(/'resolved_by', 'reporter_still_open_prompt'/);
+    // and names the reporter as resolved_by, or fn_bug_reports_enforce_resolved_by
+    // (20261223093000) refuses the resolve — the live defect check 28 caught
+    const fixedBranch = body.slice(body.indexOf("IF p_answer = 'fixed' THEN"), body.indexOf("ELSE", body.indexOf("IF p_answer = 'fixed' THEN")));
+    expect(fixedBranch).toMatch(/resolved_by = v_row\.reporter_user_id/);
+    expect(body).toMatch(/'still_open_confirmed_at'/);
+    // and it returns before the fix-outcome ledger ever sees the row
+    const branch = body.indexOf("IF v_row.kind = 'still_open'");
+    const ledger = body.indexOf('fn_bug_fix_outcome_record(v_row.cluster_id)');
+    expect(branch).toBeGreaterThan(-1);
+    expect(branch).toBeLessThan(ledger);
+    expect(body.slice(branch, ledger)).toMatch(/RETURN jsonb_build_object\('success', true, 'answer', p_answer, 'kind', 'still_open'\)/);
+  });
+
+  it('never changes the expires_at column DEFAULT (still_open rows live 14 days off it)', () => {
+    expect(a).not.toMatch(/ALTER COLUMN expires_at SET DEFAULT/i);
+  });
+
+  it('the backfill, the drop, the release cap, the prepare cap and the index are all scoped to fix_check', () => {
+    const backfills = a.split('UPDATE public.bug_fix_feedback_requests\nSET fix_live_at').length - 1;
+    expect(backfills).toBe(2);
+    expect((a.match(/AND kind = 'fix_check'/g) || []).length).toBeGreaterThanOrEqual(5);
+    expect(functionBody(a, 'fn_bug_feedback_drop_gone_reporters')).toMatch(/r\.kind = 'fix_check'/);
+    expect(functionBody(a, 'fn_bug_feedback_release_queued').match(/kind = 'fix_check'/g)?.length).toBe(2);
+    expect(functionBody(a, 'fn_bug_feedback_prepare')).toMatch(/kind = 'fix_check'/);
+    expect(a).toMatch(/WHERE status IN \('sent','delivered'\) AND kind = 'fix_check';/);
+  });
+
+  it('get_blocking_items never serves a still_open prompt on the blocking screen', () => {
+    const bugBranch = c.slice(c.indexOf('FROM public.bug_fix_feedback_requests r'));
+    expect(bugBranch).toMatch(/AND r\.kind = 'fix_check'/);
+  });
+});
+
+describe('deep review 2026-09-17 — the findings that were real', () => {
+  const a = read(MIGRATION_A);
+  const b = read(MIGRATION_B);
+
+  it('#2: a repeat "not fixed" that reopens nothing adds no message and notifies no fixer', () => {
+    const body = functionBody(a, 'fn_bug_feedback_answer');
+    const gate = body.indexOf('IF v_reopened > 0 THEN');
+    const message = body.indexOf('INSERT INTO public.bug_report_messages');
+    const notify = body.indexOf('INSERT INTO public.notifications');
+    const close = body.indexOf('END IF;  -- v_reopened > 0');
+    expect(gate).toBeGreaterThan(-1);
+    expect(gate).toBeLessThan(message);
+    expect(message).toBeLessThan(notify);
+    expect(notify).toBeLessThan(close);
+    // the reopen itself is NOT behind that gate (it is what sets v_reopened)
+    expect(body.indexOf('WITH reopened AS')).toBeLessThan(gate);
+  });
+
+  it('#6: answers are readable by super admins only — the table has no institution column', () => {
+    const policy = b.slice(b.indexOf('CREATE POLICY "notification_answers_select_admin"'));
+    const using = policy.slice(0, policy.indexOf(';'));
+    expect(using).toMatch(/USING \(is_super_admin\(\)\)/);
+    expect(using).not.toMatch(/is_admin\(\)/);
+  });
+});
+

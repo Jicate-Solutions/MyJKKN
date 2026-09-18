@@ -62,8 +62,12 @@ CREATE POLICY "notification_answers_select_own" ON public.notification_answers
   FOR SELECT USING (user_id = auth.uid());
 
 DROP POLICY IF EXISTS "notification_answers_select_admin" ON public.notification_answers;
+-- CHANGED 2026-09-18 (deep review #6): super admins only. The table carries
+-- no institution_id, so a bare is_admin() read would let any admin of any
+-- college read every person's answer on every announcement. The compliance
+-- rollup RPC already requires a super admin; the table policy now matches it.
 CREATE POLICY "notification_answers_select_admin" ON public.notification_answers
-  FOR SELECT USING (is_super_admin() OR is_admin());
+  FOR SELECT USING (is_super_admin());
 
 -- Writes only through the SECURITY DEFINER RPC below (no INSERT/UPDATE policy).
 

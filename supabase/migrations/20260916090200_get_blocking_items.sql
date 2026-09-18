@@ -149,6 +149,7 @@ BEGIN
     FROM public.bug_fix_feedback_requests r
     JOIN public.bug_reports b ON b.id = r.bug_id
     WHERE r.reporter_user_id = p_user_id
+      AND r.kind = 'fix_check'   -- RECONCILED 2026-09-18: a still_open prompt (20261223000000) stays on /my-bug-reports, never on the blocking screen
       AND r.status IN ('sent','delivered')
       AND r.ask_after IS NOT NULL AND r.ask_after <= now()
       AND r.expires_at > now()

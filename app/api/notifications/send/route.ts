@@ -100,9 +100,12 @@ export async function POST(request: NextRequest) {
     let answerOptions: string[] | null = null;
     if (requiresAnswer) {
       const raw = Array.isArray(notificationData.answer_options) ? notificationData.answer_options : [];
+      // Truncate BEFORE de-duplicating (deep review #5): two options sharing a
+      // 40-character prefix must collapse to one here, exactly as the composer's
+      // parseAnswerOptions does, or the stored list carries two identical strings.
       answerOptions = Array.from(
-        new Set(raw.map((o) => String(o ?? '').trim()).filter((o) => o.length > 0))
-      ).map((o) => o.slice(0, 40));
+        new Set(raw.map((o) => String(o ?? '').trim().slice(0, 40)).filter((o) => o.length > 0))
+      );
       if (answerOptions.length < 2 || answerOptions.length > 6) {
         return NextResponse.json(
           { error: 'A must-answer announcement needs between 2 and 6 distinct answer options' },

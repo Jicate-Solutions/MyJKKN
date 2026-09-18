@@ -66,6 +66,21 @@ describe('mapBlockingItems', () => {
     expect(item.answer_options).toEqual(['Yes', 'No', '3']);
   });
 
+  it('an answer row with no ack clock is never OVERDUE on the 4-hour default (deep review #9)', () => {
+    const sent = '2026-09-10T00:00:00.000Z'; // NOW is days later
+    const [noClock, withExpiry, withHours] = mapBlockingItems(
+      [
+        { kind: 'answer', id: 'a-1', notification_id: 'n-1', sent_at: sent, answer_options: ['Yes', 'No'] },
+        { kind: 'answer', id: 'a-2', notification_id: 'n-2', sent_at: sent, answer_options: ['Yes', 'No'], expires_at: '2026-12-01T00:00:00.000Z' },
+        { kind: 'answer', id: 'a-3', notification_id: 'n-3', sent_at: sent, answer_options: ['Yes', 'No'], acknowledgment_deadline_hours: 2 }
+      ],
+      NOW
+    );
+    expect(noClock.is_overdue).toBe(false);
+    expect(withExpiry).toMatchObject({ deadline_at: '2026-12-01T00:00:00.000Z', is_overdue: false });
+    expect(withHours.is_overdue).toBe(true); // an ack clock the sender set still counts
+  });
+
   it('maps a bug-feedback row: never overdue, deadline = expires_at, can_snooze below the cap', () => {
     const rows = [
       {

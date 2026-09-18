@@ -118,8 +118,17 @@ export function mapBlockingItems(
       };
     }
 
-    const deadlineMs = (item.acknowledgment_deadline_hours || 4) * 60 * 60 * 1000;
-    const deadlineAt = new Date(sentAt.getTime() + deadlineMs);
+    // A must-answer notice (kind 'answer') has no acknowledgment deadline unless
+    // the sender set one; its only clock is expires_at (deep review #9). Without
+    // this it inherited the 4-hour ack default and every answer item rendered
+    // OVERDUE four hours after send.
+    const hasAckClock = kind === 'ack' || item.acknowledgment_deadline_hours != null;
+    const deadlineAt = hasAckClock
+      ? new Date(sentAt.getTime() + (item.acknowledgment_deadline_hours || 4) * 60 * 60 * 1000)
+      : item.expires_at
+        ? new Date(item.expires_at)
+        : new Date(sentAt.getTime() + 4 * 60 * 60 * 1000); // display only: never overdue (below)
+    const isOverdue = hasAckClock || item.expires_at ? now > deadlineAt : false;
 
     const base: UnacknowledgedNotification = {
       kind,
@@ -133,7 +142,7 @@ export function mapBlockingItems(
       created_by_name: item.created_by_name || 'System',
       sent_at: item.sent_at || item.created_at,
       deadline_at: deadlineAt.toISOString(),
-      is_overdue: now > deadlineAt,
+      is_overdue: isOverdue,
       metadata: item.metadata
     };
     if (kind === 'answer') {

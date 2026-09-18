@@ -277,7 +277,8 @@ export async function GET(request: NextRequest) {
           const { error: stampErr } = await svc
             .from('bug_fix_feedback_requests')
             .update({ reminded_at: nowIso, updated_at: nowIso })
-            .eq('id', row.id);
+            .eq('id', row.id)
+            .is('reminded_at', null); // two overlapping runs may pick the same row; only one stamps it (deep review #10)
           if (stampErr) results.errors.push(`Bug-feedback reminder stamp error: ${stampErr.message}`);
         }
       }
