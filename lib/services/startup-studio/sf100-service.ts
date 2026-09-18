@@ -4,6 +4,7 @@
 // graduation, interviews, pivots, roster changes, notifications, and export.
 
 import { BaseService, type BaseListResponse } from '../base-service';
+import { createServiceRoleClient } from '@/lib/supabase/server';
 import { sanitizeSearch } from '@/lib/config/pagination';
 import type {
   SF100Program,
@@ -453,9 +454,19 @@ export class SF100Service extends BaseService {
 
   /**
    * Get a single enrollment with full joined details.
+   *
+   * Uses a service-role client rather than the caller's RLS-scoped one:
+   * sf100_enrollments is intentionally "full transparency" for any
+   * authenticated user (see 20260331000002), but the embedded
+   * event_registrations row (team_name/members/submission) is restricted by
+   * event_registrations_select to the team owner or an SF100 admin
+   * (20260706150000) — so a non-owner viewing this team's public leaderboard
+   * detail page got every team-identity field back as null. The caller
+   * (app/api/.../enrollments/[enrollmentId]/route.ts) already gates on
+   * withAuth before reaching here, and this method is read-only.
    */
   static async getEnrollment(enrollmentId: string): Promise<SF100Enrollment | null> {
-    const { data, error } = await this.supabase
+    const { data, error } = await createServiceRoleClient()
       .from('sf100_enrollments')
       .select(ENROLLMENT_DETAIL_SELECT)
       .eq('id', enrollmentId)
