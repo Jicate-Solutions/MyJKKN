@@ -29,6 +29,7 @@ import {
   CharterProposalsPanel,
   type CharterProposalRow,
 } from './_components/charter-proposals-panel';
+import { readRecentReadings } from '@/lib/services/loops/loop-recent-readings';
 
 type ProposalRead = {
   id: string;
@@ -89,36 +90,6 @@ async function readProposals(
   }
 }
 
-/** Last four recorded headline numbers per loop, newest first. Empty on any error (pre-migration). */
-async function readRecentReadings(
-  admin: ReturnType<typeof createServiceRoleClient>,
-  loopKeys: string[]
-): Promise<Map<string, (number | null)[]>> {
-  const out = new Map<string, (number | null)[]>();
-  if (loopKeys.length === 0) return out;
-  try {
-    const { data, error } = await admin
-      .from('loop_measurements')
-      .select('loop_key,value,measured_at')
-      .in('loop_key', loopKeys)
-      .eq('status', 'final')
-      .order('measured_at', { ascending: false })
-      .limit(loopKeys.length * 4);
-    if (error || !data) return out;
-    for (const row of data as { loop_key: string; value: number | string | null }[]) {
-      const list = out.get(row.loop_key) ?? [];
-      if (list.length < 4) {
-        const n = row.value === null ? null : Number(row.value);
-        list.push(Number.isFinite(n as number) ? (n as number) : null);
-        out.set(row.loop_key, list);
-      }
-    }
-  } catch {
-    // pre-migration: the table does not exist yet
-  }
-  return out;
-}
-
 export default async function LoopChartersPage() {
   const { profile } = await getEnhancedUserProfile();
   // Canonical super-admin definition (matches /admin/loops and the
@@ -156,8 +127,9 @@ export default async function LoopChartersPage() {
   const nameByKey = new Map(registry.map((r) => [r.loop_key, r.name]));
   // The bar cards ask the Director for a number; show him the scale it lives
   // on — the loop's last few recorded headline numbers (loop_measurements,
-  // written by every run whether or not a bar exists). Empty until the
-  // migration is applied and the loops have run; the card says so.
+  // written by every run whether or not a bar exists). One read PER LOOP so a
+  // busy loop cannot starve a slow one. Empty until the migration is applied
+  // and that loop has run; the card says so.
   const barLoopKeys = Array.from(
     new Set(proposals.filter((p) => p.kind === 'bar' || p.kind === 'bar-review').map((p) => p.loop_key))
   );
