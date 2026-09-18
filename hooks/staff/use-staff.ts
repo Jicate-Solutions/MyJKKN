@@ -57,19 +57,14 @@ export function useStaff(
   const queryKey = useMemo(() => {
     const stableFilters = {
       search: filters.search || '',
-      search_case_sensitive: filters.search_case_sensitive ?? false,
-      search_exact_match: filters.search_exact_match ?? false,
-      search_fields: (filters.search_fields || []).join(','),
       category_id: filters.category_id || '',
       institution_id: filters.institution_id || '',
       department_id: filters.department_id || '',
       // Added: 2026-04-15 - include role_key + is_teaching so cache invalidates
       // when these filters change (previously stale results persisted).
-      role_key: (filters as any).role_key || '',
+      role_key: filters.role_key || '',
       is_teaching:
-        typeof (filters as any).is_teaching === 'boolean'
-          ? (filters as any).is_teaching
-          : null,
+        typeof filters.is_teaching === 'boolean' ? filters.is_teaching : null,
       isActive: filters.isActive,
       page: filters.page || 1,
       limit: filters.limit || 10
@@ -84,14 +79,11 @@ export function useStaff(
     ];
   }, [
     filters.search,
-    filters.search_case_sensitive,
-    filters.search_exact_match,
-    filters.search_fields,
     filters.category_id,
     filters.institution_id,
     filters.department_id,
-    (filters as any).role_key,
-    (filters as any).is_teaching,
+    filters.role_key,
+    filters.is_teaching,
     filters.isActive,
     filters.page,
     filters.limit,
