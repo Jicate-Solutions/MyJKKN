@@ -1,0 +1,717 @@
+name: Production Build (main)
+
+# Runs the REAL production build — `npm run build:ci`, which performs the same
+# steps as the `npm run build` Vercel runs — on `main` AFTER each merge, and on
+# demand. `build` itself is never modified by this workflow, so what Vercel runs
+# is byte-identical to what it ran before this file existed.
+#
+# ── R16 (Director ruling, 2026-09-18): WHY THIS IS NO LONGER A PER-PR GATE ─────
+#
+# This job used to run on every pull request, from
+# .github/workflows/production-build.yml. Since 2026-09-16 GitHub has been giving
+# this repository 2-vCPU / 7.8 GB runners instead of the 4-vCPU / 15 GiB boxes
+# every measurement below was taken on, and the ~13 GB `next build` cannot finish
+# on them. It died on PRs that were perfectly fine, and a gate that always fails
+# is worse than no gate: it teaches everybody to read a red mark as noise.
+#
+# So the heavy build moved here, unchanged in substance. It runs on `push` to
+# `main` (after each merge) and on `workflow_dispatch`, and it votes on no pull
+# request. The cheap, PR-scoped jobs that used to share its file — the relevance
+# filter's own test suite and the `build:ci` vs `build` parity check — stayed on
+# `pull_request` in .github/workflows/production-build.yml.
+#
+# What this trades away is real: a build break is now found AFTER the merge
+# rather than before it. What surfaces it instead is the `red-main` job at the
+# bottom of this file, which opens or updates ONE issue titled
+# "Production Build on main is red" whenever this build does not pass, and closes
+# it again when main goes green. Branch protection is untouched by this move —
+# "Production Build" was never one of main's required checks, so nothing that
+# used to block a merge stops blocking one.
+#
+# Everything below is the original measurement record, moved here verbatim with
+# the build job it explains. It was taken on 4-vCPU / 15 GiB runners; the swap
+# sizing (PR #3856) already copes with a smaller /mnt, and the 2-vCPU box is the
+# reason this is no longer a gate.
+#
+# The build does not fit in a standard runner's RAM. It fits once the runner is
+# given enough swap, which this workflow does for itself — see "MEASURED" below.
+# That took three hypotheses and six runs, and the two that were wrong are kept
+# there because each looks right until you read the trace that kills it.
+#
+# ── WHY THIS EXISTS ─────────────────────────────────────────────────────────────
+#
+# Until this workflow, NOTHING in this repository ever ran `next build` before a
+# merge. Verified on main at the time of writing:
+#
+#   $ grep -rn "npm run build\|next build" .github/workflows/
+#   nav-reachability-gate.yml:12:#   in only ONE place — `npm run build` at Vercel DEPLOY time — so orphans
+#
+# One hit, and it is a COMMENT saying exactly that: the build only ever ran after
+# the merge, at Vercel deploy time. So a PR could be unanimously green and still
+# be unbuildable, and the first thing to find out was the production deploy —
+# which then blocks EVERY deploy repo-wide, not just the offending module.
+#
+# That is not hypothetical. PR #3239 (merged 2026-09-01) shipped a synchronous
+# export from a file whose first line is `'use server'`, which Next.js forbids.
+# Its head commit 03106910f4e577394bca7aa99101397f8991ab02 carried:
+#
+#   $ gh api repos/.../commits/03106910f4/check-runs --jq '[.check_runs[].conclusion] | group_by(.) | ...'
+#   {"neutral":1,"skipped":2,"success":22}
+#
+# Twenty-two successes, zero failures, and not one of them compiled the app.
+# Twice that month a hand-run local build was the only thing that caught this class.
+#
+# ── WHY A NEW FILE INSTEAD OF REVIVING `build-check.yml` ────────────────────────
+#
+# `.github/workflows/build-check.yml` is often assumed to cover this. It does not,
+# for two independent reasons, both checked rather than remembered:
+#
+#  1. IT NO LONGER EXISTS. It was DELETED (not disabled) on 2026-06-11 by
+#     c86a2243f5 "ci: retire AI Pulse gate + build-check, resurrect 4 orphaned
+#     checks, add Claude risk review (#1330)" — a 60-line deletion. It has not run
+#     on any PR since that date.
+#
+#  2. IT NEVER BUILT ANYTHING ANYWAY. Its last version ran `npx tsc --noEmit`
+#     plus four script checks. The word "Build" in its name was the whole problem:
+#     it made the hole look covered to anyone scanning the workflow list.
+#
+# And every one of its non-build steps is already live in a standalone workflow
+# today, so restoring the file would duplicate five checks and change nothing:
+#
+#   check:reachability            → nav-reachability-gate.yml
+#   check:sidebar                 → nav-reachability-gate.yml, module-config-audits.yml
+#   check:audit-coverage          → nav-reachability-gate.yml, module-config-audits.yml
+#   check-bug-module-classifier   → module-config-audits.yml
+#   tsc --noEmit                  → typecheck-pr-scoped.yml
+#
+# So: a new workflow, scoped to the one thing genuinely missing, named after what
+# it actually does.
+#
+# ── WHY THIS IS NOT REDUNDANT WITH `TypeCheck (PR-scoped)` ──────────────────────
+#
+# `next.config.ts` line 107 sets `typescript.ignoreBuildErrors: true`. The two
+# gates therefore cannot cover for each other, in either direction:
+#
+#   • The build IGNORES type errors  → TypeCheck is the only thing catching those.
+#   • TypeCheck never compiles the app → it cannot see a `'use server'` violation,
+#     a bad import boundary, a failing `generateStaticParams`, or a module that
+#     throws at import time during page-data collection.
+#
+# ── PROMOTION: NO (R16, 2026-09-18) ────────────────────────────────────────────
+#
+# This section used to argue that "Production Build" was ready to be promoted to
+# a required check on main once a few days of real PRs looked right. R16 settles
+# it the other way. On the 2-vCPU / 7.8 GB runners this repository now gets, the
+# build cannot complete at all, so it is not a candidate for a required check and
+# it no longer runs on pull requests. It was never in main's required-checks list
+# (verified 2026-09-18: that list is the four migration/typecheck contexts), so
+# moving it changes nothing about what can merge.
+#
+# The argument that survives, and the reason the job still ALWAYS reports a
+# conclusion rather than using a `paths-ignore:` trigger: a docs-only merge skips
+# the expensive steps and still reports success, so the red-main job below can
+# trust "not success" to mean "the build is broken".
+#
+# ── MEASURED: WHY THIS BUILD NEEDS SWAP, AND THE TWO WRONG ANSWERS FIRST ───────
+#
+# ⚠️ READ THIS BEFORE DEBUGGING A RED MARK FROM THIS GATE.
+#
+# On its first six runs this workflow failed on EVERY PR, including its own, and
+# NOT because of the PR. It is fixed now — by the swap step below — but the two
+# hypotheses that came first are kept here because each is the obvious answer,
+# and each is wrong in a way only the trace reveals. If you are about to "fix"
+# this gate by lowering a heap number or asking for a bigger runner, read on:
+# both were tried and measured.
+#
+# Every claim below is quoted from job logs, which are the only evidence that
+# survives: see "the Report step never runs" at the end.
+#
+#   job 103691131931  9088d80c4d attempt 1
+#   job 103691886647  9088d80c4d attempt 2   (byte-identical re-run)
+#   job 103692773340  884a9e2def             (first run carrying the memory trace)
+#   job 103693517213  dd9214c418
+#
+# All four compiled the app and then died to a bare pair of runner messages —
+# `The runner has received a shutdown signal.` followed by
+# `##[error]The operation was canceled.` — with no error of their own:
+#
+#   ✓ Compiled successfully in 4.3–4.8min   ← the app compiles. Nothing is broken.
+#   ✓ Completed runAfterProductionCompile
+#     Collecting page data using 3 workers ...
+#   ##[error]The operation was canceled.    ← 22s, 27s and 76s later
+#
+# They did NOT all die in the same place, and the difference matters. Attempt 1
+# never reached page-data collection at all: it has no "Collecting page data"
+# line and no "✓ Completed runAfterProductionCompile", and died 5s after
+# "Compiled successfully" while Sentry's runAfterProductionCompile hook was
+# still running. The other three died 22–76s into page-data collection.
+#
+# ── WHAT THE MEMORY TRACE ACTUALLY SHOWS (it is NOT the page-data workers) ──
+#
+# Runner is 4 vCPU / 15 GiB + 3 GiB swap — printed by the "Runner capacity" step
+# in all four runs (`vCPU: 4`, `Mem: 15Gi`). The trace from job 103692773340,
+# against that run's own phase timestamps:
+#
+#   07:36:49  used=14818MB  avail=1170MB   ┐
+#   07:37:19  used=15042MB  avail= 947MB   │ still "Creating an optimized
+#   07:37:34  used=15547MB  avail= 442MB   │  production build ..."
+#   07:37:49  used=15648MB  avail= 341MB   ┘
+#   ... avail stays between 226MB and 582MB for the next two minutes ...
+#   07:39:41  ✓ Compiled successfully in 4.8min
+#   07:39:47  Collecting page data using 3 workers ...   ← workers start HERE
+#   07:39:49  used=15860MB  avail= 129MB
+#   07:40:14  ##[error]The operation was canceled.
+#
+# So the box was already exhausted — under 1 GB available from 07:37:19, and
+# pinned near zero from 07:37:49 — a full 2.5 minutes BEFORE the first
+# page-data worker existed. Job 103693517213 has the same shape (avail=326MB at
+# 07:45:26; workers at 07:46:20).
+#
+# An earlier revision of this header blamed the three page-data workers, each
+# inheriting the 12 GB heap ceiling. The trace above refutes that: the memory is
+# consumed by the Turbopack COMPILE. Page-data collection is merely the phase
+# that happens to be running when a host sitting at ~130 MB available is finally
+# torn down — the last straw, not the cause.
+#
+# ── THE HEAP CAP: TRIED, AND SO FAR NOT THE ANSWER EITHER ───────────────────
+#
+# That same revision recommended a larger runner. Before spending money on that,
+# the cheaper hypothesis was tested, because this repo had already written it
+# down. Commit 53e85d8390 (2026-04-30), "fix(build): lower NODE_OPTIONS heap cap
+# from 12 GB to 7 GB to fit Vercel's 8 GB container":
+#
+#   "V8 doesn't trigger GC aggressively until heap nears the 12 GB cap, so
+#    total memory crosses the 8 GB physical limit and the Linux OOM-killer
+#    fires SIGKILL before V8 itself starts cleaning up. Counter-intuitive fix:
+#    lower the cap, not raise it. A smaller cap means V8 GCs sooner, keeping
+#    total memory under physical RAM."
+#
+# Good hypothesis, and it fits the shape of the trace. MEASURED, it did almost
+# nothing. Job 103713148466 ran the identical build at cap 8192 instead of
+# 12288, and the two curves are the same within noise:
+#
+#              +2:00 avail   +2:45 avail   at death
+#   cap 12288    1170 MB       442 MB       129 MB
+#   cap  8192    1007 MB       593 MB       104 MB
+#
+# If the V8 old-space heap were what fills this box, halving its ceiling would
+# have bent that curve. It did not, and there is a good reason: 53e85d8390 was
+# measured against `next build --webpack`, a JavaScript bundler whose memory
+# IS the V8 heap. Commit 042012f086 (#846) later switched this repo to
+# `next build --turbopack`. Turbopack is Rust; its allocations live outside the
+# V8 heap, where --max-old-space-size has no authority. That is also why
+# next.config.ts carries a SEPARATE `turbopackMemoryLimit` knob — currently
+# 4 GB, and evidently not holding either.
+#
+# ── HYPOTHESIS 3, THE RIGHT ONE: THE MEMORY IS TURBOPACK'S, SO GIVE IT SWAP ──
+#
+# Per-process RSS settled what neither cap experiment could. Job 103714083617,
+# running at --max-old-space-size=6144:
+#
+#   11:07:28  2632:1971M/node
+#   11:08:28  2632:10861M/node
+#   11:11:57  ✓ Compiled successfully in 4.6min
+#   11:12:26  2632:14867M/node   ← 2.4× the 6144 MB V8 cap
+#   11:12:41  ##[error]The operation was canceled.
+#
+# ONE node process at 14,867 MB while V8's old-space ceiling is 6,144 MB.
+# Memory that large inside a process capped that low is not in V8's old space:
+# it is Turbopack's Rust allocations, which run as a native addon in the same
+# process. No NODE_OPTIONS value governs them. (That also finishes off the
+# page-data-worker theory — one process, and this run died before page-data
+# collection began at all.)
+#
+# `turbopackMemoryLimit` in next.config.ts is the only config knob for it, and
+# that file is off-limits here because Vercel reads it. It cannot be set from
+# the environment either: Next 16.2.2 exposes NEXT_DISABLE_MEMORY_WATCHER,
+# NEXT_TURBOPACK_TRACING, NEXT_TURBOPACK_USE_WORKER and
+# NEXT_TURBOPACK_VERBOSE_ISSUES — no memory limit among them.
+#
+# What IS in CI's gift is how much the kernel can page out to. Swap does not
+# make the build use less memory; it gives the kernel somewhere to put cold
+# pages instead of killing the job. A standard runner ships ~15 GiB RAM and
+# 3.0 GiB of swap. That is not enough, and the failing runs prove it twice over:
+# they show `Swap: 3.0Gi 0B 3.0Gi` — swap present, ZERO used, killed anyway.
+#
+# With 24 GB of swap on /mnt and vm.swappiness=80, job 103714981423 went green:
+#
+#   11:17:22  swap=73MB      ← kernel starts paging, right where runs used to die
+#   11:19:52  swap=3897MB
+#   peak      swap=8898MB    ← ~8.9 GB, far past the 3.0 GiB a runner ships with
+#   11:20:07  ✓ Compiled successfully in 4.9min
+#   11:21:12  ✓ Generating static pages (1555/1555) in 29.3s
+#   11:21:22  serwist build — the whole chain, through to the end
+#
+# 8.9 GB of swap used is why the default 3.0 GiB could never have covered it,
+# and why raising swappiness alone would not have been enough either.
+#
+# Cost: the build step runs ~6.3 minutes, against ~5.5 for the runs that died
+# mid-way. Paging is cheaper here than a bigger runner, and it changes nothing
+# about the app.
+#
+# ── THE TWO SCRIPTS ─────────────────────────────────────────────────────────
+#
+#   `build`    — what Vercel runs. Cap 12288. UNTOUCHED by this workflow, and a
+#                parity guard keeps it that way.
+#   `build:ci` — what this job runs. The same steps in the same order, cap 6144.
+#
+# cross-env sets NODE_OPTIONS explicitly and so overrides anything a workflow
+# exports; a second script is the only way to build at a different cap. The
+# duplication is guarded by scripts/ci/check-build-ci-parity.mjs, which fails if
+# a step is ever added to one and not the other, or if the CI cap stops being
+# the lower of the two.
+#
+# The 6144 cap is now known NOT to be what makes this work — swap is. It is kept
+# because a lower ceiling costs nothing and keeps V8's own growth modest while
+# the machine is already paging. Raising it toward 12288 would increase fidelity
+# to production; nobody has measured whether the build still fits if you do.
+#
+# ── WHAT THE CI BUILD IS AND IS NOT ─────────────────────────────────────────
+#
+# It is NOT byte-identical to Vercel's build. It runs the same steps, the same
+# Turbopack, the same codegen and the same four `check:*` gates — but with a
+# smaller V8 heap ceiling, and on a machine given far more swap than Vercel's
+# container has. The second difference is the load-bearing one: this build
+# completes partly by paging, which Vercel's container may not be able to do.
+#
+#   CAUGHT: compile failures, a `'use server'` file with a synchronous export,
+#   bad import boundaries, a module that throws at import time during page-data
+#   collection, a failing generateStaticParams, and the gen:routes /
+#   check:reachability / check:sidebar / check:audit-coverage gates. That set
+#   includes the exact class that started this workflow (PR #3239).
+#
+#   NOT CAUGHT: a regression that builds at 12288 but not at the CI cap — extra
+#   headroom in production that CI no longer has. That direction is the safe
+#   one (CI is the stricter environment, so it fails first), but the reverse is
+#   a genuine blind spot: something that genuinely needs more than the CI cap
+#   goes red here while Vercel would have shipped it. If that happens, raise
+#   `build:ci`'s cap toward 12288 — do not lower `build`'s.
+#
+#   ALSO NOT CAUGHT: type errors. next.config.ts sets ignoreBuildErrors, so
+#   TypeCheck (PR-scoped) remains the only gate for those, in either build.
+#
+# ── TELLING THE TWO FAILURE KINDS APART ─────────────────────────────────────
+#
+# Do NOT use "did it get past Compiled successfully?" as the test. The class
+# this gate exists to catch — a `'use server'` violation, an import-time throw,
+# a failing generateStaticParams — surfaces DURING page-data collection, the
+# same phase where the memory death lands. Use the ERROR SHAPE instead:
+#
+#   • Out of memory  → NO error from next/node at all, just the runner's own
+#     `The runner has received a shutdown signal.` + `The operation was
+#     canceled.`, and the memory trace's last samples read avail < 300MB.
+#   • Caused by the PR → a NAMED error with a file and a reason, and the trace
+#     still showing healthy headroom.
+#
+# One consequence worth knowing: when the runner is killed this way the job's
+# final "Report" step does NOT run — `always()` cannot save a step on a machine
+# being torn down. Confirmed: not one of the six failing runs' logs contains any
+# Report output, while the green run's does. That is why this explanation lives
+# here, in the file, rather than only in a step summary nobody will receive.
+
+on:
+  # After each merge — the whole point of R16. The build is checked once, on the
+  # tree that will actually be deployed, instead of once per PR on a tree that
+  # will not be.
+  push:
+    branches: [main]
+  # For a human who wants the answer now: after a revert, after changing the swap
+  # sizing, or before firing the Vercel deploy hook.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # What matters on main is whether its TIP builds. During a merge wave an older
+  # run is answering a question about a tree nobody will deploy, so superseding it
+  # is correct and saves 10+ minutes of Actions time per merge. A superseded run
+  # reports `cancelled`, and the red-main job below deliberately ignores that
+  # conclusion — only a real `failure` opens the issue.
+  group: production-build-main
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Production Build
+    runs-on: ubuntu-latest
+    # A real build here is 3-7 minutes. 30 is deliberately generous: a timeout
+    # reports `cancelled`, which reads as neither pass nor fail, so a clock that
+    # is merely tight turns this gate into a source of unreadable verdicts.
+    timeout-minutes: 30
+
+    # No draft condition to make here any more: a push to main has no draft
+    # state. Cost is controlled by the build-relevance filter below — a merge
+    # that moved only docs, specs, SQL or migrations never pays for an install
+    # or a build.
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history for the base...head diff below
+
+      # Cost control. This repo's PRs are frequently docs-only or migration-only,
+      # and those cannot change the output of `next build`. Skipping them saves
+      # ~5 minutes of Actions time per PR without creating a blind spot: the deny
+      # list below is conservative, so anything not obviously inert builds.
+      # The filter itself lives in scripts/ci/build-relevance.sh so that its
+      # test suite runs the SAME code this step runs. It did not, originally,
+      # and the inline version shipped a false green: it asked git for
+      # `--diff-filter=AM`, so a PR that only DELETED or only RENAMED source
+      # files scored zero, skipped the build, and reported success. Merged
+      # PR #3295 (23 deleted route files) is a real example. See that script's
+      # header for the measurement and scripts/ci/build-relevance.test.sh for
+      # the fixtures — deletion, rename, rename-out-to-docs and typechange are
+      # all pinned there, and all four fail against the old invocation.
+      - name: Does this merge touch anything the build reads?
+        id: relevant
+        env:
+          # On `push` the pair is the previous tip of main and the new one, so
+          # the filter judges exactly what the merge added. `workflow_dispatch`
+          # sends neither, and a first push reports an all-zero `before`; both
+          # are handled below by building rather than by guessing a base.
+          BASE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.event.after || github.sha }}
+        run: |
+          set -euo pipefail
+          # build-relevance.sh exits 2 on an empty SHA by design — an empty list
+          # must never be confused with "nothing relevant". So the undiffable
+          # cases are answered here, and the only safe answer on main is "build".
+          if [ -z "${BASE_SHA:-}" ] \
+            || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ] \
+            || ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            echo "count=1" >> "$GITHUB_OUTPUT"
+            echo "::notice::No diffable base (before='${BASE_SHA:-}') — building unconditionally."
+            exit 0
+          fi
+          scripts/ci/build-relevance.sh changed  "$BASE_SHA" "$HEAD_SHA" > /tmp/changed.txt
+          scripts/ci/build-relevance.sh relevant "$BASE_SHA" "$HEAD_SHA" > /tmp/build-relevant.txt
+
+          total=$(wc -l < /tmp/changed.txt | tr -d ' ')
+          count=$(wc -l < /tmp/build-relevant.txt | tr -d ' ')
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+
+          echo "::group::Build-relevant files ($count of $total changed)"
+          head -50 /tmp/build-relevant.txt
+          # `if` rather than `[ … ] && echo`. Both are correct under `set -e` —
+          # bash exempts a failing test on the left of `&&` from -e, which was
+          # confirmed by running it, not by reading the manual — but the `if` form
+          # does not require the reader to know that exemption to see it is safe.
+          if [ "$count" -gt 50 ]; then echo "... and $((count - 50)) more"; fi
+          echo "::endgroup::"
+
+      - name: Skip — nothing build-relevant changed
+        if: steps.relevant.outputs.count == '0'
+        run: |
+          echo "::notice::This merge changes only docs/SQL/spec files, which cannot affect \`next build\`. Build skipped."
+          {
+            echo "## Production Build — skipped"
+            echo ""
+            echo "This merge touches no file that \`next build\` reads (docs, specs, SQL and"
+            echo "migrations only), so the build was not run. The job still reports success, so"
+            echo "a skipped build never opens the red-main issue."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup Node
+        if: steps.relevant.outputs.count != '0'
+        uses: actions/setup-node@v4
+        with:
+          # 22 matches typecheck-pr-scoped.yml and one of the two majors that
+          # seed-node-modules-cache.yml warms. Changing it here costs a cold
+          # install on every run.
+          node-version: '22'
+
+      # Key is byte-identical to the one seed-node-modules-cache.yml writes from
+      # main, which is the only way a PR run gets a hit: GitHub scopes caches
+      # created inside a PR to that PR's own merge ref.
+      - name: Cache node_modules
+        if: steps.relevant.outputs.count != '0'
+        id: nm
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+
+      - name: Install deps
+        if: steps.relevant.outputs.count != '0' && steps.nm.outputs.cache-hit != 'true'
+        run: npm ci --no-audit --no-fund
+
+      # Printed because the answer was not knowable before this workflow's first
+      # real run, and it decides whether this gate is viable as written.
+      #
+      # `npm run build` hard-codes `cross-env NODE_OPTIONS="--max-old-space-size=12288
+      # --max-semi-space-size=128"` — a 12 GB heap ceiling. cross-env sets those
+      # explicitly, so they OVERRIDE anything this workflow exports; the values
+      # cannot be tuned from here without editing package.json, which would change
+      # what Vercel runs and is out of this change's scope.
+      #
+      # NOW ANSWERED, by this step itself on all four runs to date: the runner is
+      # 4 vCPU / 15 GiB + 3 GiB swap (`vCPU: 4`, `Mem: 15Gi`) — NOT the 2 vCPU /
+      # ~7 GB an earlier revision of this comment predicted. The prediction was a
+      # guess written before the first run; the numbers below are the measurement.
+      # The extra headroom does not save the build: see the memory trace in the
+      # header, where the compile alone drives available memory under 300 MB.
+      #
+      # Keep this step. A 12 GB ceiling is a ceiling, not an allocation, so an
+      # over-budget build does not fail with a clean message — the kernel or the
+      # runner agent ends it and the log reads as a generic cancellation. Having
+      # the machine's real size in every log turns that diagnosis into seconds.
+      - name: Runner capacity (diagnostic for the heap ceiling)
+        if: steps.relevant.outputs.count != '0'
+        run: |
+          echo "vCPU: $(nproc)"
+          free -h
+          echo "This job runs 'npm run build:ci' (heap cap 6144). Vercel runs 'npm run build' (12288)."
+          echo "If this job dies with a bare non-zero exit or 'Killed', compare that to MemTotal above."
+
+      # `build:ci`, NOT `build`. Same steps in the same order — the parity guard
+      # in the self-test job enforces that — differing only in the V8 heap cap:
+      # 6144 here against production's 12288. See the header for why a LOWER cap
+      # is what makes the build fit. `build` itself is untouched, so the command
+      # Vercel runs is byte-identical to what it was before this workflow existed.
+      # The last lever that lives entirely inside CI. Per-process RSS (job
+      # 103714083617) showed ONE node process reaching 14,867 MB against a
+      # 6,144 MB V8 cap — 2.4x the cap — so the memory is Turbopack's Rust
+      # allocations, outside V8, where --max-old-space-size has no authority and
+      # `turbopackMemoryLimit` (next.config.ts, off-limits here) is the only
+      # config knob. What CI CAN change is how much the kernel has to page into.
+      # A standard runner ships ~4 GB of swap on a 15 GiB box but has ~70 GB free
+      # on /mnt. Swap does not make the build use less memory; it gives the
+      # kernel somewhere to put cold pages instead of killing the job, at the
+      # cost of speed. The 30-minute timeout bounds that cost.
+      #
+      # Nothing here touches package.json, next.config.ts, or anything Vercel
+      # executes — it is runner configuration, not build configuration.
+      - name: Give the runner more swap
+        if: steps.relevant.outputs.count != '0'
+        run: |
+          set -euo pipefail
+          echo "before:"; free -h
+          sudo swapoff -a || true
+          sudo rm -f /mnt/swapfile /swapfile
+          # Size the swapfile to the disk that is actually there. From 2026-09-16
+          # 22:34 IST the hosted runner's /mnt no longer holds 24G ("fallocate:
+          # No space left on device") and three builds in a row died here before
+          # compiling a line. Take the emptier of /mnt and /, keep 4G of headroom,
+          # cap at 24G, and never fail the build over swap — a smaller file is
+          # still better than none.
+          pick=/mnt; [ "$(df --output=avail -BG /mnt | tail -1 | tr -dc 0-9)" -ge "$(df --output=avail -BG / | tail -1 | tr -dc 0-9)" ] || pick=/
+          avail=$(df --output=avail -BG "$pick" | tail -1 | tr -dc 0-9)
+          size=$(( avail - 4 )); [ "$size" -gt 24 ] && size=24
+          swapfile="$pick/swapfile"; [ "$pick" = / ] && swapfile=/swapfile
+          echo "swap: $pick has ${avail}G free -> ${size}G swapfile at $swapfile"
+          if [ "$size" -ge 2 ]; then
+            (sudo fallocate -l "${size}G" "$swapfile" || sudo dd if=/dev/zero of="$swapfile" bs=1M count=$(( size * 1024 )) status=none) \
+              && sudo chmod 600 "$swapfile" && sudo mkswap "$swapfile" > /dev/null && sudo swapon "$swapfile" \
+              || echo "::warning::could not enable a ${size}G swapfile at $swapfile — building with what the runner has"
+          else
+            echo "::warning::only ${avail}G free on $pick — building without extra swap"
+          fi
+          # Prefer swapping over dying. The default (60) is tuned for interactive
+          # machines; a batch build would rather page than be killed.
+          sudo sysctl -w vm.swappiness=80 > /dev/null
+          echo "after:"; free -h
+
+      - name: Build (same steps as Vercel, lower heap cap)
+        if: steps.relevant.outputs.count != '0'
+        env:
+          # ── PLACEHOLDERS, NOT SECRETS ────────────────────────────────────────
+          # Nothing here is real and nothing here may become real. This job
+          # compiles the app; it must never hold a credential that could reach a
+          # live database, because a build runs arbitrary repo code.
+          #
+          # They exist because `lib/supabase/server.ts:92` throws
+          # "Missing Supabase service role credentials" when SUPABASE_SERVICE_ROLE_KEY
+          # is absent, and any module that builds a client at import time would
+          # take the build down during page-data collection. A syntactically valid
+          # value is all that is needed — supabase-js validates that the URL parses,
+          # and never contacts the host at build time.
+          #
+          # No repo secret is used or added. Checked before writing this: no
+          # workflow in .github/workflows references a SUPABASE_SERVICE_ROLE_KEY
+          # secret, so there was none to reuse. In particular SUPABASE_DB_URL is
+          # NOT repurposed here — it is a SHARED SUPERUSER connection string used
+          # by five workflows, and handing it to a build job would be a privilege
+          # escalation dressed as a convenience.
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key-build-only
+          SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key-build-only
+          # Keeps Next's anonymous build telemetry out of CI.
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: |
+          # A memory sampler streaming to STDOUT, not to a file summarised at the
+          # end. That distinction is the whole point: when a job dies of memory
+          # exhaustion the runner agent is killed too, so any "print the peak
+          # afterwards" step never executes and the log ends on silence. Streamed
+          # lines are already in the log when the process dies, so the trajectory
+          # up to the last breath is readable.
+          #
+          # Added after this gate's first two runs both died at exactly
+          # "Collecting page data using 3 workers ..." with a bare
+          # "##[error]The operation was canceled." and no diagnostic of any kind.
+          # ~20 lines per build, inside a collapsed group.
+          # Each sample also names the three largest processes by RSS. Added
+          # after the cap step-down from 12288 to 8192 moved the curve by almost
+          # nothing (avail at +2:00 went 1170MB -> 1007MB; death 129MB -> 104MB),
+          # which says the V8 old-space heap is not what is filling this box.
+          # System-wide totals cannot distinguish "one compiler holding 12 GB"
+          # from "three workers holding 4 GB each", and those two have different
+          # fixes. Per-process RSS can.
+          echo "::group::Memory trace (15s samples)"
+          ( while true; do
+              echo "[mem] $(date -u +%H:%M:%S) $(free -m | awk '/^Mem:/{printf "used=%sMB avail=%sMB", $3, $7} /^Swap:/{printf " swap=%s/%sMB", $3, $2}') top3(pid:rss) $(ps -eo pid,rss,comm --sort=-rss --no-headers 2>/dev/null | head -3 | awk '{printf "%s:%dM/%s ", $1, $2/1024, $3}')"
+              sleep 15
+            done ) &
+          sampler=$!
+          # Do not let the sampler's death mask the build's exit code.
+          set +e
+          npm run build:ci
+          build_exit=$?
+          set -e
+          kill "$sampler" 2>/dev/null || true
+          echo "::endgroup::"
+          exit "$build_exit"
+
+      - name: Report
+        if: always() && steps.relevant.outputs.count != '0'
+        run: |
+          {
+            if [ "${{ job.status }}" = "success" ]; then
+              echo "## Production Build passed"
+              echo ""
+              echo "\`npm run build:ci\` completed — the same steps Vercel runs on deploy, at a"
+              echo "lower V8 heap cap (8 GB here, 12 GB on Vercel)."
+            else
+              echo "## Production Build FAILED"
+              echo ""
+              echo "\`npm run build:ci\` did not complete on \`main\`. It runs **the same steps"
+              echo "Vercel runs**, so the next deploy is likely to be blocked for the whole"
+              echo "repository, not just for the module the last merge touched."
+              echo ""
+              echo "Reproduce locally with the same placeholder env:"
+              echo ""
+              echo '```bash'
+              echo 'NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co \'
+              echo 'NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder-anon-key-build-only \'
+              echo 'SUPABASE_SERVICE_ROLE_KEY=placeholder-service-role-key-build-only \'
+              echo 'npm run build:ci'
+              echo '```'
+              echo ""
+              echo "One failure mode is specific to CI: \`build:ci\` caps V8 at 8 GB where Vercel"
+              echo "allows 12 GB, so a change that genuinely needs more than 8 GB fails here and"
+              echo "would have shipped there. The memory trace in the log tells you which — an"
+              echo "out-of-memory death has no named error, just the runner's own shutdown"
+              echo "message, with the last samples reading avail < 300MB. If that is what you"
+              echo "see, raise \`build:ci\`'s cap; never lower \`build\`'s."
+              echo ""
+              echo "Note that \`npm run build:ci\` also re-runs \`check:sidebar\`, \`check:reachability\`"
+              echo "and \`check:audit-coverage\`. If **nav-reachability-gate** or"
+              echo "**module-config-audits** is also red on this commit, fix that first — this job is"
+              echo "most likely reporting the same underlying failure, before it ever reached"
+              echo "\`next build\`."
+            fi
+            echo ""
+            echo "---"
+            echo ""
+            echo "_**Post-merge check (R16, 2026-09-18).** This runs after the merge, not on the"
+            echo "pull request, because the 2-vCPU runners GitHub now gives this repo cannot finish"
+            echo "a ~13 GB \`next build\`. It blocks nothing; when it is red the \`red-main\` job opens"
+            echo "or updates the issue **Production Build on main is red**._"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ── MAKING A RED MAIN VISIBLE ────────────────────────────────────────────────
+  #
+  # A per-PR gate announced itself on the PR page. A post-merge build announces
+  # itself nowhere, so without this job R16 would trade a noisy gate for a silent
+  # one. This keeps exactly ONE issue open: created on the first red build,
+  # commented on for each subsequent one, closed when main builds again.
+  #
+  # It is a separate job on purpose. When this build dies of memory exhaustion the
+  # runner agent is torn down with it, and `always()` cannot save a step on a
+  # machine that is going away — which is why the build job's own Report step is
+  # missing from every one of the failing runs. A separate job gets a fresh
+  # runner, so it reports even when the build's machine was killed.
+  #
+  # `cancelled` is deliberately NOT treated as red: on this workflow that
+  # conclusion means the run was superseded by a newer merge (see `concurrency`
+  # above), and the newer run answers the same question about a newer tree.
+  red-main:
+    name: Red main is visible
+    runs-on: ubuntu-latest
+    needs: build
+    if: ${{ always() && github.event_name == 'push' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Open, update or close the red-main issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          title='Production Build on main is red'
+
+          # Matched on the title rather than a label: the title is the key, and a
+          # label would have to exist on the repo first.
+          #
+          # A plain list, NOT `--search "… in:title"`. The search index lags a
+          # newly created issue by seconds to minutes, so two red merges in quick
+          # succession would each find nothing and each open an issue — the one
+          # thing this job exists to avoid. The list endpoint is immediately
+          # consistent. 200 is ~4x this repo's open-issue count (48 on
+          # 2026-09-18); if it ever overflows the worst case is a second issue,
+          # not a missed red main.
+          existing=$(gh issue list --state open --limit 200 \
+            --json number,title \
+            --jq "[.[] | select(.title == \"$title\") | .number] | first // empty")
+
+          if [ "$BUILD_RESULT" = "success" ] || [ "$BUILD_RESULT" = "skipped" ]; then
+            if [ -n "$existing" ]; then
+              gh issue comment "$existing" --body "main builds again as of \`$SHA\` — $RUN_URL"
+              gh issue close "$existing"
+              echo "closed #$existing"
+            else
+              echo "main is green and no issue is open — nothing to do."
+            fi
+            exit 0
+          fi
+
+          if [ "$BUILD_RESULT" = "cancelled" ]; then
+            echo "Build cancelled (superseded by a newer merge, or cancelled by hand) — not treated as red."
+            exit 0
+          fi
+
+          # printf rather than a heredoc: a heredoc's body would have to sit at
+          # column 0, and a line less indented than this `run: |` block ends the
+          # YAML block scalar — the file stops parsing as a workflow.
+          body=$(printf '%s\n' \
+            "\`npm run build:ci\` did not pass on \`main\` at \`$SHA\`." \
+            "" \
+            "Run: $RUN_URL" \
+            "" \
+            "This is the same chain Vercel runs on deploy, so a red main here usually means" \
+            "the next production deploy is blocked for the whole repository, not just for the" \
+            "module the last merge touched." \
+            "" \
+            "Since R16 (2026-09-18) this build runs after each merge instead of on every pull" \
+            "request, because the 2-vCPU / 7.8 GB runners GitHub now gives this repository" \
+            "cannot finish a ~13 GB \`next build\`. If the run above died with no named error" \
+            "and the memory trace's last samples read \`avail < 300MB\`, that is the runner," \
+            "not the merge." \
+            "" \
+            "This issue is opened once, commented on for each further red build, and closed" \
+            "automatically when main builds again.")
+
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+            echo "commented on #$existing"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
