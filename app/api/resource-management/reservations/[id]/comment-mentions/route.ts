@@ -35,6 +35,7 @@ import {
 import { grantAndNotifyTags } from '@/lib/services/shared/comment-mention-alerts';
 import { commentWriteMessage } from '@/lib/services/shared/comment-threads';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { recordFeatureUse, FEATURE_KEYS } from '@/lib/usage/record';
 
 const MOD = 'resource-management/reservation-comment-mentions';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -196,6 +197,12 @@ export async function POST(
       count: outcome.notNotified.length,
       error: outcome.alertError,
     });
+  }
+
+  // Adoption loop: count the use only when someone was actually tagged. `db`
+  // is the session client (auth.uid()); the helper never throws.
+  if (outcome.tagged.length > 0) {
+    await recordFeatureUse(db, FEATURE_KEYS.RESOURCES_TAG_COLLEAGUE);
   }
 
   const toNames = (ids: string[]) => ids.map((uid) => names.get(uid) ?? 'Unknown');

@@ -35,6 +35,7 @@ import {
 } from '@/lib/supabase/server';
 import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { recordFeatureUse, FEATURE_KEYS } from '@/lib/usage/record';
 
 const MODULE = 'resource-management/reservations/communicate';
 const PERMISSION_KEY = 'resources.reservations.communicate';
@@ -199,6 +200,12 @@ export async function POST(request: NextRequest) {
       continue;
     }
     sent += inserted?.length ?? 0;
+  }
+
+  // Adoption loop: count the use only when a message actually went out. The
+  // session client carries auth.uid(); the helper never throws.
+  if (sent > 0) {
+    await recordFeatureUse(session, FEATURE_KEYS.RESOURCES_MESSAGE_BOOKED_USERS);
   }
 
   return NextResponse.json({
