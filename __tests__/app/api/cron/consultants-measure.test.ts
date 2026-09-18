@@ -65,7 +65,12 @@ vi.mock('@/lib/services/loops/loop-bar-measurement', () => ({
   },
 }));
 
-import { GET, meanWindowConversionRate } from '@/app/api/cron/consultants-measure/route';
+import {
+  GET,
+  ZERO_CONVERSION_NOTE,
+  meanWindowConversionRate,
+  zeroConversionNote,
+} from '@/app/api/cron/consultants-measure/route';
 
 const SECRET = 'test-cron-secret';
 
@@ -203,6 +208,91 @@ describe('no consultants above the floor', () => {
     expect(res.status).toBe(200);
     expect(body.measured).toBe(0);
     expect(body.headline).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Director ruling 2026-09-19 — "Keep 'enrolled', show zero".
+//
+// The estimator counts a conversion only at current_stage IN
+// ('enrolled','confirmed'), and live NO attributed lead has ever reached that
+// stage (all 1,857 attributions sit at lead_registered / application_started /
+// new / contacted). The ruling KEEPS that rule, so the headline is 0.00 on
+// every run — recorded as a real 0, carrying the sentence that says why.
+//
+// The failure this guards against is the opposite of the null case above: a
+// bare 0.00 that reads as "these consultants convert nobody", when the true
+// statement is "nobody has been moved to the stage that counts yet".
+// ---------------------------------------------------------------------------
+describe('a 0.00 headline says why it is 0.00', () => {
+  it('records 0, not null, when consultants have attributions but no conversions', async () => {
+    rpcResult = { data: [row(40, 0), row(120, 0)], error: null };
+
+    const res = await GET(request(SECRET));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.measured).toBe(2);
+    expect(body.above_floor).toBe(2);
+    // A real reading of zero — NOT the null that means "nobody cleared the floor".
+    expect(body.headline).toBe(0);
+    expect(body.note).toBe(ZERO_CONVERSION_NOTE);
+    expect(body.note).toContain("'enrolled'/'confirmed'");
+  });
+
+  it('carries that 0 through to the bar as a number, never as a null', async () => {
+    rpcResult = { data: [row(40, 0)], error: null };
+
+    await GET(request(SECRET));
+
+    expect(barCalls).toHaveLength(1);
+    expect(barCalls[0].loopKey).toBe('consultants');
+    expect(barCalls[0].value).toBe(0);
+  });
+
+  it('adds no note when the measure returned no rows at all', async () => {
+    // An empty ledger is not evidence that nobody converts.
+    rpcResult = { data: [], error: null };
+
+    const res = await GET(request(SECRET));
+    const body = await res.json();
+
+    expect(body.measured).toBe(0);
+    expect(body.headline).toBeNull();
+    expect(body.note).toBeNull();
+  });
+
+  it('adds no note when nobody cleared the floor, because there is no reading to explain', async () => {
+    rpcResult = { data: [row(1, null), row(4, null)], error: null };
+
+    const res = await GET(request(SECRET));
+    const body = await res.json();
+
+    expect(body.headline).toBeNull();
+    expect(body.note).toBeNull();
+  });
+
+  it('adds no note once a consultant actually converts somebody', async () => {
+    rpcResult = { data: [{ ...row(20, 15), window_conversions: 3 }], error: null };
+
+    const res = await GET(request(SECRET));
+    const body = await res.json();
+
+    expect(body.headline).toBe(15);
+    expect(body.note).toBeNull();
+  });
+
+  it('explains a mixed run whose mean still lands on 0', () => {
+    // Every measured consultant converted nobody, so the mean is 0 and the
+    // sentence applies even though the rows differ in size.
+    expect(zeroConversionNote([row(10, 0), row(600, 0)] as never, 0)).toBe(ZERO_CONVERSION_NOTE);
+  });
+
+  it('refuses to explain a 0 that was never measured over any attribution', () => {
+    // No attributions anywhere: a 0 here would be arithmetic, not a finding.
+    expect(zeroConversionNote([row(0, 0)] as never, 0)).toBeNull();
+    expect(zeroConversionNote([] as never, 0)).toBeNull();
   });
 });
 

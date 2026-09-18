@@ -107,6 +107,45 @@ export function meanWindowConversionRate(
   return { headline: Math.round(mean * 100) / 100, aboveFloor: values.length };
 }
 
+/**
+ * Why the headline reads 0.00 (Director ruling 2026-09-19, "Keep 'enrolled',
+ * show zero").
+ *
+ * The estimator counts a conversion only at current_stage IN
+ * ('enrolled','confirmed'). Live, no attributed lead has ever reached that
+ * stage — the ledger stops at lead_registered / application_started — so the
+ * mean window rate is 0.00 on every run. The ruling is to KEEP that rule and
+ * record the 0.00 honestly rather than relabel the estimator to a stage that
+ * leads do reach, which would move the number without moving the outcome.
+ *
+ * A bare 0.00 on a screen reads as "these consultants convert nobody". It is
+ * more nearly "nobody has been moved to the stage that counts yet", so the run
+ * carries that sentence with it.
+ */
+export const ZERO_CONVERSION_NOTE =
+  "0.00 — no attributed lead has reached the 'enrolled'/'confirmed' stage in the system " +
+  '(Director ruling 2026-09-19: keep the enrolled rule, show zero)';
+
+/**
+ * The note, when this run is one of those 0.00 runs; null otherwise.
+ *
+ * Two ways in, both requiring a real reading (a numeric headline) over real
+ * attributions — never over an empty ledger, and never in place of the honest
+ * NULL that means nobody cleared the de-noise floor:
+ *   * every measured consultant converted nobody in the window, or
+ *   * the headline itself came out 0 while attributions were counted.
+ */
+export function zeroConversionNote(rows: MeasureRow[], headline: number | null): string | null {
+  if (typeof headline !== 'number' || !Number.isFinite(headline)) return null;
+  const attributions = rows.reduce(
+    (sum, r) => sum + (asFiniteNumber(r.window_attributions) ?? 0),
+    0
+  );
+  if (attributions <= 0) return null;
+  const noneConverted = rows.every((r) => (asFiniteNumber(r.window_conversions) ?? 0) === 0);
+  return noneConverted || headline === 0 ? ZERO_CONVERSION_NOTE : null;
+}
+
 export async function GET(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
@@ -153,7 +192,16 @@ export async function GET(request: NextRequest) {
   const rows = data as MeasureRow[];
 
   const { headline, aboveFloor } = meanWindowConversionRate(rows, floor);
+  const note = zeroConversionNote(rows, headline);
 
+  // The measurement is recorded AS-IS: value = the headline the estimator
+  // produced (0 on every run until a lead reaches enrolled/confirmed).
+  // recordLoopMeasurement takes no caller-supplied reason — it derives `gap`
+  // itself from the loop's own bar — and that module ships in #3883, not here,
+  // so it is not changed to carry one. Nor is the note smuggled into `runId`:
+  // that field traces a measurement back to its run and is not a comment box.
+  // The sentence therefore rides on this route's response, where the
+  // dispatcher's run log keeps it.
   const barRun = await recordLoopMeasurement(admin, {
     loopKey: CONSULTANTS_LOOP_KEY,
     value: headline,
@@ -166,6 +214,7 @@ export async function GET(request: NextRequest) {
     above_floor: aboveFloor,
     min_attributions_k: floor,
     headline,
+    note,
     bar_recorded: barRun.recorded,
     bar_met: barRun.met,
     bar_error: barRun.error ?? null,
