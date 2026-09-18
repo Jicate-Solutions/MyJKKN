@@ -25,7 +25,7 @@ import { useQuery } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type {
   CommunityClusterTotals,
-  CommunityCollegeTotals,
+  CommunityCollegeRow,
 } from './community-collaboration';
 
 export const cacCommunityClusterKeys = {
@@ -65,15 +65,23 @@ async function fetchCommunityClusterTotals(): Promise<CommunityClusterTotals | n
   return (row as CommunityClusterTotals | undefined) ?? null;
 }
 
-/** `fn_community_college_totals()` returns one row per institution. */
-async function fetchCommunityCollegeTotals(): Promise<CommunityCollegeTotals[]> {
+/**
+ * `fn_community_college_totals()` returns one row per (college, INITIATIVE) —
+ * not one per college.
+ *
+ * The rows are handed on at that grain and folded into college lines by
+ * `aggregateColleges`, so that the fold is a pure function a test can drive
+ * rather than something buried in a fetch. This hook's job ends at the
+ * contract.
+ */
+async function fetchCommunityCollegeRows(): Promise<CommunityCollegeRow[]> {
   const sb = createClientSupabaseClient() as any;
   const { data, error } = await sb.rpc('fn_community_college_totals');
   if (error) throw error;
   // Anything that is not an array is a contract change, and an empty list is
   // the safe reading of it: the panel treats "no rows" as "nothing recorded",
   // never as "these colleges did nothing".
-  return Array.isArray(data) ? (data as CommunityCollegeTotals[]) : [];
+  return Array.isArray(data) ? (data as CommunityCollegeRow[]) : [];
 }
 
 export function useCacCommunityClusterTotals() {
@@ -84,10 +92,10 @@ export function useCacCommunityClusterTotals() {
   });
 }
 
-export function useCacCommunityCollegeTotals() {
+export function useCacCommunityCollegeRows() {
   return useQuery({
     queryKey: cacCommunityCollegeKeys.all,
-    queryFn: fetchCommunityCollegeTotals,
+    queryFn: fetchCommunityCollegeRows,
     ...SHARED_QUERY_OPTIONS,
   });
 }

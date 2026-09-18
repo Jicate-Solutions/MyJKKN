@@ -46,29 +46,87 @@
 // the screen can say the true sentence rather than the expected one.
 // ============================================================================
 
-/** One row from `fn_community_cluster_totals()`. The cluster, counted once. */
+// ----------------------------------------------------------------------------
+// THE TWO RPC SHAPES, COPIED FROM THE FUNCTIONS THEMSELVES.
+//
+// These are not a description of what the panel wants; they are the RETURNS
+// TABLE clauses of `fn_community_cluster_totals()` and
+// `fn_community_college_totals()` in
+// supabase/migrations/20261226113000_community_engagement_joint_departments.sql,
+// field for field and name for name.
+//
+// An earlier version described the shape the screen wished for instead, and the
+// panel went out reading keys that were not there. Nothing threw: a missing key
+// on an `any` payload is not an error, it is `undefined`, `num()` turns that
+// into 0, and 0 prints as "nothing recorded yet". Every type checked, every
+// test passed, and the screen would have reported an empty register over real
+// work. The per-college table was the whole of it — all four of its numeric
+// columns, and the asymmetry paragraph computed from them — plus the two
+// cluster volume figures, which the sibling lane has since renamed to
+// `total_beneficiaries` / `total_hours` to match what was written here.
+//
+// So: when either function's signature changes, change these first and let the
+// compiler find the callers.
+// ----------------------------------------------------------------------------
+
+/** The one row `fn_community_cluster_totals()` returns. The cluster, counted once. */
 export interface CommunityClusterTotals {
+  /** Every approved initiative, joint and solo together. */
+  initiatives: number;
+  /** People reached, counting a shared initiative ONCE. */
   total_beneficiaries: number;
   total_hours: number;
   joint_initiatives: number;
   solo_initiatives: number;
-  /** Beneficiaries per joint initiative. */
-  avg_reach_joint: number;
-  /** Beneficiaries per solo initiative. */
-  avg_reach_solo: number;
+  /**
+   * Beneficiaries per joint initiative.
+   *
+   * NULL — never 0 — when there is nothing to average. The function returns it
+   * that way deliberately (decision D4): a 0 here would read as "joint
+   * initiatives reach nobody", which is a measurement, and no measurement has
+   * been taken.
+   */
+  avg_reach_joint: number | null;
+  /** Beneficiaries per solo initiative. NULL, never 0, when nothing is on record. */
+  avg_reach_solo: number | null;
 }
 
 /**
- * One row from `fn_community_college_totals()`.
+ * One row from `fn_community_college_totals()` — which is one row per
+ * (college, initiative), NOT one row per college.
  *
- * `beneficiaries` is the FULL figure for every initiative this college took
- * part in, shared ones included — which is what makes these rows sum past the
- * cluster total. See `beneficiaryAsymmetry`.
+ * `beneficiaries_count` is the FULL figure for the initiative, carried whole by
+ * every college that took part (decision D2). `hours_contributed` is this
+ * college's own confirmed hours, not the initiative's total, because
+ * beneficiaries are shared and effort is not. `shared_with` counts the
+ * confirmed participating departments belonging to OTHER colleges, so a
+ * two-department initiative inside one college reads `is_shared = false`.
+ */
+export interface CommunityCollegeRow {
+  institution_id: string | null;
+  institution_name: string | null;
+  engagement_id: string;
+  title: string | null;
+  engagement_date: string | null;
+  beneficiaries_count: number | null;
+  hours_contributed: number | null;
+  is_shared: boolean;
+  shared_with: number;
+}
+
+/**
+ * One college's line in the per-college table.
+ *
+ * DERIVED HERE, not returned by any function — `fn_community_college_totals()`
+ * returns initiative rows and the table shows colleges. `aggregateColleges`
+ * below is the only thing that builds one.
  */
 export interface CommunityCollegeTotals {
   institution_id: string | null;
   institution_name: string | null;
+  /** The full figure for every initiative this college took part in, summed. */
   beneficiaries: number;
+  /** This college's own confirmed hours, summed. */
   hours: number;
   initiatives: number;
   shared_initiatives: number;
@@ -299,6 +357,64 @@ export function beneficiaryAsymmetry(
     gap: Math.abs(collegesSum - clusterTotal),
     collegesSharing,
   };
+}
+
+/**
+ * INITIATIVE ROWS IN, COLLEGE LINES OUT.
+ *
+ * `fn_community_college_totals()` returns one row per (college, initiative)
+ * because that is the grain the confirmations are recorded at — each row
+ * carries the initiative's title and date and this college's own confirmed
+ * hours. The table shows one line per college, so the folding has to happen
+ * somewhere; it happens here, in the pure module, where it can be exercised
+ * without a database.
+ *
+ * WHAT IS SUMMED AND WHAT IS COUNTED, AND WHY THEY DIFFER.
+ *   `beneficiaries` sums the FULL figure of every initiative this college took
+ *   part in (decision D2) — that is exactly what makes this column add up to
+ *   more than the cluster total, which `beneficiaryAsymmetry` then states out
+ *   loud rather than reconciling away.
+ *   `hours` sums `hours_contributed`, which is already this college's own
+ *   confirmed effort and not the initiative's total.
+ *   `shared_initiatives` counts the rows flagged `is_shared`, which the
+ *   function sets from confirmed departments belonging to OTHER colleges. A
+ *   second department inside the same college does not make an initiative
+ *   shared, and counting it would be the hub-traffic mistake wearing a
+ *   different hat.
+ *
+ * A null figure is read as "not recorded", which sums as nothing — never as a
+ * zero the screen could print. The screen never sees a raw total anyway: it
+ * sees `initiatives`, which is what tells "nothing recorded yet" apart from
+ * "counted nobody".
+ */
+export function aggregateColleges(
+  rows: CommunityCollegeRow[],
+): CommunityCollegeTotals[] {
+  const byCollege = new Map<string, CommunityCollegeTotals>();
+
+  for (const row of rows) {
+    // Institutions the function could not name still deserve a line rather
+    // than silent omission — a dropped row would quietly shrink the column the
+    // asymmetry sentence is computed from.
+    const key = row.institution_id ?? row.institution_name ?? '\u0000unnamed';
+    const college = byCollege.get(key) ?? {
+      institution_id: row.institution_id ?? null,
+      institution_name: row.institution_name ?? null,
+      beneficiaries: 0,
+      hours: 0,
+      initiatives: 0,
+      shared_initiatives: 0,
+    };
+
+    college.initiatives += 1;
+    college.beneficiaries += num(row.beneficiaries_count);
+    college.hours += num(row.hours_contributed);
+    if (row.is_shared) college.shared_initiatives += 1;
+
+    byCollege.set(key, college);
+  }
+
+  return [...byCollege.values()];
 }
 
 /**

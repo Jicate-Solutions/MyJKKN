@@ -64,12 +64,13 @@ import {
 } from 'lucide-react';
 import {
   useCacCommunityClusterTotals,
-  useCacCommunityCollegeTotals,
+  useCacCommunityCollegeRows,
 } from '../_lib/use-cac-community';
 import {
   reachComparison,
   communityVolume,
   beneficiaryAsymmetry,
+  aggregateColleges,
   collegesByName,
   READABLE_INITIATIVES,
 } from '../_lib/community-collaboration';
@@ -959,17 +960,23 @@ function IsolationPanel() {
 
 function CommunityCollaborationPanel() {
   const cluster = useCacCommunityClusterTotals();
-  const colleges = useCacCommunityCollegeTotals();
+  const colleges = useCacCommunityCollegeRows();
 
   const totals = cluster.data ?? null;
+  // One row per (college, initiative) out of the function; one line per college
+  // on screen. The fold happens in the pure module, not here.
   const rows = useMemo(() => colleges.data ?? [], [colleges.data]);
+  const perCollege = useMemo(() => aggregateColleges(rows), [rows]);
 
   // All four derived in the pure module, where they can be exercised without a
   // database — the same split every other panel here uses.
   const reach = useMemo(() => reachComparison(totals), [totals]);
   const volume = useMemo(() => communityVolume(totals), [totals]);
-  const asymmetry = useMemo(() => beneficiaryAsymmetry(totals, rows), [totals, rows]);
-  const ordered = useMemo(() => collegesByName(rows), [rows]);
+  const asymmetry = useMemo(
+    () => beneficiaryAsymmetry(totals, perCollege),
+    [totals, perCollege],
+  );
+  const ordered = useMemo(() => collegesByName(perCollege), [perCollege]);
 
   const error = cluster.error ?? colleges.error;
   const isLoading = cluster.isLoading || colleges.isLoading;
