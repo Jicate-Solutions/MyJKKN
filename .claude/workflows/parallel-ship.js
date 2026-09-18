@@ -67,8 +67,8 @@ const RECONCILE_SCHEMA = { type: 'object', required: ['action'],
 // ── unwrap: the harness sometimes hands a structured agent result back as
 //    {input:'<json string>'} instead of the parsed object (observed in run
 //    wf_a577e9cc-b67). NO schema in this file declares an `input` property, so an
-//    `input` string on an agent result means the wrapper whatever the payload's
-//    own shape — which is why this does not gate on pr_number: a wrapped
+//    `input` string on an agent result means the wrapper is present, whatever
+//    the payload's own shape — which is why this does not gate on pr_number: a wrapped
 //    {already_exists}, a wrapped verdict and a wrapped reconcile result carry no
 //    pr_number either. A payload that is not a plain object (JSON.parse('null')
 //    returns null, JSON.parse('7') a number) is left wrapped so the caller's
@@ -215,7 +215,15 @@ const results = await pipeline(
   args,
   (spec) => buildLane(spec),
   async (built, spec) => {
-    if (!built) return null
+    // A builder that RESOLVES with nothing (rather than throwing) used to return
+    // null here and be deleted by results.filter(Boolean) below — the lane's
+    // branch then appeared in NO field of the return value and the summary read
+    // only "N/M PRs opened", the identical count-only signal that hid the #3883
+    // bypass. Surface it as a failed lane instead.
+    if (!built) {
+      log(`lane ${spec.branch}: build agent returned nothing (resolved null) — treat as failed`)
+      return { branch: spec.branch, failed: true, surprises: 'builder agent returned nothing' }
+    }
     built = unwrap(built)
     // a usage-limit death passes straight through to the summary
     if (built.usage_limit) {
