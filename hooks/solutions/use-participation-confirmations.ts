@@ -19,23 +19,26 @@
  * and this feature is under a hard instruction to add no new routes.
  *
  * ---------------------------------------------------------------------------
- * WHY THE THREE WRITE/READ PRIMITIVES LIVE HERE AND NOT IN societal-service.ts
+ * WHY THE TWO WRITES LIVE HERE AND NOT IN societal-service.ts
  * ---------------------------------------------------------------------------
- * `SocietalService.listParticipants` / `.confirmParticipation` /
- * `.declineParticipation` are owned by a PARALLEL lane that had not pushed a
- * branch when this screen was built (checked: `git ls-remote --heads jicate`
- * carried no participation-service branch). Importing names that do not exist
- * yet would not compile, and `npm run build` is a hard gate on this route.
+ * `SocietalService.confirmParticipation` / `.declineParticipation` are owned by
+ * a PARALLEL lane that had not pushed a branch when this screen was built
+ * (checked: `git ls-remote --heads jicate` carried no participation-service
+ * branch). Importing names that do not exist yet would not compile, and
+ * `npm run build` is a hard gate on this route.
  *
- * So `ParticipationClient` below implements EXACTLY those three signatures —
- * same names, same argument order, and the same deliberate ABSENCE of a
- * `departmentId` argument on the two writes. When the service lane lands, the
- * swap is mechanical: delete `ParticipationClient`, import `SocietalService`,
- * and change the three call sites in this file. Nothing else moves.
+ * So `ParticipationClient` below carries EXACTLY those signatures — same names,
+ * same argument order, and the same deliberate ABSENCE of a `departmentId`
+ * argument. When the service lane lands, the swap is mechanical: delete
+ * `ParticipationClient`, import `SocietalService`, change the two call sites.
  *
- * The one primitive the service lane's named set does NOT cover is the screen's
- * own reason to exist — "which initiatives has MY department been named on" —
- * so `listForDepartment` has no service counterpart to converge with.
+ * The lane's third method, `listParticipants(engagementId)`, is NOT duplicated
+ * here — the queue read below already returns every department named on each
+ * initiative, in one round trip rather than one per row.
+ *
+ * The screen's own reason to exist — "which initiatives has MY department been
+ * named on" — has no counterpart in that lane's named set at all, so
+ * `listForDepartment` has nothing to converge with.
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -149,8 +152,8 @@ function isRelationMissing(error: PostgrestLikeError | null | undefined): boolea
  * policy, fail SELECT on the row being returned, and get 42501 with the whole
  * statement rolled back. This message therefore names what was refused and
  * lets an administrator work out which half — it never asserts which key is
- * missing. (That exact wrong assertion is what sent submit-only staff chasing a
- * permission they already held, twice; see 20261120143000.)
+ * missing. (That exact wrong assertion is what sent submit-only team members
+ * chasing a permission they already held, twice; see 20261120143000.)
  */
 function describeConfirmFailure(error: PostgrestLikeError): Error {
   if (isRelationMissing(error)) return new EngagementRegisterMissingError();
@@ -184,6 +187,22 @@ function describeConfirmFailure(error: PostgrestLikeError): Error {
  * rows returned from a write that named exactly one row IS a refusal and has to
  * be reported as one.
  */
+/**
+ * The caller's session carries no department, so there is no row this answer
+ * could belong to. Said out loud rather than sent to the database to fail
+ * opaquely — and never widened into "answer for everyone", which is what an
+ * unfiltered UPDATE would do for an admin.
+ */
+function noDepartmentToAnswerFor(): Error {
+  return new Error(
+    'Your account is not attached to a department, so there is nothing for it ' +
+      'to answer here. This screen answers for one department at a time, and ' +
+      'deliberately will not answer on behalf of all of them. Ask whoever ' +
+      'manages accounts for your institution to set your department under ' +
+      'Users, then your profile.'
+  );
+}
+
 function refusedSilently(): Error {
   return new Error(
     'Your answer was not saved. The database accepted the request and then ' +
@@ -208,7 +227,8 @@ interface RawParticipant {
   engagement_id: string;
   department_id: string;
   institution_id: string | null;
-  hours_contributed: number | null;
+  /** `numeric` — PostgREST hands it over as a string. Always run it through toNumber. */
+  hours_contributed: number | string | null;
   is_lead: boolean;
   confirmation_status: ParticipationStatus;
   confirmed_at: string | null;
@@ -223,32 +243,68 @@ interface RawEngagement {
   title: string;
   description: string | null;
   engagement_date: string;
-  hours_spent: number;
-  beneficiaries_count: number;
+  /** `numeric` — a string over the wire. */
+  hours_spent: number | string | null;
+  beneficiaries_count: number | null;
   sdg_goals: string[] | null;
   approval_status: string;
   recorder?: { full_name: string | null } | null;
 }
 
+/**
+ * The caller's OWN department, resolved from the session — never taken as an
+ * argument, exactly as `sh_user_department_id()` does it
+ * (`SELECT department_id FROM profiles WHERE id = auth.uid()`, 20260205000002).
+ *
+ * WHY THE WRITES BELOW NEED THIS AT ALL, when RLS already narrows to the
+ * caller's department. The UPDATE policy is a disjunction: its first two
+ * branches are `is_super_admin()` and `is_admin()`. For an ordinary head of
+ * department the third branch pins the row to their own department and an
+ * `engagement_id`-only UPDATE touches exactly one row. For an ADMIN it pins
+ * nothing — so the same statement would move EVERY pending participant on that
+ * initiative and confirm every named department in one click. That is the exact
+ * hole decision D3 exists to close, reopened from the client side.
+ *
+ * Resolving it here closes that: an admin answers only for the department they
+ * actually belong to, and an admin with no department matches no row and is
+ * told so, rather than silently answering for everybody.
+ */
+async function callerDepartmentId(): Promise<string | null> {
+  const supabase = createClientSupabaseClient();
+  const { data: auth } = await supabase.auth.getUser();
+  const userId = auth?.user?.id;
+  if (!userId) return null;
+
+  const { data, error } = await (supabase as any)
+    .from('profiles')
+    .select('department_id')
+    .eq('id', userId)
+    .maybeSingle();
+
+  if (error) return null;
+  return (data?.department_id as string | null) ?? null;
+}
+
+/**
+ * `numeric` arrives from PostgREST as a STRING, not a number. The register hits
+ * this too and coerces for the same reason (`toNumber` in societal-service.ts):
+ * rendered raw it looks right, but `hours > 0` and any arithmetic on it quietly
+ * do the wrong thing.
+ */
+function toNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * The service lane's third method, `listParticipants(engagementId)`, is
+ * deliberately NOT reimplemented here. This screen already gets every
+ * department named on each initiative from the queue read below, in one
+ * round trip instead of one per row, so a second implementation of a method
+ * this file never calls would be dead code to keep in sync for nothing.
+ */
 export const ParticipationClient = {
-  /**
-   * Every department named on one initiative. Same signature as the service
-   * lane's `SocietalService.listParticipants(engagementId)`.
-   */
-  async listParticipants(engagementId: string): Promise<RawParticipant[]> {
-    const supabase = createClientSupabaseClient();
-    const { data, error } = await (supabase as any)
-      .from('sh_community_engagement_participants')
-      .select(PARTICIPANT_COLUMNS)
-      .eq('engagement_id', engagementId);
-
-    if (error) {
-      if (isRelationMissing(error)) throw new EngagementRegisterMissingError();
-      throw new Error(error.message || 'The participating departments could not be read.');
-    }
-    return (data ?? []) as RawParticipant[];
-  },
-
   /**
    * Confirm OUR department's part, with the hours our people actually gave.
    *
@@ -271,6 +327,9 @@ export const ParticipationClient = {
       throw new Error('Hours cannot be negative.');
     }
 
+    const ownDepartmentId = await callerDepartmentId();
+    if (!ownDepartmentId) throw noDepartmentToAnswerFor();
+
     const supabase = createClientSupabaseClient();
     const { data, error } = await (supabase as any)
       .from('sh_community_engagement_participants')
@@ -280,6 +339,7 @@ export const ParticipationClient = {
         decline_note: null,
       })
       .eq('engagement_id', engagementId)
+      .eq('department_id', ownDepartmentId)
       .eq('confirmation_status', 'pending')
       .select(PARTICIPANT_COLUMNS);
 
@@ -300,6 +360,9 @@ export const ParticipationClient = {
       throw new Error('Say briefly why your department is declining, so the record explains itself.');
     }
 
+    const ownDepartmentId = await callerDepartmentId();
+    if (!ownDepartmentId) throw noDepartmentToAnswerFor();
+
     const supabase = createClientSupabaseClient();
     const { data, error } = await (supabase as any)
       .from('sh_community_engagement_participants')
@@ -309,6 +372,7 @@ export const ParticipationClient = {
         hours_contributed: null,
       })
       .eq('engagement_id', engagementId)
+      .eq('department_id', ownDepartmentId)
       .eq('confirmation_status', 'pending')
       .select(PARTICIPANT_COLUMNS);
 
@@ -445,7 +509,7 @@ async function listForDepartment(departmentId: string | null): Promise<Participa
       engagement_id: p.engagement_id,
       department_id: p.department_id,
       institution_id: p.institution_id,
-      hours_contributed: p.hours_contributed,
+      hours_contributed: toNumber(p.hours_contributed),
       is_lead: p.is_lead,
       confirmation_status: p.confirmation_status,
       confirmed_at: p.confirmed_at,
@@ -454,8 +518,8 @@ async function listForDepartment(departmentId: string | null): Promise<Participa
       title: eng.title,
       description: eng.description,
       engagement_date: eng.engagement_date,
-      beneficiaries_count: eng.beneficiaries_count,
-      hours_spent: eng.hours_spent,
+      beneficiaries_count: eng.beneficiaries_count ?? 0,
+      hours_spent: toNumber(eng.hours_spent) ?? 0,
       sdg_goals: eng.sdg_goals ?? [],
       approval_status: eng.approval_status,
       recorded_by_name: eng.recorder?.full_name ?? null,
