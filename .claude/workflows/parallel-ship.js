@@ -64,23 +64,50 @@ const MIRROR_SCHEMA = { type: 'object', required: ['exit_lines'],
 const RECONCILE_SCHEMA = { type: 'object', required: ['action'],
   properties: { action: { type: 'string' }, new_head_sha: { type: 'string' }, rebuttal: { type: 'string' } } }
 
-const verifyA = (built, spec) => agent(
+// ── unwrap: the harness sometimes hands a structured agent result back as
+//    {input:'<json string>'} instead of the parsed object (observed in run
+//    wf_a577e9cc-b67). NO schema in this file declares an `input` property, so an
+//    `input` string on an agent result means the wrapper whatever the payload's
+//    own shape — which is why this does not gate on pr_number: a wrapped
+//    {already_exists}, a wrapped verdict and a wrapped reconcile result carry no
+//    pr_number either. A payload that is not a plain object (JSON.parse('null')
+//    returns null, JSON.parse('7') a number) is left wrapped so the caller's
+//    existing "no PR / no verdict" paths handle it instead of throwing.
+const unwrap = (r) => {
+  if (!r || typeof r !== 'object' || typeof r.input !== 'string') return r
+  try {
+    const parsed = JSON.parse(r.input)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed
+    log(`agent result looked wrapped ({input:string}) but its payload is not an object — left as-is`)
+  } catch (e) {
+    log(`agent result looked wrapped ({input:string}) but did not parse as JSON — ${String((e && e.message) || e)}`)
+  }
+  return r
+}
+
+// Every agent() result in this script goes through unwrap. Nothing makes the
+// build call site special: the same wrapping around `reconcile` would leave
+// new_head_sha undefined and point verify-B's re-look AND the Sonnet tie-break at
+// the STALE head while the builder had already pushed a new one.
+const call = async (prompt, opts) => unwrap(await agent(prompt, opts))
+
+const verifyA = (built, spec) => call(
   `Verify PR #${built.pr_number} (${built.pr_url}) on Jicate-Solutions/MyJKKN as an adversarial reviewer. 1) gh pr view ${built.pr_number} --json headRefOid — confirm it matches ${built.head_sha}; read check-runs on THAT sha via gh api repos/Jicate-Solutions/MyJKKN/commits/${built.head_sha}/check-runs (never gh pr checks — it prints fail for cancelled/neutral) until nothing is pending; note that a DRAFT PR skips real gates — say so if the PR is draft. Blocking gates: TypeCheck, terminology, secdef-anon, lib unit tests. 2) gh pr diff — confirm the diff matches this spec and nothing more: ${spec.title} — ${spec.spec.slice(0, 400)}. 3) Try to REFUTE readiness: scope creep, missing SQL_FILE_INDEX line, applied-SQL claims, student-terminology, a described-not-pasted gate result, an assumption marked [safe] that is actually [risky]. Return verdict.`,
   { label: `verify-A:${built.pr_number}`, phase: 'Verify A', effort: 'high', schema: VERDICT_SCHEMA })
 
-const verifyB = (built, spec, headSha, round) => agent(
+const verifyB = (built, spec, headSha, round) => call(
   `You are the SECOND, independent reviewer of PR #${built.pr_number} (${built.pr_url}) on Jicate-Solutions/MyJKKN, deliberately on a different model than the builder — your job is the blind spots a same-model reviewer shares.${round ? ' This is your RE-LOOK after the builder responded to your first objections — judge the response on its merits.' : ''} Do NOT re-check CI status (reviewer A does that). Instead, in a fresh worktree of the PR head (${headSha}): a) BEHAVIOUR, not objects — for each new/changed function or route, state what a real user or cron would experience and whether the code actually does that (plpgsql bodies only fail at runtime: read every column the SQL touches against the migrations that define those tables on jicate/main, and flag any column that does not exist); b) GRANTS — every SECURITY DEFINER fn: is anon AND PUBLIC revoked, and who does 'authenticated' actually admit; c) MIGRATIONS — inner BEGIN/COMMIT that would defeat a rollback rehearsal, NOT-NULL columns a seed omits (ON CONFLICT cannot rescue a NOT-NULL violation), duplicate numeric prefixes vs main; d) the spec's stated constraints (${spec.spec.slice(0, 300)}) — anything crossed. Return verdict; problems must be specific (file:line, column, fn).`,
   { label: `verify-B${round ? '-relook' : ''}:${built.pr_number}`, phase: 'Verify B', model: 'opus', effort: 'high', schema: VERDICT_SCHEMA })
 
-const tieBreak = (built, spec, headSha, objections, rebuttal) => agent(
+const tieBreak = (built, spec, headSha, objections, rebuttal) => call(
   `You are the THIRD, tie-breaking reviewer of PR #${built.pr_number} (${built.pr_url}, head ${headSha}) on Jicate-Solutions/MyJKKN. Reviewer A says ready; reviewer B (Opus) still objects after the builder responded. B's standing objections:\n${objections.map((p, i) => `${i + 1}. ${p}`).join('\n')}\nBuilder's response:\n${(rebuttal || '(none)').slice(0, 1500)}\nIn a fresh worktree of the head, check ONLY the disputed points against the actual code and main's migrations. Vote: ready=true if B's objections are wrong or already addressed; ready=false if any stands. Your problems[] must name which objection stands and why. Spec constraints: ${spec.spec.slice(0, 200)}`,
   { label: `tie-break(sonnet):${built.pr_number}`, phase: 'Tie-break', model: 'sonnet', effort: 'high', schema: VERDICT_SCHEMA })
 
-const reconcile = (built, spec, problems) => agent(
+const reconcile = (built, spec, problems) => call(
   `Reviewer B (a different model) objected to PR #${built.pr_number} (${built.pr_url}, head ${built.head_sha}) on Jicate-Solutions/MyJKKN with these problems:\n${problems.map((p, i) => `${i + 1}. ${p}`).join('\n')}\nIn a worktree of the PR branch (git fetch jicate ${spec.branch}; check it out; never force-push): for EACH problem either FIX it (minimal diff, same gates as the original build, commit + push to the same branch) or REBUT it with evidence (file:line, a migration on main, a runtime fact) if the objection is wrong. Never argue past evidence. Return {action:'fixed'|'rebutted'|'mixed', new_head_sha (if you pushed), rebuttal (the per-problem responses, verbatim for the reviewer)}.`,
   { label: `reconcile:${built.pr_number}`, phase: 'Reconcile', isolation: 'worktree', effort: 'high', schema: RECONCILE_SCHEMA })
 
-const personaSweep = (built, spec) => agent(
+const personaSweep = (built, spec) => call(
   `OBSERVED-IDENTITY RULE: /auth/test-login Sign Out does NOT clear the 127.0.0.1 cookie jar, so a page can load as the previous persona. Before trusting any screenshot or click as persona X, read the identity the page actually shows (name / email / role badge, or /api/auth/me) and ASSERT it equals X; sign in explicitly for every persona; a mismatch is a FAILED sweep, never a pass. Model-driven persona browser sweep for PR #${built.pr_number} (head ${built.head_sha}) — the build-depth gate's Step 2.5b.
 
 AUTHORIZATION FOR THIS LANE: prodAck = ${spec.prodAck ? 'TRUE' : 'FALSE'}.
@@ -91,68 +118,66 @@ ${spec.prodAck
 SWEEP PROCEDURE (only when authorized): create a worktree of the PR head under .claude/worktrees/, symlink node_modules (ln -sfn ../../../node_modules node_modules), copy .env.local, and pick a FREE ad-hoc port from 3107 upward (3104 and 3106 are standing dev servers — check with lsof -i :PORT before starting) and start PORT=<port> npm run dev with the REAL service-role key per the repo CLAUDE.md pattern (SUPABASE_SERVICE_ROLE_KEY from .env.production.local); open pages on that same port. Then, using the connected Chrome via the workflow-test skill's Mode E (persona snapshot — session injection, NO password typing), open every changed page (gh pr diff ${built.pr_number} --name-only | grep page.tsx, plus any page that renders a changed component) as each of these personas: ${(spec.personas || ['superadmin', 'hod', 'faculty', 'student']).join(', ')}. On each page: click EVERY action (buttons, menus, tabs, rows), confirm each expected state change, read the Next.js DevTools Issues badge, and screenshot before/after into .screenshots/ (git add -f). Report every broken action, silent no-op, permission bounce that is not an explicit denial (rule #27), console error, and issues-badge increase as a finding. Stop the dev server and remove the worktree when done. Never claim a page was swept if it was not opened.`,
   { label: `persona-sweep:${built.pr_number}`, phase: 'Persona sweep', effort: 'high', schema: SWEEP_SCHEMA })
 
-const gateMirror = (built) => agent(
+const gateMirror = (built) => call(
   `Cheap-mode TRIAL (low effort, mechanical): in a fresh worktree of PR #${built.pr_number} head ${built.head_sha} (git fetch jicate; git worktree add), symlink node_modules and run, one at a time, pasting each exit line verbatim: bash scripts/ci/check-nav-config-hrefs.sh; bash scripts/ci/check-radix-select-empty-values.sh; node scripts/check-permissions-catalog.mjs; and confirm every file under supabase/migrations/ in the PR diff has a matching line in supabase/SQL_FILE_INDEX.md (grep the filename). Remove the worktree when done. Return {exit_lines[], all_green, notes}. Do not reason about the code; run the commands and report.`,
   { label: `gate-mirror(low):${built.pr_number}`, phase: 'Gate mirror (cheap trial)', effort: 'low', schema: MIRROR_SCHEMA })
 
-// ── Two failure modes this script used to swallow (2026-09-18) ───────────────
-// (1) WRAPPED BUILDER RESULT. Run wf_a577e9cc-b67: the harness handed the
-//     builder's structured result back as {input:'<json string>'} instead of the
-//     parsed object. `built.pr_number` was undefined, the lane logged "builder
-//     returned no PR", and verify-A / verify-B / the gate mirror were SILENTLY
-//     skipped while Draft PR #3883 existed — the two-reviewer gate was bypassed
-//     with nothing red anywhere. The unwrap below restores the parsed object.
+// ── Three failure modes this script used to swallow (2026-09-18) ─────────────
+// (1) WRAPPED AGENT RESULT — see unwrap() / call() above. Run wf_a577e9cc-b67:
+//     the harness handed the builder's structured result back as
+//     {input:'<json string>'} instead of the parsed object. `built.pr_number` was
+//     undefined, the lane logged "builder returned no PR", and verify-A /
+//     verify-B / the gate mirror were SILENTLY skipped while Draft PR #3883
+//     existed — the two-reviewer gate was bypassed with nothing red anywhere.
 // (2) USAGE-LIMIT DEATH (G5, Director ruling 2026-09-16, rank 5). When a lane's
 //     agent dies on a usage limit whose text names a reset time, the orchestrator
 //     wants a one-shot resume — but this script can neither create a cron nor
 //     read the clock. So it makes the failure VISIBLE and PARSEABLE instead: one
 //     `USAGE-LIMIT-RESET:` log line carrying the matched time text, and a lane
 //     result of {failed, usage_limit, reset_hint} that survives into the final
-//     summary. Any other throw is re-raised unchanged.
-const USAGE_LIMIT_RE = /limit|quota|resets? (at|in)|try again/i
+//     summary. Any other throw is re-raised unchanged. A lane fires ONE build
+//     agent and up to SIX more (verify-A, verify-B, persona sweep, gate mirror,
+//     reconcile, verify-B re-look, tie-break), so the catch covers stage 2 too —
+//     guarding only the build agent would cover about a seventh of the exposure,
+//     and a usage-limit throw after the PR was opened erased the whole run.
+// (3) AN INVISIBLE FAILED LANE. A lane whose builder returned no PR was logged
+//     and then appeared in NO field of the return value — the exact shape that
+//     hid the #3883 bypass from this script's caller. It now returns as failed[].
+//
+// The classifier requires a QUOTA word. A bare `limit` also matches GitHub's
+// `API rate limit exceeded for user; please try again later`, which is an
+// immediately-retryable 429: reporting it as a usage limit tells the Director to
+// wait for a reset that never arrives AND hides a retryable error.
+const USAGE_LIMIT_RE = /quota|usage limit|resets? (at|in)|reached your [^.\n]{0,40}\blimit\b/i
+
+// The reset time routinely lands in a SECOND sentence or on the next line
+// ("Usage limit reached.\nYour limit resets at 2:00 PM."), so the hint is a
+// window of the whitespace-flattened message around the first quota token.
+// Sentence-and-line-bounded matching drops exactly the time this exists to name.
+const usageLimitInfo = (e) => {
+  const text = String((e && e.message) || e || '')
+  if (!USAGE_LIMIT_RE.test(text)) return null
+  const flat = text.replace(/\s+/g, ' ').trim()
+  const at = flat.search(/quota|limit|resets?|try again/i)
+  const from = Math.max(0, at < 0 ? 0 : at - 40)
+  return { usage_limit: true, reset_hint: flat.slice(from, from + 240).trim() }
+}
 
 const buildLane = async (spec) => {
   try {
-    return await agent(
+    return await call(
       `You build ONE production PR for Jicate-Solutions/MyJKKN in your git worktree — unattended, end to end.\n${BUILD_BOILERPLATE.replace('<BRANCH>', spec.branch)}\nBRANCH: ${spec.branch}\nTITLE: ${spec.title}\nprodAck: ${spec.prodAck ? 'true' : 'false'}\nSPEC:\n${spec.spec}`,
       { label: `build:${spec.branch}`, phase: 'Build', isolation: 'worktree', effort: 'high', schema: BUILT_SCHEMA },
     )
   } catch (e) {
-    const text = String((e && e.message) || e || '')
-    if (!USAGE_LIMIT_RE.test(text)) throw e
-    const m = text.match(/[^.\n]*(?:resets?|try again|limit)[^.\n]*/i)
-    const hint = ((m && m[0]) || text).trim().slice(0, 200)
-    log(`USAGE-LIMIT-RESET: ${hint} — resume with Workflow({scriptPath, resumeFromRunId})`)
-    return { branch: spec.branch, failed: true, usage_limit: true, reset_hint: hint }
+    const u = usageLimitInfo(e)
+    if (!u) throw e
+    log(`USAGE-LIMIT-RESET: ${u.reset_hint} — resume with Workflow({scriptPath, resumeFromRunId})`)
+    return { branch: spec.branch, failed: true, ...u }
   }
 }
 
-const results = await pipeline(
-  args,
-  (spec) => buildLane(spec),
-  async (built, spec) => {
-    if (!built) return null
-    // (1) unwrap a builder result the harness wrapped as {input:'<json string>'}
-    if (typeof built.input === 'string' && !built.pr_number) {
-      try {
-        built = JSON.parse(built.input)
-      } catch (e) {
-        log(`lane ${spec.branch}: builder result looked wrapped ({input:string}) but did not parse as JSON — ${String((e && e.message) || e)}`)
-      }
-    }
-    // (2) a usage-limit death passes straight through to the summary
-    if (built.usage_limit) {
-      log(`lane ${spec.branch}: build agent hit a usage limit — reset hint: ${built.reset_hint}`)
-      return built
-    }
-    if (built.already_exists) {
-      log(`lane ${spec.branch}: STOPPED — already exists at ${built.where}. Director decides.`)
-      return { branch: spec.branch, already_exists: true, where: built.where, surprises: built.surprises }
-    }
-    if (!built.pr_number) {
-      log(`lane ${spec.branch}: builder returned no PR and no already-exists finding — treat as failed`)
-      return { branch: spec.branch, failed: true, surprises: built.surprises }
-    }
+const verifyLane = async (built, spec) => {
     const thunks = [() => verifyA(built, spec), () => verifyB(built, spec, built.head_sha, 0)]
     if (spec.uiSweep) thunks.push(() => personaSweep(built, spec))
     if (spec.cheapTrial) thunks.push(() => gateMirror(built))
@@ -184,6 +209,37 @@ const results = await pipeline(
     const reviewersAgree = !!(a?.ready && (b?.ready || (tie && tie.ready)))
     const ready = reviewersAgree && (!sweep || !sweep.ran || (sweep.findings || []).length === 0)
     return { ...built, verify: { ready, ciA: a?.ci, ciB: b?.ci, tieBreak: tie, problems, sweep, reconciled, cheapTrial: m || null }, risky_assumptions: built.risky_assumptions || [] }
+}
+
+const results = await pipeline(
+  args,
+  (spec) => buildLane(spec),
+  async (built, spec) => {
+    if (!built) return null
+    built = unwrap(built)
+    // a usage-limit death passes straight through to the summary
+    if (built.usage_limit) {
+      log(`lane ${spec.branch}: build agent hit a usage limit — reset hint: ${built.reset_hint}`)
+      return built
+    }
+    if (built.already_exists) {
+      log(`lane ${spec.branch}: STOPPED — already exists at ${built.where}. Director decides.`)
+      return { branch: spec.branch, already_exists: true, where: built.where, surprises: built.surprises }
+    }
+    if (!built.pr_number) {
+      log(`lane ${spec.branch}: builder returned no PR and no already-exists finding — treat as failed`)
+      return { branch: spec.branch, failed: true, surprises: built.surprises }
+    }
+    try {
+      return await verifyLane(built, spec)
+    } catch (e) {
+      const u = usageLimitInfo(e)
+      if (!u) throw e
+      log(`USAGE-LIMIT-RESET: ${u.reset_hint} — resume with Workflow({scriptPath, resumeFromRunId})`)
+      log(`lane ${spec.branch}: verification of #${built.pr_number} died on a usage limit — the PR exists and is NOT reviewer-ready`)
+      return { ...built, branch: spec.branch, failed: true, ...u, risky_assumptions: built.risky_assumptions || [],
+        verify: { ready: false, problems: [`verification did not finish — usage limit: ${u.reset_hint}`] } }
+    }
   },
 )
 
@@ -191,7 +247,12 @@ const shipped = results.filter(Boolean)
 const opened = shipped.filter(r => r.pr_number)
 const stopped = shipped.filter(r => r.already_exists)
 const usageLimited = shipped.filter(r => r.usage_limit)
+// a plain build failure used to appear in NO field of the return value
+const failed = shipped.filter(r => r.failed && !r.usage_limit)
 const risky = opened.flatMap(r => (r.risky_assumptions || []).map(a => `#${r.pr_number}: ${a}`))
 const drafts = opened.filter(r => (r.risky_assumptions || []).length > 0).map(r => r.pr_number)
-log(`${opened.length}/${args.length} PRs opened; ${opened.filter((r) => r.verify?.ready).length} reviewer-ready; ${stopped.length} stopped (already exists); ${risky.length} risky assumption(s) → Director tap-questions, 3 per round, before PRs ${drafts.join(', ') || '(none)'} flip from Draft${usageLimited.length ? `; ${usageLimited.length} lane(s) died on a usage limit — ${usageLimited.map(r => `${r.branch}: ${r.reset_hint}`).join(' | ')}` : ''}`)
-return { shipped: opened, stopped, usage_limited: usageLimited, risky_assumptions: risky, draft_prs: drafts }
+log(`${opened.length}/${args.length} PRs opened; ${opened.filter((r) => r.verify?.ready).length} reviewer-ready; ${stopped.length} stopped (already exists); ${risky.length} risky assumption(s) → Director tap-questions, 3 per round, before PRs ${drafts.join(', ') || '(none)'} flip from Draft${failed.length ? `; ${failed.length} lane(s) failed — ${failed.map(r => `${r.branch}: ${r.surprises || '(no reason given)'}`).join(' | ')}` : ''}${usageLimited.length ? `; ${usageLimited.length} lane(s) died on a usage limit — ${usageLimited.map(r => `${r.branch}: ${r.reset_hint}`).join(' | ')}` : ''}`)
+// a usage-limited lane that had already opened its PR appears in BOTH shipped
+// (with verify.ready false) and usage_limited — deliberately, so neither the PR
+// nor the reason verification stopped can go missing from the summary.
+return { shipped: opened, stopped, failed, usage_limited: usageLimited, risky_assumptions: risky, draft_prs: drafts }
