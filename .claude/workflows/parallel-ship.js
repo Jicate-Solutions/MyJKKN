@@ -135,11 +135,16 @@ const gateMirror = (built) => call(
 //     read the clock. So it makes the failure VISIBLE and PARSEABLE instead: one
 //     `USAGE-LIMIT-RESET:` log line carrying the matched time text, and a lane
 //     result of {failed, usage_limit, reset_hint} that survives into the final
-//     summary. Any other throw is re-raised unchanged. A lane fires ONE build
-//     agent and up to SIX more (verify-A, verify-B, persona sweep, gate mirror,
-//     reconcile, verify-B re-look, tie-break), so the catch covers stage 2 too —
-//     guarding only the build agent would cover about a seventh of the exposure,
-//     and a usage-limit throw after the PR was opened erased the whole run.
+//     summary. A lane fires ONE build agent and up to SEVEN more (verify-A,
+//     verify-B, persona sweep, gate mirror, reconcile, verify-B re-look,
+//     tie-break), and only THREE of those are awaited directly — the other four
+//     go through parallel(), which is documented to convert a throwing thunk to
+//     `null` and never reject, so no try/catch around the parallel() call can
+//     ever see them. caught() captures those four in band; everything else
+//     propagates to the lane's own catch. NOTHING is re-raised past the lane: a
+//     pipeline() stage that throws drops its item to null and filter(Boolean)
+//     deletes it, so a rethrow erases the lane — PR number and all — from every
+//     field of the return value.
 // (3) AN INVISIBLE FAILED LANE. A lane whose builder returned no PR was logged
 //     and then appeared in NO field of the return value — the exact shape that
 //     hid the #3883 bypass from this script's caller. It now returns as failed[].
@@ -148,7 +153,15 @@ const gateMirror = (built) => call(
 // `API rate limit exceeded for user; please try again later`, which is an
 // immediately-retryable 429: reporting it as a usage limit tells the Director to
 // wait for a reset that never arrives AND hides a retryable error.
-const USAGE_LIMIT_RE = /quota|usage limit|resets? (at|in)|reached your [^.\n]{0,40}\blimit\b/i
+//
+// A bare `quota` is MyJKKN domain vocabulary, not an exhaustion signal: 39 files
+// on jicate/main carry it (admission quotas under app/(routes)/admission/settings/
+// lookups/quotas/, campus-living quota eligibility) and `quotation` matches it as
+// a substring, so "lane admission-quota-seats: build failed" and "procurement
+// quotation compare crashed" both classified as usage limits. `quota` therefore
+// only counts when an exhaustion word sits beside it — which is how every real
+// quota message reads ("quota exceeded", "you have exceeded your quota").
+const USAGE_LIMIT_RE = /usage limit|resets? (at|in)|reached your [^.\n]{0,40}\blimit\b|\bquota\b[^.\n]{0,20}\b(exceeded|reached|exhausted|remaining|limit)\b|\b(exceeded|exhausted|out of|remaining|reached)\b[^.\n]{0,20}\bquota\b/i
 
 // The reset time routinely lands in a SECOND sentence or on the next line
 // ("Usage limit reached.\nYour limit resets at 2:00 PM."), so the hint is a
@@ -163,6 +176,23 @@ const usageLimitInfo = (e) => {
   return { usage_limit: true, reset_hint: flat.slice(from, from + 240).trim() }
 }
 
+const errText = (e) => String((e && e.message) || e || 'unknown error')
+
+// parallel() is documented to swallow a throwing thunk into `null` ("the call
+// itself never rejects"), so an error inside verify-A, verify-B round 0, the
+// persona sweep or the gate mirror can NEVER reach a try/catch around the
+// parallel() call. Capture it IN BAND instead and let the caller decide.
+const caught = (fn) => async () => {
+  try { return await fn() }
+  catch (e) { return { __threw: errText(e), ...(usageLimitInfo(e) || {}) } }
+}
+
+// NOTHING in a lane may throw past this point. pipeline() is documented to drop a
+// throwing stage's item to `null` and skip its remaining stages, and the
+// `results.filter(Boolean)` below then deletes it — so a re-raised error erases
+// the lane from EVERY field of the return value, which is the exact invisible-lane
+// shape this script exists to close. An unclassified error is a failed lane with
+// its text, never a rethrow.
 const buildLane = async (spec) => {
   try {
     return await call(
@@ -171,17 +201,32 @@ const buildLane = async (spec) => {
     )
   } catch (e) {
     const u = usageLimitInfo(e)
-    if (!u) throw e
-    log(`USAGE-LIMIT-RESET: ${u.reset_hint} — resume with Workflow({scriptPath, resumeFromRunId})`)
-    return { branch: spec.branch, failed: true, ...u }
+    if (u) {
+      log(`USAGE-LIMIT-RESET: ${u.reset_hint} — resume with Workflow({scriptPath, resumeFromRunId})`)
+      return { branch: spec.branch, failed: true, ...u }
+    }
+    log(`lane ${spec.branch}: build agent threw — ${errText(e)}`)
+    return { branch: spec.branch, failed: true, surprises: `build agent threw: ${errText(e)}` }
   }
 }
 
 const verifyLane = async (built, spec) => {
-    const thunks = [() => verifyA(built, spec), () => verifyB(built, spec, built.head_sha, 0)]
-    if (spec.uiSweep) thunks.push(() => personaSweep(built, spec))
-    if (spec.cheapTrial) thunks.push(() => gateMirror(built))
-    const [a, b0, s, m] = await parallel(thunks)
+    const names = ['verify-A', 'verify-B']
+    const thunks = [caught(() => verifyA(built, spec)), caught(() => verifyB(built, spec, built.head_sha, 0))]
+    if (spec.uiSweep) { names.push('persona sweep'); thunks.push(caught(() => personaSweep(built, spec))) }
+    if (spec.cheapTrial) { names.push('gate mirror'); thunks.push(caught(() => gateMirror(built))) }
+    const threw = []
+    const [a, b0, s, m] = (await parallel(thunks)).map((r, i) => {
+      if (r && r.__threw) { threw.push({ stage: names[i], ...r }); return null }
+      return r
+    })
+    // A usage limit inside any of those four can never surface on its own (see
+    // caught()). Re-raise it here, where the lane's own catch — which already
+    // knows the PR exists — turns it into {usage_limit, reset_hint} instead of a
+    // lane that silently reads "0 reviewer-ready" with an EMPTY problems[].
+    const limited = threw.find((t) => t.usage_limit)
+    if (limited) throw new Error(`${limited.stage}: ${limited.__threw}`)
+    for (const t of threw) log(`lane ${spec.branch}: ${t.stage} for #${built.pr_number} threw — ${t.__threw}`)
     let b = b0
     let reconciled = null
     let tie = null
@@ -199,6 +244,22 @@ const verifyLane = async (built, spec) => {
     }
     const problems = [...(a?.problems || []), ...(b?.problems || []).map(p => `[B/opus] ${p}`)]
     if (tie && !tie.ready) problems.push(...(tie.problems || []).map(p => `[tie-break/sonnet upheld] ${p}`))
+    // A reviewer that resolves null (agent() does that when the subagent dies on a
+    // terminal API error after retries, or the user skips it) left `ready` false
+    // with an EMPTY problems[] — a dead reviewer indistinguishable from a silent
+    // one, i.e. the same count-only signal that hid the #3883 bypass. The persona
+    // sweep already had this guard; the two reviewers that actually gate readiness
+    // did not.
+    for (const t of threw) problems.push(`[${t.stage}] stage threw, verdict NOT obtained: ${t.__threw}`)
+    const dead = new Set(threw.map((t) => t.stage))
+    if (!a && !dead.has('verify-A')) {
+      log(`lane ${spec.branch}: reviewer A for #${built.pr_number} returned nothing — readiness UNVERIFIED`)
+      problems.push('[verify-A] reviewer returned nothing (agent died or was skipped) — readiness UNVERIFIED, not approved')
+    }
+    if (!b && !dead.has('verify-B')) {
+      log(`lane ${spec.branch}: reviewer B for #${built.pr_number} returned nothing — readiness UNVERIFIED`)
+      problems.push('[B/opus] reviewer returned nothing (agent died or was skipped) — readiness UNVERIFIED, not approved')
+    }
     let sweep = null
     if (spec.uiSweep) {
       sweep = s || { ran: false, reason: 'sweep agent returned nothing' }
@@ -221,8 +282,13 @@ const results = await pipeline(
     // only "N/M PRs opened", the identical count-only signal that hid the #3883
     // bypass. Surface it as a failed lane instead.
     if (!built) {
-      log(`lane ${spec.branch}: build agent returned nothing (resolved null) — treat as failed`)
-      return { branch: spec.branch, failed: true, surprises: 'builder agent returned nothing' }
+      // agent() is documented to RESOLVE null — not throw — when the user skips it
+      // or the subagent dies on a terminal API error after retries. A usage limit
+      // that arrives down that path carries no error text, so no reset time can
+      // honestly be named; say that rather than leave a bare "returned nothing".
+      log(`lane ${spec.branch}: build agent returned nothing (resolved null — skipped, or a terminal API error such as a usage limit, which the harness surfaces with no error text) — treat as failed; no reset time can be named`)
+      return { branch: spec.branch, failed: true,
+        surprises: 'builder agent returned nothing (resolved null: skipped or a terminal API error after retries) — no error text, so no usage-limit reset time is available' }
     }
     built = unwrap(built)
     // a usage-limit death passes straight through to the summary
@@ -230,6 +296,9 @@ const results = await pipeline(
       log(`lane ${spec.branch}: build agent hit a usage limit — reset hint: ${built.reset_hint}`)
       return built
     }
+    // buildLane already logged the reason and shaped the lane — passing it through
+    // the "no PR" branch below would re-log a vaguer one over the real error text.
+    if (built.failed) return built
     if (built.already_exists) {
       log(`lane ${spec.branch}: STOPPED — already exists at ${built.where}. Director decides.`)
       return { branch: spec.branch, already_exists: true, where: built.where, surprises: built.surprises }
@@ -242,11 +311,19 @@ const results = await pipeline(
       return await verifyLane(built, spec)
     } catch (e) {
       const u = usageLimitInfo(e)
-      if (!u) throw e
-      log(`USAGE-LIMIT-RESET: ${u.reset_hint} — resume with Workflow({scriptPath, resumeFromRunId})`)
-      log(`lane ${spec.branch}: verification of #${built.pr_number} died on a usage limit — the PR exists and is NOT reviewer-ready`)
-      return { ...built, branch: spec.branch, failed: true, ...u, risky_assumptions: built.risky_assumptions || [],
-        verify: { ready: false, problems: [`verification did not finish — usage limit: ${u.reset_hint}`] } }
+      if (u) {
+        log(`USAGE-LIMIT-RESET: ${u.reset_hint} — resume with Workflow({scriptPath, resumeFromRunId})`)
+        log(`lane ${spec.branch}: verification of #${built.pr_number} died on a usage limit — the PR exists and is NOT reviewer-ready`)
+        return { ...built, branch: spec.branch, failed: true, ...u, risky_assumptions: built.risky_assumptions || [],
+          verify: { ready: false, problems: [`verification did not finish — usage limit: ${u.reset_hint}`] } }
+      }
+      // Re-raising here deleted a lane whose PR was ALREADY OPENED: pipeline()
+      // drops a throwing stage's item to null and filter(Boolean) removes it, so
+      // the PR number vanished from every field of the return value.
+      log(`lane ${spec.branch}: verification of #${built.pr_number} threw — ${errText(e)} — the PR exists and is NOT reviewer-ready`)
+      return { ...built, branch: spec.branch, failed: true, surprises: `verification threw: ${errText(e)}`,
+        risky_assumptions: built.risky_assumptions || [],
+        verify: { ready: false, problems: [`verification did not finish — ${errText(e)}`] } }
     }
   },
 )
