@@ -137,6 +137,16 @@ export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
     }
   };
 
+  /**
+   * Deliberately a FULL page navigation, not router.push().
+   *
+   * The DataTable below (enableUrlState: true) keeps its own URL-state
+   * snapshot and rebuilds the query string from it. After a soft clear it
+   * can re-write the address bar from its pre-clear snapshot: the panel
+   * looked empty, but the filters were still in the URL and reappeared. A
+   * hard navigation tears that client down, so the cleared URL survives.
+   * Mirrors learner-filter-bar.tsx's handleClear on /learners/profiles.
+   */
   const handleClear = () => {
     setLocalFilters({
       institution_id: undefined,
@@ -155,8 +165,8 @@ export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
     const params = new URLSearchParams(currentSearchParams.toString());
     FILTER_KEYS.forEach((key) => params.delete(key));
     params.set('page', '1');
-    router.push(`/learners/onboarding?${params.toString()}`);
-    setIsSearching(false);
+    const query = params.toString();
+    window.location.assign(`/learners/onboarding${query ? `?${query}` : ''}`);
   };
 
   useEffect(() => {

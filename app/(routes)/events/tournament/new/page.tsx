@@ -149,8 +149,9 @@ export default function CreateTournamentPage() {
           <CardHeader>
             <CardTitle>Create Sports Tournament</CardTitle>
             <CardDescription>
-              Set up a new tournament and its first division. You can add more
-              divisions, registration and fixtures after creating it.
+              Set up a new tournament with one division per sport picked. You can
+              add more sports later from Edit Tournament, and set up registration
+              and fixtures after creating it.
             </CardDescription>
           </CardHeader>
           <CardContent>

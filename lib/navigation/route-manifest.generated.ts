@@ -613,6 +613,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "iconName": "FileText",
     "children": [
       {
+        "path": "/admin/adoption",
+        "label": "Feature adoption",
+        "iconName": "TrendingUp",
+        "children": []
+      },
+      {
         "path": "/admin/ai-models",
         "label": "AI Models",
         "iconName": "Sparkles",
@@ -1703,6 +1709,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       }
     ]
+  },
+  {
+    "path": "/adoption",
+    "label": "Adoption",
+    "iconName": "TrendingUp",
+    "children": []
   },
   {
     "path": "/ai-pulse",
@@ -4785,6 +4797,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/hr/staff-photos",
+        "label": "Staff Photos",
+        "iconName": "Users",
+        "children": []
+      },
+      {
         "path": "/hr/staff-specializations",
         "label": "Staff Specializations",
         "iconName": "Users",
@@ -5862,6 +5880,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
   {
     "path": "/my-kit",
     "label": "My Kit",
+    "iconName": "FileText",
+    "children": []
+  },
+  {
+    "path": "/my-photo",
+    "label": "My Photo",
     "iconName": "FileText",
     "children": []
   },

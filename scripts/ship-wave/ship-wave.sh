@@ -527,6 +527,8 @@ desk_receipt() {
   type -t questions_open_count >/dev/null 2>&1 || return 0
   local n; n=$(questions_open_count 2>/dev/null)
   say "  desk: ${n:-0} question(s) waiting for the Director"
+  local sn; sn=$(grep -ls '"status": "pending"' "$STATE"/shipped/*.json 2>/dev/null | grep -c .)
+  [ "${sn:-0}" -gt 0 ] && say "  desk: $sn shipped note(s) waiting to be relayed to the tab that opened each PR (v5-w12-desk.sh shipped)"
   MARK=$([ "$MODE" = go ] && echo 1) SILENT_MIN="$DESK_SILENT_MIN" python3 - "${QUESTIONS_DIR:-$STATE/questions}" "$STATE/desk-surfaced" <<'PY'
 import datetime, glob, json, os, re, sys
 qd, seenf = sys.argv[1], sys.argv[2]
@@ -600,8 +602,61 @@ record_last_deployed() {  # $1 = deployment JSON ("" allowed) · $2 = fallback s
   local sha; sha=$(python3 -c 'import json,sys;print(((json.load(sys.stdin)["deployments"][0].get("meta") or {}).get("githubCommitSha") or ""))' <<<"$1" 2>/dev/null)
   sha_on_main "$sha" || sha="$2"
   sha_on_main "$sha" || { [ -n "$sha" ] && say "  last-deployed NOT written — ${sha:0:10} is not on jicate/main as fetched"; return 0; }
-  [ "$(cat "$STATE/last-deployed" 2>/dev/null)" = "$sha" ] || { printf '%s\n' "$sha" > "$STATE/last-deployed"; say "  last-deployed ← ${sha:0:10}"; }
+  local prev; prev=$(cat "$STATE/last-deployed" 2>/dev/null)
+  [ "$prev" = "$sha" ] || { printf '%s\n' "$sha" > "$STATE/last-deployed"; say "  last-deployed ← ${sha:0:10}"
+    shipped_requests "$prev" "$sha" "$(python3 -c 'import json,sys;print(json.load(sys.stdin)["deployments"][0].get("uid") or "")' <<<"$1" 2>/dev/null)"; }
   return 0
+}
+
+# ── Shipped notes (Director 2026-09-16 06:14: "why don't the W12 update itself to inform the peer tab that it has
+# merged or deployed a PR it shipped, so that tab is aware before moving to the next PR") ─────────────────────────
+# The wave runs under launchd and cannot message a tab. As with Lane E's reminders it writes a REQUEST the desk tab
+# relays: $STATE/shipped/<pr>.json, the SAME shape as $STATE/nudges/<group>.json (status / sessions / message /
+# requested_at), so the desk resolves the tab that opened the PR with the same desk/desk-nudge-targets.sh
+# (NUDGES_DIR=$STATE/shipped → `v5-w12-desk.sh shipped` / `shipped-mark`) and sends the one line verbatim.
+# Which PRs a move of the last-deployed marker carried = every PR whose squash commit "… (#n)" or merge commit
+# "Merge pull request #n" lies between the previous marker and the new one — wave-merged or hand-merged alike.
+# Written only in `go`, once per PR (an existing file is never rewritten, whatever its status). No previous marker
+# → nothing to compare against → one receipt line and no file. A note is not a question: it never reaches the
+# Director, and the desk never merges or re-checks anything on its strength — the receiving tab does.
+shipped_requests() {  # $1 = previous last-deployed sha ("" allowed) · $2 = new sha · $3 = deployment uid ("" = no build: docs/migration-only round)
+  local prev="$1" new="$2" dpl="${3:-}" dir="$STATE/shipped" n prs written="" skipped=0
+  [ "$MODE" = go ] || return 0
+  [ -n "$new" ] || return 0
+  if [ -z "$prev" ] || ! sha_on_main "$prev"; then say "  shipped notes: no previous last-deployed marker to compare against — none written"; return 0; fi
+  [ "$prev" = "$new" ] && return 0
+  prs=$(git -C "$WT" log --format=%s "$prev..$new" 2>/dev/null | grep -oE '\(#[0-9]+\)$|^Merge pull request #[0-9]+' | grep -oE '[0-9]+' | sort -un)
+  [ -n "$prs" ] || { say "  shipped notes: no PR between ${prev:0:7} and ${new:0:7} — none written"; return 0; }
+  mkdir -p "$dir"
+  for n in $prs; do
+    [ -f "$dir/$n.json" ] && { skipped=$((skipped+1)); continue; }
+    local prjson; prjson=$(gh pr view "$n" --repo "$REPO" --json title,body,url 2>/dev/null || true)   # "" when gh cannot: the note still goes out, untitled
+    PR="$n" DPL="$dpl" SHA="$new" PRJSON="$prjson" python3 - "$dir/$n.json" <<'PY' && written="$written #$n"
+import json, os, re, sys, datetime, tempfile
+p = sys.argv[1]; pr = os.environ["PR"]; dpl = os.environ.get("DPL") or ""; sha = os.environ["SHA"]
+SESS = re.compile(r"claude\.ai/code/session_([A-Za-z0-9]{8,64})")
+try:
+    q = json.loads(os.environ.get("PRJSON") or "{}"); q = q if isinstance(q, dict) else {}
+except Exception:
+    q = {}
+title = " ".join(re.sub(r"[\x00-\x1f\x7f]+", " ", str(q.get("title") or "")).replace("|", "/").split())[:120]   # one line, '|' is the desk line's separator
+body = str(q.get("body") or "")
+sessions = []
+for m in SESS.finditer(body):
+    if m.group(1) not in sessions: sessions.append(m.group(1))
+where = (f"deploy {dpl} READY, commit {sha[:7]}" if dpl else f"no build needed (docs/migration-only round), commit {sha[:7]} is what production runs")
+msg = (f"[note] PR #{pr} is live (deploy verified): {title or 'untitled'} — {where}. "
+       f"Re-check on production what it changed before you move to the next one; reply only if something is wrong.")
+now = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+doc = {"pr": int(pr), "title": title, "url": q.get("url") or "", "deploy": dpl, "sha": sha, "sessions": sessions,
+       "session_id": (sessions or [None])[0], "requested_at": now, "status": "pending", "message": msg}
+os.makedirs(os.path.dirname(p), exist_ok=True)
+fd, tmp = tempfile.mkstemp(dir=os.path.dirname(p), prefix=".shipped.")
+with os.fdopen(fd, "w", encoding="utf-8") as f: json.dump(doc, f, indent=1, ensure_ascii=False)
+os.replace(tmp, p)
+PY
+  done
+  say "  shipped notes for the desk:${written:- none}$([ "$skipped" -gt 0 ] && printf ' · %s already noted' "$skipped")"
 }
 hand_merged_since() {  # $1 = freeze timestamp → "#n #m " — PRs whose merge commit landed on main since then that the wave did NOT merge
   # the wave records its own merges in each run's merged-map.tsv — since round 3 as ONE `<n>\t@merge\t<sha>` row written
@@ -649,9 +704,37 @@ if ! mkdir "$LOCK" 2>/dev/null; then
 fi
 echo $$ > "$LOCK/pid"; trap unlock EXIT
 
+# ── review bypass (Director 2026-09-17 06:12 / 14:01, R11) ───────────────────
+# Branch protection on main requires 1 approving review, and the identity the wave merges as is listed in that
+# rule's bypass_pull_request_allowances.users — it may merge an unreviewed PR. GitHub reports that PR as BLOCKED
+# with reviewDecision=REVIEW_REQUIRED anyway: mergeStateStatus describes the RULE, not whether THIS login may pass
+# it. Reading BLOCKED as unmergeable made four consecutive runs on 2026-09-17 merge ZERO PRs, and lane A printed
+# "required checks never ran on this head" for PRs whose required checks were all green. So the bypass is read once
+# per run and, when it holds, a BLOCKED+REVIEW_REQUIRED PR with nothing failing is classified exactly like a CLEAN
+# one. Either read failing (login or protection rule unreadable) keeps today's behaviour: unknown ⇒ still blocked.
+REVIEW_BYPASS=""; _REVIEW_BYPASS_READ=""
+review_bypass_read() {   # sets $REVIEW_BYPASS to 1 when the merging login may bypass main's review rule, else "".
+  # Called from the parent shell, never in a $( ) — the whole point is that the two gh reads happen ONCE per run.
+  [ -n "$_REVIEW_BYPASS_READ" ] && return 0
+  _REVIEW_BYPASS_READ=1
+  local me prot
+  me=$(gh api user --jq .login 2>/dev/null)
+  [ -n "$me" ] || { say "  review-bypass: could not read the merging login — a BLOCKED PR stays blocked"; return 0; }
+  prot=$(gh api "repos/$REPO/branches/main/protection/required_pull_request_reviews" 2>/dev/null)
+  [ -n "$prot" ] || { say "  review-bypass: could not read main's review rule — a BLOCKED PR stays blocked"; return 0; }
+  REVIEW_BYPASS=$(ME="$me" python3 -c 'import json,os,sys
+try: d = json.load(sys.stdin)
+except Exception: sys.exit(0)
+users = ((d.get("bypass_pull_request_allowances") or {}).get("users") or [])
+print("1" if any((u or {}).get("login") == os.environ["ME"] for u in users) else "")' <<<"$prot" 2>/dev/null)
+  [ -n "$REVIEW_BYPASS" ] && say "  review-bypass: $me is in main's bypass list — a review-required PR is READY, not blocked"
+  return 0
+}
+
 # ── the classifier, shared by the sweep and the post-merge re-cluster ─────────
 classify() {  # $1=prs.json $2=plan.json  (ONLY / QUIET_MIN from env)
-  ONLY="$ONLY" QUIET_MIN="$QUIET_MIN" GUARDS_ENV="$(guards_env 2>/dev/null)" ADVISORY_CHECKS="$(cat "$STATE/advisory-checks" 2>/dev/null)" python3 - "$1" "$2" <<'PY'
+  review_bypass_read
+  ONLY="$ONLY" QUIET_MIN="$QUIET_MIN" GUARDS_ENV="$(guards_env 2>/dev/null)" ADVISORY_CHECKS="$(cat "$STATE/advisory-checks" 2>/dev/null)" REVIEW_BYPASS="$REVIEW_BYPASS" python3 - "$1" "$2" <<'PY'
 import json, sys, os, re, datetime
 GUARDS = [g for g in os.environ.get("GUARDS_ENV", "").split() if g]
 from collections import Counter, defaultdict
@@ -691,6 +774,9 @@ def tier(p):
 # hit a spend limit; GitHub's own branch ruleset never required them, only the wave's all-green rule did.
 # Delete the line from that file and the check is a gate again — no code change, same as allow-destructive.
 ADVISORY = {l.strip() for l in os.environ.get("ADVISORY_CHECKS","").splitlines() if l.strip()}
+# Director 2026-09-17 06:12 / 14:01 (R11): set when the merging login is in main's
+# bypass_pull_request_allowances — see review_bypass_read() above.
+BYPASS_REVIEW = bool(os.environ.get("REVIEW_BYPASS"))
 def ci(p):
     runs = p.get("statusCheckRollup") or []
     bad = [r.get("name") for r in runs if (r.get("conclusion") or "").upper() in ("FAILURE","TIMED_OUT","ACTION_REQUIRED","STARTUP_FAILURE","ERROR") and (r.get("name") or "") not in ADVISORY]
@@ -712,7 +798,8 @@ for p in prs:
     # or a comment moves updatedAt and used to restart the 30-min quiet wait (Director 2026-09-05 23:40)
     t, why = tier(p); v, names = ci(p); age = minutes_since(p.get("headCommittedAt") or p.get("updatedAt",""))
     row = {"number":p["number"], "title":p["title"], "branch":p["headRefName"], "tier":t, "tier_reasons":why,
-           "ci":v, "ci_names":names, "state":p["mergeStateStatus"], "files":[f["path"] for f in (p.get("files") or [])], "age_min":int(age),
+           "ci":v, "ci_names":names, "state":p["mergeStateStatus"], "review":p.get("reviewDecision") or "",
+           "files":[f["path"] for f in (p.get("files") or [])], "age_min":int(age),
            "base":p.get("baseRefName") or "?"}
     # 2026-09-05 15:30: three PRs (#2806 #3009 #3200) targeted a FEATURE branch, not main — "merging" them shipped
     # nothing (one is stranded on a closed branch with a migration the apply step could never find on main). A PR
@@ -723,7 +810,12 @@ for p in prs:
     # GitHub says UNSTABLE when a NON-required check failed and the merge is still allowed. If every one of
     # those failures is on the advisory list (v=="OK" after filtering), the PR is not blocked — it falls through
     # to the same quiet/ready tests a CLEAN PR gets. Any real failure leaves v=="FAIL" and it stays blocked.
-    elif p["mergeStateStatus"]!="CLEAN" and not (p["mergeStateStatus"]=="UNSTABLE" and v=="OK"): plan["blocked"].append(row)
+    # …and (Director 2026-09-17, R11) GitHub says BLOCKED with reviewDecision=REVIEW_REQUIRED for every unreviewed
+    # PR even when the merging login is in main's bypass list — that field is about the RULE, not about this login.
+    # Same shape as the UNSTABLE rule above: nothing failing (v=="OK") and the bypass holds ⇒ treat it as CLEAN and
+    # fall through to the same quiet/ready/tier tests. No bypass, or any real red, and it stays blocked as before.
+    elif p["mergeStateStatus"]!="CLEAN" and not (p["mergeStateStatus"]=="UNSTABLE" and v=="OK") \
+         and not (BYPASS_REVIEW and p["mergeStateStatus"]=="BLOCKED" and (p.get("reviewDecision") or "")=="REVIEW_REQUIRED" and v=="OK"): plan["blocked"].append(row)
     elif v!="OK": plan["waiting_ci"].append(row)
     elif age < quiet: plan["quiet_wait"].append(row)          # interview: author may still be typing
     else: plan["ready"][t].append(row)
@@ -755,7 +847,7 @@ sweep() {  # $1=run dir → writes prs.json + plan.json
   # first (retried), then files + checks hydrated per PR in parallel with retries (hydrate.py merges).
   local i ok="" here; here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
   for i in 1 2 3; do
-    gh pr list --repo "$REPO" --state open --limit 200 --json number,title,mergeStateStatus,isDraft,headRefName,baseRefName,updatedAt > "$1/light.json" 2>"$1/prs.err" && ok=1 && break
+    gh pr list --repo "$REPO" --state open --limit 200 --json number,title,mergeStateStatus,reviewDecision,isDraft,headRefName,baseRefName,updatedAt > "$1/light.json" 2>"$1/prs.err" && ok=1 && break
     sleep $((i*5))
   done
   [ -n "$ok" ] || { say "SWEEP FAIL: $(head -c 300 "$1/prs.err")"; return 1; }
@@ -1051,6 +1143,16 @@ run_once() {
     # nine approved HELD PRs were listed READY and then refused here. Same rule, same knob, applied before the merge.
     if [ "$st" = "OPEN UNSTABLE false main" ] && advisory_only "$n"; then
       say "  note   $t #$n — UNSTABLE only on advisory checks (advice, not a gate) — merging"; st="OPEN CLEAN false main"
+    fi
+    # Director 2026-09-17 06:12 / 14:01 (R11), same shape as the advisory rule above: the SWEEP now reaches READY for a
+    # PR that is BLOCKED only because main asks for a review this login is allowed to bypass, and this live re-check did
+    # not — so without this the run would list them READY and refuse every one here (the 09-11 advisory lesson, again).
+    # Narrow on purpose: the bypass must have been read, the PR must be red on nothing real, and GitHub is still the
+    # final word — if the bypass is not actually ours the merge call below is refused and nothing is forced.
+    if [ "$st" = "OPEN BLOCKED false main" ] && [ -n "${REVIEW_BYPASS:-}" ] \
+       && [ "$(gh pr view "$n" --repo "$REPO" --json reviewDecision -q '.reviewDecision // ""' 2>/dev/null)" = "REVIEW_REQUIRED" ] \
+       && { [ -z "$(gh pr view "$n" --repo "$REPO" --json statusCheckRollup -q '.statusCheckRollup[]? | select(((.conclusion // "") | ascii_upcase) as $k | $k=="FAILURE" or $k=="ERROR" or $k=="TIMED_OUT" or $k=="ACTION_REQUIRED" or $k=="STARTUP_FAILURE" or $k=="CANCELLED") | (.name // .context // "?")' 2>/dev/null | { if [ -s "$STATE/advisory-checks" ]; then grep -vxF -f "$STATE/advisory-checks"; else cat; fi; })" ]; }; then
+      say "  note   $t #$n — BLOCKED only for a review the merging login may bypass (R11) — merging"; st="OPEN CLEAN false main"
     fi
     if [ "$st" != "OPEN CLEAN false main" ]; then say "  HOLD   $t #$n — state now '$st' (changed since sweep), not merging"; return 1; fi
     # Director 14:45: SQL_FILE_INDEX.md is a hand-edited append-only ledger — every merge that touches it re-conflicts

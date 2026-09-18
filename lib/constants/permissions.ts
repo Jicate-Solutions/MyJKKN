@@ -1078,6 +1078,19 @@ export const PERMISSION_CATEGORIES = [
       // overriding a record outright and exporting the tamper log are six
       // different amounts of trust.
       { key: 'hr.attendance.mark_self', label: 'Mark Own Attendance Punch' },
+
+      // ── Staff photograph — the reviewer side (2026-09-16) ────────────────
+      // ONE key, not two. Submitting your own photograph is deliberately
+      // ungated: fn_submit_my_staff_photo() resolves the staff row from
+      // auth.uid() itself, so a caller can only ever submit for themselves and
+      // a permission key would add nothing but a rollout blocker — nobody could
+      // photograph themselves until 22 roles were re-granted.
+      //
+      // Reviewing is the institutional act (Director ruling 2026-09-03: a
+      // self-supplied photograph is not evidence the institution photographed
+      // anyone), so THAT is what is gated, and the RLS + the review function
+      // both demand this key.
+      { key: 'hr.staff_photo.review', label: 'Approve Team Member Photographs' },
       { key: 'hr.attendance.view_all', label: 'View Attendance for Everyone' },
       { key: 'hr.attendance.approve_team', label: 'Approve Attendance for Own Team' },
       { key: 'hr.attendance.regularize_approve', label: 'Approve Attendance Regularization Requests' },
@@ -1225,6 +1238,10 @@ export const PERMISSION_CATEGORIES = [
         label: 'Approve Resource Requests'
       },
       { key: 'resources.approvals.reject', label: 'Reject Resource Requests' },
+      {
+        key: 'resources.reservations.communicate',
+        label: 'Message Reservation Users'
+      },
       { key: 'resources.analytics.view', label: 'View Resource Analytics' },
       { key: 'resources.reports.view', label: 'View Resource Reports' },
       { key: 'resources.maintenance.view', label: 'View Resource Maintenance' },
@@ -3732,6 +3749,17 @@ export const PERMISSION_CATEGORIES = [
       },
     ],
   },
+  {
+    // Added 2026-09-16 — Adoption loop (specs/2026-09-16-adoption-loop.md).
+    // Who may open /adoption: the principal of an institution sees which of
+    // their people use each shipped feature (names for their own institution
+    // only — ruling 7). Super admins bypass; granted to 'principal' by migration.
+    name: 'Feature Adoption',
+    key: 'adoption',
+    permissions: [
+      { key: 'adoption.view', label: 'View Feature Adoption For Own Institution' }
+    ]
+  }
 ];
 
 export const PERMISSIONS = {

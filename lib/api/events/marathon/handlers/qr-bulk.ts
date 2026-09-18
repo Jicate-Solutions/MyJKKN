@@ -2,8 +2,13 @@
 // Generates a ZIP file containing branded QR code PNGs for ALL registrations.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServiceRoleClient } from '@/lib/supabase/server';
+import {
+  createServerSupabaseClient,
+  createServiceRoleClient,
+  getAuthUser,
+} from '@/lib/supabase/server';
 import { generateMarathonQR } from '@/lib/utils/marathon-qr-generator';
+import { canGenerateEventQr } from '@/lib/services/events/shared/event-manage-access';
 import archiver from 'archiver';
 import { PassThrough } from 'stream';
 
@@ -13,6 +18,25 @@ export async function GET(
 ) {
   try {
     const { eventId } = await params;
+
+    // Service role, and the ZIP names every participant — so only whoever may
+    // generate this event's passes may download them (2026-09-18; it used to
+    // check nobody).
+    const { user } = await getAuthUser();
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const allowed = await canGenerateEventQr(
+      { auth: (await createServerSupabaseClient()) as any, svc: createServiceRoleClient(), userId: user.id },
+      eventId
+    );
+    if (!allowed) {
+      return NextResponse.json(
+        { error: "You don't have permission to download this event's QR passes" },
+        { status: 403 }
+      );
+    }
+
     const supabase = createServiceRoleClient();
 
     // Fetch event name

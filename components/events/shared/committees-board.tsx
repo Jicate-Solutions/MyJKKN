@@ -252,12 +252,13 @@ function CommitteeCard({
   // slots where member_ids is index-aligned with member_names (see
   // EventCommitteeService.addInternalMembers). Legacy free-text committees have
   // names without ids; those can't be assigned because assigned_to must be an auth
-  // uid for the member to pass event_tasks' UPDATE policy.
+  // uid for the member to pass event_tasks' UPDATE policy. A member added with no
+  // MyJKKN login holds a NULL slot: their task is assigned by name only.
   const memberNames = committee.member_names ?? [];
-  const memberIds = committee.member_ids ?? [];
+  const memberIds: (string | null)[] = committee.member_ids ?? [];
   const assignable =
     memberIds.length === memberNames.length
-      ? memberNames.map((name, i) => ({ idx: String(i), name, id: memberIds[i] }))
+      ? memberNames.map((name, i) => ({ idx: String(i), name, id: memberIds[i] ?? undefined }))
       : [];
 
   const addTask = () => {
@@ -399,6 +400,7 @@ function CommitteeCard({
                     {assignable.map((a) => (
                       <SelectItem key={a.idx} value={a.idx}>
                         {a.name}
+                        {!a.id && ' (name only)'}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -478,6 +480,8 @@ export function CommitteesBoard({
         committeeName={memberFor?.name}
         existingNames={memberFor?.member_names ?? []}
         isAdding={addMembers.isPending}
+        // People with no MyJKKN login join the roster by name (member_id null).
+        allowNameOnly
         onAdd={(people) => {
           if (!memberFor || people.length === 0) return;
           addMembers.mutate(
