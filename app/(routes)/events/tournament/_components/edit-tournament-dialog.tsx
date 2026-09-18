@@ -7,16 +7,21 @@
 // useTournament(id); when several exist a picker chooses which one to edit,
 // and when NONE exist the same fields seed the first division inline on save
 // (a create-form division can fail best-effort, leaving a division-less row).
+// "Add sport" creates a further division immediately (BUG-004567 — the old
+// per-division add UI was removed 2026-07-28, leaving no way to add Carrom to a
+// running tournament); it copies the shown division's shared settings, the way
+// the create form applies one set of settings to every sport picked.
 // Entries/fixtures stay on the detail page. The inner form is keyed by
 // tournament id so it remounts with fresh initial state per tournament (no
 // setState-in-effect re-seeding).
 
 import { useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -53,6 +58,21 @@ import { NaacCriteriaField } from '@/components/events/shared/naac-criteria-fiel
 
 /** ISO timestamp / date string → yyyy-MM-dd for <input type="date">. */
 const toDateInput = (v: string | null | undefined) => (v ? v.slice(0, 10) : '');
+
+/**
+ * Identity of a division for duplicate checks: sport + category + age band.
+ * A missing category counts as 'open' (the default every form writes).
+ */
+const divisionKey = (
+  sport: string,
+  gender: string | null | undefined,
+  ageBand: string | null | undefined
+) =>
+  [
+    sport.trim().toLowerCase(),
+    (gender || 'open').trim().toLowerCase(),
+    (ageBand ?? '').trim().toLowerCase(),
+  ].join('|');
 
 /**
  * Editable fields of one division. Changes accumulate in `edits` (an overlay
@@ -276,6 +296,50 @@ function EditTournamentForm({
 
   const isPending =
     update.isPending || updateDivision.isPending || createDivision.isPending;
+
+  // "Add sport" — a further division, created straight away (not on Save).
+  // Category defaults to the shown division's; age band, level, format and
+  // entry fee are copied from it. Sports that would duplicate an existing
+  // sport + category + age band are left out of the picker.
+  const [addSport, setAddSport] = useState('');
+  const [addGenderOverride, setAddGenderOverride] = useState<string | null>(null);
+  const addGender = addGenderOverride ?? (selectedDivision?.gender || 'open');
+  const addAgeBand = selectedDivision?.age_band?.trim() || '';
+  const existingDivisionKeys = new Set(
+    divisions.map((d) => divisionKey(d.sport, d.gender, d.age_band))
+  );
+  const addableSports: string[] = JKKN_SPORTS.filter(
+    (s) => !existingDivisionKeys.has(divisionKey(s, addGender, addAgeBand))
+  );
+  const addSportValue = addableSports.includes(addSport) ? addSport : '';
+
+  const addDivision = async () => {
+    if (!selectedDivision || !addSportValue) return;
+    const templateFee = Number(
+      (selectedDivision.config as { entry_fee?: number } | undefined)?.entry_fee ?? 0
+    );
+    try {
+      const created = await createDivision.mutateAsync({
+        eventId: tournament.id,
+        dto: {
+          sport: addSportValue,
+          gender: addGender,
+          age_band: addAgeBand || undefined,
+          format: selectedDivision.format || 'knockout',
+          level: selectedDivision.level ?? 'intra_college',
+          config: templateFee > 0 ? { entry_fee: templateFee } : {},
+          sort_order: Math.max(0, ...divisions.map((d) => d.sort_order ?? 0)) + 1,
+        },
+      });
+      setAddSport('');
+      setAddGenderOverride(null);
+      // Show the new division for tweaking — unless that would throw away
+      // unsaved edits to the current one (switching divisions resets them).
+      if (Object.keys(divisionEdits).length === 0) setSelectedDivisionId(created.id);
+    } catch {
+      // handled by mutation toast
+    }
+  };
 
   const submit = async () => {
     if (!form.name.trim() || !form.institution_id) return;
@@ -534,6 +598,59 @@ function EditTournamentForm({
               />
             </>
           )}
+
+          {!divisionsLoading && selectedDivision && (
+            <div className="space-y-2 border-t pt-4">
+              <Label className="text-sm font-semibold">Add sport</Label>
+              <p className="text-xs text-muted-foreground">
+                Adds a new division right away, copying the age band, level, format and entry fee
+                of the division above. Pick it in the division list to change those afterwards.
+              </p>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Select value={addSportValue} onValueChange={setAddSport}>
+                  <SelectTrigger className="sm:flex-1" aria-label="Sport to add">
+                    <SelectValue
+                      placeholder={
+                        addableSports.length > 0 ? 'Select sport' : 'Every sport already added'
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {addableSports.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={addGender} onValueChange={setAddGenderOverride}>
+                  <SelectTrigger className="sm:w-36" aria-label="Category of the sport to add">
+                    <SelectValue placeholder="Category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DIVISION_GENDERS.map((g) => (
+                      <SelectItem key={g.value} value={g.value}>
+                        {g.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={addDivision}
+                  disabled={isPending || !addSportValue}
+                >
+                  {createDivision.isPending ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Plus className="mr-2 h-4 w-4" />
+                  )}
+                  Add
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Visibility toggles */}
@@ -617,6 +734,9 @@ export function EditTournamentDialog({
       <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Edit Tournament</DialogTitle>
+          <DialogDescription className="sr-only">
+            Edit the tournament details, its divisions, and add a sport.
+          </DialogDescription>
         </DialogHeader>
         {tournament && (
           <EditTournamentForm
