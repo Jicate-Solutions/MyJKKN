@@ -9,6 +9,7 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
+  attachAnswersToReaders,
   mapBlockingItems,
   fetchBlockingItems,
   isMissingBlockingSchema,
@@ -193,6 +194,17 @@ describe('fetchBlockingItems — degrading when the migrations are not applied',
     expect(res.items).toEqual([]);
   });
 
+  it('a fallback that FAILS for any other reason is a fault, not an empty queue (critic round 2)', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const c = client({
+      get_blocking_items: { data: null, error: { code: '42883', message: 'function does not exist' } },
+      get_unacknowledged_notifications: { data: null, error: { code: '42501', message: 'permission denied' } }
+    });
+    const res = await fetchBlockingItems(c, 'user-1', NOW);
+    expect(res.items).toBeNull();
+    expect(res.error).toMatchObject({ code: '42501' });
+  });
+
   it('no blocking items at all when the fallback is missing too — never an error', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const c = client({}); // every RPC answers 42883
@@ -213,3 +225,20 @@ describe('fetchBlockingItems — degrading when the migrations are not applied',
     expect(c.rpc).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('attachAnswersToReaders', () => {
+  it('adds each reader\'s picked option, null when they have not answered, and leaves everything else alone', () => {
+    const analytics = { summary: { total: 2 }, recent_readers: [{ user_id: 'u1', name: 'A' }, { user_id: 'u2', name: 'B' }] };
+    const out = attachAnswersToReaders(analytics, [{ user_id: 'u2', answer: 'No' }]);
+    expect(out.summary).toEqual({ total: 2 });
+    expect(out.recent_readers).toEqual([
+      { user_id: 'u1', name: 'A', answer: null },
+      { user_id: 'u2', name: 'B', answer: 'No' }
+    ]);
+  });
+  it('is a no-op without a readers list or without answers', () => {
+    expect(attachAnswersToReaders({ recent_readers: null } as any, [])).toEqual({ recent_readers: null });
+    expect(attachAnswersToReaders({ recent_readers: [{ user_id: 'u1' }] }, null).recent_readers).toEqual([{ user_id: 'u1', answer: null }]);
+  });
+});
+

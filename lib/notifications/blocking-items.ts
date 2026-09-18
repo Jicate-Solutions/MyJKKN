@@ -74,6 +74,12 @@ export async function fetchBlockingItems(
 
   const fallback = await client.rpc('get_unacknowledged_notifications', { p_user_id: userId });
   if (fallback.error) {
+    // Only a MISSING fallback is an empty queue. A permission error or a timeout
+    // on the fallback is a real fault and must still answer 500 — otherwise
+    // mandatory notices could silently stop blocking (critic round 2).
+    if (!isMissingBlockingSchema(fallback.error)) {
+      return { items: null, degraded: true, error: fallback.error };
+    }
     console.warn(
       '[notifications] get_unacknowledged_notifications is unavailable too; serving no blocking items.',
       { code: fallback.error?.code, message: fallback.error?.message }
@@ -153,3 +159,26 @@ export function mapBlockingItems(
     return base;
   });
 }
+
+/**
+ * The notification detail page lists who read a notice. For a must-answer
+ * notice a super admin also needs to see which option each person picked
+ * (critic round 2, DM-3). `answers` are the notification_answers rows for
+ * that notice; every reader row gains `answer` (null when they have not
+ * answered), nothing else about the analytics payload changes.
+ */
+export function attachAnswersToReaders<T extends { recent_readers?: any[] | null }>(
+  analytics: T,
+  answers: Array<{ user_id: string; answer: string }> | null | undefined
+): T {
+  if (!analytics || !Array.isArray(analytics.recent_readers)) return analytics;
+  const byUser = new Map((answers || []).map((a) => [String(a.user_id), a.answer]));
+  return {
+    ...analytics,
+    recent_readers: analytics.recent_readers.map((r: any) => ({
+      ...r,
+      answer: byUser.get(String(r.user_id)) ?? null
+    }))
+  };
+}
+

@@ -247,3 +247,12 @@ describe('critic round 1 (2026-09-18) — the problems that were real', () => {
   });
 });
 
+describe('critic round 2 (2026-09-18) — the snooze race', () => {
+  const body = functionBody(read(MIGRATION_A), 'fn_bug_feedback_snooze');
+  it('locks the row and lets the UPDATE re-check the cap, the status and the expiry', () => {
+    expect(body).toMatch(/reporter_user_id = auth\.uid\(\)\s+FOR UPDATE;/);
+    expect(body).toMatch(/AND status IN \('sent','delivered'\) AND snooze_count < 3 AND expires_at > now\(\)\s+RETURNING \* INTO v_row;/);
+    expect(body).toMatch(/IF NOT FOUND THEN\s+RETURN jsonb_build_object\('success', false, 'error', 'no more snoozes'\)/);
+  });
+});
+

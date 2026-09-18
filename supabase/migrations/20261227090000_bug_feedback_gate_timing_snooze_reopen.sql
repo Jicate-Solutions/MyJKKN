@@ -239,9 +239,14 @@ AS $$
 DECLARE
   v_row public.bug_fix_feedback_requests%ROWTYPE;
 BEGIN
+  -- CHANGED 2026-09-18 (critic round 2): the row is locked for this transaction,
+  -- and the UPDATE below re-checks the cap and the status itself, so two
+  -- concurrent presses cannot spend two snoozes on one cap slot, and a press
+  -- that races an answer is refused instead of hitting the snooze_count CHECK.
   SELECT * INTO v_row
   FROM public.bug_fix_feedback_requests
-  WHERE id = p_request_id AND reporter_user_id = auth.uid();
+  WHERE id = p_request_id AND reporter_user_id = auth.uid()
+  FOR UPDATE;
   IF NOT FOUND THEN
     RETURN jsonb_build_object('success', false, 'error', 'not found');
   END IF;
@@ -263,7 +268,11 @@ BEGIN
       status        = CASE WHEN status = 'sent' THEN 'delivered' ELSE status END,
       updated_at    = now()
   WHERE id = p_request_id AND reporter_user_id = auth.uid()
+    AND status IN ('sent','delivered') AND snooze_count < 3 AND expires_at > now()
   RETURNING * INTO v_row;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false, 'error', 'no more snoozes');
+  END IF;
 
   RETURN jsonb_build_object('success', true,
     'snooze_count', v_row.snooze_count,
