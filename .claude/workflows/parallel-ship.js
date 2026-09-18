@@ -95,15 +95,56 @@ const gateMirror = (built) => agent(
   `Cheap-mode TRIAL (low effort, mechanical): in a fresh worktree of PR #${built.pr_number} head ${built.head_sha} (git fetch jicate; git worktree add), symlink node_modules and run, one at a time, pasting each exit line verbatim: bash scripts/ci/check-nav-config-hrefs.sh; bash scripts/ci/check-radix-select-empty-values.sh; node scripts/check-permissions-catalog.mjs; and confirm every file under supabase/migrations/ in the PR diff has a matching line in supabase/SQL_FILE_INDEX.md (grep the filename). Remove the worktree when done. Return {exit_lines[], all_green, notes}. Do not reason about the code; run the commands and report.`,
   { label: `gate-mirror(low):${built.pr_number}`, phase: 'Gate mirror (cheap trial)', effort: 'low', schema: MIRROR_SCHEMA })
 
-const results = await pipeline(
-  args,
-  (spec) =>
-    agent(
+// ── Two failure modes this script used to swallow (2026-09-18) ───────────────
+// (1) WRAPPED BUILDER RESULT. Run wf_a577e9cc-b67: the harness handed the
+//     builder's structured result back as {input:'<json string>'} instead of the
+//     parsed object. `built.pr_number` was undefined, the lane logged "builder
+//     returned no PR", and verify-A / verify-B / the gate mirror were SILENTLY
+//     skipped while Draft PR #3883 existed — the two-reviewer gate was bypassed
+//     with nothing red anywhere. The unwrap below restores the parsed object.
+// (2) USAGE-LIMIT DEATH (G5, Director ruling 2026-09-16, rank 5). When a lane's
+//     agent dies on a usage limit whose text names a reset time, the orchestrator
+//     wants a one-shot resume — but this script can neither create a cron nor
+//     read the clock. So it makes the failure VISIBLE and PARSEABLE instead: one
+//     `USAGE-LIMIT-RESET:` log line carrying the matched time text, and a lane
+//     result of {failed, usage_limit, reset_hint} that survives into the final
+//     summary. Any other throw is re-raised unchanged.
+const USAGE_LIMIT_RE = /limit|quota|resets? (at|in)|try again/i
+
+const buildLane = async (spec) => {
+  try {
+    return await agent(
       `You build ONE production PR for Jicate-Solutions/MyJKKN in your git worktree — unattended, end to end.\n${BUILD_BOILERPLATE.replace('<BRANCH>', spec.branch)}\nBRANCH: ${spec.branch}\nTITLE: ${spec.title}\nprodAck: ${spec.prodAck ? 'true' : 'false'}\nSPEC:\n${spec.spec}`,
       { label: `build:${spec.branch}`, phase: 'Build', isolation: 'worktree', effort: 'high', schema: BUILT_SCHEMA },
-    ),
+    )
+  } catch (e) {
+    const text = String((e && e.message) || e || '')
+    if (!USAGE_LIMIT_RE.test(text)) throw e
+    const m = text.match(/[^.\n]*(?:resets?|try again|limit)[^.\n]*/i)
+    const hint = ((m && m[0]) || text).trim().slice(0, 200)
+    log(`USAGE-LIMIT-RESET: ${hint} — resume with Workflow({scriptPath, resumeFromRunId})`)
+    return { branch: spec.branch, failed: true, usage_limit: true, reset_hint: hint }
+  }
+}
+
+const results = await pipeline(
+  args,
+  (spec) => buildLane(spec),
   async (built, spec) => {
     if (!built) return null
+    // (1) unwrap a builder result the harness wrapped as {input:'<json string>'}
+    if (typeof built.input === 'string' && !built.pr_number) {
+      try {
+        built = JSON.parse(built.input)
+      } catch (e) {
+        log(`lane ${spec.branch}: builder result looked wrapped ({input:string}) but did not parse as JSON — ${String((e && e.message) || e)}`)
+      }
+    }
+    // (2) a usage-limit death passes straight through to the summary
+    if (built.usage_limit) {
+      log(`lane ${spec.branch}: build agent hit a usage limit — reset hint: ${built.reset_hint}`)
+      return built
+    }
     if (built.already_exists) {
       log(`lane ${spec.branch}: STOPPED — already exists at ${built.where}. Director decides.`)
       return { branch: spec.branch, already_exists: true, where: built.where, surprises: built.surprises }
@@ -149,7 +190,8 @@ const results = await pipeline(
 const shipped = results.filter(Boolean)
 const opened = shipped.filter(r => r.pr_number)
 const stopped = shipped.filter(r => r.already_exists)
+const usageLimited = shipped.filter(r => r.usage_limit)
 const risky = opened.flatMap(r => (r.risky_assumptions || []).map(a => `#${r.pr_number}: ${a}`))
 const drafts = opened.filter(r => (r.risky_assumptions || []).length > 0).map(r => r.pr_number)
-log(`${opened.length}/${args.length} PRs opened; ${opened.filter((r) => r.verify?.ready).length} reviewer-ready; ${stopped.length} stopped (already exists); ${risky.length} risky assumption(s) → Director tap-questions, 3 per round, before PRs ${drafts.join(', ') || '(none)'} flip from Draft`)
-return { shipped: opened, stopped, risky_assumptions: risky, draft_prs: drafts }
+log(`${opened.length}/${args.length} PRs opened; ${opened.filter((r) => r.verify?.ready).length} reviewer-ready; ${stopped.length} stopped (already exists); ${risky.length} risky assumption(s) → Director tap-questions, 3 per round, before PRs ${drafts.join(', ') || '(none)'} flip from Draft${usageLimited.length ? `; ${usageLimited.length} lane(s) died on a usage limit — ${usageLimited.map(r => `${r.branch}: ${r.reset_hint}`).join(' | ')}` : ''}`)
+return { shipped: opened, stopped, usage_limited: usageLimited, risky_assumptions: risky, draft_prs: drafts }
