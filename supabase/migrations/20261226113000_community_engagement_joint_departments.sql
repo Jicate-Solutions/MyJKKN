@@ -247,6 +247,13 @@ BEGIN
     -- PENDING rather than skipped. Skipping it would leave the initiative with
     -- no participants at all, which reads downstream as "no department ran
     -- this" — a worse lie than "the department has not confirmed yet".
+    -- Name this insert to the §4b guard, which otherwise demotes every
+    -- born-confirmed row a signed-in session produces. Transaction-local, and
+    -- cleared on the very next line: a flag left standing would let a SECOND,
+    -- client-shaped insert later in the SAME transaction ride through as if the
+    -- lead trigger had written it. That leak is tested, not assumed.
+    PERFORM set_config('sh.ce_lead_row', NEW.id::text, true);
+
     INSERT INTO public.sh_community_engagement_participants
         (engagement_id, department_id, institution_id,
          is_lead, confirmation_status, confirmed_by, confirmed_at)
@@ -260,6 +267,8 @@ BEGIN
       FROM public.departments d
      WHERE d.id = NEW.department_id
     ON CONFLICT (engagement_id, department_id) DO NOTHING;
+
+    PERFORM set_config('sh.ce_lead_row', '', true);
 
     RETURN NEW;
 END;
@@ -297,25 +306,61 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, extensions
 AS $$
+DECLARE
+    v_caller_role   text;
+    v_from_lead_row boolean;
 BEGIN
     -- The college always follows the department, never the client.
     SELECT d.institution_id INTO NEW.institution_id
       FROM public.departments d WHERE d.id = NEW.department_id;
 
+    -- ── WHY NOT current_user. READ THIS BEFORE SIMPLIFYING THIS BLOCK. ──
+    -- An earlier version of this guard read `IF current_user IN
+    -- ('authenticated','anon')`. That branch can NEVER execute. This function
+    -- is SECURITY DEFINER, so inside its body current_user is the function's
+    -- OWNER (postgres on Supabase) on every path, including a PostgREST write.
+    -- The guard was therefore dead code and a reviewer forged a confirmation
+    -- straight through it. Measured on Postgres 16.14, one direct client INSERT
+    -- and one INSERT issued by the §4 lead trigger, in the same session, under
+    -- SET ROLE authenticated:
+    --
+    --     current_user             owner        owner        <- identical
+    --     session_user             owner        owner        <- identical
+    --     current_setting('role')  authenticated authenticated
+    --     pg_trigger_depth()       1            2
+    --
+    -- So the caller's role and the write's provenance are two different
+    -- questions and each needs its own signal.
+    --
+    --   v_caller_role   — PostgREST issues `SET LOCAL ROLE <jwt role>` on every
+    --                     request, and SECURITY DEFINER does NOT reset that GUC
+    --                     (measured above). It names the CALLER, which is the
+    --                     job current_user failed at. A client cannot rewrite
+    --                     it: PostgREST executes no SQL they supply.
+    --   v_from_lead_row — the §4 trigger stamps the engagement id it is writing
+    --                     for and clears it immediately. pg_trigger_depth() > 1
+    --                     is required as well, so the stamp alone is not a key.
+    --
+    -- It fails CLOSED: any future writer that does not set the stamp has its
+    -- row demoted to 'pending' — visible and repairable — rather than silently
+    -- trusted.
+    --
+    -- Gating on `NOT NEW.is_lead` instead would have been forgeable — is_lead
+    -- is a client-supplied column, so a caller could insert is_lead = true,
+    -- confirmation_status = 'confirmed', confirmed_by = <any profile> for a
+    -- department that never agreed, and D3 (a department confirms its OWN
+    -- part) would be decorative.
+    v_caller_role := NULLIF(current_setting('role', true), 'none');
+    IF v_caller_role IS NULL OR v_caller_role = '' THEN
+        v_caller_role := session_user;
+    END IF;
+
+    v_from_lead_row := pg_trigger_depth() > 1
+                   AND NEW.engagement_id IS NOT NULL
+                   AND current_setting('sh.ce_lead_row', true) = NEW.engagement_id::text;
+
     IF TG_OP = 'INSERT' THEN
-        -- A row may only be BORN confirmed by the SECURITY DEFINER lead trigger
-        -- above, which runs as the function's OWNER — so `current_user` is the
-        -- migration owner there and is literally 'authenticated' for any
-        -- signed-in client write through PostgREST. That distinction is the
-        -- gate, and a client cannot forge it: it is not a column, a claim or a
-        -- setting they can send.
-        --
-        -- Gating on `NOT NEW.is_lead` instead would have been forgeable —
-        -- is_lead is a client-supplied column, so a caller could insert
-        -- is_lead = true, confirmation_status = 'confirmed', confirmed_by =
-        -- <any profile> for a department that never agreed, and D3 (a
-        -- department confirms its OWN part) would be decorative.
-        IF current_user IN ('authenticated', 'anon') THEN
+        IF v_caller_role IN ('authenticated', 'anon') AND NOT v_from_lead_row THEN
             NEW.is_lead := false;
             IF NEW.confirmation_status = 'confirmed' THEN
                 NEW.confirmation_status := 'pending';
@@ -360,7 +405,11 @@ COMMENT ON FUNCTION public.guard_community_participant_confirmation() IS
   'knowledge and pins engagement_id, department_id and is_lead to their '
   'original values. An RLS UPDATE policy cannot compare OLD to NEW, so without '
   'this a caller could confirm their own department''s row and then re-point it '
-  'at a department that never agreed.';
+  'at a department that never agreed. A row born ''confirmed'' or is_lead is '
+  'demoted to ''pending'' unless it came from the §4 lead trigger, decided by '
+  'current_setting(''role'') plus the trigger''s own stamp — NOT by '
+  'current_user, which is the function OWNER inside a SECURITY DEFINER body on '
+  'every path and made the first version of this guard dead code.';
 
 REVOKE EXECUTE ON FUNCTION public.guard_community_participant_confirmation() FROM anon, PUBLIC;
 
@@ -472,15 +521,23 @@ GRANT ALL ON TABLE public.sh_community_engagement_participants TO service_role;
 -- decision D2: a college that ran a camp reaching 400 people reports 400, and
 -- so does its partner, and the cluster still says 400. Do not "reconcile" them.
 
+-- The output NAMES are a cross-lane contract: the CAC lane reads
+-- `total_beneficiaries` and `total_hours` off this row. CREATE OR REPLACE
+-- cannot rename an OUT parameter ("cannot change name of input parameter" /
+-- "cannot change return type"), so a partially-applied earlier run must be
+-- dropped first or this file is not re-runnable. No view or function depends on
+-- it, so the DROP is not CASCADE.
+DROP FUNCTION IF EXISTS public.fn_community_cluster_totals();
+
 CREATE OR REPLACE FUNCTION public.fn_community_cluster_totals()
 RETURNS TABLE (
-    initiatives        integer,
-    beneficiaries      bigint,
-    hours              numeric,
-    joint_initiatives  integer,
-    solo_initiatives   integer,
-    avg_reach_joint    numeric,
-    avg_reach_solo     numeric
+    initiatives         integer,
+    total_beneficiaries bigint,
+    total_hours         numeric,
+    joint_initiatives   integer,
+    solo_initiatives    integer,
+    avg_reach_joint     numeric,
+    avg_reach_solo      numeric
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -666,38 +723,64 @@ $lockcheck$;
 
 DO $grant$
 DECLARE
-    v_roles text[];
+    v_role_ids uuid[];
+    v_role_keys text[];
     v_after int;
 BEGIN
-    SELECT array_agg(role_key ORDER BY role_key)
-      INTO v_roles
+    -- MATCH ON id, NOT ON role_key. The rows to change are the rows the SELECT
+    -- found; addressing them by a secondary column asks the UPDATE to re-find
+    -- them under a uniqueness assumption this file has no business making. On
+    -- production today `custom_roles.role_key` IS globally unique
+    -- (custom_roles_role_key_key; there is no institution_id column, and zero
+    -- duplicate role_keys — read 2026-09-18), so the two predicates happen to
+    -- select the same rows. Matching on the primary key means the grant stays
+    -- exactly as wide as the SELECT even if the table is ever scoped per
+    -- institution — at which point `role_key = ANY(...)` would silently hand
+    -- the permission to every college's copy of a role, including copies that
+    -- never held approve.
+    SELECT array_agg(id ORDER BY role_key), array_agg(role_key ORDER BY role_key)
+      INTO v_role_ids, v_role_keys
       FROM public.custom_roles
      WHERE (permissions->>'solutions.societal.approve')::boolean IS TRUE;
 
-    IF v_roles IS NULL OR array_length(v_roles, 1) = 0 THEN
+    IF v_role_ids IS NULL OR array_length(v_role_ids, 1) = 0 THEN
         RAISE EXCEPTION
             'No role holds solutions.societal.approve = true, so there is '
             'nobody to grant the confirmation key to. Refusing rather than '
             'guessing a role list.';
     END IF;
 
-    RAISE NOTICE 'Granting solutions.societal.confirm to: %', array_to_string(v_roles, ', ');
+    RAISE NOTICE 'Granting solutions.societal.confirm to % role(s): %',
+        array_length(v_role_ids, 1), array_to_string(v_role_keys, ', ');
 
     UPDATE public.custom_roles
        SET permissions = permissions || jsonb_build_object('solutions.societal.confirm', true),
            updated_at = now()
-     WHERE role_key = ANY (v_roles);
+     WHERE id = ANY (v_role_ids);
 
     SELECT count(*)
       INTO v_after
       FROM public.custom_roles
-     WHERE role_key = ANY (v_roles)
+     WHERE id = ANY (v_role_ids)
        AND (permissions->>'solutions.societal.confirm')::boolean IS TRUE;
 
-    IF v_after <> array_length(v_roles, 1) THEN
+    IF v_after <> array_length(v_role_ids, 1) THEN
         RAISE EXCEPTION
             'Expected % roles to hold solutions.societal.confirm, found %.',
-            array_length(v_roles, 1), v_after;
+            array_length(v_role_ids, 1), v_after;
+    END IF;
+
+    -- Nothing outside the SELECT may have been touched.
+    SELECT count(*)
+      INTO v_after
+      FROM public.custom_roles
+     WHERE (permissions->>'solutions.societal.confirm')::boolean IS TRUE
+       AND NOT (id = ANY (v_role_ids));
+
+    IF v_after > 0 THEN
+        RAISE EXCEPTION
+            '% role(s) outside the approve set hold solutions.societal.confirm; '
+            'the grant reached further than it was allowed to.', v_after;
     END IF;
 END
 $grant$;
@@ -708,6 +791,7 @@ DO $verify$
 DECLARE
     v_qual text;
     v_check text;
+    v_body text;
 BEGIN
     IF to_regclass('public.sh_community_engagement_participants') IS NULL THEN
         RAISE EXCEPTION 'The participants table was not created.';
@@ -767,8 +851,42 @@ BEGIN
         RAISE EXCEPTION 'The lead-participant trigger is absent.';
     END IF;
 
+    -- The guard must not be INERT. Its first version keyed on `current_user`,
+    -- which inside a SECURITY DEFINER body is the function OWNER on every path,
+    -- so the demotion branch could never run and a reviewer forged a
+    -- confirmation straight through it. Read the property off the COMPILED
+    -- body, with comments stripped FIRST: a structural test that finds its
+    -- evidence in a comment passes while the code says the opposite.
+    SELECT regexp_replace(pg_get_functiondef(p.oid), '--[^\n]*', '', 'g')
+      INTO v_body
+      FROM pg_proc p
+      JOIN pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public'
+       AND p.proname = 'guard_community_participant_confirmation';
+
+    IF v_body IS NULL THEN
+        RAISE EXCEPTION 'The confirmation guard function is absent.';
+    END IF;
+
+    IF v_body LIKE '%current_user%' THEN
+        RAISE EXCEPTION
+            'The confirmation guard keys on current_user. Inside a SECURITY '
+            'DEFINER body that is the function OWNER on every path, so the '
+            'branch can never execute and a client-born ''confirmed'' row '
+            'would stand.';
+    END IF;
+
+    IF v_body NOT LIKE '%current_setting(''role''%'
+       OR v_body NOT LIKE '%pg_trigger_depth()%' THEN
+        RAISE EXCEPTION
+            'The confirmation guard does not test BOTH the caller''s role and '
+            'the provenance of the write. Each answers a different question '
+            'and both are required to demote a forged confirmation.';
+    END IF;
+
     RAISE NOTICE
         'Joint community initiatives: participants table, D1 link, D3 '
-        'confirmation policy, pairing check and both read functions in place.';
+        'confirmation policy, pairing check, a live (not inert) confirmation '
+        'guard and both read functions in place.';
 END
 $verify$;
