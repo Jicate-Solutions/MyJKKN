@@ -132,11 +132,11 @@ export default function ProcurementHome() {
 
   return (
     <ContentLayout title="Procurement">
-      <div className="space-y-8">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div className="space-y-6 sm:space-y-8">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between sm:gap-3">
           <div>
-            <h2 className="text-2xl font-bold tracking-tight">Procurement</h2>
-            <p className="text-muted-foreground">
+            <h2 className="text-xl font-bold tracking-tight sm:text-2xl">Procurement</h2>
+            <p className="hidden text-muted-foreground sm:block">
               Purchase requests through to goods on the shelf.
             </p>
           </div>
@@ -167,7 +167,7 @@ export default function ProcurementHome() {
               aria-hidden
               className="pointer-events-none absolute left-[12.5%] right-[12.5%] top-4 hidden h-px bg-border lg:block"
             />
-            <div className="grid gap-4 lg:grid-cols-4 lg:gap-0">
+            <div className="grid gap-3 sm:gap-4 lg:grid-cols-4 lg:gap-0">
               {gates.map((gate) => {
                 const needsYou = gate.mine && gate.count > 0;
                 return (
@@ -216,7 +216,7 @@ export default function ProcurementHome() {
             <CardTitle className="text-base">
               Waiting for you{totalWaiting > 0 ? ` (${totalWaiting})` : ''}
             </CardTitle>
-            <p className="text-sm text-muted-foreground">
+            <p className="hidden text-sm text-muted-foreground sm:block">
               Documents parked at a gate you can open.
             </p>
           </CardHeader>
@@ -231,19 +231,9 @@ export default function ProcurementHome() {
                 <p className="mt-3 font-medium">Nothing is waiting on you</p>
                 <p className="mt-1 max-w-sm text-sm text-muted-foreground">
                   {canCreateRequest
-                    ? 'Raise a purchase request to start something moving.'
+                    ? 'Raise a purchase request to start something moving — use "New request" above.'
                     : 'Approvals you are responsible for will appear here.'}
                 </p>
-                {canCreateRequest && (
-                  <Button
-                    variant="outline"
-                    className="mt-4"
-                    onClick={() => router.push('/procurement/requests/new')}
-                  >
-                    <Plus className="mr-2 h-4 w-4" />
-                    New request
-                  </Button>
-                )}
               </div>
             ) : (
               <div className="divide-y">

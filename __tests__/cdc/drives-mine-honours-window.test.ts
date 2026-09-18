@@ -77,6 +77,13 @@ async function listed(): Promise<string[]> {
   return body.drives.map((d) => d.id).sort();
 }
 
+/** id → is_open, which is how the window reaches the learner's screens now. */
+async function openness(): Promise<Record<string, boolean>> {
+  const res = await GET();
+  const body = (await res.json()) as { drives: { id: string; is_open: boolean }[] };
+  return Object.fromEntries(body.drives.map((d) => [d.id, d.is_open]));
+}
+
 beforeEach(() => {
   drives = [];
 });
@@ -87,26 +94,42 @@ describe('/api/cdc/drives/mine honours the willingness window', () => {
     expect(await listed()).toEqual(['no-window']);
   });
 
-  it('drops a drive whose closing date has passed, even though its status is still open', async () => {
+  // ── Where this contract stands, 16 Sep 22:20 ─────────────────────────────
+  // It has moved twice in two days. 760f08e180 removed the window filter and
+  // returned everything tagged is_open; fbd635c5d5 put the filter back, but
+  // NARROWER than it was, and that narrowness is deliberate. Today:
+  //
+  //   · unanswered + willingness_open + outside its dates  → DROPPED
+  //   · ALREADY ANSWERED                                   → always returned,
+  //     window or no window, so a learner can always find their own response
+  //     (route header, and `if (myStatus.has(d.id)) return true`)
+  //
+  // So is_open can still be false on a returned drive, and the screens must
+  // handle that. The learner dashboard card does not get that for free — it is
+  // pinned in __tests__/cdc/campus-drives-student-card.test.tsx, because a row
+  // whose window has shut must not carry "Change your answer".
+
+  it('drops an unanswered drive whose closing date has passed', async () => {
     // Transition and non-transition together: the open one must survive the
-    // same filter that removes the closed one, or "closed is hidden" could be
-    // true because everything is hidden.
+    // same filter that removes the closed one.
     drives = [drive('no-window'), drive('closed-yesterday', { willingness_window_close_at: PAST })];
     expect(await listed()).toEqual(['no-window']);
   });
 
-  it('drops a drive whose window has not started yet', async () => {
+  it('drops an unanswered drive whose window has not started yet', async () => {
     drives = [drive('no-window'), drive('opens-later', { willingness_window_open_at: FUTURE })];
     expect(await listed()).toEqual(['no-window']);
   });
 
-  it('keeps a drive that is inside its window', async () => {
+  it('keeps a drive that is inside its window, and marks it open', async () => {
     drives = [drive('inside', { willingness_window_open_at: PAST, willingness_window_close_at: FUTURE })];
     expect(await listed()).toEqual(['inside']);
+    expect(await openness()).toEqual({ inside: true });
   });
 
-  it('returns an empty list, not an error, when every open drive is outside its window', async () => {
+  it('returns an empty list, not an error, when every unanswered drive is outside its window', async () => {
     drives = [drive('closed-yesterday', { willingness_window_close_at: PAST })];
     expect(await listed()).toEqual([]);
   });
+
 });

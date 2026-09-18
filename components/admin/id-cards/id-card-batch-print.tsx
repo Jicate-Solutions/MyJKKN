@@ -40,12 +40,16 @@
 // ============================================================================
 
 import { useEffect, useMemo, useState } from 'react';
-import { Copy, Loader2, Printer, Users } from 'lucide-react';
+import { Check, ChevronsUpDown, Copy, Loader2, Printer, Users, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   Select,
   SelectContent,
@@ -185,6 +189,31 @@ export interface SectionChoice {
   ids: string[];
 }
 
+/** One semester name across the selected programmes → every semesters.id behind it. */
+export interface SemesterChoice {
+  name: string;
+  ids: string[];
+}
+
+/** Group semester rows by name (several programmes → one "Semester I" choice). */
+export function groupSemestersByName(
+  rows: ReadonlyArray<{ id: string; semester_name: string; semester_order: number | null }>
+): SemesterChoice[] {
+  const byName = new Map<string, { ids: string[]; order: number }>();
+  for (const row of rows) {
+    const name = (row.semester_name ?? '').trim();
+    if (name === '') continue;
+    const cur = byName.get(name) ?? { ids: [], order: row.semester_order ?? Number.MAX_SAFE_INTEGER };
+    cur.ids.push(row.id);
+    cur.order = Math.min(cur.order, row.semester_order ?? Number.MAX_SAFE_INTEGER);
+    byName.set(name, cur);
+  }
+  return [...byName.entries()]
+    .map(([name, v]) => ({ name, ids: v.ids, order: v.order }))
+    .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name, undefined, { numeric: true }))
+    .map(({ name, ids }) => ({ name, ids }));
+}
+
 /**
  * Collapse section rows into one choice per name, keeping every id so the
  * learner filter can match any of them. Sections are stored per semester, so a
@@ -254,8 +283,9 @@ export function IdCardBatchPrint() {
   const [institutionId, setInstitutionId] = useState('');
   const [mode, setMode] = useState<CohortMode>('freshers');
   const [admissionYearId, setAdmissionYearId] = useState('');
-  const [programId, setProgramId] = useState('');
-  const [semesterId, setSemesterId] = useState<string>(ALL_SEMESTERS);
+  // Several classes / programmes at once (e.g. Standard 1–5 in one run).
+  const [programIds, setProgramIds] = useState<string[]>([]);
+  const [semesterName, setSemesterName] = useState<string>(ALL_SEMESTERS);
   // Section NAME ('all' = every section) — see groupSectionsByName.
   const [sectionName, setSectionName] = useState<string>(ALL_SECTIONS);
   const [statusChoice, setStatusChoice] = useState<StatusChoiceValue>(
@@ -266,7 +296,7 @@ export function IdCardBatchPrint() {
     null
   );
   const [programs, setPrograms] = useState<ProgramOption[] | null>(null);
-  const [semesters, setSemesters] = useState<SemesterOption[] | null>(null);
+  const [semesters, setSemesters] = useState<SemesterChoice[] | null>(null);
   const [sections, setSections] = useState<SectionChoice[] | null>(null);
 
   const [matchCount, setMatchCount] = useState<number | null>(null);
@@ -329,7 +359,7 @@ export function IdCardBatchPrint() {
   useEffect(() => {
     if (!institutionId) {
       setPrograms(null);
-      setProgramId('');
+      setProgramIds([]);
       return;
     }
     let cancelled = false;
@@ -364,31 +394,30 @@ export function IdCardBatchPrint() {
             })
         );
         setPrograms(rows);
-        setProgramId('');
+        setProgramIds([]);
       });
     return () => {
       cancelled = true;
     };
   }, [institutionId]);
 
-  // Semesters for the chosen program (optional narrowing; default all).
+  // Semesters across the chosen programmes, one choice per name (optional
+  // narrowing; default all).
   useEffect(() => {
-    if (!programId) {
+    if (programIds.length === 0) {
       setSemesters(null);
-      setSemesterId(ALL_SEMESTERS);
+      setSemesterName(ALL_SEMESTERS);
       return;
     }
     let cancelled = false;
     setSemesters(null);
-    setSemesterId(ALL_SEMESTERS);
+    setSemesterName(ALL_SEMESTERS);
     const supabase = createClientSupabaseClient();
     supabase
       .from('semesters')
       .select('id, semester_name, semester_order')
-      .eq('program_id', programId)
+      .in('program_id', programIds)
       .eq('is_active', true)
-      .order('semester_order', { ascending: true, nullsFirst: false })
-      .order('semester_name')
       .then(({ data, error }) => {
         if (cancelled) return;
         if (error) {
@@ -396,18 +425,24 @@ export function IdCardBatchPrint() {
           setSemesters([]);
           return;
         }
-        setSemesters((data ?? []) as SemesterOption[]);
+        setSemesters(groupSemestersByName((data ?? []) as SemesterOption[]));
       });
     return () => {
       cancelled = true;
     };
-  }, [programId]);
+  }, [programIds]);
+
+  /** semesters.id values behind the chosen semester name (null = no filter). */
+  const semesterIds = useMemo<string[] | null>(() => {
+    if (semesterName === ALL_SEMESTERS) return null;
+    return semesters?.find((choice) => choice.name === semesterName)?.ids ?? null;
+  }, [semesterName, semesters]);
 
   // Sections for the chosen program + semester, collapsed to one choice per
   // name. A section row with no semester_id (older data) belongs to every
   // semester, so it is kept whichever semester is chosen.
   useEffect(() => {
-    if (!programId) {
+    if (programIds.length === 0) {
       setSections(null);
       setSectionName(ALL_SECTIONS);
       return;
@@ -419,10 +454,10 @@ export function IdCardBatchPrint() {
     let query = supabase
       .from('sections')
       .select('id, section_name, semester_id')
-      .eq('program_id', programId)
+      .in('program_id', programIds)
       .eq('is_active', true);
-    if (semesterId !== ALL_SEMESTERS) {
-      query = query.or(`semester_id.eq.${semesterId},semester_id.is.null`);
+    if (semesterIds && semesterIds.length > 0) {
+      query = query.or(`semester_id.in.(${semesterIds.join(',')}),semester_id.is.null`);
     }
     query.then(({ data, error }) => {
       if (cancelled) return;
@@ -436,7 +471,7 @@ export function IdCardBatchPrint() {
     return () => {
       cancelled = true;
     };
-  }, [programId, semesterId]);
+  }, [programIds, semesterIds]);
 
   /** sections.id values behind the chosen section name (null = no filter). */
   const sectionIds = useMemo<string[] | null>(() => {
@@ -448,7 +483,7 @@ export function IdCardBatchPrint() {
 
   const cohortReady =
     Boolean(institutionId) &&
-    (mode === 'freshers' ? Boolean(admissionYearId) : Boolean(programId));
+    (mode === 'freshers' ? Boolean(admissionYearId) : programIds.length > 0);
 
   useEffect(() => {
     if (!cohortReady) {
@@ -466,8 +501,8 @@ export function IdCardBatchPrint() {
     if (mode === 'freshers') {
       query = query.eq('admission_year_id', admissionYearId);
     } else {
-      query = query.eq('program_id', programId);
-      if (semesterId !== ALL_SEMESTERS) query = query.eq('semester_id', semesterId);
+      query = query.in('program_id', programIds);
+      if (semesterIds) query = query.in('semester_id', semesterIds);
       if (sectionIds) query = query.in('section_id', sectionIds);
     }
     query.then(({ count, error }) => {
@@ -483,7 +518,7 @@ export function IdCardBatchPrint() {
     return () => {
       cancelled = true;
     };
-  }, [cohortReady, institutionId, mode, admissionYearId, programId, semesterId, sectionIds, statuses]);
+  }, [cohortReady, institutionId, mode, admissionYearId, programIds, semesterIds, sectionIds, statuses]);
 
   // ── Review & print ─────────────────────────────────────────────────────────
 
@@ -506,11 +541,12 @@ export function IdCardBatchPrint() {
         last_name: string | null;
         roll_number: string | null;
         student_photo_url: string | null;
+        program_id: string | null;
       }> = [];
       for (let from = 0; ; from += FETCH_PAGE_SIZE) {
         let query = supabase
           .from('learners_profiles')
-          .select('id, first_name, last_name, roll_number, student_photo_url')
+          .select('id, first_name, last_name, roll_number, student_photo_url, program_id')
           .eq('institution_id', institutionId)
           .in('lifecycle_status', statuses)
           .order('program_id')
@@ -520,8 +556,8 @@ export function IdCardBatchPrint() {
         if (mode === 'freshers') {
           query = query.eq('admission_year_id', admissionYearId);
         } else {
-          query = query.eq('program_id', programId);
-          if (semesterId !== ALL_SEMESTERS) query = query.eq('semester_id', semesterId);
+          query = query.in('program_id', programIds);
+          if (semesterIds) query = query.in('semester_id', semesterIds);
           if (sectionIds) query = query.in('section_id', sectionIds);
         }
         const { data, error } = await query;
@@ -568,7 +604,10 @@ export function IdCardBatchPrint() {
         printable.push({
           learnerId: l.id,
           name,
-          rollNumber: l.roll_number
+          rollNumber: l.roll_number,
+          // Class / programme grouping → "Download PDF per class" in the preview.
+          groupKey: l.program_id ?? null,
+          groupLabel: l.program_id ? programLabels.get(l.program_id) ?? null : null
         });
       }
 
@@ -625,8 +664,16 @@ export function IdCardBatchPrint() {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="space-y-6">
-      <div className="grid gap-4 sm:max-w-xl">
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
+      <Card className="shadow-sm">
+        <CardHeader className="pb-4">
+          <CardTitle className="text-base">Choose the cohort</CardTitle>
+          <CardDescription>
+            Pick the institution, then a freshers batch or one or more classes. The count on the
+            right updates as you go.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-5">
         <div className="space-y-1.5">
           <Label>Institution</Label>
           <Select
@@ -696,40 +743,30 @@ export function IdCardBatchPrint() {
             </p>
           </div>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">
             <div className="space-y-1.5">
               <Label>Class / program</Label>
-              <Select
-                value={programId || undefined}
-                onValueChange={setProgramId}
+              <ProgramMultiSelect
+                programs={programs}
+                labels={programLabels}
+                value={programIds}
+                onChange={setProgramIds}
                 disabled={!institutionId || programs === null}
-              >
-                <SelectTrigger>
-                  <SelectValue
-                    placeholder={
-                      !institutionId
-                        ? 'Select an institution first'
-                        : programs === null
-                          ? 'Loading…'
-                          : 'Select class or program'
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {(programs ?? []).map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {programLabels.get(p.id) ?? p.program_name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                placeholder={
+                  !institutionId
+                    ? 'Select an institution first'
+                    : programs === null
+                      ? 'Loading…'
+                      : 'Select one or more classes'
+                }
+              />
             </div>
             <div className="space-y-1.5">
               <Label>Semester</Label>
               <Select
-                value={semesterId}
-                onValueChange={setSemesterId}
-                disabled={!programId || semesters === null}
+                value={semesterName}
+                onValueChange={setSemesterName}
+                disabled={programIds.length === 0 || semesters === null}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="All semesters" />
@@ -737,8 +774,8 @@ export function IdCardBatchPrint() {
                 <SelectContent>
                   <SelectItem value={ALL_SEMESTERS}>All semesters</SelectItem>
                   {(semesters ?? []).map((sem) => (
-                    <SelectItem key={sem.id} value={sem.id}>
-                      {sem.semester_name}
+                    <SelectItem key={sem.name} value={sem.name}>
+                      {sem.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -749,7 +786,7 @@ export function IdCardBatchPrint() {
               <Select
                 value={sectionName}
                 onValueChange={setSectionName}
-                disabled={!programId || sections === null}
+                disabled={programIds.length === 0 || sections === null}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="All sections" />
@@ -764,6 +801,7 @@ export function IdCardBatchPrint() {
                 </SelectContent>
               </Select>
             </div>
+            <ProgramChips programs={programs} labels={programLabels} value={programIds} onChange={setProgramIds} />
           </div>
         )}
 
@@ -804,11 +842,18 @@ export function IdCardBatchPrint() {
             </p>
           </div>
         </div>
-      </div>
+        </CardContent>
+      </Card>
 
-      <div className="flex flex-wrap items-center gap-4 rounded-lg border border-border bg-muted/30 p-4">
-        <div className="flex items-center gap-2 text-sm">
-          <Users className="h-4 w-4 text-muted-foreground" />
+      <aside className="space-y-4 lg:sticky lg:top-6">
+      <Card className="border-primary/20 shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Print run</CardTitle>
+          <CardDescription>Preview first — the PDF and sheets are exactly what you review.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+        <div className="flex items-start gap-3 text-sm">
+          <Users className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
           {!cohortReady ? (
             <span className="text-muted-foreground">
               Choose a cohort above to see how many learners match.
@@ -818,13 +863,17 @@ export function IdCardBatchPrint() {
           ) : matchCount === null ? (
             <span className="text-muted-foreground">Count unavailable.</span>
           ) : (
-            <span>
-              <strong>{matchCount}</strong> learner
-              {matchCount === 1 ? '' : 's'} match this cohort.
+            <span className="flex items-baseline gap-2">
+              <strong className="text-3xl font-semibold tabular-nums leading-none">{matchCount}</strong>
+              <span className="text-muted-foreground">
+                learner{matchCount === 1 ? '' : 's'} match this cohort
+              </span>
             </span>
           )}
         </div>
         <Button
+          size="lg"
+          className="w-full"
           onClick={prepareAndReview}
           disabled={!cohortReady || preparing || matchCount === 0}
         >
@@ -835,7 +884,8 @@ export function IdCardBatchPrint() {
           )}
           Preview &amp; print
         </Button>
-      </div>
+        </CardContent>
+      </Card>
 
       {skippedNoAccount > 0 && (
         <p className="text-sm text-muted-foreground">
@@ -886,6 +936,7 @@ export function IdCardBatchPrint() {
           </Button>
         </div>
       )}
+      </aside>
 
       <IdCardPreviewDialog
         open={previewOpen}
@@ -904,6 +955,162 @@ export function IdCardBatchPrint() {
         onOpenChange={setDialogOpen}
         learners={dialogLearners}
       />
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ProgramMultiSelect — pick several classes / programmes at once. Search box,
+// per-row checkboxes, "Select all" / "Clear", selection shown as chips.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ProgramMultiSelect({
+  programs,
+  labels,
+  value,
+  onChange,
+  disabled,
+  placeholder
+}: {
+  programs: ProgramOption[] | null;
+  labels: Map<string, string>;
+  value: string[];
+  onChange: (ids: string[]) => void;
+  disabled?: boolean;
+  placeholder: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const rows = programs ?? [];
+  const labelOf = (id: string) => labels.get(id) ?? rows.find((p) => p.id === id)?.program_name ?? id;
+  const filtered = rows.filter((p) =>
+    search.trim() === '' ? true : labelOf(p.id).toLowerCase().includes(search.trim().toLowerCase())
+  );
+  const toggle = (id: string) =>
+    onChange(value.includes(id) ? value.filter((v) => v !== id) : [...value, id]);
+  const allFilteredSelected = filtered.length > 0 && filtered.every((p) => value.includes(p.id));
+
+  return (
+    <div className="space-y-1.5">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            disabled={disabled}
+            className="w-full justify-between font-normal"
+          >
+            <span className="truncate">
+              {value.length === 0
+                ? placeholder
+                : value.length === 1
+                  ? labelOf(value[0])
+                  : `${value.length} classes selected`}
+            </span>
+            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[--radix-popover-trigger-width] min-w-[280px] p-0" align="start">
+          <div className="border-b p-2">
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search classes…"
+              className="h-8"
+              autoFocus
+            />
+          </div>
+          <div className="flex items-center justify-between border-b px-2 py-1.5 text-xs">
+            <button
+              type="button"
+              className="text-primary hover:underline"
+              onClick={() =>
+                onChange(
+                  allFilteredSelected
+                    ? value.filter((v) => !filtered.some((p) => p.id === v))
+                    : Array.from(new Set([...value, ...filtered.map((p) => p.id)]))
+                )
+              }
+            >
+              {allFilteredSelected ? 'Unselect all shown' : `Select all shown (${filtered.length})`}
+            </button>
+            <button
+              type="button"
+              className="text-muted-foreground hover:underline"
+              onClick={() => onChange([])}
+              disabled={value.length === 0}
+            >
+              Clear
+            </button>
+          </div>
+          <div className="max-h-64 overflow-y-auto p-1">
+            {filtered.length === 0 ? (
+              <p className="p-3 text-sm text-muted-foreground">No classes match.</p>
+            ) : (
+              filtered.map((p) => {
+                const checked = value.includes(p.id);
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => toggle(p.id)}
+                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                  >
+                    <span
+                      className={`flex h-4 w-4 items-center justify-center rounded-sm border ${
+                        checked ? 'border-primary bg-primary text-primary-foreground' : 'border-input'
+                      }`}
+                    >
+                      {checked ? <Check className="h-3 w-3" /> : null}
+                    </span>
+                    <span className="truncate">{labelOf(p.id)}</span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
+/** Selected classes as removable chips — its own full-width row under the pickers. */
+function ProgramChips({
+  programs,
+  labels,
+  value,
+  onChange
+}: {
+  programs: ProgramOption[] | null;
+  labels: Map<string, string>;
+  value: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  if (value.length < 2) return null;
+  const labelOf = (id: string) =>
+    labels.get(id) ?? programs?.find((p) => p.id === id)?.program_name ?? id;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 sm:col-span-3">
+      <span className="mr-1 text-xs text-muted-foreground">{value.length} classes:</span>
+      {value.map((id) => (
+        <Badge key={id} variant="secondary" className="gap-1 pr-1 font-normal">
+          {labelOf(id)}
+          <button
+            type="button"
+            aria-label={`Remove ${labelOf(id)}`}
+            onClick={() => onChange(value.filter((v) => v !== id))}
+            className="rounded-sm hover:bg-muted"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </Badge>
+      ))}
+      <button type="button" className="ml-1 text-xs text-muted-foreground hover:underline" onClick={() => onChange([])}>
+        Clear all
+      </button>
     </div>
   );
 }

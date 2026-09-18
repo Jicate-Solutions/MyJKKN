@@ -10,6 +10,26 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { EventsNotificationEventType } from '@/types/events';
 
+/**
+ * metadata.source values written by the events module's notification senders.
+ *
+ * The inbox used to recognise its rows by `notifications.type === 'events'`,
+ * but that column does not exist (42703, verified 2026-09-16): selecting it
+ * made both reads below fail, and writing it made every send fail. The
+ * fanout helper always stamps metadata.source, so that is the marker now.
+ */
+export const EVENTS_NOTIFICATION_SOURCES = [
+  'events_notify', // app/api/events/notify/route.ts
+  'events_registrant_message', // Messages tab — organiser-message-service.ts
+  'events_review_mention', // tagged in Review Comments — review-mentions route
+  'events_waitlist_offer', // a held waiting-list place — waitlist-service.ts
+] as const;
+
+const isEventsNotification = (r: any): boolean =>
+  (EVENTS_NOTIFICATION_SOURCES as readonly string[]).includes(
+    String(r?.notification?.metadata?.source ?? ''),
+  );
+
 export interface EventsNotificationRow {
   id: string;
   user_id: string;
@@ -18,7 +38,6 @@ export interface EventsNotificationRow {
   created_at: string;
   notification: {
     id: string;
-    type: string;
     title: string;
     body: string | null;
     metadata: Record<string, unknown> | null;
@@ -205,10 +224,10 @@ export class EventsNotificationService {
   // ─── READ ─────────────────────────────────────────────────────────────
 
   /**
-   * Get unread events-type notifications for the current user.
-   * Filters on `notifications.type === 'events'` after fetching the link
-   * rows (PostgREST can't currently filter on a joined non-null column
-   * reliably from the user_notifications side).
+   * Get unread events notifications for the current user.
+   * Filters on metadata.source (EVENTS_NOTIFICATION_SOURCES) after fetching
+   * the link rows (PostgREST can't currently filter on a joined non-null
+   * column reliably from the user_notifications side).
    */
   static async getUnread(limit = 20): Promise<EventsNotificationRow[]> {
     const { data: authData } = await (this.supabase as any).auth.getUser();
@@ -220,7 +239,7 @@ export class EventsNotificationService {
       .select(
         `id, user_id, notification_id, read_at, created_at,
          notification:notifications!user_notifications_notification_id_fkey(
-           id, type, title, body, metadata, created_at
+           id, title, body, metadata, created_at
          )`
       )
       .eq('user_id', userId)
@@ -229,9 +248,7 @@ export class EventsNotificationService {
       .limit(limit);
 
     if (error) throw error;
-    return (data || []).filter(
-      (r: any) => r.notification?.type === 'events'
-    ) as EventsNotificationRow[];
+    return (data || []).filter(isEventsNotification) as EventsNotificationRow[];
   }
 
   /** Get all events-type notifications (read + unread) for the current user. */
@@ -245,7 +262,7 @@ export class EventsNotificationService {
       .select(
         `id, user_id, notification_id, read_at, created_at,
          notification:notifications!user_notifications_notification_id_fkey(
-           id, type, title, body, metadata, created_at
+           id, title, body, metadata, created_at
          )`
       )
       .eq('user_id', userId)
@@ -253,9 +270,7 @@ export class EventsNotificationService {
       .limit(limit);
 
     if (error) throw error;
-    return (data || []).filter(
-      (r: any) => r.notification?.type === 'events'
-    ) as EventsNotificationRow[];
+    return (data || []).filter(isEventsNotification) as EventsNotificationRow[];
   }
 
   // ─── WRITE ────────────────────────────────────────────────────────────

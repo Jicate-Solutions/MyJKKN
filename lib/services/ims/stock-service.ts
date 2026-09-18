@@ -7,6 +7,7 @@ import type {
   ImsStockFilters,
   ImsBatchFilters,
   ImsLowStockItem,
+  ImsReorderRow,
   CreateBatchDto,
   UpdateBatchDto,
 } from '@/types/ims';
@@ -26,53 +27,16 @@ export class ImsStockService {
     metadata: { total: number; page: number; limit: number; totalPages: number };
   }> {
     try {
-      let query = this.supabase
-        .from('ims_stock_summary')
-        .select(
-          `*,
-           item:ims_items(
-             id, name, code, reorder_level, max_stock_level,
-             base_unit:ims_units!ims_items_base_unit_id_fkey(abbreviation),
-             category:ims_item_categories(name)
-           )`,
-          { count: 'exact' }
-        );
-
-      // Primary: store_id; Fallback: institution_id
-      if (filters.store_id) {
-        query = query.eq('store_id', filters.store_id);
-      } else if (filters.institution_id) {
-        query = query.eq('institution_id', filters.institution_id);
-      }
-
-      // Low stock only - filter where current_quantity <= item.reorder_level
-      // We apply this filter after fetching since it crosses a join boundary.
-      // For DB-level filtering we use a reasonable approach:
-      // fetch all and filter, or use an RPC. For now we use client filtering
-      // when low_stock_only is set, with a larger page size.
-
-      // Category filter via item relationship
-      if (filters.category_id) {
-        query = query.eq('item.category_id', filters.category_id);
-      }
-
-      // Search on item name or code
+      // Search spans the joined item, so resolve matching item ids first.
+      let searchItemIds: string[] | null = null;
       if (filters.search) {
-        // Since search spans joined tables, we filter via the item foreign key
-        // Supabase doesn't support ilike on joined columns in .select()
-        // We'll use a subquery approach: get item IDs matching search first
         const { data: matchingItems } = await this.supabase
           .from('ims_items')
           .select('id')
           .or(
             `name.ilike.%${filters.search}%,code.ilike.%${filters.search}%`
           );
-
-        if (matchingItems && matchingItems.length > 0) {
-          const itemIds = matchingItems.map((i) => i.id);
-          query = query.in('item_id', itemIds);
-        } else {
-          // No matching items - return empty
+        if (!matchingItems || matchingItems.length === 0) {
           return {
             data: [],
             metadata: {
@@ -83,7 +47,40 @@ export class ImsStockService {
             },
           };
         }
+        searchItemIds = matchingItems.map((i: { id: string }) => i.id);
       }
+
+      // A fresh builder per request: the low-stock path below issues several.
+      const buildQuery = () => {
+        // Filtering on an embedded column only narrows the parent rows when the
+        // embed is !inner; without it the category filter just nulls `item`.
+        const itemEmbed = filters.category_id ? 'ims_items!inner' : 'ims_items';
+        let q = this.supabase
+          .from('ims_stock_summary')
+          .select(
+            `*,
+             item:${itemEmbed}(
+               id, name, code, reorder_level, max_stock_level, category_id,
+               base_unit:ims_units!ims_items_base_unit_id_fkey(abbreviation),
+               category:ims_item_categories(name)
+             )`,
+            { count: 'exact' }
+          );
+
+        // Primary: store_id; Fallback: institution_id
+        if (filters.store_id) {
+          q = q.eq('store_id', filters.store_id);
+        } else if (filters.institution_id) {
+          q = q.eq('institution_id', filters.institution_id);
+        }
+        if (filters.category_id) {
+          q = q.eq('item.category_id', filters.category_id);
+        }
+        if (searchItemIds) {
+          q = q.in('item_id', searchItemIds);
+        }
+        return q;
+      };
 
       // Pagination
       const page = filters.page || 1;
@@ -91,19 +88,31 @@ export class ImsStockService {
       const from = (page - 1) * limit;
       const to = from + limit - 1;
 
-      // Low-stock path: fetch ALL rows (no range) so we can filter accurately,
-      // then paginate in JS. This prevents the bug where total/totalPages were
-      // computed from a single page's worth of already-filtered rows.
+      // Low-stock crosses a join boundary (quantity vs item.reorder_level), so fetch
+      // every row and filter here. PostgREST caps a response at 1000 rows, so read in
+      // chunks rather than trusting one unbounded request.
       if (filters.low_stock_only) {
-        const { data: allData, error: allError } = await query
-          .order('updated_at', { ascending: false });
+        const CHUNK = 1000;
+        const allData: any[] = [];
+        for (let offset = 0; ; offset += CHUNK) {
+          const { data: chunk, error: chunkError } = await buildQuery()
+            .order('id', { ascending: true })
+            .range(offset, offset + CHUNK - 1);
+          if (chunkError) throw chunkError;
+          allData.push(...(chunk || []));
+          if (!chunk || chunk.length < CHUNK) break;
+        }
 
-        if (allError) throw allError;
-
-        const filtered = (allData || []).filter(
-          (s: any) => s.item && s.current_quantity <= (s.item.reorder_level || 0)
-        );
-        const paginated = filtered.slice((page - 1) * limit, page * limit);
+        // Same rule as ims_store_reorder_list: a configured reorder level, and what is
+        // actually on the shelf at or below it.
+        const filtered = allData
+          .filter((s: any) => {
+            const reorder = s.item?.reorder_level || 0;
+            const onHand = s.available_quantity ?? s.current_quantity ?? 0;
+            return s.item && reorder > 0 && onHand <= reorder;
+          })
+          .sort((a: any, b: any) => String(b.updated_at).localeCompare(String(a.updated_at)));
+        const paginated = filtered.slice(from, from + limit);
         return {
           data: paginated as ImsStockSummary[],
           metadata: {
@@ -115,34 +124,19 @@ export class ImsStockService {
         };
       }
 
-      query = query.range(from, to).order('updated_at', { ascending: false });
-
-      const { data, error, count } = await query;
+      const { data, error, count } = await buildQuery()
+        .range(from, to)
+        .order('updated_at', { ascending: false });
 
       if (error) throw error;
 
-      let result = (data || []) as ImsStockSummary[];
-
-      // Client-side low stock filtering
-      if (filters.low_stock_only) {
-        result = result.filter(
-          (s) =>
-            s.item &&
-            s.current_quantity <= (s.item.reorder_level || 0)
-        );
-      }
-
       return {
-        data: result,
+        data: (data || []) as ImsStockSummary[],
         metadata: {
-          total: filters.low_stock_only ? result.length : (count || 0),
+          total: count || 0,
           page,
           limit,
-          totalPages: filters.low_stock_only
-            ? Math.ceil(result.length / limit)
-            : count
-              ? Math.ceil(count / limit)
-              : 0,
+          totalPages: count ? Math.ceil(count / limit) : 0,
         },
       };
     } catch (error) {
@@ -258,63 +252,39 @@ export class ImsStockService {
   }
 
   /**
-   * Get items at or below their reorder level.
-   *
-   * Must stay consistent with the low-stock COUNT in
-   * ImsReportsService.getDashboardStats / getAlertSummary — this is the list a user
-   * opens after seeing that number, so the two disagreeing reads as a bug. Both now
-   * use available_quantity and both skip retired items.
+   * The store's reorder list: every active assortment item that is out of stock, at or
+   * below its reorder level, or has no reorder level configured. Computed in the DB
+   * (ims_store_reorder_list) so the dashboard, the reorder page and the request snapshot
+   * all use one definition of "low stock", and never-stocked items count as zero.
    */
-  static async getLowStockItems(storeId: string, institution_id?: string): Promise<ImsLowStockItem[]> {
-    try {
-      let query = this.supabase
-        .from('ims_stock_summary')
-        .select(
-          `item_id, current_quantity, available_quantity,
-           item:ims_items(
-             id, name, code, reorder_level, is_active,
-             base_unit:ims_units!base_unit_id(abbreviation)
-           )`
-        );
+  static async getStoreReorderList(storeId: string): Promise<ImsReorderRow[]> {
+    const { data, error } = await this.supabase.rpc('ims_store_reorder_list', {
+      p_store_id: storeId,
+    });
+    if (error) throw error;
+    // numeric columns arrive as strings from PostgREST.
+    return ((data ?? []) as any[]).map((r) => ({
+      ...r,
+      on_hand: Number(r.on_hand ?? 0),
+      reorder_level: Number(r.reorder_level ?? 0),
+      max_stock_level: Number(r.max_stock_level ?? 0),
+      suggested_quantity: r.suggested_quantity == null ? null : Number(r.suggested_quantity),
+    })) as ImsReorderRow[];
+  }
 
-      // Primary: store_id; Fallback: institution_id
-      if (storeId) {
-        query = query.eq('store_id', storeId);
-      } else if (institution_id) {
-        query = query.eq('institution_id', institution_id);
-      }
-
-      const { data, error } = await query;
-
-      if (error) throw error;
-
-      // Filtered client-side because PostgREST cannot compare two columns across a
-      // join. available_quantity is what is actually on the shelf — stock reserved
-      // for an approved transfer should not count against "do I need to reorder?".
-      const lowStock = (data || [])
-        .filter((s: any) => {
-          if (!s.item) return false;
-          if (s.item.is_active === false) return false;
-          const onHand = s.available_quantity ?? s.current_quantity ?? 0;
-          return onHand <= (s.item.reorder_level || 0);
-        })
-        .map((s: any) => ({
-          item_id: s.item_id,
-          item_name: s.item?.name || '',
-          item_code: s.item?.code || '',
-          current_quantity: s.available_quantity ?? s.current_quantity ?? 0,
-          reorder_level: s.item?.reorder_level || 0,
-          unit_abbreviation: s.item?.base_unit?.abbreviation || '',
-        }));
-
-      return lowStock as ImsLowStockItem[];
-    } catch (error) {
-      const pgErr = error as any;
-      const errMsg = pgErr?.message ?? String(error);
-      const errCode = pgErr?.code ? ` [${pgErr.code}]` : '';
-      console.error(`[ImsStockService] Error in getLowStockItems:${errCode}`, errMsg);
-      throw error;
-    }
+  /** Dashboard alert list — the reorder list minus items with no reorder level set. */
+  static async getLowStockItems(storeId: string): Promise<ImsLowStockItem[]> {
+    const rows = await this.getStoreReorderList(storeId);
+    return rows
+      .filter((r) => r.status !== 'unset_reorder_level')
+      .map((r) => ({
+        item_id: r.item_id,
+        item_name: r.item_name,
+        item_code: r.item_code ?? '',
+        current_quantity: r.on_hand,
+        reorder_level: r.reorder_level,
+        unit_abbreviation: r.unit_abbreviation ?? '',
+      }));
   }
 
   // ─── Opening Quantity ─────────────────────────────────────────────────────

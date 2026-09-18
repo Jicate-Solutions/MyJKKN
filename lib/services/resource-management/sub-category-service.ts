@@ -203,6 +203,7 @@ export class SubCategoryService {
           status: categoryData.status,
           // inherit_parent_attributes removed - obsolete field
           display_order: displayOrder,
+          requires_serial_number: categoryData.requires_serial_number ?? false,
           created_by: userId,
           updated_by: userId
         })

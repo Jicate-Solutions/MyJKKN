@@ -33,6 +33,7 @@ export interface IssuedGatePass {
 
 interface GatePassResponse {
   issued: boolean;
+  kind?: 'learner' | 'staff';
   request_status: string;
   request_number: string;
   pass?: IssuedGatePass;
@@ -77,6 +78,12 @@ const fmtDate = (d: string | null) =>
 
 export function statusMeta(status: string): { label: string; className: string } {
   switch (status) {
+    case 'open':
+      return { label: 'Ready · not yet out', className: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200' };
+    case 'out':
+      return { label: 'Outside campus', className: 'bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100' };
+    case 'completed':
+      return { label: 'Completed', className: 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-100' };
     case 'issued':
       return { label: 'Approved · not yet out', className: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200' };
     case 'active':
@@ -93,10 +100,14 @@ export function statusMeta(status: string): { label: string; className: string }
 }
 
 export function GatePassCard({ requestId, requestStatus }: { requestId: string; requestStatus: string }) {
+  // Learners get a pass on approval; team members get one on submit. The card
+  // asks the server for anything past draft and hides itself on "not yet".
+  const askable = ['submitted', 'in_review', 'approved', 'fulfilled', 'closed'].includes(requestStatus);
   const approvedLike = ['approved', 'fulfilled', 'closed'].includes(requestStatus);
-  const { data, isLoading, error } = useRequestGatePass(requestId, approvedLike);
+  const { data, isLoading, error } = useRequestGatePass(requestId, askable);
 
-  if (!approvedLike) return null;
+  if (!askable) return null;
+  if (!approvedLike && data && !data.issued) return null;
 
   return (
     <Card>
@@ -129,11 +140,11 @@ export function GatePassCard({ requestId, requestStatus }: { requestId: string; 
         )}
         {data?.issued && data.pass && (
           <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-start">
-            {data.pass.qr_code && data.pass.status !== 'cancelled' && data.pass.status !== 'returned' ? (
+            {data.pass.qr_code && !['cancelled', 'returned', 'completed'].includes(data.pass.status) ? (
               <QrImage token={data.pass.qr_code} />
             ) : (
               <div className="flex h-56 w-56 items-center justify-center rounded-lg border bg-muted text-center text-sm text-muted-foreground">
-                {data.pass.status === 'returned' ? (
+                {data.pass.status === 'returned' || data.pass.status === 'completed' ? (
                   <span className="flex flex-col items-center gap-2">
                     <CheckCircle2 className="h-8 w-8 text-green-600" />
                     Pass completed
@@ -151,18 +162,33 @@ export function GatePassCard({ requestId, requestStatus }: { requestId: string; 
                 </Badge>
               </div>
               <dl className="grid grid-cols-2 gap-x-4 gap-y-1">
-                <dt className="text-muted-foreground">Valid on</dt>
-                <dd>{fmtDate(data.pass.valid_date)}</dd>
-                <dt className="text-muted-foreground">Exit</dt>
-                <dd>{fmtTime(data.pass.expected_exit)}</dd>
-                <dt className="text-muted-foreground">Return by</dt>
-                <dd>{fmtTime(data.pass.expected_return)}</dd>
+                {data.kind !== 'staff' && (
+                  <>
+                    <dt className="text-muted-foreground">Valid on</dt>
+                    <dd>{fmtDate(data.pass.valid_date)}</dd>
+                    <dt className="text-muted-foreground">Exit</dt>
+                    <dd>{fmtTime(data.pass.expected_exit)}</dd>
+                    <dt className="text-muted-foreground">Return by</dt>
+                    <dd>{fmtTime(data.pass.expected_return)}</dd>
+                  </>
+                )}
                 <dt className="text-muted-foreground">Reason</dt>
                 <dd>{data.pass.reason || data.pass.destination || '—'}</dd>
-                <dt className="text-muted-foreground">Approved by</dt>
-                <dd>{data.pass.approved_by_name || '—'}</dd>
-                <dt className="text-muted-foreground">Approved on</dt>
-                <dd>{fmtDate(data.pass.approved_at)}</dd>
+                {data.kind === 'staff' ? (
+                  <>
+                    <dt className="text-muted-foreground">Issued on</dt>
+                    <dd>{fmtDate(data.pass.approved_at)}</dd>
+                    <dt className="text-muted-foreground">Approval</dt>
+                    <dd>Not required for team members</dd>
+                  </>
+                ) : (
+                  <>
+                    <dt className="text-muted-foreground">Approved by</dt>
+                    <dd>{data.pass.approved_by_name || '—'}</dd>
+                    <dt className="text-muted-foreground">Approved on</dt>
+                    <dd>{fmtDate(data.pass.approved_at)}</dd>
+                  </>
+                )}
               </dl>
               {(data.pass.out_time || data.pass.actual_return) && (
                 <div className="mt-2 rounded-md border p-2">

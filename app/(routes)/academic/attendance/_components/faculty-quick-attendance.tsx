@@ -22,6 +22,10 @@ import { logger } from '@/lib/utils/enhanced-logger';
 import { AttendancePeriodOption } from '@/types/attendance';
 import { cn } from '@/lib/utils';
 import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
+import {
+  getPeriodTimeStatus,
+  formatPeriodTime
+} from '@/lib/utils/academic/period-time-window';
 
 interface FacultyQuickAttendanceProps {
   staffId: string;
@@ -49,6 +53,14 @@ export function FacultyQuickAttendance({
   const [periodRecordIds, setPeriodRecordIds] = useState<Map<string, string>>(
     new Map()
   );
+
+  // Updated: 2026-09-17 (BUG-006133) - Ticks so an upcoming period unlocks
+  // itself at the bell instead of requiring a reload.
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const targetDate = selectedDate || format(new Date(), 'yyyy-MM-dd');
   const displayDate = format(
@@ -193,32 +205,13 @@ export function FacultyQuickAttendance({
     }
   };
 
-  const getTimeStatus = (startTime: string) => {
-    // TEMPORARY: Remove time-based restrictions - faculty can mark attendance anytime
-    // TODO: Implement proper time restriction logic in future
-    // For now, always allow attendance marking regardless of time
-    return 'current';
-
-    /* COMMENTED OUT - Original time-based logic for future implementation
-    if (!startTime) return 'upcoming';
-
-    const now = new Date();
-    const [time, period] = startTime.split(' ');
-    const [hours, minutes] = time.split(':').map(Number);
-
-    const periodTime = new Date();
-    periodTime.setHours(
-      period === 'PM' && hours !== 12 ? hours + 12 : hours,
-      minutes,
-      0,
-      0
-    );
-
-    if (now < periodTime) return 'upcoming';
-    if (now > periodTime) return 'past';
-    return 'current';
-    */
-  };
+  // Updated: 2026-09-17 (BUG-006133) - Same restored guard as
+  // available-periods-cards.tsx, sharing the one implementation in
+  // lib/utils/academic/period-time-window rather than a second copy of the
+  // logic. This component held a near-identical short-circuited copy; having
+  // two was how the rule went missing without anyone noticing.
+  const getTimeStatus = (period: AttendancePeriodOption) =>
+    getPeriodTimeStatus(targetDate, period.start_time, period.end_time, now);
 
   if (loading) {
     return (
@@ -305,8 +298,9 @@ export function FacultyQuickAttendance({
       <CardContent>
         <div className='grid gap-4'>
           {periods.map((period, index) => {
-            const timeStatus = getTimeStatus(period.start_time);
+            const timeStatus = getTimeStatus(period);
             const isMarked = markedPeriods.has(period.timetable_slot_id);
+            const isUpcoming = timeStatus === 'upcoming' && !isMarked;
 
             return (
               <Card
@@ -387,11 +381,26 @@ export function FacultyQuickAttendance({
                       )}
                     </div>
 
+                    {/* Updated: 2026-09-17 (BUG-006133) - Upcoming period notice */}
+                    {isUpcoming && (
+                      <Alert>
+                        <Clock className='h-4 w-4' />
+                        <AlertDescription>
+                          <strong>Not started yet:</strong> this class begins at{' '}
+                          {formatPeriodTime(period.start_time) || period.start_time}.
+                          <br />
+                          <span className='text-xs'>
+                            Attendance can be marked once the period begins.
+                          </span>
+                        </AlertDescription>
+                      </Alert>
+                    )}
+
                     {/* Mark Attendance Button - Mobile Responsive */}
                     <div className='pt-3 border-t border-border/50'>
                       <Button
                         onClick={() => handlePeriodClick(period)}
-                        disabled={false}
+                        disabled={isUpcoming}
                         size='sm'
                         className='w-full h-10 font-medium transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]'
                       >
@@ -399,6 +408,14 @@ export function FacultyQuickAttendance({
                           <>
                             <CheckCircle className='h-4 w-4 mr-2 flex-shrink-0' />
                             <span className='text-sm'>View Details</span>
+                          </>
+                        ) : isUpcoming ? (
+                          <>
+                            <Clock className='h-4 w-4 mr-2 flex-shrink-0' />
+                            <span className='text-sm'>
+                              Starts at{' '}
+                              {formatPeriodTime(period.start_time) || period.start_time}
+                            </span>
                           </>
                         ) : (
                           <>
