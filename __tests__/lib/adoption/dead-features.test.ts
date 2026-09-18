@@ -14,8 +14,9 @@
  *   - the bar is the WEEKLY share. All-time usage would let a feature everyone
  *     opened once in March look healthy forever.
  *   - EXCEPT for a seasonal feature. A timetable is made at a term boundary, so
- *     a weekly bar calls it dead 50 weeks a year. A 'term' feature is judged
- *     once, after the term has ended, on who used it at any point inside it.
+ *     a weekly bar calls it dead 50 weeks a year. A 'term' feature is judged on
+ *     the LAST COMPLETED term — never the one running, which may not have
+ *     reached its season yet — and only if it shipped before that term began.
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -28,7 +29,6 @@ import {
   canAskWhy,
   daysSinceShipped,
   groupByFeature,
-  hasTermEnded,
   isDeadFeature,
   isMeasured,
   isSkipped,
@@ -54,15 +54,20 @@ function termDay(days: number): string {
   return new Date(NOW.getTime() + days * 86_400_000).toISOString().slice(0, 10);
 }
 
-/** A seasonal feature's rows: 'term' cadence and a term window around NOW. */
+/** A seasonal feature: 'term' cadence, the running term around NOW, and the
+ *  last completed term before it. Shipped well before that last term began, so
+ *  by default it HAS had a full term to be used in and can be judged. */
 function termRow(overrides: Partial<AdoptionMetricRow> = {}): AdoptionMetricRow {
   return row({
     feature_key: 'academic.timetable_publish',
     title: 'Publish a timetable',
     core_action: 'publish a timetable for a section',
     cadence: 'term',
+    shipped_at: shippedDaysAgo(300),
     term_start: termDay(-60),
     term_end: termDay(30),
+    prev_term_start: termDay(-240),
+    prev_term_end: termDay(-61),
     ...overrides,
   });
 }
@@ -95,6 +100,10 @@ function row(overrides: Partial<AdoptionMetricRow> = {}): AdoptionMetricRow {
     pct_term: 0,
     term_start: null,
     term_end: null,
+    prev_term_active: 0,
+    pct_prev_term: 0,
+    prev_term_start: null,
+    prev_term_end: null,
     // No reason to skip: this one is measured like everything else.
     skip_reason: null,
     ...overrides,
@@ -261,6 +270,8 @@ describe('isDeadFeature', () => {
           cadence: 'weekly',
           term_start: null,
           term_end: null,
+          prev_term_start: null,
+          prev_term_end: null,
           skip_reason: null,
           rows: [],
         },
@@ -316,11 +327,13 @@ describe('isDeadFeature', () => {
 });
 
 describe('term cadence', () => {
-  it('carries the cadence and the term window onto the feature', () => {
+  it('carries the cadence and BOTH term windows onto the feature', () => {
     const [seasonal] = groupByFeature([termRow()]);
     expect(seasonal.cadence).toBe('term');
     expect(seasonal.term_start).toBe(termDay(-60));
     expect(seasonal.term_end).toBe(termDay(30));
+    expect(seasonal.prev_term_start).toBe(termDay(-240));
+    expect(seasonal.prev_term_end).toBe(termDay(-61));
     expect(isTermFeature(seasonal)).toBe(true);
     expect(activeShareLabel(seasonal)).toBe('This term');
   });
@@ -341,79 +354,83 @@ describe('term cadence', () => {
     expect(activeShareLabel(absent)).toBe('Weekly');
   });
 
-  it('is NOT dead mid-term with nobody using it — the season has not come round', () => {
+  it('is NOT judged on the running term, however low it reads', () => {
     // The whole point of the ruling. A timetable is made at a term boundary;
-    // judging it in week three of term retires a working tool.
+    // week three of the running term says nothing about whether it is used.
     const [group] = groupByFeature([
-      termRow({ role: 'hod', pct_term: 0, term_active: 0 }),
-      termRow({ role: 'principal', pct_term: 0, term_active: 0 }),
+      termRow({ role: 'hod', pct_term: 0, term_active: 0, pct_prev_term: 60 }),
+      termRow({ role: 'principal', pct_term: 0, term_active: 0, pct_prev_term: 45 }),
     ]);
-    expect(hasTermEnded(group, NOW)).toBe(false);
     expect(isDeadFeature(group, NOW)).toBe(false);
   });
 
-  it('IS dead once the term has ended with every role under the bar', () => {
+  it('IS dead when it had a full last term and nobody used it', () => {
     const [group] = groupByFeature([
-      termRow({ role: 'hod', term_end: termDay(-1), pct_term: 0 }),
-      termRow({ role: 'principal', term_end: termDay(-1), pct_term: 4.9 }),
+      termRow({ role: 'hod', pct_prev_term: 0 }),
+      termRow({ role: 'principal', pct_prev_term: 4.9 }),
     ]);
-    expect(hasTermEnded(group, NOW)).toBe(true);
     expect(isDeadFeature(group, NOW)).toBe(true);
   });
 
-  it('keeps a finished term alive when ONE role used it this term', () => {
+  it('is NOT dead when it shipped part-way through the last term', () => {
+    // It never had a full term to be used in, so a zero there is newness —
+    // the same judgement the 28-day rule makes for a weekly feature.
     const [group] = groupByFeature([
-      termRow({ role: 'hod', term_end: termDay(-1), pct_term: 0 }),
-      termRow({ role: 'principal', term_end: termDay(-1), pct_term: 20, term_active: 4 }),
+      termRow({ shipped_at: shippedDaysAgo(120), pct_prev_term: 0 }),
     ]);
     expect(isDeadFeature(group, NOW)).toBe(false);
   });
 
-  it('judges a term feature by the term share, never the weekly one', () => {
-    // Used by everyone at the term boundary and by nobody since: alive.
-    const [seasonalAndUsed] = groupByFeature([
-      termRow({ term_end: termDay(-1), pct_weekly: 0, pct_term: 85, term_active: 17 }),
-    ]);
-    expect(isDeadFeature(seasonalAndUsed, NOW)).toBe(false);
-    // Busy this week, but nobody did the core action all term: dead.
-    const [busyButUnused] = groupByFeature([
-      termRow({ term_end: termDay(-1), pct_weekly: 100, pct_term: 0 }),
-    ]);
-    expect(isDeadFeature(busyButUnused, NOW)).toBe(true);
+  it('turns dead only if it shipped BEFORE the last term began', () => {
+    const during = groupByFeature([
+      termRow({ shipped_at: shippedDaysAgo(239), pct_prev_term: 0 }),
+    ])[0];
+    const before = groupByFeature([
+      termRow({ shipped_at: shippedDaysAgo(241), pct_prev_term: 0 }),
+    ])[0];
+    expect(isDeadFeature(during, NOW)).toBe(false);
+    expect(isDeadFeature(before, NOW)).toBe(true);
   });
 
-  it('is never dead when no term window is known', () => {
-    // A term with no end cannot have ended. Better a feature nobody judges
-    // than a retirement proposal built on a missing date.
+  it('keeps it alive when ONE role used it last term', () => {
     const [group] = groupByFeature([
-      termRow({ term_start: null, term_end: null, pct_term: 0 }),
+      termRow({ role: 'hod', pct_prev_term: 0 }),
+      termRow({ role: 'principal', pct_prev_term: 20, prev_term_active: 4 }),
     ]);
-    expect(hasTermEnded(group, NOW)).toBe(false);
     expect(isDeadFeature(group, NOW)).toBe(false);
   });
 
-  it('runs to the END of its last day, not its first minute', () => {
-    const lastDay = groupByFeature([termRow({ term_end: termDay(0), pct_term: 0 })])[0];
-    const dayAfter = groupByFeature([termRow({ term_end: termDay(-1), pct_term: 0 })])[0];
-    expect(hasTermEnded(lastDay, NOW)).toBe(false);
-    expect(isDeadFeature(lastDay, NOW)).toBe(false);
-    expect(hasTermEnded(dayAfter, NOW)).toBe(true);
-    expect(isDeadFeature(dayAfter, NOW)).toBe(true);
+  it('judges the last term, never the running one and never the week', () => {
+    // Nothing yet this term, but it was used last term: alive.
+    const [usedLastTerm] = groupByFeature([
+      termRow({ pct_weekly: 0, pct_term: 0, pct_prev_term: 85, prev_term_active: 17 }),
+    ]);
+    expect(isDeadFeature(usedLastTerm, NOW)).toBe(false);
+    // Busy this week and this term, but it went unused for the whole of last
+    // term: dead. The running term cannot rescue it either.
+    const [busyNowUnusedThen] = groupByFeature([
+      termRow({ pct_weekly: 100, pct_term: 100, term_active: 20, pct_prev_term: 0 }),
+    ]);
+    expect(isDeadFeature(busyNowUnusedThen, NOW)).toBe(true);
   });
 
-  it('still obeys the retired, unwired and stale rules after the term ends', () => {
-    const retired = groupByFeature([
-      termRow({ term_end: termDay(-1), status: 'retired', pct_term: 0 }),
-    ])[0];
-    const unwired = groupByFeature([
-      termRow({ term_end: termDay(-1), usage_wired: false, pct_term: 0 }),
-    ])[0];
+  it('is never dead when no last term is known', () => {
+    // Better a feature nobody judges than a retirement proposal built on a
+    // missing date.
+    const [group] = groupByFeature([
+      termRow({ prev_term_start: null, prev_term_end: null, pct_prev_term: 0 }),
+    ]);
+    expect(isDeadFeature(group, NOW)).toBe(false);
+  });
+
+  it('still obeys the retired, unwired and stale rules', () => {
+    const retired = groupByFeature([termRow({ status: 'retired', pct_prev_term: 0 })])[0];
+    const unwired = groupByFeature([termRow({ usage_wired: false, pct_prev_term: 0 })])[0];
     const stale = groupByFeature([
       termRow({
-        term_end: termDay(-1),
         usage_bridged: true,
         usage_synced_at: shippedDaysAgo(9),
-        pct_term: 0,
+        pct_prev_term: 0,
       }),
     ])[0];
     expect(isDeadFeature(retired, NOW)).toBe(false);
@@ -422,7 +439,9 @@ describe('term cadence', () => {
   });
 
   it('leaves a weekly feature judged by the week, whatever the term columns say', () => {
-    const [group] = groupByFeature([row({ pct_weekly: 0, pct_term: 90, term_active: 18 })]);
+    const [group] = groupByFeature([
+      row({ pct_weekly: 0, pct_term: 90, term_active: 18, pct_prev_term: 90 }),
+    ]);
     expect(isDeadFeature(group, NOW)).toBe(true);
   });
 });
@@ -455,11 +474,10 @@ describe('skipped on purpose', () => {
     expect(canAskWhy(group, NOW)).toBe(false);
   });
 
-  it('is never dead when seasonal either, even after the term ended', () => {
+  it('is never dead when seasonal either, however the last term went', () => {
     const [group] = groupByFeature([
-      termRow({ term_end: termDay(-1), pct_term: 0, skip_reason: 'run by one person' }),
+      termRow({ pct_prev_term: 0, skip_reason: 'run by one person' }),
     ]);
-    expect(hasTermEnded(group, NOW)).toBe(true);
     expect(isDeadFeature(group, NOW)).toBe(false);
   });
 

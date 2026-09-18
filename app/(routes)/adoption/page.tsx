@@ -169,8 +169,8 @@ export default async function AdoptionPage() {
             What share of the people a feature was built for actually used it this week
             {institutionName ? ` at ${institutionName}` : ''}. A feature counts as dead when
             it is at least {DEAD_AFTER_DAYS} days old and under {DEAD_WEEKLY_PCT}% for every
-            role it was meant for. A seasonal feature is counted over the whole term
-            instead, and only judged once the term has ended.
+            role it was meant for. A seasonal feature is judged on the last completed term
+            instead, never on the one running.
           </p>
         </div>
 
@@ -221,6 +221,17 @@ export default async function AdoptionPage() {
                     {group.feature_key} · shipped {group.shipped_at.slice(0, 10)} (
                     {shippedAgo(group.shipped_at, now)})
                   </p>
+                  {/* "Last term" means nothing without the dates it covers. */}
+                  {seasonal ? (
+                    <p className="text-xs text-muted-foreground/70">
+                      {group.prev_term_start && group.prev_term_end
+                        ? `last term ${group.prev_term_start} → ${group.prev_term_end}`
+                        : 'no completed term yet'}
+                      {group.term_start && group.term_end
+                        ? ` · current term ${group.term_start} → ${group.term_end}`
+                        : ''}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="flex items-center gap-2">
                   {featureIsDead ? (
@@ -243,13 +254,15 @@ export default async function AdoptionPage() {
                     <TableRow>
                       <TableHead>For whom</TableHead>
                       <TableHead className="text-right">Intended</TableHead>
-                      {/* A seasonal feature is counted over the term, not the
-                          week: a timetable made once at the term boundary reads
-                          as 0% every week that is not that one. */}
+                      {/* A seasonal feature gets two cells: the term running now,
+                          and the last completed term — which is the one that
+                          decides whether anybody actually uses it. */}
                       <TableHead className="text-right">
-                        Used {seasonal ? 'this term' : 'this week'}
+                        {seasonal ? activeShareLabel(group) : 'Used this week'}
                       </TableHead>
-                      <TableHead className="text-right">{activeShareLabel(group)}</TableHead>
+                      <TableHead className="text-right">
+                        {seasonal ? 'Last term' : activeShareLabel(group)}
+                      </TableHead>
                       <TableHead className="text-right">Ever</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -263,10 +276,29 @@ export default async function AdoptionPage() {
                           {toNumber(row.intended_count)}
                         </TableCell>
                         <TableCell className="text-right text-sm tabular-nums">
-                          {toNumber(seasonal ? row.term_active : row.weekly_active)}
+                          {seasonal ? (
+                            <>
+                              {toNumber(row.pct_term).toFixed(1)}%
+                              <div className="text-xs text-muted-foreground">
+                                {toNumber(row.term_active)} of {toNumber(row.intended_count)}
+                              </div>
+                            </>
+                          ) : (
+                            toNumber(row.weekly_active)
+                          )}
                         </TableCell>
                         <TableCell className="text-right text-sm tabular-nums text-foreground">
-                          {toNumber(seasonal ? row.pct_term : row.pct_weekly).toFixed(1)}%
+                          {seasonal ? (
+                            <>
+                              {toNumber(row.pct_prev_term).toFixed(1)}%
+                              <div className="text-xs text-muted-foreground">
+                                {toNumber(row.prev_term_active)} of{' '}
+                                {toNumber(row.intended_count)}
+                              </div>
+                            </>
+                          ) : (
+                            `${toNumber(row.pct_weekly).toFixed(1)}%`
+                          )}
                         </TableCell>
                         <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
                           {toNumber(row.pct_ever).toFixed(1)}%

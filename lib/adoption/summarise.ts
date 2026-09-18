@@ -24,8 +24,10 @@
 //   'weekly' — the default, judged by the weekly share as before.
 //   'term'   — judged by "active this term": the share of intended people who
 //              did the core action at ANY point in the current term.
-// A term feature is NEVER called dead mid-term. It is dead only once the term
-// has ENDED and every intended role finished it under the bar.
+// A term feature is NEVER judged on the term that is running — the season it
+// belongs to may not have come round yet. The verdict is the LAST COMPLETED
+// term, and only for a feature that existed for the whole of it: something
+// that shipped half way through that term never had a full term to be used in.
 //
 // SKIPPED ON PURPOSE. Not everything that merges is a feature a person adopts:
 // a cron job, a public form filled in by people who never sign in, a one-person
@@ -105,14 +107,20 @@ export interface AdoptionMetricRow {
   /** How this feature is judged. Absent or unreadable means 'weekly' — the
    *  default that every feature had before cadence existed. */
   cadence?: 'weekly' | 'term' | null;
-  /** Intended people who did the core action at any point in the CURRENT term.
-   *  Only meaningful for a term feature. */
+  /** Intended people who did the core action at any point in the RUNNING term.
+   *  Shown, never judged: the term is not over. */
   term_active?: Numeric;
   pct_term?: Numeric;
-  /** The current term's window. The same on every row of every feature, because
+  /** The running term's window. The same on every row of every feature, because
    *  there is one current term, not one per feature. */
   term_start?: string | null;
   term_end?: string | null;
+  /** The LAST COMPLETED term — the one ending the day before the running term
+   *  began. This is the window a term feature is actually judged on. */
+  prev_term_start?: string | null;
+  prev_term_end?: string | null;
+  prev_term_active?: Numeric;
+  pct_prev_term?: Numeric;
   /** Set = the desk decided this one is not worth measuring, and why. Null for
    *  everything the loop actually judges. */
   skip_reason?: string | null;
@@ -135,10 +143,13 @@ export interface FeatureGroup {
   usage_synced_at: string | null;
   /** 'weekly' unless the label says otherwise — see the cadence note at the top. */
   cadence: 'weekly' | 'term';
-  /** The current term's window, carried up from the rows so the page can name
-   *  the term it is judging by. Null when the database sent no term. */
+  /** The running term's window, carried up from the rows so the page can name
+   *  it. Null when the database sent no term. */
   term_start: string | null;
   term_end: string | null;
+  /** The last completed term's window — the one the dead rule reads. */
+  prev_term_start: string | null;
+  prev_term_end: string | null;
   /** Why this one is deliberately not measured, or null if it is. */
   skip_reason: string | null;
   rows: AdoptionMetricRow[];
@@ -208,6 +219,8 @@ export function groupByFeature(rows: AdoptionMetricRow[]): FeatureGroup[] {
         cadence: row.cadence === 'term' ? 'term' : 'weekly',
         term_start: row.term_start ?? null,
         term_end: row.term_end ?? null,
+        prev_term_start: row.prev_term_start ?? null,
+        prev_term_end: row.prev_term_end ?? null,
         skip_reason: row.skip_reason ?? null,
         source_pr: row.source_pr,
         // asked_count and answers are per FEATURE, not per role — the RPC
@@ -263,27 +276,21 @@ function termEndDayStart(termEnd: string | null | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-/** The instant a term stops running. fn_adoption_term_window sets term_end to
- *  the day BEFORE the next boundary, so the term is still running all through
- *  its last day and only stops at the next midnight. */
-function termEndsAt(termEnd: string | null | undefined): number | null {
-  const dayStart = termEndDayStart(termEnd);
-  if (dayStart === null) return null;
-  // A date-only value covers its whole day; a full timestamp is already exact.
-  return typeof termEnd === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(termEnd)
-    ? dayStart + 86_400_000
-    : dayStart;
+/** Did the feature exist for the WHOLE of the last completed term? Something
+ *  that shipped part-way through that term never had a full term to be used
+ *  in, so a low share there is newness, not abandonment — the same judgement
+ *  DEAD_AFTER_DAYS makes for a weekly feature. No last term window, or an
+ *  unreadable date, means no verdict. */
+function hadFullLastTerm(group: FeatureGroup): boolean {
+  if (!group.prev_term_start) return false;
+  const termBegan = new Date(group.prev_term_start).getTime();
+  const shipped = new Date(group.shipped_at).getTime();
+  if (!Number.isFinite(termBegan) || !Number.isFinite(shipped)) return false;
+  return shipped < termBegan;
 }
 
-/** Has the current term finished? Mid-term — and whenever no term window is
- *  known — the answer is no, and a term feature is never judged. */
-export function hasTermEnded(group: FeatureGroup, now: Date = new Date()): boolean {
-  const ends = termEndsAt(group.term_end);
-  if (ends === null) return false;
-  return now.getTime() >= ends;
-}
-
-/** The header over the share column: which number this feature is judged by. */
+/** The header over the RUNNING share column. A term feature shows this beside
+ *  a second column for the last completed term, which is the deciding one. */
 export function activeShareLabel(group: FeatureGroup): 'Weekly' | 'This term' {
   return isTermFeature(group) ? 'This term' : 'Weekly';
 }
@@ -299,10 +306,10 @@ export function activeShareLabel(group: FeatureGroup): 'Weekly' | 'This term' {
  * retirement question), and a feature the Director already retired (the
  * decision was taken; counting it again would nag him about his own call).
  *
- * A TERM feature swaps the weekly bar for the term one and adds a gate: it is
- * never dead mid-term, however low this week reads, because the season it
- * belongs to may not have come round yet. It is judged once, after the term
- * has ended, on the share who used it at any point inside that term.
+ * A TERM feature is judged on the LAST COMPLETED term, never on the one
+ * running: this term may not have reached the season the feature belongs to,
+ * so a zero today means nothing. It must also have shipped before that term
+ * began, or it never had a full term to be used in.
  */
 export function isDeadFeature(group: FeatureGroup, now: Date = new Date()): boolean {
   if (isSkipped(group)) return false; // never measured, so never a verdict
@@ -314,9 +321,10 @@ export function isDeadFeature(group: FeatureGroup, now: Date = new Date()): bool
   if (measured.length === 0) return false;
 
   if (isTermFeature(group)) {
-    // Mid-term, or no term window at all, is not a verdict — it is a wait.
-    if (!hasTermEnded(group, now)) return false;
-    return measured.every((row) => toNumber(row.pct_term) < DEAD_WEEKLY_PCT);
+    // The running term is never judged, and neither is a term the feature was
+    // only part-way through. Both are a wait, not a verdict.
+    if (!hadFullLastTerm(group)) return false;
+    return measured.every((row) => toNumber(row.pct_prev_term) < DEAD_WEEKLY_PCT);
   }
 
   return measured.every((row) => toNumber(row.pct_weekly) < DEAD_WEEKLY_PCT);

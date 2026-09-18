@@ -231,8 +231,9 @@ export default async function FeatureAdoptionPage() {
             {weekStart ? ` (week beginning ${weekStart})` : ''}. A feature is called dead
             when it is at least {DEAD_AFTER_DAYS} days old and under {DEAD_WEEKLY_PCT}% for
             every role it was meant for. A seasonal feature — marked{' '}
-            <span className="font-medium text-foreground">term</span> — is judged by who
-            used it at any point this term, and only once the term has ended.
+            <span className="font-medium text-foreground">term</span> — is judged on the LAST
+            COMPLETED term, never the one running, and only if it shipped before that term
+            began.
           </p>
         </div>
 
@@ -310,6 +311,9 @@ export default async function FeatureAdoptionPage() {
                   {/* One table, two cadences: the column header stays neutral and
                       each cell says which share it is showing. */}
                   <TableHead className="text-right">Active</TableHead>
+                  {/* Only a term feature has a last term, and for it this is the
+                      column that decides. Weekly features leave it blank. */}
+                  <TableHead className="text-right">Last term</TableHead>
                   <TableHead className="text-right">Ever</TableHead>
                   <TableHead className="text-right">Asked</TableHead>
                   <TableHead>Answers</TableHead>
@@ -336,10 +340,19 @@ export default async function FeatureAdoptionPage() {
                           </div>
                           {seasonal ? (
                             <div className="text-xs text-muted-foreground">
-                              judged by term
-                              {group.term_start && group.term_end
-                                ? ` · current term ${group.term_start} → ${group.term_end}`
-                                : ' · no term window set'}
+                              <div>judged by last term</div>
+                              {group.prev_term_start && group.prev_term_end ? (
+                                <div>
+                                  last term {group.prev_term_start} → {group.prev_term_end}
+                                </div>
+                              ) : (
+                                <div>no completed term yet</div>
+                              )}
+                              {group.term_start && group.term_end ? (
+                                <div>
+                                  current term {group.term_start} → {group.term_end}
+                                </div>
+                              ) : null}
                             </div>
                           ) : null}
                           {group.module ? (
@@ -382,15 +395,15 @@ export default async function FeatureAdoptionPage() {
                         </TableCell>
                       ) : null}
 
-                      {/* A seasonal feature shows its TERM share here instead of
-                          its weekly one — the weekly number is meaningless for
-                          something done once a term, and showing it would make a
-                          working feature look abandoned. */}
+                      {/* The RUNNING share. For a seasonal feature this is the
+                          term in progress: shown, never judged, because the
+                          season it belongs to may not have come round yet. */}
                       <TableCell className="align-top text-right text-sm tabular-nums">
                         <span
                           className={
-                            toNumber(seasonal ? row.pct_term : row.pct_weekly) <
-                              DEAD_WEEKLY_PCT && featureIsDead
+                            !seasonal &&
+                            toNumber(row.pct_weekly) < DEAD_WEEKLY_PCT &&
+                            featureIsDead
                               ? 'font-semibold text-red-600 dark:text-red-400'
                               : 'text-foreground'
                           }
@@ -401,6 +414,30 @@ export default async function FeatureAdoptionPage() {
                           {toNumber(seasonal ? row.term_active : row.weekly_active)} of{' '}
                           {toNumber(row.intended_count)} {seasonal ? 'this term' : 'this week'}
                         </div>
+                      </TableCell>
+
+                      {/* The LAST COMPLETED term — the number a term feature is
+                          actually judged on. */}
+                      <TableCell className="align-top text-right text-sm tabular-nums">
+                        {seasonal ? (
+                          <>
+                            <span
+                              className={
+                                toNumber(row.pct_prev_term) < DEAD_WEEKLY_PCT && featureIsDead
+                                  ? 'font-semibold text-red-600 dark:text-red-400'
+                                  : 'text-foreground'
+                              }
+                            >
+                              {pct(row.pct_prev_term)}
+                            </span>
+                            <div className="text-xs text-muted-foreground">
+                              {toNumber(row.prev_term_active)} of{' '}
+                              {toNumber(row.intended_count)} last term
+                            </div>
+                          </>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
                       </TableCell>
 
                       <TableCell className="align-top text-right text-sm tabular-nums text-muted-foreground">

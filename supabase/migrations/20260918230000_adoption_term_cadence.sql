@@ -143,7 +143,11 @@ RETURNS TABLE (
   pct_term       numeric,
   term_start     date,
   term_end       date,
-  skip_reason    text
+  skip_reason    text,
+  prev_term_start  date,
+  prev_term_end    date,
+  prev_term_active bigint,
+  pct_prev_term    numeric
 )
 LANGUAGE plpgsql
 STABLE
@@ -158,6 +162,8 @@ DECLARE
                     date_trunc('week', (now() AT TIME ZONE 'Asia/Kolkata')::date)::date);
   v_tstart date;
   v_tend   date;
+  v_pstart date;   -- the last COMPLETED term: the one that decides "dead" for term features
+  v_pend   date;
 BEGIN
   IF v_uid IS NULL AND NOT v_admin THEN
     RAISE EXCEPTION 'sign in required' USING ERRCODE = '42501';
@@ -169,6 +175,7 @@ BEGIN
     END IF;
   END IF;
   SELECT w.term_start, w.term_end INTO v_tstart, v_tend FROM public.fn_adoption_term_window() w;
+  SELECT w.term_start, w.term_end INTO v_pstart, v_pend FROM public.fn_adoption_term_window(v_tstart - 1) w;
 
   RETURN QUERY
   WITH f AS (
@@ -194,7 +201,8 @@ BEGIN
   used AS (
     SELECT fu.user_id, fu.feature_key,
            bool_or(fu.day >= v_week AND fu.day < v_week + 7)     AS this_week,
-           bool_or(fu.day >= v_tstart AND fu.day <= v_tend)     AS this_term
+           bool_or(fu.day >= v_tstart AND fu.day <= v_tend)     AS this_term,
+           bool_or(fu.day >= v_pstart AND fu.day <= v_pend)     AS prev_term
     FROM public.feature_usage fu
     GROUP BY fu.user_id, fu.feature_key
   ),
@@ -209,6 +217,7 @@ BEGIN
            count(*)                                        AS intended_count,
            count(*) FILTER (WHERE u.this_week)             AS weekly_active,
            count(*) FILTER (WHERE u.this_term)             AS term_active,
+           count(*) FILTER (WHERE u.prev_term)             AS prev_term_active,
            count(*) FILTER (WHERE u.user_id IS NOT NULL)   AS ever_active
     FROM intended i
     LEFT JOIN used u ON u.user_id = i.user_id AND u.feature_key = i.feature_key
@@ -235,7 +244,12 @@ BEGIN
               THEN round(a.term_active::numeric * 100 / a.intended_count, 1) ELSE 0 END,
          v_tstart,
          v_tend,
-         f.skip_reason
+         f.skip_reason,
+         v_pstart,
+         v_pend,
+         COALESCE(a.prev_term_active, 0)::bigint,
+         CASE WHEN COALESCE(a.intended_count, 0) > 0
+              THEN round(a.prev_term_active::numeric * 100 / a.intended_count, 1) ELSE 0 END
   FROM f
   LEFT JOIN agg a   ON a.feature_key = f.feature_key AND a.role = f.role
   LEFT JOIN asked k ON k.feature_key = f.feature_key

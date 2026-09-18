@@ -204,6 +204,14 @@ SELECT feature_key, cadence, term_active, pct_term, term_start, term_end FROM fn
 DO $$ DECLARE r record; BEGIN
   SELECT * INTO r FROM fn_adoption_metrics(NULL,NULL) m WHERE m.feature_key='seasonal.thing';
   IF r.cadence <> 'term' OR r.term_start IS NULL OR r.term_end IS NULL THEN RAISE EXCEPTION 'FAIL: term columns missing: %', r; END IF;
+  IF r.prev_term_end <> r.term_start - 1 THEN RAISE EXCEPTION 'FAIL: previous term must end the day before this one starts: % / %', r.prev_term_end, r.term_start; END IF;
+END $$;
+\echo '--- last completed term: HOD A used the seasonal thing once last term → prev_term_active 1, this term 0'
+INSERT INTO feature_usage (user_id, feature_key, day, count) SELECT '20000000-0000-0000-0000-000000000002', 'seasonal.thing', (SELECT term_start - 10 FROM fn_adoption_term_window()), 1;
+SELECT role, term_active, prev_term_active, pct_prev_term FROM fn_adoption_metrics(NULL,NULL) WHERE feature_key='seasonal.thing';
+DO $$ DECLARE r record; BEGIN
+  SELECT * INTO r FROM fn_adoption_metrics(NULL,NULL) m WHERE m.feature_key='seasonal.thing' AND m.role='hod';
+  IF r.prev_term_active <> 1 OR r.term_active <> 0 THEN RAISE EXCEPTION 'FAIL prev-term split: this=% prev=%', r.term_active, r.prev_term_active; END IF;
 END $$;
 \echo '--- mid-term: EXPECT ask refused (asked only in the last 14 days of the term)'
 SELECT fn_adoption_ask_why('seasonal.thing') AS midterm_ask;
