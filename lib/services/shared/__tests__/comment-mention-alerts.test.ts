@@ -41,6 +41,7 @@ interface Row {
 
 let rows: Row[] = [];
 let grantError: { code: string; message: string } | null = null;
+let readError: { code: string; message: string } | null = null;
 
 /** A just-enough PostgREST query builder over `rows`. */
 function query() {
@@ -53,6 +54,7 @@ function query() {
       hit.forEach((r) => Object.assign(r, op && op.kind === 'update' ? op.patch : {}));
       return { data: null, error: null };
     }
+    if (readError) return { data: null, error: readError };
     return { data: hit.map((r) => ({ ...r })), error: null };
   };
 
@@ -134,6 +136,7 @@ const tag = (userIds: string[]) =>
 beforeEach(() => {
   rows = [];
   grantError = null;
+  readError = null;
   alerts.deliveries = [];
   alerts.seenKeys = new Set();
   alerts.failuresLeft = 0;
@@ -171,6 +174,13 @@ describe('grantAndNotifyTags', () => {
     const resend = await tag(['u1']);
     expect(resend.notified).toEqual(['u1']);
     expect(resend.created).toEqual([]);
+  });
+
+  it('still reports the tag it saved when the read-back afterwards fails', async () => {
+    readError = { code: 'PGRST000', message: 'read failed' };
+    const r = await tag(['u1']);
+    expect(r.grantError?.code).toBe('PGRST000');
+    expect(r.created).toEqual(['u1']);
   });
 
   it('creates nothing when the grant is refused', async () => {

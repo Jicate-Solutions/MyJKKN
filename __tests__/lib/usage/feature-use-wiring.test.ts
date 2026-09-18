@@ -53,5 +53,8 @@ describe('adoption loop — resource-management features record their use', () =
     expect(src).toMatch(
       /if\s*\(\s*outcome\.created\.length\s*>\s*0\s*\)\s*\{\s*await recordFeatureUse\(\s*db\s*,\s*FEATURE_KEYS\.RESOURCES_TAG_COLLEAGUE\s*\)/,
     );
+    // Before the error branch: a saved tag whose read-back failed still counts.
+    expect(src.indexOf('outcome.created.length > 0')).toBeGreaterThan(-1);
+    expect(src.indexOf('outcome.created.length > 0')).toBeLessThan(src.indexOf('if (outcome.grantError)'));
   });
 });

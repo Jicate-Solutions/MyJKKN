@@ -174,6 +174,15 @@ export async function POST(
     },
   });
 
+  // Adoption loop: count the use only when this call created a tag — repeats
+  // and reminders create nothing, and a new tag counts even if its alert is
+  // still to be retried. Recorded BEFORE the error branch: a tag that was
+  // saved and then failed its read-back is still a tag, and a retry would
+  // create nothing to count. `db` is the session client; the helper never throws.
+  if (outcome.created.length > 0) {
+    await recordFeatureUse(db, FEATURE_KEYS.RESOURCES_TAG_COLLEAGUE);
+  }
+
   if (outcome.grantError) {
     logger.error(MOD, 'Tag insert refused', {
       reservationId,
@@ -197,14 +206,6 @@ export async function POST(
       count: outcome.notNotified.length,
       error: outcome.alertError,
     });
-  }
-
-  // Adoption loop: count the use only when this call created a tag — repeats
-  // and reminders create nothing, and a new tag counts even if its alert is
-  // still to be retried. `db` is the session client (auth.uid()); the helper
-  // never throws.
-  if (outcome.created.length > 0) {
-    await recordFeatureUse(db, FEATURE_KEYS.RESOURCES_TAG_COLLEAGUE);
   }
 
   const toNames = (ids: string[]) => ids.map((uid) => names.get(uid) ?? 'Unknown');
