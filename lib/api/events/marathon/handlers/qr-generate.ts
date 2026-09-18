@@ -1,12 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServiceRoleClient } from '@/lib/supabase/server';
+import {
+  createServerSupabaseClient,
+  createServiceRoleClient,
+  getAuthUser,
+} from '@/lib/supabase/server';
 import { generateMarathonQR } from '@/lib/utils/marathon-qr-generator';
+import { canGenerateEventQr } from '@/lib/services/events/shared/event-manage-access';
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ eventId: string }> }
 ) {
   const { eventId } = await params;
+
+  // Runs on the service role and writes qr_code_url for every registration, so
+  // the caller is checked first (2026-09-18) — it used to check nobody at all.
+  const { user } = await getAuthUser();
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  const allowed = await canGenerateEventQr(
+    { auth: (await createServerSupabaseClient()) as any, svc: createServiceRoleClient(), userId: user.id },
+    eventId
+  );
+  if (!allowed) {
+    return NextResponse.json(
+      { error: "You don't have permission to generate QR passes for this event" },
+      { status: 403 }
+    );
+  }
+
   const body = await req.json().catch(() => ({}));
   const force = body.force === true;
   const specificBibs: string[] | undefined = body.bibNumbers;
