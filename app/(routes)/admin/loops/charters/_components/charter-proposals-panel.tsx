@@ -366,7 +366,7 @@ export function CharterProposalsPanel({ rows: initialRows }: { rows: CharterProp
               <dd className="font-mono text-sm tabular-nums">
                 {row.recent_values && row.recent_values.length > 0
                   ? row.recent_values.map((v) => (v == null ? '—' : String(v))).join(' · ')
-                  : 'no final readings recorded for this loop yet — it writes one per run once the bar migration is applied'}
+                  : 'no final readings on record for this loop'}
               </dd>
             </div>
           )}

@@ -131,7 +131,11 @@ export default async function LoopChartersPage() {
   // busy loop cannot starve a slow one. Empty until the migration is applied
   // and that loop has run; the card says so.
   const barLoopKeys = Array.from(
-    new Set(proposals.filter((p) => p.kind === 'bar' || p.kind === 'bar-review').map((p) => p.loop_key))
+    new Set(
+      proposals
+        .filter((p) => (p.kind === 'bar' || p.kind === 'bar-review') && p.status === 'proposed')
+        .map((p) => p.loop_key)
+    )
   );
   const recentByKey = await readRecentReadings(admin, barLoopKeys);
   // Undecided first (the work queue), then decided history — both newest-first
