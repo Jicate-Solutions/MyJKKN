@@ -110,6 +110,20 @@ const HAS_DATABASE = (() => {
   return probe.status === 0;
 })();
 
+if (!HAS_DATABASE) {
+  // Printed at import, before any case runs, so the absence is on the record
+  // even if a reporter elides skipped cases. Every behaviour case below is
+  // skipped rather than passed — a green line must never stand for a check
+  // that did not happen.
+  console.warn(
+    `[scf-block-course] NO POSTGRES on ${PGHOST}:${PGPORT}. The block-course ` +
+      'BEHAVIOUR was NOT verified by this run: both behaviour cases are SKIPPED, ' +
+      'and only the structural assertions ran. Run ' +
+      '`bash supabase/tests/scf-block-course/run.sh` against a local throwaway ' +
+      'server, or set SCF_REQUIRE_DB=1 to make the absence a failure.'
+  );
+}
+
 /** Last file in version order to define `fn` — what an ordered apply leaves. */
 function winningDefinition(fn: string): Migration {
   const owners = migrations.filter((m) => definesFunction(m.sql, fn));
@@ -228,18 +242,34 @@ describe('SCF confirmed-with-feedback — one predicate, block-course siblings',
     expect(run.status, out.slice(-2000)).toBe(0);
   }, 130_000);
 
-  it('the behaviour harness was actually exercised, or its skip is visible', () => {
-    // The one assertion that cannot be skipped. When there is no database the
-    // suite must SAY so — here, and in the skipped case above — never imply the
-    // behaviour was checked. Set SCF_REQUIRE_DB=1 (CI with a database) to turn
-    // the absence into a failure instead of a notice.
-    if (!HAS_DATABASE) {
-      const msg =
-        `no Postgres on ${PGHOST}:${PGPORT} — the block-course BEHAVIOUR was NOT ` +
-        'verified by this run. Only the structural assertions above ran. Run ' +
-        '`bash supabase/tests/scf-block-course/run.sh` where a database is available.';
-      if (process.env.SCF_REQUIRE_DB === '1') throw new Error(msg);
-      console.warn(`[scf-block-course] ${msg}`);
+  it.skipIf(!HAS_DATABASE)('the harness refuses a database that is not disposable', () => {
+    // The runner drops the database it is given, so its guards are part of the
+    // behaviour under test. Each of these would alone have stopped a mistake.
+    const call = (env: Record<string, string>) =>
+      spawnSync('bash', [HARNESS], {
+        encoding: 'utf8',
+        cwd: ROOT,
+        timeout: 60_000,
+        env: { ...process.env, ...env },
+      });
+
+    const badName = call({ SCF_BLOCK_COURSE_DB: 'postgres' });
+    expect(badName.status, 'a non-disposable database name must be refused').toBe(2);
+    expect(`${badName.stdout}${badName.stderr}`).toContain('does not match ^scf_test_');
+
+    const remote = call({ PGHOST: 'db.example.supabase.co' });
+    expect(remote.status, 'a remote host must be refused').toBe(2);
+    expect(`${remote.stdout}${remote.stderr}`).toContain('not a loopback address');
+  }, 70_000);
+
+  it('the absence of a database is loud, and fatal when asked to be', () => {
+    // The one case that always runs. It does not claim the behaviour was
+    // checked; it only makes sure the suite cannot go quiet about not checking.
+    if (!HAS_DATABASE && process.env.SCF_REQUIRE_DB === '1') {
+      throw new Error(
+        `no Postgres on ${PGHOST}:${PGPORT} and SCF_REQUIRE_DB=1 — the ` +
+          'block-course behaviour was not verified.'
+      );
     }
     expect(existsSync(HARNESS)).toBe(true);
   });
