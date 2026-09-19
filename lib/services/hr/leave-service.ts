@@ -11,7 +11,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { leaveDocumentRequirement } from '@/lib/hr/leave-document-rule';
 import {
-  applyDecision, applyRevocation, buildChain, finalStepIndex, readApprovers,
+  applyDecision, applyRevocation, buildChain, finalStepIndex, pickLeaveFlow, readApprovers,
 } from '@/lib/hr/leave/approval-chain';
 import type {
   HRLeaveApplication,
@@ -199,7 +199,7 @@ export class LeaveService {
     const { data: flows, error } = await supabase
       .from('hr_approval_flows')
       .select(
-        'flow_name, conditions, steps, escalate_after_hours, ' +
+        'id, flow_name, conditions, steps, escalate_after_hours, ' +
           'step_source, run_mode, role_ladder, fallback_approver'
       )
       .eq('hr_organization_id', hrOrgId)
@@ -210,6 +210,7 @@ export class LeaveService {
     if (error) throw error;
 
     type FlowRow = {
+      id: string;
       flow_name: string | null;
       conditions: Record<string, unknown> | null;
       steps: Array<Record<string, unknown>> | null;
@@ -221,12 +222,36 @@ export class LeaveService {
     };
     const candidates = (flows ?? []) as unknown as FlowRow[];
 
-    // Most-specific wins: a flow naming this leave type beats the catch-all.
-    // departmentId is accepted for signature stability and future
+    // WHICH FLOW GOVERNS THIS PERSON IS DECIDED IN POSTGRES (2026-09-19).
+    //
+    // Most-specific-wins now spans two axes, leave type AND staff group
+    // (teaching / non-teaching), and the same precedence has to hold here, in
+    // the re-route RPCs and in the editor. Re-implementing it a third time in
+    // TypeScript is how those three drift apart, and a drift here is invisible:
+    // the chain is frozen onto the request, so the wrong approvers simply look
+    // like the configured ones.
+    //
+    // fn_hr_leave_pick_flow reads the applicant's category through RLS, which
+    // is why it is SECURITY DEFINER and why the employee id is gated inside it.
+    // departmentId is still accepted for signature stability and future
     // department-scoped flows; no seeded flow keys on it today.
-    const chosen =
-      candidates.find((f) => f.conditions?.leave_type_id === leaveTypeId) ??
-      candidates.find((f) => !f.conditions?.leave_type_id);
+    let chosen: FlowRow | undefined;
+    if (employeeId) {
+      const { data: flowId, error: pickError } = await (supabase as any).rpc(
+        'fn_hr_leave_pick_flow',
+        {
+          p_hr_org_id: hrOrgId,
+          p_leave_type_id: leaveTypeId,
+          p_employee_id: employeeId,
+        }
+      );
+      if (pickError) throw pickError;
+      chosen = candidates.find((f) => f.id === flowId);
+    } else {
+      // No applicant (the recruitment-shaped callers) means no group, so the
+      // all-staff precedence is the whole rule and can be read off the rows.
+      chosen = pickLeaveFlow(candidates, leaveTypeId, null) ?? undefined;
+    }
 
     if (!chosen) {
       // Name the exact screen. "Ask HR to add one" left the admin hunting —
@@ -378,12 +403,42 @@ export class LeaveService {
     // away, and a five-day half-day request is five days away from their desk.
     // The balance checks below use the factored figure because that is about
     // how much entitlement is consumed — a different question.
+    /**
+     * ELIGIBILITY-GATED TYPES ARE CHECKED HERE, NOT ONLY IN THE VIEW.
+     *
+     * v_hr_leave_balance_src hides a gated type from anyone without an
+     * approved grant, so the drawer cannot offer it — but the drawer is not
+     * the authority. A direct call, a stale tab left open after a revoke, or
+     * any future caller would otherwise file leave against a type the person
+     * is not entitled to, and the frozen chain would make it look legitimate.
+     *
+     * Passing the check is also what waives the per-application document: the
+     * proof was given once, at eligibility, and a human approved it.
+     */
+    let eligibilityCoversDocument = false;
+    if ((leaveType as { requires_eligibility?: boolean }).requires_eligibility) {
+      const { data: eligible, error: eligErr } = await (supabase as any).rpc(
+        'fn_hr_leave_eligibility_ok',
+        { p_employee_id: payload.employee_id, p_leave_type_id: payload.leave_type_id },
+      );
+      if (eligErr) throw eligErr;
+      if (eligible !== true) {
+        throw new Error(
+          `${leaveType.leave_type_name} is only open to staff whose eligibility has been approved. ` +
+            'Request eligibility from the Apply Leave screen and attach the supporting document once; ' +
+            'after it is approved this leave type becomes available to you.',
+        );
+      }
+      eligibilityCoversDocument = true;
+    }
+
     const documentRule = leaveDocumentRequirement(
       {
         requires_documents: leaveType.requires_documents ?? false,
         document_required_after_days: leaveType.document_required_after_days ?? null,
       },
       durationDays,
+      eligibilityCoversDocument,
     );
     if (documentRule.required && (payload.documents?.length ?? 0) === 0) {
       throw new Error(

@@ -13,6 +13,7 @@ import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import { LEAVE_DURATION_LABELS } from '@/types/hr';
 import {
   APPLICABLE_GENDER_LABELS,
+  LEAVE_STAFF_GROUP_LABELS,
   REQUEST_CATEGORY_LABELS,
   type HRLeaveType,
 } from '@/types/hr-leave-types';
@@ -183,16 +184,39 @@ export function getLeaveTypeColumns(
         const cov = actions.flowCoverage;
         if (!cov) return <span className="text-muted-foreground">—</span>;
 
+        // Teaching / Non-teaching overrides, shown beside whatever the base
+        // state is. A group chip does NOT make the type "covered" — those staff
+        // are routed separately, everybody else still follows the base flow —
+        // so it is rendered alongside, never instead of, the state below.
+        const groups = [...(cov.groupFlows?.get(t.id) ?? [])].sort();
+        const groupChips = groups.length > 0 && (
+          <span className="ml-1.5 inline-flex gap-1">
+            {groups.map((g) => (
+              <Badge
+                key={g}
+                variant="outline"
+                className="text-[10px] font-normal"
+                title={`${LEAVE_STAFF_GROUP_LABELS[g]} staff have their own approval flow for this leave type.`}
+              >
+                {LEAVE_STAFF_GROUP_LABELS[g]}
+              </Badge>
+            ))}
+          </span>
+        );
+
         // A type with its OWN flow. The only state the row menu's "Who approves
         // this" has actually been used for.
         if (cov.ownFlowTypeIds.has(t.id)) {
           return (
-            <Badge
-              variant="secondary"
-              title="This leave type has its own approval flow, which beats the organisation's catch-all."
-            >
-              Own flow
-            </Badge>
+            <span className="inline-flex items-center">
+              <Badge
+                variant="secondary"
+                title="This leave type has its own approval flow, which beats the organisation's catch-all."
+              >
+                Own flow
+              </Badge>
+              {groupChips}
+            </span>
           );
         }
 
@@ -201,11 +225,14 @@ export function getLeaveTypeColumns(
         // not read as something to fix.
         if (cov.orgsWithCatchAll.has(t.hr_organization_id)) {
           return (
-            <span
-              className="text-xs text-muted-foreground"
-              title="No flow of its own, so it follows the organisation's catch-all flow. Use “Who approves this” to give it a specific one."
-            >
-              Org default
+            <span className="inline-flex items-center">
+              <span
+                className="text-xs text-muted-foreground"
+                title="No flow of its own, so it follows the organisation's catch-all flow. Use “Who approves this” to give it a specific one."
+              >
+                Org default
+              </span>
+              {groupChips}
             </span>
           );
         }

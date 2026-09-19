@@ -58,9 +58,10 @@ import {
   useSaveLeaveApprovalFlow,
 } from '@/hooks/hr/use-leave-approval-flows';
 import { useHrOrgMappings } from '@/hooks/hr/use-hr-org-mappings';
+import { LEAVE_STAFF_GROUP_LABELS } from '@/types/hr-leave-types';
 import type {
   HRLeaveType, LeaveApprovalFlowStep, LeaveChainResyncResult, LeaveFlowRunMode,
-  LeaveFlowStepSource, LeaveStepQuorum,
+  LeaveFlowSlot, LeaveFlowStepSource, LeaveStepQuorum,
 } from '@/types/hr-leave-types';
 import { getErrorMessage } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -94,6 +95,9 @@ const draftKey = (prefix: string): string => {
   const c: any = (globalThis as any).crypto;
   return `${prefix}${c?.randomUUID ? c.randomUUID() : `${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`}`;
 };
+
+/** All staff first: it is the default, and the only slot most types ever use. */
+const SLOTS: LeaveFlowSlot[] = [null, 'teaching', 'non_teaching'];
 
 const newStep = (p?: Partial<DraftStep>): DraftStep => ({
   key: draftKey('s'),
@@ -143,6 +147,37 @@ export function LeaveApprovalFlowDialog({
     { flowId: string; drift: LeaveChainResyncResult } | null
   >(null);
 
+  /**
+   * WHICH STAFF THE FLOW ON SCREEN GOVERNS.
+   *
+   * `null` is the All staff slot — the only one that existed before
+   * 2026-09-19, and still the default every dialog opens on. Picking Teaching
+   * or Non-teaching edits a flow that OVERRIDES All staff for that group only;
+   * a group with no flow of its own keeps using All staff, so nothing here has
+   * to be filled in for the feature to stay off.
+   */
+  const [slot, setSlot] = useState<LeaveFlowSlot>(null);
+
+  /** The saved flow for the slot on screen, or null when it inherits. */
+  const slotOwnFlow =
+    slot === 'teaching'
+      ? resolved?.teaching ?? null
+      : slot === 'non_teaching'
+        ? resolved?.nonTeaching ?? null
+        : resolved?.own ?? null;
+
+  /**
+   * What the slot resolves to TODAY, own flow or inherited. This is what the
+   * editor seeds from, so opening a group tab that has no flow yet starts from
+   * the chain those staff actually get rather than from an empty one.
+   */
+  const slotEffective =
+    slot === 'teaching'
+      ? resolved?.effectiveTeaching ?? null
+      : slot === 'non_teaching'
+        ? resolved?.effectiveNonTeaching ?? null
+        : resolved?.effective ?? null;
+
   const [steps, setSteps] = useState<DraftStep[]>([]);
   const [stepSource, setStepSource] = useState<LeaveFlowStepSource>('explicit');
   const [runMode, setRunMode] = useState<LeaveFlowRunMode>('sequential');
@@ -161,8 +196,12 @@ export function LeaveApprovalFlowDialog({
   // opens on exactly what is stored, not on a migrated approximation.
   useEffect(() => {
     if (!open || isLoading || !leaveType) return;
-    if (seeded === leaveType.id) return;
-    const src = resolved?.effective;
+    // Keyed on the SLOT as well as the type, so switching to the Non-teaching
+    // tab re-seeds the editor from that group's flow instead of leaving the
+    // All-staff chain on screen under a different heading.
+    const seedKey = `${leaveType.id}|${slot ?? 'all'}`;
+    if (seeded === seedKey) return;
+    const src = slotEffective;
 
     setStepSource(src?.step_source ?? 'explicit');
     setRunMode(src?.run_mode ?? 'sequential');
@@ -199,11 +238,16 @@ export function LeaveApprovalFlowDialog({
           )
         : [newStep()]
     );
-    setSeeded(leaveType.id);
-  }, [open, isLoading, leaveType, resolved, seeded]);
+    setSeeded(seedKey);
+  }, [open, isLoading, leaveType, resolved, seeded, slot, slotEffective]);
 
   useEffect(() => {
-    if (!open) setSeeded(null);
+    if (!open) {
+      setSeeded(null);
+      // Always reopen on All staff. A dialog that remembered the last tab would
+      // put an administrator on a group slot without their having chosen it.
+      setSlot(null);
+    }
   }, [open]);
 
   const roleByKey = useMemo(
@@ -293,10 +337,16 @@ export function LeaveApprovalFlowDialog({
     if (!leaveType || !hrOrgId) return;
     try {
       const saved = await save.mutateAsync({
-        id: resolved?.own?.id,
+        // The slot's OWN flow, never what it inherits: saving a group tab that
+        // is currently inheriting must create a new flow, not overwrite the
+        // All-staff one it was seeded from.
+        id: slotOwnFlow?.id,
         hrOrgId,
         leaveTypeId: leaveType.id,
-        flowName: `${leaveType.leave_type_name} approval`,
+        staffGroup: slot ?? undefined,
+        flowName: slot
+          ? `${leaveType.leave_type_name} approval — ${LEAVE_STAFF_GROUP_LABELS[slot]}`
+          : `${leaveType.leave_type_name} approval`,
         stepSource,
         runMode,
         roleLadder: ladder,
@@ -345,15 +395,23 @@ export function LeaveApprovalFlowDialog({
   };
 
   const handleClear = async () => {
-    if (!leaveType || !hrOrgId || !resolved?.own) return;
+    if (!leaveType || !hrOrgId || !slotOwnFlow) return;
     try {
-      await clear.mutateAsync({ flowId: resolved.own.id, hrOrgId, leaveTypeId: leaveType.id });
-      toast.success('Reverted to the organization default');
+      await clear.mutateAsync({ flowId: slotOwnFlow.id, hrOrgId, leaveTypeId: leaveType.id });
+      toast.success(
+        slot
+          ? `${LEAVE_STAFF_GROUP_LABELS[slot]} staff now use the All staff flow`
+          : 'Reverted to the organization default'
+      );
       onOpenChange(false);
-      // The catch-all is what governs this type now. If the organisation has
-      // none, the type has no flow at all and no chain can be built for it —
-      // there is nothing to offer.
-      await offerReroute(resolved.fallback?.id);
+      // WHAT GOVERNS THOSE STAFF NOW, which is not the same answer for the two
+      // cases: removing a group flow hands that group back to All staff (or the
+      // catch-all behind it), while removing the All staff flow hands the whole
+      // type to the catch-all. If the organisation has neither, the type has no
+      // flow at all and there is nothing to offer.
+      await offerReroute(
+        slot ? (resolved?.own?.id ?? resolved?.fallback?.id) : resolved?.fallback?.id
+      );
     } catch (err) {
       toast.error(getErrorMessage(err));
     }
@@ -410,6 +468,57 @@ export function LeaveApprovalFlowDialog({
             {!leaveType.is_active && (
               <Badge variant="secondary" className="text-[10px]">inactive</Badge>
             )}
+          </div>
+        )}
+
+        {/* WHICH STAFF THIS FLOW IS FOR.
+            All staff is the default and the only slot most types ever use. A
+            group tab exists so an institution can route, say, every
+            non-teaching request to one named person while teaching staff keep
+            the longer chain — without that, one leave type could only ever have
+            one set of approvers. */}
+        {leaveType && (
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="mr-1 text-xs font-medium text-muted-foreground">Applies to</span>
+              {SLOTS.map((s) => {
+                const active = slot === s;
+                const own =
+                  s === null
+                    ? Boolean(resolved?.own)
+                    : s === 'teaching'
+                      ? Boolean(resolved?.teaching)
+                      : Boolean(resolved?.nonTeaching);
+                return (
+                  <button
+                    key={s ?? 'all'}
+                    type="button"
+                    onClick={() => setSlot(s)}
+                    className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
+                      active
+                        ? 'border-primary bg-primary text-primary-foreground'
+                        : 'bg-background hover:bg-muted'
+                    }`}
+                  >
+                    {s === null ? 'All staff' : LEAVE_STAFF_GROUP_LABELS[s]}
+                    {/* A group with no flow of its own is where you ADD one, so
+                        it says so. Without this marker a configured tab and an
+                        empty one look identical, and the only way to tell was
+                        to open each in turn. */}
+                    <span className={active ? 'ml-1.5 opacity-80' : 'ml-1.5 text-muted-foreground'}>
+                      {own ? '•' : s === null ? '' : '+'}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {slot === null
+                ? 'The default for everyone. A group with no flow of its own uses this one.'
+                : slotOwnFlow
+                  ? `${LEAVE_STAFF_GROUP_LABELS[slot]} staff have their own flow for this leave type.`
+                  : `${LEAVE_STAFF_GROUP_LABELS[slot]} staff currently use the All staff flow. Saving here creates a flow just for them.`}
+            </p>
           </div>
         )}
 
@@ -571,12 +680,20 @@ export function LeaveApprovalFlowDialog({
    */
   const footer = (
     <>
+          {/* One button, two meanings, because the slot decides what "remove
+              this flow" hands the staff back to. */}
           <Button type="button" variant="ghost" className="w-full sm:w-auto" onClick={handleClear}
-            disabled={!resolved?.own || clear.isPending}
-            title={resolved?.own
-              ? 'Delete this type-specific flow and inherit the organization default'
-              : 'This type already inherits the organization default'}>
-            Use organization default
+            disabled={!slotOwnFlow || clear.isPending}
+            title={
+              slot
+                ? slotOwnFlow
+                  ? `Delete this ${LEAVE_STAFF_GROUP_LABELS[slot]} flow; those staff go back to the All staff flow`
+                  : `${LEAVE_STAFF_GROUP_LABELS[slot]} staff already use the All staff flow`
+                : slotOwnFlow
+                  ? 'Delete this type-specific flow and inherit the organization default'
+                  : 'This type already inherits the organization default'
+            }>
+            {slot ? `Remove ${LEAVE_STAFF_GROUP_LABELS[slot]} flow` : 'Use organization default'}
           </Button>
           <div className="flex w-full gap-2 sm:w-auto">
             <Button type="button" variant="outline" className="flex-1 sm:flex-none"

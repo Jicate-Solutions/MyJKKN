@@ -241,6 +241,24 @@ export interface LeavePeriodUsage {
 /** A step's approver is either a role or one named person — never both. */
 export type LeaveApproverMode = 'role' | 'user';
 
+/**
+ * Which staff a flow governs, from employment_categories.is_teaching.
+ *
+ * ABSENT MEANS ALL STAFF — it is not a third value. A flow with no staff_group
+ * is the default for everyone, and a Teaching or Non-teaching flow overrides it
+ * for that group only. A member of staff whose category cannot be read has no
+ * group and therefore uses the All staff flow, never a guessed one.
+ */
+export type LeaveStaffGroup = 'teaching' | 'non_teaching';
+
+export const LEAVE_STAFF_GROUP_LABELS: Record<LeaveStaffGroup, string> = {
+  teaching: 'Teaching',
+  non_teaching: 'Non-teaching',
+};
+
+/** The tabs of the "Who approves this" dialog. `null` is the All staff slot. */
+export type LeaveFlowSlot = LeaveStaffGroup | null;
+
 /** Where a flow's steps come from. Independent of how they RUN. */
 export type LeaveFlowStepSource = 'explicit' | 'role_ladder';
 
@@ -307,8 +325,12 @@ export interface LeaveApprovalFlow {
   id: string;
   hr_organization_id: string;
   flow_name: string;
-  /** `{ leave_type_id }` for a per-type flow; `{}` for the org catch-all. */
-  conditions: { leave_type_id?: string } | null;
+  /**
+   * `{ leave_type_id }` for a per-type flow; `{}` for the org catch-all.
+   * `staff_group` narrows either of those to Teaching or Non-teaching; absent
+   * means the flow governs all staff.
+   */
+  conditions: { leave_type_id?: string; staff_group?: LeaveStaffGroup } | null;
   steps: LeaveApprovalFlowStep[];
   is_active: boolean;
   escalate_after_hours: number;

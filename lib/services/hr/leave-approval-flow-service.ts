@@ -25,7 +25,9 @@ import type {
   LeaveChainResyncResult,
   LeaveFlowRunMode,
   LeaveFlowStepSource,
+  LeaveStaffGroup,
 } from '@/types/hr-leave-types';
+import { pickLeaveFlow } from '@/lib/hr/leave/approval-chain';
 import type { HRLeaveApprovalQueueRow } from '@/types/hr';
 
 const FLOW_FOR = 'leave_approval';
@@ -35,10 +37,17 @@ const SELECT =
 
 /** What the Leave Types table needs to label each row's approval state. */
 export interface LeaveApprovalFlowCoverage {
-  /** Leave type ids that have a flow naming them specifically. */
+  /**
+   * Leave type ids with an ALL-STAFF flow naming them specifically. A type
+   * whose only flow is a group one is deliberately not here: it still inherits
+   * the catch-all for everybody else, and calling that "Own flow" would hide
+   * the half of its staff that is not covered.
+   */
   ownFlowTypeIds: Set<string>;
   /** Organizations with a flow that names no leave type — their fallback. */
   orgsWithCatchAll: Set<string>;
+  /** Which groups each leave type overrides, for the chips on the row. */
+  groupFlows: Map<string, Set<LeaveStaffGroup>>;
 }
 
 export interface SaveLeaveApprovalFlowInput {
@@ -57,6 +66,11 @@ export interface SaveLeaveApprovalFlowInput {
   runMode?: LeaveFlowRunMode;
   /** Ordered role_keys, LOWEST rung first. Only meaningful for 'role_ladder'. */
   roleLadder?: string[];
+  /**
+   * Which staff this flow governs. Omitted (the default) saves the All staff
+   * slot — the behaviour every caller had before groups existed.
+   */
+  staffGroup?: LeaveStaffGroup;
   /** Where a request goes when nobody is above the applicant. */
   fallbackApprover?: LeaveApproverEntry | null;
 }
@@ -94,15 +108,27 @@ export class LeaveApprovalFlowService {
 
     const ownFlowTypeIds = new Set<string>();
     const orgsWithCatchAll = new Set<string>();
+    const groupFlows = new Map<string, Set<LeaveStaffGroup>>();
     for (const row of (data ?? []) as Array<{
       hr_organization_id: string;
-      conditions: { leave_type_id?: string } | null;
+      conditions: { leave_type_id?: string; staff_group?: LeaveStaffGroup } | null;
     }>) {
       const typeId = row.conditions?.leave_type_id;
+      const group = row.conditions?.staff_group;
+      if (group) {
+        // A group flow narrows an existing slot; it never makes the type
+        // "covered", so it is tracked separately from ownFlowTypeIds.
+        if (typeId) {
+          const set = groupFlows.get(typeId) ?? new Set<LeaveStaffGroup>();
+          set.add(group);
+          groupFlows.set(typeId, set);
+        }
+        continue;
+      }
       if (typeId) ownFlowTypeIds.add(typeId);
       else orgsWithCatchAll.add(row.hr_organization_id);
     }
-    return { ownFlowTypeIds, orgsWithCatchAll };
+    return { ownFlowTypeIds, orgsWithCatchAll, groupFlows };
   }
 
   static async listForOrg(
@@ -137,11 +163,41 @@ export class LeaveApprovalFlowService {
     own: LeaveApprovalFlow | null;
     fallback: LeaveApprovalFlow | null;
     effective: LeaveApprovalFlow | null;
+    /** The type's own Teaching / Non-teaching flows, when they exist. */
+    teaching: LeaveApprovalFlow | null;
+    nonTeaching: LeaveApprovalFlow | null;
+    /** What each group actually gets, after the override falls back. */
+    effectiveTeaching: LeaveApprovalFlow | null;
+    effectiveNonTeaching: LeaveApprovalFlow | null;
   }> {
     const flows = await this.listForOrg(supabase, hrOrgId);
-    const own = flows.find((f) => f.conditions?.leave_type_id === leaveTypeId) ?? null;
-    const fallback = flows.find((f) => !f.conditions?.leave_type_id) ?? null;
-    return { own, fallback, effective: own ?? fallback };
+
+    // own / fallback / effective keep their original meaning: the ALL-STAFF
+    // slot. Existing callers (the detail dialog and its test) read them, and a
+    // group flow must not silently change what they answer.
+    const own =
+      flows.find(
+        (f) => f.conditions?.leave_type_id === leaveTypeId && !f.conditions?.staff_group
+      ) ?? null;
+    const fallback =
+      flows.find((f) => !f.conditions?.leave_type_id && !f.conditions?.staff_group) ?? null;
+
+    const ownGroup = (g: LeaveStaffGroup) =>
+      flows.find(
+        (f) => f.conditions?.leave_type_id === leaveTypeId && f.conditions?.staff_group === g
+      ) ?? null;
+
+    return {
+      own,
+      fallback,
+      effective: own ?? fallback,
+      teaching: ownGroup('teaching'),
+      nonTeaching: ownGroup('non_teaching'),
+      // pickLeaveFlow, not `ownGroup(g) ?? own ?? fallback`: the precedence has
+      // one definition and it is shared with the SQL the apply path uses.
+      effectiveTeaching: pickLeaveFlow(flows, leaveTypeId, 'teaching'),
+      effectiveNonTeaching: pickLeaveFlow(flows, leaveTypeId, 'non_teaching'),
+    };
   }
 
   /**
@@ -202,7 +258,12 @@ export class LeaveApprovalFlowService {
       hr_organization_id: input.hrOrgId,
       flow_for: FLOW_FOR,
       flow_name: input.flowName,
-      conditions: { leave_type_id: input.leaveTypeId },
+      // staff_group is written only when set, never as null: the resolver and
+      // the unique index both read "key absent" as All staff, and a literal
+      // null would sit in neither slot.
+      conditions: input.staffGroup
+        ? { leave_type_id: input.leaveTypeId, staff_group: input.staffGroup }
+        : { leave_type_id: input.leaveTypeId },
       steps,
       is_active: true,
       step_source: stepSource,
@@ -222,8 +283,53 @@ export class LeaveApprovalFlowService {
       updated_at: new Date().toISOString(),
     };
 
-    const query = input.id
-      ? supabase.from('hr_approval_flows').update(row).eq('id', input.id)
+    /**
+     * WHO CURRENTLY OCCUPIES THIS SLOT, asked now rather than taken on trust.
+     *
+     * `input.id` is what the open dialog believed when it rendered, and it is
+     * wrong in every ordinary race: a second tab saved first, the editor was
+     * left open while somebody else edited, the Save button was double-
+     * submitted, or the React Query cache had not caught up after a clear. In
+     * all of those the client passes no id, save() inserts, and Postgres
+     * rejects it with
+     *
+     *   duplicate key value violates unique constraint
+     *   "hr_approval_flows_leave_slot_uniq"
+     *
+     * which is accurate but useless to the person who just wants their flow
+     * saved. The unique index is the authority on what a slot holds, so this
+     * reads the slot through the same three keys the index uses and then
+     * updates or inserts accordingly.
+     *
+     * SCOPED TO THE EXACT SLOT, never wider: the staff_group filter is an IS
+     * NULL when no group is being saved and an equality when one is. An
+     * All-staff save can therefore never find — and never overwrite — a
+     * Teaching or Non-teaching flow, or the other way round.
+     */
+    let slotQuery = supabase
+      .from('hr_approval_flows')
+      .select('id')
+      .eq('hr_organization_id', input.hrOrgId)
+      .eq('flow_for', FLOW_FOR)
+      .eq('is_active', true)
+      .is('valid_until', null)
+      .eq('conditions->>leave_type_id', input.leaveTypeId);
+
+    slotQuery = input.staffGroup
+      ? slotQuery.eq('conditions->>staff_group', input.staffGroup)
+      : slotQuery.is('conditions->>staff_group', null);
+
+    const { data: occupant, error: slotError } = await slotQuery.maybeSingle();
+    // Not fatal: a failed lookup should fall back to the caller's own id rather
+    // than refuse a save that would have worked.
+    if (slotError) {
+      console.error('[leave-approval-flow] slot lookup failed:', slotError);
+    }
+
+    const targetId = occupant?.id ?? input.id;
+
+    const query = targetId
+      ? supabase.from('hr_approval_flows').update(row).eq('id', targetId)
       : supabase.from('hr_approval_flows').insert(row);
 
     const { data, error } = await query.select(SELECT).single();

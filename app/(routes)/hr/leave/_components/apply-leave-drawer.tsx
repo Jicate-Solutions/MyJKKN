@@ -27,7 +27,11 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { useApplyLeave } from '@/hooks/hr/use-leave';
-import { useLeavePeriodUsage, useLeaveAccruedAsOfMany } from '@/hooks/hr/use-hr-leave-types';
+import {
+  useEligibilityGatedTypeIds,
+  useLeavePeriodUsage,
+  useLeaveAccruedAsOfMany,
+} from '@/hooks/hr/use-hr-leave-types';
 import { useDayOccupancy } from '@/hooks/hr/use-day-occupancy';
 import { Progress } from '@/components/ui/progress';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
@@ -206,6 +210,8 @@ export function ApplyLeaveDrawer({
   // refused. Keyed on startDate, not today: trg_hla_leave_period_cap resolves the
   // window from the request's start_date, and a readout for a different month
   // would show a figure that is not the one enforced.
+  const { data: gatedTypeIds } = useEligibilityGatedTypeIds();
+
   const { data: periodUsage } = useLeavePeriodUsage(
     ctx.employeeId || undefined,
     leaveTypeId || undefined,
@@ -253,6 +259,9 @@ export function ApplyLeaveDrawer({
         }
       : null,
     requestedDays,
+    // The certificate for an eligibility-gated type was given once, with the
+    // eligibility request, and approved before this type ever appeared here.
+    Boolean(selected && gatedTypeIds?.has(selected.leave_type_id)),
   );
 
   const reset = () => {
