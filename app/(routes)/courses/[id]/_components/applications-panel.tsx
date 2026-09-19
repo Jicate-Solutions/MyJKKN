@@ -42,6 +42,7 @@ import {
 import { usePermissions } from '@/hooks/use-permissions';
 import { ApproveApplicationDialog } from './approve-application-dialog';
 import { ResendCredentialsDialog } from './resend-credentials-dialog';
+import { ApplicationStatsCard } from './application-stats-card';
 import { getApplicationColumns } from './application-columns';
 import {
   COURSE_APPLICANT_TYPES,
@@ -408,6 +409,11 @@ export function ApplicationsPanel({ courseEventId }: { courseEventId: string }) 
       }
     >
       <div className="space-y-4">
+        {/* Inside the PermissionGuard on purpose: the RPC behind it runs the
+            same courses.applications.view + institution predicate, so rendering
+            it outside would only produce a 42501 in the console. */}
+        <ApplicationStatsCard courseEventId={courseEventId} />
+
         {/* Why the casts: DataTable constrains TData to ExportableData, a FLAT
             record of primitives. CourseApplication carries nested form/package/
             enrollment objects, so it cannot satisfy that constraint — the same

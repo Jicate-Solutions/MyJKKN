@@ -443,6 +443,44 @@ export interface CourseApplicationFilters {
   search?: string;
 }
 
+/**
+ * Everything the Applications tab's statistics card shows, from
+ * fn_course_application_stats — one RPC rather than four table scans in the
+ * browser, and one gate rather than four RLS predicates that could each
+ * silently under-report a figure.
+ */
+export interface CourseApplicationStats {
+  ok: true;
+  /** Counts by status and by origin. Every key present, 0 rather than absent. */
+  applications: Record<CourseApplicationStatus, number> & {
+    total: number;
+    internal: number;
+    external: number;
+  };
+  /** Summed from course_enrollments, which fn_course_recompute_balances keeps
+   *  current — summing the bills instead would drift the moment a payment
+   *  landed. collection_pct is computed in SQL with a zero-guard. */
+  fees: {
+    enrollments: number;
+    payable: number;
+    collected: number;
+    outstanding: number;
+    collection_pct: number;
+  };
+  health: {
+    overdue_bills: number;
+    overdue_amount: number;
+    /** Payments that never reached 'success'. NOT proof of a lost sale — a
+     *  webhook may simply not have landed — so this is a prompt to look. */
+    stalled_payments: number;
+    stalled_amount: number;
+  };
+  /** `total` is null when the course sets no capacity, which means unlimited.
+   *  `taken` counts the same enrolment statuses the self-service seat check
+   *  uses, so the card and registration can never disagree. */
+  seats: { total: number | null; taken: number };
+}
+
 /** Per-status counts for the panel's summary row. Every status is present with
  *  0 rather than absent, so the UI never has to distinguish "none" from
  *  "not loaded". */

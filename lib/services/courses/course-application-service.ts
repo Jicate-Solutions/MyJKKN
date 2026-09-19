@@ -1,6 +1,7 @@
 import { BaseService } from '@/lib/services/base-service';
 import type {
   CourseApplicantMatch,
+  CourseApplicationStats,
   CourseApplication,
   CourseApplicationCounts,
   CourseApplicationFilters,
@@ -195,6 +196,22 @@ export class CourseApplicationService extends BaseService {
     }
 
     return { ...counts, total: (data ?? []).length };
+  }
+
+  /**
+   * Aggregates for the statistics card.
+   *
+   * Straight to the RPC: fn_course_application_stats is SECURITY DEFINER and
+   * runs the same predicate as course_applications_select, so it cannot show a
+   * course this caller could not already open. It reads only.
+   */
+  static async statsByCourse(courseEventId: string): Promise<CourseApplicationStats> {
+    const { data, error } = await this.supabase.rpc('fn_course_application_stats', {
+      p_course_event_id: courseEventId,
+    } as never);
+
+    if (error) throw error;
+    return data as unknown as CourseApplicationStats;
   }
 
   /**
