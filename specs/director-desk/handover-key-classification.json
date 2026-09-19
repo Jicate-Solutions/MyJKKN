@@ -1436,6 +1436,7 @@
     "solutions.publications.view",
     "solutions.settings.view",
     "solutions.societal.approve",
+    "solutions.societal.confirm",
     "solutions.societal.record",
     "solutions.societal.submit",
     "solutions.societal.view",
