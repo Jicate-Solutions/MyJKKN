@@ -123,13 +123,36 @@ export default function ParticipantLoginPage() {
           </p>
         </form>
 
-        <p className="mt-6 text-center text-xs text-muted-foreground">
-          Staff and learners sign in{' '}
-          <Link href="/auth/login" className="underline">
-            here
+        {/* The SECOND door, and it has to be a real one.
+            proxy.ts sends every unauthenticated visit to /my-courses here,
+            keyed on the path because there is no session to read a role from.
+            That was safe while /my-courses only ever held external
+            participants — but approval now REUSES an existing staff or learner
+            identity, so a JKKN person can hold a course enrolment too, and
+            their JKKN ID deliberately does not resolve on this page
+            (fn_resolve_participant_jkkn_id is scoped to external_participant).
+            They arrive here with no field they can fill. A sentence with an
+            underlined "here" was not enough of an exit. */}
+        <div className="mt-8">
+          <div className="flex items-center gap-3">
+            <span className="h-px flex-1 bg-border" />
+            <span className="text-xs text-muted-foreground">or</span>
+            <span className="h-px flex-1 bg-border" />
+          </div>
+
+          <Link
+            href="/auth/login"
+            className="mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-md border text-sm font-medium hover:bg-accent"
+          >
+            <GraduationCap className="h-4 w-4" />
+            JKKN staff or learner? Sign in with Google
           </Link>
-          .
-        </p>
+
+          <p className="mt-2 text-center text-xs text-muted-foreground">
+            Use your regular MyJKKN account, then open My Courses. You will not have
+            been sent a JKKN ID and password — you already have an account.
+          </p>
+        </div>
       </main>
 
       <Toaster richColors position="top-center" />

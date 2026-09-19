@@ -159,9 +159,45 @@ export const getApplicationColumns = (
     size: 130,
     cell: ({ row }) => {
       const s = row.original.status as CourseApplicationStatus;
+      // decided_by is NULL only for the self-service path — a manual approval
+      // always stamps auth.uid(). Same "the system did it" convention as
+      // jkkn_identities.issued_by. Worth surfacing: an admin looking at a list
+      // of approved rows should be able to tell which ones a human decided.
+      const auto = s === 'approved' && !row.original.decided_by;
       return (
-        <Badge variant="outline" className={`text-[10px] font-semibold ${STATUS_VARIANT[s] ?? ''}`}>
-          {STATUS_LABEL[s] ?? row.original.status}
+        <div className="space-y-0.5">
+          <Badge variant="outline" className={`text-[10px] font-semibold ${STATUS_VARIANT[s] ?? ''}`}>
+            {STATUS_LABEL[s] ?? row.original.status}
+          </Badge>
+          {auto && (
+            <p className="text-[10px] text-muted-foreground">Auto</p>
+          )}
+        </div>
+      );
+    },
+  },
+  {
+    // Where they came from, from the email domain alone — NOT the same question
+    // as `applicant_type` next door, which records which identity the row points
+    // at and is 'external' for every public application by construction
+    // (course_applications_identity_chk needs a profile_id or learner_id that a
+    // public applicant does not have yet).
+    accessorKey: 'applicant_origin',
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Origin" />,
+    size: 110,
+    cell: ({ row }) => {
+      const internal = row.original.applicant_origin === 'internal';
+      return (
+        <Badge
+          variant="outline"
+          className={`text-[10px] font-semibold ${
+            internal
+              ? 'border-indigo-300 text-indigo-700 dark:border-indigo-800 dark:text-indigo-400'
+              : 'border-slate-300 text-slate-600 dark:border-slate-700 dark:text-slate-400'
+          }`}
+          title={internal ? 'Email address on @jkkn.ac.in' : 'Email address outside JKKN'}
+        >
+          {internal ? 'Internal' : 'External'}
         </Badge>
       );
     },
@@ -259,6 +295,21 @@ export const getApplicationColumns = (
       }
 
       if (s === 'approved' && a.enrollment?.id) {
+        // Reissuing sign-in details is only meaningful for an EXTERNAL
+        // participant, who holds a JKKN ID and a password minted for this
+        // course. A reused learner or team member signs in with their own
+        // MyJKKN account, so "resend" would mean resetting THAT password —
+        // a takeover of an account that exists for other reasons. The route
+        // already refuses it; offering a button that can only ever produce an
+        // error is the actual bug, so the row says why instead.
+        const external = (a.enrollment.participant_type ?? 'external') === 'external';
+        if (!external) {
+          return (
+            <span className="text-xs text-muted-foreground">
+              Signs in with their own MyJKKN account
+            </span>
+          );
+        }
         return (
           <div className="flex gap-1.5" onClick={stop} onKeyDown={stop}>
             <Button size="sm" variant="outline" onClick={() => options.onResend(a)}>

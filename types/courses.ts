@@ -387,7 +387,17 @@ export type CourseApplicationStatus = (typeof COURSE_APPLICATION_STATUSES)[numbe
 export const COURSE_APPLICANT_TYPES = ['learner', 'staff', 'external'] as const;
 export type CourseApplicantType = (typeof COURSE_APPLICANT_TYPES)[number];
 
+/** Where an applicant came from, from the email domain alone: @jkkn.ac.in is
+ *  internal, anything else external. Distinct from CourseApplicantType, which
+ *  says which identity the row points at and is constrained by
+ *  course_applications_identity_chk. See classifyApplicantOrigin(). */
+export type CourseApplicantOrigin = 'internal' | 'external';
+
 export interface CourseApplication extends CourseApplicationRow {
+  /** Declared explicitly because types/supabase.ts has not been regenerated
+   *  since the column was added (20260919150000) — the generated Row type does
+   *  not carry it yet, though PostgREST returns it under `*`. */
+  applicant_origin?: CourseApplicantOrigin | null;
   form?: { id: string; name: string } | null;
   package?: { id: string; name: string; total_amount: number } | null;
   decided_by_profile?: { id: string; full_name: string | null } | null;
@@ -402,6 +412,11 @@ export interface CourseApplication extends CourseApplicationRow {
     total_payable?: number | null;
     total_paid?: number | null;
     balance?: number | null;
+    /** Decides whether reissuing sign-in details is even possible. Only an
+     *  'external' participant signs in with a JKKN ID and a password; a reused
+     *  learner or team member signs in with their own MyJKKN account, and
+     *  resetting that password from here would be a takeover of it. */
+    participant_type?: CourseParticipantType | null;
   } | null;
   /**
    * The applicant's JKKN ID once they have been provisioned, null while the
@@ -423,6 +438,7 @@ export interface CourseApplication extends CourseApplicationRow {
 export interface CourseApplicationFilters {
   status?: CourseApplicationStatus;
   applicant_type?: CourseApplicantType;
+  applicant_origin?: CourseApplicantOrigin;
   /** Matches name, phone or email. */
   search?: string;
 }

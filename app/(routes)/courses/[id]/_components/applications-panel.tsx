@@ -141,6 +141,7 @@ function ApplicationSheet({
               </SheetTitle>
               <SheetDescription>
                 Applied {formatWhen(application.created_at)} ·{' '}
+                {application.applicant_origin === 'internal' ? 'Internal (JKKN)' : 'External'} ·{' '}
                 {APPLICANT_TYPE_LABEL[application.applicant_type] ?? application.applicant_type}
               </SheetDescription>
             </SheetHeader>
@@ -289,6 +290,7 @@ export function ApplicationsPanel({ courseEventId }: { courseEventId: string }) 
 
   const [statusFilter, setStatusFilter] = useState<string>(ALL);
   const [typeFilter, setTypeFilter] = useState<string>(ALL);
+  const [originFilter, setOriginFilter] = useState<string>(ALL);
   const [selected, setSelected] = useState<CourseApplication | null>(null);
   const [approving, setApproving] = useState<CourseApplication | null>(null);
   const [resending, setResending] = useState<CourseApplication | null>(null);
@@ -325,6 +327,7 @@ export function ApplicationsPanel({ courseEventId }: { courseEventId: string }) 
       const { data, metadata } = await CourseApplicationService.listPaged(courseEventId, {
         status: statusFilter !== ALL ? (statusFilter as CourseApplicationStatus) : undefined,
         applicant_type: typeFilter !== ALL ? (typeFilter as never) : undefined,
+        applicant_origin: originFilter !== ALL ? (originFilter as never) : undefined,
         search: params.search,
         page: params.page,
         limit: params.limit,
@@ -343,7 +346,7 @@ export function ApplicationsPanel({ courseEventId }: { courseEventId: string }) 
         },
       };
     },
-    [courseEventId, statusFilter, typeFilter],
+    [courseEventId, statusFilter, typeFilter, originFilter],
   );
 
   const renderToolbar = () => (
@@ -378,6 +381,19 @@ export function ApplicationsPanel({ courseEventId }: { courseEventId: string }) 
           ))}
         </SelectContent>
       </Select>
+
+      {/* Origin, not type: this asks whether the address is on @jkkn.ac.in,
+          which is a different question from which identity the row points at. */}
+      <Select value={originFilter} onValueChange={setOriginFilter}>
+        <SelectTrigger className="h-8 w-[150px]">
+          <SelectValue placeholder="All origins" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={ALL}>All origins</SelectItem>
+          <SelectItem value="internal">Internal (JKKN)</SelectItem>
+          <SelectItem value="external">External</SelectItem>
+        </SelectContent>
+      </Select>
     </div>
   );
 
@@ -408,6 +424,7 @@ export function ApplicationsPanel({ courseEventId }: { courseEventId: string }) 
               applicant_phone: 'Phone',
               applicant_email: 'Email',
               status: 'Status',
+              applicant_origin: 'Origin',
               applicant_type: 'Type',
               form: 'Form',
               package: 'Package',
@@ -419,12 +436,13 @@ export function ApplicationsPanel({ courseEventId }: { courseEventId: string }) 
             },
             columnWidths: [
               { wch: 26 }, { wch: 16 }, { wch: 28 }, { wch: 14 },
-              { wch: 12 }, { wch: 24 }, { wch: 24 }, { wch: 14 },
-              { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 22 },
+              { wch: 12 }, { wch: 12 }, { wch: 24 }, { wch: 24 },
+              { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 },
+              { wch: 22 },
             ],
             headers: [
               'applicant_name', 'applicant_phone', 'applicant_email', 'status',
-              'applicant_type', 'form', 'package', 'jkkn_id',
+              'applicant_origin', 'applicant_type', 'form', 'package', 'jkkn_id',
               'total_payable', 'total_paid', 'balance', 'created_at',
             ],
             // form/package are nested {id,name} objects — a {...row} spread would
@@ -434,6 +452,7 @@ export function ApplicationsPanel({ courseEventId }: { courseEventId: string }) 
               applicant_phone: row.applicant_phone,
               applicant_email: row.applicant_email ?? '',
               status: row.status,
+              applicant_origin: row.applicant_origin === 'internal' ? 'Internal' : 'External',
               applicant_type: row.applicant_type,
               form: row.form?.name ?? '',
               package: row.package?.name ?? '',

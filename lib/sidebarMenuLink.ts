@@ -683,6 +683,16 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/events': 'events.view',
   '/courses': 'courses.view',
   '/courses/new': 'courses.create',
+  // The participant's own portal — their enrolment, instalment bills and
+  // receipts. NOT courses.view: that is the admin console's key, and the people
+  // this page is for (an external participant, or a team member/learner whose
+  // identity an approval reused) hold none of the courses.* admin keys. Mapped
+  // deliberately rather than left out, because an unmapped href is hidden by
+  // default from every non-super-admin (see the "hide by default" branch in
+  // GetRoleBasedPages). The key gates no RLS anywhere — the page is self-scoped
+  // by profile_id = auth.uid() — so it is granted to every role and Role
+  // Management is the switch.
+  '/my-courses': 'courses.participant.self',
   '/projects': 'projects.view',
   // Campus Walk — the Director photographs a physical campus condition while
   // walking and it routes as a project_task under CAMPUS-OPS. Same module, so
@@ -3941,6 +3951,19 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: [
             { href: '/courses', label: 'All Courses', active: pathname === '/courses' },
             { href: '/courses/new', label: 'Create a Course', active: pathname === '/courses/new' },
+            // The participant's own portal, and the ONLY click path to it — it
+            // lives at app/my-courses (outside app/(routes)) so that it does not
+            // mount the admin shell, which also means the route manifest never
+            // discovers it and nothing else in the nav can surface it.
+            //
+            // A submenu rather than its own top-level row on purpose: the parent
+            // "Courses" row is gated on courses.view, which a participating
+            // faculty member or learner does not hold — but GetRoleBasedPages
+            // keeps a parent visible when ANY submenu is accessible ("Show
+            // parent if any submenu is accessible"), so they get the Courses
+            // group containing only this leaf, while a course admin sees all
+            // three.
+            { href: '/my-courses', label: 'My Courses', active: pathname.startsWith('/my-courses') },
           ]
         }
       ]

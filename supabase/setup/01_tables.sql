@@ -7950,6 +7950,14 @@ CREATE TABLE IF NOT EXISTS public.course_applications (
   applicant_name          text NOT NULL,
   applicant_email         text,
   applicant_phone         text NOT NULL,
+  -- Added 2026-09-19 (migration 20260919150000). Where the applicant came from,
+  -- judged purely from the email domain at submission: @jkkn.ac.in is internal,
+  -- anything else external. A SEPARATE question from applicant_type above,
+  -- which records which identity the row points at and is pinned by
+  -- course_applications_identity_chk to 'external' for every public submission
+  -- (a public applicant has no profile_id or learner_id until approval).
+  applicant_origin        text NOT NULL DEFAULT 'external'
+                            CHECK (applicant_origin IN ('internal','external')),
   custom_fields           jsonb NOT NULL DEFAULT '{}'::jsonb,
   status                  text NOT NULL DEFAULT 'pending'
                             CHECK (status IN ('pending','shortlisted','approved','rejected','withdrawn')),

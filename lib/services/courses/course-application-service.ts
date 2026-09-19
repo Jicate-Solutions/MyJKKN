@@ -44,7 +44,7 @@ const SELECT = `
   package:course_packages!course_applications_package_id_fkey(id, name, total_amount),
   decided_by_profile:profiles!course_applications_decided_by_fkey(id, full_name),
   enrollment:course_enrollments!course_enrollments_application_id_fkey(
-    id, enrollment_number, status, total_payable, total_paid, balance
+    id, enrollment_number, status, total_payable, total_paid, balance, participant_type
   ),
   jkkn_id
 `;
@@ -67,6 +67,9 @@ export class CourseApplicationService extends BaseService {
 
     if (filters.status) query = query.eq('status', filters.status);
     if (filters.applicant_type) query = query.eq('applicant_type', filters.applicant_type);
+    if (filters.applicant_origin) {
+      query = query.eq('applicant_origin' as never, filters.applicant_origin as never);
+    }
 
     const search = filters.search?.trim();
     if (search) {
